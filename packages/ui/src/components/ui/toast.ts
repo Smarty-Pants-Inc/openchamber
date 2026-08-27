@@ -37,8 +37,15 @@ const resolveToastDescription = (description: ExternalToast["description"]): Rea
   return description
 }
 
+const isStringNode = (value: React.ReactNode): value is string =>
+  Object.prototype.toString.call(value) === "[object String]"
+
+const isDescriptionFactory = (
+  value: ExternalToast["description"],
+): value is () => React.ReactNode => value instanceof Function
+
 const brandToastNode = (value: React.ReactNode): React.ReactNode =>
-  typeof value === "string" ? brandText(value) : value
+  isStringNode(value) ? brandText(value) : value
 
 const brandToastData = (data?: ExternalToast): ExternalToast | undefined => {
   if (data?.description == null) {
@@ -47,7 +54,7 @@ const brandToastData = (data?: ExternalToast): ExternalToast | undefined => {
   const description = data.description
   return {
     ...data,
-    description: typeof description === "function"
+    description: isDescriptionFactory(description)
       ? () => brandToastNode(description())
       : brandToastNode(description),
   }
