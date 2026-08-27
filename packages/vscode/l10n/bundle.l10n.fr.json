@@ -19,5 +19,6 @@
   "Failed to start {0}: {1}": "Impossible de démarrer {0} : {1}",
   "New Session": "Nouvelle session",
   "Session": "Session",
-  "Agent Manager": "Gestionnaire d’agents"
+  "Agent Manager": "Gestionnaire d’agents",
+  "smarty-code: No folder is open. Open a folder to start a new session.": "smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session."
 }

@@ -41,7 +41,7 @@ jobs:
         run: |
           mkdir -p artifacts/docs-source
           cp -R packages/docs/. artifacts/docs-source/
-          node scripts/apply-brand.mjs --docs artifacts/docs-source
+          node scripts/apply-brand.mjs --docs artifacts/docs-source --check
           ARCHIVE_NAME="openchamber-docs-source-${GITHUB_SHA::8}.tar.gz"
           tar -czf "artifacts/${ARCHIVE_NAME}" -C artifacts/docs-source .
           echo "archive_name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"

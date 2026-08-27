@@ -73,6 +73,22 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
   // scoped to worker-src so document decompression works without allowing blob scripts.
   const workerSrc = uniqueTokens([webview.cspSource, 'blob:', devServerOrigin]);
 
+  const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character] ?? character));
+  const escapeJavaScriptString = (value: string): string => JSON.stringify(value).slice(1, -1).replace(/[<>&'\u2028\u2029]/g, (character) => ({
+    '<': '\\u003c',
+    '>': '\\u003e',
+    '&': '\\u0026',
+    "'": "\\'",
+    '\u2028': '\\u2028',
+    '\u2029': '\\u2029',
+  }[character] ?? character));
+
   const themeKind = getThemeKindName(vscode.window.activeColorTheme.kind);
 
   // Use VS Code CSS variables for proper theme integration.
@@ -132,12 +148,12 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
       max-width: 280px;
     }
   </style>
-  <title>${PRODUCT_NAME}</title>
+  <title>${escapeHtml(PRODUCT_NAME)}</title>
 </head>
 <body>
   <!-- Initial loading screen -->
   <div id="initial-loading">
-    <div class="logo" role="img" aria-label="${PRODUCT_NAME} loading icon">${PRODUCT_MARK}</div>
+    <div class="logo" role="img" aria-label="${escapeHtml(PRODUCT_NAME)} loading icon">${escapeHtml(PRODUCT_MARK)}</div>
     <!-- Status text stays empty while things are fine; populated only on error. -->
     <div class="status-text" id="loading-status"></div>
     ${!cliAvailable ? `<div class="error-text" id="cli-missing-text">The opencode executable was not found. Install the opencode CLI first.</div>` : ''}
@@ -177,7 +193,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
 
       return locale === 'fr'
         ? {
-            startingApi: 'Démarrage de l’API ${PRODUCT_NAME}…',
+            startingApi: 'Démarrage de l’API ${escapeJavaScriptString(PRODUCT_NAME)}…',
             initializing: 'Initialisation…',
             connecting: 'Connexion…',
             connected: 'Connecté !',
@@ -186,7 +202,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
             cliNotFound: 'L’exécutable opencode est introuvable. Installez d’abord le CLI opencode.',
           }
         : {
-            startingApi: 'Starting ${PRODUCT_NAME} API…',
+            startingApi: 'Starting ${escapeJavaScriptString(PRODUCT_NAME)} API…',
             initializing: 'Initializing…',
             connecting: 'Connecting…',
             connected: 'Connected!',
@@ -335,7 +351,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
           })
           .catch((error) => {
             attempt += 1;
-            console.warn('[${PRODUCT_NAME}] VS Code webview dev bundle unavailable, retrying...', error);
+            console.warn('[${escapeJavaScriptString(PRODUCT_NAME)}] VS Code webview dev bundle unavailable, retrying...', error);
             setStatus(devMessages.waitingDevServer(hostLabel, attempt));
             window.setTimeout(() => {
               tryLoadDevBundle();

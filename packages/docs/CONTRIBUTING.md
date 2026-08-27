@@ -1,6 +1,6 @@
 # Docs Authoring Guide
 
-This package is docs content source-of-truth for OpenChamber.
+This package is docs content source-of-truth for smarty-code.
 
 ## Voice & style
 
@@ -14,17 +14,17 @@ stays the same no matter who is writing.
 ### Who you're writing for
 
 - Assume curiosity, not expertise. The reader knows what they want to do, not
-  how OpenChamber works inside.
+  how smarty-code works inside.
 - One page = one job. If a page is answering two unrelated questions, split it.
 
 ### Keep it short
 
 - Lead with the task, not background. The first line should say what the page is
-  for ("Use `openchamber tunnel` to expose a running OpenChamber instance.").
+  for ("Use `openchamber tunnel` to expose a running smarty-code instance.").
 - Cut anything that doesn't change what the reader does next.
 - A basic page should fit in a screen or two. Long, dense reference pages (like
   Reverse Proxy) are the exception — and they say so in their first line ("Use
-  this page if you run OpenChamber behind...").
+  this page if you run smarty-code behind...").
 
 ### Steps
 
@@ -44,7 +44,7 @@ running.
 ### Plain language
 
 - Explain a term the first time it appears, in parentheses, in everyday words:
-  - good: start a tunnel (a public link to your local OpenChamber)
+  - good: start a tunnel (a public link to your local smarty-code)
   - bad: start a tunnel — the reader doesn't know what that is yet
 - Prefer common words over internal ones. "App", "version", "page" beat
   "surface", "instance", "route" when the meaning is the same. If an internal
@@ -187,7 +187,7 @@ Notes:
 
 ## Localization
 
-The docs are translated into the same languages the OpenChamber app ships in.
+The docs are translated into the same languages the smarty-code app ships in.
 English is the source of truth and lives at the root of `content/docs/`. Every
 other language mirrors the English files under a locale folder.
 
@@ -298,7 +298,7 @@ A label with no translation for the active locale falls back to the English
 
 ### What not to translate
 
-- brand and product nouns: OpenChamber, OpenCode, VS Code, PWA, GitHub, Discord,
+- brand and product nouns: smarty-code, OpenCode, VS Code, PWA, GitHub, Discord,
   macOS, SSH
 - code blocks, shell commands, file paths, flags, and config keys
 - the page filename and the sidebar `link` (these stay identical across locales)

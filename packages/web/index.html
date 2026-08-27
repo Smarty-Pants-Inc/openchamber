@@ -18,8 +18,8 @@
     <!-- Web app manifest (endpoint-first with data URL fallback) -->
     <script>
       const baseUrl = location.origin;
-      const defaultAppName = 'OpenChamber - AI Coding Assistant';
-      const defaultShortName = 'OpenChamber';
+      const defaultAppName = __PRODUCT_NAME_JSON__ + ' - AI Coding Assistant';
+      const defaultShortName = __PRODUCT_NAME_JSON__;
       const pwaNameStorageKey = 'openchamber.pwaName';
       const pwaOrientationStorageKey = 'openchamber.pwaOrientation';
       const mobileKeyboardModeStorageKey = 'openchamber.mobileKeyboardMode';
@@ -225,7 +225,7 @@
         return {
           name: appName,
           short_name: shortName,
-          description: '__PRODUCT_NAME__ AI coding assistant',
+          description: __PRODUCT_NAME_JSON__ + ' AI coding assistant',
           id: `${baseUrl}/`,
           start_url: `${baseUrl}/`,
           scope: `${baseUrl}/`,
@@ -422,12 +422,12 @@
     <!-- iOS Safari PWA styling -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="OpenChamber" />
+    <meta name="apple-mobile-web-app-title" content="__PRODUCT_NAME_HTML__" />
 
-    <title>OpenChamber - AI Coding Assistant</title>
-    <meta name="description" content="__PRODUCT_NAME__ AI coding assistant" />
-    <meta name="application-name" content="OpenChamber" />
-    <meta name="apple-mobile-web-app-title" content="OpenChamber" />
+    <title>__PRODUCT_NAME_HTML__ - AI Coding Assistant</title>
+    <meta name="description" content="__PRODUCT_NAME_HTML__ AI coding assistant" />
+    <meta name="application-name" content="__PRODUCT_NAME_HTML__" />
+    <meta name="apple-mobile-web-app-title" content="__PRODUCT_NAME_HTML__" />
 
     <!-- Inline CSS for loading screen and Nerd Fonts (before Tailwind loads) -->
     <style>
@@ -489,7 +489,7 @@
       <!-- Loading fallback while React initializes -->
       <div id="initial-loading">
         <div style="display: flex; align-items: center; justify-content: center;">
-          <span style="font-size: 104px; line-height: 1;" role="img" aria-label="OpenChamber loading icon">__PRODUCT_MARK__</span>
+          <span style="font-size: 104px; line-height: 1;" role="img" aria-label="__PRODUCT_NAME_HTML__ loading icon">__PRODUCT_MARK_HTML__</span>
         </div>
       </div>
     </div>

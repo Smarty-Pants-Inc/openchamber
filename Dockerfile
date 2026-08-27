@@ -62,6 +62,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/packages/web/package.json ./packages/web/package.json
 COPY --from=builder /app/packages/web/bin ./packages/web/bin
 COPY --from=builder /app/packages/web/server ./packages/web/server
+COPY --from=builder /app/packages/web/brand.generated.js ./packages/web/brand.generated.js
 COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
 EXPOSE 3000

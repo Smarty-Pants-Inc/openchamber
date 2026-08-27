@@ -19,5 +19,6 @@
   "Failed to start {0}: {1}": "Failed to start {0}: {1}",
   "New Session": "New Session",
   "Session": "Session",
-  "Agent Manager": "Agent Manager"
+  "Agent Manager": "Agent Manager",
+  "smarty-code: No folder is open. Open a folder to start a new session.": "smarty-code: No folder is open. Open a folder to start a new session."
 }

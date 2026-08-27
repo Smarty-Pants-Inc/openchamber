@@ -206,8 +206,17 @@ test('rejects branding configurations without presentation aliases', () => {
 });
 test('runtime branding is limited to owned templates and compatibility identities remain intact', () => {
   const viteConfig = readFileSync(path.join(root, 'packages/web/vite.config.ts'), 'utf8');
-  assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME__', \(\) => PRODUCT_NAME\)/);
-  assert.match(viteConfig, /replaceAll\('__PRODUCT_MARK__', \(\) => PRODUCT_MARK\)/);
+  const webIndex = readFileSync(path.join(root, 'packages/web/index.html'), 'utf8');
+  assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME_JSON__', \(\) => productNameJson\)/);
+  assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME_HTML__', \(\) => productNameHtml\)/);
+  assert.match(viteConfig, /escapeJsonForHtmlScript/);
+  assert.match(webIndex, /const defaultAppName = __PRODUCT_NAME_JSON__ \+ ' - AI Coding Assistant';/);
+  assert.match(webIndex, /content="__PRODUCT_NAME_HTML__"/);
+  assert.match(webIndex, /__PRODUCT_MARK_HTML__/);
+  const englishBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
+  const frenchBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.fr.json'), 'utf8'));
+  assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');
+  assert.equal(frenchBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
   for (const relative of [
     'packages/ui/src/components/ui/toast.ts',
     'packages/ui/src/components/chat/ChatMessage.tsx',

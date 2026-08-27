@@ -16,8 +16,9 @@ const check = args.includes('--check');
 const docsIndex = args.indexOf('--docs');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '{}'));
-const brandNames = [...new Set(presentationAliases.filter((name) => typeof name === 'string' && name.length > 0))];
-if (brandNames.length === 0) throw new Error('branding/brand.json presentationAliases must contain at least one non-empty string');
+const configuredBrandNames = [...new Set(presentationAliases.filter((name) => typeof name === 'string' && name.length > 0))];
+if (configuredBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must contain at least one non-empty string');
+const brandNames = [...new Set(configuredBrandNames.flatMap((name) => name === 'OpenChamber' ? [name, `${name}s`] : [name]))];
 const brandRegex = new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g');
 const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);
 const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
@@ -47,14 +48,14 @@ const walk = async (directory) => {
   }
   return files;
 };
-
 if (docsIndex !== -1) {
   const directory = path.resolve(root, args[docsIndex + 1]);
   for (const file of await walk(directory)) {
     if (!/\.(?:html|json|md|mdx|ya?ml)$/.test(file)) continue;
     const source = await readFile(file, 'utf8');
     const branded = brandDocs(source);
-    if (branded !== source) await writeFile(file, branded);
+    if (check && branded !== source) throw new Error(`Stale branded docs: ${path.relative(root, file)}`);
+    if (!check && branded !== source) await writeFile(file, branded);
   }
   process.exit(0);
 }

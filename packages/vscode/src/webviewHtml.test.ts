@@ -28,8 +28,10 @@ describe('VS Code branding boundaries', () => {
     assert.doesNotMatch(opencodeSource, /brandText\(vscode\.l10n\.t/);
   });
 
-  test('uses the product template for the API and technical opencode identity for executable errors', () => {
-    assert.match(source, /startingApi: 'Starting \$\{PRODUCT_NAME\} API…'/);
+  test('uses safe product templates for the API and technical opencode identity for executable errors', () => {
+    assert.match(source, /escapeHtml/);
+    assert.match(source, /escapeJavaScriptString/);
+    assert.match(source, /startingApi: 'Starting \$\{escapeJavaScriptString\(PRODUCT_NAME\)\} API…'/);
     assert.match(source, /The opencode executable was not found\. Install the opencode CLI first\./);
     assert.match(opencodeSource, /t\('Failed to start \{0\}: \{1\}', PRODUCT_NAME, message\)/);
     assert.doesNotMatch(opencodeSource, /OpenCode CLI not found|Failed to start OpenCode/);
@@ -39,5 +41,7 @@ describe('VS Code branding boundaries', () => {
     assert.equal(frenchBundle['Failed to start {0}: {1}'], 'Impossible de démarrer {0} : {1}');
     assert.equal(englishBundle['The opencode executable was not found. Install the opencode CLI first.'], 'The opencode executable was not found. Install the opencode CLI first.');
     assert.equal(frenchBundle['The opencode executable was not found. Install the opencode CLI first.'], 'L’exécutable opencode est introuvable. Installez d’abord le CLI opencode.');
+    assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');
+    assert.equal(frenchBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
   });
 });
