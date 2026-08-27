@@ -4,7 +4,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/openchamber/openchamber?style=flat&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgZmlsbD0iI2YxZWNlYyIgdmlld0JveD0iMCAwIDI1NiAyNTYiPjxwYXRoIGQ9Ik0xMjgsMTI5LjA5VjIzMmE4LDgsMCwwLDEtMy44NC0xbC04OC00OC4xOGE4LDgsMCwwLDEtNC4xNi03VjgwLjE4YTgsOCwwLDAsMSwuNy0zLjI1WiIgb3BhY2l0eT0iMC4yIj48L3BhdGg%2BPHBhdGggZD0iTTIyMy42OCw2Ni4xNSwxMzUuNjgsMThhMTUuODgsMTUuODgsMCwwLDAtMTUuMzYsMGwtODgsNDguMTdhMTYsMTYsMCwwLDAtOC4zMiwxNHY5NS42NGExNiwxNiwwLDAsMCw4LjMyLDE0bDg4LDQ4LjE3YTE1Ljg4LDE1Ljg4LDAsMCwwLDE1LjM2LDBsODgtNDguMTdhMTYsMTYsMCwwLDAsOC4zMi0xNFY4MC4xOEExNiwxNiwwLDAsMCwyMjMuNjgsNjYuMTVaTTEyOCwzMmw4MC4zNCw0NC0yOS43NywxNi4zLTgwLjM1LTQ0Wk0xMjgsMTIwLDQ3LjY2LDc2bDMzLjktMTguNTYsODAuMzQsNDRaTTQwLDkwbDgwLDQzLjc4djg1Ljc5TDQwLDE3NS44MlptMTc2LDg1Ljc4aDBsLTgwLDQzLjc5VjEzMy44MmwzMi0xNy41MVYxNTJhOCw4LDAsMCwwLDE2LDBWMTA3LjU1TDIxNiw5MHY4NS43N1oiPjwvcGF0aD48L3N2Zz4%3D&logoColor=FFFCF0&labelColor=100F0F&color=205EA6)](https://github.com/openchamber/openchamber/releases/latest)
 [![Discord](https://img.shields.io/badge/Discord-join.svg?style=flat&labelColor=100F0F&color=8B7EC8&logo=discord&logoColor=FFFCF0)](https://discord.gg/ZYRSdnwwKA)
 
-Run [smarty-code](https://opencode.ai) in your browser. Install the CLI, open `localhost:3000`, done. Works on desktop browsers, tablets, and phones as a PWA.
+Run [OpenCode](https://opencode.ai) in your browser. Install the CLI, open `localhost:3000`, done. Works on desktop browsers, tablets, and phones as a PWA.
 
 Full project overview, screenshots, and all features: [github.com/openchamber/openchamber](https://github.com/openchamber/openchamber)
 
@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/script
 
 Or install manually: `bun add -g @openchamber/web` (or npm, pnpm, yarn).
 
-> **Prerequisites:** [smarty-code CLI](https://opencode.ai) installed, Node.js 22+.
+> **Prerequisites:** [OpenCode CLI](https://opencode.ai) installed, Node.js 22+.
 
 ## Usage
 
@@ -49,12 +49,12 @@ openchamber update                   # Update to latest version
 
 `startup enable` snapshots your current environment into the native service so startup behaves like you launched `openchamber` from the same shell. This preserves provider tokens, PATH, SSH agent settings, and other CLI auth/config env vars. Use `--no-env-snapshot` for a minimal service env.
 
-When smarty-code launches the local smarty-code server, it also registers a native
+When smarty-code launches the local OpenCode server, it also registers a native
 `openchamber` agent tool for project, session, and scheduled-task orchestration.
-The tool is not injected when connecting to an external smarty-code server.
+The tool is not injected when connecting to an external OpenCode server.
 Behavior settings can optionally inject a managed system-prompt optimizer on
-the next smarty-code restart. It is disabled by default and is not available for
-external smarty-code servers.
+the next OpenCode restart. It is disabled by default and is not available for
+external OpenCode servers.
 
 ### Tunnel behavior notes
 
@@ -98,7 +98,7 @@ openchamber serve --lan --port 3000 --ui-password your-password
 Generating a client token does not automatically password-protect the hosted browser UI. `--ui-password` protects browser access; the client token lets another smarty-code app connect to this server.
 
 <details>
-<summary>Connect to external smarty-code server</summary>
+<summary>Connect to external OpenCode server</summary>
 
 ```bash
 OPENCODE_PORT=4096 OPENCODE_SKIP_START=true openchamber
@@ -109,8 +109,8 @@ OPENCODE_HOST=https://myhost:4096 OPENCODE_SKIP_START=true openchamber
 |----------|-------------|
 | `OPENCODE_HOST` | Full base URL of external server (overrides `OPENCODE_PORT`) |
 | `OPENCODE_PORT` | Port of external server |
-| `OPENCODE_SKIP_START` | Skip starting embedded smarty-code server |
-| `OPENCHAMBER_OPENCODE_HOSTNAME` | Bind hostname for managed smarty-code server (default: `127.0.0.1`, use `0.0.0.0` for LAN/remote access — trusted networks only). Invalid values are rejected with an error and fall back to loopback |
+| `OPENCODE_SKIP_START` | Skip starting embedded OpenCode server |
+| `OPENCHAMBER_OPENCODE_HOSTNAME` | Bind hostname for managed OpenCode server (default: `127.0.0.1`, use `0.0.0.0` for LAN/remote access — trusted networks only). Invalid values are rejected with an error and fall back to loopback |
 | `OPENCHAMBER_HOST` | Bind hostname for the smarty-code web server (default: `127.0.0.1`; use `0.0.0.0` for LAN/remote access — trusted networks only) |
 | `OPENCHAMBER_VERBOSE_REQUEST_LOGS` | Set to `true` to log every HTTP request; disabled by default to keep user logs small |
 | `OPENCHAMBER_SKIP_API_COMPRESSION` | Set to `true` to disable gzip compression for `/api/*` responses |
@@ -121,7 +121,7 @@ OPENCODE_HOST=https://myhost:4096 OPENCODE_SKIP_START=true openchamber
 </details>
 
 <details>
-<summary>Bind managed smarty-code to LAN / Tailscale</summary>
+<summary>Bind managed OpenCode to LAN / Tailscale</summary>
 
 ```bash
 OPENCHAMBER_OPENCODE_HOSTNAME=0.0.0.0 openchamber --port 3000
@@ -179,7 +179,7 @@ openchamber stop        # Stop background server
 <details>
 <summary>systemd service (VPN / LAN access)</summary>
 
-Use `--foreground` to keep the CLI process alive so systemd (or any other process manager) can track and restart it. Combine with `OPENCODE_HOST` to connect to an smarty-code instance running as a separate service.
+Use `--foreground` to keep the CLI process alive so systemd (or any other process manager) can track and restart it. Combine with `OPENCODE_HOST` to connect to an OpenCode instance running as a separate service.
 
 **`~/.config/systemd/user/opencode.service`**
 ```ini
@@ -200,7 +200,7 @@ WantedBy=default.target
 
 > **Why set `PATH` and `SSH_AUTH_SOCK`?**
 > systemd user services start with a minimal environment — no shell profile is sourced.
-> Without an explicit `PATH`, smarty-code won't find tools installed via Homebrew, npm, or `~/.local/bin`.
+> Without an explicit `PATH`, OpenCode won't find tools installed via Homebrew, npm, or `~/.local/bin`.
 > Without `SSH_AUTH_SOCK`, git operations over SSH (push, pull, clone) will fail.
 > `%t` expands to `$XDG_RUNTIME_DIR` (e.g. `/run/user/1000`), where most SSH agents write their socket.
 

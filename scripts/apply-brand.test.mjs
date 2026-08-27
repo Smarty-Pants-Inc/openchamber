@@ -125,8 +125,8 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     const readme = readFileSync(path.join(fixture, 'README.md'), 'utf8');
     assert.match(readme, /^# <img .* alt="F!" \/> Fixture Brand$/m);
     assert.match(readme, /OpenChamber-\*\.AppImage/);
-    assert.match(readme, /## Why Fixture Brand\?/);
-    assert.match(readme, /not affiliated with the Fixture Brand team/);
+    assert.match(readme, /## Why OpenCode\?/);
+    assert.match(readme, /not affiliated with the OpenCode team/);
 
     const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
     assert.match(installer, /F!  Fixture Brand/);

@@ -75,7 +75,7 @@ Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use
 
 ### Desktop — macOS, Windows, and Linux
 
-Download the latest release from [GitHub Releases](https://github.com/openchamber/openchamber/releases/latest). Desktop bundles the matching smarty-code CLI, so no separate smarty-code installation is required.
+Download the latest release from [GitHub Releases](https://github.com/openchamber/openchamber/releases/latest). Desktop bundles the matching OpenCode CLI, so no separate OpenCode installation is required.
 
 Linux releases are available as x86_64 and ARM64 AppImages. Make the downloaded AppImage executable and keep it in a writable location for in-app updates:
 
@@ -92,7 +92,7 @@ Install [smarty-code from the Visual Studio Marketplace](https://marketplace.vis
 
 ### CLI — Web and PWA
 
-Requires Node.js 22+. CLI/Web and VS Code use your installed [smarty-code CLI](https://opencode.ai).
+Requires Node.js 22+. CLI/Web and VS Code use your installed [OpenCode CLI](https://opencode.ai).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash
@@ -132,13 +132,13 @@ Go deeper with the smarty-code guides:
 
 For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). For custom theme authoring, see the [custom themes guide](docs/CUSTOM_THEMES.md).
 
-## Why smarty-code?
+## Why OpenCode?
 
-smarty-code uses [smarty-code](https://opencode.ai) to power its coding agents. We chose it because we believe it provides the best open-source agentic coding experience today: capable, extensible, and open by design.
+smarty-code uses [OpenCode](https://opencode.ai) to power its coding agents. We chose it because we believe it provides the best open-source agentic coding experience today: capable, extensible, and open by design.
 
 Around that foundation, smarty-code brings together the work that happens before, during, and after an agent run — deciding what to try, keeping it on track, reviewing the result, connecting from anywhere, and getting the change shipped.
 
-smarty-code is an independent project and is not affiliated with the smarty-code team.
+smarty-code is an independent project and is not affiliated with the OpenCode team.
 
 ## Contributing
 
@@ -148,7 +148,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and contribution 
 
 Special thanks to:
 
-- [smarty-code](https://opencode.ai) for its excellent API and extensible open-source architecture
+- [OpenCode](https://opencode.ai) for its excellent API and extensible open-source architecture
 - [Pierre](https://pierrejs-docs.vercel.app/) for its fast diff viewer and syntax highlighting
 - [Ghostty-web](https://github.com/coder/ghostty-web) for its Ghostty web renderer
 - [Yulia Ivashko](https://github.com/yulia-ivashko), who built the firework celebration that plays on every successful push

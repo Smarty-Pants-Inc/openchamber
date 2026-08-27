@@ -19,17 +19,20 @@ const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch((
 const brandNames = [...new Set(presentationAliases.filter(Boolean))];
 const brandRegex = new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g');
 const brandText = (value) => value.replace(brandRegex, PRODUCT_NAME);
+const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
+const documentationBrandRegex = new RegExp(`\\b(?:${documentationBrandNames.map(escapeRegex).join('|')})\\b`, 'g');
+const documentationBrandText = (value) => value.replace(documentationBrandRegex, PRODUCT_NAME);
 const brandDocs = (value) => {
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
   let cursor = 0;
   for (const match of value.matchAll(code)) {
-    branded += brandText(value.slice(cursor, match.index));
+    branded += documentationBrandText(value.slice(cursor, match.index));
     const token = match[0];
     branded += token;
     cursor = match.index + token.length;
   }
-  return branded + brandText(value.slice(cursor));
+  return branded + documentationBrandText(value.slice(cursor));
 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
