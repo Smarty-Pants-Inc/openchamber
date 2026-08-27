@@ -1,5 +1,5 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
-import { brandText } from '../../brand.generated.js';
+import { brandProductText } from '../../brand.generated.js';
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_TAIL_LINES = 200;
@@ -565,7 +565,7 @@ function parseArgs(argv = process.argv.slice(2)) {
 }
 
 function showHelp() {
-  console.log(brandText(`
+  console.log(brandProductText(`
  OpenChamber - Web interface for the OpenCode AI coding agent
 
 USAGE:
@@ -626,7 +626,7 @@ EXAMPLES:
 }
 
 function showControlHelp() {
-  console.log(brandText(`
+  console.log(brandProductText(`
  OpenChamber Control Commands
 
 USAGE:
@@ -665,7 +665,7 @@ EXAMPLES:
 }
 
 function showStartupHelp() {
-  console.log(brandText(`
+  console.log(brandProductText(`
  OpenChamber Startup Commands
 
 USAGE:
@@ -694,7 +694,7 @@ EXAMPLES:
 }
 
 function showConnectUrlHelp() {
-  console.log(brandText(`
+  console.log(brandProductText(`
  OpenChamber Connect URL
 
 USAGE:
@@ -733,7 +733,7 @@ EXAMPLES:
 }
 
 function showTunnelHelp() {
-  console.log(brandText(`
+  console.log(brandProductText(`
  Tunnel Lifecycle Commands
 
 USAGE:
@@ -817,7 +817,7 @@ function generateCompletionScript(shell) {
   const normalized = typeof shell === 'string' ? shell.trim().toLowerCase() : '';
 
   if (normalized === 'bash') {
-    return brandText(`# Bash completion for openchamber tunnel
+    return brandProductText(`# Bash completion for openchamber tunnel
 # Add to ~/.bashrc: eval "$(openchamber tunnel completion bash)"
 _openchamber_tunnel() {
   local cur prev commands tunnel_commands profile_commands common_flags start_flags
@@ -865,7 +865,7 @@ complete -F _openchamber_tunnel openchamber
   }
 
   if (normalized === 'zsh') {
-    return brandText(`#compdef openchamber
+    return brandProductText(`#compdef openchamber
 # Zsh completion for openchamber tunnel
 # Add to ~/.zshrc: eval "$(openchamber tunnel completion zsh)"
 
@@ -934,7 +934,7 @@ compdef _openchamber openchamber
   }
 
   if (normalized === 'fish') {
-    return brandText(`# Fish completion for openchamber tunnel
+    return brandProductText(`# Fish completion for openchamber tunnel
 # Save to ~/.config/fish/completions/openchamber.fish
 
 complete -c openchamber -n '__fish_use_subcommand' -a 'serve' -d 'Start the web server'

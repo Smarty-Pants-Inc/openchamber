@@ -1,6 +1,4 @@
-import { brandText } from '@/lib/brand.generated';
-
-const DEFAULT_MESSAGE = brandText("Updating OpenCode configuration...");
+const DEFAULT_MESSAGE = "Updating OpenCode configuration...";
 
 type ConfigUpdateListener = (state: {
   isUpdating: boolean;

@@ -16,12 +16,14 @@ const check = args.includes('--check');
 const docsIndex = args.indexOf('--docs');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '{}'));
-const brandNames = [...new Set(presentationAliases.filter(Boolean))];
+const brandNames = [...new Set(presentationAliases.filter((name) => typeof name === 'string' && name.length > 0))];
+if (brandNames.length === 0) throw new Error('branding/brand.json presentationAliases must contain at least one non-empty string');
 const brandRegex = new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g');
-const brandText = (value) => value.replace(brandRegex, PRODUCT_NAME);
+const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);
 const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
+if (documentationBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must include a product alias other than OpenCode');
 const documentationBrandRegex = new RegExp(`\\b(?:${documentationBrandNames.map(escapeRegex).join('|')})\\b`, 'g');
-const documentationBrandText = (value) => value.replace(documentationBrandRegex, PRODUCT_NAME);
+const documentationBrandText = (value) => value.replace(documentationBrandRegex, () => PRODUCT_NAME);
 const brandDocs = (value) => {
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
@@ -57,12 +59,12 @@ if (docsIndex !== -1) {
   process.exit(0);
 }
 
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, PRODUCT_NAME);\n`;
-const javascriptModule = typedModule.replace('(template: string)', '(template)');
+const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationBrandRegex.source}/g, () => PRODUCT_NAME);\n`;
+const javascriptModule = typedModule.replaceAll('(template: string)', '(template)');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
   ['packages/web/brand.generated.js', javascriptModule],
-  ['packages/web/brand.generated.d.ts', 'export const PRODUCT_NAME: string;\nexport const PRODUCT_MARK: string;\nexport function brandText(template: string): string;\n'],
+  ['packages/web/brand.generated.d.ts', 'export const PRODUCT_NAME: string;\nexport const PRODUCT_MARK: string;\nexport function brandText(template: string): string;\nexport function brandProductText(template: string): string;\n'],
   ['packages/electron/brand.generated.mjs', javascriptModule],
   ['packages/vscode/src/brand.generated.ts', typedModule],
 ]);
@@ -79,16 +81,27 @@ const setJsonString = (source, key, value, label = key) => replaceRequired(
   (_match, prefix) => `${prefix}${JSON.stringify(value)}`,
   label,
 );
+const escapeXml = (value) => String(value).replace(/[&<>]/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+}[character]));
 const setXmlString = (source, key, value) => replaceRequired(
   source,
   new RegExp(`(<string name="${escapeRegex(key)}">)[^<]*(</string>)`),
-  (_match, prefix, suffix) => `${prefix}${value}${suffix}`,
+  (_match, prefix, suffix) => `${prefix}${escapeXml(value)}${suffix}`,
   key,
 );
 const setPlistString = (source, key, value) => replaceRequired(
   source,
   new RegExp(`(<key>${escapeRegex(key)}</key>\\s*<string>)[^<]*(</string>)`),
-  (_match, prefix, suffix) => `${prefix}${value}${suffix}`,
+  (_match, prefix, suffix) => `${prefix}${escapeXml(value)}${suffix}`,
+  key,
+);
+const setPbxString = (source, key, value) => replaceRequired(
+  source,
+  new RegExp(`(${escapeRegex(key)}\\s*=\\s*)[^;]+;`, 'g'),
+  (_match, prefix) => `${prefix}${/^[A-Za-z0-9_.-]+$/.test(value) ? value : JSON.stringify(value)};`,
   key,
 );
 const setSwiftString = (source, pattern, value, label) => replaceRequired(
@@ -97,6 +110,8 @@ const setSwiftString = (source, pattern, value, label) => replaceRequired(
   (_match, prefix) => `${prefix}${JSON.stringify(value)}`,
   label,
 );
+const escapeShellDoubleQuoted = (value) => String(value).replace(/[$`\\"]/g, (character) => `\\${character}`);
+const escapeShellSingleQuoted = (value) => String(value).replace(/'/g, () => "'\\''");
 
 await patchText('packages/web/public/site.webmanifest', (source) => {
   let branded = setJsonString(source, 'name', `${PRODUCT_NAME} - AI Coding Companion`, 'PWA name');
@@ -120,19 +135,19 @@ for (const file of [
   'packages/mobile/README.md',
   'packages/docs/README.md',
 ]) await patchText(file, brandDocs);
-
-await patchText('package.json', (source) => setJsonString(source, 'description', `${PRODUCT_NAME} monorepo workspace for web, ui, and desktop runtimes`));
 await patchText('scripts/install.sh', (source) => {
+  const shellName = escapeShellDoubleQuoted(PRODUCT_NAME);
+  const shellMark = escapeShellSingleQuoted(PRODUCT_MARK);
   let branded = replaceRequired(source, /^# .* Install Script$/m, `# ${PRODUCT_NAME} Install Script`, 'installer header');
-  const bannerTitle = `   ${PRODUCT_NAME} Installer`.padEnd(35);
+  const bannerTitle = `   ${shellName} Installer`.padEnd(35);
   const bannerSubtitle = '   AI coding workspace'.padEnd(35);
   branded = replaceRequired(branded, /^  echo "  │.*Installer.*│"$/m, `  echo "  │${bannerTitle}│"`, 'installer banner title');
   branded = replaceRequired(branded, /^  echo "  │   (?:Web interface for .*|AI coding workspace)\s*│"$/m, `  echo "  │${bannerSubtitle}│"`, 'installer banner subtitle');
-  branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, `    info "${PRODUCT_NAME} is already installed — updating via 'openchamber update'..."`, 'installer update message');
-  branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, `      success "${PRODUCT_NAME} is up to date!"`, 'installer updated message');
-  branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, `  info "Installing ${PRODUCT_NAME}..."`, 'installer installing message');
-  branded = replaceRequired(branded, /(# brand:mark\n\s*printf )'[^']*'/, (_match, prefix) => `${prefix}'  ${PRODUCT_MARK}  ${PRODUCT_NAME}\\n'`, 'installer mark');
-  branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, `    success "${PRODUCT_NAME} installed successfully!"`, 'installer success message');
+  branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, `    info "${shellName} is already installed — updating via 'openchamber update'..."`, 'installer update message');
+  branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, `      success "${shellName} is up to date!"`, 'installer updated message');
+  branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, `  info "Installing ${shellName}..."`, 'installer installing message');
+  branded = replaceRequired(branded, /(# brand:mark\n\s*printf )'[^']*'/, (_match, prefix) => `${prefix}'  ${shellMark}  ${escapeShellSingleQuoted(PRODUCT_NAME)}\\n'`, 'installer mark');
+  branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, `    success "${shellName} installed successfully!"`, 'installer success message');
   return replaceRequired(branded, /^    echo "    Make sure .*: opencode serve"$/m, '    echo "    Make sure opencode is running: opencode serve"', 'installer prerequisite');
 });
 
@@ -155,6 +170,17 @@ await patchText('packages/vscode/package.nls.fr.json', (source) => {
   branded = setJsonString(branded, 'command.showOpenCodeStatus.title', `Afficher l’état de ${PRODUCT_NAME}`);
   return setJsonString(branded, 'configuration.apiUrl.description', 'URL d’un serveur API d’agent externe. Laissez vide pour démarrer automatiquement une instance locale.');
 });
+const brandOwnedLocaleBundle = (source) => {
+  const values = JSON.parse(source);
+  const branded = Object.fromEntries(Object.entries(values).map(([key, value]) => [
+    key.replace(documentationBrandRegex, () => PRODUCT_NAME),
+    value.replace(documentationBrandRegex, () => PRODUCT_NAME),
+  ]));
+  return `${JSON.stringify(branded, null, 2)}\n`;
+};
+for (const file of ['packages/vscode/l10n/bundle.l10n.json', 'packages/vscode/l10n/bundle.l10n.fr.json']) {
+  await patchText(file, brandOwnedLocaleBundle);
+}
 await patchText('packages/vscode/webview/index.html', (source) => replaceRequired(
   source,
   /(<title>)[^<]*(<\/title>)/,
@@ -184,6 +210,11 @@ await patchText('packages/mobile/ios/App/App/Info.plist', (source) => {
   return setPlistString(branded, 'NSMicrophoneUsageDescription', `${PRODUCT_NAME} uses the microphone for voice dictation in the chat composer.`);
 });
 await patchText('packages/mobile/ios/App/OpenChamberWidget/Info.plist', (source) => setPlistString(source, 'CFBundleDisplayName', PRODUCT_NAME));
+await patchText('packages/mobile/ios/App/App.xcodeproj/project.pbxproj', (source) => setPbxString(
+  source,
+  'INFOPLIST_KEY_CFBundleDisplayName',
+  PRODUCT_NAME,
+));
 await patchText('packages/mobile/ios/App/OpenChamberWidget/WidgetShared.swift', (source) => setSwiftString(
   source,
   /(struct CubeLogoView: View \{[\s\S]*?\bText\()"[^"]*"/,
@@ -336,7 +367,7 @@ const sourceDigest = hash(Buffer.concat([
   await readFile(fileURLToPath(import.meta.url)),
 ]));
 const expectedFiles = [...generatedText.keys(), ...patchedText.keys(), ...pngTargets.map(({ file }) => file)].sort();
-const EXPECTED_CONTROLLED_FILE_COUNT = 136;
+const EXPECTED_CONTROLLED_FILE_COUNT = 138;
 const uniqueExpectedFiles = new Set(expectedFiles);
 if (expectedFiles.length !== EXPECTED_CONTROLLED_FILE_COUNT || uniqueExpectedFiles.size !== EXPECTED_CONTROLLED_FILE_COUNT) {
   throw new Error(`Expected ${EXPECTED_CONTROLLED_FILE_COUNT} unique controlled brand outputs, found ${expectedFiles.length} (${uniqueExpectedFiles.size} unique)`);

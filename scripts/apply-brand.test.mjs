@@ -13,14 +13,14 @@ const script = path.join(root, 'scripts/apply-brand.mjs');
 const brandConfig = JSON.parse(readFileSync(path.join(root, 'branding/brand.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(path.join(root, 'branding/generated.json'), 'utf8'));
 const EXPECTED_GENERATED_MODULE_COUNT = 5;
-const EXPECTED_PATCHED_TEXT_COUNT = 21;
+const EXPECTED_PATCHED_TEXT_COUNT = 23;
 const EXPECTED_SVG_COUNT = 12;
 const EXPECTED_PNG_COUNT = 98;
 const EXPECTED_CONTROLLED_FILE_COUNT = EXPECTED_GENERATED_MODULE_COUNT
   + EXPECTED_PATCHED_TEXT_COUNT
   + EXPECTED_SVG_COUNT
   + EXPECTED_PNG_COUNT;
-assert.equal(EXPECTED_CONTROLLED_FILE_COUNT, 136);
+assert.equal(EXPECTED_CONTROLLED_FILE_COUNT, 138);
 const controlledFiles = Object.keys(manifest.files);
 assert.equal(controlledFiles.length, EXPECTED_CONTROLLED_FILE_COUNT);
 assert.equal(new Set(controlledFiles).size, EXPECTED_CONTROLLED_FILE_COUNT);
@@ -57,6 +57,7 @@ test('canonical generated brandText follows configured presentation aliases', as
   for (const alias of brandConfig.presentationAliases) {
     assert.equal(generatedBrandModule.brandText(alias), brandConfig.name);
   }
+  assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
 });
 
 test('brand check detects missing assets, manifest drift, and required text drift', () => {
@@ -141,6 +142,8 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     assert.match(titlebarIcon, /(?:fill|stroke)="#fff"/);
     assert.doesNotMatch(titlebarIcon, /currentColor|#123456|#abcdef/);
     assert.notEqual(sha256(pwaIconPath), originalPwaHash);
+    const pbxproj = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App.xcodeproj/project.pbxproj'), 'utf8');
+    assert.equal((pbxproj.match(/INFOPLIST_KEY_CFBundleDisplayName = "Fixture Brand";/g) ?? []).length, 2);
     assert.equal(readFileSync(path.join(fixture, 'uncontrolled.txt'), 'utf8'), 'leave me alone\n');
 
     const alternateManifest = JSON.parse(readFileSync(path.join(fixture, 'branding/generated.json'), 'utf8'));
@@ -152,31 +155,59 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
   }
 });
 
-test('quoted product names produce a TypeScript-safe Capacitor appName', () => {
+test('quoted product names produce a TypeScript-safe Capacitor appName', async () => {
   const fixture = copyFixture();
   try {
     const alternateConfig = {
       ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
-      name: `Fixture's "Brand"`,
+      name: `Fixture's "Brand" & $&`,
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
 
     assertSucceeded(runBrand(fixture));
 
     const capacitorConfig = readFileSync(path.join(fixture, 'packages/mobile/capacitor.config.ts'), 'utf8');
-    assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\""/);
+    assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\" & \$&"/);
     const diagnostics = ts.transpileModule(capacitorConfig, {
       compilerOptions: { module: ts.ModuleKind.ESNext },
       fileName: 'capacitor.config.ts',
       reportDiagnostics: true,
     }).diagnostics ?? [];
     assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.messageText), []);
+
+    const androidStrings = readFileSync(path.join(fixture, 'packages/mobile/android/app/src/main/res/values/strings.xml'), 'utf8');
+    assert.match(androidStrings, /<string name="app_name">Fixture's "Brand" &amp; \$&amp;<\/string>/);
+    const infoPlist = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App/Info.plist'), 'utf8');
+    assert.match(infoPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Fixture's "Brand" &amp; \$&amp;<\/string>/);
+    const pbxproj = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App.xcodeproj/project.pbxproj'), 'utf8');
+    assert.equal((pbxproj.match(/INFOPLIST_KEY_CFBundleDisplayName = "Fixture's \\"Brand\\" & \$&";/g) ?? []).length, 2);
+    const localeBundle = JSON.parse(readFileSync(path.join(fixture, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
+    assert.equal(localeBundle[`Fixture's "Brand" & $&: Failed to open sidebar - {0}`], `Fixture's "Brand" & $&: Failed to open sidebar - {0}`);
+    assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
+    const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?quoted=${Date.now()}`);
+    assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $&`);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
 });
 
+test('rejects branding configurations without presentation aliases', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      presentationAliases: [],
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertFailedWith(runBrand(fixture), /presentationAliases must contain at least one non-empty string/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
 test('runtime branding is limited to owned templates and compatibility identities remain intact', () => {
+  const viteConfig = readFileSync(path.join(root, 'packages/web/vite.config.ts'), 'utf8');
+  assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME__', \(\) => PRODUCT_NAME\)/);
+  assert.match(viteConfig, /replaceAll\('__PRODUCT_MARK__', \(\) => PRODUCT_MARK\)/);
   for (const relative of [
     'packages/ui/src/components/ui/toast.ts',
     'packages/ui/src/components/chat/ChatMessage.tsx',

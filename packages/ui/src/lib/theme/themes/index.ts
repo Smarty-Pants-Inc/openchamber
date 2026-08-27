@@ -1,5 +1,5 @@
 import type { Theme } from '@/types/theme';
-import { brandText } from '@/lib/brand.generated';
+import { brandProductText } from '@/lib/brand.generated';
 import { presetThemes } from './presets';
 import { withPrColors } from './prColors';
 import flexokiLightRaw from './flexoki-light.json';
@@ -16,9 +16,9 @@ const brandTheme = (theme: Theme): Theme => ({
   ...theme,
   metadata: {
     ...theme.metadata,
-    name: brandText(theme.metadata.name),
-    description: brandText(theme.metadata.description),
-    ...(theme.metadata.author ? { author: brandText(theme.metadata.author) } : {}),
+    name: brandProductText(theme.metadata.name),
+    description: brandProductText(theme.metadata.description),
+    ...(theme.metadata.author ? { author: brandProductText(theme.metadata.author) } : {}),
   },
 });
 

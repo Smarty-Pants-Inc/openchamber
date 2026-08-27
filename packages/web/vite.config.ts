@@ -45,8 +45,8 @@ export default defineConfig({
       name: 'apply-product-brand',
       transformIndexHtml(html) {
         return brandText(html)
-          .replaceAll('__PRODUCT_NAME__', PRODUCT_NAME)
-          .replaceAll('__PRODUCT_MARK__', PRODUCT_MARK);
+          .replaceAll('__PRODUCT_NAME__', () => PRODUCT_NAME)
+          .replaceAll('__PRODUCT_MARK__', () => PRODUCT_MARK);
       },
     },
     react({
