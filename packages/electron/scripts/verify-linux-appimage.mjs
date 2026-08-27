@@ -87,6 +87,7 @@ export const verifyExtractedPayload = ({
   for (const entry of [`Name=${PRODUCT_NAME}`, 'Icon=openchamber', 'StartupWMClass=openchamber']) {
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
   }
+  if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
 
   assertElfArchitecture(path.join(root, 'openchamber'), targetArchitecture, 'Electron executable');
   const cliPath = path.join(root, 'resources', 'opencode-cli', 'opencode');

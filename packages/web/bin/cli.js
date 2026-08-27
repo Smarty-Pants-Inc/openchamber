@@ -384,7 +384,7 @@ if (isCliExecution) {
         },
       });
     } else {
-      console.error('Unhandled Rejection at:', promise, 'reason:', message);
+      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     }
     process.exit(1);
   });
@@ -399,7 +399,7 @@ if (isCliExecution) {
         },
       });
     } else {
-      console.error(`Uncaught Exception: ${message}`);
+      console.error('Uncaught Exception:', error);
     }
     process.exit(1);
   });

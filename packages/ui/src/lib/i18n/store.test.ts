@@ -26,12 +26,21 @@ const waitForLocaleLoadToSettle = async (locale: Locale) => {
 
 describe('i18n store', () => {
   beforeEach(resetStore);
-  test('brands product names in translated templates without rewriting parameters', () => {
+  test('brands product-owned templates without rewriting parameters', () => {
     expect(formatMessage(defaultDictionary, 'aboutDialog.openChamberVersionLabel', { version: 'OpenChamber' }))
       .toBe(`${PRODUCT_NAME} version OpenChamber`);
+    expect(formatMessage(defaultDictionary, 'pwa.installPrompt.description'))
+      .toBe(`Install ${PRODUCT_NAME} for quicker access`);
+    expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.upgrading.description'))
+      .toBe(`Keep ${PRODUCT_NAME} open.`);
+  });
+
+  test('preserves upstream OpenCode labels and mixed diagnostics', () => {
     const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
     expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
-      .toBe(`${PRODUCT_NAME} version ${runtimeValue}`);
+      .toBe(`OpenCode version ${runtimeValue}`);
+    expect(formatMessage(defaultDictionary, 'aboutDialog.diagnosticsDescription'))
+      .toBe(`Includes ${PRODUCT_NAME} state, OpenCode health, directories, and projects.`);
   });
 
   test('preserves technical OpenCode identifiers', () => {

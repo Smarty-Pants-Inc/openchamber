@@ -4,6 +4,7 @@ import express from 'express';
 import path from 'path';
 
 import { createSseBoundaryTracker, registerOpenCodeProxy, writeSseChunkWithBackpressure } from './lib/opencode/proxy.js';
+import { PRODUCT_NAME } from '../brand.generated.js';
 
 const listen = (app, host = '127.0.0.1') => new Promise((resolve, reject) => {
   const server = app.listen(0, host, () => resolve(server));
@@ -621,7 +622,7 @@ describe('OpenCode proxy SSE forwarding', () => {
     });
 
     expect(response.status).toBe(504);
-    await expect(response.json()).resolves.toMatchObject({ error: 'smarty-code upstream timed out' });
+    await expect(response.json()).resolves.toMatchObject({ error: `${PRODUCT_NAME} upstream timed out` });
   });
 
   it('exempts interactive provider OAuth callbacks from the request deadline', async () => {

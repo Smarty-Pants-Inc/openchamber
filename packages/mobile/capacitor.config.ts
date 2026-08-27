@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.openchamber.app',
-  appName: 'smarty-code',
+  appName: "smarty-code",
   webDir: 'dist',
   server: {
     androidScheme: 'https',

@@ -54,7 +54,7 @@ if (docsIndex !== -1) {
   process.exit(0);
 }
 
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/\\b(?:OpenChamber|OpenCode)\\b/g, PRODUCT_NAME);\n`;
+const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, PRODUCT_NAME);\n`;
 const javascriptModule = typedModule.replace('(template: string)', '(template)');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
@@ -160,8 +160,8 @@ await patchText('packages/vscode/webview/index.html', (source) => replaceRequire
 ));
 await patchText('packages/mobile/capacitor.config.ts', (source) => replaceRequired(
   source,
-  /(\bappName:\s*)'[^']*'/,
-  (_match, prefix) => `${prefix}'${PRODUCT_NAME}'`,
+  /(\bappName:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/,
+  (_match, prefix) => `${prefix}${JSON.stringify(PRODUCT_NAME)}`,
   'Capacitor appName',
 ));
 await patchText('packages/mobile/android/app/src/main/res/values/strings.xml', (source) => {
@@ -214,7 +214,7 @@ for (const file of [
   'docs/references/badges/openchamber-logo-light.svg',
 ]) generatedText.set(file, logoSvg);
 generatedText.set('packages/web/public/mask-icon.svg', monochromeLogoSvg('#000'));
-generatedText.set('packages/vscode/assets/icon.svg', monochromeLogoSvg('#000'));
+generatedText.set('packages/vscode/assets/icon.svg', monochromeLogoSvg('currentColor'));
 generatedText.set('packages/vscode/assets/icon-titlebar.svg', monochromeLogoSvg('#fff'));
 generatedText.set('packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg', monochromeLogoSvg('#000'));
 

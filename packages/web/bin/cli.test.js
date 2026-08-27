@@ -5,7 +5,7 @@ import path from 'path';
 import { createServer } from 'http';
 import net from 'net';
 import { spawn } from 'child_process';
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { PRODUCT_NAME } from '../brand.generated.js';
 
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
@@ -83,6 +83,37 @@ async function captureStdout(fn) {
   } finally {
     process.stdout.write = originalWrite;
   }
+}
+
+function runCliDiagnostic(kind, json = false) {
+  const cliPath = fileURLToPath(new URL('./cli.js', import.meta.url));
+  const cliUrl = pathToFileURL(cliPath).href;
+  const trigger = kind === 'rejection' || kind === 'rejection-object'
+    ? (kind === 'rejection-object'
+      ? "setImmediate(() => Promise.reject({ code: 'E_DIAGNOSTIC', detail: 'object reason' }));"
+      : "setImmediate(() => Promise.reject(new Error('diagnostic rejection')));")
+    : (kind === 'exception-object'
+      ? "setImmediate(() => { throw { code: 'E_DIAGNOSTIC', detail: 'object exception' }; });"
+      : "setImmediate(() => { throw new Error('diagnostic exception'); });");
+  const source = [
+    `process.argv[1] = ${JSON.stringify(cliPath)};`,
+    `process.argv.splice(2, process.argv.length, ${json ? "'--json', '--version'" : "'--version'"});`,
+    `await import(${JSON.stringify(cliUrl)});`,
+    trigger,
+  ].join('\n');
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
+      cwd: path.resolve('..'),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
 }
 
 async function startMockOpenChamberServer(options = {}) {
@@ -992,6 +1023,61 @@ describe('cli entry detection', () => {
     };
 
     expect(normalizeCliEntryPath(unresolvedPath, realpath)).toBe(path.resolve(unresolvedPath));
+  });
+});
+
+describe('CLI diagnostics', () => {
+  it('preserves unhandled rejection Error stacks in human mode', async () => {
+    const result = await runCliDiagnostic('rejection');
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Unhandled Rejection at:/);
+    expect(result.stderr).toMatch(/reason: Error: diagnostic rejection/);
+    expect(result.stderr).toMatch(/at Immediate\.<anonymous>/);
+  });
+
+  it('preserves unhandled rejection objects in human mode', async () => {
+    const result = await runCliDiagnostic('rejection-object');
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Unhandled Rejection at:/);
+    expect(result.stderr).toMatch(/code: 'E_DIAGNOSTIC'/);
+    expect(result.stderr).toMatch(/detail: 'object reason'/);
+  });
+
+  it('preserves uncaught exception objects in human mode', async () => {
+    const result = await runCliDiagnostic('exception-object');
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Uncaught Exception:/);
+    expect(result.stderr).toMatch(/code: 'E_DIAGNOSTIC'/);
+    expect(result.stderr).toMatch(/detail: 'object exception'/);
+  });
+
+  it('preserves uncaught exception Error stacks in human mode', async () => {
+    const result = await runCliDiagnostic('exception');
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Uncaught Exception: Error: diagnostic exception/);
+    expect(result.stderr).toMatch(/at Immediate\.<anonymous>/);
+  });
+
+  it('normalizes unhandled rejection errors in JSON mode', async () => {
+    const result = await runCliDiagnostic('rejection', true);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('"status": "error"');
+    expect(result.stdout).toContain('"message": "Unhandled rejection: diagnostic rejection"');
+    expect(result.stdout).not.toContain('at Immediate.<anonymous>');
+  });
+
+  it('normalizes uncaught exception errors in JSON mode', async () => {
+    const result = await runCliDiagnostic('exception', true);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('"status": "error"');
+    expect(result.stdout).toContain('"message": "Uncaught exception: diagnostic exception"');
+    expect(result.stdout).not.toContain('at Immediate.<anonymous>');
   });
 });
 

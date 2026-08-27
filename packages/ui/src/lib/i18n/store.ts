@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { brandText } from '@/lib/brand.generated';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
@@ -94,7 +94,8 @@ export function initializeLocale(): void {
 }
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
-  const template = brandText(dictionary[key] ?? enDict[key] ?? key);
+  const sourceTemplate = dictionary[key] ?? enDict[key] ?? key;
+  const template = sourceTemplate.replace(/\bOpenChamber\b/g, PRODUCT_NAME);
   if (!params) {
     return template;
   }

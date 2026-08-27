@@ -3,12 +3,14 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts/apply-brand.mjs');
+const brandConfig = JSON.parse(readFileSync(path.join(root, 'branding/brand.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(path.join(root, 'branding/generated.json'), 'utf8'));
 const EXPECTED_GENERATED_MODULE_COUNT = 5;
 const EXPECTED_PATCHED_TEXT_COUNT = 21;
@@ -49,6 +51,14 @@ const assertFailedWith = (result, pattern) => {
   assert.match(`${result.stdout}\n${result.stderr}`, pattern);
 };
 
+test('canonical generated brandText follows configured presentation aliases', async () => {
+  assert.equal(brandConfig.presentationAliases.includes('OpenCode'), true);
+  const generatedBrandModule = await import(`${pathToFileURL(path.join(root, 'packages/web/brand.generated.js')).href}?canonical=${Date.now()}`);
+  for (const alias of brandConfig.presentationAliases) {
+    assert.equal(generatedBrandModule.brandText(alias), brandConfig.name);
+  }
+});
+
 test('brand check detects missing assets, manifest drift, and required text drift', () => {
   const fixture = copyFixture();
   try {
@@ -85,7 +95,7 @@ test('brand check detects missing assets, manifest drift, and required text drif
   }
 });
 
-test('alternate name, mark, and logo regenerate every controlled variant without non-brand edits', () => {
+test('alternate name, mark, aliases, and logo regenerate every controlled variant without non-brand edits', async () => {
   const fixture = copyFixture();
   try {
     const pwaIconPath = path.join(fixture, 'packages/web/public/pwa-512.png');
@@ -95,6 +105,7 @@ test('alternate name, mark, and logo regenerate every controlled variant without
       ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
       name: 'Fixture Brand',
       mark: 'F!',
+      presentationAliases: ['Legacy Product', 'smarty-code'],
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     writeFileSync(path.join(fixture, 'branding/logo.svg'), alternateLogo);
@@ -102,24 +113,33 @@ test('alternate name, mark, and logo regenerate every controlled variant without
     assertSucceeded(runBrand(fixture));
     assertSucceeded(runBrand(fixture, '--check'));
 
-    const generatedModule = readFileSync(path.join(fixture, 'packages/ui/src/lib/brand.generated.ts'), 'utf8');
+    const generatedModulePath = path.join(fixture, 'packages/ui/src/lib/brand.generated.ts');
+    const generatedModule = readFileSync(generatedModulePath, 'utf8');
     assert.match(generatedModule, /PRODUCT_NAME = "Fixture Brand"/);
     assert.match(generatedModule, /PRODUCT_MARK = "F!"/);
+    assert.match(generatedModule, /\\b\(\?:Legacy Product\|smarty-code\)\\b/);
+    assert.doesNotMatch(generatedModule, /OpenChamber|OpenCode/);
+    const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?fixture=${Date.now()}`);
+    assert.equal(generatedBrandModule.brandText('Legacy Product smarty-code OpenChamber OpenCode'), 'Fixture Brand Fixture Brand OpenChamber OpenCode');
 
     const readme = readFileSync(path.join(fixture, 'README.md'), 'utf8');
     assert.match(readme, /^# <img .* alt="F!" \/> Fixture Brand$/m);
     assert.match(readme, /OpenChamber-\*\.AppImage/);
-    assert.match(readme, /## Why OpenCode\?/);
-    assert.match(readme, /not affiliated with the OpenCode team/);
+    assert.match(readme, /## Why Fixture Brand\?/);
+    assert.match(readme, /not affiliated with the Fixture Brand team/);
 
     const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
     assert.match(installer, /F!  Fixture Brand/);
     assert.match(installer, /Make sure opencode is running: opencode serve/);
 
     assert.equal(readFileSync(path.join(fixture, 'packages/web/public/favicon.svg'), 'utf8'), alternateLogo);
-    const monochrome = readFileSync(path.join(fixture, 'packages/vscode/assets/icon.svg'), 'utf8');
-    assert.match(monochrome, /cx="41"/);
-    assert.doesNotMatch(monochrome, /#123456|#abcdef/);
+    const activityBarIcon = readFileSync(path.join(fixture, 'packages/vscode/assets/icon.svg'), 'utf8');
+    assert.match(activityBarIcon, /cx="41"/);
+    assert.match(activityBarIcon, /(?:fill|stroke)="currentColor"/);
+    assert.doesNotMatch(activityBarIcon, /#123456|#abcdef|#000|#fff/);
+    const titlebarIcon = readFileSync(path.join(fixture, 'packages/vscode/assets/icon-titlebar.svg'), 'utf8');
+    assert.match(titlebarIcon, /(?:fill|stroke)="#fff"/);
+    assert.doesNotMatch(titlebarIcon, /currentColor|#123456|#abcdef/);
     assert.notEqual(sha256(pwaIconPath), originalPwaHash);
     assert.equal(readFileSync(path.join(fixture, 'uncontrolled.txt'), 'utf8'), 'leave me alone\n');
 
@@ -127,6 +147,30 @@ test('alternate name, mark, and logo regenerate every controlled variant without
     assert.equal('config' in alternateManifest, false);
     assert.equal(Object.keys(alternateManifest.files).length, EXPECTED_CONTROLLED_FILE_COUNT);
     assert.deepEqual(Object.keys(alternateManifest.files).sort(), controlledFiles.sort());
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('quoted product names produce a TypeScript-safe Capacitor appName', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: `Fixture's "Brand"`,
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+
+    assertSucceeded(runBrand(fixture));
+
+    const capacitorConfig = readFileSync(path.join(fixture, 'packages/mobile/capacitor.config.ts'), 'utf8');
+    assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\""/);
+    const diagnostics = ts.transpileModule(capacitorConfig, {
+      compilerOptions: { module: ts.ModuleKind.ESNext },
+      fileName: 'capacitor.config.ts',
+      reportDiagnostics: true,
+    }).diagnostics ?? [];
+    assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.messageText), []);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

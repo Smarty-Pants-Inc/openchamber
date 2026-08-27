@@ -60,6 +60,23 @@ test('verifies identity, version, and native payload architecture', () => {
   }
 });
 
+test('fails when the desktop entry does not launch AppRun', () => {
+  const root = createPayload();
+  try {
+    fs.writeFileSync(path.join(root, 'openchamber.desktop'), [
+      '[Desktop Entry]', `Name=${PRODUCT_NAME}`, 'Icon=openchamber', 'StartupWMClass=openchamber', '',
+    ].join('\n'));
+    assert.throws(() => verifyExtractedPayload({
+      root,
+      targetArchitecture: 'x64',
+      expectedOpenCodeVersion: '1.17.18',
+      runCliVersion: () => '1.17.18',
+    }), /Desktop identity mismatch: expected AppImage AppRun entrypoint/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('fails on a missing native module', () => {
   const root = createPayload();
   try {

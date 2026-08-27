@@ -5,7 +5,7 @@
 [![Discord](https://img.shields.io/badge/Discord-join.png?style=flat&labelColor=100F0F&color=8B7EC8&logo=discord&logoColor=FFFCF0)](https://discord.gg/ZYRSdnwwKA)
 [![Support the project](https://img.shields.io/badge/Support-Project-black?style=flat&labelColor=100F0F&color=EC8B49&logo=ko-fi&logoColor=FFFCF0)](https://ko-fi.com/G2G41SAWNS)
 
-[OpenCode](https://opencode.ai) AI coding agent, right inside your editor. No tab-switching, no context loss.
+[smarty-code](https://opencode.ai) AI coding agent, right inside your editor. No tab-switching, no context loss.
 
 **Like the extension? There's also a [desktop app and web version](https://github.com/openchamber/openchamber) with even more features.**
 
@@ -30,7 +30,7 @@ Plus everything from the shared smarty-code UI: branchable timeline, smart tool 
 | `smarty-code: Open Agent Manager` | Launch parallel multi-model runs |
 | `smarty-code: Open Session in Editor` | Open current or new session in an editor tab |
 | `smarty-code: Settings` | Open extension settings |
-| `smarty-code: Restart API Connection` | Restart the OpenCode API process |
+| `smarty-code: Restart API Connection` | Restart the smarty-code API process |
 | `smarty-code: Show smarty-code Status` | Debug info for development or bug reports |
 
 ### Right-click menu
@@ -47,12 +47,12 @@ Select code in the editor, right-click, and find the **smarty-code** submenu:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `openchamber.apiUrl` | _(empty)_ | URL of an external OpenCode API server. Leave empty to auto-start a local instance. |
+| `openchamber.apiUrl` | _(empty)_ | URL of an external smarty-code API server. Leave empty to auto-start a local instance. |
 | `openchamber.opencodeBinary` | _(empty)_ | Absolute path to the `opencode` CLI binary. Useful when PATH lookup fails. Requires window reload to apply. |
 
 ## Requirements
 
-- [OpenCode CLI](https://opencode.ai) installed and available in PATH (or set `OPENCODE_BINARY` env var)
+- [smarty-code CLI](https://opencode.ai) installed and available in PATH (or set `OPENCODE_BINARY` env var)
 - VS Code 1.85+
 
 <details>
