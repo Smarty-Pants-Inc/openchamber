@@ -73,4 +73,4 @@ Required local tools:
 
 ## Generated Assets
 
-The native projects currently use Capacitor-generated launcher and splash assets. Replace them before release branding work.
+The launcher, splash, and notification assets are generated from `branding/logo.svg` by `bun run brand`.

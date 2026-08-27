@@ -33,7 +33,7 @@ Plus everything from the shared smarty-code UI: branchable timeline, smart tool 
 | `smarty-code: Open Session in Editor` | Open current or new session in an editor tab |
 | `smarty-code: Settings` | Open extension settings |
 | `smarty-code: Restart API Connection` | Restart the OpenCode API process |
-| `smarty-code: Show OpenCode Status` | Debug info for development or bug reports |
+| `smarty-code: Show smarty-code Status` | Debug info for development or bug reports |
 
 ### Right-click menu
 
