@@ -22,10 +22,10 @@ function notify() {
 export function startConfigUpdate(message?: string) {
   pendingCount += 1;
   if (pendingCount === 1) {
-    currentMessage = brandText(message || DEFAULT_MESSAGE);
+    currentMessage = message || DEFAULT_MESSAGE;
     notify();
   } else if (message) {
-    currentMessage = brandText(message);
+    currentMessage = message;
     notify();
   }
 }

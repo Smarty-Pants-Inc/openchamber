@@ -1,28 +1,37 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const args = process.argv.slice(2);
+const rootIndex = args.indexOf('--root');
+const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = rootIndex === -1 ? defaultRoot : path.resolve(args[rootIndex + 1]);
 const sourcePath = path.join(root, 'branding/logo.svg');
 const configPath = path.join(root, 'branding/brand.json');
 const manifestPath = path.join(root, 'branding/generated.json');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
-const { name: PRODUCT_NAME, mark: PRODUCT_MARK } = config;
-const args = process.argv.slice(2);
+const { name: PRODUCT_NAME, mark: PRODUCT_MARK, presentationAliases = ['OpenChamber'] } = config;
 const check = args.includes('--check');
 const docsIndex = args.indexOf('--docs');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '{}'));
-const brandNames = [...new Set(['OpenChamber', previousManifest.config?.name === PRODUCT_NAME ? undefined : previousManifest.config?.name].filter(Boolean))];
-const brandText = (value) => value.replace(new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g'), PRODUCT_NAME);
+const brandNames = [...new Set(presentationAliases.filter(Boolean))];
+const brandRegex = new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g');
+const brandText = (value) => value.replace(brandRegex, PRODUCT_NAME);
 const brandDocs = (value) => {
-  const preserved = [];
-  const protectedValue = value.replace(/`OpenChamber(?: Dev)?`(?: app name)?|OpenChamber-\*\.AppImage/g, (literal) => `__BRAND_COMPAT_${preserved.push(literal) - 1}__`);
-  return brandText(protectedValue).replace(/__BRAND_COMPAT_(\d+)__/g, (_match, index) => preserved[Number(index)]);
+  const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
+  let branded = '';
+  let cursor = 0;
+  for (const match of value.matchAll(code)) {
+    branded += brandText(value.slice(cursor, match.index));
+    const token = match[0];
+    branded += token;
+    cursor = match.index + token.length;
+  }
+  return branded + brandText(value.slice(cursor));
 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
-const relative = (file) => path.relative(root, file).split(path.sep).join('/');
 
 const walk = async (directory) => {
   const files = [];
@@ -45,12 +54,12 @@ if (docsIndex !== -1) {
   process.exit(0);
 }
 
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (value: string) => value.replace(/\\b(?:OpenChamber|OpenCode)\\b/g, PRODUCT_NAME);\n`;
-const javascriptModule = typedModule.replace('(value: string)', '(value)');
+const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/\\b(?:OpenChamber|OpenCode)\\b/g, PRODUCT_NAME);\n`;
+const javascriptModule = typedModule.replace('(template: string)', '(template)');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
   ['packages/web/brand.generated.js', javascriptModule],
-  ['packages/web/brand.generated.d.ts', 'export const PRODUCT_NAME: string;\nexport const PRODUCT_MARK: string;\nexport function brandText(value: string): string;\n'],
+  ['packages/web/brand.generated.d.ts', 'export const PRODUCT_NAME: string;\nexport const PRODUCT_MARK: string;\nexport function brandText(template: string): string;\n'],
   ['packages/electron/brand.generated.mjs', javascriptModule],
   ['packages/vscode/src/brand.generated.ts', typedModule],
 ]);
@@ -61,11 +70,11 @@ const replaceRequired = (source, pattern, replacement, label) => {
   if (!pattern.test(source)) throw new Error(`Cannot find generated brand field: ${label}`);
   return source.replace(pattern, replacement);
 };
-const setJsonString = (source, key, value) => replaceRequired(
+const setJsonString = (source, key, value, label = key) => replaceRequired(
   source,
   new RegExp(`("${escapeRegex(key)}"\\s*:\\s*)"(?:\\\\.|[^"\\\\])*"`),
   (_match, prefix) => `${prefix}${JSON.stringify(value)}`,
-  key,
+  label,
 );
 const setXmlString = (source, key, value) => replaceRequired(
   source,
@@ -86,15 +95,22 @@ const setSwiftString = (source, pattern, value, label) => replaceRequired(
   label,
 );
 
-const pwaManifestFile = 'packages/web/public/site.webmanifest';
-const pwaManifest = (await readFile(path.join(root, pwaManifestFile), 'utf8'))
-  .replace(/("name"\s*:\s*)".*"/, `$1${JSON.stringify(`${PRODUCT_NAME} - AI Coding Companion`)}`)
-  .replace(/("short_name"\s*:\s*)".*"/, `$1${JSON.stringify(PRODUCT_NAME)}`)
-  .replace(/("description"\s*:\s*)".*"/, `$1${JSON.stringify(`${PRODUCT_NAME} AI coding assistant`)}`);
-patchedText.set(pwaManifestFile, pwaManifest);
+await patchText('packages/web/public/site.webmanifest', (source) => {
+  let branded = setJsonString(source, 'name', `${PRODUCT_NAME} - AI Coding Companion`, 'PWA name');
+  branded = setJsonString(branded, 'short_name', PRODUCT_NAME, 'PWA short_name');
+  return setJsonString(branded, 'description', `${PRODUCT_NAME} AI coding assistant`, 'PWA description');
+});
 
+await patchText('README.md', (source) => {
+  const branded = brandDocs(source);
+  return replaceRequired(
+    branded,
+    /^(# <img src="docs\/references\/badges\/openchamber-logo-dark\.png" width="32" height="32" align="absmiddle" alt=")[^"]*(" \/> )[^\n]+$/m,
+    (_match, prefix, suffix) => `${prefix}${PRODUCT_MARK}${suffix}${PRODUCT_NAME}`,
+    'README brand heading',
+  );
+});
 for (const file of [
-  'README.md',
   'packages/web/README.md',
   'packages/electron/README.md',
   'packages/vscode/README.md',
@@ -104,13 +120,17 @@ for (const file of [
 
 await patchText('package.json', (source) => setJsonString(source, 'description', `${PRODUCT_NAME} monorepo workspace for web, ui, and desktop runtimes`));
 await patchText('scripts/install.sh', (source) => {
-  const branded = brandText(source);
-  return replaceRequired(
-    branded,
-    /(# brand:mark\n\s*printf )'[^']*'/,
-    (_match, prefix) => `${prefix}'  ${PRODUCT_MARK}  ${PRODUCT_NAME}\\n'`,
-    'installer mark',
-  );
+  let branded = replaceRequired(source, /^# .* Install Script$/m, `# ${PRODUCT_NAME} Install Script`, 'installer header');
+  const bannerTitle = `   ${PRODUCT_NAME} Installer`.padEnd(35);
+  const bannerSubtitle = '   AI coding workspace'.padEnd(35);
+  branded = replaceRequired(branded, /^  echo "  │.*Installer.*│"$/m, `  echo "  │${bannerTitle}│"`, 'installer banner title');
+  branded = replaceRequired(branded, /^  echo "  │   (?:Web interface for .*|AI coding workspace)\s*│"$/m, `  echo "  │${bannerSubtitle}│"`, 'installer banner subtitle');
+  branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, `    info "${PRODUCT_NAME} is already installed — updating via 'openchamber update'..."`, 'installer update message');
+  branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, `      success "${PRODUCT_NAME} is up to date!"`, 'installer updated message');
+  branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, `  info "Installing ${PRODUCT_NAME}..."`, 'installer installing message');
+  branded = replaceRequired(branded, /(# brand:mark\n\s*printf )'[^']*'/, (_match, prefix) => `${prefix}'  ${PRODUCT_MARK}  ${PRODUCT_NAME}\\n'`, 'installer mark');
+  branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, `    success "${PRODUCT_NAME} installed successfully!"`, 'installer success message');
+  return replaceRequired(branded, /^    echo "    Make sure .*: opencode serve"$/m, '    echo "    Make sure opencode is running: opencode serve"', 'installer prerequisite');
 });
 
 await patchText('packages/electron/package.json', (source) => {
@@ -175,8 +195,14 @@ await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidgets.sw
   const branded = setSwiftString(source, /(configurationDisplayName\()"[^"]*"/, PRODUCT_NAME, 'widget overview name');
   return setSwiftString(branded, /(description\()"Start a new [^"]* session\."/, `Start a new ${PRODUCT_NAME} session.`, 'widget control description');
 });
+
 const logoSvg = await readFile(sourcePath, 'utf8');
-const nerdOutlineSvg = (color = '#000') => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="${color}" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"><circle cx="32" cy="32" r="28"/><rect x="9" y="19" width="20" height="16" rx="7"/><rect x="35" y="19" width="20" height="16" rx="7"/><path d="M29 25h6M17 43c8 8 22 8 30 0"/></g><path fill="${color}" d="M27 45h10v6H27z"/></svg>\n`;
+const monochromeLogoSvg = (color) => {
+  let svg = logoSvg.replace(/\s*<defs>[\s\S]*?<\/defs>/, '');
+  svg = svg.replace(/(<(?:circle|ellipse|rect|path|polygon)\b[^>]*\bfill=")(?!none)[^"]*"/, '$1none"');
+  svg = svg.replace(/\b(fill|stroke)="(?!none)[^"]*"/g, (_match, attribute) => `${attribute}="${color}"`);
+  return `${svg.trimEnd()}\n`;
+};
 for (const file of [
   'packages/web/public/favicon.svg',
   'packages/web/public/apple-touch-icon.svg',
@@ -187,35 +213,142 @@ for (const file of [
   'docs/references/badges/openchamber-logo-dark.svg',
   'docs/references/badges/openchamber-logo-light.svg',
 ]) generatedText.set(file, logoSvg);
+generatedText.set('packages/web/public/mask-icon.svg', monochromeLogoSvg('#000'));
+generatedText.set('packages/vscode/assets/icon.svg', monochromeLogoSvg('#000'));
+generatedText.set('packages/vscode/assets/icon-titlebar.svg', monochromeLogoSvg('#fff'));
+generatedText.set('packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg', monochromeLogoSvg('#000'));
 
-generatedText.set('packages/web/public/mask-icon.svg', nerdOutlineSvg());
-generatedText.set('packages/vscode/assets/icon.svg', nerdOutlineSvg());
-generatedText.set('packages/vscode/assets/icon-titlebar.svg', nerdOutlineSvg('#fff'));
-generatedText.set('packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg', nerdOutlineSvg());
-generatedText.set('packages/mobile/android/app/src/main/res/drawable/ic_stat_notify.xml', `<!-- Monochrome nerd mark for Android's tinted notification surface. -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
-        android:strokeLineJoin="round"
-        android:strokeLineCap="round"
-        android:pathData="M12,2.5 A9.5,9.5 0,1 1,11.99 2.5 M7.5,7.2 A3.6,3.6 0,1 1,7.49 7.2 M16.5,7.2 A3.6,3.6 0,1 1,16.49 7.2 M11.1,9.4 L12.9,9.4 M7.5,15 C9.6,18 14.4,18 16.5,15" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M10.4,15.8 L13.6,15.8 L13.6,18 L10.4,18 Z" />
-</vector>
-`);
+const pngTargets = [
+  { file: 'docs/references/badges/openchamber-logo-dark.png', width: 512, height: 512 },
+  { file: 'packages/electron/resources/icons/app-icon.png', width: 512, height: 512 },
+  { file: 'packages/electron/resources/icons/dev-icon.png', width: 1024, height: 1024 },
+  { file: 'packages/electron/resources/icons/icon.png', width: 1024, height: 1024 },
+  ...Array.from({ length: 16 }, (_, frame) => ({ file: `packages/electron/resources/icons/tray/trayTemplate-breath-${String(frame).padStart(2, '0')}.png`, width: 18, height: 18 })),
+  ...Array.from({ length: 16 }, (_, frame) => ({ file: `packages/electron/resources/icons/tray/trayTemplate-breath-${String(frame).padStart(2, '0')}@2x.png`, width: 36, height: 36 })),
+  { file: 'packages/electron/resources/icons/tray/trayTemplate-idle.png', width: 18, height: 18 },
+  { file: 'packages/electron/resources/icons/tray/trayTemplate-idle@2x.png', width: 36, height: 36 },
+  { file: 'packages/electron/resources/icons/tray/trayTemplate-unseen.png', width: 18, height: 18 },
+  { file: 'packages/electron/resources/icons/tray/trayTemplate-unseen@2x.png', width: 36, height: 36 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable/ic_stat_notify.png', width: 96, height: 96 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-land-hdpi/splash.png', width: 800, height: 480 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-land-mdpi/splash.png', width: 480, height: 320 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-land-xhdpi/splash.png', width: 1280, height: 720 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-land-xxhdpi/splash.png', width: 1600, height: 960 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-land-xxxhdpi/splash.png', width: 1920, height: 1280 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-port-hdpi/splash.png', width: 480, height: 800 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-port-mdpi/splash.png', width: 320, height: 480 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-port-xhdpi/splash.png', width: 720, height: 1280 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-port-xxhdpi/splash.png', width: 960, height: 1600 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable-port-xxxhdpi/splash.png', width: 1280, height: 1920 },
+  { file: 'packages/mobile/android/app/src/main/res/drawable/splash.png', width: 480, height: 320 },
+  ...Object.entries({ ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 }).flatMap(([density, size]) => [
+    'ic_launcher.png',
+    'ic_launcher_background.png',
+    'ic_launcher_foreground.png',
+    'ic_launcher_round.png',
+  ].map((name) => ({ file: `packages/mobile/android/app/src/main/res/mipmap-${density}/${name}`, width: size, height: size }))),
+  { file: 'packages/mobile/assets/icon-background.png', width: 1024, height: 1024 },
+  { file: 'packages/mobile/assets/icon-foreground.png', width: 1024, height: 1024 },
+  { file: 'packages/mobile/assets/icon-only.png', width: 1024, height: 1024 },
+  { file: 'packages/mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png', width: 1024, height: 1024 },
+  { file: 'packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-1.png', width: 2732, height: 2732 },
+  { file: 'packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-2.png', width: 2732, height: 2732 },
+  { file: 'packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png', width: 2732, height: 2732 },
+  { file: 'packages/vscode/assets/app-icon.png', width: 512, height: 512 },
+  { file: 'packages/web/public/apple-touch-icon-120x120.png', width: 120, height: 120 },
+  { file: 'packages/web/public/apple-touch-icon-152x152.png', width: 152, height: 152 },
+  { file: 'packages/web/public/apple-touch-icon-167x167.png', width: 167, height: 167 },
+  { file: 'packages/web/public/apple-touch-icon-180x180.png', width: 180, height: 180 },
+  { file: 'packages/web/public/apple-touch-icon.png', width: 180, height: 180 },
+  { file: 'packages/web/public/favicon-16.png', width: 16, height: 16 },
+  { file: 'packages/web/public/favicon-32.png', width: 32, height: 32 },
+  { file: 'packages/web/public/favicon.png', width: 64, height: 64 },
+  { file: 'packages/web/public/logo-dark-192x192.png', width: 192, height: 192 },
+  { file: 'packages/web/public/logo-light-192x192.png', width: 192, height: 192 },
+  { file: 'packages/web/public/pwa-192.png', width: 192, height: 192 },
+  { file: 'packages/web/public/pwa-512.png', width: 512, height: 512 },
+  { file: 'packages/web/public/pwa-maskable-192.png', width: 192, height: 192 },
+  { file: 'packages/web/public/pwa-maskable-512.png', width: 512, height: 512 },
+];
+const obsoleteGeneratedFiles = ['packages/mobile/android/app/src/main/res/drawable/ic_stat_notify.xml'];
+const background = { r: 21, g: 19, b: 19, alpha: 1 };
+const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
+
+const renderPngs = async () => {
+  const { default: sharp } = await import('sharp');
+  const fullLogo = Buffer.from(logoSvg);
+  const monochromeLogo = Buffer.from(monochromeLogoSvg('#000'));
+  const whiteLogo = Buffer.from(monochromeLogoSvg('#fff'));
+  for (const target of pngTargets) {
+    const absolute = path.join(root, target.file);
+    await mkdir(path.dirname(absolute), { recursive: true });
+    const name = path.basename(target.file);
+    const tray = target.file.includes('/tray/');
+    const notification = name === 'ic_stat_notify.png';
+    const kind = tray ? 'tray'
+      : notification ? 'notification'
+        : name.includes('background') ? 'background'
+          : name.includes('foreground') ? 'foreground'
+            : name === 'splash.png' || name.startsWith('splash-') ? 'splash'
+              : /(?:favicon|logo-(?:dark|light)|openchamber-logo)/.test(name) ? 'transparent'
+                : 'app';
+    const canvas = sharp({
+      create: {
+        width: target.width,
+        height: target.height,
+        channels: 4,
+        background: ['app', 'splash', 'background'].includes(kind) ? background : transparent,
+      },
+    });
+    let output = canvas;
+    if (kind !== 'background') {
+      const min = Math.min(target.width, target.height);
+      const frame = Number(name.match(/breath-(\d+)/)?.[1] ?? 0);
+      const ratio = kind === 'splash' ? 0.28
+        : kind === 'foreground' ? 0.72
+          : kind === 'tray' ? 0.78 + Math.sin(frame / 16 * Math.PI * 2) * 0.06
+            : kind === 'notification' ? 0.78
+              : kind === 'app' ? 0.9
+                : 1;
+      const size = Math.max(1, Math.round(min * ratio));
+      const source = kind === 'tray' ? monochromeLogo : kind === 'notification' ? whiteLogo : fullLogo;
+      const input = await sharp(source).resize(size, size, { fit: 'contain' }).png().toBuffer();
+      const composites = [{ input, gravity: 'center' }];
+      if (kind === 'tray' && name.includes('unseen')) {
+        const dot = Math.max(3, Math.round(min * 0.24));
+        const dotSvg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${dot}" height="${dot}"><circle cx="${dot / 2}" cy="${dot / 2}" r="${dot / 2}" fill="#000"/></svg>`);
+        composites.push({ input: dotSvg, left: target.width - dot, top: 0 });
+      }
+      output = canvas.composite(composites);
+    }
+    const temporary = `${absolute}.brand-tmp`;
+    await output.png().toFile(temporary);
+    await rename(temporary, absolute);
+  }
+};
+
+const sourceDigest = hash(Buffer.concat([
+  await readFile(configPath),
+  await readFile(sourcePath),
+  await readFile(fileURLToPath(import.meta.url)),
+]));
+const expectedFiles = [...generatedText.keys(), ...patchedText.keys(), ...pngTargets.map(({ file }) => file)].sort();
+
+for (const file of obsoleteGeneratedFiles) {
+  const absolute = path.join(root, file);
+  if (check) {
+    if (await readFile(absolute).then(() => true).catch(() => false)) throw new Error(`Obsolete generated brand file: ${file}`);
+  } else {
+    await rm(absolute, { force: true });
+  }
+}
 
 for (const [file, content] of generatedText) {
   const absolute = path.join(root, file);
   if (check) {
     if (await readFile(absolute, 'utf8').catch(() => '') !== content) throw new Error(`Stale generated brand file: ${file}`);
   } else {
+    await mkdir(path.dirname(absolute), { recursive: true });
     await writeFile(absolute, content);
   }
 }
@@ -230,68 +363,18 @@ for (const [file, content] of patchedText) {
   }
 }
 
-const pngs = [
-  ...(await walk(path.join(root, 'packages/web/public'))).filter((file) => /\/(?:apple-touch-icon[^/]*|favicon(?:-\d+)?|logo-(?:dark|light)-192x192|pwa(?:-maskable)?-(?:192|512))\.png$/.test(file)),
-  ...(await walk(path.join(root, 'packages/electron/resources/icons'))).filter((file) => file.endsWith('.png') && !file.includes('/AppIcon.icon/') && !file.includes('/tray/status/')),
-  path.join(root, 'packages/vscode/assets/app-icon.png'),
-  path.join(root, 'docs/references/badges/openchamber-logo-dark.png'),
-  ...(await walk(path.join(root, 'packages/mobile/assets'))).filter((file) => file.endsWith('.png')),
-  ...(await walk(path.join(root, 'packages/mobile/android/app/src/main/res'))).filter((file) => /\/(?:ic_launcher(?:_background|_foreground|_round)?|splash)\.png$/.test(file)),
-  ...(await walk(path.join(root, 'packages/mobile/ios/App/App/Assets.xcassets'))).filter((file) => /\/(?:AppIcon-512@2x|splash-2732x2732(?:-[12])?)\.png$/.test(file)),
-];
-
-const background = { r: 21, g: 19, b: 19, alpha: 1 };
-const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
-const nerdSvg = (unseen = false) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"><circle cx="32" cy="32" r="27"/><rect x="8" y="18" width="21" height="17" rx="7"/><rect x="35" y="18" width="21" height="17" rx="7"/><path d="M29 25h6M17 43c8 8 22 8 30 0"/></g><path d="M27 45h10v7H27z"/>${unseen ? '<circle cx="55" cy="9" r="7"/>' : ''}</svg>`);
-
-const renderPngs = async () => {
-  const { default: sharp } = await import('sharp');
-  for (const file of pngs) {
-    const { width, height } = await sharp(file).metadata();
-    if (!width || !height) throw new Error(`Cannot read dimensions: ${relative(file)}`);
-    const name = path.basename(file);
-    const tray = file.includes('/tray/');
-    const kind = tray ? 'tray'
-      : name.includes('background') ? 'background'
-        : name.includes('foreground') ? 'foreground'
-          : name === 'splash.png' || name.startsWith('splash-') ? 'splash'
-            : /(?:favicon|logo-(?:dark|light)|openchamber-logo)/.test(name) ? 'transparent'
-              : 'app';
-    const canvas = sharp({ create: { width, height, channels: 4, background: ['app', 'splash', 'background'].includes(kind) ? background : transparent } });
-    let output = canvas;
-    if (kind !== 'background') {
-      const min = Math.min(width, height);
-      const frame = Number(name.match(/breath-(\d+)/)?.[1] ?? 0);
-      const ratio = kind === 'splash' ? 0.28 : kind === 'foreground' ? 0.72 : kind === 'tray' ? 0.78 + Math.sin(frame / 16 * Math.PI * 2) * 0.06 : kind === 'app' ? 0.9 : 1;
-      const size = Math.max(1, Math.round(min * ratio));
-      const input = tray
-        ? await sharp(nerdSvg(name.includes('unseen'))).resize(size, size).png().toBuffer()
-        : await sharp(sourcePath).resize(size, size, { fit: 'contain' }).png().toBuffer();
-      output = canvas.composite([{ input, gravity: 'center' }]);
-    }
-    const temporary = `${file}.brand-tmp`;
-    await output.png().toFile(temporary);
-    await rename(temporary, file);
-  }
-};
-
-const sourceDigest = hash(Buffer.concat([
-  await readFile(configPath),
-  await readFile(sourcePath),
-  await readFile(fileURLToPath(import.meta.url)),
-]));
-
 if (!check) await renderPngs();
 
-const files = [...generatedText.keys(), ...pngs.map(relative)].sort();
 if (check) {
-  const manifest = previousManifest;
-  if (manifest.source !== sourceDigest) throw new Error('Generated brand assets are stale');
-  for (const file of files) {
+  const manifestFiles = Object.keys(previousManifest.files ?? {}).sort();
+  if (JSON.stringify(manifestFiles) !== JSON.stringify(expectedFiles)) throw new Error('Generated brand manifest membership changed');
+  if (previousManifest.source !== sourceDigest) throw new Error('Generated brand assets are stale');
+  for (const file of expectedFiles) {
     const actual = hash(await readFile(path.join(root, file)));
-    if (manifest.files?.[file] !== actual) throw new Error(`Generated brand asset changed: ${file}`);
+    if (previousManifest.files[file] !== actual) throw new Error(`Generated brand asset changed: ${file}`);
   }
 } else {
-  const hashes = Object.fromEntries(await Promise.all(files.map(async (file) => [file, hash(await readFile(path.join(root, file)))])));
-  await writeFile(manifestPath, `${JSON.stringify({ config, source: sourceDigest, files: hashes })}\n`);
+  const hashes = Object.fromEntries(await Promise.all(expectedFiles.map(async (file) => [file, hash(await readFile(path.join(root, file)))])));
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify({ source: sourceDigest, files: hashes })}\n`);
 }

@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
 import { ElectronSshManager } from './ssh-manager.mjs';
+import { PRODUCT_NAME } from './brand.generated.mjs';
 
 const servers = [];
 const tempDirs = [];
@@ -286,7 +287,7 @@ describe('ElectronSshManager', () => {
       password: 'ui-secret',
       trustDevice: true,
       issueClientToken: true,
-      clientLabel: 'smarty-code Desktop SSH',
+      clientLabel: `${PRODUCT_NAME} Desktop SSH`,
     });
     expect(settings.desktopHosts).toEqual([{ id: 'ssh-1', label: 'SSH Host', url: localUrl, apiUrl: localUrl, clientToken: 'ssh-client-token' }]);
   });

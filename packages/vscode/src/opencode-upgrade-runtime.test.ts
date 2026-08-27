@@ -1,6 +1,7 @@
 import { afterEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getOpenCodeUpgradeStatus, upgradeManagedOpenCode, type OpenCodeUpgradeManager } from './opencode-upgrade-runtime';
+import { PRODUCT_NAME } from './brand.generated';
 
 const originalFetch = globalThis.fetch;
 
@@ -50,7 +51,7 @@ describe('VS Code OpenCode upgrades', () => {
       body: {
         success: false,
         code: 'OPENCODE_UPGRADE_UNSUPPORTED',
-        error: 'This OpenCode runtime cannot be upgraded by smarty-code.',
+        error: `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.`,
       },
     });
     assert.equal(fetchCount, 0);

@@ -1,6 +1,6 @@
 import express from 'express';
 import { asControlError } from './error.js';
-import { brandText, PRODUCT_NAME } from '../../../brand.generated.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 export const registerOpenChamberControlRoutes = (app, { controlService }) => {
   app.post('/api/openchamber/control', express.json({ limit: '1mb' }), async (req, res) => {
@@ -21,7 +21,7 @@ export const registerOpenChamberControlRoutes = (app, { controlService }) => {
     } catch (error) {
       const controlError = asControlError(error, `${PRODUCT_NAME} control action failed`);
       return res.status(controlError.statusCode).json({
-        error: brandText(controlError.message),
+        error: controlError.message,
         ...(controlError.partial === true ? {
           partial: true,
           partialAction: controlError.partialAction,

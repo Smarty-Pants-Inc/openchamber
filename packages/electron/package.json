@@ -82,6 +82,7 @@
     "artifactName": "OpenChamber-${version}-${arch}.${ext}",
     "npmRebuild": false,
     "mac": {
+      "artifactName": "OpenChamber-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.developer-tools",
       "executableName": "OpenChamber",
       "icon": "resources/icons/app-icon.png",

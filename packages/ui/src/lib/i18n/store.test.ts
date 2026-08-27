@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { brandText } from '@/lib/brand.generated';
+import { brandText, PRODUCT_NAME } from '@/lib/brand.generated';
 import { DEFAULT_LOCALE, type Locale } from './runtime';
 import { formatMessage, resetI18nDictionaryCacheForTests, useI18nStore } from './store';
 
@@ -28,14 +28,15 @@ describe('i18n store', () => {
   beforeEach(resetStore);
   test('brands product names in translated templates without rewriting parameters', () => {
     expect(formatMessage(defaultDictionary, 'aboutDialog.openChamberVersionLabel', { version: 'OpenChamber' }))
-      .toBe('smarty-code version OpenChamber');
-    expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: 'OpenCode' }))
-      .toBe('smarty-code version OpenCode');
+      .toBe(`${PRODUCT_NAME} version OpenChamber`);
+    const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
+    expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
+      .toBe(`${PRODUCT_NAME} version ${runtimeValue}`);
   });
 
   test('preserves technical OpenCode identifiers', () => {
     expect(brandText('OpenCode opencode OPENCODE_BINARY OpenCodeClient'))
-      .toBe('smarty-code opencode OPENCODE_BINARY OpenCodeClient');
+      .toBe(`${PRODUCT_NAME} opencode OPENCODE_BINARY OpenCodeClient`);
   });
 
   test('retries loading the active locale when it is not cached', async () => {

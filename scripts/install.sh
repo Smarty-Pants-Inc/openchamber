@@ -157,7 +157,7 @@ main() {
   echo "  ╭───────────────────────────────────╮"
   echo "  │                                   │"
   echo "  │   smarty-code Installer           │"
-  echo "  │   Web interface for OpenCode      │"
+  echo "  │   AI coding workspace             │"
   echo "  │                                   │"
   echo "  ╰───────────────────────────────────╯"
   echo ""
@@ -255,7 +255,7 @@ main() {
     fi
     echo ""
     echo "  Prerequisites:"
-    echo "    Make sure OpenCode is running: opencode serve"
+    echo "    Make sure opencode is running: opencode serve"
     echo ""
   else
     echo ""

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const createResponse = () => ({
   headers: new Map(),
@@ -63,6 +64,7 @@ describe('PWA manifest route', () => {
       await handler({ query: {} }, res);
 
       const manifest = JSON.parse(res.body);
+      expect(manifest.description).toBe(`${PRODUCT_NAME} AI coding assistant`);
       expect(fetchCalls).toHaveLength(2);
       expect(manifest.shortcuts).toEqual([
         {

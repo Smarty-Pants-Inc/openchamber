@@ -7,8 +7,6 @@
 
 [OpenCode](https://opencode.ai) AI coding agent, right inside your editor. No tab-switching, no context loss.
 
-![VS Code Extension](https://github.com/openchamber/openchamber/raw/HEAD/packages/vscode/extension.jpg)
-
 **Like the extension? There's also a [desktop app and web version](https://github.com/openchamber/openchamber) with even more features.**
 
 ## What you get

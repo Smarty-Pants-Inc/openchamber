@@ -16,7 +16,7 @@ let outputChannel: vscode.OutputChannel | undefined;
 let activeSessionId: string | null = null;
 let activeSessionTitle: string | null = null;
 
-const t = (message: string, ...args: Array<string | number | boolean>) => brandText(vscode.l10n.t(message, ...args));
+const t = (message: string, ...args: Array<string | number | boolean>) => vscode.l10n.t(brandText(message), ...args);
 
 const SETTINGS_KEY = 'openchamber.settings';
 const CHAT_VIEW_BOOTSTRAP_DELAY_MS = 80;
@@ -638,7 +638,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const lines = [
         `Time: ${new Date().toISOString()}`,
         `${PRODUCT_NAME} version: ${extensionVersion || '(unknown)'}`,
-        `OpenCode Version: ${debug?.version ?? '(unknown)'}`,
+        `opencode version: ${debug?.version ?? '(unknown)'}`,
         `VS Code version: ${vscode.version}`,
         `Platform: ${process.platform} ${process.arch}`,
         `Workspace folders: ${workspaceFolders.length}${workspaceFolders.length ? ` (${workspaceFolders.join(', ')})` : ''}`,
@@ -646,30 +646,30 @@ export async function activate(context: vscode.ExtensionContext) {
         `Working directory: ${workingDirectory}`,
         `Working dir matches workspace: ${workingDirectoryMatchesWorkspace ? 'yes' : 'no'}`,
         `API URL (configured): ${configuredApiUrl || '(none)'}`,
-        `OpenCode binary (configured): ${(vscode.workspace.getConfiguration('openchamber').get<string>('opencodeBinary') || '').trim() || '(none)'}`,
+        `opencode executable (configured): ${(vscode.workspace.getConfiguration('openchamber').get<string>('opencodeBinary') || '').trim() || '(none)'}`,
         `API URL (resolved): ${openCodeManager?.getApiUrl() ?? '(none)'}`,
         `API URL path: ${resolvedApiPath || '(none)'}`,
         debug
-          ? `OpenCode server URL: ${debug.serverUrl ?? '(none)'}`
-          : `OpenCode server URL: (unknown)`,
+          ? `opencode server URL: ${debug.serverUrl ?? '(none)'}`
+          : `opencode server URL: (unknown)`,
         debug
-          ? `OpenCode mode: ${debug.mode} (starts=${debug.startCount}, restarts=${debug.restartCount})`
-          : `OpenCode mode: (unknown)`,
+          ? `opencode mode: ${debug.mode} (starts=${debug.startCount}, restarts=${debug.restartCount})`
+          : `opencode mode: (unknown)`,
         debug
-          ? `Secure OpenCode connection: ${debug.secureConnection ? 'true' : 'false'}`
-          : `Secure OpenCode connection: (unknown)`,
+          ? `Secure opencode connection: ${debug.secureConnection ? 'true' : 'false'}`
+          : `Secure opencode connection: (unknown)`,
         debug
-          ? `OpenCode auth source: ${debug.authSource ?? '(none)'}`
-          : `OpenCode auth source: (unknown)`,
+          ? `opencode auth source: ${debug.authSource ?? '(none)'}`
+          : `opencode auth source: (unknown)`,
         debug
-          ? `OpenCode CLI path: ${debug.cliPath || '(not found)'}`
-          : `OpenCode CLI path: (unknown)`,
+          ? `opencode CLI path: ${debug.cliPath || '(not found)'}`
+          : `opencode CLI path: (unknown)`,
         debug
-          ? `OpenCode detected port: ${debug.detectedPort ?? '(none)'}`
-          : `OpenCode detected port: (unknown)`,
+          ? `opencode detected port: ${debug.detectedPort ?? '(none)'}`
+          : `opencode detected port: (unknown)`,
         debug
-          ? `OpenCode API prefix: ${debug.apiPrefixDetected ? (debug.apiPrefix || '(root)') : '(unknown)'}`
-          : `OpenCode API prefix: (unknown)`,
+          ? `opencode API prefix: ${debug.apiPrefixDetected ? (debug.apiPrefix || '(root)') : '(unknown)'}`
+          : `opencode API prefix: (unknown)`,
         debug
           ? `Last start: ${formatIso(debug.lastStartAt)}`
           : `Last start: (unknown)`,
@@ -692,7 +692,7 @@ export async function activate(context: vscode.ExtensionContext) {
         probes.length ? '' : '',
         ...(probes.length
           ? [
-              'OpenCode API probes:',
+              'opencode API probes:',
               ...probes.map((probe) => {
                 if (!probe.result) return `- ${probe.label}: (no url)`;
                 const { ok, status, elapsedMs, summary } = probe.result;

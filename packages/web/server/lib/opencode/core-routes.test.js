@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { createTunnelAuth } from './tunnel-auth.js';
 import { registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerServerStatusRoutes } from './core-routes.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 describe('core-routes', () => {
   afterEach(() => {
@@ -438,7 +439,7 @@ describe('core-routes', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).toMatchObject({
       ok: true,
-      server: { label: 'smarty-code', url: 'http://runtime.example', fingerprint: 'ABCD-1234' },
+      server: { label: PRODUCT_NAME, url: 'http://runtime.example', fingerprint: 'ABCD-1234' },
       client: { id: 'client-1', authMethod: 'pairing' },
       clientToken: 'oc_client_token',
     });

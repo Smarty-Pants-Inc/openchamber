@@ -11,6 +11,7 @@ import {
   resolveLinuxLaunchExecutable,
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
+import { PRODUCT_NAME } from './brand.generated.mjs';
 
 test('prefers APPIMAGE path for Linux autostart Exec', () => {
   assert.equal(
@@ -28,7 +29,7 @@ test('builds a background autostart desktop entry', () => {
     backgroundArg: '--background',
   });
   assert.match(entry, /Type=Application/);
-  assert.match(entry, /Name=smarty-code/);
+  assert.ok(entry.includes(`Name=${PRODUCT_NAME}`));
   assert.match(entry, /Exec="\/home\/user\/Open Chamber\.AppImage" --background/);
   assert.match(entry, /X-GNOME-Autostart-enabled=true/);
 });

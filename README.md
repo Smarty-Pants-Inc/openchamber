@@ -16,8 +16,6 @@ smarty-code gives you one place to direct agent work, understand the changes, an
 <details>
 <summary>More screenshots</summary>
 
-![VS Code Extension](packages/vscode/extension.jpg)
-
 <p>
 <img src="docs/references/pwa_chat_example.png" width="45%" alt="smarty-code PWA chat">
 <img src="docs/references/pwa_diff_example.png" width="45%" alt="smarty-code PWA diff review">

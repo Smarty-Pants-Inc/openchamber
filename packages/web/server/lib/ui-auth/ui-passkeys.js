@@ -472,7 +472,7 @@ export const createUiPasskeys = ({
     const passkey = store.passkeys.find((item) => item.id === response?.id);
 
     if (!passkey) {
-      const error = new Error('That passkey is not registered for this OpenChamber instance');
+      const error = new Error(`That passkey is not registered for this ${PRODUCT_NAME} instance`);
       error.statusCode = 404;
       throw error;
     }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { strToU8, zipSync } from "fflate"
 import { extractDocumentAttachments } from "./document-attachments"
+import { PRODUCT_NAME } from '@/lib/brand.generated'
 
 const zippedFile = (name: string, entries: Record<string, string | Uint8Array>) => new File([
   zipSync(Object.fromEntries(Object.entries(entries).map(([path, value]) => [
@@ -224,7 +225,7 @@ describe("document attachment extraction", () => {
     const text = await result?.textFile.text() ?? ""
 
     expect(text.length <= 500_000).toBe(true)
-    expect(text.endsWith("[Document text truncated by smarty-code]\n")).toBe(true)
+    expect(text.endsWith(`[Document text truncated by ${PRODUCT_NAME}]\n`)).toBe(true)
     expect(text.includes("[long-image-1.png]")).toBe(false)
     expect(result?.images).toEqual([])
   })

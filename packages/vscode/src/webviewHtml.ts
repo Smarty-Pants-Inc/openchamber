@@ -140,7 +140,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
     <div class="logo" role="img" aria-label="${PRODUCT_NAME} loading icon">${PRODUCT_MARK}</div>
     <!-- Status text stays empty while things are fine; populated only on error. -->
     <div class="status-text" id="loading-status"></div>
-    ${!cliAvailable ? `<div class="error-text" id="cli-missing-text">OpenCode CLI not found. Please install it first.</div>` : ''}
+    ${!cliAvailable ? `<div class="error-text" id="cli-missing-text">The opencode executable was not found. Install the opencode CLI first.</div>` : ''}
   </div>
   
   <div id="root"></div>
@@ -177,22 +177,22 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
 
       return locale === 'fr'
         ? {
-            startingApi: 'Démarrage de l’API OpenCode…',
+            startingApi: 'Démarrage de l’API ${PRODUCT_NAME}…',
             initializing: 'Initialisation…',
             connecting: 'Connexion…',
             connected: 'Connecté !',
             connectionError: 'Erreur de connexion',
             reconnecting: 'Reconnexion…',
-            cliNotFound: 'L’interface en ligne de commande OpenCode est introuvable. Veuillez l’installer d’abord.',
+            cliNotFound: 'L’exécutable opencode est introuvable. Installez d’abord le CLI opencode.',
           }
         : {
-            startingApi: 'Starting OpenCode API…',
+            startingApi: 'Starting ${PRODUCT_NAME} API…',
             initializing: 'Initializing…',
             connecting: 'Connecting…',
             connected: 'Connected!',
             connectionError: 'Connection error',
             reconnecting: 'Reconnecting…',
-            cliNotFound: 'OpenCode CLI not found. Please install it first.',
+            cliNotFound: 'The opencode executable was not found. Install the opencode CLI first.',
           };
     }
 

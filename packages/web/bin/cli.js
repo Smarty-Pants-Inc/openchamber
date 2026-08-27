@@ -72,7 +72,6 @@ import {
   printJson,
   logStatus,
 } from './cli-output.js';
-import { brandText } from '../brand.generated.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -376,7 +375,7 @@ if (isCliExecution) {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    const message = brandText(reason instanceof Error ? reason.message : String(reason));
+    const message = reason instanceof Error ? reason.message : String(reason);
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',
@@ -391,7 +390,7 @@ if (isCliExecution) {
   });
 
   process.on('uncaughtException', (error) => {
-    const message = brandText(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',
@@ -406,7 +405,7 @@ if (isCliExecution) {
   });
 
   main().catch((error) => {
-    const message = brandText(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',

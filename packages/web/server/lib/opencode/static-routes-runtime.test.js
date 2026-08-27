@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import express from 'express';
 import request from 'supertest';
 import { createStaticRoutesRuntime } from './static-routes-runtime.js';
+import { PRODUCT_MARK, PRODUCT_NAME } from '../../../brand.generated.js';
 
 const createRuntime = () => createStaticRoutesRuntime({
   fs: { existsSync: () => false },
@@ -25,9 +26,9 @@ describe('static routes runtime', () => {
     const response = await request(app).get('/sessions/abc').set('Accept', 'text/html');
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain('smarty-code is running in headless mode');
-    expect(response.text).toContain('Open it from the smarty-code desktop or mobile app');
-    expect(response.text).toContain('🤓');
+    expect(response.text).toContain(`${PRODUCT_NAME} is running in headless mode`);
+    expect(response.text).toContain(`Open it from the ${PRODUCT_NAME} desktop or mobile app`);
+    expect(response.text).toContain(PRODUCT_MARK);
     expect(response.text).toContain('openchamber connect-url --help');
     expect(response.text).toContain('Copy command');
   });
@@ -42,7 +43,7 @@ describe('static routes runtime', () => {
     expect(response.body).toEqual({
       ok: true,
       mode: 'api-only',
-      message: 'smarty-code is running in API-only mode',
+      message: `${PRODUCT_NAME} is running in API-only mode`,
     });
   });
 
@@ -54,8 +55,8 @@ describe('static routes runtime', () => {
     const auth = await request(app).get('/auth/session');
     const health = await request(app).get('/health');
 
-    expect(api.body).not.toEqual({ ok: true, mode: 'api-only', message: 'smarty-code is running in API-only mode' });
-    expect(auth.body).not.toEqual({ ok: true, mode: 'api-only', message: 'smarty-code is running in API-only mode' });
-    expect(health.body).not.toEqual({ ok: true, mode: 'api-only', message: 'smarty-code is running in API-only mode' });
+    expect(api.body).not.toEqual({ ok: true, mode: 'api-only', message: `${PRODUCT_NAME} is running in API-only mode` });
+    expect(auth.body).not.toEqual({ ok: true, mode: 'api-only', message: `${PRODUCT_NAME} is running in API-only mode` });
+    expect(health.body).not.toEqual({ ok: true, mode: 'api-only', message: `${PRODUCT_NAME} is running in API-only mode` });
   });
 });

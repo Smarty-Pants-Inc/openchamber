@@ -137,12 +137,12 @@ describe('Markdown block cache reads', () => {
 describe('Markdown images', () => {
   test('renders assistant images as icon-ready text without loading the source', () => {
     const html = renderMarkdownSync([
-      '[linked image](packages/vscode/extension.jpg)',
-      '![image syntax](packages/vscode/extension.jpg)',
+      '[linked image](packages/vscode/example.jpg)',
+      '![image syntax](packages/vscode/example.jpg)',
     ].join('\n\n'), 'label');
 
     expect(html).toContain('data-openchamber-markdown-image-label="true"');
-    expect(html).toContain('extension.jpg');
+    expect(html).toContain('example.jpg');
     expect(html).not.toContain('image syntax');
     expect(html).not.toContain('<img');
     expect(html.match(/<a /g)).toHaveLength(1);
