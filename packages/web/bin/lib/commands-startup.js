@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getStartupStatus, enableStartupService, disableStartupService } from './cli-startup.js';
 import {
@@ -50,7 +51,7 @@ async function startupCommand(options, action = 'status') {
     return;
   }
 
-  clackIntro('OpenChamber Startup');
+  clackIntro(`${PRODUCT_NAME} Startup`);
   logStatus(result.enabled ? 'success' : 'info', `startup ${result.enabled ? 'enabled' : 'disabled'}`, result.servicePath || undefined);
   if (typeof result.activeState === 'string') {
     logStatus(result.active ? 'success' : result.activeState === 'failed' ? 'error' : 'warning', `service ${result.activeState}`);

@@ -10,7 +10,18 @@ import test from 'node:test';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts/apply-brand.mjs');
 const manifest = JSON.parse(readFileSync(path.join(root, 'branding/generated.json'), 'utf8'));
+const EXPECTED_GENERATED_MODULE_COUNT = 5;
+const EXPECTED_PATCHED_TEXT_COUNT = 21;
+const EXPECTED_SVG_COUNT = 12;
+const EXPECTED_PNG_COUNT = 98;
+const EXPECTED_CONTROLLED_FILE_COUNT = EXPECTED_GENERATED_MODULE_COUNT
+  + EXPECTED_PATCHED_TEXT_COUNT
+  + EXPECTED_SVG_COUNT
+  + EXPECTED_PNG_COUNT;
+assert.equal(EXPECTED_CONTROLLED_FILE_COUNT, 136);
 const controlledFiles = Object.keys(manifest.files);
+assert.equal(controlledFiles.length, EXPECTED_CONTROLLED_FILE_COUNT);
+assert.equal(new Set(controlledFiles).size, EXPECTED_CONTROLLED_FILE_COUNT);
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 const copyFixture = () => {
@@ -114,6 +125,7 @@ test('alternate name, mark, and logo regenerate every controlled variant without
 
     const alternateManifest = JSON.parse(readFileSync(path.join(fixture, 'branding/generated.json'), 'utf8'));
     assert.equal('config' in alternateManifest, false);
+    assert.equal(Object.keys(alternateManifest.files).length, EXPECTED_CONTROLLED_FILE_COUNT);
     assert.deepEqual(Object.keys(alternateManifest.files).sort(), controlledFiles.sort());
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -151,6 +163,69 @@ test('runtime branding is limited to owned templates and compatibility identitie
   assert.match(passkeys, /this \$\{PRODUCT_NAME\} instance/);
   const pwaRoute = readFileSync(path.join(root, 'packages/web/server/lib/opencode/pwa-manifest-routes.js'), 'utf8');
   assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} AI coding assistant`/);
+
+  const repairedPresentationFiles = [
+    'packages/web/bin/lib/commands-logs.js',
+    'packages/web/bin/lib/commands-serve.js',
+    'packages/web/bin/lib/commands-lifecycle.js',
+    'packages/web/bin/lib/commands-startup.js',
+    'packages/web/bin/lib/commands-status.js',
+    'packages/web/bin/lib/commands-tunnel.js',
+    'packages/web/bin/lib/commands-update.js',
+    'packages/web/bin/lib/cli-api-target.js',
+    'packages/web/bin/lib/cli-network.js',
+    'packages/web/bin/lib/cli-ports.js',
+    'packages/web/server/lib/opencode/env-runtime.js',
+    'packages/web/server/lib/opencode/lifecycle.js',
+    'packages/web/server/lib/opencode/proxy.js',
+    'packages/vscode/src/bridge-config-runtime.ts',
+    'packages/vscode/src/opencode.ts',
+  ];
+  for (const relative of repairedPresentationFiles) {
+    assert.match(readFileSync(path.join(root, relative), 'utf8'), /\bPRODUCT_NAME\b/, relative);
+  }
+
+  const forbiddenOwnedTemplates = {
+    'packages/web/bin/lib/commands-logs.js': ['No running OpenChamber', 'OpenChamber Logs'],
+    'packages/web/bin/lib/commands-serve.js': ['OpenChamber serve', 'OpenChamber Desktop app', 'OpenChamber is already running', 'Starting OpenChamber', 'OpenChamber daemon', 'Failed to start OpenChamber', 'OpenChamber Started'],
+    'packages/web/bin/lib/commands-lifecycle.js': ['OpenChamber Stop', 'OpenChamber Restart', 'OpenChamber Desktop', 'OpenChamber instance', 'Stopping OpenChamber', 'Stopped OpenChamber'],
+    'packages/web/bin/lib/commands-startup.js': ['OpenChamber Startup'],
+    'packages/web/bin/lib/commands-status.js': ['OpenChamber Status'],
+    'packages/web/bin/lib/commands-tunnel.js': ['OpenChamber Desktop app', 'OpenChamber CLI', 'OpenChamber instance', 'Select OpenChamber', 'Waiting for OpenChamber'],
+    'packages/web/bin/lib/commands-update.js': ['OpenChamber Update'],
+    'packages/web/bin/lib/cli-api-target.js': ['Multiple OpenChamber instances', 'No running OpenChamber server'],
+    'packages/web/bin/lib/cli-network.js': ['OpenChamber UI'],
+    'packages/web/bin/lib/cli-ports.js': ['OpenChamber Desktop', 'OpenChamber instance'],
+    'packages/web/server/lib/opencode/env-runtime.js': ['Configured OpenCode binary', 'OpenChamber could not resolve', 'supported by OpenChamber desktop'],
+    'packages/web/server/lib/opencode/lifecycle.js': ['Launching OpenCode', 'Failed to start OpenCode', 'Restarting OpenCode', 'OpenCode process exited before serving'],
+    'packages/web/server/lib/opencode/proxy.js': ['OpenCode service unavailable', 'OpenCode upstream timed out', 'OpenCode is restarting', 'OpenCode session list timed out', '[proxy] OpenCode'],
+    'packages/vscode/src/bridge-config-runtime.ts': ['Restart OpenCode to apply'],
+    'packages/vscode/src/opencode.ts': ['OpenCode CLI not found', 'Failed to start OpenCode'],
+    'packages/vscode/l10n/bundle.l10n.json': ['OpenCode CLI not found', 'Failed to start OpenCode'],
+    'packages/vscode/l10n/bundle.l10n.fr.json': ['OpenCode CLI not found', 'Failed to start OpenCode'],
+  };
+  for (const [relative, fragments] of Object.entries(forbiddenOwnedTemplates)) {
+    const contents = readFileSync(path.join(root, relative), 'utf8');
+    for (const fragment of fragments) {
+      assert.equal(contents.includes(fragment), false, `${relative}: ${fragment}`);
+    }
+  }
+
+  const cliServe = readFileSync(path.join(root, 'packages/web/bin/lib/commands-serve.js'), 'utf8');
+  assert.match(cliServe, /`openchamber status`|`openchamber stop --port/);
+  const cliTunnel = readFileSync(path.join(root, 'packages/web/bin/lib/commands-tunnel.js'), 'utf8');
+  assert.match(cliTunnel, /`openchamber serve/);
+  const envRuntime = readFileSync(path.join(root, 'packages/web/server/lib/opencode/env-runtime.js'), 'utf8');
+  assert.match(envRuntime, /OPENCODE_BINARY_INVALID/);
+  assert.equal(envRuntime.includes('OpenCode(?: Dev| Beta)?\\.app'), true);
+  assert.equal(envRuntime.includes('programs${path.sep}opencode${path.sep}opencode.exe'), true);
+  const lifecycle = readFileSync(path.join(root, 'packages/web/server/lib/opencode/lifecycle.js'), 'utf8');
+  assert.match(lifecycle, /OPENCODE_BINARY_INVALID/);
+  const vscodeManager = readFileSync(path.join(root, 'packages/vscode/src/opencode.ts'), 'utf8');
+  assert.match(vscodeManager, /vscode\.l10n\.t\(brandText\(message\), \.\.\.args\)/);
+  assert.match(vscodeManager, /t\('Failed to start \{0\}: \{1\}', PRODUCT_NAME, message\)/);
+  const bridgeConfig = readFileSync(path.join(root, 'packages/vscode/src/bridge-config-runtime.ts'), 'utf8');
+  assert.match(bridgeConfig, /Restart \$\{PRODUCT_NAME\} to apply/);
 
   const packageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.deepEqual({

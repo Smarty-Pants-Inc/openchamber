@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import net from 'net';
 import { DEFAULT_PORT } from './cli-args.js';
 import { fetchSystemInfoFromPort } from './cli-http.js';
@@ -29,9 +30,9 @@ async function resolveAvailablePort(desiredPort, explicitPort = false, onNotice)
   const occupant = await fetchSystemInfoFromPort(startPort);
   let message;
   if (occupant?.runtime === 'desktop') {
-    message = `Port ${startPort} is used by OpenChamber Desktop; using a free port`;
+    message = `Port ${startPort} is used by ${PRODUCT_NAME} Desktop; using a free port`;
   } else if (occupant?.runtime) {
-    message = `Port ${startPort} is used by an existing OpenChamber instance; using a free port`;
+    message = `Port ${startPort} is used by an existing ${PRODUCT_NAME} instance; using a free port`;
   } else {
     message = `Port ${startPort} in use; using a free port`;
   }

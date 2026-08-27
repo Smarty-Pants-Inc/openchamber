@@ -333,6 +333,11 @@ const sourceDigest = hash(Buffer.concat([
   await readFile(fileURLToPath(import.meta.url)),
 ]));
 const expectedFiles = [...generatedText.keys(), ...patchedText.keys(), ...pngTargets.map(({ file }) => file)].sort();
+const EXPECTED_CONTROLLED_FILE_COUNT = 136;
+const uniqueExpectedFiles = new Set(expectedFiles);
+if (expectedFiles.length !== EXPECTED_CONTROLLED_FILE_COUNT || uniqueExpectedFiles.size !== EXPECTED_CONTROLLED_FILE_COUNT) {
+  throw new Error(`Expected ${EXPECTED_CONTROLLED_FILE_COUNT} unique controlled brand outputs, found ${expectedFiles.length} (${uniqueExpectedFiles.size} unique)`);
+}
 
 for (const file of obsoleteGeneratedFiles) {
   const absolute = path.join(root, file);

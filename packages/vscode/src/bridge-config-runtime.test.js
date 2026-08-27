@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PRODUCT_NAME } from './brand.generated';
 
 mock.module('vscode', () => ({
   workspace: {
@@ -126,7 +127,7 @@ describe('VS Code config bridge plugin parity', () => {
       requiresReload: false,
       requiresRestart: true,
       restartDeferred: true,
-      message: 'Plugin entry changed. Restart OpenCode to apply.',
+      message: `Plugin entry changed. Restart ${PRODUCT_NAME} to apply.`,
     });
     expect(ctx.restart).not.toHaveBeenCalled();
 
@@ -301,7 +302,7 @@ describe('VS Code config bridge plugin parity', () => {
       requiresReload: false,
       requiresRestart: true,
       restartDeferred: true,
-      message: 'MCP server "mcp-deferred" created. Restart OpenCode to apply.',
+      message: `MCP server "mcp-deferred" created. Restart ${PRODUCT_NAME} to apply.`
     });
     expect(ctx.restart).not.toHaveBeenCalled();
     expect(readJson(path.join(root, '.opencode', 'opencode.json')).mcp['mcp-deferred']).toMatchObject({

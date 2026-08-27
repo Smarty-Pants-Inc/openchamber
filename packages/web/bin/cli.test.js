@@ -6,6 +6,7 @@ import { createServer } from 'http';
 import net from 'net';
 import { spawn } from 'child_process';
 import { pathToFileURL } from 'url';
+import { PRODUCT_NAME } from '../brand.generated.js';
 
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
@@ -659,7 +660,7 @@ describe('cli API target resolution', () => {
       discoverDesktopInstance: async () => null,
       discoverLifecycleInstances: async () => [{ port: 3001 }, { port: 3002 }],
       isServerHealthReady: async () => false,
-    })).rejects.toThrow('Multiple OpenChamber instances are running');
+    })).rejects.toThrow(`Multiple ${PRODUCT_NAME} instances are running`);
   });
 });
 

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import { requestServerShutdown } from './cli-http.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
 import {
@@ -32,7 +33,7 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
     const currentVersion = getCurrentVersion();
 
     if (showOutput) {
-      clackIntro('OpenChamber Update');
+      clackIntro(`${PRODUCT_NAME} Update`);
     }
 
     if (showOutput && !updateSpin) {
