@@ -621,7 +621,7 @@ describe('OpenCode proxy SSE forwarding', () => {
     });
 
     expect(response.status).toBe(504);
-    await expect(response.json()).resolves.toMatchObject({ error: 'OpenCode upstream timed out' });
+    await expect(response.json()).resolves.toMatchObject({ error: 'smarty-code upstream timed out' });
   });
 
   it('exempts interactive provider OAuth callbacks from the request deadline', async () => {
