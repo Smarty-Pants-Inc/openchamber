@@ -7,19 +7,36 @@
  */
 
 import {
-  intro,
-  outro,
-  log,
-  box,
-  confirm,
-  select,
-  text,
-  password,
+  intro as clackIntro,
+  outro as clackOutro,
+  log as clackLog,
+  box as clackBox,
+  confirm as clackConfirm,
+  select as clackSelect,
+  text as clackText,
+  password as clackPassword,
   spinner,
   progress,
-  cancel,
+  cancel as clackCancel,
   isCancel,
 } from '@clack/prompts';
+import { brandText } from '../brand.generated.js';
+
+const intro = (message, ...args) => clackIntro(brandText(message), ...args);
+const outro = (message, ...args) => clackOutro(brandText(message), ...args);
+const cancel = (message, ...args) => clackCancel(brandText(message), ...args);
+const log = Object.fromEntries(['success', 'warn', 'error', 'info', 'step', 'message'].map((method) => [
+  method,
+  (message, ...args) => clackLog[method](brandText(message), ...args),
+]));
+const brandPrompt = (options) => typeof options?.message === 'string'
+  ? { ...options, message: brandText(options.message) }
+  : options;
+const box = (message, title, ...args) => clackBox(brandText(message), typeof title === 'string' ? brandText(title) : title, ...args);
+const confirm = (options, ...args) => clackConfirm(brandPrompt(options), ...args);
+const select = (options, ...args) => clackSelect(brandPrompt(options), ...args);
+const text = (options, ...args) => clackText(brandPrompt(options), ...args);
+const password = (options, ...args) => clackPassword(brandPrompt(options), ...args);
 
 // ── Provider icons ──────────────────────────────────────────────
 
@@ -90,11 +107,23 @@ function canPrompt(options) {
 }
 
 function createSpinner(options) {
-  return canPrompt(options) ? spinner() : null;
+  if (!canPrompt(options)) return null;
+  const result = spinner();
+  for (const method of ['start', 'stop', 'message', 'error']) {
+    const original = result[method].bind(result);
+    result[method] = (message, ...args) => original(brandText(message), ...args);
+  }
+  return result;
 }
 
 async function createProgress(options, config) {
-  return canPrompt(options) ? progress(config) : null;
+  if (!canPrompt(options)) return null;
+  const result = await progress(config);
+  for (const method of ['start', 'stop', 'message']) {
+    const original = result[method].bind(result);
+    result[method] = (message, ...args) => original(brandText(message), ...args);
+  }
+  return result;
 }
 
 function printJson(payload) {
@@ -102,12 +131,15 @@ function printJson(payload) {
     ? { ...payload }
     : { data: payload };
 
-  const messages = Array.isArray(base.messages) ? base.messages : undefined;
+  const messages = Array.isArray(base.messages)
+    ? base.messages.map((entry) => typeof entry?.message === 'string' ? { ...entry, message: brandText(entry.message) } : entry)
+    : undefined;
   const hasWarning = Boolean(messages?.some((entry) => entry?.level === 'warning'));
   const hasError = Boolean(messages?.some((entry) => entry?.level === 'error'));
   const normalizedStatus = base.status === 'ok' || base.status === 'warning' || base.status === 'error'
     ? base.status
     : (hasError ? 'error' : (hasWarning ? 'warning' : 'ok'));
+  if (messages) base.messages = messages;
 
   const output = {
     status: normalizedStatus,

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { VitePWA } from 'vite-plugin-pwa';
 import { themeStoragePlugin } from '../../vite-theme-plugin';
+import { brandText, PRODUCT_MARK, PRODUCT_NAME } from './brand.generated.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
@@ -40,6 +41,14 @@ const themeJsonHmrPlugin = () => ({
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
   plugins: [
+    {
+      name: 'apply-product-brand',
+      transformIndexHtml(html) {
+        return brandText(html)
+          .replaceAll('__PRODUCT_NAME__', PRODUCT_NAME)
+          .replaceAll('__PRODUCT_MARK__', PRODUCT_MARK);
+      },
+    },
     react({
       babel: {
         plugins: ['babel-plugin-react-compiler'],

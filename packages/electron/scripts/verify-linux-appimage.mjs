@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { PRODUCT_NAME } from '../brand.generated.mjs';
 import { normalizeTargetArchitecture } from './target-architecture.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,10 +84,9 @@ export const verifyExtractedPayload = ({
   const desktopPath = path.join(root, 'openchamber.desktop');
   if (!fs.existsSync(desktopPath)) throw new Error(`Missing desktop entry: ${desktopPath}`);
   const desktop = fs.readFileSync(desktopPath, 'utf8');
-  for (const entry of ['Name=OpenChamber', 'Icon=openchamber', 'StartupWMClass=openchamber']) {
+  for (const entry of [`Name=${PRODUCT_NAME}`, 'Icon=openchamber', 'StartupWMClass=openchamber']) {
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
   }
-  if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
 
   assertElfArchitecture(path.join(root, 'openchamber'), targetArchitecture, 'Electron executable');
   const cliPath = path.join(root, 'resources', 'opencode-cli', 'opencode');

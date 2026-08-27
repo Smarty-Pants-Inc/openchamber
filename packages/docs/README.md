@@ -1,6 +1,6 @@
-# OpenChamber Docs Source
+# smarty-code Docs Source
 
-This package is the source-of-truth for OpenChamber public docs content.
+This package is the source-of-truth for smarty-code public docs content.
 
 ## Layout
 

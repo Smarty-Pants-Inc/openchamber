@@ -7,6 +7,7 @@ import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getDataDir } from './cli-paths.js';
 import { hasUiPasswordConfigured } from './cli-network.js';
 import { searchPathFor } from './cli-executables.js';
+import { PRODUCT_NAME } from '../../brand.generated.js';
 
 const STARTUP_SERVICE_ID = 'dev.openchamber.web';
 
@@ -229,7 +230,7 @@ function buildSystemdUserService(options = {}) {
   const args = buildStartupArgs(options).map((arg) => `"${systemdEscapeArg(arg)}"`).join(' ');
   const envFilePath = getStartupEnvFilePath();
   return `[Unit]
-Description=OpenChamber web server
+Description=${PRODUCT_NAME} web server
 After=network-online.target
 
 [Service]

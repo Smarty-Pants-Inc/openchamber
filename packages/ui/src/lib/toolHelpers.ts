@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from '@/lib/brand.generated';
+
 export interface ToolMetadata {
   displayName: string;
   icon?: string;
@@ -188,21 +190,21 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
     },
 
     openchamber: {
-      displayName: 'OpenChamber',
+      displayName: PRODUCT_NAME,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []
     },
 
     openchamber_web: {
-      displayName: 'OpenChamber Web',
+      displayName: `${PRODUCT_NAME} Web`,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []
     },
 
     openchamber_memory: {
-      displayName: 'OpenChamber Memory',
+      displayName: `${PRODUCT_NAME} Memory`,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []

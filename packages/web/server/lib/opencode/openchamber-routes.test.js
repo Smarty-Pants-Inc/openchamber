@@ -114,7 +114,7 @@ describe('OpenChamber foreground update route', () => {
       .post('/api/openchamber/update-install')
       .expect(200, {
         success: true,
-        message: 'Update queued; OpenChamber will restart after installation completes',
+        message: 'Update queued; smarty-code will restart after installation completes',
         version: '1.17.1',
         packageManager: 'npm',
         autoRestart: true,

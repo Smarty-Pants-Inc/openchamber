@@ -1,4 +1,6 @@
-const DEFAULT_PWA_APP_NAME = 'OpenChamber - AI Coding Assistant';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
+
+const DEFAULT_PWA_APP_NAME = `${PRODUCT_NAME} - AI Coding Assistant`;
 const mapPwaOrientationToManifest = (value) => {
   if (value === 'portrait') {
     return 'portrait-primary';

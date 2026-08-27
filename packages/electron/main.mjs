@@ -35,6 +35,8 @@ import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-
 import { shouldAllowBrowserPanelCertificateError } from './browser-panel-security.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 
+import { PRODUCT_MARK, PRODUCT_NAME } from './brand.generated.mjs';
+
 const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -80,14 +82,16 @@ const shouldStartInBackground = (loginItemSettings = readLoginItemSettings()) =>
   );
 };
 
-// Set the product name early so electron-log derives its log directory as
-// ~/Library/Logs/OpenChamber/ (not ~/Library/Logs/@openchamber/electron/).
-app.setName('OpenChamber');
+// Keep existing data and log directories while exposing the configured product name.
+const LEGACY_PRODUCT_NAME = 'OpenChamber';
+app.setName(LEGACY_PRODUCT_NAME);
+const legacyUserDataPath = app.getPath('userData');
+const legacyLogsPath = app.getPath('logs');
+app.setName(PRODUCT_NAME);
+app.setPath('userData', isDev ? path.join(app.getPath('appData'), `${LEGACY_PRODUCT_NAME} Dev`) : legacyUserDataPath);
+app.setPath('logs', legacyLogsPath);
 if (process.platform === 'linux') {
   app.setDesktopName('openchamber.desktop');
-}
-if (isDev) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'OpenChamber Dev'));
 }
 app.setAppUserModelId(APP_USER_MODEL_ID);
 app.commandLine.appendSwitch('proxy-bypass-list', '<-loopback>');
@@ -346,7 +350,7 @@ const quitConfirmationMessage = () => {
   if (reasons.length === 0) {
     return 'Background processes (sidecar, SSH sessions) will be stopped.';
   }
-  return `OpenChamber detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
+  return `${PRODUCT_NAME} detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
 };
 
 const shutdownBackgroundServices = () => {
@@ -460,8 +464,8 @@ const requestQuitWithConfirmation = async () => {
   try {
     const result = await dialog.showMessageBox({
       type: 'warning',
-      title: 'Quit OpenChamber?',
-      message: 'Quit OpenChamber?',
+      title: `Quit ${PRODUCT_NAME}?`,
+      message: `Quit ${PRODUCT_NAME}?`,
       detail: quitConfirmationMessage(),
       buttons: ['Quit', 'Cancel'],
       defaultId: 1,
@@ -1347,7 +1351,7 @@ const maybeShowNativeNotification = (rawInput) => {
 
   const title = typeof payload.title === 'string' && payload.title.trim()
     ? payload.title.trim()
-    : 'OpenChamber';
+    : PRODUCT_NAME;
   const body = typeof payload.body === 'string' ? payload.body : '';
   const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
     ? payload.sessionId.trim()
@@ -1785,9 +1789,7 @@ const computeBootOutcome = ({ envTargetUrl, probe, config, localAvailable }) => 
 const buildStartupSplashHtml = () => {
   const settings = readSettingsRoot();
   const splashBgLight = typeof settings.splashBgLight === 'string' ? settings.splashBgLight.trim() : '#f5f5f4';
-  const splashFgLight = typeof settings.splashFgLight === 'string' ? settings.splashFgLight.trim() : '#1c1917';
   const splashBgDark = typeof settings.splashBgDark === 'string' ? settings.splashBgDark.trim() : '#0c0a09';
-  const splashFgDark = typeof settings.splashFgDark === 'string' ? settings.splashFgDark.trim() : '#fafaf9';
 
   return `<!doctype html>
   <html>
@@ -1798,10 +1800,6 @@ const buildStartupSplashHtml = () => {
       :root { color-scheme: light dark; }
       :root {
         --splash-background: ${splashBgLight};
-        --splash-stroke: ${splashFgLight};
-        --splash-face-fill: rgba(0, 0, 0, 0.15);
-        --splash-cell-fill: rgba(0, 0, 0, 0.4);
-        --splash-logo-fill: var(--splash-stroke);
       }
       body {
         margin: 0;
@@ -1810,20 +1808,10 @@ const buildStartupSplashHtml = () => {
         place-items: center;
         height: 100vh;
         background: var(--splash-background);
-        color: var(--splash-stroke);
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --splash-background: ${splashBgDark};
-          --splash-stroke: ${splashFgDark};
-          --splash-face-fill: rgba(255, 255, 255, 0.15);
-          --splash-cell-fill: rgba(255, 255, 255, 0.35);
-        }
-      }
-      @supports (color: color-mix(in srgb, white 50%, transparent)) {
-        :root {
-          --splash-face-fill: color-mix(in srgb, var(--splash-stroke) 15%, transparent);
-          --splash-cell-fill: color-mix(in srgb, var(--splash-stroke) 35%, transparent);
         }
       }
       .stack {
@@ -1834,47 +1822,7 @@ const buildStartupSplashHtml = () => {
   </head>
   <body>
     <div class="stack">
-      <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenChamber loading icon">
-        <path d="M50 50 L8.432 26 L8.432 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M50 50 L39.608 44 L39.608 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-        <path d="M39.608 44 L29.216 38 L29.216 50 L39.608 56 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-        <path d="M29.216 38 L18.824 32 L18.824 44 L29.216 50 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-        <path d="M18.824 32 L8.432 26 L8.432 38 L18.824 44 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-        <path d="M50 62 L39.608 56 L39.608 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-        <path d="M39.608 56 L29.216 50 L29.216 62 L39.608 68 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-        <path d="M29.216 50 L18.824 44 L18.824 56 L29.216 62 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
-        <path d="M18.824 44 L8.432 38 L8.432 50 L18.824 56 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-        <path d="M50 74 L39.608 68 L39.608 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-        <path d="M39.608 68 L29.216 62 L29.216 74 L39.608 80 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-        <path d="M29.216 62 L18.824 56 L18.824 68 L29.216 74 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-        <path d="M18.824 56 L8.432 50 L8.432 62 L18.824 68 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-        <path d="M50 86 L39.608 80 L39.608 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-        <path d="M39.608 80 L29.216 74 L29.216 86 L39.608 92 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-        <path d="M29.216 74 L18.824 68 L18.824 80 L29.216 86 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-        <path d="M18.824 68 L8.432 62 L8.432 74 L18.824 80 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-        <path d="M50 50 L91.568 26 L91.568 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M50 50 L60.392 44 L60.392 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-        <path d="M60.392 44 L70.784 38 L70.784 50 L60.392 56 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-        <path d="M70.784 38 L81.176 32 L81.176 44 L70.784 50 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-        <path d="M81.176 32 L91.568 26 L91.568 38 L81.176 44 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-        <path d="M50 62 L60.392 56 L60.392 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
-        <path d="M60.392 56 L70.784 50 L70.784 62 L60.392 68 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-        <path d="M70.784 50 L81.176 44 L81.176 56 L70.784 62 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-        <path d="M81.176 44 L91.568 38 L91.568 50 L81.176 56 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-        <path d="M50 74 L60.392 68 L60.392 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-        <path d="M60.392 68 L70.784 62 L70.784 74 L60.392 80 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-        <path d="M70.784 62 L81.176 56 L81.176 68 L70.784 74 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-        <path d="M81.176 56 L91.568 50 L91.568 62 L81.176 68 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-        <path d="M50 86 L60.392 80 L60.392 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-        <path d="M60.392 80 L70.784 74 L70.784 86 L60.392 92 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-        <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-        <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-        <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-        <g transform="matrix(0.866, 0.5, -0.866, 0.5, 50, 26) scale(0.75)">
-          <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="var(--splash-logo-fill)"/>
-          <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="var(--splash-logo-fill)" fill-opacity="0.4"/>
-        </g>
-      </svg>
+      <div style="font-size:104px;line-height:1" role="img" aria-label="${PRODUCT_NAME} loading icon">${PRODUCT_MARK}</div>
     </div>
   </body>
   </html>`;
@@ -1955,7 +1903,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       password: candidatePassword,
       trustDevice: trustDevice === true,
       issueClientToken: true,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${PRODUCT_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -1983,7 +1931,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       Cookie: cookie,
     },
     body: JSON.stringify({
-      label: 'OpenChamber Desktop',
+      label: `${PRODUCT_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -2090,7 +2038,7 @@ const parseConnectPairingDeepLinkPayload = (raw) => {
     return {
       pairingId,
       secret,
-      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : 'OpenChamber',
+      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : PRODUCT_NAME,
       fingerprint: typeof payload.fingerprint === 'string' && payload.fingerprint.trim() ? payload.fingerprint.trim() : '',
       expiresAt: expiresAt || null,
       candidates: candidates.sort((left, right) => left.priority - right.priority),
@@ -2162,9 +2110,9 @@ const redeemConnectPairingDeepLink = async (payload, serverUrl) => {
     body: JSON.stringify({
       pairingId: payload.pairingId,
       secret: payload.secret,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${PRODUCT_NAME} Desktop`,
       clientKind: 'desktop',
-      deviceName: 'OpenChamber Desktop',
+      deviceName: `${PRODUCT_NAME} Desktop`,
       ...desktopDeviceMetadata(),
       dedupeKey: `desktop:${await getOrCreateDesktopInstallId()}`,
     }),
@@ -2224,7 +2172,7 @@ const confirmConnectDeepLink = async (payload) => {
   }
   const options = {
     type: 'warning',
-    title: 'Connect to OpenChamber server?',
+    title: `Connect to ${PRODUCT_NAME} server?`,
     message: `Connect to "${payload.label}"?`,
     detail:
       `This will add ${payload.serverUrl} as a remote instance and route this app's activity ` +
@@ -2420,7 +2368,7 @@ const readThemeSource = () => {
 
 const getWindowIconPath = () => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return undefined;
-  const iconFileName = process.platform === 'linux' ? 'icon.png' : 'icon.ico';
+  const iconFileName = 'icon.png';
   const iconPath = isDev
     ? path.join(__dirname, 'resources', 'icons', iconFileName)
     : path.join(process.resourcesPath, 'icons', iconFileName);
@@ -2452,7 +2400,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   const autoHidesNativeMenuBar = process.platform !== 'darwin';
   const windowIconPath = getWindowIconPath();
   const options = {
-    title: 'OpenChamber',
+    title: PRODUCT_NAME,
     ...(Number.isFinite(restoredBounds?.x) && Number.isFinite(restoredBounds?.y)
       ? { x: restoredBounds.x, y: restoredBounds.y }
       : {}),
@@ -2855,7 +2803,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   const usesFramelessChrome = process.platform === 'win32' || process.platform === 'linux';
   const trayEnabled = process.platform !== 'darwin' || readSettingsRoot().desktopMacMenuBarEnabled !== false;
   const browserWindow = new BrowserWindow({
-    title: 'OpenChamber Mini Chat',
+    title: `${PRODUCT_NAME} Mini Chat`,
     width: MINI_CHAT_WINDOW_WIDTH,
     height: MINI_CHAT_WINDOW_HEIGHT,
     minWidth: MINI_CHAT_MIN_WINDOW_WIDTH,
@@ -4501,7 +4449,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       if (applyUpdate && process.platform === 'darwin' && typeof app.isInApplicationsFolder === 'function') {
         try {
           if (!app.isInApplicationsFolder()) {
-            throw new Error('Desktop update requires OpenChamber.app to be installed in /Applications');
+            throw new Error(`Desktop update requires ${PRODUCT_NAME} to be installed in /Applications`);
           }
         } catch (error) {
           log.warn('[electron] desktop_restart blocked', error);
@@ -4759,7 +4707,7 @@ const buildMacMenu = () => {
     {
       label: app.name,
       submenu: [
-        { label: 'About OpenChamber', click: () => dispatchAction('about') },
+        { label: `About ${PRODUCT_NAME}`, click: () => dispatchAction('about') },
         {
           label: 'Check for Updates',
           click: () => dispatchCheckForUpdates(),
@@ -4863,9 +4811,9 @@ const buildAutoHiddenMenu = () => {
 
   return Menu.buildFromTemplate([
     {
-      label: 'OpenChamber',
+      label: PRODUCT_NAME,
       submenu: [
-        { label: 'About OpenChamber', click: () => dispatchAction('about') },
+        { label: `About ${PRODUCT_NAME}`, click: () => dispatchAction('about') },
         {
           label: 'Check for Updates',
           click: () => dispatchCheckForUpdates(),
@@ -5143,8 +5091,8 @@ ipcMain.handle('openchamber:file:grant-existing', async (event, filePath) => {
 // Tray clicks flow back through dispatchTrayAction → renderer (focus/respond) or
 // native handlers (show / hide / toggle / quit).
 
-// Icon assets: a calm outline (idle), a statically filled cube (a finished
-// session left unread), and an eased sequence the busy state breathes through.
+// Icon assets: a calm nerd outline (idle), an unseen marker, and an eased
+// sequence the busy state breathes through.
 const TRAY_BREATH_FRAME_COUNT = 16;
 // The window the user is "on" for tray routing: the focused one, else the last
 // focused that is still alive.
@@ -5162,9 +5110,7 @@ const trayIconAssets = () => {
   const dir = path.join(resourceRoot(), 'icons', 'tray');
   const statusDir = path.join(dir, 'status');
   if (process.platform === 'win32' || process.platform === 'linux') {
-    const iconPath = process.platform === 'linux'
-      ? (getWindowIconPath() || path.join(resourceRoot(), 'icons', 'icon.png'))
-      : (getWindowIconPath() || path.join(resourceRoot(), 'icons', 'icon.ico'));
+    const iconPath = getWindowIconPath() || path.join(resourceRoot(), 'icons', 'icon.png');
     return {
       idleIconPath: iconPath,
       unseenIconPath: iconPath,

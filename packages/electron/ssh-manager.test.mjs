@@ -286,6 +286,7 @@ describe('ElectronSshManager', () => {
       password: 'ui-secret',
       trustDevice: true,
       issueClientToken: true,
+      clientLabel: 'smarty-code Desktop SSH',
     });
     expect(settings.desktopHosts).toEqual([{ id: 'ssh-1', label: 'SSH Host', url: localUrl, apiUrl: localUrl, clientToken: 'ssh-client-token' }]);
   });

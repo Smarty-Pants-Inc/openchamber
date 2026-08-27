@@ -5,6 +5,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -1009,7 +1010,7 @@ const formatWorktreePopulateError = (message) => {
   return [
     text,
     'The worktree checkout path exceeds this system\'s path-length limit.',
-    'OpenChamber enables Git `core.longpaths` for worktree population; if this still fails on Windows, enable OS long paths (LongPathsEnabled) or open the repository from a shorter absolute path.',
+    `${PRODUCT_NAME} enables Git \`core.longpaths\` for worktree population; if this still fails on Windows, enable OS long paths (LongPathsEnabled) or open the repository from a shorter absolute path.`,
   ].join('\n');
 };
 
@@ -3222,7 +3223,7 @@ export async function stashPush(directory, options = {}) {
   const { git } = await createRepositoryGitContext(directory);
   const message = typeof options.message === 'string' && options.message.trim()
     ? options.message.trim()
-    : `OpenChamber stash ${new Date().toISOString()}`;
+    : `${PRODUCT_NAME} stash ${new Date().toISOString()}`;
   const output = await git.raw(['stash', 'push', '--include-untracked', '-m', message]);
   return {
     success: true,

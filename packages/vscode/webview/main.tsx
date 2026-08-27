@@ -17,6 +17,7 @@ import { usePermissionStore } from '@openchamber/ui/stores/permissionStore';
 import { processVSCodePermissionAutoAccept } from '@openchamber/ui/sync/vscode-permission-auto-accept';
 import type { PermissionRequest } from '@opencode-ai/sdk/v2/client';
 import { focusChatInput } from '@openchamber/ui/components/chat/composer/editor/dom';
+import { PRODUCT_NAME } from '@openchamber/ui/lib/brand.generated';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
 type PanelType = 'chat' | 'agentManager';
@@ -48,13 +49,15 @@ declare global {
     __OPENCHAMBER_VSCODE_WINDOW_FOCUSED__?: boolean;
   }
 }
+const LOG_PREFIX = `[${PRODUCT_NAME}]`;
 
-console.log('[OpenChamber] VS Code webview starting...');
-console.log('[OpenChamber] VS Code webview build:', __OPENCHAMBER_WEBVIEW_BUILD_TIME__);
-console.log('[OpenChamber] Config:', window.__VSCODE_CONFIG__);
+
+console.log(`${LOG_PREFIX} VS Code webview starting...`);
+console.log(`${LOG_PREFIX} VS Code webview build:`, __OPENCHAMBER_WEBVIEW_BUILD_TIME__);
+console.log(`${LOG_PREFIX} Config:`, window.__VSCODE_CONFIG__);
 try {
   if (window.localStorage.getItem('openchamber_stream_debug') === '1') {
-    console.log('[OpenChamber] Debug: openchamber_stream_debug=1');
+    console.log(`${LOG_PREFIX} Debug: openchamber_stream_debug=1`);
   }
 } catch {
   // ignore
@@ -971,7 +974,7 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
       const data = await sendBridgeMessage('api:models/metadata');
       return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
     } catch (error) {
-      console.warn('[OpenChamber] Failed to fetch models metadata via bridge, returning empty set:', error);
+      console.warn(`${LOG_PREFIX} Failed to fetch models metadata via bridge, returning empty set:`, error);
       return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
   }
@@ -1285,7 +1288,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const data = await sendBridgeMessage('api:models/metadata');
       return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
     } catch (error) {
-      console.warn('[OpenChamber] models.dev request failed via bridge, returning empty metadata:', error);
+      console.warn(`${LOG_PREFIX} models.dev request failed via bridge, returning empty metadata:`, error);
       return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
   }
@@ -1394,7 +1397,7 @@ onCommand('createSessionWithPrompt', (payload) => {
         undefined, // agentMentionName
         undefined  // additionalParts
       ).catch((error: unknown) => {
-        console.error('[OpenChamber] Failed to send prompt:', error);
+        console.error(`${LOG_PREFIX} Failed to send prompt:`, error);
       });
     } else {
       // If no provider/model configured, just set the text and let user send manually
@@ -1507,7 +1510,7 @@ const showOpenChamberNotification = (payload: { title?: unknown; body?: unknown;
 
     const title = typeof payload?.title === 'string' && payload.title.trim().length > 0
       ? payload.title.trim()
-      : 'OpenChamber';
+      : PRODUCT_NAME;
     const body = typeof payload?.body === 'string' ? payload.body : '';
     const sessionId = typeof payload?.sessionId === 'string' && payload.sessionId.trim().length > 0
       ? payload.sessionId.trim()
@@ -1587,7 +1590,7 @@ const ensureNotificationSettingsSynced = async () => {
       .then(({ syncDesktopSettings }) => syncDesktopSettings())
       .catch((error) => {
         notificationSettingsSyncPromise = null;
-        console.warn('[OpenChamber] Failed to sync notification settings:', error);
+        console.warn(`${LOG_PREFIX} Failed to sync notification settings:`, error);
       });
   }
   await notificationSettingsSyncPromise;
@@ -1885,7 +1888,7 @@ import('@openchamber/ui/apps/renderVSCodeApp')
     maybeHideLoadingOverlay();
   })
   .catch((error) => {
-    console.error('[OpenChamber] Failed to bootstrap UI:', error);
+    console.error(`${LOG_PREFIX} Failed to bootstrap UI:`, error);
     // If the UI bundle fails to load, remove the overlay so the user at least sees errors in the root.
     uiMounted = true;
     fadeOutLoadingScreen();

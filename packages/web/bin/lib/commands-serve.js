@@ -20,6 +20,7 @@ import {
   printJson,
   logStatus,
 } from '../cli-output.js';
+import { PRODUCT_NAME } from '../../brand.generated.js';
 
 const DAEMON_READY_TIMEOUT_MS = 30000;
 
@@ -190,7 +191,7 @@ async function serveCommand(options) {
       }
 
       if (!isQuietMode(options)) {
-        console.log(`Starting OpenChamber on port ${targetPort === 0 ? 'auto' : targetPort} (foreground)`);
+        console.log(`Starting ${PRODUCT_NAME} on port ${targetPort === 0 ? 'auto' : targetPort} (foreground)`);
       }
 
       const { startWebUiServer } = await import(pathToFileURL(serverPath).href);

@@ -28,6 +28,7 @@ test('builds a background autostart desktop entry', () => {
     backgroundArg: '--background',
   });
   assert.match(entry, /Type=Application/);
+  assert.match(entry, /Name=smarty-code/);
   assert.match(entry, /Exec="\/home\/user\/Open Chamber\.AppImage" --background/);
   assert.match(entry, /X-GNOME-Autostart-enabled=true/);
 });

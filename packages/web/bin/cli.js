@@ -72,6 +72,7 @@ import {
   printJson,
   logStatus,
 } from './cli-output.js';
+import { brandText } from '../brand.generated.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -375,35 +376,37 @@ if (isCliExecution) {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
+    const message = brandText(reason instanceof Error ? reason.message : String(reason));
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',
         error: {
-          message: `Unhandled rejection: ${String(reason)}`,
+          message: `Unhandled rejection: ${message}`,
         },
       });
     } else {
-      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      console.error('Unhandled Rejection at:', promise, 'reason:', message);
     }
     process.exit(1);
   });
 
   process.on('uncaughtException', (error) => {
+    const message = brandText(error instanceof Error ? error.message : String(error));
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',
         error: {
-          message: `Uncaught exception: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Uncaught exception: ${message}`,
         },
       });
     } else {
-      console.error('Uncaught Exception:', error);
+      console.error(`Uncaught Exception: ${message}`);
     }
     process.exit(1);
   });
 
   main().catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = brandText(error instanceof Error ? error.message : String(error));
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',

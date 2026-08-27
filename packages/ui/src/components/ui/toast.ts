@@ -4,6 +4,7 @@ import { isValidElement } from "react"
 import { toast as sonnerToast } from "sonner"
 import type { ExternalToast } from "sonner"
 import { copyTextToClipboard } from '@/lib/clipboard'
+import { brandText } from '@/lib/brand.generated'
 
 const copyToClipboard = async (text: string) => {
   const result = await copyTextToClipboard(text)
@@ -36,6 +37,22 @@ const resolveToastDescription = (description: ExternalToast["description"]): Rea
   return description
 }
 
+const brandToastNode = (value: React.ReactNode): React.ReactNode =>
+  typeof value === "string" ? brandText(value) : value
+
+const brandToastData = (data?: ExternalToast): ExternalToast | undefined => {
+  if (data?.description == null) {
+    return data
+  }
+  const description = data.description
+  return {
+    ...data,
+    description: typeof description === "function"
+      ? () => brandToastNode(description())
+      : brandToastNode(description),
+  }
+}
+
 const getToastCopyText = (message: string | React.ReactNode, data?: ExternalToast): string => {
   const descriptionText = reactNodeToText(resolveToastDescription(data?.description))
   if (descriptionText.length > 0) {
@@ -48,38 +65,46 @@ const getToastCopyText = (message: string | React.ReactNode, data?: ExternalToas
 export const toast = {
   ...sonnerToast,
   success: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.success(message, {
-      ...data,
-      action: data?.action || {
+    const brandedMessage = brandToastNode(message)
+    const brandedData = brandToastData(data)
+    return sonnerToast.success(brandedMessage, {
+      ...brandedData,
+      action: brandedData?.action || {
         label: 'OK',
         onClick: () => {},
       },
     })
   },
   info: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.info(message, {
-      ...data,
-      action: data?.action || {
+    const brandedMessage = brandToastNode(message)
+    const brandedData = brandToastData(data)
+    return sonnerToast.info(brandedMessage, {
+      ...brandedData,
+      action: brandedData?.action || {
         label: 'OK',
         onClick: () => {},
       },
     })
   },
   error: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.error(message, {
-      ...data,
-      action: data?.action || {
+    const brandedMessage = brandToastNode(message)
+    const brandedData = brandToastData(data)
+    return sonnerToast.error(brandedMessage, {
+      ...brandedData,
+      action: brandedData?.action || {
         label: 'Copy',
-        onClick: () => copyToClipboard(getToastCopyText(message, data)),
+        onClick: () => copyToClipboard(getToastCopyText(brandedMessage, brandedData)),
       },
     })
   },
   warning: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.warning(message, {
-      ...data,
-      action: data?.action || {
+    const brandedMessage = brandToastNode(message)
+    const brandedData = brandToastData(data)
+    return sonnerToast.warning(brandedMessage, {
+      ...brandedData,
+      action: brandedData?.action || {
         label: 'Copy',
-        onClick: () => copyToClipboard(getToastCopyText(message, data)),
+        onClick: () => copyToClipboard(getToastCopyText(brandedMessage, brandedData)),
       },
     })
   },

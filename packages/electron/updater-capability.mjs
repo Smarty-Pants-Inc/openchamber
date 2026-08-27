@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { PRODUCT_NAME } from './brand.generated.mjs';
+
 export const assertUpdaterCapability = ({
+  appImagePath = process.env.APPIMAGE || '',
   platform = process.platform,
   packaged,
-  appImagePath = process.env.APPIMAGE,
   access = fs.accessSync,
   stat = fs.statSync,
 } = {}) => {
@@ -12,7 +14,7 @@ export const assertUpdaterCapability = ({
 
   if (!appImagePath) {
     throw new Error(
-      'Updates require the packaged Linux AppImage. Start OpenChamber from its .AppImage file, not an extracted or repackaged copy.',
+      `Updates require the packaged Linux AppImage. Start ${PRODUCT_NAME} from its .AppImage file, not an extracted or repackaged copy.`,
     );
   }
   if (!path.isAbsolute(appImagePath)) {
@@ -22,7 +24,7 @@ export const assertUpdaterCapability = ({
   try {
     if (!stat(appImagePath).isFile()) throw new Error('not a file');
   } catch {
-    throw new Error(`The running AppImage cannot be found at ${appImagePath}. Start OpenChamber from a valid .AppImage file.`);
+    throw new Error(`The running AppImage cannot be found at ${appImagePath}. Start ${PRODUCT_NAME} from a valid .AppImage file.`);
   }
 
   try {

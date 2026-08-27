@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { clearAppImageArgv0FromProcessEnv } from '../inherited-env.js';
 import { mergePathValues } from './path-utils.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 export const createOpenCodeEnvRuntime = (deps) => {
   const {
@@ -940,7 +941,7 @@ export const createOpenCodeEnvRuntime = (deps) => {
   const createConfiguredOpencodeBinaryError = (raw, normalized) => {
     const configured = typeof raw === 'string' ? raw.trim() : '';
     const candidate = typeof normalized === 'string' && normalized.trim().length > 0 ? normalized.trim() : configured;
-    const messageSuffix = 'OpenChamber needs the standalone opencode CLI. Install it and set settings.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.';
+    const messageSuffix = `${PRODUCT_NAME} needs the standalone opencode CLI. Install it and set settings.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.`;
     const error = (() => {
       if (isKnownOpenCodeDesktopAppPath(candidate) || isKnownOpenCodeDesktopAppPath(configured)) {
         const platformName = process.platform === 'win32' ? 'Windows desktop app install' : 'macOS desktop app bundle';

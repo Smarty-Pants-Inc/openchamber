@@ -1,3 +1,4 @@
+import { brandText } from '@/lib/brand.generated';
 import { LOCALE_STORAGE_KEY, normalizeLocale, type Locale } from './runtime';
 
 type BootstrapMessages = {
@@ -229,7 +230,13 @@ const DE_MESSAGES: BootstrapMessages = {
 };
 
 export const getBootstrapMessages = (locale: Locale): BootstrapMessages => {
-  return BOOTSTRAP_MESSAGES[locale];
+  const messages = BOOTSTRAP_MESSAGES[locale];
+  return {
+    ...messages,
+    startingApi: brandText(messages.startingApi),
+    initialDataLoadFailed: brandText(messages.initialDataLoadFailed),
+    cliNotFound: brandText(messages.cliNotFound),
+  };
 };
 
 const BOOTSTRAP_MESSAGES: Record<Locale, BootstrapMessages> = {

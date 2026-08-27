@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from '../../../brand.generated.js';
+
 /** One stray uncaught exception is survivable; a storm means the process is broken. */
 const UNCAUGHT_STORM_LIMIT = 10;
 const UNCAUGHT_STORM_WINDOW_MS = 60_000;
@@ -48,7 +50,7 @@ export const createServerStartupRuntime = (dependencies) => {
 
           if (typeof process.send === 'function') {
             if (!process.connected) {
-              throw new Error('OpenChamber startup IPC channel disconnected before ready notification');
+              throw new Error(`${PRODUCT_NAME} startup IPC channel disconnected before ready notification`);
             }
 
             await new Promise((resolveReadyNotification, rejectReadyNotification) => {
@@ -69,7 +71,7 @@ export const createServerStartupRuntime = (dependencies) => {
           const displayHost = (bindHost === '0.0.0.0' || bindHost === '::' || bindHost === '[::]')
             ? 'localhost'
             : (bindHost.includes(':') ? `[${bindHost}]` : bindHost);
-          console.log(`OpenChamber server listening on ${bindHost}:${activePort}`);
+          console.log(`${PRODUCT_NAME} server listening on ${bindHost}:${activePort}`);
           console.log(`Health check: http://${displayHost}:${activePort}/health`);
           console.log(`Web interface: http://${displayHost}:${activePort}`);
 

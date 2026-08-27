@@ -11,6 +11,7 @@ import { normalizeWindowsDriveLetter } from './pathUtils';
 import { resolveWorkingDirectoryChange } from './workingDirectoryChange';
 import { registerManagedProcess, unregisterManagedProcess, reapOrphanedProcesses } from './opencodeProcessRegistry';
 import { applyProviderEnvAliases } from './provider-env-aliases';
+import { PRODUCT_NAME } from './brand.generated';
 
 const t = vscode.l10n.t;
 
@@ -243,7 +244,7 @@ function isKnownOpenCodeDesktopAppPath(candidate: string): boolean {
 }
 
 function createConfiguredOpencodeBinaryError(raw: string, normalized: string): Error {
-  const messageSuffix = 'OpenChamber needs the standalone opencode CLI. Install it and set openchamber.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.';
+  const messageSuffix = `${PRODUCT_NAME} needs the standalone opencode CLI. Install it and set openchamber.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.`;
   if (isKnownOpenCodeDesktopAppPath(raw) || isKnownOpenCodeDesktopAppPath(normalized)) {
     const platformName = process.platform === 'win32' ? 'Windows desktop app install' : 'macOS desktop app bundle';
     return new Error(`Configured OpenCode binary points at the ${platformName}, not the CLI: ${normalized}. ${messageSuffix}`);
@@ -613,7 +614,7 @@ async function waitForReady(
   timeoutMs = 15000,
   authHeaders: Record<string, string> = {}
 ): Promise<ReadyResult> {
-  const outputChannel = vscode.window.createOutputChannel('OpenChamberManager');
+  const outputChannel = vscode.window.createOutputChannel(`${PRODUCT_NAME} Manager`);
   const start = Date.now();
   const candidates = getCandidateBaseUrls(serverUrl);
   let attempts = 0;
@@ -711,7 +712,7 @@ async function spawnManagedOpenCodeServer(
     const onExit = (code: number | null) => {
       cleanup();
       const appBundleHint = isMacOpenCodeAppBundlePath(binary)
-        ? ' The configured binary appears to point at the macOS desktop app bundle; OpenChamber needs the standalone opencode CLI.'
+        ? ` The configured binary appears to point at the macOS desktop app bundle; ${PRODUCT_NAME} needs the standalone opencode CLI.`
         : '';
       reject(new Error(`OpenCode process exited before serving with code ${code}. Binary used: ${binary}.${appBundleHint} Output: ${output}`));
     };

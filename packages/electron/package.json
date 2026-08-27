@@ -2,8 +2,8 @@
   "name": "@openchamber/electron",
   "version": "1.21.0",
   "private": true,
-  "description": "Electron desktop runtime for OpenChamber",
-  "author": "OpenChamber",
+  "description": "Electron desktop runtime for smarty-code",
+  "author": "smarty-code",
   "type": "module",
   "main": "./dist-bundle/main.mjs",
   "dependencies": {
@@ -38,7 +38,6 @@
     "verify:opencode-cli:packaged": "node ./scripts/verify-opencode-cli.mjs --packaged",
     "verify:linux-appimage": "node ./scripts/verify-linux-appimage.mjs",
     "bundle:main": "bun ./scripts/bundle-main.mjs",
-    "generate:macos-icon": "node ./scripts/generate-macos-icon-assets.cjs",
     "rebuild:native": "node ./scripts/rebuild-native.mjs",
     "test": "node ../../scripts/run-isolated-tests.mjs .",
     "test:architecture": "node --test ./startup-url-selection.test.mjs ./scripts/target-architecture.test.mjs ./scripts/verify-linux-appimage.test.mjs ./scripts/verify-update-manifest.test.mjs ./scripts/ensure-electron.test.mjs",
@@ -53,7 +52,7 @@
   },
   "build": {
     "appId": "dev.openchamber.desktop",
-    "productName": "OpenChamber",
+    "productName": "smarty-code",
     "files": [
       "dist-bundle/main.mjs",
       "preload.mjs"
@@ -62,10 +61,6 @@
       {
         "from": "resources/web-dist",
         "to": "web-dist"
-      },
-      {
-        "from": "resources/icons/icon.ico",
-        "to": "icons/icon.ico"
       },
       {
         "from": "resources/icons/icon.png",
@@ -80,20 +75,16 @@
         "to": "opencode-cli"
       }
     ],
-    "afterPack": "scripts/after-pack.cjs",
     "directories": {
       "buildResources": "resources/icons",
       "output": "dist"
     },
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "artifactName": "OpenChamber-${version}-${arch}.${ext}",
     "npmRebuild": false,
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "resources/icons/icon.icns",
-      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
-      "extendInfo": {
-        "CFBundleIconName": "AppIcon"
-      },
+      "executableName": "OpenChamber",
+      "icon": "resources/icons/app-icon.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
@@ -105,25 +96,26 @@
       ]
     },
     "win": {
-      "icon": "resources/icons/icon.ico",
+      "executableName": "OpenChamber",
+      "icon": "resources/icons/app-icon.png",
       "target": [
         "nsis"
       ],
       "verifyUpdateCodeSignature": false,
-      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+      "artifactName": "OpenChamber-${version}-win-${arch}.${ext}"
     },
     "linux": {
       "target": [
         "AppImage"
       ],
       "category": "Development",
-      "icon": "resources/icons/icon.png",
+      "icon": "resources/icons/app-icon.png",
       "executableName": "openchamber",
-      "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+      "artifactName": "OpenChamber-${version}-linux-${arch}.${ext}",
       "desktop": {
         "entry": {
-          "Name": "OpenChamber",
-          "Comment": "Desktop runtime for OpenChamber",
+          "Name": "smarty-code",
+          "Comment": "Desktop runtime for smarty-code",
           "Icon": "openchamber",
           "StartupWMClass": "openchamber"
         }
@@ -131,10 +123,7 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false,
-      "installerIcon": "resources/icons/icon.ico",
-      "uninstallerIcon": "resources/icons/icon.ico",
-      "installerHeaderIcon": "resources/icons/icon.ico"
+      "perMachine": false
     },
     "dmg": {
       "sign": true,

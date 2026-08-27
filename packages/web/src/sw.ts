@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 // NOTE: keep the Workbox injection point so vite-plugin-pwa can build.
 // We intentionally do not use Workbox runtime helpers here: iOS Safari can be
@@ -46,7 +47,7 @@ self.addEventListener('push', (event) => {
       return;
     }
 
-    const title = payload.title || 'OpenChamber';
+    const title = payload.title || PRODUCT_NAME;
     const body = payload.body ?? '';
     const icon = payload.icon ?? '/apple-touch-icon-180x180.png';
     const badge = payload.badge ?? '/favicon-32.png';

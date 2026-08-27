@@ -1,4 +1,6 @@
-const DEFAULT_MESSAGE = "Updating OpenCode configuration...";
+import { brandText } from '@/lib/brand.generated';
+
+const DEFAULT_MESSAGE = brandText("Updating OpenCode configuration...");
 
 type ConfigUpdateListener = (state: {
   isUpdating: boolean;
@@ -20,10 +22,10 @@ function notify() {
 export function startConfigUpdate(message?: string) {
   pendingCount += 1;
   if (pendingCount === 1) {
-    currentMessage = message || DEFAULT_MESSAGE;
+    currentMessage = brandText(message || DEFAULT_MESSAGE);
     notify();
   } else if (message) {
-    currentMessage = message;
+    currentMessage = brandText(message);
     notify();
   }
 }

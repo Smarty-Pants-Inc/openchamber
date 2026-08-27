@@ -7,6 +7,7 @@ import {
   buildDeferredRestartResponse,
 } from './config-mutation-response.js';
 import { getClaudeCliAuthStatus } from './claude-cli-auth.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 export const registerOpenCodeRoutes = (app, dependencies) => {
   const {
@@ -206,8 +207,8 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
             ? 'OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER'
             : 'OPENCODE_UPGRADE_UNSUPPORTED',
           error: capability.reason === 'bundled'
-            ? 'OpenCode is bundled with OpenChamber Desktop and updates with the app.'
-            : 'This OpenCode runtime cannot be upgraded by OpenChamber.',
+            ? `OpenCode is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`
+            : `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.`,
         });
       }
       if (openCodeUpgradePromise) {

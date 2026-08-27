@@ -12,6 +12,7 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useDeviceInfo } from '@/lib/device';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { cn } from '@/lib/utils';
+import { brandText } from '@/lib/brand.generated';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
 
 import MessageBody from './message/MessageBody';
@@ -678,9 +679,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         if (!detail) {
             return undefined;
         }
+        const brandedDetail = brandText(detail);
         if (errorName === 'SessionRetry') {
             return {
-                text: `Opencode failed to send a message. Retry attempt info: ${detail}`,
+                text: `Failed to send a message. Retry attempt info: ${brandedDetail}`,
             };
         }
         if (isLikelyProviderAuthFailure(detail)) {
@@ -690,11 +692,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }
         if (detail.trim().toLowerCase() === 'aborted') {
             return {
-                text: 'The running turn was stopped before OpenCode could send the next message.',
+                text: 'The running turn stopped before the next message was sent.',
             };
         }
         return {
-            text: `Opencode failed to send message with error: ${detail}`,
+            text: `Failed to send the message: ${brandedDetail}`,
         };
     }, [isUser, message.info]);
 

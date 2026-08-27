@@ -1,3 +1,4 @@
+import { brandText } from '@/lib/brand.generated';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getSyncSessions } from '@/sync/sync-refs';
 import { useUIStore } from '@/stores/useUIStore';
@@ -403,6 +404,6 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
 export const showOpenCodeStatus = async (): Promise<void> => {
   const text = await buildOpenCodeStatusReport();
   const ui = useUIStore.getState();
-  ui.setOpenCodeStatusText(text);
+  ui.setOpenCodeStatusText(brandText(text));
   ui.setOpenCodeStatusDialogOpen(true);
 };
