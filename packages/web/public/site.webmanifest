@@ -1,7 +1,7 @@
 {
   "name": "smarty-code - AI Coding Companion",
   "short_name": "smarty-code",
-  "description": "smarty-code AI coding assistant",
+  "description": "smarty-code web interface companion for OpenCode AI coding agent",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#151313",

@@ -13,14 +13,14 @@ const script = path.join(root, 'scripts/apply-brand.mjs');
 const brandConfig = JSON.parse(readFileSync(path.join(root, 'branding/brand.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(path.join(root, 'branding/generated.json'), 'utf8'));
 const EXPECTED_GENERATED_MODULE_COUNT = 5;
-const EXPECTED_PATCHED_TEXT_COUNT = 23;
+const EXPECTED_PATCHED_TEXT_COUNT = 25;
 const EXPECTED_SVG_COUNT = 12;
 const EXPECTED_PNG_COUNT = 98;
 const EXPECTED_CONTROLLED_FILE_COUNT = EXPECTED_GENERATED_MODULE_COUNT
   + EXPECTED_PATCHED_TEXT_COUNT
   + EXPECTED_SVG_COUNT
   + EXPECTED_PNG_COUNT;
-assert.equal(EXPECTED_CONTROLLED_FILE_COUNT, 138);
+assert.equal(EXPECTED_CONTROLLED_FILE_COUNT, 140);
 const controlledFiles = Object.keys(manifest.files);
 assert.equal(controlledFiles.length, EXPECTED_CONTROLLED_FILE_COUNT);
 assert.equal(new Set(controlledFiles).size, EXPECTED_CONTROLLED_FILE_COUNT);
@@ -270,7 +270,8 @@ test('runtime branding is limited to owned templates and compatibility identitie
   const passkeys = readFileSync(path.join(root, 'packages/web/server/lib/ui-auth/ui-passkeys.js'), 'utf8');
   assert.match(passkeys, /this \$\{PRODUCT_NAME\} instance/);
   const pwaRoute = readFileSync(path.join(root, 'packages/web/server/lib/opencode/pwa-manifest-routes.js'), 'utf8');
-  assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} AI coding assistant`/);
+  assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} web interface companion for OpenCode AI coding agent`/);
+  assert.match(webIndex, /description: __PRODUCT_NAME_JSON__ \+ ' web interface companion for OpenCode AI coding agent'/);
 
   const repairedPresentationFiles = [
     'packages/web/bin/lib/commands-logs.js',

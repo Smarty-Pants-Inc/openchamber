@@ -121,8 +121,9 @@ const escapeShellSingleQuoted = (value) => String(value).replace(/'/g, () => "'\
 await patchText('packages/web/public/site.webmanifest', (source) => {
   let branded = setJsonString(source, 'name', `${PRODUCT_NAME} - AI Coding Companion`, 'PWA name');
   branded = setJsonString(branded, 'short_name', PRODUCT_NAME, 'PWA short_name');
-  return setJsonString(branded, 'description', `${PRODUCT_NAME} AI coding assistant`, 'PWA description');
+  return setJsonString(branded, 'description', `${PRODUCT_NAME} web interface companion for OpenCode AI coding agent`, 'PWA description');
 });
+for (const file of ['docs/REVERSE_PROXY.md', 'docs/CUSTOM_THEMES.md']) await patchText(file, brandDocs);
 
 await patchText('README.md', (source) => {
   const branded = brandDocs(source);
@@ -372,7 +373,7 @@ const sourceDigest = hash(Buffer.concat([
   await readFile(fileURLToPath(import.meta.url)),
 ]));
 const expectedFiles = [...generatedText.keys(), ...patchedText.keys(), ...pngTargets.map(({ file }) => file)].sort();
-const EXPECTED_CONTROLLED_FILE_COUNT = 138;
+const EXPECTED_CONTROLLED_FILE_COUNT = 140;
 const uniqueExpectedFiles = new Set(expectedFiles);
 if (expectedFiles.length !== EXPECTED_CONTROLLED_FILE_COUNT || uniqueExpectedFiles.size !== EXPECTED_CONTROLLED_FILE_COUNT) {
   throw new Error(`Expected ${EXPECTED_CONTROLLED_FILE_COUNT} unique controlled brand outputs, found ${expectedFiles.length} (${uniqueExpectedFiles.size} unique)`);

@@ -64,7 +64,7 @@ describe('PWA manifest route', () => {
       await handler({ query: {} }, res);
 
       const manifest = JSON.parse(res.body);
-      expect(manifest.description).toBe(`${PRODUCT_NAME} AI coding assistant`);
+      expect(manifest.description).toBe(`${PRODUCT_NAME} web interface companion for OpenCode AI coding agent`);
       expect(fetchCalls).toHaveLength(2);
       expect(manifest.shortcuts).toEqual([
         {
