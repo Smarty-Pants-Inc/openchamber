@@ -144,16 +144,16 @@ for (const file of [
 await patchText('scripts/install.sh', (source) => {
   const shellName = escapeShellDoubleQuoted(PRODUCT_NAME);
   const shellMark = escapeShellSingleQuoted(PRODUCT_MARK);
-  let branded = replaceRequired(source, /^# .* Install Script$/m, `# ${PRODUCT_NAME} Install Script`, 'installer header');
+  let branded = replaceRequired(source, /^# .* Install Script$/m, () => `# ${PRODUCT_NAME} Install Script`, 'installer header');
   const bannerTitle = `   ${shellName} Installer`.padEnd(35);
   const bannerSubtitle = '   AI coding workspace'.padEnd(35);
-  branded = replaceRequired(branded, /^  echo "  │.*Installer.*│"$/m, `  echo "  │${bannerTitle}│"`, 'installer banner title');
-  branded = replaceRequired(branded, /^  echo "  │   (?:Web interface for .*|AI coding workspace)\s*│"$/m, `  echo "  │${bannerSubtitle}│"`, 'installer banner subtitle');
-  branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, `    info "${shellName} is already installed — updating via 'openchamber update'..."`, 'installer update message');
-  branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, `      success "${shellName} is up to date!"`, 'installer updated message');
-  branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, `  info "Installing ${shellName}..."`, 'installer installing message');
+  branded = replaceRequired(branded, /^  echo "  │.*Installer.*│"$/m, () => `  echo "  │${bannerTitle}│"`, 'installer banner title');
+  branded = replaceRequired(branded, /^  echo "  │   (?:Web interface for .*|AI coding workspace)\s*│"$/m, () => `  echo "  │${bannerSubtitle}│"`, 'installer banner subtitle');
+  branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, () => `    info "${shellName} is already installed — updating via 'openchamber update'..."`, 'installer update message');
+  branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, () => `      success "${shellName} is up to date!"`, 'installer updated message');
+  branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, () => `  info "Installing ${shellName}..."`, 'installer installing message');
   branded = replaceRequired(branded, /(# brand:mark\n\s*printf )'[^']*'/, (_match, prefix) => `${prefix}'  ${shellMark}  ${escapeShellSingleQuoted(PRODUCT_NAME)}\\n'`, 'installer mark');
-  branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, `    success "${shellName} installed successfully!"`, 'installer success message');
+  branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, () => `    success "${shellName} installed successfully!"`, 'installer success message');
   return replaceRequired(branded, /^    echo "    Make sure .*: opencode serve"$/m, '    echo "    Make sure opencode is running: opencode serve"', 'installer prerequisite');
 });
 

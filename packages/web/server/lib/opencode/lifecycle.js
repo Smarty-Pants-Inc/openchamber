@@ -348,7 +348,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     let launchWrapperType = null;
 
     if (process.platform === 'win32' && state.useWslForOpencode) {
-      throw new Error(`Launching ${PRODUCT_NAME} through WSL is no longer supported. Install ${PRODUCT_NAME} natively on Windows and configure opencode.cmd or opencode.exe.`);
+      throw new Error('Launching OpenCode through WSL is no longer supported. Install OpenCode natively on Windows and configure opencode.cmd or opencode.exe.');
     }
 
     if (process.platform === 'win32' && !state.useWslForOpencode) {
@@ -792,19 +792,19 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
       console.log(`Restarting ${PRODUCT_NAME} process...`);
 
       if (state.isExternalOpenCode) {
-        console.log(`Re-probing external ${PRODUCT_NAME} server...`);
+        console.log('Re-probing external OpenCode server...');
         const probePort = state.openCodePort || env.ENV_CONFIGURED_OPENCODE_PORT || 4096;
         const probeOrigin = state.openCodeBaseUrl ?? env.ENV_CONFIGURED_OPENCODE_HOST?.origin;
         const healthy = await probeExternalOpenCode(probePort, probeOrigin);
         if (healthy) {
-          console.log(`External ${PRODUCT_NAME} server on port ${probePort} is healthy`);
+          console.log(`External OpenCode server on port ${probePort} is healthy`);
           setOpenCodePort(probePort);
           state.isOpenCodeReady = true;
           state.lastOpenCodeError = null;
           state.openCodeNotReadySince = 0;
           syncToHmrState();
         } else {
-          state.lastOpenCodeError = `External ${PRODUCT_NAME} server on port ${probePort} is not responding`;
+          state.lastOpenCodeError = `External OpenCode server on port ${probePort} is not responding`;
           console.error(state.lastOpenCodeError);
           throw new Error(state.lastOpenCodeError);
         }
@@ -1040,7 +1040,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
         console.log(`[HMR] Reusing existing ${PRODUCT_NAME} process on port ${state.openCodePort}`);
       } else if (env.ENV_SKIP_OPENCODE_START && env.ENV_EFFECTIVE_PORT) {
         const label = env.ENV_CONFIGURED_OPENCODE_HOST ? env.ENV_CONFIGURED_OPENCODE_HOST.origin : `http://localhost:${env.ENV_EFFECTIVE_PORT}`;
-        console.log(`Using external ${PRODUCT_NAME} server at ${label} (skip-start mode)`);
+        console.log(`Using external OpenCode server at ${label} (skip-start mode)`);
         state.openCodeBaseUrl = env.ENV_CONFIGURED_OPENCODE_HOST?.origin ?? null;
         setOpenCodePort(env.ENV_EFFECTIVE_PORT);
         state.isOpenCodeReady = true;
@@ -1050,7 +1050,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
         syncToHmrState();
       } else if (env.ENV_EFFECTIVE_PORT && await probeExternalOpenCode(env.ENV_EFFECTIVE_PORT, env.ENV_CONFIGURED_OPENCODE_HOST?.origin)) {
         const label = env.ENV_CONFIGURED_OPENCODE_HOST ? env.ENV_CONFIGURED_OPENCODE_HOST.origin : `http://localhost:${env.ENV_EFFECTIVE_PORT}`;
-        console.log(`Auto-detected existing ${PRODUCT_NAME} server at ${label}`);
+        console.log(`Auto-detected existing OpenCode server at ${label}`);
         state.openCodeBaseUrl = env.ENV_CONFIGURED_OPENCODE_HOST?.origin ?? null;
         setOpenCodePort(env.ENV_EFFECTIVE_PORT);
         state.isOpenCodeReady = true;

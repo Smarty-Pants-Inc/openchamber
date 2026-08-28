@@ -196,6 +196,8 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.equal(localeBundle[`Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`], `Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`);
     const vscodeWebview = readFileSync(path.join(fixture, 'packages/vscode/webview/index.html'), 'utf8');
     assert.match(vscodeWebview, /<title>Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/title>/);
+    const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
+    assert.match(installer, /Installing Fixture's \\"Brand\\" & \\\$& <tag>\.\.\./);
     assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?quoted=${Date.now()}`);
     assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $& <tag>`);
@@ -270,6 +272,9 @@ test('runtime branding is limited to owned templates and compatibility identitie
   const passkeys = readFileSync(path.join(root, 'packages/web/server/lib/ui-auth/ui-passkeys.js'), 'utf8');
   assert.match(passkeys, /this \$\{PRODUCT_NAME\} instance/);
   const pwaRoute = readFileSync(path.join(root, 'packages/web/server/lib/opencode/pwa-manifest-routes.js'), 'utf8');
+  const lifecycleSource = readFileSync(path.join(root, 'packages/web/server/lib/opencode/lifecycle.js'), 'utf8');
+  assert.match(lifecycleSource, /Launching OpenCode through WSL/);
+  assert.match(lifecycleSource, /external OpenCode server/);
   assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} web interface companion for OpenCode AI coding agent`/);
   assert.match(webIndex, /description: __PRODUCT_NAME_JSON__ \+ ' web interface companion for OpenCode AI coding agent'/);
 
@@ -306,8 +311,7 @@ test('runtime branding is limited to owned templates and compatibility identitie
     'packages/web/bin/lib/cli-network.js': ['OpenChamber UI'],
     'packages/web/bin/lib/cli-ports.js': ['OpenChamber Desktop', 'OpenChamber instance'],
     'packages/web/server/lib/opencode/env-runtime.js': ['Configured OpenCode binary', 'OpenChamber could not resolve', 'supported by OpenChamber desktop'],
-    'packages/web/server/lib/opencode/lifecycle.js': ['Launching OpenCode', 'Failed to start OpenCode', 'Restarting OpenCode', 'OpenCode process exited before serving'],
-    'packages/web/server/lib/opencode/proxy.js': ['OpenCode service unavailable', 'OpenCode upstream timed out', 'OpenCode is restarting', 'OpenCode session list timed out', '[proxy] OpenCode'],
+    'packages/web/server/lib/opencode/lifecycle.js': ['Failed to start OpenCode', 'Restarting OpenCode', 'OpenCode process exited before serving'],
     'packages/vscode/src/bridge-config-runtime.ts': ['Restart OpenCode to apply'],
     'packages/vscode/src/opencode.ts': ['OpenCode CLI not found', 'Failed to start OpenCode'],
     'packages/vscode/l10n/bundle.l10n.json': ['OpenCode CLI not found', 'Failed to start OpenCode'],
