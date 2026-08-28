@@ -1,12 +1,12 @@
-# OpenChamber Desktop
+# smarty-code Desktop
 
-Electron desktop runtime for OpenChamber on macOS, Windows, and Linux.
+Electron desktop runtime for smarty-code on macOS, Windows, and Linux.
 
-This package owns the native shell: windows, menus, deep links, native notifications, auto-updates, host switching, SSH connections, tunnel helpers, and packaged desktop builds. The web UI and OpenChamber server logic still live in `packages/web` and shared React UI lives in `packages/ui`.
+This package owns the native shell: windows, menus, deep links, native notifications, auto-updates, host switching, SSH connections, tunnel helpers, and packaged desktop builds. The web UI and smarty-code server logic still live in `packages/web` and shared React UI lives in `packages/ui`.
 
 ## How It Runs
 
-Desktop starts the OpenChamber web server in the same Electron main process. There is no separate sidecar subprocess for the OpenChamber server.
+Desktop starts the smarty-code web server in the same Electron main process. There is no separate sidecar subprocess for the smarty-code server.
 
 `main.mjs` imports `@openchamber/web/server/index.js` and calls `startWebUiServer()`. The Electron window then loads the UI from the local server in development, or from packaged `resources/web-dist` assets in packaged builds.
 
@@ -76,7 +76,7 @@ That runs, in order:
 2. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 3. `bundle:main` to create `packages/electron/dist-bundle/main.mjs`.
 4. `rebuild:native` to rebuild native modules for Electron.
-5. `package.mjs` to run `electron-builder`; its `afterPack` hook stages the compiled macOS icon asset catalog.
+5. `package.mjs` runs `electron-builder` with the shared PNG icon from `resources/icons/app-icon.png`.
 
 Build output goes to `packages/electron/dist`.
 
@@ -129,7 +129,7 @@ Use an explicit override when testing a different OpenCode CLI build or when a u
 |----------|-----|
 | `OPENCHAMBER_ELECTRON_DEV=1` | Marks the runtime as desktop development mode |
 | `OPENCHAMBER_ELECTRON_USE_BUNDLED_UI=1` | Uses staged web assets instead of the HMR dev server |
-| `OPENCHAMBER_SKIP_LOCAL_SERVER=1` | Skips the in-process local OpenChamber server and uses the configured default remote instance; Desktop imports this from the user's login-shell environment, and packaged/bundled UI remains available for connection recovery |
+| `OPENCHAMBER_SKIP_LOCAL_SERVER=1` | Skips the in-process local smarty-code server and uses the configured default remote instance; Desktop imports this from the user's login-shell environment, and packaged/bundled UI remains available for connection recovery |
 | `OPENCHAMBER_HMR_UI_PORT` | Preferred Vite UI port for desktop dev, default `5173` |
 | `OPENCHAMBER_HMR_API_PORT` | Preferred API port for desktop dev, default `3901` |
 | `OPENCHAMBER_RUNTIME=desktop` | Set by Electron before starting the web server |

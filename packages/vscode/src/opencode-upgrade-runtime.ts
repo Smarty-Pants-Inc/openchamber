@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from './brand.generated';
+
 type UpgradeCapability = {
   supported: boolean;
   manager: 'opencode' | 'external' | 'openchamber' | null;
@@ -102,7 +104,7 @@ export const upgradeManagedOpenCode = async (manager: OpenCodeUpgradeManager | u
   const upgrade = getCapability(manager);
   const apiUrl = getApiUrl(manager);
   if (!upgrade.supported || !apiUrl || !manager) {
-    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_UNSUPPORTED', error: 'This OpenCode runtime cannot be upgraded by OpenChamber.' } };
+    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_UNSUPPORTED', error: `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.` } };
   }
   if (openCodeUpgradePromise) {
     return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_IN_PROGRESS', error: 'An OpenCode upgrade is already in progress.' } };

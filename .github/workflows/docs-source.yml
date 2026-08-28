@@ -7,6 +7,8 @@ on:
       - "packages/docs/**"
       - "scripts/docs/**"
       - "package.json"
+      - "branding/**"
+      - "scripts/apply-brand.mjs"
   release:
     types: [published]
   workflow_dispatch:
@@ -37,9 +39,11 @@ jobs:
       - name: Build docs source archive
         id: archive
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts/docs-source
+          cp -R packages/docs/. artifacts/docs-source/
+          node scripts/apply-brand.mjs --docs artifacts/docs-source --check
           ARCHIVE_NAME="openchamber-docs-source-${GITHUB_SHA::8}.tar.gz"
-          tar -czf "artifacts/${ARCHIVE_NAME}" -C packages/docs .
+          tar -czf "artifacts/${ARCHIVE_NAME}" -C artifacts/docs-source .
           echo "archive_name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact

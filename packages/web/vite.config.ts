@@ -5,6 +5,25 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { VitePWA } from 'vite-plugin-pwa';
 import { themeStoragePlugin } from '../../vite-theme-plugin';
+import { PRODUCT_MARK, PRODUCT_NAME } from './brand.generated.js';
+
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character] ?? character));
+const escapeJsonForHtmlScript = (value: string) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) => ({
+  '<': '\\u003c',
+  '>': '\\u003e',
+  '&': '\\u0026',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029',
+}[character] ?? character));
+const productNameHtml = escapeHtml(PRODUCT_NAME);
+const productNameJson = escapeJsonForHtmlScript(PRODUCT_NAME);
+const productMarkHtml = escapeHtml(PRODUCT_MARK);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
@@ -40,6 +59,15 @@ const themeJsonHmrPlugin = () => ({
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
   plugins: [
+    {
+      name: 'apply-product-brand',
+      transformIndexHtml(html) {
+        return html
+          .replaceAll('__PRODUCT_NAME_JSON__', () => productNameJson)
+          .replaceAll('__PRODUCT_NAME_HTML__', () => productNameHtml)
+          .replaceAll('__PRODUCT_MARK_HTML__', () => productMarkHtml);
+      },
+    },
     react({
       babel: {
         plugins: ['babel-plugin-react-compiler'],

@@ -747,13 +747,13 @@ describe('OpenCode lifecycle', () => {
 
     const runtime = createRuntime();
 
-    await expect(runtime.startOpenCode()).rejects.toThrow('OpenCode process exited before serving with signal SIGTERM. Binary used: opencode. No stdout/stderr captured');
+    await expect(runtime.startOpenCode()).rejects.toThrow('smarty-code process exited before serving with signal SIGTERM. Binary used: opencode. No stdout/stderr captured');
     expect(spawnMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry managed startup when the configured OpenCode binary is invalid', async () => {
     delete process.env.OPENCODE_BINARY;
-    const error = new Error('Configured OpenCode binary not found: /missing/opencode');
+    const error = new Error('Configured opencode binary not found: /missing/opencode');
     error.code = 'OPENCODE_BINARY_INVALID';
     const applyOpencodeBinaryFromSettings = vi.fn(async () => {
       throw error;
@@ -761,7 +761,7 @@ describe('OpenCode lifecycle', () => {
 
     const runtime = createRuntime({ applyOpencodeBinaryFromSettings });
 
-    await expect(runtime.startOpenCode()).rejects.toThrow('Configured OpenCode binary not found: /missing/opencode');
+    await expect(runtime.startOpenCode()).rejects.toThrow('Configured opencode binary not found: /missing/opencode');
     expect(applyOpencodeBinaryFromSettings).toHaveBeenCalledTimes(1);
     expect(applyOpencodeBinaryFromSettings).toHaveBeenCalledWith({ strict: true });
     expect(spawnMock).not.toHaveBeenCalled();

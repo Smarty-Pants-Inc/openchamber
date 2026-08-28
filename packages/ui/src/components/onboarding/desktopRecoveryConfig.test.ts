@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { getDesktopRecoveryConfig } from './desktopRecoveryConfig';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 describe('getDesktopRecoveryConfig', () => {
   // ---------------------------------------------------------------------------
@@ -8,7 +9,7 @@ describe('getDesktopRecoveryConfig', () => {
   test('local-unavailable exposes both actions and Retry Local', () => {
     const config = getDesktopRecoveryConfig('local-unavailable');
 
-    expect(config.title).toBe('Local OpenCode Unavailable');
+    expect(config.title).toBe(`Local ${PRODUCT_NAME} Unavailable`);
     expect(config.iconKey).toBe('local');
     expect(config.showRetry).toBe(true);
     expect(config.retryLabel).toBe('Retry Local');

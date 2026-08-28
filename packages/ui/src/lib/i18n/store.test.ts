@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+import { brandText, PRODUCT_NAME } from '@/lib/brand.generated';
 import { DEFAULT_LOCALE, type Locale } from './runtime';
-import { resetI18nDictionaryCacheForTests, useI18nStore } from './store';
+import { formatMessage, resetI18nDictionaryCacheForTests, useI18nStore } from './store';
 
 const defaultDictionary = useI18nStore.getState().dictionary;
 
@@ -25,6 +26,27 @@ const waitForLocaleLoadToSettle = async (locale: Locale) => {
 
 describe('i18n store', () => {
   beforeEach(resetStore);
+  test('brands product-owned templates without rewriting parameters', () => {
+    expect(formatMessage(defaultDictionary, 'aboutDialog.openChamberVersionLabel', { version: 'OpenChamber' }))
+      .toBe(`${PRODUCT_NAME} version OpenChamber`);
+    expect(formatMessage(defaultDictionary, 'pwa.installPrompt.description'))
+      .toBe(`Install ${PRODUCT_NAME} for quicker access`);
+    expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.upgrading.description'))
+      .toBe(`Keep ${PRODUCT_NAME} open.`);
+  });
+
+  test('preserves upstream OpenCode labels and mixed diagnostics', () => {
+    const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
+    expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
+      .toBe(`OpenCode version ${runtimeValue}`);
+    expect(formatMessage(defaultDictionary, 'aboutDialog.diagnosticsDescription'))
+      .toBe(`Includes ${PRODUCT_NAME} state, OpenCode health, directories, and projects.`);
+  });
+
+  test('preserves technical OpenCode identifiers', () => {
+    expect(brandText('OpenCode opencode OPENCODE_BINARY OpenCodeClient'))
+      .toBe(`${PRODUCT_NAME} opencode OPENCODE_BINARY OpenCodeClient`);
+  });
 
   test('retries loading the active locale when it is not cached', async () => {
     useI18nStore.setState({

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenChamber Install Script
+# smarty-code Install Script
 # Usage: curl -fsSL https://raw.githubusercontent.com/btriapitsyn/openchamber/main/scripts/install.sh | bash
 
 set -euo pipefail
@@ -16,19 +16,19 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 info() {
-  echo -e "${BLUE}info${NC}  $1"
+  printf '%b  %s\n' "${BLUE}info${NC}" "$1"
 }
 
 success() {
-  echo -e "${GREEN}success${NC}  $1"
+  printf '%b  %s\n' "${GREEN}success${NC}" "$1"
 }
 
 warn() {
-  echo -e "${YELLOW}warn${NC}  $1"
+  printf '%b  %s\n' "${YELLOW}warn${NC}" "$1"
 }
 
 error() {
-  echo -e "${RED}error${NC}  $1"
+  printf '%b  %s\n' "${RED}error${NC}" "$1"
 }
 
 # Check if a command exists
@@ -156,8 +156,8 @@ main() {
   echo ""
   echo "  ╭───────────────────────────────────╮"
   echo "  │                                   │"
-  echo "  │   OpenChamber Installer           │"
-  echo "  │   Web interface for OpenCode      │"
+  echo "  │   smarty-code Installer           │"
+  echo "  │   AI coding workspace             │"
   echo "  │                                   │"
   echo "  ╰───────────────────────────────────╯"
   echo ""
@@ -176,16 +176,16 @@ main() {
   fi
   success "Node.js v$NODE_VERSION found"
 
-  # If OpenChamber is already installed, hand off to its own updater instead
+  # If smarty-code is already installed, hand off to its own updater instead
   # of guessing a package manager. `openchamber update` detects which manager
   # actually owns the existing global install and reinstalls with that one —
   # reinstalling with a different manager here would orphan files and break PATH.
   if command_exists "$BIN_NAME"; then
-    info "OpenChamber is already installed — updating via 'openchamber update'..."
+    info "smarty-code is already installed — updating via 'openchamber update'..."
     echo ""
     if openchamber update; then
       echo ""
-      success "OpenChamber is up to date!"
+      success "smarty-code is up to date!"
       exit 0
     fi
     echo ""
@@ -216,25 +216,16 @@ main() {
 
   # Install
   echo ""
-  info "Installing OpenChamber..."
+  info "Installing smarty-code..."
   echo "  Running: $INSTALL_CMD"
   echo ""
   
   if eval "$INSTALL_CMD"; then
     echo ""
-    # Wordmark (toilet "pagga", "Open"/"Chamber" stacked).
-    # Hardcoded so the user needs no extra tools.
-    printf '%b' "$BLUE"
-    cat <<'EOF'
-  ░█▀█░█▀█░█▀▀░█▀█
-  ░█░█░█▀▀░█▀▀░█░█
-  ░▀▀▀░▀░░░▀▀▀░▀░▀
-  ░█▀▀░█░█░█▀█░█▄█░█▀▄░█▀▀░█▀▄
-  ░█░░░█▀█░█▀█░█░█░█▀▄░█▀▀░█▀▄
-  ░▀▀▀░▀░▀░▀░▀░▀░▀░▀▀░░▀▀▀░▀░▀
-EOF
+    # brand:mark
+    printf '%s\n' '  🤓  smarty-code'
     printf '%b\n' "$NC"
-    success "OpenChamber installed successfully!"
+    success "smarty-code installed successfully!"
     echo ""
 
     # Verify the binary is actually reachable. Global installs frequently
@@ -264,7 +255,7 @@ EOF
     fi
     echo ""
     echo "  Prerequisites:"
-    echo "    Make sure OpenCode is running: opencode serve"
+    echo "    Make sure opencode is running: opencode serve"
     echo ""
   else
     echo ""

@@ -1,5 +1,6 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import type { ThemeMode } from '@/types/theme';
@@ -119,7 +120,7 @@ const MERMAID_RENDERING_OPTIONS: Option<'svg' | 'ascii'>[] = [
     },
 ];
 
-const DEFAULT_PWA_INSTALL_NAME = 'OpenChamber - AI Coding Assistant';
+const DEFAULT_PWA_INSTALL_NAME = `${PRODUCT_NAME} - AI Coding Assistant`;
 const PWA_ORIENTATION_OPTIONS: Option<'system' | 'portrait' | 'landscape'>[] = [
     {
         id: 'system',

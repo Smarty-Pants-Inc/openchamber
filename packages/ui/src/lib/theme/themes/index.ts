@@ -1,4 +1,5 @@
 import type { Theme } from '@/types/theme';
+import { brandProductText } from '@/lib/brand.generated';
 import { presetThemes } from './presets';
 import { withPrColors } from './prColors';
 import flexokiLightRaw from './flexoki-light.json';
@@ -11,6 +12,16 @@ const flexokiDarkTheme = withPrColors(flexokiDarkRaw as Theme);
 const openchamberLightTheme = withPrColors(openchamberLightRaw as Theme);
 const openchamberDarkTheme = withPrColors(openchamberDarkRaw as Theme);
 
+const brandTheme = (theme: Theme): Theme => ({
+  ...theme,
+  metadata: {
+    ...theme.metadata,
+    name: brandProductText(theme.metadata.name),
+    description: brandProductText(theme.metadata.description),
+    ...(theme.metadata.author ? { author: brandProductText(theme.metadata.author) } : {}),
+  },
+});
+
 export const DEFAULT_LIGHT_THEME_ID = 'openchamber-light' as const;
 export const DEFAULT_DARK_THEME_ID = 'openchamber-dark' as const;
 
@@ -22,7 +33,7 @@ export const themes: Theme[] = [
   ...presetThemes.filter(
     (theme) => theme.metadata.id !== 'openchamber-light' && theme.metadata.id !== 'openchamber-dark',
   ),
-];
+].map(brandTheme);
 
 export function getThemeById(id: string): Theme | undefined {
   // Back-compat for a short-lived rename.

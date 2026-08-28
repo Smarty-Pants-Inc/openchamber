@@ -3,6 +3,8 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { PRODUCT_NAME } from './brand.generated.mjs';
+
 const AUTOSTART_FILE_NAME = 'openchamber.desktop';
 
 const resolveLinuxAutostartDirectory = ({
@@ -37,8 +39,14 @@ const quoteDesktopExecArg = (value) => {
   return `"${text.replace(/(["\\$`])/g, '\\$1')}"`;
 };
 
+const escapeDesktopEntryValue = (value) => String(value ?? '')
+  .replace(/\\/g, '\\\\')
+  .replace(/\n/g, '\\n')
+  .replace(/\r/g, '\\r')
+  .replace(/\t/g, '\\t');
+
 export const buildLinuxAutostartDesktopEntry = ({
-  appName = 'OpenChamber',
+  appName = PRODUCT_NAME,
   executable,
   backgroundArg,
   env = process.env,
@@ -52,7 +60,7 @@ export const buildLinuxAutostartDesktopEntry = ({
   return [
     '[Desktop Entry]',
     'Type=Application',
-    `Name=${appName}`,
+    `Name=${escapeDesktopEntryValue(appName)}`,
     `Exec=${args.join(' ')}`,
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',
@@ -73,7 +81,7 @@ export const readLinuxAutostartEnabled = async (options = {}) => {
 
 export const setLinuxAutostartEnabled = async ({
   enabled,
-  appName = 'OpenChamber',
+  appName = PRODUCT_NAME,
   backgroundArg,
   env = process.env,
   execPath = process.execPath,

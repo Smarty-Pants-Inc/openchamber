@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { registerOpenCodeRoutes } from './routes.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -38,7 +39,7 @@ describe('OpenCode upgrade routes', () => {
       .expect(409, {
         success: false,
         code: 'OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER',
-        error: 'OpenCode is bundled with OpenChamber Desktop and updates with the app.',
+        error: `OpenCode is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`,
       });
 
     expect(globalThis.fetch).not.toHaveBeenCalled();

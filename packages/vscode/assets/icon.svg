@@ -1,15 +1,13 @@
-<svg width="24" height="24" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-  <!-- OpenChamber logo - simplified for VSCode activity bar -->
-  <g transform="translate(16, 16) scale(0.48)">
-    <!-- Left face - no fill -->
-    <path d="M0 0 L-26 -15 L-26 15 L0 30 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
-    <!-- Right face - no fill -->
-    <path d="M0 0 L26 -15 L26 15 L0 30 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
-    <!-- Top face - open -->
-    <path d="M0 -30 L-26 -15 L0 0 L26 -15 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
-    <!-- O logo - hollow rectangle frame on top face with gray fill inside -->
-    <g transform="matrix(0.866, 0.5, -0.866, 0.5, 0, -15) scale(0.55)">
-      <rect x="-12" y="-14" width="24" height="28" fill="currentColor" fill-opacity="0.4" stroke="currentColor" stroke-width="8"/>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <circle cx="256" cy="256" r="222" fill="none" stroke="currentColor" stroke-width="12"/>
+  <circle cx="188" cy="222" r="18" fill="currentColor"/>
+  <circle cx="324" cy="222" r="18" fill="currentColor"/>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="25">
+    <rect x="76" y="154" width="162" height="134" rx="54"/>
+    <rect x="274" y="154" width="162" height="134" rx="54"/>
+    <path d="M238 210h36M58 180l22 8M454 180l-22 8"/>
   </g>
+  <path d="M154 330c23 58 74 88 102 88s79-30 102-88c-57 34-147 34-204 0Z" fill="currentColor"/>
+  <path d="M210 363h92v38c-27 13-65 13-92 0Z" fill="currentColor"/>
+  <path d="M256 363v47" fill="none" stroke="currentColor" stroke-width="6"/>
 </svg>

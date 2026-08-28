@@ -36,6 +36,7 @@ const resolveToastDescription = (description: ExternalToast["description"]): Rea
   return description
 }
 
+
 const getToastCopyText = (message: string | React.ReactNode, data?: ExternalToast): string => {
   const descriptionText = reactNodeToText(resolveToastDescription(data?.description))
   if (descriptionText.length > 0) {
@@ -47,40 +48,32 @@ const getToastCopyText = (message: string | React.ReactNode, data?: ExternalToas
 // Wrapper to automatically add OK button to success and info toasts, Copy button to error and warning toasts
 export const toast = {
   ...sonnerToast,
-  success: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.success(message, {
-      ...data,
-      action: data?.action || {
-        label: 'OK',
-        onClick: () => {},
-      },
-    })
-  },
-  info: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.info(message, {
-      ...data,
-      action: data?.action || {
-        label: 'OK',
-        onClick: () => {},
-      },
-    })
-  },
-  error: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.error(message, {
-      ...data,
-      action: data?.action || {
-        label: 'Copy',
-        onClick: () => copyToClipboard(getToastCopyText(message, data)),
-      },
-    })
-  },
-  warning: (message: string | React.ReactNode, data?: ExternalToast) => {
-    return sonnerToast.warning(message, {
-      ...data,
-      action: data?.action || {
-        label: 'Copy',
-        onClick: () => copyToClipboard(getToastCopyText(message, data)),
-      },
-    })
-  },
+  success: (message: string | React.ReactNode, data?: ExternalToast) => sonnerToast.success(message, {
+    ...data,
+    action: data?.action || {
+      label: 'OK',
+      onClick: () => {},
+    },
+  }),
+  info: (message: string | React.ReactNode, data?: ExternalToast) => sonnerToast.info(message, {
+    ...data,
+    action: data?.action || {
+      label: 'OK',
+      onClick: () => {},
+    },
+  }),
+  error: (message: string | React.ReactNode, data?: ExternalToast) => sonnerToast.error(message, {
+    ...data,
+    action: data?.action || {
+      label: 'Copy',
+      onClick: () => copyToClipboard(getToastCopyText(message, data)),
+    },
+  }),
+  warning: (message: string | React.ReactNode, data?: ExternalToast) => sonnerToast.warning(message, {
+    ...data,
+    action: data?.action || {
+      label: 'Copy',
+      onClick: () => copyToClipboard(getToastCopyText(message, data)),
+    },
+  }),
 }

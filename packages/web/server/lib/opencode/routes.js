@@ -7,6 +7,7 @@ import {
   buildDeferredRestartResponse,
 } from './config-mutation-response.js';
 import { getClaudeCliAuthStatus } from './claude-cli-auth.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 export const registerOpenCodeRoutes = (app, dependencies) => {
   const {
@@ -65,7 +66,7 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} — OpenChamber</title>
+<title>${escapeHtml(title)} — ${escapeHtml(PRODUCT_NAME)}</title>
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -82,7 +83,7 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
 <main>
 <h1>${escapeHtml(title)}</h1>
 <p>${escapeHtml(message)}</p>
-${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return to OpenChamber</a>
+${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return to ${escapeHtml(PRODUCT_NAME)}</a>
 <script>window.location.href = 'openchamber://focus/mcp-auth';</script>` : ''}
 </main>
 </body>
@@ -206,8 +207,8 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
             ? 'OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER'
             : 'OPENCODE_UPGRADE_UNSUPPORTED',
           error: capability.reason === 'bundled'
-            ? 'OpenCode is bundled with OpenChamber Desktop and updates with the app.'
-            : 'This OpenCode runtime cannot be upgraded by OpenChamber.',
+            ? `OpenCode is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`
+            : `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.`,
         });
       }
       if (openCodeUpgradePromise) {
@@ -514,7 +515,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
     if (!context?.name) {
       return finish(400, {
         title: 'Authorization Failed',
-        message: 'This authorization session has expired or is unknown to the running app. Return to OpenChamber and click Authorize again.',
+        message: `This authorization session has expired or is unknown to the running app. Return to ${PRODUCT_NAME} and click Authorize again.`,
       });
     }
 
@@ -530,12 +531,12 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
         const payload = await upstream.json().catch(() => null);
         return finish(502, {
           title: 'Authorization Failed',
-          message: payload?.error || payload?.message || `OpenCode rejected the authorization code (${upstream.status}). Start authorization again from MCP Settings.`,
+          message: payload?.error || payload?.message || `${PRODUCT_NAME} rejected the authorization code (${upstream.status}). Start authorization again from MCP Settings.`,
         });
       }
       return finish(200, {
         title: 'Authorization Complete',
-        message: 'You can close this tab and return to OpenChamber.',
+        message: `You can close this tab and return to ${PRODUCT_NAME}.`,
       });
     } catch (error) {
       return finish(502, {

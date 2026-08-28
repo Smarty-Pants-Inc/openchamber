@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { hasDesktopInvoke, invokeDesktop } from '@/lib/desktop';
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
 import { parsePairingConnectionPayload, type PairingEndpointCandidate } from '@/lib/connectionPayload';
@@ -103,9 +104,9 @@ export const importDesktopHostPairing = async (
     body: JSON.stringify({
       pairingId: payload.pairingId,
       secret: payload.secret,
-      clientLabel: payload.label || 'OpenChamber Desktop',
+      clientLabel: payload.label || `${PRODUCT_NAME} Desktop`,
       clientKind: 'desktop',
-      deviceName: 'OpenChamber Desktop',
+      deviceName: `${PRODUCT_NAME} Desktop`,
       devicePlatform: desktopPlatformName(),
       ...(installId ? { dedupeKey: `desktop:${installId}` } : {}),
     }),

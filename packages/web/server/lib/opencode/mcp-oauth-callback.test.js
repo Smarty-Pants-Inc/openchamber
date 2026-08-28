@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { registerOpenCodeRoutes } from './routes.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 // No global body parser on purpose: the real server parses JSON per-route, so
 // these tests must fail if the pending route loses its own parser again.
@@ -46,6 +47,8 @@ describe('MCP OAuth browser callback route', () => {
     expect(init.headers['x-opencode-auth']).toBe('test');
 
     expect(response.text).toContain('Authorization Complete');
+    expect(response.text).toContain(`— ${PRODUCT_NAME}`);
+    expect(response.text).toContain(`return to ${PRODUCT_NAME}`);
     // Started from the desktop shell: the page hands control back via deep link.
     expect(response.text).toContain('openchamber://focus/mcp-auth');
 
@@ -87,17 +90,17 @@ describe('MCP OAuth browser callback route', () => {
 
     const response = await request(app)
       .get('/mcp/oauth/callback')
-      .query({ state: 'state-2', error: 'access_denied', error_description: 'User <denied> access' })
+      .query({ state: 'state-2', error: 'access_denied', error_description: 'OpenCode denied /tmp/OpenChamber at https://provider.example/OpenCode?reason=<denied>' })
       .expect(400);
 
     expect(upstreamFetch).not.toHaveBeenCalled();
     // Interpolated provider text is escaped, not rendered as markup.
-    expect(response.text).toContain('User &lt;denied&gt; access');
+    expect(response.text).toContain('OpenCode denied /tmp/OpenChamber at https://provider.example/OpenCode?reason=&lt;denied&gt;');
     await request(app).get('/api/mcp/auth/pending').query({ state: 'state-2' }).expect(404);
   });
 
   it('surfaces an OpenCode rejection as a failed page', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'invalid code' }), { status: 400 })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'OpenCode rejected /tmp/OpenChamber at https://provider.example/OpenCode' }), { status: 400 })));
     const { app } = createApp();
     await queuePending(app, { state: 'state-3', name: 'linear' });
 
@@ -106,6 +109,6 @@ describe('MCP OAuth browser callback route', () => {
       .query({ state: 'state-3', code: 'stale-code' })
       .expect(502);
 
-    expect(response.text).toContain('invalid code');
+    expect(response.text).toContain('OpenCode rejected /tmp/OpenChamber at https://provider.example/OpenCode');
   });
 });

@@ -11,6 +11,7 @@ import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitc
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { installAuthSessionFocusWatch, useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { AuthExpiredBanner } from './AuthExpiredBanner';
@@ -129,7 +130,7 @@ const submitPassword = async (password: string, trustDevice: boolean): Promise<R
       password,
       trustDevice,
       issueClientToken,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${PRODUCT_NAME} Desktop`,
       ...desktopClientAuthMetadata(),
     }),
   });
@@ -148,7 +149,7 @@ const issueDesktopClientToken = async (): Promise<string> => {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ label: 'OpenChamber Desktop', ...desktopClientAuthMetadata() }),
+    body: JSON.stringify({ label: `${PRODUCT_NAME} Desktop`, ...desktopClientAuthMetadata() }),
   }).catch(() => null);
   if (!response?.ok) {
     return '';
@@ -797,7 +798,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
     try {
       const payload = await authenticateWithPasskey(trustDevice, {
         issueClientToken: shouldIssueDesktopClientToken(),
-        clientLabel: 'OpenChamber Desktop',
+        clientLabel: `${PRODUCT_NAME} Desktop`,
         ...desktopClientAuthMetadata(),
       }) as { clientToken?: unknown } | null;
       const clientToken = shouldIssueDesktopClientToken() && typeof payload?.clientToken === 'string' && payload.clientToken.trim()

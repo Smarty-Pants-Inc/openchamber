@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import os from 'os';
 import crypto from 'crypto';
 import http2 from 'node:http2';
+import { PRODUCT_NAME } from '../brand.generated.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
@@ -1608,7 +1609,7 @@ async function main(options = {}) {
     ? options.getDesktopRuntimeConfig
     : null;
 
-  console.log(`Starting OpenChamber on port ${port === 0 ? 'auto' : port}`);
+  console.log(`Starting ${PRODUCT_NAME} on port ${port === 0 ? 'auto' : port}`);
 
   // Voice enumeration is independent from route registration. Start it now,
   // but do not hold server listen or managed OpenCode startup on `say -v "?"`.
@@ -1746,9 +1747,9 @@ async function main(options = {}) {
     getServerLabel: () => {
       try {
         const name = os.hostname();
-        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'OpenChamber';
+        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : PRODUCT_NAME;
       } catch {
-        return 'OpenChamber';
+        return PRODUCT_NAME;
       }
     },
     readSettingsFromDiskMigrated,

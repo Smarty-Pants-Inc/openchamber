@@ -1,16 +1,14 @@
-<svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">
-  <!-- OpenChamber logo - simplified, no background (for iOS) -->
-  <g transform="translate(90, 90) scale(1.4)">
-    <!-- Left face - simplified, no grid cells -->
-    <path d="M0 0 L-41.568 -24 L-41.568 24 L0 48 Z" fill="white" fill-opacity="0.2" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Right face - simplified, no grid cells -->
-    <path d="M0 0 L41.568 -24 L41.568 24 L0 48 Z" fill="white" fill-opacity="0.35" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Top face - open -->
-    <path d="M0 -48 L-41.568 -24 L0 0 L41.568 -24 Z" fill="none" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- OpenCode logo on top face -->
-    <g transform="matrix(0.866, 0.5, -0.866, 0.5, 0, -24) scale(0.75)">
-      <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="white"/>
-      <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="white" fill-opacity="0.4"/>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs><radialGradient id="face" cx="38%" cy="28%" r="72%"><stop offset="0" stop-color="#fff39a"/><stop offset="0.55" stop-color="#f8cf45"/><stop offset="1" stop-color="#e9a91d"/></radialGradient></defs>
+  <circle cx="256" cy="256" r="222" fill="url(#face)" stroke="#9a6613" stroke-width="12"/>
+  <circle cx="188" cy="222" r="18" fill="#6b3f16"/>
+  <circle cx="324" cy="222" r="18" fill="#6b3f16"/>
+  <g fill="none" stroke="#171717" stroke-linecap="round" stroke-linejoin="round" stroke-width="25">
+    <rect x="76" y="154" width="162" height="134" rx="54"/>
+    <rect x="274" y="154" width="162" height="134" rx="54"/>
+    <path d="M238 210h36M58 180l22 8M454 180l-22 8"/>
   </g>
+  <path d="M154 330c23 58 74 88 102 88s79-30 102-88c-57 34-147 34-204 0Z" fill="#63330f"/>
+  <path d="M210 363h92v38c-27 13-65 13-92 0Z" fill="#fff"/>
+  <path d="M256 363v47" fill="none" stroke="#d6d6d6" stroke-width="6"/>
 </svg>

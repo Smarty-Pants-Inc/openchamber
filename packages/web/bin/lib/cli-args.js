@@ -1,4 +1,9 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
+import { PRODUCT_NAME, brandProductText } from '../../brand.generated.js';
+
+const escapeZshSingleQuoted = (value) => String(value).replace(/'/g, () => "'\\''");
+const brandZshCompletionText = (template) => brandProductText(template)
+  .replaceAll(PRODUCT_NAME, () => escapeZshSingleQuoted(PRODUCT_NAME));
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_TAIL_LINES = 200;
@@ -564,7 +569,7 @@ function parseArgs(argv = process.argv.slice(2)) {
 }
 
 function showHelp() {
-  console.log(`
+  console.log(brandProductText(`
  OpenChamber - Web interface for the OpenCode AI coding agent
 
 USAGE:
@@ -621,11 +626,11 @@ EXAMPLES:
   openchamber startup enable     # Start OpenChamber at user login
   openchamber tunnel help        # Show tunnel lifecycle help
   openchamber logs               # Follow logs for latest running instance
-`);
+`));
 }
 
 function showControlHelp() {
-  console.log(`
+  console.log(brandProductText(`
  OpenChamber Control Commands
 
 USAGE:
@@ -660,11 +665,11 @@ EXAMPLES:
   openchamber projects
   openchamber session --help
   openchamber schedule --help
-`);
+`));
 }
 
 function showStartupHelp() {
-  console.log(`
+  console.log(brandProductText(`
  OpenChamber Startup Commands
 
 USAGE:
@@ -689,11 +694,11 @@ EXAMPLES:
   openchamber startup enable --port 3000
   openchamber startup enable --port 3000 --api-only --host 0.0.0.0
   openchamber startup status --json
-`);
+`));
 }
 
 function showConnectUrlHelp() {
-  console.log(`
+  console.log(brandProductText(`
  OpenChamber Connect URL
 
 USAGE:
@@ -728,11 +733,11 @@ EXAMPLES:
   openchamber connect-url --port 3000 --api-only --lan --server http://workstation.local:3000 --qr
   openchamber connect-url --server https://openchamber.example.com --name Workstation
   openchamber connect-url --relay --name "My laptop"
-`);
+`));
 }
 
 function showTunnelHelp() {
-  console.log(`
+  console.log(brandProductText(`
  Tunnel Lifecycle Commands
 
 USAGE:
@@ -809,14 +814,14 @@ EXAMPLES:
   openchamber tunnel profile list --provider cloudflare
   openchamber tunnel profile list --json --show-secrets
   openchamber tunnel stop --port 3000
-`);
+`));
 }
 
 function generateCompletionScript(shell) {
   const normalized = typeof shell === 'string' ? shell.trim().toLowerCase() : '';
 
   if (normalized === 'bash') {
-    return `# Bash completion for openchamber tunnel
+    return brandProductText(`# Bash completion for openchamber tunnel
 # Add to ~/.bashrc: eval "$(openchamber tunnel completion bash)"
 _openchamber_tunnel() {
   local cur prev commands tunnel_commands profile_commands common_flags start_flags
@@ -860,11 +865,11 @@ _openchamber_tunnel() {
   return 0
 }
 complete -F _openchamber_tunnel openchamber
-`;
+`);
   }
 
   if (normalized === 'zsh') {
-    return `#compdef openchamber
+    return brandZshCompletionText(`#compdef openchamber
 # Zsh completion for openchamber tunnel
 # Add to ~/.zshrc: eval "$(openchamber tunnel completion zsh)"
 
@@ -929,11 +934,11 @@ _openchamber() {
 }
 
 compdef _openchamber openchamber
-`;
+`);
   }
 
   if (normalized === 'fish') {
-    return `# Fish completion for openchamber tunnel
+    return brandProductText(`# Fish completion for openchamber tunnel
 # Save to ~/.config/fish/completions/openchamber.fish
 
 complete -c openchamber -n '__fish_use_subcommand' -a 'serve' -d 'Start the web server'
@@ -966,7 +971,7 @@ complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_
 complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l hostname -d 'Hostname'
 complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l dry-run -d 'Validate without applying'
 complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l qr -d 'Show QR code'
-`;
+`);
   }
 
   return null;

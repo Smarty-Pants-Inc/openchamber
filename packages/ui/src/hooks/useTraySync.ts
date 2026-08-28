@@ -26,6 +26,7 @@ import type { WorktreeMetadata } from '@/types/worktree';
 import { toast } from '@/components/ui';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 // Native tray/menu bar bridge. The Electron main process owns the Tray UI; this hook
 // streams a compact snapshot of live session/approval state to it via the
@@ -39,6 +40,7 @@ const TRAY_ACTION_EVENT = 'openchamber:tray-action';
 const POLL_INTERVAL_MS = 5000;
 const FLUSH_DEBOUNCE_MS = 500;
 const MAX_SESSIONS = 20;
+const LOCAL_INSTANCE_NAME = `Local ${PRODUCT_NAME}`;
 
 type TraySessionStatus = 'idle' | 'busy' | 'retry';
 
@@ -70,8 +72,8 @@ type TrayUsage = { mode: 'usage' | 'remaining'; groups: TrayUsageGroup[] };
 type TraySnapshot = {
   sessions: TraySession[];
   approvals: TrayApproval[];
-  // Active instance label (e.g. "Local OpenChamber" or a remote host name) so
-  // the tray header makes clear which instance/window it reflects.
+  // Active instance label (for example the branded local label or a remote
+  // host name) so the tray header makes clear which instance/window it reflects.
   instanceName: string;
   // Provider rate-limit usage, only for providers the user enabled for the
   // dropdown (same "configured to show" rule as the header/mobile). Empty
@@ -197,16 +199,16 @@ const buildUsage = (): TrayUsage => {
   return { mode, groups };
 };
 
-// Mirrors the header's instance resolution (Header.refreshCurrentInstanceLabel):
-// the local origin shows as "Local OpenChamber"; a remote host shows its
-// configured name. Async because the host config is read over IPC.
+// Mirrors the header's instance resolution: the local origin uses the branded
+// local label; a remote host shows its configured name. Async because the host
+// config is read over IPC.
 const resolveInstanceName = async (): Promise<string> => {
   try {
-    if (isDesktopLocalOriginActive()) return 'Local OpenChamber';
+    if (isDesktopLocalOriginActive()) return LOCAL_INSTANCE_NAME;
     const localOrigin = (window as unknown as { __OPENCHAMBER_LOCAL_ORIGIN__?: string }).__OPENCHAMBER_LOCAL_ORIGIN__
       || window.location.origin;
     const runtimeApiBaseUrl = getRuntimeApiBaseUrl();
-    if (runtimeApiBaseUrl && locationMatchesHost(runtimeApiBaseUrl, localOrigin)) return 'Local OpenChamber';
+    if (runtimeApiBaseUrl && locationMatchesHost(runtimeApiBaseUrl, localOrigin)) return LOCAL_INSTANCE_NAME;
     const cfg = await desktopHostsGet();
     const match = cfg.hosts.find((host) =>
       runtimeApiBaseUrl ? locationMatchesHost(runtimeApiBaseUrl, getDesktopHostApiUrl(host)) : false);

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { brandProductText } from '@/lib/brand.generated';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
@@ -93,7 +94,8 @@ export function initializeLocale(): void {
 }
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
-  const template = dictionary[key] ?? enDict[key] ?? key;
+  const sourceTemplate = dictionary[key] ?? enDict[key] ?? key;
+  const template = brandProductText(sourceTemplate);
   if (!params) {
     return template;
   }

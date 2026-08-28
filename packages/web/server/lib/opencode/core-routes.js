@@ -1,4 +1,5 @@
 import { buildExternalManualRestartResponse } from './config-mutation-response.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const parseLoopbackUrl = (rawUrl) => {
   if (typeof rawUrl !== 'string') {
@@ -376,7 +377,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     getServerId = async () => null,
     // Display name a paired device shows for THIS server (issuing machine's
     // hostname), distinct from the per-device pairing label typed by the operator.
-    getServerLabel = () => 'OpenChamber',
+    getServerLabel = () => PRODUCT_NAME,
   } = dependencies;
   const PAIRING_REDEEM_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
   const PAIRING_REDEEM_RATE_LIMIT_MAX_ATTEMPTS = 10;

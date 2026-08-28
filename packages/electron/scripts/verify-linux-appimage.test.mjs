@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { linuxAppImageArchSuffix, readElfArchitecture, verifyExtractedPayload } from './verify-linux-appimage.mjs';
+import { decodeDesktopEntryValue, linuxAppImageArchSuffix, readElfArchitecture, verifyExtractedPayload } from './verify-linux-appimage.mjs';
+import { PRODUCT_NAME } from '../brand.generated.mjs';
 
 const writeElf = (filePath, architecture) => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -17,7 +18,7 @@ const writeElf = (filePath, architecture) => {
 const createPayload = () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-payload-test-'));
   fs.writeFileSync(path.join(root, 'openchamber.desktop'), [
-    '[Desktop Entry]', 'Name=OpenChamber', 'Exec=AppRun --no-sandbox %U', 'Icon=openchamber', 'StartupWMClass=openchamber', '',
+    '[Desktop Entry]', `Name=${PRODUCT_NAME}`, 'Exec=AppRun --no-sandbox %U', 'Icon=openchamber', 'StartupWMClass=openchamber', '',
   ].join('\n'));
   writeElf(path.join(root, 'openchamber'), 'x64');
   writeElf(path.join(root, 'resources/opencode-cli/opencode'), 'x64');
@@ -43,6 +44,9 @@ test('AppImage artifact names use electron-builder arch suffixes', () => {
   assert.equal(linuxAppImageArchSuffix('x64'), 'x86_64');
   assert.equal(linuxAppImageArchSuffix('arm64'), 'arm64');
 });
+test('decodes freedesktop desktop-entry escapes', () => {
+  assert.equal(decodeDesktopEntryValue(String.raw`Fixture\\Brand\sRuntime`), 'Fixture\\Brand Runtime');
+});
 
 test('verifies identity, version, and native payload architecture', () => {
   const root = createPayload();
@@ -54,6 +58,23 @@ test('verifies identity, version, and native payload architecture', () => {
       runCliVersion: () => '1.17.18',
     });
     assert.equal(result.nativeModuleCount, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fails when the desktop entry does not launch AppRun', () => {
+  const root = createPayload();
+  try {
+    fs.writeFileSync(path.join(root, 'openchamber.desktop'), [
+      '[Desktop Entry]', `Name=${PRODUCT_NAME}`, 'Icon=openchamber', 'StartupWMClass=openchamber', '',
+    ].join('\n'));
+    assert.throws(() => verifyExtractedPayload({
+      root,
+      targetArchitecture: 'x64',
+      expectedOpenCodeVersion: '1.17.18',
+      runCliVersion: () => '1.17.18',
+    }), /Desktop identity mismatch: expected AppImage AppRun entrypoint/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -8,6 +8,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
@@ -464,7 +465,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                       )}
                       {isOpenChamberBadge ? (
                         <span className={NEUTRAL_BADGE_CLASS}>
-                          OpenChamber
+                          {PRODUCT_NAME}
                         </span>
                       ) : isSystem ? (
                         <span className={NEUTRAL_BADGE_CLASS}>

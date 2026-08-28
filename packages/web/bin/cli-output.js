@@ -90,11 +90,13 @@ function canPrompt(options) {
 }
 
 function createSpinner(options) {
-  return canPrompt(options) ? spinner() : null;
+  if (!canPrompt(options)) return null;
+  return spinner();
 }
 
 async function createProgress(options, config) {
-  return canPrompt(options) ? progress(config) : null;
+  if (!canPrompt(options)) return null;
+  return progress(config);
 }
 
 function printJson(payload) {

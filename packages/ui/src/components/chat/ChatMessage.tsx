@@ -680,7 +680,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }
         if (errorName === 'SessionRetry') {
             return {
-                text: `Opencode failed to send a message. Retry attempt info: ${detail}`,
+                text: `Failed to send a message. Retry attempt info: ${detail}`,
             };
         }
         if (isLikelyProviderAuthFailure(detail)) {
@@ -690,11 +690,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }
         if (detail.trim().toLowerCase() === 'aborted') {
             return {
-                text: 'The running turn was stopped before OpenCode could send the next message.',
+                text: 'The running turn stopped before the next message was sent.',
             };
         }
         return {
-            text: `Opencode failed to send message with error: ${detail}`,
+            text: `Failed to send the message: ${detail}`,
         };
     }, [isUser, message.info]);
 

@@ -7,6 +7,7 @@ import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControl
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { invokeDesktop, isElectronShell } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -130,7 +131,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const projectLabel = React.useMemo(() => {
     if (isChatContext) return null;
     const project = pathMatchedProject ?? activeProject;
-    if (!project) return directoryLabel || 'OpenChamber';
+    if (!project) return directoryLabel || PRODUCT_NAME;
     const label = project.label?.trim();
     if (label) return label;
     const segments = project.path.split(/[\\/]/).filter(Boolean);

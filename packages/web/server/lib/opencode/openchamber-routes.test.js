@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import path from 'node:path';
 import request from 'supertest';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
@@ -114,7 +115,7 @@ describe('OpenChamber foreground update route', () => {
       .post('/api/openchamber/update-install')
       .expect(200, {
         success: true,
-        message: 'Update queued; OpenChamber will restart after installation completes',
+        message: `Update queued; ${PRODUCT_NAME} will restart after installation completes`,
         version: '1.17.1',
         packageManager: 'npm',
         autoRestart: true,

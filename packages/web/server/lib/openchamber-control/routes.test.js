@@ -24,7 +24,7 @@ describe('OpenChamber control route', () => {
 
   it('preserves service status and partial-result details', async () => {
     const execute = vi.fn(async () => {
-      throw new OpenChamberControlError('dispatch failed', 500, {
+      throw new OpenChamberControlError('OpenCode failed at /tmp/OpenChamber via https://provider.example/OpenCode', 500, {
         partial: true,
         partialAction: 'fork-created',
         sessionId: 'ses_fork',
@@ -36,7 +36,7 @@ describe('OpenChamber control route', () => {
       .send({ action: 'session.fork', input: {} })
       .expect(500);
     expect(response.body).toEqual({
-      error: 'dispatch failed',
+      error: 'OpenCode failed at /tmp/OpenChamber via https://provider.example/OpenCode',
       partial: true,
       partialAction: 'fork-created',
       sessionId: 'ses_fork',
