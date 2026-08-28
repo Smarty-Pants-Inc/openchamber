@@ -53,15 +53,19 @@ const documentationBrandRegex = new RegExp(documentationAliasPattern, 'g');
 const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
 const documentationProductRegex = new RegExp(`${documentationElisionRegex.source}|${documentationAliasPattern}`, 'g');
 const documentationProductText = (value, productName) => value.replace(documentationProductRegex, (match, prefix, _apostrophe, _elisionAlias, offset, input) => {
-  if (prefix) return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
+  if (prefix) {
+    if (isWordCharacter(input[offset - 1])) return match;
+    return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
+  }
   return isWordCharacter(input[offset - 1]) || isWordCharacter(input[offset + match.length]) ? match : productName;
 });
 const documentationBrandText = (value) => documentationProductText(value, PRODUCT_NAME);
 const markdownPunctuation = /\\|`|\*|_|\[|\]|\(|\)|!|\||#/g;
 const escapeMarkdown = (value) => {
   let escaped = String(value).replace(markdownPunctuation, (match) => `\\${match}`);
+  escaped = escaped.replace(/^([>+-]+)(?=\s|$)/, (match) => [...match].map((character) => `\\${character}`).join(''));
   escaped = escaped.replace(/^(\d+)([.)])(?=\s|$)/, (_match, digits, marker) => `${digits}\\${marker}`);
-  escaped = escaped.replace(/^~{3,}(?=\S|$)/, (match) => [...match].map(() => '\\~').join(''));
+  escaped = escaped.replace(/^([`~]{3,})(?=\S|$)/, (match) => [...match].map((character) => `\\${character}`).join(''));
   escaped = escaped.replace(/^={3,}(?=\s*$)/, (match) => [...match].map(() => '\\=').join(''));
   return escaped;
 };
@@ -152,7 +156,7 @@ const generatedBrandModule = (typed) => {
   const documentationCallback = typed
     ? '(match: string, prefix: string | undefined, _apostrophe: string | undefined, _elisionAlias: string | undefined, offset: number, input: string)'
     : '(match, prefix, _apostrophe, _elisionAlias, offset, input)';
-  const documentationReplacement = "prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : (isWordCharacter(input[offset - 1]) || isWordCharacter(input[offset + match.length]) ? match : PRODUCT_NAME)";
+  const documentationReplacement = "prefix ? (isWordCharacter(input[offset - 1]) ? match : (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME)) : (isWordCharacter(input[offset - 1]) || isWordCharacter(input[offset + match.length]) ? match : PRODUCT_NAME)";
   return `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nconst isWordCharacter = (value${optionalStringType})${booleanType} => value !== undefined && /\\w/.test(value);\nconst brandRegex = /${brandRegex.source}/g;\nconst replaceAliases = ${replaceSignature} => value.replace(regex, ${aliasCallback} => isWordCharacter(input[offset - 1]) || isWordCharacter(input[offset + match.length]) ? match : replacement);\nexport const brandText = ${templateSignature} => replaceAliases(template, brandRegex, PRODUCT_NAME);\nconst documentationProductRegex = /${documentationProductRegex.source}/g;\nexport const brandProductText = ${templateSignature} => template.replace(documentationProductRegex, ${documentationCallback} => ${documentationReplacement});\n`;
 };
 const typedModule = generatedBrandModule(true);

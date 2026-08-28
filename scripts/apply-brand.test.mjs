@@ -61,6 +61,7 @@ test('canonical generated brandText follows configured presentation aliases', as
   assert.equal(generatedBrandModule.brandProductText("qu’OpenChamber d’OpenChamber l’OpenChamber"), 'que smarty-code de smarty-code le smarty-code');
   assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de smarty-code');
   assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
+  assert.equal(generatedBrandModule.brandProductText("xQu'OpenChamber"), "xQu'OpenChamber");
 });
 test('rejects product names that contain presentation aliases', () => {
   const fixture = copyFixture();
@@ -322,8 +323,13 @@ test('escapes block-level Markdown markers in branded prose', () => {
 });
 test('escapes ordered-list, fence, and setext Markdown product names', () => {
   const cases = [
+    ['# Brand', '\\# Brand'],
+    ['- Brand', '\\- Brand'],
+    ['+ Brand', '\\+ Brand'],
+    ['> Brand', '\\&gt; Brand'],
     ['1. Brand', '1\\. Brand'],
     ['1) Brand', '1\\) Brand'],
+    ['```Brand', '\\`\\`\\`Brand'],
     ['~~~Brand', '\\~\\~\\~Brand'],
     ['===', '\\=\\=\\='],
   ];
