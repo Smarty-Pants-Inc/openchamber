@@ -179,6 +179,14 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
 
     assertSucceeded(runBrand(fixture));
+    assertSucceeded(runBrand(fixture));
+    assertSucceeded(runBrand(fixture, '--check'));
+    const docsFixtureDir = path.join(fixture, 'packages/docs/content');
+    mkdirSync(docsFixtureDir, { recursive: true });
+    writeFileSync(path.join(docsFixtureDir, 'hostile.mdx'), '# OpenChamber\n\n```json\n{"description":"OpenChamber"}\n```\n');
+    assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
+    const hostileDocs = readFileSync(path.join(docsFixtureDir, 'hostile.mdx'), 'utf8');
+    assert.equal(hostileDocs.includes('Fixture&#39;s &quot;Brand&quot; &amp; $&amp; &lt;tag&gt;'), true);
 
     const capacitorConfig = readFileSync(path.join(fixture, 'packages/mobile/capacitor.config.ts'), 'utf8');
     assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\" & \$& <tag>"/);
@@ -303,6 +311,8 @@ test('runtime branding is limited to owned templates and compatibility identitie
   assert.match(passkeys, /this \$\{PRODUCT_NAME\} instance/);
   const pwaRoute = readFileSync(path.join(root, 'packages/web/server/lib/opencode/pwa-manifest-routes.js'), 'utf8');
   const lifecycleSource = readFileSync(path.join(root, 'packages/web/server/lib/opencode/lifecycle.js'), 'utf8');
+  const startupSource = readFileSync(path.join(root, 'packages/web/bin/lib/cli-startup.js'), 'utf8');
+  assert.match(startupSource, /Description=\$\{systemdDescription\(PRODUCT_NAME\)\} web server/);
   assert.match(lifecycleSource, /Launching OpenCode through WSL/);
   assert.match(lifecycleSource, /external OpenCode server/);
   assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} web interface companion for OpenCode AI coding agent`/);

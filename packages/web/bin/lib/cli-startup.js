@@ -42,6 +42,9 @@ function escapeXml(value) {
 function systemdEscapeArg(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
+function systemdDescription(value) {
+  return String(value).replace(/%/g, '%%');
+}
 
 function startupShellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -230,7 +233,7 @@ function buildSystemdUserService(options = {}) {
   const args = buildStartupArgs(options).map((arg) => `"${systemdEscapeArg(arg)}"`).join(' ');
   const envFilePath = getStartupEnvFilePath();
   return `[Unit]
-Description=${PRODUCT_NAME} web server
+Description=${systemdDescription(PRODUCT_NAME)} web server
 After=network-online.target
 
 [Service]

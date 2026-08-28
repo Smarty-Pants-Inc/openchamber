@@ -15,6 +15,13 @@ const { name: PRODUCT_NAME, mark: PRODUCT_MARK, presentationAliases = ['OpenCham
 const check = args.includes('--check');
 const docsIndex = args.indexOf('--docs');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character]));
 const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '{}'));
 const validateBrandValue = (label, value) => {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`branding/brand.json ${label} must be a non-empty string`);
@@ -37,6 +44,9 @@ const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[
 const documentationBrandText = (value) => value
   .replace(documentationElisionRegex, (_match, prefix) => prefix === 'Qu' ? `Que ${PRODUCT_NAME}` : prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix.toLowerCase() === 'qu' ? `que ${PRODUCT_NAME}` : prefix.toLowerCase() === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`)
   .replace(documentationBrandRegex, () => PRODUCT_NAME);
+const documentationBrandTextForDocs = (value) => value
+  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'Qu' ? `Que ${escapeHtml(PRODUCT_NAME)}` : prefix === 'D' ? `De ${escapeHtml(PRODUCT_NAME)}` : prefix === 'L' ? `Le ${escapeHtml(PRODUCT_NAME)}` : prefix.toLowerCase() === 'qu' ? `que ${escapeHtml(PRODUCT_NAME)}` : prefix.toLowerCase() === 'd' ? `de ${escapeHtml(PRODUCT_NAME)}` : `le ${escapeHtml(PRODUCT_NAME)}`)
+  .replace(documentationBrandRegex, () => escapeHtml(PRODUCT_NAME));
 const brandFencedDocumentation = (token) => {
   const match = token.match(/^(\`{3}|~{3})([^\n]*)\n([\s\S]*?)\n([ \t]*)\1\s*$/);
   if (!match) return token;
@@ -44,7 +54,7 @@ const brandFencedDocumentation = (token) => {
   if (!['md', 'mdx', 'markdown', 'json', 'yaml', 'yml'].includes(language)) return token;
   const body = language === 'md' || language === 'mdx' || language === 'markdown'
     ? brandDocs(match[3])
-    : documentationBrandText(match[3]);
+    : documentationBrandTextForDocs(match[3]);
   return `${match[1]}${match[2]}\n${body}\n${match[4]}${match[1]}`;
 };
 const brandDocs = (value) => {
@@ -52,11 +62,11 @@ const brandDocs = (value) => {
   let branded = '';
   let cursor = 0;
   for (const match of value.matchAll(code)) {
-    branded += documentationBrandText(value.slice(cursor, match.index));
+    branded += documentationBrandTextForDocs(value.slice(cursor, match.index));
     branded += brandFencedDocumentation(match[0]);
     cursor = match.index + match[0].length;
   }
-  return branded + documentationBrandText(value.slice(cursor));
+  return branded + documentationBrandTextForDocs(value.slice(cursor));
 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -108,13 +118,6 @@ const escapeXml = (value) => String(value).replace(/[&<>]/g, (character) => ({
   '&': '&amp;',
   '<': '&lt;',
   '>': '&gt;',
-}[character]));
-const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
 }[character]));
 const escapeAndroidResource = (value) => escapeXml(value)
   .replace(/\\/g, '\\\\')
@@ -190,7 +193,7 @@ await patchText('scripts/install.sh', (source) => {
   branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, () => `    info "${shellName} is already installed — updating via 'openchamber update'..."`, 'installer update message');
   branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, () => `      success "${shellName} is up to date!"`, 'installer updated message');
   branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, () => `  info "Installing ${shellName}..."`, 'installer installing message');
-  branded = replaceRequired(branded, /(# brand:mark\n\s*printf )'[^']*'/, (_match, prefix) => `${prefix}'  ${shellMark}  ${escapeShellSingleQuoted(PRODUCT_NAME)}\\n'`, 'installer mark');
+  branded = replaceRequired(branded, /(# brand:mark\n\s*printf ).*$/m, (_match, prefix) => `${prefix}'  ${shellMark}  ${escapeShellSingleQuoted(PRODUCT_NAME)}\\n'`, 'installer mark');
   branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, () => `    success "${shellName} installed successfully!"`, 'installer success message');
   return replaceRequired(branded, /^    echo "    Make sure .*: opencode serve"$/m, '    echo "    Make sure opencode is running: opencode serve"', 'installer prerequisite');
 });
@@ -261,17 +264,17 @@ await patchText('packages/mobile/ios/App/App.xcodeproj/project.pbxproj', (source
 ));
 await patchText('packages/mobile/ios/App/OpenChamberWidget/WidgetShared.swift', (source) => setSwiftString(
   source,
-  /(struct CubeLogoView: View \{[\s\S]*?\bText\()"[^"]*"/,
+  /(struct CubeLogoView: View \{[\s\S]*?\bText\()"(?:\\.|[^"\\])*"/,
   PRODUCT_MARK,
   'widget mark',
 ));
 await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberControl.swift', (source) => {
-  const branded = setSwiftString(source, /(static let title: LocalizedStringResource = )"[^"]*"/, `New ${PRODUCT_NAME} session`, 'control title');
-  return setSwiftString(branded, /(} icon: \{\s*Text\()"[^"]*"/, PRODUCT_MARK, 'control mark');
+  const branded = setSwiftString(source, /(static let title: LocalizedStringResource = )"(?:\\.|[^"\\])*"/, `New ${PRODUCT_NAME} session`, 'control title');
+  return setSwiftString(branded, /(} icon: \{\s*Text\()"(?:\\.|[^"\\])*"/, PRODUCT_MARK, 'control mark');
 });
 await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidgets.swift', (source) => {
-  const branded = setSwiftString(source, /(configurationDisplayName\()"[^"]*"/, PRODUCT_NAME, 'widget overview name');
-  return setSwiftString(branded, /(description\()"Start a new [^"]* session\."/, `Start a new ${PRODUCT_NAME} session.`, 'widget control description');
+  const branded = setSwiftString(source, /(configurationDisplayName\()"(?:\\.|[^"\\])*"/, PRODUCT_NAME, 'widget overview name');
+  return setSwiftString(branded, /(description\()"Start a new (?:\\.|[^"\\])* session\."/, `Start a new ${PRODUCT_NAME} session.`, 'widget control description');
 });
 
 const logoSvg = await readFile(sourcePath, 'utf8');
