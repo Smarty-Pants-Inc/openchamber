@@ -51,7 +51,10 @@ const documentationProductText = (value, productName) => value.replace(documenta
   return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
 });
 const documentationBrandText = (value) => documentationProductText(value, PRODUCT_NAME);
-const documentationBrandTextForDocs = (value) => documentationProductText(value, escapeHtml(PRODUCT_NAME));
+const markdownPunctuation = /\\|`|\*|_|\[|\]|\(|\)|!|\|/g;
+const escapeMarkdown = (value) => String(value).replace(markdownPunctuation, (match) => `\\${match}`);
+const documentationBrandTextForHtml = (value) => documentationProductText(value, escapeHtml(PRODUCT_NAME));
+const documentationBrandTextForMarkdown = (value) => documentationProductText(value, escapeMarkdown(escapeHtml(PRODUCT_NAME)));
 const documentationBrandTextForJson = (value) => documentationProductText(value, JSON.stringify(PRODUCT_NAME).slice(1, -1));
 const brandYamlDocumentation = (value) => {
   const indentation = value.match(/^(?<indent>[ \t]*)\S/m)?.groups?.indent ?? '';
@@ -75,31 +78,32 @@ const brandYamlDocumentation = (value) => {
   }
   return output.split('\n').map((line) => line ? `${indentation}${line}` : line).join('\n');
 };
-const brandFencedDocumentation = (token) => {
+const brandFencedDocumentation = (token, format) => {
   const match = token.match(/^(\`{3}|~{3})([^\n]*)\n([\s\S]*?)\n([ \t]*)\1\s*$/);
   if (!match) return token;
   const language = match[2].trim().toLowerCase();
   if (!['md', 'mdx', 'markdown', 'json', 'yaml', 'yml'].includes(language)) return token;
   const body = language === 'md' || language === 'mdx' || language === 'markdown'
-    ? brandDocs(match[3])
+    ? brandDocs(match[3], format)
     : language === 'json' ? documentationBrandTextForJson(match[3]) : brandYamlDocumentation(match[3]);
   return `${match[1]}${match[2]}\n${body}\n${match[4]}${match[1]}`;
 };
-const brandDocs = (value) => {
+const brandDocs = (value, format = 'markdown') => {
   const frontmatter = value.match(/^(---\n|---\r\n)([\s\S]*?)(\n---(?=\n|$)|\r\n---(?=\r\n|$))/);
   if (frontmatter) {
     const body = value.slice(frontmatter[0].length);
-    return `${frontmatter[1]}${brandYamlDocumentation(frontmatter[2])}${frontmatter[3]}${brandDocs(body)}`;
+    return `${frontmatter[1]}${brandYamlDocumentation(frontmatter[2])}${frontmatter[3]}${brandDocs(body, format)}`;
   }
+  const renderedBrandText = format === 'html' ? documentationBrandTextForHtml : documentationBrandTextForMarkdown;
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
   let cursor = 0;
   for (const match of value.matchAll(code)) {
-    branded += documentationBrandTextForDocs(value.slice(cursor, match.index));
-    branded += brandFencedDocumentation(match[0]);
+    branded += renderedBrandText(value.slice(cursor, match.index));
+    branded += brandFencedDocumentation(match[0], format);
     cursor = match.index + match[0].length;
   }
-  return branded + documentationBrandTextForDocs(value.slice(cursor));
+  return branded + renderedBrandText(value.slice(cursor));
 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -120,16 +124,17 @@ if (docsIndex !== -1) {
     const extension = path.extname(file).toLowerCase();
     const branded = extension === '.json' ? documentationBrandTextForJson(source)
       : extension === '.yaml' || extension === '.yml' ? brandYamlDocumentation(source)
-        : brandDocs(source);
+        : brandDocs(source, extension === '.html' ? 'html' : 'markdown');
     if (check && branded !== source) throw new Error(`Stale branded docs: ${path.relative(root, file)}`);
     if (!check && branded !== source) await writeFile(file, branded);
   }
   process.exit(0);
 }
 
-const documentationProductReplacement = "(_match: string, prefix: string) => prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : PRODUCT_NAME";
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationProductRegex.source}/g, ${documentationProductReplacement});\n`;
-const javascriptModule = typedModule.replaceAll('(template: string)', '(template)').replaceAll('(_match: string, prefix: string)', '(_match, prefix)');
+const documentationProductReplacementBody = "prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : PRODUCT_NAME";
+const generatedBrandModule = (templateSignature, callbackSignature) => `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = ${templateSignature} => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = ${templateSignature} => template.replace(/${documentationProductRegex.source}/g, (${callbackSignature}) => ${documentationProductReplacementBody});\n`;
+const typedModule = generatedBrandModule('(template: string)', '_match: string, prefix: string');
+const javascriptModule = generatedBrandModule('(template)', '_match, prefix');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
   ['packages/web/brand.generated.js', javascriptModule],
@@ -204,7 +209,7 @@ for (const file of ['docs/REVERSE_PROXY.md', 'docs/CUSTOM_THEMES.md']) await pat
 await patchText('README.md', (source) => {
   const branded = brandDocs(source);
   const headingMark = escapeHtml(PRODUCT_MARK);
-  const headingName = escapeHtml(PRODUCT_NAME);
+  const headingName = escapeMarkdown(escapeHtml(PRODUCT_NAME));
   return replaceRequired(
     branded,
     /^(# <img src="docs\/references\/badges\/openchamber-logo-dark\.png" width="32" height="32" align="absmiddle" alt=")[^"]*(" \/> )[^\x0a]+$/m,

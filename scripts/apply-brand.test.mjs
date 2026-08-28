@@ -260,6 +260,43 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
   }
 });
 
+test('preserves JavaScript branding data that resembles type annotations', async () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: 'Acme (template: string)',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertSucceeded(runBrand(fixture));
+    const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?annotation=${Date.now()}`);
+    assert.equal(generatedBrandModule.brandText('OpenChamber'), alternateConfig.name);
+    assert.equal(generatedBrandModule.PRODUCT_NAME, alternateConfig.name);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+test('escapes Markdown metacharacters in branded prose', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: 'Acme [portal](https://example.invalid)',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertSucceeded(runBrand(fixture));
+    const docsFixtureDir = path.join(fixture, 'packages/docs/content');
+    mkdirSync(docsFixtureDir, { recursive: true });
+    const docsPath = path.join(docsFixtureDir, 'markdown-meta.md');
+    writeFileSync(docsPath, '# OpenChamber\n');
+    assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
+    const brandedDocs = readFileSync(docsPath, 'utf8');
+    assert.equal(brandedDocs.includes(String.raw`# Acme \[portal\]\(https://example.invalid\)`), true);
+    assert.equal(brandedDocs.includes('[portal](https://example.invalid)'), false);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
 test('installer treats percent and backslash branding as data', () => {
   const fixture = copyFixture();
   try {
