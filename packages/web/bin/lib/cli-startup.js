@@ -43,7 +43,7 @@ function systemdEscapeArg(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 function systemdDescription(value) {
-  return String(value).replace(/%/g, '%%');
+  return String(value).replace(/\\/g, '\\\\').replace(/%/g, '%%');
 }
 
 function startupShellQuote(value) {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDocument, stringify, visit } from 'yaml';
 
 const args = process.argv.slice(2);
 const rootIndex = args.indexOf('--root');
@@ -41,12 +42,36 @@ const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode')
 if (documentationBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must include a product alias other than OpenCode');
 const documentationBrandRegex = new RegExp(`(?<!\\w)(?:${documentationBrandNames.map(escapeRegex).join('|')})(?!\\w)`, 'g');
 const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
-const documentationBrandText = (value) => value
-  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'Qu' ? `Que ${PRODUCT_NAME}` : prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix.toLowerCase() === 'qu' ? `que ${PRODUCT_NAME}` : prefix.toLowerCase() === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`)
-  .replace(documentationBrandRegex, () => PRODUCT_NAME);
-const documentationBrandTextForDocs = (value) => value
-  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'Qu' ? `Que ${escapeHtml(PRODUCT_NAME)}` : prefix === 'D' ? `De ${escapeHtml(PRODUCT_NAME)}` : prefix === 'L' ? `Le ${escapeHtml(PRODUCT_NAME)}` : prefix.toLowerCase() === 'qu' ? `que ${escapeHtml(PRODUCT_NAME)}` : prefix.toLowerCase() === 'd' ? `de ${escapeHtml(PRODUCT_NAME)}` : `le ${escapeHtml(PRODUCT_NAME)}`)
-  .replace(documentationBrandRegex, () => escapeHtml(PRODUCT_NAME));
+const documentationProductRegex = new RegExp(`${documentationElisionRegex.source}|${documentationBrandRegex.source}`, 'g');
+const documentationProductText = (value, productName) => value.replace(documentationProductRegex, (_match, prefix) => {
+  if (!prefix) return productName;
+  return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
+});
+const documentationBrandText = (value) => documentationProductText(value, PRODUCT_NAME);
+const documentationBrandTextForDocs = (value) => documentationProductText(value, escapeHtml(PRODUCT_NAME));
+const documentationBrandTextForJson = (value) => documentationProductText(value, JSON.stringify(PRODUCT_NAME).slice(1, -1));
+const brandYamlDocumentation = (value) => {
+  const indentation = value.match(/^(?<indent>[ \t]*)\S/m)?.groups?.indent ?? '';
+  const normalized = indentation ? value.split('\n').map((line) => line.startsWith(indentation) ? line.slice(indentation.length) : line).join('\n') : value;
+  const document = parseDocument(normalized);
+  if (document.errors.length > 0) {
+    if (documentationBrandText(normalized) !== normalized) throw new Error('Cannot safely brand invalid YAML documentation');
+    return value;
+  }
+  const replacements = [];
+  visit(document, {
+    Scalar(_key, node) {
+      if (typeof node.value !== 'string' || !node.range) return;
+      const branded = documentationBrandText(node.value);
+      if (branded !== node.value) replacements.push({ start: node.range[0], end: node.range[1], text: stringify(branded).trimEnd() });
+    },
+  });
+  let output = normalized;
+  for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
+    output = `${output.slice(0, replacement.start)}${replacement.text}${output.slice(replacement.end)}`;
+  }
+  return output.split('\n').map((line) => line ? `${indentation}${line}` : line).join('\n');
+};
 const brandFencedDocumentation = (token) => {
   const match = token.match(/^(\`{3}|~{3})([^\n]*)\n([\s\S]*?)\n([ \t]*)\1\s*$/);
   if (!match) return token;
@@ -54,10 +79,15 @@ const brandFencedDocumentation = (token) => {
   if (!['md', 'mdx', 'markdown', 'json', 'yaml', 'yml'].includes(language)) return token;
   const body = language === 'md' || language === 'mdx' || language === 'markdown'
     ? brandDocs(match[3])
-    : documentationBrandTextForDocs(match[3]);
+    : language === 'json' ? documentationBrandTextForJson(match[3]) : brandYamlDocumentation(match[3]);
   return `${match[1]}${match[2]}\n${body}\n${match[4]}${match[1]}`;
 };
 const brandDocs = (value) => {
+  const frontmatter = value.match(/^(---\n|---\r\n)([\s\S]*?)(\n---(?=\n|$)|\r\n---(?=\r\n|$))/);
+  if (frontmatter) {
+    const body = value.slice(frontmatter[0].length);
+    return `${frontmatter[1]}${brandYamlDocumentation(frontmatter[2])}${frontmatter[3]}${brandDocs(body)}`;
+  }
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
   let cursor = 0;
@@ -84,15 +114,18 @@ if (docsIndex !== -1) {
   for (const file of await walk(directory)) {
     if (!/\.(?:html|json|md|mdx|ya?ml)$/.test(file)) continue;
     const source = await readFile(file, 'utf8');
-    const branded = brandDocs(source);
+    const extension = path.extname(file).toLowerCase();
+    const branded = extension === '.json' ? documentationBrandTextForJson(source)
+      : extension === '.yaml' || extension === '.yml' ? brandYamlDocumentation(source)
+        : brandDocs(source);
     if (check && branded !== source) throw new Error(`Stale branded docs: ${path.relative(root, file)}`);
     if (!check && branded !== source) await writeFile(file, branded);
   }
   process.exit(0);
 }
 
-const documentationElisionReplacement = "(_match: string, prefix: string) => prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME";
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationElisionRegex.source}/g, ${documentationElisionReplacement}).replace(/${documentationBrandRegex.source}/g, () => PRODUCT_NAME);\n`;
+const documentationProductReplacement = "(_match: string, prefix: string) => prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : PRODUCT_NAME";
+const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationProductRegex.source}/g, ${documentationProductReplacement});\n`;
 const javascriptModule = typedModule.replaceAll('(template: string)', '(template)').replaceAll('(_match: string, prefix: string)', '(_match, prefix)');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
@@ -184,7 +217,6 @@ for (const file of [
 ]) await patchText(file, brandDocs);
 await patchText('scripts/install.sh', (source) => {
   const shellName = escapeShellDoubleQuoted(PRODUCT_NAME);
-  const shellMark = escapeShellSingleQuoted(PRODUCT_MARK);
   let branded = replaceRequired(source, /^# .* Install Script$/m, () => `# ${PRODUCT_NAME} Install Script`, 'installer header');
   const bannerTitle = `   ${shellName} Installer`.padEnd(35);
   const bannerSubtitle = '   AI coding workspace'.padEnd(35);
@@ -193,7 +225,7 @@ await patchText('scripts/install.sh', (source) => {
   branded = replaceRequired(branded, /^    info ".* is already installed — updating via 'openchamber update'\.\.\."$/m, () => `    info "${shellName} is already installed — updating via 'openchamber update'..."`, 'installer update message');
   branded = replaceRequired(branded, /^      success ".* is up to date!"$/m, () => `      success "${shellName} is up to date!"`, 'installer updated message');
   branded = replaceRequired(branded, /^  info "Installing .*\.\.\."$/m, () => `  info "Installing ${shellName}..."`, 'installer installing message');
-  branded = replaceRequired(branded, /(# brand:mark\n\s*printf ).*$/m, (_match, prefix) => `${prefix}'  ${shellMark}  ${escapeShellSingleQuoted(PRODUCT_NAME)}\\n'`, 'installer mark');
+  branded = replaceRequired(branded, /(# brand:mark\n\s*printf ).*$/m, (_match, prefix) => `${prefix}'%s\\n' '${escapeShellSingleQuoted(`  ${PRODUCT_MARK}  ${PRODUCT_NAME}`)}'`, 'installer mark');
   branded = replaceRequired(branded, /^    success ".* installed successfully!"$/m, () => `    success "${shellName} installed successfully!"`, 'installer success message');
   return replaceRequired(branded, /^    echo "    Make sure .*: opencode serve"$/m, '    echo "    Make sure opencode is running: opencode serve"', 'installer prerequisite');
 });
@@ -269,8 +301,9 @@ await patchText('packages/mobile/ios/App/OpenChamberWidget/WidgetShared.swift', 
   'widget mark',
 ));
 await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberControl.swift', (source) => {
-  const branded = setSwiftString(source, /(static let title: LocalizedStringResource = )"(?:\\.|[^"\\])*"/, `New ${PRODUCT_NAME} session`, 'control title');
-  return setSwiftString(branded, /(} icon: \{\s*Text\()"(?:\\.|[^"\\])*"/, PRODUCT_MARK, 'control mark');
+  const withTitle = setSwiftString(source, /(static let title: LocalizedStringResource = )"(?:\\.|[^"\\])*"/, `New ${PRODUCT_NAME} session`, 'control title');
+  const withDescription = setSwiftString(withTitle, /(description\()"Start a new (?:\\.|[^"\\])* session\."/, `Start a new ${PRODUCT_NAME} session.`, 'control description');
+  return setSwiftString(withDescription, /(} icon: \{\s*Text\()"(?:\\.|[^"\\])*"/, PRODUCT_MARK, 'control mark');
 });
 await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidgets.swift', (source) => {
   const branded = setSwiftString(source, /(configurationDisplayName\()"(?:\\.|[^"\\])*"/, PRODUCT_NAME, 'widget overview name');

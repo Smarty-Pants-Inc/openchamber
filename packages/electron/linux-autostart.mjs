@@ -39,6 +39,12 @@ const quoteDesktopExecArg = (value) => {
   return `"${text.replace(/(["\\$`])/g, '\\$1')}"`;
 };
 
+const escapeDesktopEntryValue = (value) => String(value ?? '')
+  .replace(/\\/g, '\\\\')
+  .replace(/\n/g, '\\n')
+  .replace(/\r/g, '\\r')
+  .replace(/\t/g, '\\t');
+
 export const buildLinuxAutostartDesktopEntry = ({
   appName = PRODUCT_NAME,
   executable,
@@ -54,7 +60,7 @@ export const buildLinuxAutostartDesktopEntry = ({
   return [
     '[Desktop Entry]',
     'Type=Application',
-    `Name=${appName}`,
+    `Name=${escapeDesktopEntryValue(appName)}`,
     `Exec=${args.join(' ')}`,
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',

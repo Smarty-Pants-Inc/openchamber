@@ -33,6 +33,10 @@ test('builds a background autostart desktop entry', () => {
   assert.match(entry, /Exec="\/home\/user\/Open Chamber\.AppImage" --background/);
   assert.match(entry, /X-GNOME-Autostart-enabled=true/);
 });
+test('escapes desktop-entry Name backslashes', () => {
+  const entry = buildLinuxAutostartDesktopEntry({ appName: String.raw`Fixture\Brand`, executable: '/tmp/openchamber' });
+  assert.match(entry, /^Name=Fixture\\\\Brand$/m);
+});
 
 test('writes and removes the XDG autostart file', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openchamber-autostart-'));

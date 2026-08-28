@@ -16,19 +16,19 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 info() {
-  echo -e "${BLUE}info${NC}  $1"
+  printf '%b  %s\n' "${BLUE}info${NC}" "$1"
 }
 
 success() {
-  echo -e "${GREEN}success${NC}  $1"
+  printf '%b  %s\n' "${GREEN}success${NC}" "$1"
 }
 
 warn() {
-  echo -e "${YELLOW}warn${NC}  $1"
+  printf '%b  %s\n' "${YELLOW}warn${NC}" "$1"
 }
 
 error() {
-  echo -e "${RED}error${NC}  $1"
+  printf '%b  %s\n' "${RED}error${NC}" "$1"
 }
 
 # Check if a command exists
@@ -223,7 +223,7 @@ main() {
   if eval "$INSTALL_CMD"; then
     echo ""
     # brand:mark
-    printf '  🤓  smarty-code\n'
+    printf '%s\n' '  🤓  smarty-code'
     printf '%b\n' "$NC"
     success "smarty-code installed successfully!"
     echo ""

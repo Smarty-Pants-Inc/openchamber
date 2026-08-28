@@ -7,6 +7,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import ts from 'typescript';
+import { parseDocument } from 'yaml';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts/apply-brand.mjs');
@@ -58,7 +59,23 @@ test('canonical generated brandText follows configured presentation aliases', as
     assert.equal(generatedBrandModule.brandText(alias), brandConfig.name);
   }
   assert.equal(generatedBrandModule.brandProductText("qu’OpenChamber d’OpenChamber l’OpenChamber"), 'que smarty-code de smarty-code le smarty-code');
+  assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de smarty-code');
   assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
+});
+test('product replacement does not rebrand inserted product names', async () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: 'My OpenChamber',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertSucceeded(runBrand(fixture));
+    const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?embedded-alias=${Date.now()}`);
+    assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de My OpenChamber');
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });
 test('runtime-facing product labels use generated branding', () => {
   const autocomplete = readFileSync(path.join(root, 'packages/ui/src/components/chat/CommandAutocomplete.tsx'), 'utf8');
@@ -145,6 +162,9 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
 
     const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
     assert.match(installer, /F!  Fixture Brand/);
+    const controlSwift = readFileSync(path.join(fixture, 'packages/mobile/ios/App/OpenChamberWidget/OpenChamberControl.swift'), 'utf8');
+    assert.match(controlSwift, /\.description\("Start a new Fixture Brand session\."\)/);
+    assert.match(installer, /printf '%s\\n' '  F!  Fixture Brand'/);
     assert.match(installer, /Make sure opencode is running: opencode serve/);
 
     assert.equal(readFileSync(path.join(fixture, 'packages/web/public/favicon.svg'), 'utf8'), alternateLogo);
@@ -183,10 +203,19 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assertSucceeded(runBrand(fixture, '--check'));
     const docsFixtureDir = path.join(fixture, 'packages/docs/content');
     mkdirSync(docsFixtureDir, { recursive: true });
-    writeFileSync(path.join(docsFixtureDir, 'hostile.mdx'), '# OpenChamber\n\n```json\n{"description":"OpenChamber"}\n```\n');
+    writeFileSync(path.join(docsFixtureDir, 'hostile.mdx'), '---\ndescription: OpenChamber\n---\n# OpenChamber\n\n```json\n{"description":"OpenChamber"}\n```\n\n```yaml\ndescription: OpenChamber\n```\n');
     assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
     const hostileDocs = readFileSync(path.join(docsFixtureDir, 'hostile.mdx'), 'utf8');
-    assert.equal(hostileDocs.includes('Fixture&#39;s &quot;Brand&quot; &amp; $&amp; &lt;tag&gt;'), true);
+    assert.equal(hostileDocs.includes('# Fixture&#39;s &quot;Brand&quot; &amp; $&amp; &lt;tag&gt;'), true);
+    const frontmatter = hostileDocs.match(/^---\n([\s\S]*?)\n---/);
+    assert.ok(frontmatter);
+    assert.equal(parseDocument(frontmatter[1]).toJS().description, alternateConfig.name);
+    const jsonFence = hostileDocs.match(/```json\n([\s\S]*?)\n```/);
+    assert.ok(jsonFence);
+    assert.equal(JSON.parse(jsonFence[1]).description, alternateConfig.name);
+    const yamlFence = hostileDocs.match(/```yaml\n([\s\S]*?)\n```/);
+    assert.ok(yamlFence);
+    assert.equal(parseDocument(yamlFence[1]).toJS().description, alternateConfig.name);
 
     const capacitorConfig = readFileSync(path.join(fixture, 'packages/mobile/capacitor.config.ts'), 'utf8');
     assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\" & \$& <tag>"/);
@@ -214,6 +243,8 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?quoted=${Date.now()}`);
     assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $& <tag>`);
+    assert.match(installer, /printf '%s\\n' /);
+    assert.doesNotMatch(installer, /printf '  .*Fixture/);
     const cliFixtureDir = path.join(fixture, 'packages/web/bin/lib');
     mkdirSync(cliFixtureDir, { recursive: true });
     for (const relative of ['packages/web/bin/lib/cli-args.js', 'packages/web/bin/lib/cli-errors.js']) {
@@ -231,6 +262,24 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
   }
 });
 
+test('installer treats percent and backslash branding as data', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: String.raw`Percent %s \c`,
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertSucceeded(runBrand(fixture));
+    const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
+    const marker = installer.split('\n').find((line) => line.includes('# brand:mark') === false && line.includes("printf '%s\\n'"));
+    assert.equal(marker, String.raw`    printf '%s\n' '  🤓  Percent %s \c'`);
+    assert.match(installer, /printf '%b  %s\\n'/g);
+    assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
 test('rejects branding configurations without presentation aliases', () => {
   const fixture = copyFixture();
   try {
