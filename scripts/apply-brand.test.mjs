@@ -57,7 +57,18 @@ test('canonical generated brandText follows configured presentation aliases', as
   for (const alias of brandConfig.presentationAliases) {
     assert.equal(generatedBrandModule.brandText(alias), brandConfig.name);
   }
+  assert.equal(generatedBrandModule.brandProductText("qu’OpenChamber d’OpenChamber l’OpenChamber"), 'que smarty-code de smarty-code le smarty-code');
   assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
+});
+test('runtime-facing product labels use generated branding', () => {
+  const autocomplete = readFileSync(path.join(root, 'packages/ui/src/components/chat/CommandAutocomplete.tsx'), 'utf8');
+  assert.match(autocomplete, /\{PRODUCT_NAME\}/);
+  assert.doesNotMatch(autocomplete, />\s*OpenChamber\s*</);
+
+  for (const relativePath of ['packages/ui/src/lib/worktreeSessionCreator.ts', 'packages/ui/src/sync/session-ui-store.ts']) {
+    const source = readFileSync(path.join(root, relativePath), 'utf8');
+    assert.match(source, /Project is not registered in \$\{PRODUCT_NAME\}/);
+  }
 });
 
 test('brand check detects missing assets, manifest drift, and required text drift', () => {

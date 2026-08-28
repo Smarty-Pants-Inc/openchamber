@@ -40,6 +40,7 @@ import { waitForPendingDraftWorktreeRequest } from "@/lib/worktrees/pendingDraft
 import { waitForWorktreeBootstrap } from "@/lib/worktrees/worktreeBootstrap"
 import { getWorktreeSetupWaitEnabled } from "@/lib/openchamberConfig"
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
+import { PRODUCT_NAME } from "@/lib/brand.generated"
 import {
   getSyncSessions,
   getAllSyncSessions,
@@ -1945,7 +1946,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         sourceWorktreeMetadata?.projectDirectory ?? null,
       )
       if (!project?.path) {
-        throw new Error("Project is not registered in OpenChamber")
+        throw new Error(`Project is not registered in ${PRODUCT_NAME}`)
       }
 
       const [branchNameModule, configModule, createModule] = await Promise.all([
