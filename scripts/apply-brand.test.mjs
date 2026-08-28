@@ -145,13 +145,16 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     assert.match(generatedModule, /PRODUCT_NAME = "Fixture Brand"/);
     assert.match(generatedModule, /PRODUCT_MARK = "F!"/);
     assert.equal(generatedModule.includes('(?<!\\w)'), false);
-    assert.match(generatedModule, /\(\^\|\\W\)/);
+    assert.match(generatedModule, /const replaceAliases/);
     assert.match(generatedModule, /Legacy Product/);
     assert.equal(generatedModule.includes(String.raw`C\+\+`), true);
     assert.match(generatedModule, /OpenChamber/);
     assert.doesNotMatch(generatedModule, /OpenCode/);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?fixture=${Date.now()}`);
     assert.equal(generatedBrandModule.brandText('Legacy Product @old C++ smarty-code OpenChamber OpenCode'), 'Fixture Brand Fixture Brand Fixture Brand Fixture Brand Fixture Brand OpenCode');
+    assert.equal(generatedBrandModule.brandText('@old!@old'), 'Fixture Brand!Fixture Brand');
+    const localeBundle = JSON.parse(readFileSync(path.join(fixture, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
+    assert.equal(localeBundle['Fixture Brand: Failed to open sidebar - {0}'], 'Fixture Brand: Failed to open sidebar - {0}');
 
     const readme = readFileSync(path.join(fixture, 'README.md'), 'utf8');
     assert.match(readme, /^# <img .* alt="F!" \/> Fixture Brand$/m);
@@ -317,6 +320,33 @@ test('escapes block-level Markdown markers in branded prose', () => {
     rmSync(fixture, { recursive: true, force: true });
   }
 });
+test('escapes ordered-list, fence, and setext Markdown product names', () => {
+  const cases = [
+    ['1. Brand', '1\\. Brand'],
+    ['1) Brand', '1\\) Brand'],
+    ['~~~Brand', '\\~\\~\\~Brand'],
+    ['===', '\\=\\=\\='],
+  ];
+  for (const [name, expected] of cases) {
+    const fixture = copyFixture();
+    try {
+      const alternateConfig = {
+        ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+        name,
+      };
+      writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+      assertSucceeded(runBrand(fixture));
+      const docsFixtureDir = path.join(fixture, 'packages/docs/content');
+      mkdirSync(docsFixtureDir, { recursive: true });
+      const docsPath = path.join(docsFixtureDir, 'markdown-block.md');
+      writeFileSync(docsPath, 'OpenChamber\n');
+      assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
+      assert.equal(readFileSync(docsPath, 'utf8'), `${expected}\n`);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  }
+});
 test('installer treats percent and backslash branding as data', () => {
   const fixture = copyFixture();
   try {
@@ -364,6 +394,19 @@ test('rejects control characters in configured branding values', () => {
     rmSync(fixture, { recursive: true, force: true });
   }
 });
+test('rejects leading whitespace in product names', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: ' Fixture Brand',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertFailedWith(runBrand(fixture), /name must not start with whitespace/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
 test('rejects template placeholder braces in configured branding values', () => {
   const fixture = copyFixture();
   try {
@@ -401,6 +444,9 @@ test('runtime branding is limited to owned templates and compatibility identitie
   const frenchBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.fr.json'), 'utf8'));
   assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');
   assert.equal(frenchBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
+  const agentControlDocs = readFileSync(path.join(root, 'packages/docs/content/docs/agent-control-tool.mdx'), 'utf8');
+  assert.match(agentControlDocs, /Create a scheduled task in smarty-code named Weekday review/);
+  assert.doesNotMatch(agentControlDocs, /Create an smarty-code/);
   for (const relative of [
     'packages/ui/src/components/ui/toast.ts',
     'packages/ui/src/components/chat/ChatMessage.tsx',
