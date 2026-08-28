@@ -26,7 +26,7 @@ if (documentationBrandNames.length === 0) throw new Error('branding/brand.json p
 const documentationBrandRegex = new RegExp(`\\b(?:${documentationBrandNames.map(escapeRegex).join('|')})\\b`, 'g');
 const documentationElisionRegex = configuredBrandNames.includes('OpenChamber') ? /([dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
 const documentationBrandText = (value) => value
-  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'D' ? 'De ' : prefix === 'L' ? 'Le ' : prefix.toLowerCase() === 'd' ? 'de ' : 'le ')
+  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix.toLowerCase() === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`)
   .replace(documentationBrandRegex, () => PRODUCT_NAME);
 const brandDocs = (value) => {
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
