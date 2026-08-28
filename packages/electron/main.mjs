@@ -1786,6 +1786,13 @@ const computeBootOutcome = ({ envTargetUrl, probe, config, localAvailable }) => 
   return { target: 'remote', status, hostId: host.id, url: host.apiUrl || host.url, ...availability };
 };
 
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character] ?? character));
 const buildStartupSplashHtml = () => {
   const settings = readSettingsRoot();
   const splashBgLight = typeof settings.splashBgLight === 'string' ? settings.splashBgLight.trim() : '#f5f5f4';
@@ -1822,7 +1829,7 @@ const buildStartupSplashHtml = () => {
   </head>
   <body>
     <div class="stack">
-      <div style="font-size:104px;line-height:1" role="img" aria-label="${PRODUCT_NAME} loading icon">${PRODUCT_MARK}</div>
+      <div style="font-size:104px;line-height:1" role="img" aria-label="${escapeHtml(PRODUCT_NAME)} loading icon">${escapeHtml(PRODUCT_MARK)}</div>
     </div>
   </body>
   </html>`;

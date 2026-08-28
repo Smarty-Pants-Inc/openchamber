@@ -24,7 +24,10 @@ const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);
 const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
 if (documentationBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must include a product alias other than OpenCode');
 const documentationBrandRegex = new RegExp(`\\b(?:${documentationBrandNames.map(escapeRegex).join('|')})\\b`, 'g');
-const documentationBrandText = (value) => value.replace(documentationBrandRegex, () => PRODUCT_NAME);
+const documentationElisionRegex = configuredBrandNames.includes('OpenChamber') ? /([dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
+const documentationBrandText = (value) => value
+  .replace(documentationElisionRegex, (_match, prefix) => prefix === 'D' ? 'De ' : prefix === 'L' ? 'Le ' : prefix.toLowerCase() === 'd' ? 'de ' : 'le ')
+  .replace(documentationBrandRegex, () => PRODUCT_NAME);
 const brandDocs = (value) => {
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
@@ -60,8 +63,9 @@ if (docsIndex !== -1) {
   process.exit(0);
 }
 
-const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationBrandRegex.source}/g, () => PRODUCT_NAME);\n`;
-const javascriptModule = typedModule.replaceAll('(template: string)', '(template)');
+const documentationElisionReplacement = "(_match: string, prefix: string) => prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME";
+const typedModule = `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = (template: string) => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = (template: string) => template.replace(/${documentationElisionRegex.source}/g, ${documentationElisionReplacement}).replace(/${documentationBrandRegex.source}/g, () => PRODUCT_NAME);\n`;
+const javascriptModule = typedModule.replaceAll('(template: string)', '(template)').replaceAll('(_match: string, prefix: string)', '(_match, prefix)');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
   ['packages/web/brand.generated.js', javascriptModule],
@@ -185,7 +189,7 @@ for (const file of ['packages/vscode/l10n/bundle.l10n.json', 'packages/vscode/l1
 await patchText('packages/vscode/webview/index.html', (source) => replaceRequired(
   source,
   /(<title>)[^<]*(<\/title>)/,
-  (_match, prefix, suffix) => `${prefix}${PRODUCT_NAME}${suffix}`,
+  (_match, prefix, suffix) => `${prefix}${escapeXml(PRODUCT_NAME)}${suffix}`,
   'VS Code webview title',
 ));
 await patchText('packages/mobile/capacitor.config.ts', (source) => replaceRequired(

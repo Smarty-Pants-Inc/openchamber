@@ -1,6 +1,14 @@
 import { PRODUCT_MARK, PRODUCT_NAME } from '../../../brand.generated.js';
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
 
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character] ?? character));
+
 export const createStaticRoutesRuntime = (dependencies) => {
   const {
     fs,
@@ -70,7 +78,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${PRODUCT_NAME} API-only mode</title>
+  <title>${escapeHtml(PRODUCT_NAME)} API-only mode</title>
   <style>
     :root {
       color-scheme: dark;
@@ -174,9 +182,9 @@ export const createStaticRoutesRuntime = (dependencies) => {
 </head>
 <body>
   <main>
-    <div class="logo" role="img" aria-label="${PRODUCT_NAME} logo">${PRODUCT_MARK}</div>
-    <h1>${PRODUCT_NAME} is running in headless mode</h1>
-    <p>This server is ready. Open it from the ${PRODUCT_NAME} desktop or mobile app to use it.</p>
+    <div class="logo" role="img" aria-label="${escapeHtml(PRODUCT_NAME)} logo">${escapeHtml(PRODUCT_MARK)}</div>
+    <h1>${escapeHtml(PRODUCT_NAME)} is running in headless mode</h1>
+    <p>This server is ready. Open it from the ${escapeHtml(PRODUCT_NAME)} desktop or mobile app to use it.</p>
     <div class="command">
       <code id="connect-command">${command}</code>
       <button type="button" id="copy-command" aria-label="Copy command" title="Copy command">

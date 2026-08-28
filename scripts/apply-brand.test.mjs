@@ -160,14 +160,14 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
   try {
     const alternateConfig = {
       ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
-      name: `Fixture's "Brand" & $&`,
+      name: `Fixture's "Brand" & $& <tag>`,
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
 
     assertSucceeded(runBrand(fixture));
 
     const capacitorConfig = readFileSync(path.join(fixture, 'packages/mobile/capacitor.config.ts'), 'utf8');
-    assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\" & \$&"/);
+    assert.match(capacitorConfig, /appName: "Fixture's \\"Brand\\" & \$& <tag>"/);
     const diagnostics = ts.transpileModule(capacitorConfig, {
       compilerOptions: { module: ts.ModuleKind.ESNext },
       fileName: 'capacitor.config.ts',
@@ -176,16 +176,18 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.messageText), []);
 
     const androidStrings = readFileSync(path.join(fixture, 'packages/mobile/android/app/src/main/res/values/strings.xml'), 'utf8');
-    assert.match(androidStrings, /<string name="app_name">Fixture's "Brand" &amp; \$&amp;<\/string>/);
+    assert.match(androidStrings, /<string name="app_name">Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/string>/);
     const infoPlist = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App/Info.plist'), 'utf8');
-    assert.match(infoPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Fixture's "Brand" &amp; \$&amp;<\/string>/);
+    assert.match(infoPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/string>/);
     const pbxproj = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App.xcodeproj/project.pbxproj'), 'utf8');
-    assert.equal((pbxproj.match(/INFOPLIST_KEY_CFBundleDisplayName = "Fixture's \\"Brand\\" & \$&";/g) ?? []).length, 2);
+    assert.equal((pbxproj.match(/INFOPLIST_KEY_CFBundleDisplayName = "Fixture's \\"Brand\\" & \$& <tag>";/g) ?? []).length, 2);
     const localeBundle = JSON.parse(readFileSync(path.join(fixture, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
-    assert.equal(localeBundle[`Fixture's "Brand" & $&: Failed to open sidebar - {0}`], `Fixture's "Brand" & $&: Failed to open sidebar - {0}`);
+    assert.equal(localeBundle[`Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`], `Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`);
+    const vscodeWebview = readFileSync(path.join(fixture, 'packages/vscode/webview/index.html'), 'utf8');
+    assert.match(vscodeWebview, /<title>Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/title>/);
     assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?quoted=${Date.now()}`);
-    assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $&`);
+    assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $& <tag>`);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -207,12 +209,23 @@ test('rejects branding configurations without presentation aliases', () => {
 test('runtime branding is limited to owned templates and compatibility identities remain intact', () => {
   const viteConfig = readFileSync(path.join(root, 'packages/web/vite.config.ts'), 'utf8');
   const webIndex = readFileSync(path.join(root, 'packages/web/index.html'), 'utf8');
+  const mobileIndex = readFileSync(path.join(root, 'packages/web/mobile.html'), 'utf8');
+  const miniChatIndex = readFileSync(path.join(root, 'packages/web/mini-chat.html'), 'utf8');
   assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME_JSON__', \(\) => productNameJson\)/);
   assert.match(viteConfig, /replaceAll\('__PRODUCT_NAME_HTML__', \(\) => productNameHtml\)/);
   assert.match(viteConfig, /escapeJsonForHtmlScript/);
   assert.match(webIndex, /const defaultAppName = __PRODUCT_NAME_JSON__ \+ ' - AI Coding Assistant';/);
   assert.match(webIndex, /content="__PRODUCT_NAME_HTML__"/);
   assert.match(webIndex, /__PRODUCT_MARK_HTML__/);
+  assert.match(mobileIndex, /<title>__PRODUCT_NAME_HTML__ Mobile<\/title>/);
+  assert.match(miniChatIndex, /<title>__PRODUCT_NAME_HTML__ Mini Chat<\/title>/);
+  const electronMain = readFileSync(path.join(root, 'packages/electron/main.mjs'), 'utf8');
+  const staticRoutes = readFileSync(path.join(root, 'packages/web/server/lib/opencode/static-routes-runtime.js'), 'utf8');
+  const updateRoutes = readFileSync(path.join(root, 'packages/web/server/lib/opencode/openchamber-routes.js'), 'utf8');
+  assert.match(electronMain, /aria-label="\$\{escapeHtml\(PRODUCT_NAME\)\} loading icon/);
+  assert.match(staticRoutes, /aria-label="\$\{escapeHtml\(PRODUCT_NAME\)\} logo/);
+  assert.match(updateRoutes, /quotePosix\(`Update successful, restarting \$\{PRODUCT_NAME\}/);
+  assert.match(updateRoutes, /quoteCmd\(`Update successful, restarting \$\{PRODUCT_NAME\}/);
   const englishBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
   const frenchBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.fr.json'), 'utf8'));
   assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');

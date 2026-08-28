@@ -264,8 +264,8 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
             timeout /t 2 /nobreak >nul
             ${updateCmd}
             if %ERRORLEVEL% EQU 0 (
-              echo Update successful, restarting ${PRODUCT_NAME}...
-              ${restartCmd || `echo Service manager will restart ${PRODUCT_NAME}.`}
+              echo ${quoteCmd(`Update successful, restarting ${PRODUCT_NAME}...`)}
+              ${restartCmd || `echo ${quoteCmd(`Service manager will restart ${PRODUCT_NAME}.`)}`}
             ) else (
               echo Update failed
               exit /b 1
@@ -276,8 +276,8 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
             sleep 2
             ${updateCmd}
             if [ $? -eq 0 ]; then
-              echo "Update successful, restarting ${PRODUCT_NAME}..."
-              ${restartCmd || `echo "Service manager will restart ${PRODUCT_NAME}."`}
+              echo ${quotePosix(`Update successful, restarting ${PRODUCT_NAME}...`)}
+              ${restartCmd || `echo ${quotePosix(`Service manager will restart ${PRODUCT_NAME}.`)}`}
             else
               echo "Update failed"
               exit 1
