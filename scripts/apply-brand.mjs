@@ -27,6 +27,7 @@ const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch((
 const validateBrandValue = (label, value) => {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`branding/brand.json ${label} must be a non-empty string`);
   if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`branding/brand.json ${label} must not contain control characters`);
+  if (/[{}]/.test(value)) throw new Error(`branding/brand.json ${label} must not contain template placeholder braces`);
 };
 validateBrandValue('name', PRODUCT_NAME);
 validateBrandValue('mark', PRODUCT_MARK);
@@ -152,6 +153,7 @@ const escapeXml = (value) => String(value).replace(/[&<>]/g, (character) => ({
   '<': '&lt;',
   '>': '&gt;',
 }[character]));
+const escapeDesktopEntryValue = (value) => String(value).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
 const escapeAndroidResource = (value) => escapeXml(value)
   .replace(/\\/g, '\\\\')
   .replace(/'/g, "\\'")
@@ -231,11 +233,12 @@ await patchText('scripts/install.sh', (source) => {
 });
 
 await patchText('packages/electron/package.json', (source) => {
+  const desktopName = escapeDesktopEntryValue(PRODUCT_NAME);
   let branded = setJsonString(source, 'description', `Electron desktop runtime for ${PRODUCT_NAME}`);
   branded = setJsonString(branded, 'author', PRODUCT_NAME);
   branded = setJsonString(branded, 'productName', PRODUCT_NAME);
-  branded = setJsonString(branded, 'Name', PRODUCT_NAME);
-  return setJsonString(branded, 'Comment', `Desktop runtime for ${PRODUCT_NAME}`);
+  branded = setJsonString(branded, 'Name', desktopName);
+  return setJsonString(branded, 'Comment', `Desktop runtime for ${desktopName}`);
 });
 await patchText('packages/vscode/package.nls.json', (source) => {
   let branded = setJsonString(source, 'product.name', PRODUCT_NAME);

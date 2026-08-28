@@ -272,6 +272,9 @@ test('installer treats percent and backslash branding as data', () => {
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     assertSucceeded(runBrand(fixture));
     const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
+    const electronPackage = JSON.parse(readFileSync(path.join(fixture, 'packages/electron/package.json'), 'utf8'));
+    assert.equal(electronPackage.build.linux.desktop.entry.Name, String.raw`Percent %s \\c`);
+    assert.equal(electronPackage.build.linux.desktop.entry.Comment, String.raw`Desktop runtime for Percent %s \\c`);
     const marker = installer.split('\n').find((line) => line.includes('# brand:mark') === false && line.includes("printf '%s\\n'"));
     assert.equal(marker, String.raw`    printf '%s\n' '  🤓  Percent %s \c'`);
     assert.match(installer, /printf '%b  %s\\n'/g);
@@ -302,6 +305,19 @@ test('rejects control characters in configured branding values', () => {
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     assertFailedWith(runBrand(fixture), /name must not contain control characters/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+test('rejects template placeholder braces in configured branding values', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: 'Fixture {Brand}',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertFailedWith(runBrand(fixture), /name must not contain template placeholder braces/);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
