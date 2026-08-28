@@ -62,7 +62,7 @@ test('canonical generated brandText follows configured presentation aliases', as
   assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de smarty-code');
   assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
 });
-test('product replacement does not rebrand inserted product names', async () => {
+test('rejects product names that contain presentation aliases', () => {
   const fixture = copyFixture();
   try {
     const alternateConfig = {
@@ -70,9 +70,7 @@ test('product replacement does not rebrand inserted product names', async () => 
       name: 'My OpenChamber',
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
-    assertSucceeded(runBrand(fixture));
-    const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?embedded-alias=${Date.now()}`);
-    assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de My OpenChamber');
+    assertFailedWith(runBrand(fixture), /name must not contain presentation alias OpenChamber/);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

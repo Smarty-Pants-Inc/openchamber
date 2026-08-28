@@ -36,6 +36,8 @@ for (const alias of presentationAliases) validateBrandValue('presentationAliases
 const configuredBrandNames = [...new Set(presentationAliases)];
 if (configuredBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must contain at least one non-empty string');
 const brandNames = [...new Set(['OpenChamber', 'OpenChambers', ...configuredBrandNames])].sort((a, b) => b.length - a.length);
+const embeddedBrandAlias = brandNames.find((alias) => alias !== PRODUCT_NAME && PRODUCT_NAME.includes(alias));
+if (embeddedBrandAlias) throw new Error(`branding/brand.json name must not contain presentation alias ${embeddedBrandAlias}`);
 const aliasPattern = `(?<!\\w)(?:${brandNames.map(escapeRegex).join('|')})(?!\\w)`;
 const brandRegex = new RegExp(aliasPattern, 'g');
 const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);

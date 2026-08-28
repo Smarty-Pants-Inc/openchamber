@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { linuxAppImageArchSuffix, readElfArchitecture, verifyExtractedPayload } from './verify-linux-appimage.mjs';
+import { decodeDesktopEntryValue, linuxAppImageArchSuffix, readElfArchitecture, verifyExtractedPayload } from './verify-linux-appimage.mjs';
 import { PRODUCT_NAME } from '../brand.generated.mjs';
 
 const writeElf = (filePath, architecture) => {
@@ -43,6 +43,9 @@ test('reads supported ELF architectures', () => {
 test('AppImage artifact names use electron-builder arch suffixes', () => {
   assert.equal(linuxAppImageArchSuffix('x64'), 'x86_64');
   assert.equal(linuxAppImageArchSuffix('arm64'), 'arm64');
+});
+test('decodes freedesktop desktop-entry escapes', () => {
+  assert.equal(decodeDesktopEntryValue(String.raw`Fixture\\Brand\sRuntime`), 'Fixture\\Brand Runtime');
 });
 
 test('verifies identity, version, and native payload architecture', () => {
