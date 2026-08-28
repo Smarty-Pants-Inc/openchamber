@@ -144,7 +144,8 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     const generatedModule = readFileSync(generatedModulePath, 'utf8');
     assert.match(generatedModule, /PRODUCT_NAME = "Fixture Brand"/);
     assert.match(generatedModule, /PRODUCT_MARK = "F!"/);
-    assert.match(generatedModule, /\(\?<!\\w\)/);
+    assert.equal(generatedModule.includes('(?<!\\w)'), false);
+    assert.match(generatedModule, /\(\^\|\\W\)/);
     assert.match(generatedModule, /Legacy Product/);
     assert.equal(generatedModule.includes(String.raw`C\+\+`), true);
     assert.match(generatedModule, /OpenChamber/);
@@ -293,6 +294,25 @@ test('escapes Markdown metacharacters in branded prose', () => {
     const brandedDocs = readFileSync(docsPath, 'utf8');
     assert.equal(brandedDocs.includes(String.raw`# Acme \[portal\]\(https://example.invalid\)`), true);
     assert.equal(brandedDocs.includes('[portal](https://example.invalid)'), false);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+test('escapes block-level Markdown markers in branded prose', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: '# Brand',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertSucceeded(runBrand(fixture));
+    const docsFixtureDir = path.join(fixture, 'packages/docs/content');
+    mkdirSync(docsFixtureDir, { recursive: true });
+    const docsPath = path.join(docsFixtureDir, 'markdown-block.md');
+    writeFileSync(docsPath, 'OpenChamber\n');
+    assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
+    assert.equal(readFileSync(docsPath, 'utf8'), `${String.raw`\# Brand`}\n`);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

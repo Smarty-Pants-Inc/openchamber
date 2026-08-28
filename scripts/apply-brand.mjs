@@ -38,21 +38,26 @@ if (configuredBrandNames.length === 0) throw new Error('branding/brand.json pres
 const brandNames = [...new Set(['OpenChamber', 'OpenChambers', ...configuredBrandNames])].sort((a, b) => b.length - a.length);
 const embeddedBrandAlias = brandNames.find((alias) => alias !== PRODUCT_NAME && PRODUCT_NAME.includes(alias));
 if (embeddedBrandAlias) throw new Error(`branding/brand.json name must not contain presentation alias ${embeddedBrandAlias}`);
-const aliasPattern = `(?<!\\w)(?:${brandNames.map(escapeRegex).join('|')})(?!\\w)`;
+const boundaryAliasPattern = (names) => `(^|\\W)(?:${names.map(escapeRegex).join('|')})(?=$|\\W)`;
+const aliasPattern = boundaryAliasPattern(brandNames);
 const brandRegex = new RegExp(aliasPattern, 'g');
-const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);
+const brandText = (value) => value.replace(brandRegex, (_match, boundary) => `${boundary}${PRODUCT_NAME}`);
 const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
 if (documentationBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must include a product alias other than OpenCode');
-const documentationBrandRegex = new RegExp(`(?<!\\w)(?:${documentationBrandNames.map(escapeRegex).join('|')})(?!\\w)`, 'g');
+const documentationAliasPattern = boundaryAliasPattern(documentationBrandNames);
+const documentationBrandRegex = new RegExp(documentationAliasPattern, 'g');
 const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
-const documentationProductRegex = new RegExp(`${documentationElisionRegex.source}|${documentationBrandRegex.source}`, 'g');
-const documentationProductText = (value, productName) => value.replace(documentationProductRegex, (_match, prefix) => {
-  if (!prefix) return productName;
-  return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
+const documentationProductRegex = new RegExp(`${documentationElisionRegex.source}|${documentationAliasPattern}`, 'g');
+const documentationProductText = (value, productName) => value.replace(documentationProductRegex, (_match, prefix, _apostrophe, _elisionAlias, boundary) => {
+  if (prefix) return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
+  return `${boundary ?? ''}${productName}`;
 });
 const documentationBrandText = (value) => documentationProductText(value, PRODUCT_NAME);
 const markdownPunctuation = /\\|`|\*|_|\[|\]|\(|\)|!|\|/g;
-const escapeMarkdown = (value) => String(value).replace(markdownPunctuation, (match) => `\\${match}`);
+const markdownBlockStart = /^(?:#{1,6}|[>+-]+|\d+[.)]|[`~]{3,})(?=\s|$)/;
+const escapeMarkdown = (value) => String(value)
+  .replace(markdownPunctuation, (match) => `\\${match}`)
+  .replace(markdownBlockStart, (match) => `\\${match}`);
 const documentationBrandTextForHtml = (value) => documentationProductText(value, escapeHtml(PRODUCT_NAME));
 const documentationBrandTextForMarkdown = (value) => documentationProductText(value, escapeMarkdown(escapeHtml(PRODUCT_NAME)));
 const documentationBrandTextForJson = (value) => documentationProductText(value, JSON.stringify(PRODUCT_NAME).slice(1, -1));
@@ -131,10 +136,10 @@ if (docsIndex !== -1) {
   process.exit(0);
 }
 
-const documentationProductReplacementBody = "prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : PRODUCT_NAME";
-const generatedBrandModule = (templateSignature, callbackSignature) => `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = ${templateSignature} => template.replace(/${brandRegex.source}/g, () => PRODUCT_NAME);\nexport const brandProductText = ${templateSignature} => template.replace(/${documentationProductRegex.source}/g, (${callbackSignature}) => ${documentationProductReplacementBody});\n`;
-const typedModule = generatedBrandModule('(template: string)', '_match: string, prefix: string');
-const javascriptModule = generatedBrandModule('(template)', '_match, prefix');
+const documentationProductReplacementBody = "prefix ? (prefix === 'Qu' ? 'Que ' + PRODUCT_NAME : prefix === 'D' ? 'De ' + PRODUCT_NAME : prefix === 'L' ? 'Le ' + PRODUCT_NAME : prefix.toLowerCase() === 'qu' ? 'que ' + PRODUCT_NAME : prefix.toLowerCase() === 'd' ? 'de ' + PRODUCT_NAME : 'le ' + PRODUCT_NAME) : (boundary ?? '') + PRODUCT_NAME";
+const generatedBrandModule = (templateSignature, brandCallbackSignature, documentationCallbackSignature) => `export const PRODUCT_NAME = ${JSON.stringify(PRODUCT_NAME)};\nexport const PRODUCT_MARK = ${JSON.stringify(PRODUCT_MARK)};\nexport const brandText = ${templateSignature} => template.replace(/${brandRegex.source}/g, (${brandCallbackSignature}) => boundary + PRODUCT_NAME);\nexport const brandProductText = ${templateSignature} => template.replace(/${documentationProductRegex.source}/g, (${documentationCallbackSignature}) => ${documentationProductReplacementBody});\n`;
+const typedModule = generatedBrandModule('(template: string)', '_match: string, boundary: string', '_match: string, prefix: string, _apostrophe: string, _elisionAlias: string, boundary: string');
+const javascriptModule = generatedBrandModule('(template)', '_match, boundary', '_match, prefix, _apostrophe, _elisionAlias, boundary');
 const generatedText = new Map([
   ['packages/ui/src/lib/brand.generated.ts', typedModule],
   ['packages/web/brand.generated.js', javascriptModule],
