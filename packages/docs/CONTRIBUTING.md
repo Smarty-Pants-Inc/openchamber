@@ -37,7 +37,7 @@ stays the same no matter who is writing.
 3. Run `openchamber --ui-password be-creative-here`.
 4. Open the printed URL (usually `http://localhost:3000`).
 
-You should land on the OpenChamber session list. If you see it, the server is
+You should land on the smarty-code session list. If you see it, the server is
 running.
 ```
 
@@ -90,7 +90,7 @@ running.
    ```mdx
    ---
    title: Remote Access
-   description: Access OpenChamber from outside your local network.
+   description: Access smarty-code from outside your local network.
    ---
    ```
 
@@ -244,7 +244,7 @@ Each translated file needs its **own translated frontmatter** (`title` and
 ```mdx
 ---
 title: Встановлення
-description: Встановіть OpenChamber для десктопа, вебу або VS Code.
+description: Встановіть smarty-code для десктопа, вебу або VS Code.
 ---
 ```
 

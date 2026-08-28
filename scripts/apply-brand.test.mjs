@@ -117,7 +117,7 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
       ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
       name: 'Fixture Brand',
       mark: 'F!',
-      presentationAliases: ['Legacy Product', 'smarty-code'],
+      presentationAliases: ['Legacy Product', '@old', 'C++', 'smarty-code'],
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     writeFileSync(path.join(fixture, 'branding/logo.svg'), alternateLogo);
@@ -129,10 +129,13 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     const generatedModule = readFileSync(generatedModulePath, 'utf8');
     assert.match(generatedModule, /PRODUCT_NAME = "Fixture Brand"/);
     assert.match(generatedModule, /PRODUCT_MARK = "F!"/);
-    assert.match(generatedModule, /\\b\(\?:Legacy Product\|smarty-code\)\\b/);
-    assert.doesNotMatch(generatedModule, /OpenChamber|OpenCode/);
+    assert.match(generatedModule, /\(\?<!\\w\)/);
+    assert.match(generatedModule, /Legacy Product/);
+    assert.equal(generatedModule.includes(String.raw`C\+\+`), true);
+    assert.match(generatedModule, /OpenChamber/);
+    assert.doesNotMatch(generatedModule, /OpenCode/);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?fixture=${Date.now()}`);
-    assert.equal(generatedBrandModule.brandText('Legacy Product smarty-code OpenChamber OpenCode'), 'Fixture Brand Fixture Brand OpenChamber OpenCode');
+    assert.equal(generatedBrandModule.brandText('Legacy Product @old C++ smarty-code OpenChamber OpenCode'), 'Fixture Brand Fixture Brand Fixture Brand Fixture Brand Fixture Brand OpenCode');
 
     const readme = readFileSync(path.join(fixture, 'README.md'), 'utf8');
     assert.match(readme, /^# <img .* alt="F!" \/> Fixture Brand$/m);
@@ -187,7 +190,7 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.messageText), []);
 
     const androidStrings = readFileSync(path.join(fixture, 'packages/mobile/android/app/src/main/res/values/strings.xml'), 'utf8');
-    assert.match(androidStrings, /<string name="app_name">Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/string>/);
+    assert.match(androidStrings, /<string name="app_name">Fixture\\'s \\"Brand\\" &amp; \$&amp; &lt;tag&gt;<\/string>/);
     const infoPlist = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App/Info.plist'), 'utf8');
     assert.match(infoPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/string>/);
     const pbxproj = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App.xcodeproj/project.pbxproj'), 'utf8');
@@ -196,11 +199,25 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.equal(localeBundle[`Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`], `Fixture's "Brand" & $& <tag>: Failed to open sidebar - {0}`);
     const vscodeWebview = readFileSync(path.join(fixture, 'packages/vscode/webview/index.html'), 'utf8');
     assert.match(vscodeWebview, /<title>Fixture's "Brand" &amp; \$&amp; &lt;tag&gt;<\/title>/);
+    const readme = readFileSync(path.join(fixture, 'README.md'), 'utf8');
+    assert.match(readme, /^# <img .* alt="🤓" \/> Fixture&#39;s &quot;Brand&quot; &amp; \$&amp; &lt;tag&gt;$/m);
     const installer = readFileSync(path.join(fixture, 'scripts/install.sh'), 'utf8');
     assert.match(installer, /Installing Fixture's \\"Brand\\" & \\\$& <tag>\.\.\./);
     assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
     const generatedBrandModule = await import(`${pathToFileURL(path.join(fixture, 'packages/web/brand.generated.js')).href}?quoted=${Date.now()}`);
     assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $& <tag>`);
+    const cliFixtureDir = path.join(fixture, 'packages/web/bin/lib');
+    mkdirSync(cliFixtureDir, { recursive: true });
+    for (const relative of ['packages/web/bin/lib/cli-args.js', 'packages/web/bin/lib/cli-errors.js']) {
+      const destination = path.join(fixture, relative);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      copyFileSync(path.join(root, relative), destination);
+    }
+    const { generateCompletionScript } = await import(`${pathToFileURL(path.join(cliFixtureDir, 'cli-args.js')).href}?quoted-completion=${Date.now()}`);
+    const completion = generateCompletionScript('zsh');
+    assert.equal(completion.includes("'logs:Tail Fixture'\\''s \"Brand\" & $& <tag> logs'"), true);
+    const zshCheck = spawnSync('zsh', ['-n'], { input: completion, encoding: 'utf8' });
+    if (zshCheck.error?.code !== 'ENOENT') assert.equal(zshCheck.status, 0, `${zshCheck.stdout}\n${zshCheck.stderr}`);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -215,6 +232,19 @@ test('rejects branding configurations without presentation aliases', () => {
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     assertFailedWith(runBrand(fixture), /presentationAliases must contain at least one non-empty string/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+test('rejects control characters in configured branding values', () => {
+  const fixture = copyFixture();
+  try {
+    const alternateConfig = {
+      ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
+      name: 'Fixture\nBrand',
+    };
+    writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
+    assertFailedWith(runBrand(fixture), /name must not contain control characters/);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

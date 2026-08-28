@@ -16,27 +16,45 @@ const check = args.includes('--check');
 const docsIndex = args.indexOf('--docs');
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const previousManifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '{}'));
-const configuredBrandNames = [...new Set(presentationAliases.filter((name) => typeof name === 'string' && name.length > 0))];
+const validateBrandValue = (label, value) => {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(`branding/brand.json ${label} must be a non-empty string`);
+  if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`branding/brand.json ${label} must not contain control characters`);
+};
+validateBrandValue('name', PRODUCT_NAME);
+validateBrandValue('mark', PRODUCT_MARK);
+if (!Array.isArray(presentationAliases)) throw new Error('branding/brand.json presentationAliases must be an array');
+for (const alias of presentationAliases) validateBrandValue('presentationAliases entries', alias);
+const configuredBrandNames = [...new Set(presentationAliases)];
 if (configuredBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must contain at least one non-empty string');
-const brandNames = [...new Set(configuredBrandNames.flatMap((name) => name === 'OpenChamber' ? [name, `${name}s`] : [name]))];
-const brandRegex = new RegExp(`\\b(?:${brandNames.map(escapeRegex).join('|')})\\b`, 'g');
+const brandNames = [...new Set(['OpenChamber', 'OpenChambers', ...configuredBrandNames])].sort((a, b) => b.length - a.length);
+const aliasPattern = `(?<!\\w)(?:${brandNames.map(escapeRegex).join('|')})(?!\\w)`;
+const brandRegex = new RegExp(aliasPattern, 'g');
 const brandText = (value) => value.replace(brandRegex, () => PRODUCT_NAME);
 const documentationBrandNames = brandNames.filter((name) => name !== 'OpenCode');
 if (documentationBrandNames.length === 0) throw new Error('branding/brand.json presentationAliases must include a product alias other than OpenCode');
-const documentationBrandRegex = new RegExp(`\\b(?:${documentationBrandNames.map(escapeRegex).join('|')})\\b`, 'g');
-const documentationElisionRegex = configuredBrandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
+const documentationBrandRegex = new RegExp(`(?<!\\w)(?:${documentationBrandNames.map(escapeRegex).join('|')})(?!\\w)`, 'g');
+const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
 const documentationBrandText = (value) => value
   .replace(documentationElisionRegex, (_match, prefix) => prefix === 'Qu' ? `Que ${PRODUCT_NAME}` : prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix.toLowerCase() === 'qu' ? `que ${PRODUCT_NAME}` : prefix.toLowerCase() === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`)
   .replace(documentationBrandRegex, () => PRODUCT_NAME);
+const brandFencedDocumentation = (token) => {
+  const match = token.match(/^(\`{3}|~{3})([^\n]*)\n([\s\S]*?)\n([ \t]*)\1\s*$/);
+  if (!match) return token;
+  const language = match[2].trim().toLowerCase();
+  if (!['md', 'mdx', 'markdown', 'json', 'yaml', 'yml'].includes(language)) return token;
+  const body = language === 'md' || language === 'mdx' || language === 'markdown'
+    ? brandDocs(match[3])
+    : documentationBrandText(match[3]);
+  return `${match[1]}${match[2]}\n${body}\n${match[4]}${match[1]}`;
+};
 const brandDocs = (value) => {
   const code = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
   let branded = '';
   let cursor = 0;
   for (const match of value.matchAll(code)) {
     branded += documentationBrandText(value.slice(cursor, match.index));
-    const token = match[0];
-    branded += token;
-    cursor = match.index + token.length;
+    branded += brandFencedDocumentation(match[0]);
+    cursor = match.index + match[0].length;
   }
   return branded + documentationBrandText(value.slice(cursor));
 };
@@ -91,10 +109,28 @@ const escapeXml = (value) => String(value).replace(/[&<>]/g, (character) => ({
   '<': '&lt;',
   '>': '&gt;',
 }[character]));
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character]));
+const escapeAndroidResource = (value) => escapeXml(value)
+  .replace(/\\/g, '\\\\')
+  .replace(/'/g, "\\'")
+  .replace(/"/g, '\\"')
+  .replace(/^([@?])/, '\\$1');
 const setXmlString = (source, key, value) => replaceRequired(
   source,
   new RegExp(`(<string name="${escapeRegex(key)}">)[^<]*(</string>)`),
   (_match, prefix, suffix) => `${prefix}${escapeXml(value)}${suffix}`,
+  key,
+);
+const setAndroidResourceString = (source, key, value) => replaceRequired(
+  source,
+  new RegExp(`(<string name="${escapeRegex(key)}">)[^<]*(</string>)`),
+  (_match, prefix, suffix) => `${prefix}${escapeAndroidResource(value)}${suffix}`,
   key,
 );
 const setPlistString = (source, key, value) => replaceRequired(
@@ -127,10 +163,12 @@ for (const file of ['docs/REVERSE_PROXY.md', 'docs/CUSTOM_THEMES.md']) await pat
 
 await patchText('README.md', (source) => {
   const branded = brandDocs(source);
+  const headingMark = escapeHtml(PRODUCT_MARK);
+  const headingName = escapeHtml(PRODUCT_NAME);
   return replaceRequired(
     branded,
-    /^(# <img src="docs\/references\/badges\/openchamber-logo-dark\.png" width="32" height="32" align="absmiddle" alt=")[^"]*(" \/> )[^\n]+$/m,
-    (_match, prefix, suffix) => `${prefix}${PRODUCT_MARK}${suffix}${PRODUCT_NAME}`,
+    /^(# <img src="docs\/references\/badges\/openchamber-logo-dark\.png" width="32" height="32" align="absmiddle" alt=")[^"]*(" \/> )[^\x0a]+$/m,
+    (_match, prefix, suffix) => `${prefix}${headingMark}${suffix}${headingName}`,
     'README brand heading',
   );
 });
@@ -200,8 +238,8 @@ await patchText('packages/mobile/capacitor.config.ts', (source) => replaceRequir
   'Capacitor appName',
 ));
 await patchText('packages/mobile/android/app/src/main/res/values/strings.xml', (source) => {
-  let branded = setXmlString(source, 'app_name', PRODUCT_NAME);
-  return setXmlString(branded, 'title_activity_main', PRODUCT_NAME);
+  let branded = setAndroidResourceString(source, 'app_name', PRODUCT_NAME);
+  return setAndroidResourceString(branded, 'title_activity_main', PRODUCT_NAME);
 });
 await patchText('packages/mobile/android/app/src/main/res/values/ic_launcher_background.xml', (source) => replaceRequired(
   source,

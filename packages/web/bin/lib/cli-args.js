@@ -1,5 +1,9 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
-import { brandProductText } from '../../brand.generated.js';
+import { PRODUCT_NAME, brandProductText } from '../../brand.generated.js';
+
+const escapeZshSingleQuoted = (value) => String(value).replace(/'/g, () => "'\\''");
+const brandZshCompletionText = (template) => brandProductText(template)
+  .replaceAll(PRODUCT_NAME, () => escapeZshSingleQuoted(PRODUCT_NAME));
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_TAIL_LINES = 200;
@@ -865,7 +869,7 @@ complete -F _openchamber_tunnel openchamber
   }
 
   if (normalized === 'zsh') {
-    return brandProductText(`#compdef openchamber
+    return brandZshCompletionText(`#compdef openchamber
 # Zsh completion for openchamber tunnel
 # Add to ~/.zshrc: eval "$(openchamber tunnel completion zsh)"
 

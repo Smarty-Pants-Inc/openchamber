@@ -28,7 +28,7 @@ smarty-code supports user-defined themes. Drop a JSON file into the themes direc
   "metadata": {
     "id": "my-custom-theme",
     "name": "My Custom Theme",
-    "description": "A custom theme for OpenChamber",
+    "description": "A custom theme for smarty-code",
     "version": "1.0.0",
     "variant": "dark",
     "tags": ["dark", "custom"]
