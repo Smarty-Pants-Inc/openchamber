@@ -588,6 +588,54 @@ describe('project-config loop reconciliation', () => {
     }
   });
 
+  it('serializes concurrent stale-lock recovery before either writer enters', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'oc-project-lock-stale-race-'));
+    const realFs = await import('fs/promises');
+    let releaseInitialScans;
+    const initialScansReady = new Promise((resolve) => {
+      releaseInitialScans = resolve;
+    });
+    let initialScans = 0;
+    const fsPromises = {
+      ...realFs,
+      readdir: async (target, ...args) => {
+        if (String(target).endsWith('.guard-claims') && initialScans < 2) {
+          const entries = await realFs.readdir(target, ...args);
+          initialScans += 1;
+          if (initialScans === 2) releaseInitialScans();
+          await initialScansReady;
+          return entries;
+        }
+        return realFs.readdir(target, ...args);
+      },
+    };
+    try {
+      const runtimeA = createProjectConfigRuntime({ fsPromises, path, projectsDirPath: tempRoot, createTaskID: () => 'task-a' });
+      const runtimeB = createProjectConfigRuntime({ fsPromises, path, projectsDirPath: tempRoot, createTaskID: () => 'task-b' });
+      const projectID = 'stale-race';
+      const lockPath = `${runtimeA.resolveProjectConfigPath(projectID)}.lock`;
+      await fsPromises.mkdir(path.dirname(lockPath), { recursive: true });
+      await writeFile(lockPath, JSON.stringify({ pid: 2_147_483_647, at: Date.now() }));
+
+      const task = (name) => ({
+        name,
+        enabled: true,
+        schedule: { kind: 'daily', time: '09:00', timezone: 'UTC' },
+        execution: { prompt: name, providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+      await Promise.all([
+        runtimeA.upsertScheduledTask(projectID, task('writer-a')),
+        runtimeB.upsertScheduledTask(projectID, task('writer-b')),
+      ]);
+
+      expect((await runtimeA.listScheduledTasks(projectID)).map(({ name }) => name).sort()).toEqual(['writer-a', 'writer-b']);
+      await expect(fsPromises.access(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await fsPromises.readdir(`${lockPath}.guard-claims`)).toEqual([]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('recovers from a stale-by-dead-pid project config lock', async () => {
     const { runtime, cleanup } = await createRuntime();
     const fsPromises = await import('fs/promises');

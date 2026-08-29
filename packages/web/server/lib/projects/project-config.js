@@ -408,74 +408,169 @@ export const createProjectConfigRuntime = (deps) => {
   const acquireProjectFileLock = async (projectID) => {
     const configPath = resolveProjectConfigPath(projectID);
     const lockPath = `${configPath}.lock`;
+    const guardClaimsPath = `${lockPath}.guard-claims`;
     const startedAt = Date.now();
+    const claimPattern = /^(\d+)\.claim$/;
 
     await fsPromises.mkdir(path.dirname(configPath), { recursive: true });
 
-    while (Date.now() - startedAt < PROJECT_FILE_LOCK_WAIT_MS) {
-      let handle;
+    const acquireGuard = async () => {
+      await fsPromises.mkdir(guardClaimsPath, { recursive: true });
+      let maxTicket = 0n;
+      for (const entry of await fsPromises.readdir(guardClaimsPath)) {
+        const match = claimPattern.exec(entry);
+        if (match) maxTicket = maxTicket > BigInt(match[1]) ? maxTicket : BigInt(match[1]);
+      }
+
+      let ticket = maxTicket + 1n;
+      const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      let claimName;
+      let claimPath;
+      while (true) {
+        claimName = `${ticket}.claim`;
+        claimPath = path.join(guardClaimsPath, claimName);
+        let claimHandle;
+        try {
+          claimHandle = await fsPromises.open(claimPath, 'wx');
+          await claimHandle.writeFile(JSON.stringify({ pid: process.pid, token }));
+          await claimHandle.close();
+          break;
+        } catch (error) {
+          if (claimHandle) {
+            await claimHandle.close().catch(() => {});
+          }
+          if (error?.code === 'EEXIST') {
+            ticket += 1n;
+            continue;
+          }
+          await fsPromises.unlink(claimPath).catch(() => {});
+          throw error;
+        }
+      }
+
+      const releaseClaim = async () => {
+        try {
+          const raw = await fsPromises.readFile(claimPath, 'utf8');
+          if (JSON.parse(raw)?.token === token) {
+            await fsPromises.unlink(claimPath);
+          }
+        } catch {
+        }
+      };
+
       try {
-        handle = await fsPromises.open(lockPath, 'wx');
-        const lockPayload = {
-          pid: process.pid,
-          at: Date.now(),
-        };
-        await handle.writeFile(JSON.stringify(lockPayload));
-        return {
-          release: async () => {
+        while (Date.now() - startedAt < PROJECT_FILE_LOCK_WAIT_MS) {
+          let owner;
+          for (const entry of await fsPromises.readdir(guardClaimsPath)) {
+            const match = claimPattern.exec(entry);
+            if (!match) {
+              continue;
+            }
+            const candidatePath = path.join(guardClaimsPath, entry);
+            const candidateTicket = BigInt(match[1]);
+            try {
+              const stat = await fsPromises.stat(candidatePath);
+              const staleByAge = Number.isFinite(stat.mtimeMs) && (Date.now() - stat.mtimeMs) > PROJECT_FILE_LOCK_STALE_MS;
+              let candidatePID;
+              try {
+                candidatePID = Number(JSON.parse(await fsPromises.readFile(candidatePath, 'utf8'))?.pid);
+              } catch {
+              }
+              if (staleByAge || (Number.isInteger(candidatePID) && !isProcessAlive(candidatePID))) {
+                await fsPromises.unlink(candidatePath).catch(() => {});
+                continue;
+              }
+            } catch {
+              continue;
+            }
+            if (!owner || candidateTicket < owner.ticket) {
+              owner = { ticket: candidateTicket, name: entry };
+            }
+          }
+          if (owner?.name === claimName) {
+            return releaseClaim;
+          }
+          await new Promise((resolve) => {
+            setTimeout(resolve, PROJECT_FILE_LOCK_RETRY_MS);
+          });
+        }
+      } catch (error) {
+        await releaseClaim();
+        throw error;
+      }
+      await releaseClaim();
+      throw new Error(`timeout acquiring project config lock for ${projectID}`);
+    };
+
+    while (Date.now() - startedAt < PROJECT_FILE_LOCK_WAIT_MS) {
+      const releaseGuard = await acquireGuard();
+      let handle;
+      let openedMainLock = false;
+      let shouldRetry = false;
+      try {
+        try {
+          handle = await fsPromises.open(lockPath, 'wx');
+          openedMainLock = true;
+          const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          const lockPayload = { pid: process.pid, at: Date.now(), token };
+          await handle.writeFile(JSON.stringify(lockPayload));
+          return {
+            release: async () => {
+              try {
+                await handle.close();
+              } catch {
+              }
+              try {
+                const raw = await fsPromises.readFile(lockPath, 'utf8');
+                if (JSON.parse(raw)?.token === token) {
+                  await fsPromises.unlink(lockPath);
+                }
+              } catch {
+              }
+            },
+          };
+        } catch (error) {
+          if (handle) {
             try {
               await handle.close();
             } catch {
             }
-            // Only unlink if we still own the lock. A stale-recovery steal can
-            // replace the file; unlinking blindly would drop the new owner's lock.
+          }
+          if (openedMainLock) {
+            await fsPromises.unlink(lockPath).catch(() => {});
+          }
+          if (error?.code !== 'EEXIST') {
+            throw error;
+          }
+
+          try {
+            const raw = await fsPromises.readFile(lockPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            const lockPid = Number(parsed?.pid);
+            const lockAt = Number(parsed?.at);
+            const staleByPid = Number.isInteger(lockPid) && lockPid > 0 && !isProcessAlive(lockPid);
+            const staleByAge = Number.isFinite(lockAt) && (Date.now() - lockAt) > PROJECT_FILE_LOCK_STALE_MS;
+            if (staleByPid || staleByAge || !Number.isInteger(lockPid)) {
+              await fsPromises.unlink(lockPath).catch(() => {});
+              shouldRetry = true;
+            }
+          } catch {
             try {
-              const raw = await fsPromises.readFile(lockPath, 'utf8');
-              const parsed = JSON.parse(raw);
-              if (Number(parsed?.pid) !== process.pid) {
-                return;
+              const stat = await fsPromises.stat(lockPath);
+              const mtimeMs = Number(stat?.mtimeMs);
+              if (Number.isFinite(mtimeMs) && (Date.now() - mtimeMs) > PROJECT_FILE_LOCK_STALE_MS) {
+                await fsPromises.unlink(lockPath).catch(() => {});
+                shouldRetry = true;
               }
-              await fsPromises.unlink(lockPath);
             } catch {
             }
-          },
-        };
-      } catch (error) {
-        if (handle) {
-          try {
-            await handle.close();
-          } catch {
           }
         }
-        if (error?.code !== 'EEXIST') {
-          throw error;
-        }
+      } finally {
+        await releaseGuard();
+      }
 
-        try {
-          const raw = await fsPromises.readFile(lockPath, 'utf8');
-          const parsed = JSON.parse(raw);
-          const lockPid = Number(parsed?.pid);
-          const lockAt = Number(parsed?.at);
-          const staleByPid = Number.isInteger(lockPid) && lockPid > 0 && !isProcessAlive(lockPid);
-          const staleByAge = Number.isFinite(lockAt) && (Date.now() - lockAt) > PROJECT_FILE_LOCK_STALE_MS;
-          if (staleByPid || staleByAge || !Number.isInteger(lockPid)) {
-            await fsPromises.unlink(lockPath).catch(() => {});
-            continue;
-          }
-        } catch {
-          // Crash between open(wx) and writeFile (or a partial write) leaves an
-          // unparseable lock. Fall back to mtime age so recovery is not wedged.
-          try {
-            const stat = await fsPromises.stat(lockPath);
-            const mtimeMs = Number(stat?.mtimeMs);
-            if (Number.isFinite(mtimeMs) && (Date.now() - mtimeMs) > PROJECT_FILE_LOCK_STALE_MS) {
-              await fsPromises.unlink(lockPath).catch(() => {});
-              continue;
-            }
-          } catch {
-          }
-        }
-
+      if (!shouldRetry) {
         await new Promise((resolve) => {
           setTimeout(resolve, PROJECT_FILE_LOCK_RETRY_MS);
         });
