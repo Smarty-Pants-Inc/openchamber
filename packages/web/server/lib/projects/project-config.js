@@ -411,83 +411,116 @@ export const createProjectConfigRuntime = (deps) => {
     const guardClaimsPath = `${lockPath}.guard-claims`;
     const startedAt = Date.now();
     const claimPattern = /^(\d+)\.claim$/;
+    const identityClaimPattern = /^(\d+)\.[^.]+\.claim$/;
+    const parseClaimTicket = (value) => {
+      const match = /^(\d+)$/.exec(String(value ?? ''));
+      return match ? BigInt(match[1]) : undefined;
+    };
 
     await fsPromises.mkdir(path.dirname(configPath), { recursive: true });
 
     const acquireGuard = async () => {
       await fsPromises.mkdir(guardClaimsPath, { recursive: true });
-      let maxTicket = 0n;
-      for (const entry of await fsPromises.readdir(guardClaimsPath)) {
-        const match = claimPattern.exec(entry);
-        if (match) maxTicket = maxTicket > BigInt(match[1]) ? maxTicket : BigInt(match[1]);
-      }
-
-      let ticket = maxTicket + 1n;
       const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-      let claimName;
-      let claimPath;
-      while (true) {
-        claimName = `${ticket}.claim`;
-        claimPath = path.join(guardClaimsPath, claimName);
-        let claimHandle;
-        try {
-          claimHandle = await fsPromises.open(claimPath, 'wx');
-          await claimHandle.writeFile(JSON.stringify({ pid: process.pid, token }));
-          await claimHandle.close();
-          break;
-        } catch (error) {
-          if (claimHandle) {
-            await claimHandle.close().catch(() => {});
+      const claimName = `${process.pid}.${encodeURIComponent(token)}.claim`;
+      const claimPath = path.join(guardClaimsPath, claimName);
+      let claimHandle = await fsPromises.open(claimPath, 'wx');
+      try {
+        let maxTicket = 0n;
+        for (const entry of await fsPromises.readdir(guardClaimsPath)) {
+          const legacyMatch = claimPattern.exec(entry);
+          let existingTicket = legacyMatch ? BigInt(legacyMatch[1]) : undefined;
+          if (existingTicket === undefined && identityClaimPattern.test(entry)) {
+            try {
+              existingTicket = parseClaimTicket(JSON.parse(await fsPromises.readFile(
+                path.join(guardClaimsPath, entry),
+                'utf8',
+              ))?.ticket);
+            } catch {
+            }
           }
-          if (error?.code === 'EEXIST') {
-            ticket += 1n;
-            continue;
+          if (existingTicket !== undefined && existingTicket > maxTicket) {
+            maxTicket = existingTicket;
           }
-          await fsPromises.unlink(claimPath).catch(() => {});
-          throw error;
         }
+
+        const ticket = maxTicket + 1n;
+        await claimHandle.writeFile(JSON.stringify({
+          ticket: ticket.toString(),
+          pid: process.pid,
+          token,
+        }));
+        await claimHandle.close();
+        claimHandle = undefined;
+      } catch (error) {
+        if (claimHandle) {
+          await claimHandle.close().catch(() => {});
+        }
+        await fsPromises.unlink(claimPath).catch(() => {});
+        throw error;
       }
 
       const releaseClaim = async () => {
-        try {
-          const raw = await fsPromises.readFile(claimPath, 'utf8');
-          if (JSON.parse(raw)?.token === token) {
-            await fsPromises.unlink(claimPath);
-          }
-        } catch {
-        }
+        await fsPromises.unlink(claimPath).catch(() => {});
       };
 
       try {
         while (Date.now() - startedAt < PROJECT_FILE_LOCK_WAIT_MS) {
           let owner;
+          let hasLiveChooser = false;
           for (const entry of await fsPromises.readdir(guardClaimsPath)) {
-            const match = claimPattern.exec(entry);
-            if (!match) {
+            const legacyMatch = claimPattern.exec(entry);
+            const identityMatch = identityClaimPattern.exec(entry);
+            if (!legacyMatch && !identityMatch) {
               continue;
             }
+
             const candidatePath = path.join(guardClaimsPath, entry);
-            const candidateTicket = BigInt(match[1]);
+            let candidateTicket = legacyMatch ? BigInt(legacyMatch[1]) : undefined;
+            let candidatePID = identityMatch ? Number(identityMatch[1]) : undefined;
             try {
               const stat = await fsPromises.stat(candidatePath);
               const staleByAge = Number.isFinite(stat.mtimeMs) && (Date.now() - stat.mtimeMs) > PROJECT_FILE_LOCK_STALE_MS;
-              let candidatePID;
+              let parsed;
               try {
-                candidatePID = Number(JSON.parse(await fsPromises.readFile(candidatePath, 'utf8'))?.pid);
+                parsed = JSON.parse(await fsPromises.readFile(candidatePath, 'utf8'));
               } catch {
               }
-              if (staleByAge || (Number.isInteger(candidatePID) && !isProcessAlive(candidatePID))) {
-                await fsPromises.unlink(candidatePath).catch(() => {});
+              if (legacyMatch) {
+                candidatePID = Number(parsed?.pid);
+              } else {
+                candidateTicket = parseClaimTicket(parsed?.ticket);
+              }
+              if (!Number.isInteger(candidatePID) || candidatePID <= 0) {
+                continue;
+              }
+              if (!isProcessAlive(candidatePID)) {
+                if (identityMatch) {
+                  await fsPromises.unlink(candidatePath).catch(() => {});
+                }
+                continue;
+              }
+              if (staleByAge) {
                 continue;
               }
             } catch {
               continue;
             }
-            if (!owner || candidateTicket < owner.ticket) {
+
+            // A live identity without a complete ticket is still choosing.
+            if (candidateTicket === undefined) {
+              hasLiveChooser = true;
+              continue;
+            }
+            if (
+              !owner
+              || candidateTicket < owner.ticket
+              || (candidateTicket === owner.ticket && entry < owner.name)
+            ) {
               owner = { ticket: candidateTicket, name: entry };
             }
           }
-          if (owner?.name === claimName) {
+          if (!hasLiveChooser && owner?.name === claimName) {
             return releaseClaim;
           }
           await new Promise((resolve) => {

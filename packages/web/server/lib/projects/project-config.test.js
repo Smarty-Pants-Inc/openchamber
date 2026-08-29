@@ -636,6 +636,55 @@ describe('project-config loop reconciliation', () => {
     }
   });
 
+  it('does not wait on an empty guard claim left by a dead publisher', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'oc-project-lock-empty-claim-'));
+    const realFs = await import('fs/promises');
+    let now = Date.now();
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let emptyClaimPath;
+    const fsPromises = {
+      ...realFs,
+      readFile: async (target, ...args) => {
+        const raw = await realFs.readFile(target, ...args);
+        if (String(target) === emptyClaimPath) {
+          // Make the former blocking path time out without adding 10 seconds to the test.
+          now += 10_001;
+        }
+        return raw;
+      },
+    };
+
+    try {
+      const runtime = createProjectConfigRuntime({
+        fsPromises,
+        path,
+        projectsDirPath: tempRoot,
+        createTaskID: () => 'after-empty-claim',
+      });
+      const projectID = 'empty-claim';
+      const lockPath = `${runtime.resolveProjectConfigPath(projectID)}.lock`;
+      const guardClaimsPath = `${lockPath}.guard-claims`;
+      emptyClaimPath = path.join(guardClaimsPath, '1.claim');
+      const deadIdentityClaimPath = path.join(guardClaimsPath, '2147483647.partial.claim');
+      await fsPromises.mkdir(guardClaimsPath, { recursive: true });
+      await fsPromises.writeFile(emptyClaimPath, '');
+      await fsPromises.writeFile(deadIdentityClaimPath, '');
+
+      const created = await runtime.upsertScheduledTask(projectID, {
+        name: 'after-empty-claim',
+        enabled: true,
+        schedule: { kind: 'daily', time: '09:00', timezone: 'UTC' },
+        execution: { prompt: 'Run', providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+
+      expect(created.created).toBe(true);
+      await expect(fsPromises.access(deadIdentityClaimPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      nowSpy.mockRestore();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('recovers from a stale-by-dead-pid project config lock', async () => {
     const { runtime, cleanup } = await createRuntime();
     const fsPromises = await import('fs/promises');
