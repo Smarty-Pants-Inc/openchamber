@@ -1489,6 +1489,7 @@ export const Header: React.FC = () => {
   const renderSessionTabMenu = React.useCallback(({ session, isActive, select, closeOtherTabs, components }: SessionTabMenuArgs) => {
     const { Item, Separator } = components;
     const shareUrl = session.share?.url ?? null;
+    const canShareSession = (session as typeof session & { model?: { providerID?: string } }).model?.providerID !== 'omp';
     const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
     return (
       <>
@@ -1499,7 +1500,7 @@ export const Header: React.FC = () => {
           <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}
         </Item>
         <Separator />
-        {shareUrl ? (
+        {canShareSession ? (shareUrl ? (
           <>
             <Item onClick={() => copySessionShareUrl(shareUrl)}>
               <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyLink')}
@@ -1512,7 +1513,7 @@ export const Header: React.FC = () => {
           <Item onClick={() => void shareSessionFor(session.id)}>
             <Icon name="share-2" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.share')}
           </Item>
-        )}
+        )) : null}
         {isActive ? (
           <Item onClick={() => void exportCurrentSession()}>
             <Icon name="download" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}

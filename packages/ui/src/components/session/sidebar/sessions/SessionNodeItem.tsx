@@ -328,6 +328,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   const session = node.session;
   const resolvedSession = session;
+  const canShareSession = (resolvedSession as Session & { model?: { providerID?: string } }).model?.providerID !== 'omp';
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
   const projectLabelFromStore = useProjectsStore(
@@ -913,7 +914,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         {isPinnedSession ? <Icon name="unpin" className="mr-1 h-4 w-4" /> : <Icon name="pushpin" className="mr-1 h-4 w-4" />}
         {isPinnedSession ? t('sessions.sidebar.session.menu.unpin') : t('sessions.sidebar.session.menu.pin')}
       </Item>
-      {!resolvedSession.share ? (
+      {canShareSession ? (!resolvedSession.share ? (
         <Item onClick={() => handleShareSession(resolvedSession)} className="[&>svg]:mr-1">
           <Icon name="share-2" className="mr-1 h-4 w-4" />
           {t('sessions.sidebar.session.menu.share')}
@@ -930,7 +931,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
             {t('sessions.sidebar.session.menu.unshare')}
           </Item>
         </>
-      )}
+      )) : null}
       <Item onClick={() => { void handleExportSession(); }} className="[&>svg]:mr-1">
         <Icon name="download" className="mr-1 h-4 w-4" />
         {t('sessions.sidebar.session.menu.exportMarkdown')}
