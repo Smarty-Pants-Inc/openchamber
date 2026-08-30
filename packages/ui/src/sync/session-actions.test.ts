@@ -947,6 +947,42 @@ describe("optimisticSend target directory", () => {
     expect(currentStore.getState().session_status["session-new"]).toBe(undefined)
   })
 
+  test("does not create a ghost text part for file-only prompts", async () => {
+    const targetStore = createStore({})
+    const childStores = createChildStores([["/target/project", targetStore]])
+    let optimisticAdd: OptimisticAddCall | null = null
+    let sentParts: Part[] = []
+
+    const { optimisticSend, setActionRefs, setOptimisticRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/target/project")
+    setOptimisticRefs(
+      (input) => {
+        optimisticAdd = input
+      },
+      () => {},
+    )
+
+    await optimisticSend({
+      sessionId: "session-file-only",
+      directory: "/target/project",
+      content: "  ",
+      providerID: "provider",
+      modelID: "model",
+      files: [{ type: "file", mime: "image/png", url: "data:image/png;base64,aGVsbG8=", filename: "capture.png" }],
+      send: async (_messageID, parts) => {
+        sentParts = parts
+      },
+    })
+
+    expect(sentParts).toHaveLength(1)
+    expect(sentParts[0]?.type).toBe("file")
+    if (sentParts[0]?.type !== "file") throw new Error("expected file-only optimistic part")
+    expect(sentParts[0].mime).toBe("image/png")
+    expect(sentParts[0].filename).toBe("capture.png")
+    expect(sentParts.some((part) => part.type === "text")).toBe(false)
+    expect((optimisticAdd as unknown as OptimisticAddCall).parts).toEqual(sentParts)
+  })
+
   test("commits the new branch locally and discards its optimistic shadow when sending after a revert", async () => {
     const retainedMessage = { id: "msg_ffffffffffffRetained", role: "user", sessionID: "session-reverted", time: { created: 1 } } as Message
     const revertedMessage = { id: "msg_000000000000Reverted", role: "user", sessionID: "session-reverted", time: { created: 2 } } as Message
