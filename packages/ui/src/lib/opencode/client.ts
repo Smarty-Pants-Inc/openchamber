@@ -1044,6 +1044,7 @@ class OpencodeService {
     agent?: string;
     variant?: string;
     files?: Array<FileInputLite>;
+    textPartId?: string;
     messageId?: string;
     directory?: string | null;
   }): Promise<string> {
@@ -1061,7 +1062,7 @@ class OpencodeService {
     const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
     this.assertRuntimeUnchanged(params.runtimeKey);
 
-    const response = await this.client.session.command({
+    const commandRequest = {
       sessionID: params.id,
       ...(requestDirectory ? { directory: requestDirectory } : {}),
       command: params.command,
@@ -1070,8 +1071,10 @@ class OpencodeService {
       agent: params.agent,
       variant: params.variant,
       ...(parts.length > 0 ? { parts } : {}),
+      ...(params.providerID === 'omp' && params.textPartId ? { $body_textPartID: params.textPartId } : {}),
       messageID: tempMessageId,
-    });
+    };
+    const response = await this.client.session.command(commandRequest);
 
     unwrapSdkOptional(response, 'session.command');
     return tempMessageId;

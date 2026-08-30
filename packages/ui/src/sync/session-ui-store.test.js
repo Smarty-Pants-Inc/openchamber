@@ -786,12 +786,14 @@ describe('routeMessage skill invocation', () => {
   // content is injected — not sent as a plain "/name" text message (issue #1605).
   const sendCommandCalls = [];
   const sendMessageCalls = [];
+  const optimisticAddCalls = [];
   let originalSendCommand;
   let originalSendMessage;
 
   beforeEach(() => {
     sendCommandCalls.length = 0;
     sendMessageCalls.length = 0;
+    optimisticAddCalls.length = 0;
 
     // Minimal optimistic + connection machinery so routeMessage can dispatch.
     const childStore = {
@@ -809,7 +811,7 @@ describe('routeMessage skill invocation', () => {
       getChild: () => childStore,
     };
     setActionRefs(opencodeClient, childStores, () => '/skills/project');
-    setOptimisticRefs(() => {}, () => {});
+    setOptimisticRefs((input) => optimisticAddCalls.push(input), () => {});
     useConfigStore.setState({ isConnected: true });
 
     // The sync command list and the commands store both exclude user skills,
@@ -869,6 +871,30 @@ describe('routeMessage skill invocation', () => {
     expect(sendCommandCalls).toHaveLength(1);
     expect(sendCommandCalls[0].command).toBe('grill-with-docs');
     expect(sendCommandCalls[0].arguments).toBe('focus on auth');
+  });
+
+  test('forwards optimistic text and file part IDs to command sends', async () => {
+    useSkillsStore.setState({
+      skills: [{ name: 'grill-with-docs', path: '/skills/grill-with-docs/SKILL.md', scope: 'user', source: 'opencode' }],
+    });
+
+    await routeMessage({
+      sessionId: 'session-skill',
+      directory: '/skills/project',
+      content: '/grill-with-docs focus on auth',
+      providerID: 'omp',
+      modelID: 'model-a',
+      files: [{ type: 'file', mime: 'image/png', url: 'data:image/png;base64,aGVsbG8=', filename: 'capture.png' }],
+    });
+
+    expect(optimisticAddCalls).toHaveLength(1);
+    expect(sendCommandCalls).toHaveLength(1);
+    const optimistic = optimisticAddCalls[0];
+    const textPart = optimistic.parts.find((part) => part.type === 'text');
+    const filePart = optimistic.parts.find((part) => part.type === 'file');
+    expect(sendCommandCalls[0].messageId).toBe(optimistic.message.id);
+    expect(sendCommandCalls[0].textPartId).toBe(textPart.id);
+    expect(sendCommandCalls[0].files[0].id).toBe(filePart.id);
   });
 
   test('sends an unknown slash token as a plain message', async () => {
