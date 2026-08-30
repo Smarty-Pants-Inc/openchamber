@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Session } from '@opencode-ai/sdk/v2';
-import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
+import { routeMessage, useSessionUIStore, withAgentBackendMetadata } from '@/sync/session-ui-store';
 import { devtools } from 'zustand/middleware';
 import type { CreateMultiRunParams, CreateMultiRunResult } from '@/types/multirun';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -212,7 +212,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
                 if (!shouldIsolateRuns) {
                   const session = await opencodeClient.withDirectory(
                     directory,
-                    () => opencodeClient.createSession({ title: sessionTitle }),
+                    () => opencodeClient.createSession({ title: sessionTitle, metadata: withAgentBackendMetadata(undefined, model.providerID) }),
                   );
                   registerCreatedSession(session, directory);
 
@@ -251,7 +251,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
                 const session = await opencodeClient.withDirectory(
                   worktreeMetadata.path,
-                  () => opencodeClient.createSession({ title: sessionTitle }),
+                  () => opencodeClient.createSession({ title: sessionTitle, metadata: withAgentBackendMetadata(undefined, model.providerID) }),
                 );
                 registerCreatedSession(session, worktreeMetadata.path);
 

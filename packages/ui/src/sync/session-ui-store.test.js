@@ -3,7 +3,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionWorktreeStore } from './session-worktree-store';
-import { expandSlashCommandGoalObjective, routeMessage, useSessionUIStore } from './session-ui-store';
+import { expandSlashCommandGoalObjective, routeMessage, useSessionUIStore, withAgentBackendMetadata } from './session-ui-store';
 import { setActionRefs, setOptimisticRefs } from './session-actions';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
@@ -684,8 +684,8 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
       sendMessageCalls.push(params);
       return 'msg';
     };
-    opencodeClient.createSession = async (_params, directory) => {
-      createSessionCalls.push(directory);
+    opencodeClient.createSession = async (params, directory) => {
+      createSessionCalls.push({ params, directory });
       return { id: 'session-materialized', directory: directory ?? '/projects/alpha' };
     };
   });
@@ -725,7 +725,7 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
 
     const sendPromise = useSessionUIStore.getState().sendMessage(
       'message for project A',
-      'provider-a',
+      'pi',
       'model-a',
       undefined,
       undefined,
@@ -743,7 +743,10 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     await sendPromise;
 
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0]).toBe('/projects/alpha');
+    expect(createSessionCalls[0]).toEqual({
+      directory: '/projects/alpha',
+      params: expect.objectContaining({ metadata: { openchamber: { agent_backend: 'pi' } } }),
+    });
     expect(sendMessageCalls).toHaveLength(1);
     expect(sendMessageCalls[0].id).toBe('session-materialized');
     expect(sendMessageCalls[0].directory).toBe('/projects/alpha');
@@ -778,6 +781,15 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     expect(sendMessageCalls[0].id).toBe('session-project-a');
     expect(sendMessageCalls[0].directory).toBe('/projects/alpha');
   });
+});
+
+test('backend metadata preserves existing OpenChamber metadata and ignores unrelated providers', () => {
+  expect(withAgentBackendMetadata({ openchamber: { project_context_pins: ['a'] }, keep: true }, 'pi')).toEqual({
+    openchamber: { project_context_pins: ['a'], agent_backend: 'pi' },
+    keep: true,
+  });
+  expect(withAgentBackendMetadata(undefined, 'omp')).toEqual({ openchamber: { agent_backend: 'omp' } });
+  expect(withAgentBackendMetadata(undefined, 'anthropic')).toBeUndefined();
 });
 
 describe('routeMessage skill invocation', () => {
