@@ -1381,11 +1381,10 @@ export async function optimisticSend(input: {
 
   const messageID = ascendingId("msg")
   input.onMessageID?.(messageID)
-  const textPartId = ascendingId("prt")
-
-  const optimisticParts: Part[] = [
-    { id: textPartId, type: "text", text: input.content } as Part,
-  ]
+  const optimisticParts: Part[] = []
+  if (input.content.trim()) {
+    optimisticParts.push({ id: ascendingId("prt"), type: "text", text: input.content } as Part)
+  }
   if (input.files) {
     for (const f of input.files) {
       optimisticParts.push({ id: ascendingId("prt"), type: "file", mime: f.mime, url: f.url, filename: f.filename } as Part)
