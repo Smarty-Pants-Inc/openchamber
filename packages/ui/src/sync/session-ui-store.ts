@@ -1,6 +1,5 @@
 /**
  * Session UI Store — ephemeral UI state only.
- *
  * Domain data (sessions, messages, parts, permissions, questions, status)
  * lives in sync child stores. This store owns ONLY transient UI concerns:
  * current selection, draft state, viewport anchors, model/agent preferences,
@@ -10,6 +9,7 @@
  * session-worktree-store (shared sync), and session-ui-store routes through it.
  *
  * SDK-calling actions that need domain data read it from sync-refs.
+ *
  */
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
@@ -742,6 +742,29 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   void activateConfigForDirectory(recovered)
 }
 
+type AgentBackendProviderID = "omp" | "pi"
+
+type OpenChamberSessionMetadata = {
+  openchamber?: {
+    project_context_pins?: { notes: string[]; plans: string[] }
+    agent_backend?: AgentBackendProviderID
+  }
+}
+
+export function withAgentBackendMetadata(
+  metadata: OpenChamberSessionMetadata | undefined,
+  providerID: string,
+): OpenChamberSessionMetadata | undefined {
+  if (providerID !== "omp" && providerID !== "pi") return metadata
+  return {
+    ...metadata,
+    openchamber: {
+      ...metadata?.openchamber,
+      agent_backend: providerID,
+    },
+  }
+}
+
 const createSessionWithDraftLifecycle = async (
   title?: string,
   directoryOverride?: string | null,
@@ -825,9 +848,12 @@ export async function materializeOpenDraftSession(selection: {
     draft.title,
     draftDirectoryOverride,
     draft.parentID ?? null,
-    draftPins.notes.length > 0 || draftPins.plans.length > 0
-      ? { openchamber: { project_context_pins: draftPins } }
-      : undefined,
+    withAgentBackendMetadata(
+      draftPins.notes.length > 0 || draftPins.plans.length > 0
+        ? { openchamber: { project_context_pins: draftPins } }
+        : undefined,
+      selection.providerID,
+    ),
     "submitted-draft",
   )
   if (!created?.id) {
