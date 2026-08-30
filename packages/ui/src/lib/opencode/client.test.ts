@@ -121,6 +121,21 @@ describe('opencodeClient prompt retry behavior', () => {
     text: 'hello',
   });
 
+  test('preserves the optimistic text part ID in the prompt payload', async () => {
+    await opencodeClient.sendMessage({
+      id: 'ses_optimistic',
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet',
+      text: 'hello',
+      textPartId: 'prt_optimistic',
+    });
+
+    type PromptPayload = { parts: Array<{ id?: string; type: string; text?: string }> };
+    // SAFETY: promptAsyncMock records the SDK prompt payload as its first argument.
+    const prompt = promptAsyncCalls[0]?.[0] as PromptPayload | undefined;
+    expect(prompt?.parts[0]).toEqual({ id: 'prt_optimistic', type: 'text', text: 'hello' });
+  });
+
   test('does not retry 504 prompt responses because the POST may already be accepted', async () => {
     promptAsyncResults.push({ response: new Response('gateway timeout', { status: 504 }) });
 

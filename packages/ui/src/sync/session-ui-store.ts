@@ -210,21 +210,28 @@ export function routeMessage(params: {
     agent: params.agent,
     directory: requestDirectory,
     files: params.files,
-    send: (messageID) => opencodeClient.sendMessage({
-      runtimeKey: params.runtimeKey,
-      id: params.sessionId,
-      providerID: params.providerID,
-      modelID: params.modelID,
-      text: params.content,
-      agent: params.agent,
-      agentMentions: params.agentMentionName ? [{ name: params.agentMentionName }] : undefined,
-      variant: params.variant,
-      files: params.files,
-      additionalParts: params.additionalParts,
-      delivery: params.delivery,
-      messageId: messageID,
-      directory: requestDirectory,
-    }).then(() => {}),
+    send: (messageID, optimisticParts) => {
+      const textPartId = optimisticParts.find((part) => part.type === "text")?.id
+      const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
+      return opencodeClient.sendMessage({
+        runtimeKey: params.runtimeKey,
+        id: params.sessionId,
+        providerID: params.providerID,
+        modelID: params.modelID,
+        text: params.content,
+        textPartId,
+        agent: params.agent,
+        agentMentions: params.agentMentionName ? [{ name: params.agentMentionName }] : undefined,
+        variant: params.variant,
+        files: params.files?.map((file, index) => (
+          filePartIds[index] ? { ...file, id: filePartIds[index] } : file
+        )),
+        additionalParts: params.additionalParts,
+        delivery: params.delivery,
+        messageId: messageID,
+        directory: requestDirectory,
+      }).then(() => {})
+    },
   })
 }
 

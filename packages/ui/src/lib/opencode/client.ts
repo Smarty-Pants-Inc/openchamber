@@ -860,6 +860,7 @@ class OpencodeService {
     providerID: string;
     modelID: string;
     text: string;
+    textPartId?: string;
     prefaceText?: string;
     prefaceTextSynthetic?: boolean;
     agent?: string;
@@ -905,6 +906,7 @@ class OpencodeService {
         type: 'text',
         text: params.text
       };
+      if (params.textPartId) textPart.id = params.textPartId;
       parts.push(textPart);
     }
 
