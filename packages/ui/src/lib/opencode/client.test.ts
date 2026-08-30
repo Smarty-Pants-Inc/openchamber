@@ -10,12 +10,18 @@ let runtimeKey = 'test-runtime';
 const promptAsyncCalls: unknown[][] = [];
 const promptAsyncResults: Array<unknown> = [];
 const pathGetResults: Array<unknown> = [];
+const commandCalls: unknown[][] = [];
 
 const promptAsyncMock = mock(async (...args: unknown[]) => {
   promptAsyncCalls.push(args);
   const next = promptAsyncResults.shift();
   if (next instanceof Error) throw next;
   return next ?? { response: new Response(null, { status: 200 }) };
+});
+
+const commandMock = mock(async (...args: unknown[]) => {
+  commandCalls.push(args);
+  return { data: true };
 });
 
 const pathGetMock = mock(async () => {
@@ -36,6 +42,7 @@ mock.module('@opencode-ai/sdk/v2', () => ({
     },
     session: {
       promptAsync: promptAsyncMock,
+      command: commandMock,
     },
     path: {
       get: pathGetMock,
@@ -73,6 +80,7 @@ const { opencodeClient } = await import(`./client?cache-test=${Date.now()}`);
 beforeEach(() => {
   runtimeKey = 'test-runtime';
   promptAsyncCalls.length = 0;
+  commandCalls.length = 0;
   promptAsyncResults.length = 0;
   pathGetResults.length = 0;
 });
@@ -134,6 +142,33 @@ describe('opencodeClient prompt retry behavior', () => {
     // SAFETY: promptAsyncMock records the SDK prompt payload as its first argument.
     const prompt = promptAsyncCalls[0]?.[0] as PromptPayload | undefined;
     expect(prompt?.parts[0]).toEqual({ id: 'prt_optimistic', type: 'text', text: 'hello' });
+  });
+
+  test('preserves optimistic command part IDs only for the OMP gateway', async () => {
+    await opencodeClient.sendCommand({
+      id: 'ses_command',
+      providerID: 'omp',
+      modelID: 'model',
+      command: 'review',
+      textPartId: 'prt_command_text',
+      files: [{ id: 'prt_command_file', type: 'file', mime: 'image/png', url: 'data:image/png;base64,aGVsbG8=', filename: 'capture.png' }],
+    });
+
+    type CommandPayload = { $body_textPartID?: string; parts?: Array<{ id?: string }> };
+    const ompCommand = commandCalls[0]?.[0] as CommandPayload | undefined;
+    expect(ompCommand?.$body_textPartID).toBe('prt_command_text');
+    expect(ompCommand?.parts?.[0]?.id).toBe('prt_command_file');
+
+    await opencodeClient.sendCommand({
+      id: 'ses_stock_command',
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet',
+      command: 'review',
+      textPartId: 'prt_stock_text',
+    });
+
+    const stockCommand = commandCalls[1]?.[0] as CommandPayload | undefined;
+    expect(stockCommand?.$body_textPartID).toBe(undefined);
   });
 
   test('does not retry 504 prompt responses because the POST may already be accepted', async () => {

@@ -183,19 +183,26 @@ export function routeMessage(params: {
         agent: params.agent,
         directory: requestDirectory,
         files: params.files,
-        send: (messageID) => opencodeClient.sendCommand({
-          runtimeKey: params.runtimeKey,
-          id: params.sessionId,
-          providerID: params.providerID,
-          modelID: params.modelID,
-          command: cmdName,
-          arguments: tail.join(" "),
-          agent: params.agent,
-          variant: params.variant,
-          files: params.files,
-          messageId: messageID,
-          directory: requestDirectory,
-        }).then(() => {}),
+        send: (messageID, optimisticParts) => {
+          const textPartId = optimisticParts.find((part) => part.type === "text")?.id
+          const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
+          return opencodeClient.sendCommand({
+            runtimeKey: params.runtimeKey,
+            id: params.sessionId,
+            providerID: params.providerID,
+            modelID: params.modelID,
+            command: cmdName,
+            arguments: tail.join(" "),
+            agent: params.agent,
+            variant: params.variant,
+            textPartId,
+            files: params.files?.map((file, index) => (
+              filePartIds[index] ? { ...file, id: filePartIds[index] } : file
+            )),
+            messageId: messageID,
+            directory: requestDirectory,
+          }).then(() => {})
+        },
       })
     }
   }
