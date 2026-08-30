@@ -160,7 +160,7 @@ export function MultiRunFusionDialog({
         renderMagicPrompt('session.fusion.visible'),
         renderMagicPrompt('session.fusion.instructions'),
       ]);
-      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null);
+      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null, providerID);
       if (!fusionSession) throw new Error('Failed to create fusion session');
 
       useSessionUIStore.getState().setCurrentSession(fusionSession.id, directory);

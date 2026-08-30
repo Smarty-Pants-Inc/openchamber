@@ -727,7 +727,8 @@ export async function createSession(
   title?: string,
   directoryOverride?: string | null,
   parentID?: string | null,
-  metadata?: Record<string, unknown>,
+  providerID?: string,
+  metadata?: SessionMetadataRecord,
   selectionTransition?: "submitted-draft",
 ): Promise<Session | null> {
   try {
@@ -741,6 +742,7 @@ export async function createSession(
       title,
       parentID: parentID ?? undefined,
       metadata,
+      providerID,
     }, effectiveDirectory)
 
     const sessionDirectory = (session as { directory?: string | null }).directory ?? effectiveDirectory ?? null

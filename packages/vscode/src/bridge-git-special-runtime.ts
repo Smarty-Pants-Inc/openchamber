@@ -197,6 +197,9 @@ const generateBridgeTextWithSessionFlow = async ({
       await client.session.create({
         ...(directory ? { directory } : {}),
         title: 'Git Generation',
+        metadata: providerID === 'omp' || providerID === 'pi'
+          ? { openchamber: { agent_backend: providerID } }
+          : undefined,
       }, { signal: AbortSignal.timeout(remainingMs()) }),
       'session.create'
     );

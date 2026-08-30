@@ -209,7 +209,7 @@ describe('openchamber session routes', () => {
         return { ok: true, text: async () => '' };
       }
       if (text.includes('/config/providers')) {
-        return { ok: true, json: async () => ({ providers: [{ id: 'openai', models: { 'gpt-5.5': { id: 'gpt-5.5' } } }] }) };
+        return { ok: true, json: async () => ({ providers: [{ id: 'pi', models: { 'anthropic/claude-sonnet-4-5': { id: 'anthropic/claude-sonnet-4-5' } } }] }) };
       }
       if (text.includes('/agent')) {
         return { ok: true, json: async () => [{ name: 'build', mode: 'primary' }] };
@@ -222,7 +222,7 @@ describe('openchamber session routes', () => {
     globalThis.fetch = fetchMock;
     const { app } = createApp({
       readSettingsFromDiskMigrated: async () => ({
-        defaultModel: 'openai/gpt-5.5',
+        defaultModel: 'pi/anthropic/claude-sonnet-4-5',
         defaultAgent: 'build',
         projects: [{ id: 'proj_1', path: '/repo/app' }],
       }),
@@ -233,7 +233,7 @@ describe('openchamber session routes', () => {
         .send({ directory: '/repo/app', prompt: 'Run this' })
         .expect(200);
 
-      expect(response.body.model).toEqual({ providerID: 'openai', modelID: 'gpt-5.5' });
+      expect(response.body.model).toEqual({ providerID: 'pi', modelID: 'anthropic/claude-sonnet-4-5' });
       expect(response.body.agent).toBe('build');
       expect(fetchMock).toHaveBeenCalledWith(
         'http://opencode.test/config/providers?directory=%2Frepo%2Fapp',
@@ -241,8 +241,12 @@ describe('openchamber session routes', () => {
       );
       const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/prompt_async'));
       expect(JSON.parse(promptCall?.[1]?.body)).toMatchObject({
-        model: { providerID: 'openai', modelID: 'gpt-5.5' },
+        model: { providerID: 'pi', modelID: 'anthropic/claude-sonnet-4-5' },
         agent: 'build',
+      });
+      const createCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
+      expect(JSON.parse(createCall?.[1]?.body)).toMatchObject({
+        metadata: { openchamber: { agent_backend: 'pi' } },
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -262,7 +266,7 @@ describe('openchamber session routes', () => {
       const { app } = createApp();
       const response = await request(app)
         .post('/api/openchamber/sessions')
-        .send({ directory: '/repo/app', prompt: 'Run this', model: 'openai/gpt-5.5' })
+        .send({ directory: '/repo/app', prompt: 'Run this', model: 'omp/gpt-5.5' })
         .expect(200);
 
       expect(response.body.sessionId).toBe('ses_123');
@@ -271,6 +275,10 @@ describe('openchamber session routes', () => {
         'http://opencode.test/session/ses_123/prompt_async?directory=%2Frepo%2Fapp',
         expect.objectContaining({ method: 'POST' }),
       );
+      const createCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
+      expect(JSON.parse(createCall?.[1]?.body)).toMatchObject({
+        metadata: { openchamber: { agent_backend: 'omp' } },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

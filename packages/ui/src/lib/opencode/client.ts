@@ -17,6 +17,7 @@ import { isAmbiguousTransportFailure, markAmbiguousTransportFailure } from "@/li
 import { FilesystemError, parseFilesystemErrorReason } from "@/lib/api/files-errors";
 import type { PermissionRequest } from "@/types/permission";
 import type { QuestionRequest } from "@/types/question";
+import { withAgentBackendMetadata, type SessionMetadataRecord } from '@/lib/sessionReviewMetadata';
 
 /**
  * Tagged result of `OpencodeService.fetchPermission()`. The caller can
@@ -631,13 +632,18 @@ class OpencodeService {
     return Array.isArray(response.data) ? response.data : [];
   }
 
-  async createSession(params?: { parentID?: string; title?: string; metadata?: Record<string, unknown> }, directory?: string | null): Promise<Session> {
+  async createSession(params?: {
+    parentID?: string;
+    title?: string;
+    metadata?: SessionMetadataRecord;
+    providerID?: string;
+  }, directory?: string | null): Promise<Session> {
     const requestDirectory = this.normalizeCandidatePath(directory) ?? this.currentDirectory;
     const response = await this.client.session.create({
       ...(requestDirectory ? { directory: requestDirectory } : {}),
       parentID: params?.parentID,
       title: params?.title,
-      metadata: params?.metadata,
+      metadata: withAgentBackendMetadata(params?.metadata, params?.providerID ?? ''),
     });
     return unwrapSdkData(response, 'session.create');
   }

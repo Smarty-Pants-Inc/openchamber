@@ -383,6 +383,7 @@ export type SessionUIState = {
     title?: string,
     directoryOverride?: string | null,
     parentID?: string | null,
+    providerID?: string,
     metadata?: Record<string, unknown>,
   ) => Promise<Session | null>
   deleteSession: (id: string, options?: DeleteSessionOptions) => Promise<boolean>
@@ -742,33 +743,12 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   void activateConfigForDirectory(recovered)
 }
 
-type AgentBackendProviderID = "omp" | "pi"
-
-type OpenChamberSessionMetadata = {
-  openchamber?: {
-    project_context_pins?: { notes: string[]; plans: string[] }
-    agent_backend?: AgentBackendProviderID
-  }
-}
-
-export function withAgentBackendMetadata(
-  metadata: OpenChamberSessionMetadata | undefined,
-  providerID: string,
-): OpenChamberSessionMetadata | undefined {
-  if (providerID !== "omp" && providerID !== "pi") return metadata
-  return {
-    ...metadata,
-    openchamber: {
-      ...metadata?.openchamber,
-      agent_backend: providerID,
-    },
-  }
-}
 
 const createSessionWithDraftLifecycle = async (
   title?: string,
   directoryOverride?: string | null,
   parentID?: string | null,
+  providerID?: string,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
 ): Promise<Session | null> => {
@@ -784,6 +764,7 @@ const createSessionWithDraftLifecycle = async (
       title,
       directory,
       parentID ?? null,
+      providerID,
       metadata,
       selectionTransition,
     )
@@ -848,12 +829,10 @@ export async function materializeOpenDraftSession(selection: {
     draft.title,
     draftDirectoryOverride,
     draft.parentID ?? null,
-    withAgentBackendMetadata(
-      draftPins.notes.length > 0 || draftPins.plans.length > 0
-        ? { openchamber: { project_context_pins: draftPins } }
-        : undefined,
-      selection.providerID,
-    ),
+    selection.providerID,
+    draftPins.notes.length > 0 || draftPins.plans.length > 0
+      ? { openchamber: { project_context_pins: draftPins } }
+      : undefined,
     "submitted-draft",
   )
   if (!created?.id) {
@@ -1781,8 +1760,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // createSession
   // ---------------------------------------------------------------------------
-  createSession: (title, directoryOverride, parentID, metadata) =>
-    createSessionWithDraftLifecycle(title, directoryOverride, parentID, metadata),
+  createSession: (title, directoryOverride, parentID, providerID, metadata) =>
+    createSessionWithDraftLifecycle(title, directoryOverride, parentID, providerID, metadata),
 
   // ---------------------------------------------------------------------------
   // deleteSession — calls SDK, SSE event updates child store
@@ -2014,7 +1993,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
     }
 
-    const session = await get().createSession(undefined, sessionDirectory || null, null)
+    const session = await get().createSession(undefined, sessionDirectory || null, null, pID)
     if (!session) {
       if (createdWorktree && createdWorktreeProject) {
         const { removeProjectWorktree } = await import("@/lib/worktrees/worktreeManager")

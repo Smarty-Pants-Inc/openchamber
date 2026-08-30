@@ -2,10 +2,13 @@ import type { Session } from '@opencode-ai/sdk/v2';
 
 export type SessionMetadataRecord = Record<string, unknown>;
 
+type AgentBackendProviderID = 'omp' | 'pi';
+
 type OpenChamberMetadata = {
   kind?: 'review';
   originalSessionID?: string;
   reviewSessionID?: string;
+  agent_backend?: AgentBackendProviderID;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -19,6 +22,26 @@ export const getSessionMetadata = (session: Session | null | undefined): Session
 const getOpenChamberMetadata = (metadata: SessionMetadataRecord): OpenChamberMetadata => {
   const value = metadata.openchamber;
   return isRecord(value) ? value as OpenChamberMetadata : {};
+};
+
+export const getAgentBackendProviderID = (session: Session | null | undefined): AgentBackendProviderID | null => {
+  const value = getOpenChamberMetadata(getSessionMetadata(session)).agent_backend;
+  return value === 'omp' || value === 'pi' ? value : null;
+};
+
+export const withAgentBackendMetadata = (
+  metadata: SessionMetadataRecord | undefined,
+  providerID: string,
+): SessionMetadataRecord | undefined => {
+  if (providerID !== 'omp' && providerID !== 'pi') return metadata;
+  const source = metadata ?? {};
+  return {
+    ...source,
+    openchamber: {
+      ...getOpenChamberMetadata(source),
+      agent_backend: providerID,
+    },
+  };
 };
 
 export const getReviewSessionID = (session: Session | null | undefined): string | null => {
