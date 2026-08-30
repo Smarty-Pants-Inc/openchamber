@@ -16,6 +16,8 @@ const getWorktreeBootstrapStatusMock = vi.fn(async () => ({
 }));
 const sessionCreateMock = vi.fn(async () => ({ data: { id: 'ses_123' } }));
 const sessionForkMock = vi.fn(async () => ({ data: { id: 'ses_fork', title: 'Forked session' } }));
+const sessionUpdateMock = vi.fn(async ({ sessionID, metadata }) => ({ data: { id: sessionID, metadata } }));
+const sessionGetMock = vi.fn(async ({ sessionID }) => ({ data: { id: sessionID, metadata: {} } }));
 const sessionMessagesMock = vi.fn(async () => ({ data: [] }));
 
 let existingSessionMessages = [];
@@ -54,6 +56,8 @@ const selectionInputResponse = (url) => {
         providers: [
           { id: 'openai', models: [{ id: 'gpt-5.5', variants: { high: {} } }] },
           { id: 'anthropic', models: [{ id: 'claude-sonnet-5', variants: { high: {} } }] },
+          { id: 'pi', models: [{ id: 'anthropic/claude-sonnet-4-5', variants: { high: {} } }] },
+          { id: 'omp', models: [{ id: 'gpt-5.5', variants: { high: {} } }] },
         ],
       }),
     };
@@ -76,6 +80,8 @@ vi.mock('@opencode-ai/sdk/v2', () => ({
     session: {
       create: sessionCreateMock,
       fork: sessionForkMock,
+      get: sessionGetMock,
+      update: sessionUpdateMock,
       messages: sessionMessagesMock,
       command: sessionCommandMock,
     },
@@ -124,6 +130,10 @@ describe('openchamber session routes', () => {
     }));
     sessionCreateMock.mockClear();
     sessionForkMock.mockClear();
+    sessionUpdateMock.mockReset();
+    sessionGetMock.mockReset();
+    sessionGetMock.mockImplementation(async ({ sessionID }) => ({ data: { id: sessionID, metadata: {} } }));
+    sessionUpdateMock.mockImplementation(async ({ sessionID, metadata }) => ({ data: { id: sessionID, metadata } }));
     existingSessionMessages = [];
     dispatchedUserMessageSeq = 0;
     sessionMessagesMock.mockReset();
@@ -156,6 +166,26 @@ describe('openchamber session routes', () => {
         }),
       );
       expect(sessionCreateMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('stamps an explicit backend on a promptless session create', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ id: 'ses_123' }) }));
+    globalThis.fetch = fetchMock;
+    try {
+      const { app } = createApp();
+      await request(app)
+        .post('/api/openchamber/sessions')
+        .send({ directory: '/repo/app', model: 'pi/anthropic/claude-sonnet-4-5' })
+        .expect(200);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+        metadata: { openchamber: { agent_backend: 'pi' } },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -627,6 +657,59 @@ describe('openchamber session routes', () => {
         directory: '/repo/app',
         promptDispatched: true,
       }));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('resolves and persists a Pi fork backend before prompt dispatch', async () => {
+    const originalFetch = globalThis.fetch;
+    const events = [];
+    sessionForkMock.mockImplementationOnce(async () => {
+      events.push('fork');
+      return { data: { id: 'ses_fork', title: 'Forked session' } };
+    });
+    sessionGetMock.mockImplementationOnce(async ({ sessionID }) => ({
+      data: {
+        id: sessionID,
+        metadata: { keep: true, openchamber: { inherited: true, agent_backend: 'omp' } },
+      },
+    }));
+    sessionUpdateMock.mockImplementationOnce(async ({ sessionID, metadata }) => {
+      events.push('update');
+      return { data: { id: sessionID, title: 'Forked session', metadata } };
+    });
+    const fetchMock = vi.fn(async (url) => {
+      const text = String(url);
+      if (text.includes('/config/providers')) events.push('resolve');
+      if (text.includes('/prompt_async')) events.push('prompt');
+      return selectionInputResponse(url) || { ok: true, text: async () => '' };
+    });
+    globalThis.fetch = fetchMock;
+    try {
+      const { app } = createApp();
+      const response = await request(app)
+        .post('/api/openchamber/sessions/ses_source/fork')
+        .send({
+          directory: '/repo/app',
+          prompt: 'Try Pi here',
+          model: 'pi/anthropic/claude-sonnet-4-5',
+          agent: 'build',
+        })
+        .expect(200);
+
+      expect(response.body.model).toEqual({ providerID: 'pi', modelID: 'anthropic/claude-sonnet-4-5' });
+      expect(sessionUpdateMock).toHaveBeenCalledWith({
+        sessionID: 'ses_fork',
+        directory: '/repo/app',
+        metadata: {
+          keep: true,
+          openchamber: { inherited: true, agent_backend: 'pi' },
+        },
+      });
+      expect(events.indexOf('resolve')).toBeLessThan(events.indexOf('fork'));
+      expect(events.indexOf('fork')).toBeLessThan(events.indexOf('update'));
+      expect(events.indexOf('update')).toBeLessThan(events.indexOf('prompt'));
     } finally {
       globalThis.fetch = originalFetch;
     }

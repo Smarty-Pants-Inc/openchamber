@@ -16,6 +16,8 @@ let sessionMessagesResult: { data?: unknown; error?: unknown; response?: { statu
 let sessionDeleteError: unknown | null = null
 let beforeSessionUpdateResolve: ((sessionId: string) => void) | null = null
 let beforeSessionDeleteResolve: ((sessionId: string) => void) | null = null
+let forkSessionResult: Session
+let getSessionResult: Session
 const globalUpsertedSessions: unknown[] = []
 const globalRemovedSessionIds: string[] = []
 const deletedCleanupIdentities: Array<{ runtimeKey: string; directory: string; sessionId: string }> = []
@@ -145,6 +147,14 @@ mock.module("@/lib/opencode/client", () => ({
         throw new Error(`session.revert failed${status ? ` (${status})` : ""}: rejected`)
       }
       return Promise.resolve(sessionRevertResult.data)
+    }),
+    forkSession: mock((sessionId: string, messageId?: string, directory?: string | null) => {
+      replyCalls.push({ method: "session.fork", params: { sessionID: sessionId, messageID: messageId, directory } })
+      return Promise.resolve(forkSessionResult)
+    }),
+    getSession: mock((sessionId: string, directory?: string | null) => {
+      replyCalls.push({ method: "session.get", params: { sessionID: sessionId, directory } })
+      return Promise.resolve(getSessionResult)
     }),
     updateSession: mock((sessionId: string, changes: Record<string, unknown>, directory?: string | null) => {
       replyCalls.push({ method: "session.update", params: { sessionID: sessionId, ...changes, directory } })
@@ -367,6 +377,70 @@ describe("moveSessionToDirectory", () => {
     expect(destination.getState().session).toHaveLength(0)
     expect(destination.getState().message["session-a"]).toBe(undefined)
     expect(destination.getState().part["message-a"]).toBe(undefined)
+  })
+})
+
+describe("forkFromMessage backend metadata", () => {
+  test("merge-writes the selected backend before publishing the child", async () => {
+    replyCalls.length = 0
+    globalUpsertedSessions.length = 0
+    registeredSessionDirectories.length = 0
+    forkSessionResult = {
+      id: "session-fork",
+      slug: "session-fork",
+      projectID: "project",
+      directory: "/test/project",
+      title: "Forked session",
+      version: "1",
+      time: { created: 2, updated: 2 },
+    } satisfies Session
+    getSessionResult = {
+      id: "session-fork",
+      slug: "session-fork",
+      projectID: "project",
+      directory: "/test/project",
+      title: "Forked session",
+      version: "1",
+      time: { created: 2, updated: 2 },
+      metadata: { keep: true, openchamber: { agent_backend: "omp", inherited: true } },
+    } satisfies Session
+    sessionUpdateResult = {
+      data: {
+        id: "session-fork",
+        slug: "session-fork",
+        projectID: "project",
+        directory: "/test/project",
+        title: "Forked session",
+        version: "1",
+        time: { created: 2, updated: 3 },
+        metadata: { keep: true, openchamber: { agent_backend: "pi", inherited: true } },
+      } satisfies Session,
+    }
+    const source = createStore({}, {
+      session: [{
+        id: "session-a",
+        slug: "session-a",
+        projectID: "project",
+        directory: "/test/project",
+        title: "Source session",
+        version: "1",
+        time: { created: 1, updated: 1 },
+      } satisfies Session],
+      part: { "message-a": [] },
+    })
+    const { forkFromMessage, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    await forkFromMessage("session-a", "message-a", "pi")
+
+    expect(replyCalls.map((call) => call.method)).toEqual(["session.fork", "session.get", "session.update"])
+    expect(replyCalls[2]?.params).toEqual({
+      sessionID: "session-fork",
+      directory: "/test/project",
+      metadata: { keep: true, openchamber: { agent_backend: "pi", inherited: true } },
+    })
+    expect(source.getState().session.find((session) => session.id === "session-fork")?.metadata)
+      .toEqual({ keep: true, openchamber: { agent_backend: "pi", inherited: true } })
   })
 })
 

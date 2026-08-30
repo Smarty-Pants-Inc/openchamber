@@ -98,6 +98,15 @@ export const createSessionGoal = async ({
   };
   const url = new URL(`${baseUrl}/session/${encodeURIComponent(sessionID)}`);
   url.searchParams.set('directory', directory);
+  const currentResponse = await fetch(url.toString(), {
+    headers: { ...authHeaders, accept: 'application/json' },
+  });
+  if (!currentResponse.ok) throw new Error(`goal metadata read failed (${currentResponse.status})`);
+  const currentBody = await currentResponse.json().catch(() => null);
+  const currentSession = currentBody?.data ?? currentBody;
+  if (!currentSession?.id) throw new Error('goal metadata read returned an invalid session');
+  const currentMetadata = currentSession?.metadata ?? {};
+  const currentNamespace = currentMetadata.openchamber ?? {};
   const response = await fetch(url.toString(), {
     method: 'PATCH',
     headers: {
@@ -105,7 +114,12 @@ export const createSessionGoal = async ({
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({ metadata: { openchamber: { goal } } }),
+    body: JSON.stringify({
+      metadata: {
+        ...currentMetadata,
+        openchamber: { ...currentNamespace, goal },
+      },
+    }),
   });
   if (!response.ok) throw new Error(`goal metadata patch failed (${response.status})`);
   return goal;

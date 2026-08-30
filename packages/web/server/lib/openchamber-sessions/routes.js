@@ -193,6 +193,18 @@ const runPromptAsync = async ({ baseUrl, authHeaders, sessionID, directory, payl
   }
 };
 
+const withAgentBackendMetadata = (metadata, providerID) => {
+  if (providerID !== 'omp' && providerID !== 'pi') return metadata;
+  const source = metadata ?? {};
+  return {
+    ...source,
+    openchamber: {
+      ...(source.openchamber ?? {}),
+      agent_backend: providerID,
+    },
+  };
+};
+
 const createSession = async ({ baseUrl, authHeaders, directory, title, providerID }) => {
   const sessionUrl = new URL(`${baseUrl}/session`);
   sessionUrl.searchParams.set('directory', directory);
@@ -207,9 +219,7 @@ const createSession = async ({ baseUrl, authHeaders, directory, title, providerI
     body: JSON.stringify({
       directory,
       ...(title ? { title } : {}),
-      metadata: providerID === 'omp' || providerID === 'pi'
-        ? { openchamber: { agent_backend: providerID } }
-        : undefined,
+      metadata: withAgentBackendMetadata(undefined, providerID),
     }),
   });
 
@@ -671,7 +681,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       authHeaders,
       directory: sessionDirectory,
       ...(title ? { title } : {}),
-      providerID: resolvedPromptSelection?.model.providerID,
+      providerID: resolvedPromptSelection?.model.providerID ?? model?.providerID,
     });
 
     let dispatch = resolvedPromptSelection
@@ -766,6 +776,16 @@ export const createOpenChamberSessionService = (dependencies) => {
       const baseUrl = buildOpenCodeUrl('/', '').replace(/\/$/, '');
       const authHeaders = getOpenCodeAuthHeaders();
       const client = createOpencodeClient({ baseUrl, headers: authHeaders });
+      const resolvedSelection = await resolvePromptSelection({
+        client,
+        authHeaders,
+        sessionID: sourceSessionID,
+        directory,
+        requestedModel,
+        requestedAgent: asNonEmptyString(payload.agent),
+        requestedVariant: asNonEmptyString(payload.variant),
+        reuseSessionSelection: true,
+      });
       if (action === 'fork') {
         targetSession = await forkSession({
           client,
@@ -774,6 +794,21 @@ export const createOpenChamberSessionService = (dependencies) => {
           messageID: asNonEmptyString(payload.messageId) || undefined,
         });
         targetSessionID = targetSession.id;
+        if (resolvedSelection.model.providerID === 'omp' || resolvedSelection.model.providerID === 'pi') {
+          const current = await client.session.get({
+            sessionID: targetSessionID,
+            directory,
+          });
+          if (!current?.data?.id) throw new Error('failed to read fork backend metadata');
+          const metadata = withAgentBackendMetadata(current.data.metadata, resolvedSelection.model.providerID);
+          const response = await client.session.update({
+            sessionID: targetSessionID,
+            directory,
+            metadata,
+          });
+          if (!response?.data?.id) throw new Error('failed to persist fork backend metadata');
+          targetSession = { ...targetSession, ...response.data };
+        }
       }
 
       const baselineAssistantMessageId = await latestCompletedAssistantMessageID({
@@ -793,7 +828,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         requestedModel,
         requestedAgent: asNonEmptyString(payload.agent),
         requestedVariant: asNonEmptyString(payload.variant),
-        reuseSessionSelection: true,
+        resolvedSelection,
       });
       const result = {
         action,

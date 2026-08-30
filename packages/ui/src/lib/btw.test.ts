@@ -78,7 +78,7 @@ const startInput = {
   parentSessionId: 'parent-1',
   question: 'wtf is kafka',
   directory: '/project',
-  providerID: 'provider',
+  providerID: 'pi',
   modelID: 'model',
   agent: 'build',
   variant: 'v',
@@ -144,7 +144,8 @@ describe('startBtwSession', () => {
     expect(sentText).toBe('wtf is kafka');
     expect(sentOptions).toEqual({ sessionId: 'fork-1', directory: '/project' });
     expect(metadataPatches).toEqual([
-      { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-boundary' } } },
+      { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', agent_backend: 'pi' } } },
+      { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-boundary', agent_backend: 'pi' } } },
       { sessionId: 'parent-1', result: { openchamber: { btwSessionID: 'fork-1' } } },
     ]);
     // Transient creating flag is cleared once the flow settles.
@@ -155,7 +156,10 @@ describe('startBtwSession', () => {
     forkSessionImpl = () => Promise.resolve(makeSession('fork-1', '/project'));
     getSessionMessagesImpl = () => Promise.resolve([]);
     await startBtwSession(startInput);
-    expect(metadataPatches[0]?.result).toEqual({ openchamber: { kind: 'btw', originalSessionID: 'parent-1' } });
+    expect(metadataPatches.slice(0, 2).map((patch) => patch.result)).toEqual([
+      { openchamber: { kind: 'btw', originalSessionID: 'parent-1', agent_backend: 'pi' } },
+      { openchamber: { kind: 'btw', originalSessionID: 'parent-1', agent_backend: 'pi' } },
+    ]);
   });
 
   test('a failed first send unlinks the parent and deletes the fork', async () => {
@@ -167,9 +171,9 @@ describe('startBtwSession', () => {
     await expect(startBtwSession(startInput)).rejects.toThrow('send failed');
 
     expect(deleted).toEqual(['fork-1']);
-    // marker, link, then unlink rollback
-    expect(metadataPatches.map((p) => p.sessionId)).toEqual(['fork-1', 'parent-1', 'parent-1']);
-    expect(metadataPatches[2]?.result).toEqual({});
+    // initial marker, boundary marker, link, then unlink rollback
+    expect(metadataPatches.map((p) => p.sessionId)).toEqual(['fork-1', 'fork-1', 'parent-1', 'parent-1']);
+    expect(metadataPatches[3]?.result).toEqual({});
     expect(useBtwStore.getState().byParent).toEqual({});
   });
 
@@ -180,8 +184,11 @@ describe('startBtwSession', () => {
     deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
 
     await expect(startBtwSession(startInput)).rejects.toThrow('messages failed');
+
     expect(deleted).toEqual(['fork-1']);
-    expect(metadataPatches).toEqual([]);
+    expect(metadataPatches).toEqual([
+      { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', agent_backend: 'pi' } } },
+    ]);
   });
 });
 

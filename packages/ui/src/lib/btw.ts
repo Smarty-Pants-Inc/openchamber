@@ -2,6 +2,7 @@ import type { Message, Part, Session } from '@opencode-ai/sdk/v2';
 import { opencodeClient } from '@/lib/opencode/client';
 import * as sessionActions from '@/sync/session-actions';
 import { withBtwSessionLink, withBtwSessionMarker, withoutBtwSessionLink, withoutBtwSessionMarker } from '@/lib/sessionBtwMetadata';
+import { withAgentBackendMetadata } from '@/lib/sessionReviewMetadata';
 import { useBtwStore } from '@/stores/useBtwStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getSyncChildStores, registerSessionDirectory } from '@/sync/sync-refs';
@@ -63,6 +64,14 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
     registerSessionDirectory(forked.id, sessionDirectory);
 
     try {
+      // The fork API cannot accept metadata. Make the inherited fork a hidden
+      // backend-owned btw session before reading history or publishing it.
+      await sessionActions.patchSessionMetadata(forked.id, sessionDirectory, (metadata) =>
+        withAgentBackendMetadata(
+          withBtwSessionMarker(metadata, input.parentSessionId, null),
+          input.providerID,
+        ) ?? metadata);
+
       // The boundary between inherited history and the fork's own tail is the
       // id of the newest cloned message. Message ids are server-generated and
       // ascending, so everything the fork produces sorts after it.
@@ -70,13 +79,17 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
       const boundaryMessageID = newestCloned[newestCloned.length - 1]?.info.id ?? null;
 
       // The fork inherits the parent's metadata and title wholesale: replace
-      // the metadata with the btw marker, and rename it (rename is
-      // best-effort — a failed rename must not fail the btw flow).
+      // relationship metadata with the btw marker, keep its backend marker,
+      // and rename it (rename is best-effort — a failed rename must not fail
+      // the btw flow).
       // The marker lands BEFORE the fork is inserted into local stores: btw
       // forks are hidden from session lists by this marker, so inserting an
       // unmarked fork first would flash it in the sidebar.
       const marked = await sessionActions.patchSessionMetadata(forked.id, sessionDirectory, (metadata) =>
-        withBtwSessionMarker(metadata, input.parentSessionId, boundaryMessageID));
+        withAgentBackendMetadata(
+          withBtwSessionMarker(metadata, input.parentSessionId, boundaryMessageID),
+          input.providerID,
+        ) ?? metadata);
       // patchSessionMetadata already upserted the marked fork into the global
       // store; the directory child store still needs the explicit insert.
       insertForkIntoDirectoryStore(marked, sessionDirectory);
