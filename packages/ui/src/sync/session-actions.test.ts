@@ -911,6 +911,7 @@ describe("optimisticSend target directory", () => {
     let optimisticAdd: OptimisticAddCall | null = null
     let optimisticRemove: OptimisticRemoveCall | null = null
     let sentMessageID = ""
+    let sentPartIDs: string[] = []
 
     const { optimisticSend, setActionRefs, setOptimisticRefs } = await import("./session-actions")
     setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/current/project")
@@ -929,8 +930,9 @@ describe("optimisticSend target directory", () => {
       content: "hello",
       providerID: "provider",
       modelID: "model",
-      send: async (messageID) => {
+      send: async (messageID, parts) => {
         sentMessageID = messageID
+        sentPartIDs = parts.map((part) => part.id)
       },
     })
 
@@ -939,6 +941,7 @@ describe("optimisticSend target directory", () => {
     expect(add.directory).toBe("/target/project")
     expect(add.sessionID).toBe("session-new")
     expect(add.message.id).toBe(sentMessageID)
+    expect(sentPartIDs).toEqual(add.parts.map((part) => part.id))
     expect(optimisticRemove).toBe(null)
     expect(targetStore.getState().session_status["session-new"]?.type).toBe("busy")
     expect(currentStore.getState().session_status["session-new"]).toBe(undefined)

@@ -1,4 +1,4 @@
-import type { Message, Session } from '@opencode-ai/sdk/v2/client';
+import type { Message, Part, Session } from '@opencode-ai/sdk/v2/client';
 import { opencodeClient } from '@/lib/opencode/client';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { flattenAssistantTextParts } from '@/lib/messages/messageText';
@@ -352,6 +352,10 @@ const resolveModelContext = (sessionID: string): SessionModelContext | null => {
     variant: selectionVariant || configVariant || undefined,
   };
 };
+export const getOptimisticTextPartID = (parts: Part[]): string | undefined => (
+  parts.find((part) => part.type === 'text')?.id
+);
+
 
 const sendPlainMessage = async (
   sessionID: string,
@@ -385,7 +389,7 @@ const sendPlainMessage = async (
     },
     beforeOptimisticInsert: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
     onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
-    send: (messageID) => {
+    send: (messageID, optimisticParts) => {
       assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
       return opencodeClient.sendMessage({
         id: sessionID,
@@ -395,6 +399,7 @@ const sendPlainMessage = async (
         agent: resolved.agent,
         variant: resolved.variant,
         text,
+        textPartId: getOptimisticTextPartID(optimisticParts),
         additionalParts,
         messageId: messageID,
       }).then(() => undefined);

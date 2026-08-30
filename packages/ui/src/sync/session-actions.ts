@@ -1323,8 +1323,8 @@ export async function optimisticSend(input: {
   onOptimisticInsert?: () => void
   onMessageID?: (messageID: string) => void
   beforeOptimisticInsert?: () => void
-  /** The actual API call — receives the optimistic messageID so the server can use the same ID */
-  send: (messageID: string) => Promise<void>
+  /** The actual API call — receives optimistic IDs so server echoes replace the local parts in-place */
+  send: (messageID: string, parts: Part[]) => Promise<void>
 }): Promise<void> {
   if (!_optimisticAdd || !_optimisticRemove) {
     throw new Error("Optimistic refs not set — is useSync() mounted?")
@@ -1426,7 +1426,7 @@ export async function optimisticSend(input: {
 
   try {
     assertRuntimeUnchanged()
-    await input.send(messageID)
+    await input.send(messageID, optimisticParts)
   } catch (error) {
     const status = getErrorStatus(error)
     const ambiguousFailure = isAmbiguousSendFailure(error)

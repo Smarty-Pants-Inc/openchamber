@@ -588,6 +588,103 @@ describe('project-config loop reconciliation', () => {
     }
   });
 
+  it('serializes concurrent stale-lock recovery before either writer enters', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'oc-project-lock-stale-race-'));
+    const realFs = await import('fs/promises');
+    let releaseInitialScans;
+    const initialScansReady = new Promise((resolve) => {
+      releaseInitialScans = resolve;
+    });
+    let initialScans = 0;
+    const fsPromises = {
+      ...realFs,
+      readdir: async (target, ...args) => {
+        if (String(target).endsWith('.guard-claims') && initialScans < 2) {
+          const entries = await realFs.readdir(target, ...args);
+          initialScans += 1;
+          if (initialScans === 2) releaseInitialScans();
+          await initialScansReady;
+          return entries;
+        }
+        return realFs.readdir(target, ...args);
+      },
+    };
+    try {
+      const runtimeA = createProjectConfigRuntime({ fsPromises, path, projectsDirPath: tempRoot, createTaskID: () => 'task-a' });
+      const runtimeB = createProjectConfigRuntime({ fsPromises, path, projectsDirPath: tempRoot, createTaskID: () => 'task-b' });
+      const projectID = 'stale-race';
+      const lockPath = `${runtimeA.resolveProjectConfigPath(projectID)}.lock`;
+      await fsPromises.mkdir(path.dirname(lockPath), { recursive: true });
+      await writeFile(lockPath, JSON.stringify({ pid: 2_147_483_647, at: Date.now() }));
+
+      const task = (name) => ({
+        name,
+        enabled: true,
+        schedule: { kind: 'daily', time: '09:00', timezone: 'UTC' },
+        execution: { prompt: name, providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+      await Promise.all([
+        runtimeA.upsertScheduledTask(projectID, task('writer-a')),
+        runtimeB.upsertScheduledTask(projectID, task('writer-b')),
+      ]);
+
+      expect((await runtimeA.listScheduledTasks(projectID)).map(({ name }) => name).sort()).toEqual(['writer-a', 'writer-b']);
+      await expect(fsPromises.access(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await fsPromises.readdir(`${lockPath}.guard-claims`)).toEqual([]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not wait on an empty guard claim left by a dead publisher', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'oc-project-lock-empty-claim-'));
+    const realFs = await import('fs/promises');
+    let now = Date.now();
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let emptyClaimPath;
+    const fsPromises = {
+      ...realFs,
+      readFile: async (target, ...args) => {
+        const raw = await realFs.readFile(target, ...args);
+        if (String(target) === emptyClaimPath) {
+          // Make the former blocking path time out without adding 10 seconds to the test.
+          now += 10_001;
+        }
+        return raw;
+      },
+    };
+
+    try {
+      const runtime = createProjectConfigRuntime({
+        fsPromises,
+        path,
+        projectsDirPath: tempRoot,
+        createTaskID: () => 'after-empty-claim',
+      });
+      const projectID = 'empty-claim';
+      const lockPath = `${runtime.resolveProjectConfigPath(projectID)}.lock`;
+      const guardClaimsPath = `${lockPath}.guard-claims`;
+      emptyClaimPath = path.join(guardClaimsPath, '1.claim');
+      const deadIdentityClaimPath = path.join(guardClaimsPath, '2147483647.partial.claim');
+      await fsPromises.mkdir(guardClaimsPath, { recursive: true });
+      await fsPromises.writeFile(emptyClaimPath, '');
+      await fsPromises.writeFile(deadIdentityClaimPath, '');
+
+      const created = await runtime.upsertScheduledTask(projectID, {
+        name: 'after-empty-claim',
+        enabled: true,
+        schedule: { kind: 'daily', time: '09:00', timezone: 'UTC' },
+        execution: { prompt: 'Run', providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+
+      expect(created.created).toBe(true);
+      await expect(fsPromises.access(deadIdentityClaimPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      nowSpy.mockRestore();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('recovers from a stale-by-dead-pid project config lock', async () => {
     const { runtime, cleanup } = await createRuntime();
     const fsPromises = await import('fs/promises');
