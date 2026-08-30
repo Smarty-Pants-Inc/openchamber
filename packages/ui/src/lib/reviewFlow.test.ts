@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import type { Message } from '@opencode-ai/sdk/v2/client';
+import type { Message, Part } from '@opencode-ai/sdk/v2/client';
 import { switchRuntimeEndpoint } from './runtime-switch';
 
 import {
   assertAutoReviewRuntimeStillCurrent,
   claimAutoReviewForward,
+  getOptimisticTextPartID,
   releaseAutoReviewForward,
   hasFinalReviewMarker,
   isAutoReviewRuntimeCurrent,
@@ -16,6 +17,14 @@ import type { AutoReviewRun } from '@/stores/useAutoReviewStore';
 describe('reviewFlow auto-review helpers', () => {
   beforeEach(() => {
     switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' });
+  });
+
+  test('forwards the optimistic review prompt text-part identity', () => {
+    const parts = [
+      { id: 'prt_review_prompt', type: 'text', text: 'Review the implementation.' },
+    ] as Part[];
+
+    expect(getOptimisticTextPartID(parts)).toBe('prt_review_prompt');
   });
 
   test('detects and strips final review marker only from the final line', () => {
