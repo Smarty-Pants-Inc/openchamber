@@ -1883,7 +1883,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     if (!existingSession) return
 
     try {
-      await forkFromMessageAction(sessionId, messageId)
+      const sessionSelection = useSelectionStore.getState().getSessionModelSelection(sessionId)
+      const providerID = sessionSelection?.providerId || useConfigStore.getState().currentProviderId || ""
+      await forkFromMessageAction(sessionId, messageId, providerID)
 
       const { toast } = await import("sonner")
       toast.success(`Forked from ${existingSession.title}`)

@@ -22,6 +22,7 @@ import {
   getOriginalSessionID,
   getSessionMetadata,
   isReviewSession,
+  withAgentBackendMetadata,
   withoutReviewSessionLink,
   type SessionMetadataRecord,
 } from "@/lib/sessionReviewMetadata"
@@ -2021,7 +2022,7 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  * 3. Insert the new session into the child store (so sidebar updates immediately)
  * 4. Switch to new session and set pending input text
  */
-export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
+export async function forkFromMessage(sessionId: string, messageId: string, providerID: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
 
@@ -2038,7 +2039,11 @@ export async function forkFromMessage(sessionId: string, messageId: string): Pro
     .trim()
   const fileParts = parts.filter((p) => p.type === "file" && !isSyntheticPart(p)) as Array<Record<string, unknown>>
 
-  const forkedSession = await opencodeClient.forkSession(sessionId, messageId, directory)
+  let forkedSession = await opencodeClient.forkSession(sessionId, messageId, directory)
+  if (providerID === "omp" || providerID === "pi") {
+    forkedSession = await patchSessionMetadata(forkedSession.id, directory, (metadata) =>
+      withAgentBackendMetadata(metadata, providerID) ?? metadata)
+  }
 
   // Insert new session into child store so sidebar updates immediately
   const current = store.getState()
