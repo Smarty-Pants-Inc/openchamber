@@ -428,6 +428,7 @@ type HeaderSessionSnapshot = {
   slug: string | null;
   shareUrl: string | null;
   parentId: string | null;
+  providerId: string | null;
 };
 
 export const Header: React.FC = () => {
@@ -454,7 +455,7 @@ export const Header: React.FC = () => {
        const session = [...state.activeSessions, ...state.archivedSessions]
          .find((candidate) => candidate.id === currentSessionId);
       if (!session) return null;
-      const record = session as typeof session & { directory?: string | null; slug?: string | null };
+      const record = session as typeof session & { directory?: string | null; slug?: string | null; model?: { providerID?: string } };
       return {
         title: session.title ?? null,
         directory: record.directory ?? null,
@@ -462,6 +463,7 @@ export const Header: React.FC = () => {
         slug: record.slug ?? null,
         shareUrl: session.share?.url ?? null,
         parentId: session.parentID ?? null,
+        providerId: record.model?.providerID ?? null,
       };
     },
     [currentSessionId],
@@ -1489,6 +1491,7 @@ export const Header: React.FC = () => {
   const renderSessionTabMenu = React.useCallback(({ session, isActive, select, closeOtherTabs, components }: SessionTabMenuArgs) => {
     const { Item, Separator } = components;
     const shareUrl = session.share?.url ?? null;
+    const canShareSession = (session as typeof session & { model?: { providerID?: string } }).model?.providerID !== 'omp';
     const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
     return (
       <>
@@ -1499,7 +1502,7 @@ export const Header: React.FC = () => {
           <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}
         </Item>
         <Separator />
-        {shareUrl ? (
+        {canShareSession ? (shareUrl ? (
           <>
             <Item onClick={() => copySessionShareUrl(shareUrl)}>
               <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyLink')}
@@ -1512,7 +1515,7 @@ export const Header: React.FC = () => {
           <Item onClick={() => void shareSessionFor(session.id)}>
             <Icon name="share-2" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.share')}
           </Item>
-        )}
+        )) : null}
         {isActive ? (
           <Item onClick={() => void exportCurrentSession()}>
             <Icon name="download" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}
@@ -1705,14 +1708,14 @@ export const Header: React.FC = () => {
                     <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = currentSessionId; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => currentSessionId && copySessionIdFor(currentSessionId)}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {currentSession?.shareUrl ? (
+                    {currentSession?.providerId !== 'omp' ? (currentSession?.shareUrl ? (
                       <>
                         <DropdownMenuItem onClick={() => copySessionShareUrl(currentSession?.shareUrl)}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyLink')}</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { if (currentSessionId) void unshareSessionFor(currentSessionId); }}><Icon name="link-unlink-m" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.unshare')}</DropdownMenuItem>
                       </>
                     ) : (
                       <DropdownMenuItem onClick={() => { if (currentSessionId) void shareSessionFor(currentSessionId); }}><Icon name="share-2" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.share')}</DropdownMenuItem>
-                    )}
+                    )) : null}
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}</DropdownMenuItem>
                     {!isVSCode && !isChatContext && currentSession && !currentSession.parentId ? (
                       <Tooltip>
