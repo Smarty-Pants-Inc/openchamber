@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { togglePermissionAutoAccept } from "../../components/chat/permissionAutoAccept"
 
 const storage = new Map<string, string>()
-const createSessionCalls: Array<{ title?: string; directory: string | null; parentID: string | null; metadata?: unknown }> = []
+const createSessionCalls: Array<{ title?: string; directory: string | null; parentID: string | null; providerID?: string; metadata?: unknown }> = []
 const permissionAutoAcceptCalls: Array<[string, boolean]> = []
 const savedVariantCalls: Array<string | undefined> = []
 let configVariantOverride: string | null | undefined
@@ -266,10 +266,11 @@ mock.module("../session-actions", () => ({
     title: string | undefined,
     directory: string | null,
     parentID: string | null,
+    providerID?: string,
     metadata?: unknown,
     selectionTransition?: "submitted-draft",
   ) => {
-    createSessionCalls.push({ title, directory, parentID, metadata })
+    createSessionCalls.push({ title, directory, parentID, providerID, metadata })
     const session = { id: "ses_issue_2039", directory: createdSessionDirectory ?? directory }
     const sessionDirectory = session.directory ?? null
     if (sessionDirectory) {
@@ -389,6 +390,7 @@ describe("issue 2039 draft auto-accept", () => {
 
     expect(result?.sessionId).toBe("ses_issue_2039")
     expect(createSessionCalls).toHaveLength(1)
+    expect(createSessionCalls[0]?.providerID).toBe("provider")
     expect(permissionAutoAcceptCalls).toEqual([["ses_issue_2039", true]])
     expect(useSessionUIStore.getState().currentSessionId).toBe("ses_issue_2039")
   })

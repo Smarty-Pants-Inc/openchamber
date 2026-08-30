@@ -614,14 +614,19 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, projectPl
           if (!canCreateWorktree) {
             return;
           }
-          const created = await createWorktreeSessionForNewBranch(currentProjectRef.path, generateBranchName());
+          const created = await createWorktreeSessionForNewBranch(
+            currentProjectRef.path,
+            generateBranchName(),
+            undefined,
+            { providerID: execution.providerID },
+          );
           if (!created?.id) {
             return;
           }
           sessionId = created.id;
           directoryHint = created.path;
         } else {
-          const sessionResult = await createSession(undefined, currentProjectRef.path, null);
+          const sessionResult = await createSession(undefined, currentProjectRef.path, null, execution.providerID);
           if (!sessionResult?.id) {
             return;
           }

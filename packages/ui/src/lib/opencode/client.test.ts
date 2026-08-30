@@ -10,6 +10,12 @@ let runtimeKey = 'test-runtime';
 const promptAsyncCalls: unknown[][] = [];
 const promptAsyncResults: Array<unknown> = [];
 const pathGetResults: Array<unknown> = [];
+const sessionCreateCalls: unknown[][] = [];
+
+const sessionCreateMock = mock(async (...args: unknown[]) => {
+  sessionCreateCalls.push(args);
+  return { data: { id: `ses_${sessionCreateCalls.length}` } };
+});
 
 const promptAsyncMock = mock(async (...args: unknown[]) => {
   promptAsyncCalls.push(args);
@@ -35,6 +41,7 @@ mock.module('@opencode-ai/sdk/v2', () => ({
       }),
     },
     session: {
+      create: sessionCreateMock,
       promptAsync: promptAsyncMock,
     },
     path: {
@@ -75,6 +82,7 @@ beforeEach(() => {
   promptAsyncCalls.length = 0;
   promptAsyncResults.length = 0;
   pathGetResults.length = 0;
+  sessionCreateCalls.length = 0;
 });
 
 describe('opencodeClient directory availability', () => {
@@ -84,6 +92,37 @@ describe('opencodeClient directory availability', () => {
 
     pathGetResults.push(new Error('offline'));
     expect(await opencodeClient.getDirectoryAvailability('/private/deleted-worktree')).toBe('unknown');
+  });
+});
+
+describe('opencodeClient session metadata', () => {
+  test('stamps known backends while preserving caller metadata', async () => {
+    await opencodeClient.createSession({
+      title: 'Pi review',
+      providerID: 'pi',
+      metadata: { custom: true, openchamber: { kind: 'review' } },
+    }, '/workspace/pi');
+    await opencodeClient.createSession({ title: 'OMP task', providerID: 'omp' }, '/workspace/omp');
+    await opencodeClient.createSession({ title: 'Other task', providerID: 'anthropic' }, '/workspace/other');
+
+    expect(sessionCreateCalls[0]?.[0]).toEqual({
+      directory: '/workspace/pi',
+      parentID: undefined,
+      title: 'Pi review',
+      metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'pi' } },
+    });
+    expect(sessionCreateCalls[1]?.[0]).toEqual({
+      directory: '/workspace/omp',
+      parentID: undefined,
+      title: 'OMP task',
+      metadata: { openchamber: { agent_backend: 'omp' } },
+    });
+    expect(sessionCreateCalls[2]?.[0]).toEqual({
+      directory: '/workspace/other',
+      parentID: undefined,
+      title: 'Other task',
+      metadata: undefined,
+    });
   });
 });
 

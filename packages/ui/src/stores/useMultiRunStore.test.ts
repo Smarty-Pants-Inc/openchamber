@@ -8,7 +8,7 @@ type OpenChamberSessionMetadata = {
   };
 };
 
-type SessionCreateParams = { title?: string; metadata?: OpenChamberSessionMetadata };
+type SessionCreateParams = { title?: string; metadata?: OpenChamberSessionMetadata; providerID?: string };
 
 const upsertedSessions: Session[] = [];
 const registeredDirectories: Array<{ sessionID: string; directory: string }> = [];
@@ -43,10 +43,6 @@ const childState = {
 let currentDirectory = '/repo';
 
 mock.module('@/sync/session-ui-store', () => ({
-  withAgentBackendMetadata: (metadata: OpenChamberSessionMetadata | undefined, providerID: string) =>
-    providerID === 'omp' || providerID === 'pi'
-      ? { ...metadata, openchamber: { ...metadata?.openchamber, agent_backend: providerID } }
-      : metadata,
   routeMessage: mock(() => Promise.resolve()),
   useSessionUIStore: {
     getState: () => ({
@@ -197,7 +193,7 @@ describe('useMultiRunStore', () => {
     expect(registeredDirectories).toEqual([{ sessionID: 'ses_multirun', directory: '/repo' }]);
     expect(ensureChildCalls).toEqual([{ directory: '/repo', bootstrap: false }]);
     expect(childState.session.map((session) => session.id)).toEqual(['ses_multirun']);
-    expect(createSessionParams[0]?.metadata).toEqual({ openchamber: { agent_backend: 'pi' } });
+    expect(createSessionParams[0]?.providerID).toBe('pi');
   });
 
   test('uses fast background worktree creation for isolated runs', async () => {

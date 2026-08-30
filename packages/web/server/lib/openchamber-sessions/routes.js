@@ -193,7 +193,7 @@ const runPromptAsync = async ({ baseUrl, authHeaders, sessionID, directory, payl
   }
 };
 
-const createSession = async ({ baseUrl, authHeaders, directory, title }) => {
+const createSession = async ({ baseUrl, authHeaders, directory, title, providerID }) => {
   const sessionUrl = new URL(`${baseUrl}/session`);
   sessionUrl.searchParams.set('directory', directory);
   const response = await fetch(sessionUrl.toString(), {
@@ -204,7 +204,13 @@ const createSession = async ({ baseUrl, authHeaders, directory, title }) => {
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({ directory, ...(title ? { title } : {}) }),
+    body: JSON.stringify({
+      directory,
+      ...(title ? { title } : {}),
+      metadata: providerID === 'omp' || providerID === 'pi'
+        ? { openchamber: { agent_backend: providerID } }
+        : undefined,
+    }),
   });
 
   if (!response.ok) {
@@ -425,14 +431,11 @@ export const createOpenChamberSessionService = (dependencies) => {
     }
   };
 
-  const dispatchPrompt = async ({
+  const resolvePromptSelection = async ({
     client,
-    baseUrl,
     authHeaders,
     sessionID,
     directory,
-    prompt,
-    goalInput,
     requestedModel,
     requestedAgent,
     requestedVariant,
@@ -470,6 +473,33 @@ export const createOpenChamberSessionService = (dependencies) => {
       error.statusCode = 400;
       throw error;
     }
+    return { model, agent, variant };
+  };
+
+  const dispatchPrompt = async ({
+    client,
+    baseUrl,
+    authHeaders,
+    sessionID,
+    directory,
+    prompt,
+    goalInput,
+    requestedModel,
+    requestedAgent,
+    requestedVariant,
+    reuseSessionSelection = false,
+    resolvedSelection,
+  }) => {
+    const { model, agent, variant } = resolvedSelection || await resolvePromptSelection({
+      client,
+      authHeaders,
+      sessionID,
+      directory,
+      requestedModel,
+      requestedAgent,
+      requestedVariant,
+      reuseSessionSelection,
+    });
 
     const expandedPrompt = expandSnippets(prompt, directory);
     const parsedCommand = parseScheduledCommandPrompt(prompt);
@@ -624,15 +654,29 @@ export const createOpenChamberSessionService = (dependencies) => {
     const baseUrl = buildOpenCodeUrl('/', '').replace(/\/$/, '');
     const authHeaders = getOpenCodeAuthHeaders();
     const client = createOpencodeClient({ baseUrl, headers: authHeaders });
+    const resolvedPromptSelection = prompt
+      ? await resolvePromptSelection({
+        client,
+        authHeaders,
+        sessionID: null,
+        directory: sessionDirectory,
+        requestedModel: model,
+        requestedAgent: agent,
+        requestedVariant: variant,
+      })
+      : null;
     const sessionID = await createSession({
       client,
       baseUrl,
       authHeaders,
       directory: sessionDirectory,
       ...(title ? { title } : {}),
+      providerID: resolvedPromptSelection?.model.providerID,
     });
 
-    let dispatch = { model, agent, variant, promptDispatched: false, dispatchedAsCommand: false };
+    let dispatch = resolvedPromptSelection
+      ? { ...resolvedPromptSelection, promptDispatched: false, dispatchedAsCommand: false }
+      : { model, agent, variant, promptDispatched: false, dispatchedAsCommand: false };
     if (prompt) {
       dispatch = await dispatchPrompt({
         client,
@@ -645,6 +689,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         requestedModel: model,
         requestedAgent: agent,
         requestedVariant: variant,
+        resolvedSelection: resolvedPromptSelection,
       });
     }
 

@@ -327,6 +327,7 @@ export async function createWorktreeSessionForNewBranch(
     ensureRemoteUrl?: string;
     createdFromBranch?: string;
     returnAfterDirectoryCreated?: boolean;
+    providerID?: string;
   }
 ): Promise<{ id: string; branch: string; path: string } | null> {
   if (isCreatingWorktreeSession) {
@@ -389,7 +390,7 @@ export async function createWorktreeSessionForNewBranch(
       await waitForWorktreeBootstrapIfEnabled(projectRef, metadata.path);
 
       const sessionStore = useSessionUIStore.getState();
-      const session = await sessionStore.createSession(undefined, metadata.path);
+      const session = await sessionStore.createSession(undefined, metadata.path, null, options?.providerID);
       if (!session) {
         await removeProjectWorktree(projectRef, metadata, { deleteLocalBranch: true }).catch(() => undefined);
         throw new Error('Could not create a session for the worktree.');

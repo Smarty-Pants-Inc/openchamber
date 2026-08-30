@@ -3,7 +3,8 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionWorktreeStore } from './session-worktree-store';
-import { expandSlashCommandGoalObjective, routeMessage, useSessionUIStore, withAgentBackendMetadata } from './session-ui-store';
+import { expandSlashCommandGoalObjective, routeMessage, useSessionUIStore } from './session-ui-store';
+import { withAgentBackendMetadata } from '@/lib/sessionReviewMetadata';
 import { setActionRefs, setOptimisticRefs } from './session-actions';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
@@ -745,7 +746,7 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0]).toEqual({
       directory: '/projects/alpha',
-      params: expect.objectContaining({ metadata: { openchamber: { agent_backend: 'pi' } } }),
+      params: expect.objectContaining({ providerID: 'pi' }),
     });
     expect(sendMessageCalls).toHaveLength(1);
     expect(sendMessageCalls[0].id).toBe('session-materialized');

@@ -394,6 +394,18 @@ export function GitHubIssuePickerDialog({
       }
       const comments = commentsRes.comments ?? [];
 
+      const configState = useConfigStore.getState();
+      const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
+      const defaultModel = resolveDefaultModelSelection();
+      const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
+      const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
+      const agentName = resolveDefaultAgentName() || configState.currentAgentName || undefined;
+      if (!providerID || !modelID) {
+        toast.error(t('session.githubIssuePicker.error.noModelSelected'));
+        return;
+      }
+      const variant = resolveDefaultVariant(providerID, modelID);
+
       const sessionTitle = `#${issue.number} ${issue.title}`.trim();
 
       const { sessionId, sessionDirectory } = await (async () => {
@@ -403,7 +415,7 @@ export function GitHubIssuePickerDialog({
             projectDirectory,
             preferred,
             undefined,
-            { returnAfterDirectoryCreated: true }
+            { returnAfterDirectoryCreated: true, providerID }
           );
           if (!created?.id) {
             throw new Error('Failed to create worktree session');
@@ -411,7 +423,7 @@ export function GitHubIssuePickerDialog({
           return { sessionId: created.id, sessionDirectory: created.path };
         }
 
-        const session = await sessionActions.createSession(sessionTitle, projectDirectory, null);
+        const session = await sessionActions.createSession(sessionTitle, projectDirectory, null, providerID);
         if (!session?.id) {
           throw new Error('Failed to create session');
         }
@@ -430,19 +442,6 @@ export function GitHubIssuePickerDialog({
       // Close modal immediately after session exists (don't wait for message send).
       onOpenChange(false);
 
-      const configState = useConfigStore.getState();
-      const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
-
-      const defaultModel = resolveDefaultModelSelection();
-      const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
-      const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
-      const agentName = resolveDefaultAgentName() || configState.currentAgentName || undefined;
-      if (!providerID || !modelID) {
-        toast.error(t('session.githubIssuePicker.error.noModelSelected'));
-        return;
-      }
-
-      const variant = resolveDefaultVariant(providerID, modelID);
 
       const visiblePromptText = await renderMagicPrompt('github.issue.review.visible', {
         issue_number: String(issue.number),

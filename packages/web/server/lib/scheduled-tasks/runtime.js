@@ -560,6 +560,9 @@ export const createScheduledTasksRuntime = (deps) => {
     const sessionResponse = await client.session.create({
       directory: projectPath,
       title,
+      metadata: task.execution.providerID === 'omp' || task.execution.providerID === 'pi'
+        ? { openchamber: { agent_backend: task.execution.providerID } }
+        : undefined,
     });
     const sessionID = sessionResponse?.data?.id;
     if (!sessionID) {

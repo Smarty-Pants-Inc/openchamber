@@ -3,6 +3,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import {
+  getAgentBackendProviderID,
   getOriginalSessionID,
   getReviewSessionID,
   isReviewSession,
@@ -433,7 +434,12 @@ const getReviewSessionTitle = (original: Session): string => {
   return `Review: ${implementationTitle}`;
 };
 
-const createOrReuseReviewSession = async (originalSessionID: string, directory: string, expectedRuntimeKey?: string): Promise<Session> => {
+const createOrReuseReviewSession = async (
+  originalSessionID: string,
+  directory: string,
+  providerID: string,
+  expectedRuntimeKey?: string,
+): Promise<Session> => {
   assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
   const original = await opencodeClient.getSession(originalSessionID, directory);
   assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
@@ -441,7 +447,10 @@ const createOrReuseReviewSession = async (originalSessionID: string, directory: 
   if (existingReviewID) {
     const existing = await getSessionOrNull(existingReviewID, directory);
     assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
-    if (existing && isReviewSession(existing)) return existing;
+    const requestedBackend = providerID === 'omp' || providerID === 'pi' ? providerID : null;
+    const existingBackend = getAgentBackendProviderID(existing);
+    const canReuseBackend = !requestedBackend || (existingBackend ?? 'omp') === requestedBackend;
+    if (existing && isReviewSession(existing) && canReuseBackend) return existing;
     await patchSessionMetadata(originalSessionID, directory, (metadata) => {
       const next = { ...metadata };
       const openchamber = next.openchamber;
@@ -458,6 +467,7 @@ const createOrReuseReviewSession = async (originalSessionID: string, directory: 
   const review = await opencodeClient.createSession({
     title: getReviewSessionTitle(original),
     metadata: withReviewSessionMarker({}, originalSessionID),
+    providerID,
   }, directory);
   assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
   registerSessionDirectory(review.id, directory);
@@ -492,7 +502,12 @@ export const startReviewFlow = async (input: StartReviewFlowInput): Promise<void
       const handoff = await waitForAssistantText(input.originalSessionID, input.directory, startedAt);
       assertAutoReviewRuntimeStillCurrent(expectedAutoReviewRuntimeKey);
       const handoffReviewPrompt = await renderMagicPrompt('session.reviewSession.visible', { handoff });
-      const reviewSession = await createOrReuseReviewSession(input.originalSessionID, input.directory, expectedAutoReviewRuntimeKey);
+      const reviewSession = await createOrReuseReviewSession(
+        input.originalSessionID,
+        input.directory,
+        input.providerID,
+        expectedAutoReviewRuntimeKey,
+      );
       const runtimeKey = expectedAutoReviewRuntimeKey ?? getRuntimeKey();
       const waitAfterCreatedAt = Date.now();
       const sentMessageID = await sendPlainMessage(reviewSession.id, input.directory, handoffReviewPrompt, {
@@ -533,7 +548,12 @@ export const startReviewFlow = async (input: StartReviewFlowInput): Promise<void
     reviewPrompt = await renderMagicPrompt('session.reviewSessionWithoutHandoff.visible');
   }
 
-  const reviewSession = await createOrReuseReviewSession(input.originalSessionID, input.directory, expectedAutoReviewRuntimeKey);
+  const reviewSession = await createOrReuseReviewSession(
+    input.originalSessionID,
+    input.directory,
+    input.providerID,
+    expectedAutoReviewRuntimeKey,
+  );
   const runtimeKey = expectedAutoReviewRuntimeKey ?? getRuntimeKey();
   const waitAfterCreatedAt = Date.now();
   const sentMessageID = await sendPlainMessage(reviewSession.id, input.directory, reviewPrompt, {
