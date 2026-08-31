@@ -13,7 +13,7 @@ const asNonEmptyString = (value) => {
   return normalized || null;
 };
 
-export const isManagedBackendProviderID = (providerID) => providerID === 'pi' || providerID === 'omp';
+export const isManagedBackendProviderID = (providerID) => providerID === 'pi' || providerID === 'omp' || providerID === 'codex';
 
 const getAgentBackendProviderID = (session) => {
   const value = asRecord(asRecord(session?.metadata).openchamber).agent_backend;
@@ -78,7 +78,7 @@ export const foldSessionBackendHistory = async (readPage) => {
       const currentClass = messageBackendClass(record);
       if (!currentClass) continue;
       if (backendClass && backendClass !== currentClass) {
-        throw conflict('mixed-history', 'Mixed native/Pi/OMP session backend history cannot be used');
+        throw conflict('mixed-history', 'Mixed native/managed agent backend history cannot be used');
       }
       backendClass = currentClass;
     }
@@ -101,8 +101,8 @@ export const foldSessionBackendHistory = async (readPage) => {
 const reconcileManagedBackend = (session, historyBackendClass) => {
   const existingBackend = getAgentBackendProviderID(session);
   const historyBackend = isManagedBackendProviderID(historyBackendClass) ? historyBackendClass : null;
-  if (existingBackend && historyBackendClass && historyBackendClass !== existingBackend) {
-    throw conflict('managed-backend-change', 'Managed Pi/OMP session backend cannot be changed');
+  if (historyBackend && existingBackend && historyBackend !== existingBackend) {
+    throw conflict('managed-backend-change', 'Managed agent session backend cannot be changed');
   }
   return {
     backend: existingBackend || historyBackend,
@@ -118,11 +118,11 @@ export const assertSessionSendBackend = ({ backend, providerID }) => {
   if (!backend && isManagedBackendProviderID(providerID)) {
     throw conflict(
       'native-to-managed-send',
-      'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
+      'Native sessions cannot be converted to a managed agent backend by sending a prompt',
     );
   }
   if (backend && backend !== providerID) {
-    throw conflict('managed-backend-change', 'Managed Pi/OMP session backend cannot be changed');
+    throw conflict('managed-backend-change', 'Managed agent session backend cannot be changed');
   }
 };
 
@@ -151,8 +151,8 @@ export const authorizeSessionForkTarget = ({ sourceBackend, targetProviderID }) 
     );
   }
   const hasTarget = Boolean(targetProviderID);
-  if ((sourceBackend === 'omp' && hasTarget && targetProviderID !== 'omp')
-    || (sourceBackend === null && targetProviderID === 'omp')) {
+  if ((sourceBackend && hasTarget && targetProviderID !== sourceBackend)
+    || (sourceBackend === null && isManagedBackendProviderID(targetProviderID))) {
     throw conflict('fork-backend-change', 'Session backend cannot be changed by forking');
   }
 };
@@ -160,7 +160,7 @@ export const authorizeSessionForkTarget = ({ sourceBackend, targetProviderID }) 
 export const authorizeManagedBackendStamp = ({ session, providerID }) => {
   const existingBackend = getAgentBackendProviderID(session);
   if (existingBackend && existingBackend !== providerID) {
-    throw conflict('managed-backend-change', 'Managed Pi/OMP session backend cannot be changed');
+    throw conflict('managed-backend-change', 'Managed agent session backend cannot be changed');
   }
   return {
     backend: existingBackend || providerID,

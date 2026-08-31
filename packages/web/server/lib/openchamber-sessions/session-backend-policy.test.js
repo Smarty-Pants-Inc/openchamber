@@ -44,7 +44,7 @@ describe('session backend policy conformance', () => {
     expect(calls).toEqual([undefined, 'older-a', 'older-b']);
   });
 
-  it('fails on mixed native, Pi, or OMP history before requesting another page', async () => {
+  it('fails on mixed native or managed history before requesting another page', async () => {
     let reads = 0;
     await expect(foldSessionBackendHistory(async () => {
       reads += 1;
@@ -55,7 +55,7 @@ describe('session backend policy conformance', () => {
     })).rejects.toMatchObject({
       code: 'mixed-history',
       category: 'conflict',
-      message: 'Mixed native/Pi/OMP session backend history cannot be used',
+      message: 'Mixed native/managed agent backend history cannot be used',
     });
     expect(reads).toBe(1);
   });
@@ -89,7 +89,7 @@ describe('session backend policy conformance', () => {
     await expect(foldSessionBackendHistory(async () => { throw transportError; })).rejects.toBe(transportError);
   });
 
-  it('keeps send decisions identical for native, Pi, OMP, and legacy backfill', () => {
+  it('keeps send decisions identical for native, managed backends, and legacy backfill', () => {
     const native = resolveSessionSend({
       session: session(null),
       historyBackendClass: 'native',
@@ -104,20 +104,27 @@ describe('session backend policy conformance', () => {
     expect(legacyOmp).toEqual({ backend: 'omp', backfillBackend: 'omp' });
     expect(assertSessionSendBackend({ backend: legacyOmp.backend, providerID: 'omp' })).toBeUndefined();
 
+    const legacyCodex = resolveSessionSend({
+      session: session(null),
+      historyBackendClass: 'codex',
+    });
+    expect(legacyCodex).toEqual({ backend: 'codex', backfillBackend: 'codex' });
+    expect(assertSessionSendBackend({ backend: legacyCodex.backend, providerID: 'codex' })).toBeUndefined();
+
     expectPolicyError(
       () => assertSessionSendBackend({ backend: native.backend, providerID: 'pi' }),
       'native-to-managed-send',
-      'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
+      'Native sessions cannot be converted to a managed agent backend by sending a prompt',
     );
     expectPolicyError(
       () => assertSessionSendBackend({ backend: legacyOmp.backend, providerID: 'openai' }),
       'managed-backend-change',
-      'Managed Pi/OMP session backend cannot be changed',
+      'Managed agent session backend cannot be changed',
     );
     expectPolicyError(
       () => resolveSessionSend({ session: session('omp'), historyBackendClass: 'pi' }),
       'managed-backend-change',
-      'Managed Pi/OMP session backend cannot be changed',
+      'Managed agent session backend cannot be changed',
     );
   });
 
@@ -151,7 +158,10 @@ describe('session backend policy conformance', () => {
       .toEqual({ backend: 'omp', backfillBackend: 'omp' });
     expect(authorizeManagedBackendStamp({ session: session('omp'), providerID: 'omp' }))
       .toEqual({ backend: 'omp', backfillBackend: null });
+    expect(authorizeManagedBackendStamp({ session: session(null), providerID: 'codex' }))
+      .toEqual({ backend: 'codex', backfillBackend: 'codex' });
     expect(authorizeSessionForkTarget({ sourceBackend: 'omp', targetProviderID: 'omp' })).toBeUndefined();
+    expect(authorizeSessionForkTarget({ sourceBackend: 'codex', targetProviderID: 'codex' })).toBeUndefined();
     expect(authorizeSessionForkTarget({ sourceBackend: null, targetProviderID: 'openai' })).toBeUndefined();
 
     const review = session(null, { openchamber: { kind: 'review', originalSessionID: 'original' } });
@@ -174,9 +184,19 @@ describe('session backend policy conformance', () => {
       'Session backend cannot be changed by forking',
     );
     expectPolicyError(
+      () => authorizeSessionForkTarget({ sourceBackend: null, targetProviderID: 'codex' }),
+      'fork-backend-change',
+      'Session backend cannot be changed by forking',
+    );
+    expectPolicyError(
+      () => authorizeSessionForkTarget({ sourceBackend: 'codex', targetProviderID: 'omp' }),
+      'fork-backend-change',
+      'Session backend cannot be changed by forking',
+    );
+    expectPolicyError(
       () => authorizeManagedBackendStamp({ session: session('pi'), providerID: 'omp' }),
       'managed-backend-change',
-      'Managed Pi/OMP session backend cannot be changed',
+      'Managed agent session backend cannot be changed',
     );
   });
 });

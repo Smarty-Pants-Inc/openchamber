@@ -284,6 +284,8 @@ const applyMetadataOperations = (metadata: Record<string, unknown>, operations: 
   return { ...metadata, openchamber: nextNamespace };
 };
 
+type ManagedBackend = 'pi' | 'omp' | 'codex';
+
 const readSessionBackendHistory = (
   client: SessionClient,
   sessionId: string,
@@ -309,9 +311,9 @@ const persistManagedBackend = async (
   client: SessionClient,
   sessionId: string,
   directory: string,
-  providerId: 'pi' | 'omp',
+  providerId: ManagedBackend,
   signal?: AbortSignal,
-): Promise<{ session: SessionRecord; backend: 'pi' | 'omp' }> => {
+): Promise<{ session: SessionRecord; backend: ManagedBackend }> => {
   const mutation = await mutateMetadata(client, sessionId, directory, (metadata, session) => {
     const decision = authorizeManagedBackendStamp({ session, providerID: providerId });
     return {
@@ -345,7 +347,7 @@ const authorizeInteractiveSend = async (
 };
 
 
-type ForkSource = { backend: 'omp' | null };
+type ForkSource = { backend: Exclude<ManagedBackend, 'pi'> | null };
 
 const authorizeForkSource = async (
   client: SessionClient,
@@ -368,19 +370,20 @@ const authorizeForkSource = async (
   }, signal);
   assertSessionForkSourceBackend(mutation.result.backend);
   throwIfAborted(signal);
-  return { backend: mutation.result.backend === 'omp' ? 'omp' : null };
+  return { backend: mutation.result.backend === 'pi' ? null : mutation.result.backend };
 };
+
 
 
 const stampForkedSessionBackend = async (
   client: SessionClient,
   session: SessionRecord,
   directory: string,
-  sourceBackend: 'omp' | null,
+  sourceBackend: Exclude<ManagedBackend, 'pi'> | null,
   signal?: AbortSignal,
 ): Promise<SessionRecord> => {
-  if (sourceBackend !== 'omp') return { ...session, directory };
-  const mutation = await persistManagedBackend(client, session.id, directory, 'omp', signal);
+  if (!sourceBackend) return { ...session, directory };
+  const mutation = await persistManagedBackend(client, session.id, directory, sourceBackend, signal);
   return { ...session, ...mutation.session, directory };
 };
 

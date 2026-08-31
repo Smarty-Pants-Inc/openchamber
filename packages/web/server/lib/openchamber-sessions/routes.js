@@ -53,6 +53,7 @@ const MAX_GOAL_TOKEN_BUDGET = 100_000_000;
 const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
 const sessionOperationLocks = new Map();
 
+
 const createInteractivePiRequiredError = () => new OpenChamberControlError(
   'Pi session creation requires an interactive client to own startup dialogs',
   409,
@@ -268,6 +269,7 @@ const runPromptAsync = async ({ baseUrl, authHeaders, sessionID, directory, payl
 };
 
 
+
 const getReviewSessionID = (session) => asNonEmptyString(session?.metadata?.openchamber?.reviewSessionID);
 
 const replaceReviewSessionLinkMetadata = (metadata, replacementReviewSessionID) => {
@@ -441,12 +443,12 @@ const stampManagedBackendForPrompt = async ({ client, sessionID, directory, prov
 };
 
 const stampForkedSessionBackend = async ({ client, session, directory, sourceBackend, signal }) => {
-  if (sourceBackend !== 'omp') return { ...session, directory };
+  if (!sourceBackend) return { ...session, directory };
   const mutation = await persistManagedBackend({
     client,
     sessionID: session.id,
     directory,
-    providerID: 'omp',
+    providerID: sourceBackend,
     signal,
   });
   return { ...session, ...mutation.session, directory };

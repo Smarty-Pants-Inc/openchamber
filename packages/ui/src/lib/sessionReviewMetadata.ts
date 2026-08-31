@@ -2,9 +2,12 @@ import type { Session } from '@opencode-ai/sdk/v2';
 
 export type SessionMetadataRecord = Record<string, unknown>;
 
-export type AgentBackendProviderID = 'omp' | 'pi';
+export type AgentBackendProviderID = 'omp' | 'pi' | 'codex';
 export type RequestedAgentBackend = 'native' | AgentBackendProviderID;
 export type PersistedAgentBackend = RequestedAgentBackend | 'unknown';
+
+const isAgentBackendProviderID = (value: unknown): value is AgentBackendProviderID =>
+  value === 'omp' || value === 'pi' || value === 'codex';
 
 type OpenChamberMetadata = {
   kind?: 'review';
@@ -40,17 +43,17 @@ export const getAgentBackendProviderIDFromMessageRecords = (
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const info = records[index]?.info;
     const providerID = info?.model?.providerID ?? info?.providerID;
-    if (providerID === 'omp' || providerID === 'pi') return providerID;
+    if (isAgentBackendProviderID(providerID)) return providerID;
   }
   return null;
 };
 
 export const getAgentBackendProviderID = (session: Session | null | undefined): AgentBackendProviderID | null => {
   const value = getOpenChamberMetadata(getSessionMetadata(session)).agent_backend;
-  return value === 'omp' || value === 'pi' ? value : null;
+  return isAgentBackendProviderID(value) ? value : null;
 };
 export const classifyRequestedAgentBackend = (providerID: string): RequestedAgentBackend =>
-  providerID === 'omp' || providerID === 'pi' ? providerID : 'native';
+  isAgentBackendProviderID(providerID) ? providerID : 'native';
 
 export const classifyPersistedAgentBackend = (
   session: Session | null | undefined,
@@ -58,7 +61,7 @@ export const classifyPersistedAgentBackend = (
   const openchamber = getOpenChamberMetadata(getSessionMetadata(session));
   if (!Object.prototype.hasOwnProperty.call(openchamber, 'agent_backend')) return 'native';
   const backend = openchamber.agent_backend;
-  return backend === 'omp' || backend === 'pi' ? backend : 'unknown';
+  return isAgentBackendProviderID(backend) ? backend : 'unknown';
 };
 
 
@@ -70,7 +73,7 @@ export const withAgentBackendMetadata = (
   providerID: string,
 ): SessionMetadataRecord | undefined => {
   const requestedBackend = classifyRequestedAgentBackend(providerID);
-  if (requestedBackend === 'omp' || requestedBackend === 'pi') {
+  if (isAgentBackendProviderID(requestedBackend)) {
     const source = metadata ?? {};
     return {
       ...source,

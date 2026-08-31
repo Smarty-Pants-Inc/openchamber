@@ -198,6 +198,33 @@ describe('VS Code OpenChamber session bridge', () => {
     });
   });
 
+  test('forks a proven Codex source only to Codex and stamps the child from source authority', async () => {
+    const source: Session = { id: 'source', metadata: { openchamber: { agent_backend: 'codex' } } };
+    const fork: Session = { id: 'fork', directory: '/canonical/forks/fork', metadata: { keep: true, openchamber: {} } };
+    const updates: Array<{ sessionID: string; directory: string; metadata: Record<string, unknown> }> = [];
+    const client = createClient({
+      get: async (input) => ({ data: input.sessionID === 'source' ? source : fork }),
+      update: async (input) => {
+        updates.push({ sessionID: input.sessionID, directory: input.directory, metadata: input.metadata });
+        fork.metadata = input.metadata;
+        return { data: fork };
+      },
+      fork: async () => ({ data: fork }),
+    });
+
+    const response = await invoke(client, '/openchamber/sessions/source/fork-authorized', {
+      directory: '/repo',
+      providerID: 'codex',
+    });
+
+    assert.equal(response?.status, 200);
+    assert.deepEqual(updates, [{
+      sessionID: 'fork',
+      directory: '/canonical/forks/fork',
+      metadata: { keep: true, openchamber: { agent_backend: 'codex' } },
+    }]);
+  });
+
   test('keeps a native child native for a nonmanaged target', async () => {
     const source: Session = { id: 'source', metadata: { openchamber: {} } };
     const fork: Session = { id: 'fork', directory: '/repo', metadata: { keep: true, openchamber: {} } };
@@ -284,7 +311,7 @@ describe('VS Code OpenChamber session bridge', () => {
   });
 
   test('rejects native-to-managed sends during preflight', async () => {
-    for (const providerID of ['pi', 'omp']) {
+    for (const providerID of ['pi', 'omp', 'codex']) {
       let updateCount = 0;
       const client = createClient({
         update: async () => {
@@ -300,14 +327,14 @@ describe('VS Code OpenChamber session bridge', () => {
 
       assert.equal(response?.status, 409);
       assert.deepEqual(decode(response?.bodyText || '{}'), {
-        error: 'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
+        error: 'Native sessions cannot be converted to a managed agent backend by sending a prompt',
       });
       assert.equal(updateCount, 0);
     }
   });
 
-  test('rejects Pi-to-OMP and OMP-to-Pi sends during preflight', async () => {
-    for (const [existing, requested] of [['pi', 'omp'], ['omp', 'pi']] as const) {
+  test('rejects managed backend changes during preflight', async () => {
+    for (const [existing, requested] of [['pi', 'omp'], ['omp', 'pi'], ['omp', 'codex'], ['codex', 'omp']] as const) {
       let updateCount = 0;
       const client = createClient({
         get: async () => ({
@@ -326,7 +353,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
       assert.equal(response?.status, 409);
       assert.deepEqual(decode(response?.bodyText || '{}'), {
-        error: 'Managed Pi/OMP session backend cannot be changed',
+        error: 'Managed agent session backend cannot be changed',
       });
       assert.equal(updateCount, 0);
     }
@@ -387,7 +414,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
     assert.equal(response?.status, 409);
     assert.deepEqual(decode(response?.bodyText || '{}'), {
-      error: 'Managed Pi/OMP session backend cannot be changed',
+      error: 'Managed agent session backend cannot be changed',
     });
     assert.equal(updateCount, 1);
     assert.deepEqual(source.metadata, { openchamber: { agent_backend: 'omp' } });
@@ -415,7 +442,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
     assert.equal(response?.status, 409);
     assert.deepEqual(decode(response?.bodyText || '{}'), {
-      error: 'Mixed native/Pi/OMP session backend history cannot be used',
+      error: 'Mixed native/managed agent backend history cannot be used',
     });
     assert.equal(updateCount, 0);
   });
@@ -551,7 +578,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
     assert.equal(response?.status, 409);
     assert.deepEqual(decode(response?.bodyText || '{}'), {
-      error: 'Mixed native/Pi/OMP session backend history cannot be used',
+      error: 'Mixed native/managed agent backend history cannot be used',
     });
     assert.equal(updateCount, 0);
     assert.equal(forkCount, 0);
@@ -583,7 +610,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
     assert.equal(response?.status, 409);
     assert.deepEqual(decode(response?.bodyText || '{}'), {
-      error: 'Mixed native/Pi/OMP session backend history cannot be used',
+      error: 'Mixed native/managed agent backend history cannot be used',
     });
     assert.equal(historyReads, 1);
     assert.equal(forkCount, 0);
@@ -615,7 +642,7 @@ describe('VS Code OpenChamber session bridge', () => {
 
     assert.equal(response?.status, 409);
     assert.deepEqual(decode(response?.bodyText || '{}'), {
-      error: 'Mixed native/Pi/OMP session backend history cannot be used',
+      error: 'Mixed native/managed agent backend history cannot be used',
     });
     assert.equal(updateCount, 0);
     assert.equal(forkCount, 0);
