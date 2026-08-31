@@ -73,8 +73,8 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
         ) ?? metadata);
 
       // The boundary between inherited history and the fork's own tail is the
-      // id of the newest cloned message. Message ids are server-generated and
-      // ascending, so everything the fork produces sorts after it.
+      // id of the newest cloned message. Transcript records are chronological,
+      // so tail rendering finds this exact record instead of comparing IDs.
       const newestCloned = await opencodeClient.getSessionMessages(forked.id, 1, sessionDirectory);
       const boundaryMessageID = newestCloned[newestCloned.length - 1]?.info.id ?? null;
 
@@ -132,14 +132,17 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
 
 /**
  * Keep only the fork's own tail: messages after the last message cloned from
- * the parent. A `null` boundary means the fork inherited nothing.
+ * the parent. A `null` boundary means the fork inherited nothing. A missing
+ * non-null boundary is tail only after the newest page resolves.
  */
 export function filterBtwTailMessages(
   records: Array<{ info: Message; parts: Part[] }>,
   boundaryMessageID: string | null,
+  newestPageResolved = false,
 ): Array<{ info: Message; parts: Part[] }> {
   if (!boundaryMessageID) return records;
-  return records.filter((record) => record.info.id > boundaryMessageID);
+  const boundaryIndex = records.findIndex((record) => record.info.id === boundaryMessageID);
+  return boundaryIndex < 0 ? (newestPageResolved ? records : []) : records.slice(boundaryIndex + 1);
 }
 
 export type BtwSessionRef = {

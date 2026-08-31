@@ -216,6 +216,7 @@ const parseGoalMetadata = (session) => {
     evaluationProviderID: typeof goal.evaluationProviderID === 'string' ? goal.evaluationProviderID : '',
     evaluationModelID: typeof goal.evaluationModelID === 'string' ? goal.evaluationModelID : '',
     lastAccountedMessageID: typeof goal.lastAccountedMessageID === 'string' ? goal.lastAccountedMessageID : '',
+    lastAccountedMessageTime: Number.isFinite(goal.lastAccountedMessageTime) && goal.lastAccountedMessageTime > 0 ? goal.lastAccountedMessageTime : 0,
     createdAt: Number.isFinite(goal.createdAt) ? goal.createdAt : 0,
     updatedAt: Number.isFinite(goal.updatedAt) ? goal.updatedAt : 0,
   };
@@ -335,20 +336,24 @@ export const createSessionGoalRuntime = ({
     return nextGoal;
   };
 
-  const settleGoal = async ({ sessionId, directory, goal, status, statusReason, note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, evaluationProviderID, evaluationModelID }) => {
-    const written = await writeGoal(sessionId, directory, goal.id, (current) => ({
-      status,
-      statusReason: clampText(statusReason, REASON_CHAR_LIMIT),
-      note: note !== undefined ? clampText(note, NOTE_CHAR_LIMIT) : current.note,
-      blockedStreak: 0,
-      auditFailStreak: 0,
-      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
-      ...(tokensBaseline !== undefined ? { tokensBaseline } : {}),
-      ...(tokensCommitted !== undefined ? { tokensCommitted } : {}),
-      ...(lastAccountedMessageID ? { lastAccountedMessageID } : {}),
-      ...(evaluationProviderID ? { evaluationProviderID } : {}),
-      ...(evaluationModelID ? { evaluationModelID } : {}),
-    }));
+  const settleGoal = async ({ sessionId, directory, goal, status, statusReason, note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime, evaluationProviderID, evaluationModelID }) => {
+    const written = await writeGoal(sessionId, directory, goal.id, (current) => {
+      const update = {
+        status,
+        statusReason: clampText(statusReason, REASON_CHAR_LIMIT),
+        note: note !== undefined ? clampText(note, NOTE_CHAR_LIMIT) : current.note,
+        blockedStreak: 0,
+        auditFailStreak: 0,
+      };
+      if (tokensUsed !== undefined) update.tokensUsed = tokensUsed;
+      if (tokensBaseline !== undefined) update.tokensBaseline = tokensBaseline;
+      if (tokensCommitted !== undefined) update.tokensCommitted = tokensCommitted;
+      if (lastAccountedMessageID) update.lastAccountedMessageID = lastAccountedMessageID;
+      if (lastAccountedMessageTime > 0) update.lastAccountedMessageTime = lastAccountedMessageTime;
+      if (evaluationProviderID) update.evaluationProviderID = evaluationProviderID;
+      if (evaluationModelID) update.evaluationModelID = evaluationModelID;
+      return update;
+    });
     if (!written) return;
     console.log(`[session-goal] ${sessionId} settled as ${status}${statusReason ? ` (${statusReason})` : ''}`);
     if (typeof emitGoalNotification === 'function') {
@@ -561,13 +566,22 @@ export const createSessionGoalRuntime = ({
     let tokensCommitted = goal.tokensCommitted;
     let tokensUsed = goal.tokensUsed;
     let lastAccountedMessageID = goal.lastAccountedMessageID;
+    let lastAccountedMessageTime = goal.lastAccountedMessageTime;
+    // IDs are identity keys, not chronology. Time is the durable cursor;
+    // the exact ID breaks ties when the current page still contains it.
+    const accountedThroughTime = lastAccountedMessageTime;
+    const accountedThroughIndex = lastAccountedMessageID
+      ? messages.findIndex((message) => message?.info?.id === lastAccountedMessageID)
+      : -1;
     let segmentSnapshot = null;
     let sawNewMessages = false;
-    for (const message of messages) {
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+      const message = messages[messageIndex];
       const info = message?.info;
       if (info?.role !== 'assistant' || typeof info.id !== 'string') continue;
-      if (lastAccountedMessageID && info.id <= lastAccountedMessageID) continue;
       if (!(info.time?.completed > 0)) continue;
+      if (lastAccountedMessageID && (info.time.completed < accountedThroughTime
+        || (info.time.completed === accountedThroughTime && (accountedThroughIndex < 0 || messageIndex <= accountedThroughIndex)))) continue;
       sawNewMessages = true;
       const total = messageTokenTotal(info);
       if (info.summary === true) {
@@ -587,9 +601,8 @@ export const createSessionGoalRuntime = ({
       } else {
         segmentSnapshot = total;
       }
-      if (!lastAccountedMessageID || info.id > lastAccountedMessageID) {
-        lastAccountedMessageID = info.id;
-      }
+      lastAccountedMessageID = info.id;
+      lastAccountedMessageTime = info.time.completed;
     }
     if (sawNewMessages) {
       const segmentCurrent = segmentSnapshot !== null ? Math.max(0, segmentSnapshot - tokensBaseline) : 0;
@@ -617,6 +630,7 @@ export const createSessionGoalRuntime = ({
         tokensBaseline,
         tokensCommitted,
         lastAccountedMessageID,
+        lastAccountedMessageTime,
       }));
       console.log(`[session-goal] ${sessionId} paused after user abort`);
       return;
@@ -628,7 +642,7 @@ export const createSessionGoalRuntime = ({
         ? lastAssistantInfo.error.name
         : 'assistant turn failed';
       await settleGoal({
-        sessionId, directory, goal, status: 'blocked', statusReason: reason, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'blocked', statusReason: reason, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
       });
       return;
     }
@@ -636,7 +650,7 @@ export const createSessionGoalRuntime = ({
     // Token budget crossed → budgetLimited.
     if (typeof goal.tokenBudget === 'number' && tokensUsed >= goal.tokenBudget) {
       await settleGoal({
-        sessionId, directory, goal, status: 'budgetLimited', statusReason: 'token budget reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'budgetLimited', statusReason: 'token budget reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
       });
       return;
     }
@@ -644,7 +658,7 @@ export const createSessionGoalRuntime = ({
     // Auto-continuation safety cap → blocked.
     if (goal.turnsUsed >= maxAutoTurns) {
       await settleGoal({
-        sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
       });
       return;
     }
@@ -671,7 +685,7 @@ export const createSessionGoalRuntime = ({
         auditFailStreak += 1;
         if (auditFailStreak >= AUDIT_FAIL_LIMIT) {
           await settleGoal({
-            sessionId, directory, goal, status: 'blocked', statusReason: 'progress audit unavailable', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+            sessionId, directory, goal, status: 'blocked', statusReason: 'progress audit unavailable', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
           });
           return;
         }
@@ -682,7 +696,7 @@ export const createSessionGoalRuntime = ({
 
       if (audit?.verdict === 'complete') {
         await settleGoal({
-          sessionId, directory, goal, status: 'complete', statusReason: 'verified by audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+          sessionId, directory, goal, status: 'complete', statusReason: 'verified by audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
           evaluationProviderID: audit.evaluationProviderID, evaluationModelID: audit.evaluationModelID,
         });
         return;
@@ -697,7 +711,7 @@ export const createSessionGoalRuntime = ({
         });
         if (blockedStreak >= BLOCKED_STREAK_LIMIT) {
           await settleGoal({
-            sessionId, directory, goal, status: 'blocked', statusReason: audit.note || 'blocked per audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+            sessionId, directory, goal, status: 'blocked', statusReason: audit.note || 'blocked per audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime,
             evaluationProviderID: audit.evaluationProviderID, evaluationModelID: audit.evaluationModelID,
           });
           return;
@@ -713,6 +727,7 @@ export const createSessionGoalRuntime = ({
       tokensBaseline,
       tokensCommitted,
       lastAccountedMessageID,
+      lastAccountedMessageTime,
       turnsUsed: current.turnsUsed + 1,
       blockedStreak,
       auditFailStreak,

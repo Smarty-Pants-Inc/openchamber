@@ -93,6 +93,7 @@ export const createSessionGoal = async ({
     note: '',
     statusReason: '',
     lastAccountedMessageID: '',
+    lastAccountedMessageTime: 0,
     createdAt: now,
     updatedAt: now,
   };
