@@ -9,6 +9,7 @@ import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
+import { PiPendingCreateDialogs } from '@/components/chat/PiPendingCreateDialogs';
 import { VSCodeLayout } from '@/components/layout/VSCodeLayout';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useGlobalSessionsPolling } from '@/hooks/useGlobalSessionsPolling';
@@ -101,6 +102,7 @@ export function VSCodeApp({ apis }: VSCodeAppProps) {
     const timeout = window.setTimeout(() => clearError(), 5000);
     return () => window.clearTimeout(timeout);
   }, [clearError, error]);
+  const pendingCreateDialogs = <PiPendingCreateDialogs />;
 
   if (panelType === 'agentManager') {
     return (
@@ -112,6 +114,7 @@ export function VSCodeApp({ apis }: VSCodeAppProps) {
                 <SyncAppEffects embeddedBackgroundWorkEnabled={true} />
                 <AgentManagerView />
                 <AppLinkConfirmDialog />
+                {pendingCreateDialogs}
                 <OpenCodeUpdateToast />
                 <Toaster position="top-center" />
               </div>
@@ -132,6 +135,7 @@ export function VSCodeApp({ apis }: VSCodeAppProps) {
                 <SyncAppEffects embeddedBackgroundWorkEnabled={true} />
                 <VSCodeLayout />
                 <AppLinkConfirmDialog />
+                {pendingCreateDialogs}
                 <OpenCodeUpdateToast />
                 <Toaster position="top-center" />
                 <ConfigUpdateOverlay />

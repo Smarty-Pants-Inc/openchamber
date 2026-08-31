@@ -339,6 +339,8 @@ export const createAgentToolRuntime = (dependencies) => {
           partialAction: error.partialAction,
           sessionId: error.sessionId,
           directory: error.directory,
+          ...(error.worktree ? { worktree: error.worktree } : {}),
+          ...(error.sessionCleaned === true ? { sessionCleaned: true } : {}),
         } } : {}),
         error: {
           message: error instanceof Error ? error.message : String(error),

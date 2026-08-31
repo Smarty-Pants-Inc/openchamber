@@ -1,6 +1,6 @@
-import { getActiveRelayTunnel } from './relay/runtime-tunnel';
+import { getActiveRelayTunnel, retainActiveRelayTunnel } from './relay/runtime-tunnel';
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
-import { buildRuntimeAuthHeaders } from './runtime-auth';
+import { buildRuntimeAuthHeaders, getRuntimeBearerTokenSync, getRuntimeExtraHeadersSync } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { getRuntimeUrlResolver, type RuntimeUrlQuery } from './runtime-url';
 
@@ -230,6 +230,117 @@ const resolveRuntimeFetchInput = (input: string | URL | Request, query?: Runtime
   return target === input.url ? input : new Request(target, input);
 };
 
+export interface BoundRuntimeTransport {
+  /** Concrete SDK API base captured when the operation began. */
+  apiBaseUrl: string;
+  fetch: (input: string | URL | Request, init?: RuntimeFetchOptions) => Promise<Response>;
+  release: () => void;
+}
+
+let nativeRuntimeFetch: typeof fetch | null = null;
+
+const captureRuntimeHeaders = (): Headers => {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(getRuntimeExtraHeadersSync())) {
+    headers.set(key, value);
+  }
+  const bearerToken = getRuntimeBearerTokenSync();
+  if (bearerToken) headers.set('Authorization', `Bearer ${bearerToken}`);
+  return headers;
+};
+
+const mergeBoundRuntimeHeaders = (
+  capturedHeaders: Headers,
+  inputHeaders: HeadersInit | undefined,
+  initHeaders: HeadersInit | undefined,
+): Headers => {
+  const headers = new Headers(sanitizeHeadersForBrowser(inputHeaders) ?? inputHeaders);
+  if (initHeaders) {
+    new Headers(sanitizeHeadersForBrowser(initHeaders) ?? initHeaders).forEach((value, key) => headers.set(key, value));
+  }
+  capturedHeaders.forEach((value, key) => {
+    if (!headers.has(key)) headers.set(key, value);
+  });
+  return headers;
+};
+
+const appendBoundQuery = (raw: string, query?: RuntimeUrlQuery): string => {
+  if (!query) return raw;
+  try {
+    const url = new URL(raw, TUNNEL_PARSE_BASE);
+    appendRuntimeQuery(url, query);
+    if (isAbsoluteUrl(raw)) return url.toString();
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return raw;
+  }
+};
+
+const resolveBoundRuntimeUrl = (raw: string, apiBaseUrl: string, query?: RuntimeUrlQuery): string => {
+  if (isAbsoluteUrl(raw)) return appendBoundQuery(raw, query);
+  const path = appendBoundQuery(raw, query);
+  if (!shouldResolveApiPath(path) || !apiBaseUrl) return path;
+  try {
+    const apiBase = new URL(apiBaseUrl, getCurrentOrigin() || TUNNEL_PARSE_BASE);
+    return new URL(path, apiBase.origin).toString();
+  } catch {
+    return path;
+  }
+};
+
+const extractBoundRelayPath = (input: string | URL | Request, query?: RuntimeUrlQuery): string | null => {
+  const raw = input instanceof Request ? input.url : input.toString();
+  if (!isAbsoluteUrl(raw)) {
+    return shouldResolveApiPath(raw) ? appendPathQuery(raw, query) : null;
+  }
+  try {
+    const url = new URL(raw);
+    if (!shouldResolveApiPath(url.pathname)) return null;
+    appendRuntimeQuery(url, query);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Captures the exact URL, auth headers, network function, and relay client for
+ * a logical operation. Subsequent runtime switches cannot redirect its remote
+ * requests; callers release it after successful completion or compensation.
+ */
+export const bindRuntimeTransport = (): BoundRuntimeTransport => {
+  const apiBaseUrl = getRuntimeUrlResolver().api('/api');
+  const capturedHeaders = captureRuntimeHeaders();
+  const relay = retainActiveRelayTunnel();
+  const networkFetch = nativeRuntimeFetch ?? globalThis.fetch.bind(globalThis);
+
+  return {
+    apiBaseUrl,
+    fetch: async (input, init = {}) => {
+      const { query, ...requestInit } = init;
+      const inputHeaders = input instanceof Request ? input.headers : undefined;
+      const headers = mergeBoundRuntimeHeaders(capturedHeaders, inputHeaders, requestInit.headers);
+      const relayPath = relay ? extractBoundRelayPath(input, query) : null;
+      if (relay && relayPath !== null) {
+        if (input instanceof Request) {
+          return relay.client.fetch(input, { ...requestInit, headers });
+        }
+        return relay.client.fetch(relayPath, { ...requestInit, headers });
+      }
+
+      const raw = input instanceof Request ? input.url : input.toString();
+      const target = resolveBoundRuntimeUrl(raw, apiBaseUrl, query);
+      addRuntimeProxyHeaders(target, headers);
+      if (input instanceof Request) {
+        const request = target === input.url ? input : new Request(target, input);
+        return networkFetch(new Request(request, { ...requestInit, headers }));
+      }
+      return networkFetch(target, { ...requestInit, headers });
+    },
+    release: () => relay?.release(),
+  };
+};
+
 // ---------------------------------------------------------------------------
 // In-flight read coalescing
 //
@@ -329,6 +440,7 @@ export const installRuntimeFetchBridge = (): void => {
   runtimeFetchBridgeInstalled = true;
 
   const nativeFetch = window.fetch.bind(window);
+  nativeRuntimeFetch = nativeFetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const relayResponse = await tryRelayFetch(input, init ?? {});
     if (relayResponse) return relayResponse;

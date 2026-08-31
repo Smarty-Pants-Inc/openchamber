@@ -7,6 +7,7 @@ import { handleConfigBridgeMessage } from './bridge-config-runtime';
 import { handleSystemBridgeMessage } from './bridge-system-runtime';
 import { handleProxyBridgeMessage } from './bridge-proxy-runtime';
 import { handlePermissionAutoAcceptBridgeMessage } from './bridge-permission-auto-accept-runtime';
+import { tryHandleOpenChamberSessionProxy } from './bridge-session-runtime';
 import {
   fetchOpenCodeSkillsFromApi,
   persistSettings,
@@ -140,6 +141,7 @@ export async function handleBridgeMessage(message: BridgeRequest, ctx?: BridgeCo
       ctx,
       {
         tryHandleLocalFsProxy,
+        tryHandleOpenChamberSessionProxy,
         buildUnavailableApiResponse,
         sanitizeForwardHeaders,
         collectHeaders,

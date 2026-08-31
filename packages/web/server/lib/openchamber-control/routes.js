@@ -27,6 +27,9 @@ export const registerOpenChamberControlRoutes = (app, { controlService }) => {
           partialAction: controlError.partialAction,
           sessionId: controlError.sessionId,
           directory: controlError.directory,
+          ...(controlError.worktree ? { worktree: controlError.worktree } : {}),
+          ...(controlError.sessionCleaned === true ? { sessionCleaned: true } : {}),
+          recovery: controlError.recovery || undefined,
         } : {}),
       });
     } finally {

@@ -1,5 +1,6 @@
 import type { BridgeContext, BridgeResponse } from './bridge';
 import { waitForApiUrl } from './opencode-ready';
+import type { SessionProxyResponse } from './bridge-session-runtime';
 
 type BridgeMessageInput = {
   id: string;
@@ -57,6 +58,13 @@ const isSseProxyPath = (requestPath: string): boolean => {
 
 type ProxyRuntimeDeps = {
   tryHandleLocalFsProxy: (method: string, requestPath: string) => Promise<ApiProxyResponsePayload | null>;
+  tryHandleOpenChamberSessionProxy: (
+    method: string,
+    requestPath: string,
+    bodyBase64: string | undefined,
+    ctx: BridgeContext | undefined,
+    signal: AbortSignal,
+  ) => Promise<SessionProxyResponse | null>;
   buildUnavailableApiResponse: () => ApiProxyResponsePayload;
   sanitizeForwardHeaders: (input: Record<string, string> | undefined) => Record<string, string>;
   collectHeaders: (headers: Headers) => Record<string, string>;
@@ -153,55 +161,65 @@ export async function handleProxyBridgeMessage(
         return { id, type, success: true, data };
       }
 
-      const localFsResponse = await deps.tryHandleLocalFsProxy(normalizedMethod, normalizedPath);
-      if (localFsResponse) {
-        return { id, type, success: true, data: localFsResponse };
-      }
-
-      const apiUrl = await waitForApiUrl(ctx?.manager);
-      if (!apiUrl) {
-        const data = deps.buildUnavailableApiResponse();
-        return { id, type, success: true, data };
-      }
-
-      const base = `${apiUrl.replace(/\/+$/, '')}/`;
-      const targetUrl = new URL(normalizedPath.replace(/^\/+/, ''), base).toString();
-      const requestHeaders: Record<string, string> = {
-        ...deps.sanitizeForwardHeaders(headers),
-        ...ctx?.manager?.getOpenCodeAuthHeaders(),
-      };
-
-      const requestBody =
-        typeof bodyBase64 === 'string' && bodyBase64.length > 0 && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD'
-          ? Buffer.from(bodyBase64, 'base64')
-          : undefined;
-
-      // Coalesce concurrent identical GET reads to idempotent endpoints so the
-      // single OpenCode process serves them once. The shared fetch carries no
-      // AbortController (api:proxy:abort can't cancel these reads), so one
-      // caller aborting can't strand the others.
-      const coalesceKey =
-        normalizedMethod === 'GET' && COALESCE_READ_PATH.test(normalizedPath) ? `GET ${targetUrl}` : null;
-      if (coalesceKey) {
-        const existing = READ_COALESCE.get(coalesceKey);
-        if (existing) {
-          const shared = await existing;
-          return { id, type, success: true, data: { ...shared, headers: { ...shared.headers } } };
-        }
-        const pending = performApiProxyFetch(targetUrl, 'GET', requestHeaders, undefined, undefined, deps);
-        READ_COALESCE.set(coalesceKey, pending);
-        pending.then(
-          () => READ_COALESCE.delete(coalesceKey),
-          () => READ_COALESCE.delete(coalesceKey),
-        );
-        const data = await pending;
-        return { id, type, success: true, data };
-      }
-
       const abortController = new AbortController();
       proxyAbortControllers.set(id, abortController);
-
       try {
+        const sessionResponse = await deps.tryHandleOpenChamberSessionProxy(
+          normalizedMethod,
+          normalizedPath,
+          bodyBase64,
+          ctx,
+          abortController.signal,
+        );
+        if (sessionResponse) {
+          return { id, type, success: true, data: sessionResponse };
+        }
+
+        const localFsResponse = await deps.tryHandleLocalFsProxy(normalizedMethod, normalizedPath);
+        if (localFsResponse) {
+          return { id, type, success: true, data: localFsResponse };
+        }
+
+        const apiUrl = await waitForApiUrl(ctx?.manager);
+        if (!apiUrl) {
+          const data = deps.buildUnavailableApiResponse();
+          return { id, type, success: true, data };
+        }
+
+        const base = `${apiUrl.replace(/\/+$/, '')}/`;
+        const targetUrl = new URL(normalizedPath.replace(/^\/+/, ''), base).toString();
+        const requestHeaders: Record<string, string> = {
+          ...deps.sanitizeForwardHeaders(headers),
+          ...ctx?.manager?.getOpenCodeAuthHeaders(),
+        };
+
+        const requestBody =
+          typeof bodyBase64 === 'string' && bodyBase64.length > 0 && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD'
+            ? Buffer.from(bodyBase64, 'base64')
+            : undefined;
+
+        // Coalesce concurrent identical GET reads to idempotent endpoints so the
+        // single OpenCode process serves them once. The shared fetch carries no
+        // AbortController (api:proxy:abort can't cancel these reads), so one
+        // caller aborting can't strand the others.
+        const coalesceKey =
+          normalizedMethod === 'GET' && COALESCE_READ_PATH.test(normalizedPath) ? `GET ${targetUrl}` : null;
+        if (coalesceKey) {
+          const existing = READ_COALESCE.get(coalesceKey);
+          if (existing) {
+            const shared = await existing;
+            return { id, type, success: true, data: { ...shared, headers: { ...shared.headers } } };
+          }
+          const pending = performApiProxyFetch(targetUrl, 'GET', requestHeaders, undefined, undefined, deps);
+          READ_COALESCE.set(coalesceKey, pending);
+          pending.then(
+            () => READ_COALESCE.delete(coalesceKey),
+            () => READ_COALESCE.delete(coalesceKey),
+          );
+          const data = await pending;
+          return { id, type, success: true, data };
+        }
+
         const data = await performApiProxyFetch(
           targetUrl,
           normalizedMethod,
@@ -212,7 +230,9 @@ export async function handleProxyBridgeMessage(
         );
         return { id, type, success: true, data };
       } finally {
-        proxyAbortControllers.delete(id);
+        if (proxyAbortControllers.get(id) === abortController) {
+          proxyAbortControllers.delete(id);
+        }
       }
     }
 

@@ -18,7 +18,8 @@ import {
 } from '@/sync/sync-context';
 import { useStreamingStore } from '@/sync/streaming';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
-import { destroyBtwSession, filterBtwTailMessages, promoteBtwSession, type BtwSessionRef } from '@/lib/btw';
+import { destroyBtwSession, filterBtwTailMessages, promoteBtwSession } from '@/lib/btw';
+import type { BtwSessionRef } from '@/lib/btw';
 import type { BtwPanelState } from './useBtwPanelState';
 import { ChatSurfaceProvider } from '../ChatSurfaceContext';
 import { useMobileAutocompleteMaxHeight } from '../useMobileAutocompleteMaxHeight';
@@ -119,7 +120,7 @@ const useBtwSessionData = (
     const messageLoader = useSessionMessageLoader();
     React.useEffect(() => {
         if (!sessionId || !directory) return;
-        void messageLoader.ensure({ sessionID: sessionId, directory }, { force: true, reason: 'reactive' });
+        void messageLoader.refreshTail({ sessionID: sessionId, directory }, 50);
     }, [directory, messageLoader, sessionId]);
     const status = useSessionStatus(sessionId, directory) ?? IDLE_SESSION_STATUS;
     const streamingMessageId = useStreamingStore(
@@ -133,10 +134,10 @@ const useBtwSessionData = (
     );
     const sessionPermissions = useScopedBlockingPermissions(sessionId, directory);
     const sessionQuestions = useScopedBlockingQuestions(sessionId, directory);
-
+    const newestPageResolved = messageLoadState.newestPageGeneration !== null;
     const tailRecords = React.useMemo(
-        () => filterBtwTailMessages(messageRecords, boundaryMessageID, messageLoadState.updatedAt !== undefined),
-        [boundaryMessageID, messageLoadState.updatedAt, messageRecords],
+        () => filterBtwTailMessages(messageRecords, boundaryMessageID, newestPageResolved),
+        [boundaryMessageID, messageRecords, newestPageResolved],
     );
 
     const sessionIsWorking = React.useMemo(() => {

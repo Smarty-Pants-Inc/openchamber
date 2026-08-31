@@ -1,7 +1,8 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test"
 import type { PermissionRequest } from "@/types/permission"
 import type { QuestionRequest } from "@/types/question"
-
+import { switchRuntimeEndpoint } from "../lib/runtime-switch"
+import { RetainedSessionError } from "../lib/retainedSessionError"
 // Mock SDK client that records permission.reply / question.reply calls
 const replyCalls: Array<{ method: string; params: Record<string, unknown> }> = []
 const scopedClientDirectories: string[] = []
@@ -14,10 +15,55 @@ let sessionShareResult: { data?: unknown; error?: unknown; response?: { status?:
 let sessionUpdateResult: { data?: unknown; error?: unknown; response?: { status?: number } } = {}
 let sessionMessagesResult: { data?: unknown; error?: unknown; response?: { status?: number } } = { data: [] }
 let sessionDeleteError: unknown | null = null
+let sessionCreateError: unknown | null = null
+let sessionDeleteResult = true
+let sessionUpdateError: unknown | null = null
 let beforeSessionUpdateResolve: ((sessionId: string) => void) | null = null
 let beforeSessionDeleteResolve: ((sessionId: string) => void) | null = null
-let forkSessionResult: Session
-let getSessionResult: Session
+let sessionMetadataSnapshot = {
+  id: "session-a",
+  slug: "session-a",
+  projectID: "project",
+  title: "Session A",
+  version: "1",
+  directory: "/test/project",
+  time: { created: 1, updated: 1 },
+  metadata: { keep: true, openchamber: {} },
+} as Session
+type RuntimeFetchCall = { path: string; init?: RequestInit }
+type SessionDeleteParams = { sessionID: string; directory?: string }
+const forkRuntimeFetchCalls: RuntimeFetchCall[] = []
+let forkRuntimeFetchImpl: (path: string, init?: RequestInit) => Promise<Response> = async () => {
+  throw new Error("fork runtime fetch fixture is not installed")
+}
+const forkRuntimeFetchMock = mock((path: string, init?: RequestInit) => {
+  forkRuntimeFetchCalls.push({ path, init })
+  return forkRuntimeFetchImpl(path, init)
+})
+
+const boundRuntimeTransportFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+  const raw = input instanceof Request ? input.url : input.toString()
+  const url = new URL(raw, "http://bound-runtime.test")
+  const request = input instanceof Request
+    ? new Request(input, init)
+    : new Request(url.toString(), init)
+  return forkRuntimeFetchMock(`${url.pathname}${url.search}`, {
+    method: request.method,
+    headers: request.headers,
+    body: await request.clone().text(),
+  })
+}
+
+const bindRuntimeTransportMock = mock(() => ({
+  apiBaseUrl: "http://bound-runtime.test/api",
+  fetch: boundRuntimeTransportFetch,
+  release: mock(),
+}))
+
+mock.module("@/lib/runtime-fetch", () => ({
+  runtimeFetch: forkRuntimeFetchMock,
+  bindRuntimeTransport: bindRuntimeTransportMock,
+}))
 const globalUpsertedSessions: unknown[] = []
 const globalRemovedSessionIds: string[] = []
 const deletedCleanupIdentities: Array<{ runtimeKey: string; directory: string; sessionId: string }> = []
@@ -74,6 +120,10 @@ const mockSdk = {
       replyCalls.push({ method: "session.abort", params })
       return Promise.resolve({ data: true })
     }),
+    delete: mock((params: SessionDeleteParams) => {
+      replyCalls.push({ method: "session.delete", params })
+      return Promise.resolve({ data: true })
+    }),
     updateSession: mock((sessionId: string, changes: Record<string, unknown>, directory?: string | null) => {
       replyCalls.push({ method: "session.update", params: { sessionID: sessionId, ...changes, directory } })
       return Promise.resolve(sessionUpdateResult.data as Session)
@@ -118,6 +168,8 @@ const mockSdk = {
     }),
   },
 }
+let activeSdkClient = mockSdk
+
 
 // Mock opencodeClient singleton
 mock.module("@/lib/opencode/client", () => ({
@@ -128,7 +180,7 @@ mock.module("@/lib/opencode/client", () => ({
     },
     getDirectory: () => "/test/project",
     getFilesystemHome: mock(async () => "/home/test"),
-    getSdkClient: () => mockSdk,
+    getSdkClient: () => activeSdkClient,
     replyToPermission: mock((requestId: string, reply: string, options?: { directory?: string | null }) => {
       replyCalls.push({ method: "permission.reply", params: { requestID: requestId, reply, directory: options?.directory } })
       return Promise.resolve(true)
@@ -148,19 +200,25 @@ mock.module("@/lib/opencode/client", () => ({
       }
       return Promise.resolve(sessionRevertResult.data)
     }),
-    forkSession: mock((sessionId: string, messageId?: string, directory?: string | null) => {
-      replyCalls.push({ method: "session.fork", params: { sessionID: sessionId, messageID: messageId, directory } })
-      return Promise.resolve(forkSessionResult)
+    createSession: mock(async () => {
+      if (sessionCreateError) throw sessionCreateError
+      return sessionMetadataSnapshot
     }),
     getSession: mock((sessionId: string, directory?: string | null) => {
       replyCalls.push({ method: "session.get", params: { sessionID: sessionId, directory } })
-      return Promise.resolve(getSessionResult)
+      return Promise.resolve(sessionMetadataSnapshot)
+    }),
+    getSessionMessages: mock((sessionId: string, limit?: number, directory?: string | null) => {
+      replyCalls.push({ method: "session.messages", params: { sessionID: sessionId, limit, directory } })
+      if (sessionMessagesResult.error) throw sessionMessagesResult.error
+      return Promise.resolve(sessionMessagesResult.data as Array<{ info: Message; parts: Part[] }>)
     }),
     updateSession: mock((sessionId: string, changes: Record<string, unknown>, directory?: string | null) => {
       replyCalls.push({ method: "session.update", params: { sessionID: sessionId, ...changes, directory } })
       // Lets a test mutate global runtime state while the SDK call is in flight,
       // so the action observes the switch only after awaiting the response.
       beforeSessionUpdateResolve?.(sessionId)
+      if (sessionUpdateError) throw sessionUpdateError
       return Promise.resolve(sessionUpdateResult.data)
     }),
     deleteSession: mock((sessionId: string, directory?: string | null) => {
@@ -169,7 +227,7 @@ mock.module("@/lib/opencode/client", () => ({
       // observes the change only after awaiting (or catching) the response.
       beforeSessionDeleteResolve?.(sessionId)
       if (sessionDeleteError) throw sessionDeleteError
-      return Promise.resolve(true)
+      return Promise.resolve(sessionDeleteResult)
     }),
   },
 }))
@@ -380,67 +438,527 @@ describe("moveSessionToDirectory", () => {
   })
 })
 
-describe("forkFromMessage backend metadata", () => {
-  test("merge-writes the selected backend before publishing the child", async () => {
+describe("patchSessionMetadata CAS", () => {
+  beforeEach(() => {
     replyCalls.length = 0
     globalUpsertedSessions.length = 0
     registeredSessionDirectories.length = 0
-    forkSessionResult = {
-      id: "session-fork",
-      slug: "session-fork",
-      projectID: "project",
+    forkRuntimeFetchCalls.length = 0
+    sessionMetadataSnapshot = {
+      id: "session-a",
       directory: "/test/project",
-      title: "Forked session",
-      version: "1",
-      time: { created: 2, updated: 2 },
-    } satisfies Session
-    getSessionResult = {
-      id: "session-fork",
-      slug: "session-fork",
+      slug: "session-a",
       projectID: "project",
-      directory: "/test/project",
-      title: "Forked session",
+      title: "Session A",
       version: "1",
-      time: { created: 2, updated: 2 },
-      metadata: { keep: true, openchamber: { agent_backend: "omp", inherited: true } },
-    } satisfies Session
-    sessionUpdateResult = {
-      data: {
-        id: "session-fork",
-        slug: "session-fork",
-        projectID: "project",
+      time: { created: 1, updated: 1 },
+      metadata: { keep: true, openchamber: { assist: { suggestion: "Preserve me" } } },
+    } as Session
+    switchRuntimeEndpoint({ apiBaseUrl: "http://metadata-runtime.test", runtimeKey: "metadata-runtime" })
+  })
+
+  test("patches only the changed leaf and retains concurrent namespace state", async () => {
+    const goal = { id: "goal-a", status: "active" }
+    const updated = {
+      ...sessionMetadataSnapshot,
+      metadata: { keep: true, openchamber: { assist: { suggestion: "Preserve me" }, goal } },
+    } as Session
+    forkRuntimeFetchImpl = async (path, init) => {
+      expect(path).toBe("/api/openchamber/sessions/session-a/metadata")
+      expect(init?.method).toBe("PATCH")
+      expect(JSON.parse(String(init?.body))).toEqual({
         directory: "/test/project",
-        title: "Forked session",
-        version: "1",
-        time: { created: 2, updated: 3 },
-        metadata: { keep: true, openchamber: { agent_backend: "pi", inherited: true } },
-      } satisfies Session,
+        operations: [{
+          type: "set",
+          path: ["openchamber", "goal"],
+          expected: { exists: false },
+          value: goal,
+        }],
+      })
+      return new Response(JSON.stringify({ session: updated }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
     }
-    const source = createStore({}, {
-      session: [{
-        id: "session-a",
-        slug: "session-a",
+    // Dynamic import preserves the top-level runtime transport module mock.
+    const { patchSessionMetadata } = await import("./session-actions")
+
+    const result = await patchSessionMetadata("session-a", "/test/project", (metadata) => ({
+      ...metadata,
+      openchamber: { ...(metadata.openchamber as Record<string, unknown>), goal },
+    }))
+
+    expect(result).toEqual(updated)
+    expect(forkRuntimeFetchCalls).toHaveLength(1)
+    expect(replyCalls).toEqual([{
+      method: "session.get",
+      params: { sessionID: "session-a", directory: "/test/project" },
+    }])
+    expect(globalUpsertedSessions).toEqual([updated])
+  })
+
+  test("does not commit metadata decoded after its runtime loses authority", async () => {
+    const updated = {
+      ...sessionMetadataSnapshot,
+      metadata: { keep: true, openchamber: { assist: { suggestion: "Preserve me" }, goal: { id: "goal-a" } } },
+    } as Session
+    const response = new Response(JSON.stringify({ session: updated }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        switchRuntimeEndpoint({ apiBaseUrl: "http://metadata-runtime-b.test", runtimeKey: "metadata-runtime-b" })
+        return { session: updated }
+      },
+    })
+    forkRuntimeFetchImpl = async () => response
+    // Dynamic import preserves the top-level runtime transport module mock.
+    const { patchSessionMetadata } = await import("./session-actions")
+
+    try {
+      await expect(patchSessionMetadata(
+        "session-a",
+        "/test/project",
+        (metadata) => ({
+          ...metadata,
+          openchamber: { ...(metadata.openchamber as Record<string, unknown>), goal: { id: "goal-a" } },
+        }),
+      )).rejects.toThrow("runtime changed")
+    } finally {
+      switchRuntimeEndpoint({ apiBaseUrl: "http://metadata-runtime.test", runtimeKey: "metadata-runtime" })
+    }
+
+    expect(globalUpsertedSessions).toEqual([])
+    expect(registeredSessionDirectories).toEqual([])
+  })
+})
+
+describe("bound session create", () => {
+  beforeEach(() => {
+    forkRuntimeFetchCalls.length = 0
+    activeSdkClient = mockSdk
+    sessionCreateError = null
+    switchRuntimeEndpoint({ apiBaseUrl: "http://create-runtime.test", runtimeKey: "create-runtime" })
+  })
+
+  test("stamps the exact requested backend on the captured SDK transport", async () => {
+    const requestBodies: Array<Record<string, unknown>> = []
+    forkRuntimeFetchImpl = async (path, init) => {
+      expect(path.startsWith("/api/session?directory=")).toBe(true)
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requestBodies.push(body)
+      const id = `session-created-${requestBodies.length}`
+      return new Response(JSON.stringify({
+        id,
+        slug: id,
         projectID: "project",
-        directory: "/test/project",
-        title: "Source session",
+        directory: `/canonical/${id}`,
+        title: id,
         version: "1",
         time: { created: 1, updated: 1 },
-      } satisfies Session],
-      part: { "message-a": [] },
+        metadata: body.metadata,
+      }), { headers: { "content-type": "application/json" } })
+    }
+    const { bindSessionOperation } = await import("./session-actions")
+    const operation = bindSessionOperation()
+    try {
+      const omp = await operation.create({
+        providerID: "omp",
+        metadata: { custom: true, openchamber: { kind: "review", agent_backend: "pi" } },
+      }, "/test/project")
+      const native = await operation.create({
+        providerID: "anthropic",
+        metadata: { custom: true, openchamber: { kind: "review", agent_backend: "omp" } },
+      }, "/test/project")
+
+      expect(omp.directory).toBe("/canonical/session-created-1")
+      expect(native.directory).toBe("/canonical/session-created-2")
+      expect(requestBodies).toEqual([
+        {
+          metadata: { custom: true, openchamber: { kind: "review", agent_backend: "omp" } },
+        },
+        {
+          metadata: { custom: true, openchamber: { kind: "review" } },
+        },
+      ])
+    } finally {
+      operation.release()
+    }
+  })
+
+  test("rethrows typed retained recovery from the normal create action", async () => {
+    const retained = new RetainedSessionError("created session was retained", {
+      sessionID: "session-retained",
+      directory: "/canonical/retained",
+      runtimeKey: "create-runtime",
+      cause: new Error("load failed"),
+      compensationError: new Error("delete failed"),
     })
+    sessionCreateError = retained
+    const { createSession } = await import("./session-actions")
+    let caught: unknown
+    try {
+      await createSession("Retained", "/test/project")
+    } catch (error) {
+      caught = error
+    } finally {
+      sessionCreateError = null
+    }
+    expect(caught).toBe(retained)
+  })
+})
+
+describe("forkFromMessage server authorization", () => {
+  const serverResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  })
+  const createForkSource = (directory = "/test/project") => createStore({}, {
+    session: [{
+      id: "session-a",
+      slug: "session-a",
+      projectID: "project",
+      directory,
+      title: "Source session",
+      version: "1",
+      time: { created: 1, updated: 1 },
+    } satisfies Session],
+    part: { "message-a": [] },
+  })
+  const forkedSession = (directory = "/test/project"): Session => ({
+    id: "session-fork",
+    slug: "session-fork",
+    projectID: "project",
+    directory,
+    title: "Forked session",
+    version: "1",
+    time: { created: 2, updated: 2 },
+    metadata: { keep: true, openchamber: { agent_backend: "pi", inherited: true } },
+  }) satisfies Session
+
+  beforeEach(() => {
+    replyCalls.length = 0
+    globalUpsertedSessions.length = 0
+    registeredSessionDirectories.length = 0
+    forkRuntimeFetchCalls.length = 0
+    forkRuntimeFetchImpl = async () => {
+      throw new Error("fork runtime fetch fixture is not installed")
+    }
+    activeSdkClient = mockSdk
+    switchRuntimeEndpoint({ apiBaseUrl: "http://fork-runtime-a.test", runtimeKey: "fork-runtime-a" })
+  })
+
+  test("uses the server-authorized fork response before publishing the child", async () => {
+    const source = createForkSource()
+    const responseSession = forkedSession()
+    forkRuntimeFetchImpl = async (path) => {
+      expect(path).toBe("/api/openchamber/sessions/session-a/fork-authorized")
+      return serverResponse({ session: responseSession, directory: "/test/project" })
+    }
+    // Dynamic import preserves the top-level runtimeFetch module mock.
     const { forkFromMessage, setActionRefs } = await import("./session-actions")
     setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
 
     await forkFromMessage("session-a", "message-a", "pi")
 
-    expect(replyCalls.map((call) => call.method)).toEqual(["session.fork", "session.get", "session.update"])
-    expect(replyCalls[2]?.params).toEqual({
-      sessionID: "session-fork",
+    expect(forkRuntimeFetchCalls).toHaveLength(1)
+    expect(JSON.parse(String(forkRuntimeFetchCalls[0]?.init?.body))).toEqual({
       directory: "/test/project",
-      metadata: { keep: true, openchamber: { agent_backend: "pi", inherited: true } },
+      messageId: "message-a",
+      providerID: "pi",
     })
     expect(source.getState().session.find((session) => session.id === "session-fork")?.metadata)
-      .toEqual({ keep: true, openchamber: { agent_backend: "pi", inherited: true } })
+      .toEqual(responseSession.metadata)
+    expect(globalUpsertedSessions).toEqual([responseSession])
+    expect(registeredSessionDirectories).toEqual([{ sessionID: "session-fork", directory: "/test/project" }])
+    expect(replyCalls).toEqual([])
+  })
+
+  test("uses the response canonical directory for direct message forks", async () => {
+    const requestedDirectory = "/test/requested-worktree"
+    const canonicalDirectory = "/test/canonical-worktree"
+    const source = createForkSource(requestedDirectory)
+    const canonicalStore = createStore({})
+    forkRuntimeFetchImpl = async () => serverResponse({
+      session: forkedSession("/test/stale-session-directory"),
+      directory: canonicalDirectory,
+    })
+    // Dynamic import preserves the top-level runtimeFetch module mock.
+    const { forkFromMessage, setActionRefs } = await import("./session-actions")
+    setActionRefs(
+      mockSdk as unknown as OpencodeClient,
+      createChildStores([[requestedDirectory, source], [canonicalDirectory, canonicalStore]]),
+      () => requestedDirectory,
+    )
+
+    await forkFromMessage("session-a", "message-a", "pi")
+
+    expect(source.getState().session.map((session) => session.id)).toEqual(["session-a"])
+    expect(canonicalStore.getState().session).toEqual([forkedSession(canonicalDirectory)])
+    expect(globalUpsertedSessions).toEqual([forkedSession(canonicalDirectory)])
+    expect(registeredSessionDirectories).toEqual([
+      { sessionID: "session-fork", directory: canonicalDirectory },
+    ])
+  })
+
+  test("preserves the exact server-retained fork after authority changes while decoding the error", async () => {
+    const response = serverResponse({}, 500)
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        switchRuntimeEndpoint({
+          apiBaseUrl: "http://fork-runtime-a-replacement.test",
+          runtimeKey: "fork-runtime-a",
+        })
+        return {
+          error: "backend stamping failed",
+          partial: true,
+          partialAction: "fork-retained",
+          sessionId: "session-retained",
+          directory: "/canonical/retained",
+          recovery: {
+            fork: {
+              confirmed: false,
+              detail: "OpenCode did not confirm deletion of the forked session",
+            },
+          },
+        }
+      },
+    })
+    forkRuntimeFetchImpl = async () => response
+    const { bindSessionOperation } = await import("./session-actions")
+    const operation = bindSessionOperation()
+    let caught: unknown
+    try {
+      await operation.fork("session-a", "message-a", "pi", "/test/project")
+    } catch (error) {
+      caught = error
+    } finally {
+      operation.release()
+      switchRuntimeEndpoint({ apiBaseUrl: "http://fork-runtime-a.test", runtimeKey: "fork-runtime-a" })
+    }
+
+    expect(caught).toBeInstanceOf(RetainedSessionError)
+    if (!(caught instanceof RetainedSessionError)) throw caught
+    expect({
+      sessionID: caught.recovery.sessionID,
+      directory: caught.recovery.directory,
+      runtimeKey: caught.recovery.runtimeKey,
+      outcome: caught.recovery.outcome,
+    }).toEqual({
+      sessionID: "session-retained",
+      directory: "/canonical/retained",
+      runtimeKey: "fork-runtime-a",
+      outcome: {
+        confirmed: false,
+        detail: "OpenCode did not confirm deletion of the forked session",
+      },
+    })
+    expect(caught.recovery.cause.message).toBe("backend stamping failed")
+    expect(caught.recovery.compensationError.message).toBe("OpenCode did not confirm deletion of the forked session")
+  })
+
+  test("preserves a retained fork ID when the server could not determine its directory", async () => {
+    forkRuntimeFetchImpl = async () => serverResponse({
+      error: "forked session did not return an authoritative directory",
+      partial: true,
+      partialAction: "fork-retained",
+      sessionId: "session-retained-without-directory",
+      recovery: {
+        fork: {
+          confirmed: false,
+          detail: "forked session did not return an authoritative directory",
+        },
+      },
+    }, 500)
+    const { bindSessionOperation } = await import("./session-actions")
+    const operation = bindSessionOperation()
+    let caught: unknown
+    try {
+      await operation.fork("session-a", "message-a", "pi", "/test/project")
+    } catch (error) {
+      caught = error
+    } finally {
+      operation.release()
+    }
+
+    expect(caught).toBeInstanceOf(RetainedSessionError)
+    if (!(caught instanceof RetainedSessionError)) throw caught
+    expect(caught.recovery.sessionID).toBe("session-retained-without-directory")
+    expect(caught.recovery.directory).toBeNull()
+    expect(caught.recovery.runtimeKey).toBe("fork-runtime-a")
+  })
+
+  test("returns typed retained recovery when stale-success deletion is unconfirmed", async () => {
+    const response = serverResponse({})
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        activeSdkClient = { ...mockSdk }
+        return { session: forkedSession(), directory: "/test/project" }
+      },
+    })
+    forkRuntimeFetchImpl = async (path) => path.includes("fork-authorized")
+      ? response
+      : serverResponse(false)
+    const { forkSessionWithAuthorization } = await import("./session-actions")
+    let caught: unknown
+    try {
+      await forkSessionWithAuthorization("session-a", "message-a", "pi", "/test/project", "fork-runtime-a")
+    } catch (error) {
+      caught = error
+    } finally {
+      activeSdkClient = mockSdk
+    }
+
+    expect(caught).toBeInstanceOf(RetainedSessionError)
+    if (!(caught instanceof RetainedSessionError)) throw caught
+    expect(caught.recovery.sessionID).toBe("session-fork")
+    expect(caught.recovery.directory).toBe("/test/project")
+    expect(caught.recovery.runtimeKey).toBe("fork-runtime-a")
+    expect(caught.recovery.cause.message).toBe("runtime changed")
+    expect(caught.recovery.compensationError.message).toBe("Failed to confirm removal of the forked session")
+  })
+
+  test("returns typed retained recovery when stale-success deletion throws", async () => {
+    const response = serverResponse({})
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        activeSdkClient = { ...mockSdk }
+        return { session: forkedSession(), directory: "/test/project" }
+      },
+    })
+    forkRuntimeFetchImpl = async (path) => path.includes("fork-authorized")
+      ? response
+      : serverResponse({ error: "bound delete failed" }, 500)
+    const { forkSessionWithAuthorization } = await import("./session-actions")
+    let caught: unknown
+    try {
+      await forkSessionWithAuthorization("session-a", "message-a", "pi", "/test/project", "fork-runtime-a")
+    } catch (error) {
+      caught = error
+    } finally {
+      activeSdkClient = mockSdk
+    }
+
+    expect(caught).toBeInstanceOf(RetainedSessionError)
+    if (!(caught instanceof RetainedSessionError)) throw caught
+    expect(caught.recovery.sessionID).toBe("session-fork")
+    expect(caught.recovery.directory).toBe("/test/project")
+    expect(caught.recovery.compensationError.message).toBe("session.delete failed")
+  })
+
+  test("compensates an unlinked fork when transport switches during response decoding", async () => {
+    const source = createForkSource()
+    const response = serverResponse({})
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        switchRuntimeEndpoint({
+          apiBaseUrl: "http://fork-runtime-a-replacement.test",
+          runtimeKey: "fork-runtime-a",
+        })
+        return { session: forkedSession(), directory: "/test/project" }
+      },
+    })
+    forkRuntimeFetchImpl = async (path) => path.includes("fork-authorized") ? response : serverResponse(true)
+    // Dynamic import preserves the top-level runtimeFetch module mock.
+    const { forkFromMessage, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    try {
+      await expect(forkFromMessage("session-a", "message-a", "pi")).rejects.toThrow("runtime changed")
+    } finally {
+      switchRuntimeEndpoint({ apiBaseUrl: "http://fork-runtime-a.test", runtimeKey: "fork-runtime-a" })
+    }
+
+    expect(source.getState().session.map((session) => session.id)).toEqual(["session-a"])
+    expect(globalUpsertedSessions).toEqual([])
+    expect(registeredSessionDirectories).toEqual([])
+    expect(forkRuntimeFetchCalls.map(({ path, init }) => ({ path, method: init?.method }))).toEqual([
+      { path: "/api/openchamber/sessions/session-a/fork-authorized", method: "POST" },
+      { path: "/api/session/session-fork?directory=%2Ftest%2Fproject", method: "DELETE" },
+    ])
+    expect(replyCalls).toEqual([])
+  })
+
+  test("compensates an unlinked fork when its SDK client changes during response decoding", async () => {
+    const response = serverResponse({})
+    Object.defineProperty(response, "json", {
+      value: async () => {
+        activeSdkClient = { ...mockSdk }
+        return { session: forkedSession(), directory: "/test/project" }
+      },
+    })
+    forkRuntimeFetchImpl = async (path) => path.includes("fork-authorized") ? response : serverResponse(true)
+    // Dynamic import preserves the top-level runtimeFetch module mock.
+    const { forkSessionWithAuthorization } = await import("./session-actions")
+
+    await expect(forkSessionWithAuthorization(
+      "session-a",
+      "message-a",
+      "pi",
+      "/test/project",
+      "fork-runtime-a",
+    )).rejects.toThrow("runtime changed")
+
+    expect(globalUpsertedSessions).toEqual([])
+    expect(registeredSessionDirectories).toEqual([])
+    expect(forkRuntimeFetchCalls.map(({ path, init }) => ({ path, method: init?.method }))).toEqual([
+      { path: "/api/openchamber/sessions/session-a/fork-authorized", method: "POST" },
+      { path: "/api/session/session-fork?directory=%2Ftest%2Fproject", method: "DELETE" },
+    ])
+    expect(replyCalls).toEqual([])
+  })
+
+  test("uses the server fork-capability result without collapsing malformed or failed authority to false", async () => {
+    forkRuntimeFetchImpl = async (path) => {
+      expect(path).toBe("/api/openchamber/sessions/session-a/fork-capability")
+      return serverResponse({ supported: false })
+    }
+    const { getSessionForkCapability } = await import("./session-actions")
+
+    expect(await getSessionForkCapability("session-a", "/test/project", "fork-runtime-a")).toBe(false)
+    expect(JSON.parse(String(forkRuntimeFetchCalls[0]?.init?.body))).toEqual({ directory: "/test/project" })
+
+    forkRuntimeFetchImpl = async () => serverResponse({})
+    await expect(getSessionForkCapability("session-a", "/test/project", "fork-runtime-a"))
+      .rejects.toThrow("Invalid session fork capability response")
+
+    forkRuntimeFetchImpl = async () => serverResponse({ error: "history unavailable" }, 503)
+    await expect(getSessionForkCapability("session-a", "/test/project", "fork-runtime-a"))
+      .rejects.toThrow("history unavailable")
+  })
+
+  test("preserves local state when the server rejects a managed fork", async () => {
+    const source = createForkSource()
+    forkRuntimeFetchImpl = async () => serverResponse({ error: "Managed Pi/OMP sessions cannot be forked" }, 409)
+    const { forkFromMessage, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    await expect(forkFromMessage("session-a", "message-a", "pi")).rejects.toThrow("cannot be forked")
+
+    expect(source.getState().session.map((session) => session.id)).toEqual(["session-a"])
+    expect(globalUpsertedSessions).toEqual([])
+    expect(replyCalls).toEqual([])
+  })
+
+  test("does not publish a server fork response after the runtime changes", async () => {
+    const source = createForkSource()
+    forkRuntimeFetchImpl = async (path) => {
+      if (!path.includes("fork-authorized")) return serverResponse(true)
+      switchRuntimeEndpoint({ apiBaseUrl: "http://fork-runtime-b.test", runtimeKey: "fork-runtime-b" })
+      return serverResponse({ session: forkedSession(), directory: "/test/project" })
+    }
+    const { forkFromMessage, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    try {
+      await expect(forkFromMessage("session-a", "message-a", "pi")).rejects.toThrow("runtime changed")
+    } finally {
+      switchRuntimeEndpoint({ apiBaseUrl: "http://runtime-a.test", runtimeKey: "runtime-a" })
+    }
+
+    expect(source.getState().session.map((session) => session.id)).toEqual(["session-a"])
+    expect(globalUpsertedSessions).toEqual([])
   })
 })
 
@@ -451,6 +969,8 @@ describe("confirmed session removal", () => {
     globalRemovedSessionIds.length = 0
     deletedCleanupIdentities.length = 0
     sessionDeleteError = null
+    sessionDeleteResult = true
+    sessionUpdateError = null
     sessionUpdateResult = {}
     beforeSessionUpdateResolve = null
     beforeSessionDeleteResolve = null

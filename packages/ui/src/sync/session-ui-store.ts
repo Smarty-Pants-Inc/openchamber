@@ -78,6 +78,7 @@ import {
   type DeleteSessionsOptions,
   type UnarchiveSessionsOptions,
 } from "./session-actions"
+import { preflightSessionSend } from "./session-send-preflight"
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSessionGoalArmStore } from "@/stores/useSessionGoalArmStore"
 import { setSessionGoal } from "@/lib/sessionGoalActions"
@@ -128,7 +129,7 @@ export function expandSlashCommandGoalObjective(content: string, commands: GoalC
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export function routeMessage(params: {
+export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -145,14 +146,20 @@ export function routeMessage(params: {
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
   if (params.inputMode === "shell") {
-    return opencodeClient.shellSession({
+    await preflightSessionSend({
+      sessionId: params.sessionId,
+      directory: requestDirectory,
+      providerID: params.providerID,
+    })
+    await opencodeClient.shellSession({
       runtimeKey: params.runtimeKey,
       sessionId: params.sessionId,
       directory: requestDirectory,
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
-    }).then(() => undefined)
+    })
+    return
   }
 
   // Slash commands — fire and forget, SSE delivers messages and status
@@ -183,10 +190,15 @@ export function routeMessage(params: {
         agent: params.agent,
         directory: requestDirectory,
         files: params.files,
-        send: (messageID, optimisticParts) => {
+        send: async (messageID, optimisticParts) => {
           const textPartId = optimisticParts.find((part) => part.type === "text")?.id
           const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-          return opencodeClient.sendCommand({
+          await preflightSessionSend({
+            sessionId: params.sessionId,
+            directory: requestDirectory,
+            providerID: params.providerID,
+          })
+          await opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
             id: params.sessionId,
             providerID: params.providerID,
@@ -201,7 +213,7 @@ export function routeMessage(params: {
             )),
             messageId: messageID,
             directory: requestDirectory,
-          }).then(() => {})
+          })
         },
       })
     }
@@ -217,10 +229,15 @@ export function routeMessage(params: {
     agent: params.agent,
     directory: requestDirectory,
     files: params.files,
-    send: (messageID, optimisticParts) => {
+    send: async (messageID, optimisticParts) => {
       const textPartId = optimisticParts.find((part) => part.type === "text")?.id
       const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-      return opencodeClient.sendMessage({
+      await preflightSessionSend({
+        sessionId: params.sessionId,
+        directory: requestDirectory,
+        providerID: params.providerID,
+      })
+      await opencodeClient.sendMessage({
         runtimeKey: params.runtimeKey,
         id: params.sessionId,
         providerID: params.providerID,
@@ -237,7 +254,7 @@ export function routeMessage(params: {
         delivery: params.delivery,
         messageId: messageID,
         directory: requestDirectory,
-      }).then(() => {})
+      })
     },
   })
 }

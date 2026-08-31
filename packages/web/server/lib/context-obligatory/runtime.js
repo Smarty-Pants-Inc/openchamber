@@ -1,3 +1,5 @@
+import { sessionMetadataMutationRuntime } from '../openchamber-sessions/session-metadata.js';
+
 const FETCH_TIMEOUT_MS = 15_000;
 const MESSAGE_FETCH_LIMIT = 20;
 
@@ -130,24 +132,34 @@ export const createContextObligatoryRuntime = ({
       },
     });
 
-    const fresh = await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory });
-    const freshState = readContextState(fresh);
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+    await sessionMetadataMutationRuntime.mutate({
+      sessionID: sessionId,
       directory,
-      method: 'PATCH',
-      body: {
-        metadata: {
-          ...freshState.metadata,
-          openchamber: {
-            ...freshState.openchamber,
-            context_obligatory_last_compaction_message_id: summary.id,
-            // Recorded together with the cursor: the session now carries this
-            // knowledge again, so the next send must not repeat it.
-            ...(knowledge.signature
-              ? { [sessionKnowledgeRuntime.metadataKey]: knowledge.signature }
-              : {}),
+      readSession: () => openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory }),
+      writeMetadata: async (metadata) => {
+        await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+          directory,
+          method: 'PATCH',
+          body: { metadata },
+        });
+        return { id: sessionId, metadata };
+      },
+      mutateMetadata: (metadata) => {
+        const openchamber = isRecord(metadata.openchamber) ? metadata.openchamber : {};
+        return {
+          metadata: {
+            ...metadata,
+            openchamber: {
+              ...openchamber,
+              context_obligatory_last_compaction_message_id: summary.id,
+              // Recorded together with the cursor: the session now carries this
+              // knowledge again, so the next send must not repeat it.
+              ...(knowledge.signature
+                ? { [sessionKnowledgeRuntime.metadataKey]: knowledge.signature }
+                : {}),
+            },
           },
-        },
+        };
       },
     });
   };
