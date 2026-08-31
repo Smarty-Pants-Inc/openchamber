@@ -23,6 +23,7 @@ other.
   loopback credential.
 - `../openchamber-sessions/routes.js` and `../scheduled-tasks/service.js` own
   their domain operations and are composed into this service.
+- `../openchamber-sessions/session-backend-policy.js` is the canonical Web/VS Code backend-history and send/fork policy. It folds pages without accumulating messages, retaining only the backend class and cursor set. Both adapters map policy conflicts to 409 and malformed or stalled history to 502. Raw SDK transport failures stay adapter-owned: Web preserves a thrown `statusCode` or uses 500, while VS Code preserves an SDK response status or uses 502.
 
 ## Invariants
 

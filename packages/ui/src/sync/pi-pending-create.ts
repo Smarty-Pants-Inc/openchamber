@@ -261,6 +261,39 @@ export type PiCreateDialogReply =
   | { value: string }
   | { cancelled: true; timedOut?: true };
 
+const requestPendingPiCreateDialogReply = (
+  pending: PendingPiCreate,
+  requestID: string,
+  reply: PiCreateDialogReply,
+  request: PiCreateTransportRequest,
+): Promise<Response> => request(
+  `/api/pending-create/${encodeURIComponent(pending.serverPendingCreateID ?? '')}/dialog/${encodeURIComponent(requestID)}`,
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    query: { directory: pending.directory, correlation: pending.correlation },
+    body: JSON.stringify(reply),
+  },
+);
+
+const cancelKnownPendingPiCreateDialogs = (
+  correlation: string,
+  request: PiCreateTransportRequest,
+): void => {
+  const pending = usePiPendingCreateStore.getState().pendingCreates[correlation];
+  if (!pending?.serverPendingCreateID) return;
+
+  const cancellations: Promise<Response>[] = [];
+  for (const requestID of new Set(pending.dialogs.map((dialog) => dialog.id))) {
+    try {
+      cancellations.push(requestPendingPiCreateDialogReply(pending, requestID, { cancelled: true }, request));
+    } catch {
+      // Every known dialog was attempted on the retained transport.
+    }
+  }
+  void Promise.allSettled(cancellations);
+};
+
 /**
  * Sends one reply only to the pending create that supplied the dialog. A scope
  * mismatch is terminal: the gateway has already resolved or discarded it, so
@@ -279,15 +312,7 @@ export const replyToPendingPiCreateDialog = async (
       throw new Error('Pi session creation stopped because the runtime changed');
     }
 
-    const response = await runtimeFetch(
-      `/api/pending-create/${encodeURIComponent(pending.serverPendingCreateID)}/dialog/${encodeURIComponent(requestID)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        query: { directory: pending.directory, correlation: pending.correlation },
-        body: JSON.stringify(reply),
-      },
-    );
+    const response = await requestPendingPiCreateDialogReply(pending, requestID, reply, runtimeFetch);
     if (!response.ok) {
       if (await isTerminalReplyFailure(response)) {
         finishPendingPiCreateDialogReply(correlation, requestID, true);
@@ -436,8 +461,10 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
   registerPendingPiCreate({ runtimeKey, directory: input.directory, correlation });
   const unsubscribeRuntimeChange = subscribeRuntimeEndpointWillChange(() => {
     runtimeChanged = true;
-    // The POST may already have reached Pi. Stop only the dialog lane, then
-    // wait for its response so a returned session ID can be compensated.
+    // The POST may already have reached Pi. Reject every dialog through the
+    // retained old transport before stopping its poll lane, then await the POST
+    // so a returned session ID can be compensated exactly.
+    cancelKnownPendingPiCreateDialogs(correlation, operation.request);
     stopPolling();
   });
 

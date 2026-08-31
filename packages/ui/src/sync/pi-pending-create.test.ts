@@ -342,22 +342,62 @@ describe('Pi pending create dialogs', () => {
     expect(deleteCalls).toEqual([]);
   });
 
-  test('does not abort a create on runtime change and compensates in the returned directory', async () => {
+  test('cancels known dialogs on the old transport without aborting create, then compensates exactly', async () => {
     const createResponse = deferred<Response>();
-    requestImpl = async (input) => {
+    const requestOrder: string[] = [];
+    let pollSignal: AbortSignal | undefined;
+    requestImpl = async (input, init) => {
       if (input === '/api/session') return createResponse.promise;
+      if (input === '/api/pending-create') {
+        const { correlation } = correlationQuerySchema.parse(init?.query);
+        pollSignal = init?.signal ?? undefined;
+        pollSignal?.addEventListener('abort', () => requestOrder.push('poll-abort'), { once: true });
+        return jsonResponse([{
+          pendingCreateID: 'pending-runtime-switch',
+          directory: '/requested/pi',
+          correlation,
+          dialogs: [
+            { type: 'extension_ui_request', id: 'confirm-runtime-switch', method: 'confirm', message: 'Continue?', timeout: 300_000 },
+            { type: 'extension_ui_request', id: 'input-runtime-switch', method: 'input', title: 'Value', timeout: 300_000 },
+          ],
+        }]);
+      }
+      if (input.includes('/api/pending-create/pending-runtime-switch/dialog/')) {
+        requestOrder.push(input.split('/').at(-1) ?? 'unknown-dialog');
+        return jsonResponse({ accepted: true });
+      }
       return jsonResponse([]);
     };
 
     const created = createPiSessionWithPendingDialogs({ directory: '/requested/pi' }, createOperation());
-    await waitForPiFetch('/api/session');
+    await waitForPendingDialog('confirm-runtime-switch');
+    const [pending] = Object.values(usePiPendingCreateStore.getState().pendingCreates);
+    const correlation = pending?.correlation ?? '';
+
     runtimeKey = 'runtime-b';
     runtimeChangeListeners.forEach((listener) => listener());
-    expect(fetchCalls.find((call) => call.input === '/api/session')?.init?.signal).toBe(undefined);
-    createResponse.resolve(jsonResponse({ id: 'ses-pi', directory: '/canonical/pi' }));
 
+    const cancellations = fetchCalls.filter((call) => call.input.includes('/api/pending-create/pending-runtime-switch/dialog/'));
+    expect(cancellations.map((call) => call.input).sort()).toEqual([
+      '/api/pending-create/pending-runtime-switch/dialog/confirm-runtime-switch',
+      '/api/pending-create/pending-runtime-switch/dialog/input-runtime-switch',
+    ]);
+    expect(cancellations.map((call) => call.init?.query)).toEqual([
+      { directory: '/requested/pi', correlation },
+      { directory: '/requested/pi', correlation },
+    ]);
+    expect(cancellations.map((call) => call.init?.body)).toEqual([
+      JSON.stringify({ cancelled: true }),
+      JSON.stringify({ cancelled: true }),
+    ]);
+    expect(requestOrder).toEqual(['confirm-runtime-switch', 'input-runtime-switch', 'poll-abort']);
+    expect(pollSignal?.aborted).toBe(true);
+    expect(fetchCalls.find((call) => call.input === '/api/session')?.init?.signal).toBe(undefined);
+
+    createResponse.resolve(jsonResponse({ id: 'ses-pi', directory: '/canonical/pi' }));
     await expect(created).rejects.toThrow('runtime changed');
     expect(deleteCalls).toEqual([{ sessionID: 'ses-pi', directory: '/canonical/pi' }]);
     expect(usePiPendingCreateStore.getState().pendingCreates).toEqual({});
   });
+
 });

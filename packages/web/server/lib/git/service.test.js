@@ -832,6 +832,7 @@ describe('createWorktree', () => {
         directory: created.path,
         deleteLocalBranch: true,
         expectedBranch: 'feature/composite-cancel',
+        expectedHead: initialHead,
         requireClean: true,
       })).resolves.toBe(true);
     } finally {
@@ -919,6 +920,7 @@ describe('createWorktree', () => {
         directory: createdPath,
         deleteLocalBranch: true,
         expectedBranch: 'feature/post-add-cancel',
+        expectedHead: initialHead,
       });
       createdPath = '';
     } finally {
@@ -1003,6 +1005,7 @@ describe('createWorktree', () => {
         directory: createdPath,
         deleteLocalBranch: true,
         expectedBranch: 'feature/post-add-rev-parse-failure',
+        expectedHead: initialHead,
       });
       createdPath = '';
     } finally {
@@ -1541,6 +1544,62 @@ describe('removeWorktree', () => {
       } else {
         process.env.XDG_DATA_HOME = previousXdgDataHome;
       }
+    }
+  });
+
+  it('retains the worktree, branch, and commit when HEAD advances after the rollback snapshot', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/advanced-rollback',
+        worktreeName: 'advanced-rollback',
+      });
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('ready');
+
+      const cancellation = await cancelWorktreeBootstrap(created.path);
+      expect(cancellation).toMatchObject({
+        safeToRemove: true,
+        currentHead: created.createdHead,
+      });
+
+      fs.writeFileSync(path.join(created.path, 'after-snapshot.txt'), 'keep me\n');
+      runGit(created.path, ['add', 'after-snapshot.txt']);
+      runGit(created.path, ['commit', '-m', 'Advance after rollback snapshot']);
+      const advancedHead = runGit(created.path, ['rev-parse', 'HEAD']).trim();
+      expect(advancedHead).not.toBe(cancellation.currentHead);
+      expect(runGit(created.path, ['status', '--porcelain'])).toBe('');
+
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/advanced-rollback',
+        expectedHead: cancellation.currentHead,
+        requireClean: true,
+      })).rejects.toThrow(`expected ${cancellation.currentHead}`);
+
+      expect(fs.existsSync(created.path)).toBe(true);
+      expect(runGit(created.path, ['rev-parse', 'HEAD']).trim()).toBe(advancedHead);
+      expect(runGit(repo, ['rev-parse', 'refs/heads/feature/advanced-rollback']).trim()).toBe(advancedHead);
+      expect(runGit(repo, ['show', `${advancedHead}:after-snapshot.txt`])).toBe('keep me\n');
+    } finally {
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
     }
   });
 

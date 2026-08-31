@@ -367,6 +367,32 @@ describe('VS Code OpenChamber session bridge', () => {
     }]);
   });
 
+  test('backfills a proven legacy OMP backend before rejecting an incompatible send', async () => {
+    const source: Session = { id: 'source', metadata: {} };
+    let updateCount = 0;
+    const client = createClient({
+      get: async () => ({ data: source }),
+      messages: async () => ({ data: [{ info: { id: 'm-omp', providerID: 'omp' } }] }),
+      update: async (input) => {
+        updateCount += 1;
+        source.metadata = input.metadata;
+        return { data: source };
+      },
+    });
+
+    const response = await invoke(client, '/openchamber/sessions/source/send-preflight', {
+      directory: '/repo',
+      providerID: 'openai',
+    });
+
+    assert.equal(response?.status, 409);
+    assert.deepEqual(decode(response?.bodyText || '{}'), {
+      error: 'Managed Pi/OMP session backend cannot be changed',
+    });
+    assert.equal(updateCount, 1);
+    assert.deepEqual(source.metadata, { openchamber: { agent_backend: 'omp' } });
+  });
+
   test('rejects native and managed history before send preflight can backfill', async () => {
     let updateCount = 0;
     const client = createClient({
@@ -528,6 +554,38 @@ describe('VS Code OpenChamber session bridge', () => {
       error: 'Mixed native/Pi/OMP session backend history cannot be used',
     });
     assert.equal(updateCount, 0);
+    assert.equal(forkCount, 0);
+  });
+
+  test('stops paging as soon as the current history page mixes backend classes', async () => {
+    let historyReads = 0;
+    let forkCount = 0;
+    const client = createClient({
+      messages: async () => {
+        historyReads += 1;
+        return {
+          data: [
+            { info: { id: 'm-native', providerID: 'openai' } },
+            { info: { id: 'm-omp', providerID: 'omp' } },
+          ],
+          response: { headers: new Headers({ 'x-next-cursor': 'must-not-be-read' }) },
+        };
+      },
+      fork: async () => {
+        forkCount += 1;
+        return { data: { id: 'unexpected' } };
+      },
+    });
+
+    const response = await invoke(client, '/openchamber/sessions/source/fork-authorized', {
+      directory: '/repo',
+    });
+
+    assert.equal(response?.status, 409);
+    assert.deepEqual(decode(response?.bodyText || '{}'), {
+      error: 'Mixed native/Pi/OMP session backend history cannot be used',
+    });
+    assert.equal(historyReads, 1);
     assert.equal(forkCount, 0);
   });
 
