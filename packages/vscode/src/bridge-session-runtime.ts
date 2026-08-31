@@ -1,5 +1,17 @@
 import { isDeepStrictEqual } from 'node:util';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
+import {
+  SessionBackendPolicyError,
+  assertForkSourceSession,
+  authorizeManagedBackendStamp,
+  assertSessionForkSourceBackend,
+  authorizeSessionForkTarget,
+  assertSessionSendBackend,
+  foldSessionBackendHistory,
+  resolveSessionForkSource,
+  resolveSessionSend,
+  withAgentBackendMetadata,
+} from '../../web/server/lib/openchamber-sessions/session-backend-policy.js';
 import type { BridgeContext } from './bridge';
 import { waitForApiUrl } from './opencode-ready';
 import { isRecord } from './bridge-runtime-shapes';
@@ -78,6 +90,18 @@ class SessionRouteError extends Error {
   }
 }
 
+// Shared policy failures map identically in Web and VS Code. SDK result errors
+// remain a VS Code transport concern and keep their upstream status or 502.
+export const sessionBackendPolicyStatus = (error: Error): number | null => {
+  if (!(error instanceof SessionBackendPolicyError)) return null;
+  return error.category === 'conflict' ? 409 : 502;
+};
+
+const sessionRouteStatus = (error: Error): number | null => (
+  sessionBackendPolicyStatus(error)
+  ?? (error instanceof SessionRouteError ? error.status : null)
+);
+
 const throwIfAborted = (signal?: AbortSignal): void => {
   if (signal?.aborted) throw new SessionRouteError('Request cancelled', 499);
 };
@@ -102,9 +126,10 @@ const jsonResponse = (status: number, body: unknown): SessionProxyResponse => ({
 });
 
 const errorResponse = (error: unknown): SessionProxyResponse => {
-  const status = error instanceof SessionRouteError ? error.status : 500;
-  const message = error instanceof Error ? error.message : 'Failed to handle OpenChamber session request';
-  const details = error instanceof SessionRouteError ? error.details : undefined;
+  const failure = error instanceof Error ? error : null;
+  const status = failure ? sessionRouteStatus(failure) ?? 500 : 500;
+  const message = failure?.message || 'Failed to handle OpenChamber session request';
+  const details = failure instanceof SessionRouteError ? failure.details : undefined;
   return jsonResponse(status, { error: message, ...(details ?? {}) });
 };
 
@@ -259,69 +284,26 @@ const applyMetadataOperations = (metadata: Record<string, unknown>, operations: 
   return { ...metadata, openchamber: nextNamespace };
 };
 
-const managedBackend = (session: SessionRecord): 'pi' | 'omp' | null => {
-  const value = openChamberRecord(session.metadata).agent_backend;
-  return value === 'pi' || value === 'omp' ? value : null;
-};
-
-const isManagedProvider = (providerId: unknown): providerId is 'pi' | 'omp' => providerId === 'pi' || providerId === 'omp';
-
-const isReviewSession = (session: SessionRecord): boolean => {
-  const metadata = openChamberRecord(session.metadata);
-  return metadata.kind === 'review'
-    && typeof metadata.originalSessionID === 'string'
-    && metadata.originalSessionID.trim().length > 0;
-};
-
-const getAllSessionMessages = async (
+const readSessionBackendHistory = (
   client: SessionClient,
   sessionId: string,
   directory: string,
   signal?: AbortSignal,
-): Promise<SessionMessageRecord[]> => {
-  const records: SessionMessageRecord[] = [];
-  const seenMessageIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let before: string | undefined;
-  for (;;) {
-    throwIfAborted(signal);
-    const response = await client.session.messages(
-      { sessionID: sessionId, directory, limit: 100, before },
-      requestOptions(signal),
-    );
-    throwIfAborted(signal);
-    if (response.error || !Array.isArray(response.data)) {
-      throw new SessionRouteError('Failed to read source session history', response.response?.status || 502);
-    }
-    for (const record of response.data) {
-      const id = record.info?.id;
-      if (id && seenMessageIds.has(id)) continue;
-      if (id) seenMessageIds.add(id);
-      records.push(record);
-    }
-    const nextCursor = response.response?.headers?.get('x-next-cursor')?.trim() || '';
-    if (!nextCursor) return records;
-    if (seenCursors.has(nextCursor)) {
-      throw new SessionRouteError('Source session history pagination made no progress', 502);
-    }
-    seenCursors.add(nextCursor);
-    before = nextCursor;
+) => foldSessionBackendHistory(async (before) => {
+  throwIfAborted(signal);
+  const response = await client.session.messages(
+    { sessionID: sessionId, directory, limit: 100, before },
+    requestOptions(signal),
+  );
+  throwIfAborted(signal);
+  if (response.error) {
+    throw new SessionRouteError('Failed to read source session history', response.response?.status || 502);
   }
-};
-
-const managedBackendFromMessages = (records: SessionMessageRecord[]): 'pi' | 'omp' | null => {
-  let backendClass: 'native' | 'pi' | 'omp' | null = null;
-  for (const record of records) {
-    const providerId = record.info?.model?.providerID || record.info?.providerID;
-    if (!providerId) continue;
-    const currentClass = isManagedProvider(providerId) ? providerId : 'native';
-    if (backendClass && backendClass !== currentClass) {
-      throw new SessionRouteError('Mixed native/Pi/OMP session backend history cannot be used', 409);
-    }
-    backendClass = currentClass;
-  }
-  return backendClass === 'pi' || backendClass === 'omp' ? backendClass : null;
-};
+  return {
+    records: response.data,
+    nextCursor: response.response?.headers?.get('x-next-cursor') ?? null,
+  };
+});
 
 const persistManagedBackend = async (
   client: SessionClient,
@@ -331,18 +313,12 @@ const persistManagedBackend = async (
   signal?: AbortSignal,
 ): Promise<{ session: SessionRecord; backend: 'pi' | 'omp' }> => {
   const mutation = await mutateMetadata(client, sessionId, directory, (metadata, session) => {
-    const existing = managedBackend(session);
-    if (existing && existing !== providerId) {
-      throw new SessionRouteError('Managed Pi/OMP session backend cannot be changed', 409);
-    }
+    const decision = authorizeManagedBackendStamp({ session, providerID: providerId });
     return {
-      metadata: existing
-        ? metadata
-        : {
-            ...metadata,
-            openchamber: { ...openChamberRecord(metadata), agent_backend: providerId },
-          },
-      result: { backend: existing || providerId },
+      metadata: decision.backfillBackend
+        ? withAgentBackendMetadata(metadata, decision.backfillBackend)
+        : metadata,
+      result: { backend: providerId },
     };
   }, signal);
   return { session: mutation.session, backend: mutation.result.backend };
@@ -354,34 +330,17 @@ const authorizeInteractiveSend = async (
   providerId: string,
   signal?: AbortSignal,
 ): Promise<SessionRecord> => {
-  const historyBackend = managedBackendFromMessages(
-    await getAllSessionMessages(client, sessionId, directory, signal),
-  );
+  const historyBackendClass = await readSessionBackendHistory(client, sessionId, directory, signal);
   const mutation = await mutateMetadata(client, sessionId, directory, (metadata, session) => {
-    const existingBackend = managedBackend(session);
-    if (historyBackend && existingBackend && historyBackend !== existingBackend) {
-      throw new SessionRouteError('Managed Pi/OMP session backend cannot be changed', 409);
-    }
+    const decision = resolveSessionSend({ session, historyBackendClass });
     return {
-      metadata: historyBackend && !existingBackend
-        ? {
-            ...metadata,
-            openchamber: { ...openChamberRecord(metadata), agent_backend: historyBackend },
-          }
+      metadata: decision.backfillBackend
+        ? withAgentBackendMetadata(metadata, decision.backfillBackend)
         : metadata,
-      result: { backend: existingBackend || historyBackend },
+      result: decision,
     };
   }, signal);
-  const backend = mutation.result.backend;
-  if (!backend && isManagedProvider(providerId)) {
-    throw new SessionRouteError(
-      'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
-      409,
-    );
-  }
-  if (backend && backend !== providerId) {
-    throw new SessionRouteError('Managed Pi/OMP session backend cannot be changed', 409);
-  }
+  assertSessionSendBackend({ backend: mutation.result.backend, providerID: providerId });
   return mutation.session;
 };
 
@@ -395,51 +354,23 @@ const authorizeForkSource = async (
   signal?: AbortSignal,
 ): Promise<ForkSource> => {
   const source = await readSession(client, sessionId, directory, 'read source session backend metadata', signal);
-  if (isReviewSession(source)) {
-    throw new SessionRouteError('Review sessions cannot be forked', 409);
-  }
+  assertForkSourceSession(source);
 
-  const historyBackend = managedBackendFromMessages(
-    await getAllSessionMessages(client, sessionId, directory, signal),
-  );
+  const historyBackendClass = await readSessionBackendHistory(client, sessionId, directory, signal);
   const mutation = await mutateMetadata(client, sessionId, directory, (metadata, current) => {
-    if (isReviewSession(current)) {
-      throw new SessionRouteError('Review sessions cannot be forked', 409);
-    }
-    const existingBackend = managedBackend(current);
-    if (historyBackend && existingBackend && historyBackend !== existingBackend) {
-      throw new SessionRouteError('Managed Pi/OMP session backend cannot be changed', 409);
-    }
+    const decision = resolveSessionForkSource({ session: current, historyBackendClass });
     return {
-      metadata: historyBackend && !existingBackend
-        ? {
-            ...metadata,
-            openchamber: { ...openChamberRecord(metadata), agent_backend: historyBackend },
-          }
+      metadata: decision.backfillBackend
+        ? withAgentBackendMetadata(metadata, decision.backfillBackend)
         : metadata,
-      result: { backend: existingBackend || historyBackend },
+      result: decision,
     };
   }, signal);
-  const backend = mutation.result.backend;
-  if (backend === 'pi') {
-    throw new SessionRouteError('Pi sessions cannot be forked', 409);
-  }
+  assertSessionForkSourceBackend(mutation.result.backend);
   throwIfAborted(signal);
-  return { backend };
+  return { backend: mutation.result.backend === 'omp' ? 'omp' : null };
 };
 
-const validateForkTarget = (sourceBackend: 'omp' | null, providerId: string | undefined): void => {
-  if (providerId === 'pi') {
-    throw new SessionRouteError(
-      'Pi sessions cannot be created by forking because startup dialogs require an interactive client',
-      409,
-    );
-  }
-  if ((sourceBackend === 'omp' && providerId !== undefined && providerId !== 'omp')
-    || (sourceBackend === null && providerId === 'omp')) {
-    throw new SessionRouteError('Session backend cannot be changed by forking', 409);
-  }
-};
 
 const stampForkedSessionBackend = async (
   client: SessionClient,
@@ -504,17 +435,20 @@ const forkRetainedError = (
   sessionId: string,
   directory: string | null,
   cleanup: ForkCleanupResult,
-): SessionRouteError => new SessionRouteError(
-  error instanceof Error ? error.message : 'Failed to fork session',
-  error instanceof SessionRouteError ? error.status : 500,
-  {
-    partial: true,
-    partialAction: 'fork-retained',
-    sessionId,
-    ...(directory ? { directory } : {}),
-    recovery: { fork: cleanup },
-  },
-);
+): SessionRouteError => {
+  const failure = error instanceof Error ? error : new Error('Failed to fork session');
+  return new SessionRouteError(
+    failure.message,
+    sessionRouteStatus(failure) ?? 500,
+    {
+      partial: true,
+      partialAction: 'fork-retained',
+      sessionId,
+      ...(directory ? { directory } : {}),
+      recovery: { fork: cleanup },
+    },
+  );
+};
 
 const parseRequestBody = (bodyBase64: string | undefined): Record<string, unknown> => {
   if (!bodyBase64) return {};
@@ -634,7 +568,7 @@ export const tryHandleOpenChamberSessionProxy = async (
         );
         return jsonResponse(200, { supported: true });
       } catch (error) {
-        if (error instanceof SessionRouteError && error.status === 409) {
+        if (error instanceof Error && sessionRouteStatus(error) === 409) {
           return jsonResponse(200, { supported: false });
         }
         throw error;
@@ -646,7 +580,7 @@ export const tryHandleOpenChamberSessionProxy = async (
     let forkDirectory: string | null = null;
     const forked = await withSessionLock(lockKey, async () => {
       const source = await authorizeForkSource(client, route.sessionId, directory, signal);
-      validateForkTarget(source.backend, providerId);
+      authorizeSessionForkTarget({ sourceBackend: source.backend, targetProviderID: providerId });
       throwIfAborted(signal);
 
       let session: SessionRecord | null = null;

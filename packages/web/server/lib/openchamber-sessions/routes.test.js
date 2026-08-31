@@ -627,6 +627,7 @@ describe('openchamber session routes', () => {
         directory: '/repo/worktrees/side-task',
         deleteLocalBranch: true,
         expectedBranch: 'openchamber/side-task',
+        expectedHead: 'abc123',
         requireClean: true,
       });
       expect(cancelWorktreeBootstrapMock).toHaveBeenCalledWith('/repo/worktrees/side-task', 5_000);
@@ -1188,6 +1189,31 @@ describe('openchamber session routes', () => {
     }
   });
 
+  it('stops paging as soon as the current history page mixes backend classes', async () => {
+    const originalFetch = globalThis.fetch;
+    sessionMessagesMock.mockResolvedValue({
+      data: [
+        { info: { id: 'recent-openai', role: 'assistant', model: { providerID: 'openai' } } },
+        { info: { id: 'recent-omp', role: 'assistant', model: { providerID: 'omp' } } },
+      ],
+      response: { headers: new Headers({ 'x-next-cursor': 'must-not-be-read' }) },
+    });
+    globalThis.fetch = vi.fn(async (url) => selectionInputResponse(url) || { ok: true, text: async () => '' });
+    try {
+      const { app } = createApp();
+      await request(app)
+        .post('/api/openchamber/sessions/ses_source/fork')
+        .send({ directory: '/repo/app', prompt: 'Try another branch', model: 'openai/gpt-5.5', agent: 'build' })
+        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+
+      expect(sessionMessagesMock).toHaveBeenCalledOnce();
+      expect(sessionUpdateMock).not.toHaveBeenCalled();
+      expect(sessionForkMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('fails closed when a later source-history page cannot be read', async () => {
     const originalFetch = globalThis.fetch;
     sessionMessagesMock.mockImplementation(async ({ before }) => {
@@ -1388,6 +1414,23 @@ describe('openchamber session routes', () => {
       .post('/api/openchamber/sessions/ses_source/send-preflight')
       .send({ directory: '/repo/app', providerID: 'omp' })
       .expect(200, { authorized: true });
+
+    expect(sessionUpdateMock).toHaveBeenCalledWith({
+      sessionID: 'ses_source',
+      directory: '/repo/app',
+      metadata: { openchamber: { agent_backend: 'omp' } },
+    });
+  });
+
+  it('backfills a proven legacy OMP backend before rejecting an incompatible send', async () => {
+    setSessionMessages([{
+      info: { id: 'legacy-omp', role: 'assistant', model: { providerID: 'omp' } },
+    }]);
+    const { app } = createApp();
+    await request(app)
+      .post('/api/openchamber/sessions/ses_source/send-preflight')
+      .send({ directory: '/repo/app', providerID: 'openai' })
+      .expect(409, { error: 'Managed Pi/OMP session backend cannot be changed' });
 
     expect(sessionUpdateMock).toHaveBeenCalledWith({
       sessionID: 'ses_source',
@@ -1624,6 +1667,7 @@ describe('openchamber session routes', () => {
         directory: '/repo/worktrees/side-task',
         deleteLocalBranch: true,
         expectedBranch: 'openchamber/side-task',
+        expectedHead: 'abc123',
         requireClean: true,
       });
       expect(fetchMock.mock.calls.some(([url]) => String(url) === 'http://opencode.test/session?directory=%2Frepo%2Fworktrees%2Fside-task')).toBe(false);
@@ -1656,6 +1700,7 @@ describe('openchamber session routes', () => {
       directory: '/repo/worktrees/side-task',
       deleteLocalBranch: true,
       expectedBranch: 'openchamber/side-task',
+      expectedHead: 'abc123',
       requireClean: true,
     });
   });
@@ -1910,6 +1955,52 @@ describe('openchamber session routes', () => {
         },
       });
       expect(removeWorktreeMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns structured recovery when HEAD advances after the cancellation snapshot', async () => {
+    const originalFetch = globalThis.fetch;
+    removeWorktreeMock.mockRejectedValueOnce(
+      new Error('Refusing to remove worktree at HEAD def456; expected abc123'),
+    );
+    globalThis.fetch = vi.fn(async (url) => selectionInputResponse(url) || { ok: true, json: async () => createdSessionResponse(url) });
+
+    try {
+      const { app } = createApp();
+      const response = await request(app)
+        .post('/api/openchamber/sessions')
+        .send({
+          directory: '/repo/app',
+          prompt: 'Run this',
+          agent: 'not-an-agent',
+          worktree: { name: 'side-task' },
+        })
+        .expect(500);
+
+      expect(response.body).toMatchObject({
+        partial: true,
+        partialAction: 'worktree-retained',
+        directory: '/repo/worktrees/side-task',
+        worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+        recovery: {
+          expectedBranch: 'openchamber/side-task',
+          expectedHead: 'abc123',
+          bootstrap: {
+            safeToRemove: true,
+            createdHead: 'abc123',
+            currentHead: 'abc123',
+          },
+        },
+      });
+      expect(removeWorktreeMock).toHaveBeenCalledWith('/repo/app', {
+        directory: '/repo/worktrees/side-task',
+        deleteLocalBranch: true,
+        expectedBranch: 'openchamber/side-task',
+        expectedHead: 'abc123',
+        requireClean: true,
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

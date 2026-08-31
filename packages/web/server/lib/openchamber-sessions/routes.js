@@ -5,6 +5,19 @@ import { expandSnippets } from '../opencode/snippets.js';
 import { expandCommandGoalObjective, parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
 import { OpenChamberControlError, asControlError } from '../openchamber-control/error.js';
+import {
+  SessionBackendPolicyError,
+  assertForkSourceSession,
+  authorizeManagedBackendStamp,
+  assertSessionForkSourceBackend,
+  authorizeSessionForkTarget,
+  assertSessionSendBackend,
+  foldSessionBackendHistory,
+  resolveSessionForkSource,
+  resolveSessionSend,
+  isManagedBackendProviderID,
+  withAgentBackendMetadata,
+} from './session-backend-policy.js';
 import { sessionMetadataMutationRuntime } from './session-metadata.js';
 
 const asNonEmptyString = (value) => {
@@ -40,26 +53,18 @@ const MAX_GOAL_TOKEN_BUDGET = 100_000_000;
 const SESSION_CLEANUP_TIMEOUT_MS = 5_000;
 const sessionOperationLocks = new Map();
 
-const isManagedBackendProviderID = (providerID) => providerID === 'omp' || providerID === 'pi';
 const createInteractivePiRequiredError = () => new OpenChamberControlError(
   'Pi session creation requires an interactive client to own startup dialogs',
   409,
 );
 
-const requireForkBackendCompatibility = (sourceBackend, targetProviderID) => {
-  if (targetProviderID === 'pi') {
-    throw new OpenChamberControlError(
-      'Pi sessions cannot be created by forking because startup dialogs require an interactive client',
-      409,
-    );
-  }
-  if (sourceBackend === 'omp' && targetProviderID && targetProviderID !== 'omp') {
-    throw new OpenChamberControlError('Session backend cannot be changed by forking', 409);
-  }
-  if (!sourceBackend && targetProviderID === 'omp') {
-    throw new OpenChamberControlError('Session backend cannot be changed by forking', 409);
-  }
+// Policy conflicts and structurally incomplete history have the same HTTP
+// meaning in Web and VS Code. SDK transport failures remain adapter-owned.
+export const sessionBackendPolicyStatus = (error) => {
+  if (!(error instanceof SessionBackendPolicyError)) return null;
+  return error.category === 'conflict' ? 409 : 502;
 };
+
 
 const createRequestCancelledError = () => new OpenChamberControlError('Request cancelled', 499);
 
@@ -262,41 +267,6 @@ const runPromptAsync = async ({ baseUrl, authHeaders, sessionID, directory, payl
   }
 };
 
-const withAgentBackendMetadata = (metadata, providerID) => {
-  if (!isManagedBackendProviderID(providerID)) return metadata;
-  const source = metadata ?? {};
-  const openchamber = source.openchamber && typeof source.openchamber === 'object' && !Array.isArray(source.openchamber)
-    ? source.openchamber
-    : {};
-  const existingBackend = openchamber.agent_backend;
-  return {
-    ...source,
-    openchamber: {
-      ...openchamber,
-      agent_backend: isManagedBackendProviderID(existingBackend) ? existingBackend : providerID,
-    },
-  };
-};
-
-const getAgentBackendProviderID = (session) => {
-  const value = session?.metadata?.openchamber?.agent_backend;
-  return value === 'omp' || value === 'pi' ? value : null;
-};
-
-const getAgentBackendProviderIDFromMessages = (records) => {
-  const backendClasses = new Set();
-  for (const record of records) {
-    const info = record?.info;
-    const providerID = asNonEmptyString(info?.model?.providerID || info?.providerID);
-    if (!providerID) continue;
-    backendClasses.add(isManagedBackendProviderID(providerID) ? providerID : 'native');
-  }
-  if (backendClasses.size > 1) {
-    throw new OpenChamberControlError('Mixed native/Pi/OMP session backend history cannot be used', 409);
-  }
-  const backendClass = backendClasses.values().next().value || null;
-  return isManagedBackendProviderID(backendClass) ? backendClass : null;
-};
 
 const getReviewSessionID = (session) => asNonEmptyString(session?.metadata?.openchamber?.reviewSessionID);
 
@@ -314,8 +284,6 @@ const replaceReviewSessionLinkMetadata = (metadata, replacementReviewSessionID) 
   return { ...source, openchamber: nextOpenChamber };
 };
 
-const isReviewSession = (session) => session?.metadata?.openchamber?.kind === 'review'
-  && Boolean(asNonEmptyString(session?.metadata?.openchamber?.originalSessionID));
 
 const requestSessionMessages = async ({ client, sessionID, directory, limit, before, signal }) => {
   throwIfAborted(signal);
@@ -327,28 +295,15 @@ const requestSessionMessages = async ({ client, sessionID, directory, limit, bef
   return response;
 };
 
-const getAllSessionMessages = async ({ client, sessionID, directory, signal }) => {
-  const records = [];
-  const seenMessageIDs = new Set();
-  const seenCursors = new Set();
-  let before;
-  for (;;) {
+const readSessionBackendHistory = ({ client, sessionID, directory, signal }) => (
+  foldSessionBackendHistory(async (before) => {
     const response = await requestSessionMessages({ client, sessionID, directory, limit: 100, before, signal });
-    const page = response?.data;
-    if (!Array.isArray(page)) throw new Error('failed to read source session history');
-    for (const record of page) {
-      const id = record?.info?.id;
-      if (id && seenMessageIDs.has(id)) continue;
-      if (id) seenMessageIDs.add(id);
-      records.push(record);
-    }
-    const nextCursor = response?.response?.headers?.get('x-next-cursor')?.trim() || '';
-    if (!nextCursor) return records;
-    if (seenCursors.has(nextCursor)) throw new Error('source session history pagination made no progress');
-    seenCursors.add(nextCursor);
-    before = nextCursor;
-  }
-};
+    return {
+      records: response?.data,
+      nextCursor: response?.response?.headers?.get('x-next-cursor') ?? null,
+    };
+  })
+);
 
 const requireSession = (response, operation) => {
   if (response?.data?.id) return response.data;
@@ -423,13 +378,12 @@ const persistManagedBackend = async ({ client, sessionID, directory, providerID,
     directory,
     signal,
     mutateMetadata: (metadata, session) => {
-      const existingBackend = getAgentBackendProviderID(session);
-      if (existingBackend && existingBackend !== providerID) {
-        throw new OpenChamberControlError('Managed Pi/OMP session backend cannot be changed', 409);
-      }
+      const decision = authorizeManagedBackendStamp({ session, providerID });
       return {
-        metadata: existingBackend ? metadata : withAgentBackendMetadata(metadata, providerID),
-        result: { backend: existingBackend || providerID },
+        metadata: decision.backfillBackend
+          ? withAgentBackendMetadata(metadata, decision.backfillBackend)
+          : metadata,
+        result: { backend: decision.backend },
       };
     },
   });
@@ -443,70 +397,46 @@ const authorizeForkSource = async ({ client, sessionID, directory, signal }) => 
     signal,
     operation: 'read source session backend metadata',
   });
-  if (isReviewSession(sourceSession)) {
-    throw new OpenChamberControlError('Review sessions cannot be forked', 409);
-  }
+  assertForkSourceSession(sourceSession);
 
-  const legacyBackend = getAgentBackendProviderIDFromMessages(
-    await getAllSessionMessages({ client, sessionID, directory, signal }),
-  );
+  const historyBackendClass = await readSessionBackendHistory({ client, sessionID, directory, signal });
   const mutation = await mutateSessionMetadata({
     client,
     sessionID,
     directory,
     signal,
     mutateMetadata: (metadata, session) => {
-      if (isReviewSession(session)) {
-        throw new OpenChamberControlError('Review sessions cannot be forked', 409);
-      }
-      const existingBackend = getAgentBackendProviderID(session);
-      if (legacyBackend && existingBackend && legacyBackend !== existingBackend) {
-        throw new OpenChamberControlError('Managed Pi/OMP session backend cannot be changed', 409);
-      }
+      const decision = resolveSessionForkSource({ session, historyBackendClass });
       return {
-        metadata: legacyBackend && !existingBackend
-          ? withAgentBackendMetadata(metadata, legacyBackend)
+        metadata: decision.backfillBackend
+          ? withAgentBackendMetadata(metadata, decision.backfillBackend)
           : metadata,
-        result: { backend: existingBackend || legacyBackend },
+        result: { backend: decision.backend },
       };
     },
   });
-  const backend = mutation.result?.backend || null;
-  if (backend === 'pi') {
-    throw new OpenChamberControlError('Pi sessions cannot be forked', 409);
-  }
-  return { session: mutation.session, backend };
+  assertSessionForkSourceBackend(mutation.result.backend);
+  return { session: mutation.session, backend: mutation.result.backend };
 };
 
 const stampManagedBackendForPrompt = async ({ client, sessionID, directory, providerID, signal }) => {
-  const legacyBackend = getAgentBackendProviderIDFromMessages(
-    await getAllSessionMessages({ client, sessionID, directory, signal }),
-  );
+  const historyBackendClass = await readSessionBackendHistory({ client, sessionID, directory, signal });
   const mutation = await mutateSessionMetadata({
     client,
     sessionID,
     directory,
     signal,
     mutateMetadata: (metadata, session) => {
-      const existingBackend = getAgentBackendProviderID(session);
-      if (legacyBackend && existingBackend && legacyBackend !== existingBackend) {
-        throw new OpenChamberControlError('Managed Pi/OMP session backend cannot be changed', 409);
-      }
+      const decision = resolveSessionSend({ session, historyBackendClass });
       return {
-        metadata: legacyBackend && !existingBackend
-          ? withAgentBackendMetadata(metadata, legacyBackend)
+        metadata: decision.backfillBackend
+          ? withAgentBackendMetadata(metadata, decision.backfillBackend)
           : metadata,
-        result: { backend: existingBackend || legacyBackend },
+        result: decision,
       };
     },
   });
-  const backend = mutation.result?.backend || null;
-  if (!backend && isManagedBackendProviderID(providerID)) {
-    throw new OpenChamberControlError('Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt', 409);
-  }
-  if (backend && backend !== providerID) {
-    throw new OpenChamberControlError('Managed Pi/OMP session backend cannot be changed', 409);
-  }
+  assertSessionSendBackend({ backend: mutation.result.backend, providerID });
   return mutation.session;
 };
 
@@ -1096,15 +1026,16 @@ export const createOpenChamberSessionService = (dependencies) => {
         description: 'new session',
       });
     };
-    const removeCreatedWorktree = () => {
+    const removeCreatedWorktree = (expectedHead) => {
       const expectedBranch = asNonEmptyString(worktree?.branch);
-      if (!expectedBranch || !worktreeDirectory) {
-        throw new Error('Refusing to remove worktree without its created branch and path');
+      if (!expectedBranch || !expectedHead || !worktreeDirectory) {
+        throw new Error('Refusing to remove worktree without its created branch, HEAD, and path');
       }
       return removeWorktree(resolvedDirectory.directory, {
         directory: worktreeDirectory,
         deleteLocalBranch: true,
         expectedBranch,
+        expectedHead,
         requireClean: true,
       });
     };
@@ -1156,7 +1087,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         );
       }
       try {
-        await removeCreatedWorktree();
+        await removeCreatedWorktree(expectedHead);
       } catch (cleanupError) {
         const detail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
         throw recoveryError(
@@ -1399,7 +1330,10 @@ export const createOpenChamberSessionService = (dependencies) => {
             directory: sourceDirectory,
             signal,
           });
-          requireForkBackendCompatibility(authorization.backend, resolvedSelection.model.providerID);
+          authorizeSessionForkTarget({
+            sourceBackend: authorization.backend,
+            targetProviderID: resolvedSelection.model.providerID,
+          });
           throwIfAborted(signal);
           targetSession = await forkSession({
             client,
@@ -1491,7 +1425,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       }
       return result;
     } catch (error) {
-      const statusCode = Number(error?.statusCode) || 500;
+      const statusCode = sessionBackendPolicyStatus(error) || Number(error?.statusCode) || 500;
       const forkCreated = action === 'fork' && targetSessionID !== sourceSessionID;
       const forkCleanup = forkCreated && !forkPromptStarted
         ? await compensateFork()
@@ -1549,7 +1483,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       });
       return { supported: true };
     } catch (error) {
-      if (Number(error?.statusCode) === 409) return { supported: false };
+      if ((sessionBackendPolicyStatus(error) || Number(error?.statusCode)) === 409) return { supported: false };
       throw error;
     }
   };
@@ -1570,7 +1504,7 @@ export const createOpenChamberSessionService = (dependencies) => {
           directory: sourceDirectory,
           signal,
         });
-        requireForkBackendCompatibility(authorization.backend, providerID);
+        authorizeSessionForkTarget({ sourceBackend: authorization.backend, targetProviderID: providerID });
         throwIfAborted(signal);
         forked = await forkSession({
           client,
@@ -1610,7 +1544,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       if (cleanup.confirmed) throw error;
       throw new OpenChamberControlError(
         error instanceof Error ? error.message : 'Failed to authorize fork session',
-        Number(error?.statusCode) || 500,
+        sessionBackendPolicyStatus(error) || Number(error?.statusCode) || 500,
         {
           partial: true,
           partialAction: 'fork-retained',
@@ -1691,7 +1625,7 @@ export const createOpenChamberSessionService = (dependencies) => {
 };
 
 const sendServiceError = (res, error, fallback) => {
-  const controlError = asControlError(error, fallback);
+  const controlError = asControlError(error, fallback, sessionBackendPolicyStatus(error) || 500);
   return res.status(controlError.statusCode).json({
     error: controlError.message,
     ...(controlError.partial === true ? {

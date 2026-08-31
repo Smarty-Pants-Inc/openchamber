@@ -4590,6 +4590,11 @@ export async function removeWorktree(directory, input = {}) {
   const context = await resolveWorktreeProjectContext(directory);
   const deleteLocalBranch = input?.deleteLocalBranch === true;
   const expectedBranch = cleanBranchName(String(input?.expectedBranch || '').trim());
+  const expectedHeadInput = String(input?.expectedHead || '').trim();
+  const expectedHead = normalizeFullGitCommitHash(expectedHeadInput);
+  if (expectedHeadInput && !expectedHead) {
+    throw new Error('Expected worktree HEAD must be a full commit hash');
+  }
   const requireClean = input?.requireClean === true;
 
   const targetCanonical = await canonicalPath(targetDirectory);
@@ -4638,6 +4643,18 @@ export async function removeWorktree(directory, input = {}) {
     throw new Error('Refusing to force-remove dirty worktree');
   }
 
+  const branchName = expectedBranch || attachedBranch;
+  let removalHead = '';
+  if (expectedHead || (deleteLocalBranch && branchName)) {
+    removalHead = await getWorktreeHead(matchedEntry.worktree);
+    if (!removalHead) {
+      throw new Error('Refusing to remove worktree without verifying its current HEAD');
+    }
+    if (expectedHead && removalHead.toLowerCase() !== expectedHead.toLowerCase()) {
+      throw new Error(`Refusing to remove worktree at HEAD ${removalHead}; expected ${expectedHead}`);
+    }
+  }
+
   const worktreeRemoveArgs = ['worktree', 'remove'];
   if (!requireClean) {
     worktreeRemoveArgs.push('--force');
@@ -4649,15 +4666,12 @@ export async function removeWorktree(directory, input = {}) {
     'Failed to remove git worktree'
   );
 
-  if (deleteLocalBranch) {
-    const branchName = expectedBranch || attachedBranch;
-    if (branchName) {
-      await runGitCommandOrThrow(
-        context.primaryWorktree,
-        ['branch', '-D', branchName],
-        `Failed to delete local branch ${branchName}`
-      );
-    }
+  if (deleteLocalBranch && branchName) {
+    await runGitCommandOrThrow(
+      context.primaryWorktree,
+      ['update-ref', '-d', `refs/heads/${branchName}`, expectedHead || removalHead],
+      `Failed to delete local branch ${branchName}`
+    );
   }
 
   clearWorktreeBootstrapState(matchedEntry.worktree);

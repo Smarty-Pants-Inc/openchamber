@@ -34,7 +34,7 @@ mock.module('@/lib/magicPrompts', () => ({
 }));
 
 // Keep real exports available to transitive sync imports while this test swaps
-// only the transport-bound methods consumed by reviewFlow.
+// only the transport-bound methods consumed by the review flow modules.
 const actualSessionActions = await import('@/sync/session-actions');
 
 type ReviewOptimisticSendInput = Parameters<typeof actualSessionActions.optimisticSend>[0];
@@ -80,11 +80,9 @@ mock.module('@/sync/session-actions', () => ({
   waitForConnectionOrThrow: async () => undefined,
 }));
 
-// Dynamic import follows the runtimeFetch module mock above.
+// Dynamic imports follow the transport mocks above.
 const {
   assertAutoReviewRuntimeStillCurrent,
-  createOrReuseReviewSession,
-  ReviewSessionRetainedError,
   claimAutoReviewForward,
   releaseAutoReviewForward,
   hasFinalReviewMarker,
@@ -94,6 +92,10 @@ const {
   sendReviewFeedbackToOriginal,
   stripFinalReviewMarker,
 } = await import('./reviewFlow');
+const {
+  createOrReuseReviewSession,
+  ReviewSessionRetainedError,
+} = await import('./reviewSessionLifecycle');
 
 describe('reviewFlow auto-review helpers', () => {
   beforeEach(() => {
@@ -284,6 +286,7 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
   const deleteCalls: Array<{ sessionID: string; directory?: string | null }> = [];
   let nextReviewNumber = 0;
   let transportCurrent = true;
+  let released = false;
 
   const get = async (sessionID: string, directory?: string | null): Promise<Session> => {
     getCalls.push({ sessionID, directory });
@@ -361,7 +364,9 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
     assertCurrent: () => {
       if (!transportCurrent) throw new Error('runtime changed');
     },
-    release: () => undefined,
+    release: () => {
+      released = true;
+    },
   });
   opencodeClient.createSession = mock(async (): Promise<Session> => {
     throw new Error('review transaction used the mutable global client');
@@ -403,7 +408,7 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
       headers: { 'Content-Type': 'application/json' },
     });
   };
-  return { sessions, events, createCalls, getCalls, deleteCalls };
+  return { sessions, events, createCalls, getCalls, deleteCalls, isReleased: () => released };
 };
 
 const captureFailure = async (promise: Promise<unknown>): Promise<Error | null> => {
@@ -415,7 +420,7 @@ const captureFailure = async (promise: Promise<unknown>): Promise<Error | null> 
   }
 };
 
-describe('reviewFlow review-session replacement transaction', () => {
+describe('reviewSessionLifecycle replacement transaction', () => {
   test('uses the bound create and each session authoritative directory', async () => {
     const { sessions, events, createCalls, getCalls, deleteCalls } = installReviewTransactionClient({
       originalDirectory: '/canonical/original',
@@ -703,6 +708,27 @@ describe('reviewFlow linked counterpart routing', () => {
     expect(optimisticSendCalls.map(({ sessionId, directory }) => ({ sessionId, directory }))).toEqual([
       { sessionId: 'review-old', directory: '/canonical/review' },
     ]);
+  });
+
+  test('keeps the bound review operation until the implementation response is dispatched', async () => {
+    const transaction = installReviewTransactionClient({ existingBackend: 'pi' });
+    let releasedDuringSend: boolean | null = null;
+    optimisticSendImpl = async (input) => {
+      releasedDuringSend = transaction.isReleased();
+      optimisticSendCalls.push(input);
+      input.onMessageID?.('message-sent');
+    };
+
+    await sendImplementationResponseToReviewer(
+      'original-transaction',
+      '/workspace',
+      'implemented',
+      true,
+      'runtime-a',
+    );
+
+    expect(releasedDuringSend).toBe(false);
+    expect(transaction.isReleased()).toBe(true);
   });
 
   test('does not probe the original current directory when the linked review directory is unavailable', async () => {

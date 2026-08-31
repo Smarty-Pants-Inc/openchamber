@@ -15,6 +15,10 @@ const sessionCreateCalls: unknown[][] = [];
 const boundCreateCalls: unknown[][] = [];
 let boundReleaseCount = 0;
 const runtimeFetchCalls: Array<{ input: string; init?: RuntimeFetchOptions }> = [];
+let boundCreateImpl: (...args: unknown[]) => Promise<{ id: string; directory: string }> = async () => ({
+  id: 'ses_pi',
+  directory: '/canonical/pi',
+});
 
 const sessionCreateMock = mock(async (...args: unknown[]) => {
   sessionCreateCalls.push(args);
@@ -98,7 +102,7 @@ mock.module('@/sync/session-actions', () => ({
     runtimeKey,
     create: async (...args: unknown[]) => {
       boundCreateCalls.push(args);
-      return { id: 'ses_pi', directory: '/canonical/pi' };
+      return boundCreateImpl(...args);
     },
     assertCurrent: () => {
       if (runtimeKey !== 'test-runtime') throw new Error('runtime changed');
@@ -120,6 +124,7 @@ beforeEach(() => {
   boundCreateCalls.length = 0;
   boundReleaseCount = 0;
   runtimeFetchCalls.length = 0;
+  boundCreateImpl = async () => ({ id: 'ses_pi', directory: '/canonical/pi' });
 });
 
 describe('opencodeClient directory availability', () => {
@@ -175,6 +180,20 @@ describe('opencodeClient session metadata', () => {
     });
   });
 });
+
+test('releases the bound transport when Pi creation fails during a runtime switch', async () => {
+  boundCreateImpl = async () => {
+    runtimeKey = 'runtime-b';
+    throw new Error('Pi session creation stopped because the runtime changed');
+  };
+
+  await expect(opencodeClient.createSession({ providerID: 'pi' }, '/workspace/pi')).rejects.toThrow(
+    'Pi session creation stopped because the runtime changed',
+  );
+  expect(boundCreateCalls).toHaveLength(1);
+  expect(boundReleaseCount).toBe(1);
+});
+
 
 describe('opencodeClient getConfig cache', () => {
   test('cleared stale in-flight requests do not repopulate cache or delete newer in-flight requests', async () => {
