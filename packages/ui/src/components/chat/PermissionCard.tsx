@@ -47,6 +47,8 @@ const PERMISSION_JSON_CUSTOM_STYLE: React.CSSProperties = {
 
 interface PermissionCardProps {
   permission: PermissionRequest;
+  /** Overrides the normal session endpoint for a scoped startup dialog. */
+  onRespond?: (response: PermissionResponse) => Promise<void>;
   onResponse?: (response: 'once' | 'always' | 'reject') => void;
 }
 
@@ -102,7 +104,8 @@ const getToolDisplayName = (toolName: string): string => {
 
 export const PermissionCard: React.FC<PermissionCardProps> = ({
   permission,
-  onResponse
+  onRespond,
+  onResponse,
 }) => {
   const { t } = useI18n();
   const [isResponding, setIsResponding] = React.useState(false);
@@ -121,9 +124,11 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
     if (response === 'always' && !canAlwaysAllow) return;
 
     setIsResponding(true);
-
     try {
-      await respondToPermission(permission.sessionID, permission.id, response);
+
+      await (onRespond
+        ? onRespond(response)
+        : respondToPermission(permission.sessionID, permission.id, response));
       setHasResponded(true);
       onResponse?.(response);
     } catch (error) {

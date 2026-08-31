@@ -315,6 +315,32 @@ describe('managed agent tool runtime', () => {
     }));
   });
 
+  it('forwards worktree and cleaned-session recovery data on partial failures', async () => {
+    const error = Object.assign(new Error('Worktree recovery required'), {
+      statusCode: 500,
+      partial: true,
+      partialAction: 'worktree-retained',
+      sessionId: 'ses_new',
+      directory: '/repo/worktrees/side-task',
+      worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+      sessionCleaned: true,
+    });
+    const { runtime } = await createRuntime({ executeAction: vi.fn(async () => { throw error; }) });
+
+    await expect(runtime.execute({ input: { action: 'session.create' } })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      action: 'session.create',
+      data: {
+        partial: true,
+        partialAction: 'worktree-retained',
+        sessionId: 'ses_new',
+        directory: '/repo/worktrees/side-task',
+        worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+        sessionCleaned: true,
+      },
+    }));
+  });
+
   it('forwards cancellation to the shared control service', async () => {
     const executeAction = vi.fn(async (_action, _input, _directory, options) => {
       await new Promise((resolve, reject) => {

@@ -17,6 +17,7 @@ Keep `bridge.ts` as a thin orchestration layer that delegates message handling t
 
 - `bridge-git-special-runtime.ts`
   - Specialized Git flows (`pr-description`, `conflict-details`) and generation helpers.
+  - Noninteractive Git generation rejects Pi before session creation because the extension host has no correlation-aware owner for Pi create dialogs.
 
 - `bridge-git-process-runtime.ts`
   - Git process execution and environment setup (`execGit`), including SSH agent socket resolution.
@@ -57,6 +58,11 @@ The webview build emits each worker as one self-contained file. VS Code webviews
   - Proxy route handlers (`api:proxy`, `api:session:message`) with injected helper dependencies.
   - SSE routes are intentionally excluded from the generic proxy and use `sseProxy.ts`, whose upstream-only stall watchdog closes a quiet OpenCode stream so the webview can reconnect instead of trusting an open but silent response.
   - The webview allocates each SSE stream ID and installs its listener before requesting the upstream stream, so immediate OpenCode replay events cannot race the bridge start response.
+
+- `bridge-session-runtime.ts`
+  - Explicit extension-host implementation for `/api/openchamber/sessions/:id/metadata`, `send-preflight`, `fork-capability`, and `fork-authorized`, intercepted before generic OpenCode proxy forwarding and registered in the same request-ID abort lifecycle.
+  - Serializes metadata mutations and send/fork authorization while scanning complete session history. A send preflight preserves native sessions, CAS-backfills only proven legacy Pi/OMP metadata, and rejects native/managed, Pi/OMP, mixed-history, or incomplete-history transitions before shared UI dispatch.
+  - Native sources stay native; proven OMP sources may fork only to OMP and stamp the child from source authority. Pi, review, mixed-history, incomplete-history, Pi-target, and cross-backend forks fail before dispatch. Fork bootstrap uses the source directory only for source authorization and `session.fork`; the returned child's authoritative `Session.directory` owns stamping, compensation, and the response. Missing child authority fails closed with typed retained recovery.
 
 - `bridge-config-runtime.ts`
   - Config and skills message handlers (`api:config/*`).

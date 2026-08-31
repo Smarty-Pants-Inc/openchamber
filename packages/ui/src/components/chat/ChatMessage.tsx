@@ -13,6 +13,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { cn } from '@/lib/utils';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
+import { useChatSessionForkSupported } from './ChatSessionCapabilities';
 
 import MessageBody from './message/MessageBody';
 import type { AgentMentionInfo } from './message/types';
@@ -199,6 +200,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const messageRole = React.useMemo(() => deriveMessageRole(message.info), [message.info]);
     const isUser = messageRole.isUser;
     const chatSurfaceMode = useChatSurfaceMode();
+    const sessionForkSupported = useChatSessionForkSupported();
     const useExternalUserActionsRow = isUser && (isMobile || !stickyUserHeader);
     const showStickyInlineHoverRow = isUser && !isMobile && stickyUserHeader && !useExternalUserActionsRow;
 
@@ -922,7 +924,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
                                                 onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
+                                                onFork={isUser && sessionForkSupported ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}
                                                 onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
@@ -956,7 +958,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
                                                 onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
+                                                onFork={isUser && sessionForkSupported ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}
                                                 onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}

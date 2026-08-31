@@ -17,7 +17,8 @@ import { isAmbiguousTransportFailure, markAmbiguousTransportFailure } from "@/li
 import { FilesystemError, parseFilesystemErrorReason } from "@/lib/api/files-errors";
 import type { PermissionRequest } from "@/types/permission";
 import type { QuestionRequest } from "@/types/question";
-import { withAgentBackendMetadata, type SessionMetadataRecord } from '@/lib/sessionReviewMetadata';
+import { withAgentBackendMetadata } from '@/lib/sessionReviewMetadata';
+import type { SessionMetadataRecord } from '@/lib/sessionReviewMetadata';
 
 /**
  * Tagged result of `OpencodeService.fetchPermission()`. The caller can
@@ -31,7 +32,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch } from "@/lib/runtime-fetch";
-import { getRuntimeKey } from "@/lib/runtime-switch";
+import { getRuntimeKey, getRuntimeTransportEpoch } from "@/lib/runtime-switch";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
 import {
@@ -67,7 +68,7 @@ function formatSdkError(error: unknown): string {
 type SdkResult<T> = {
   data?: T;
   error?: unknown;
-  response?: { status?: number };
+  response?: { status?: number; headers?: Headers };
 };
 
 type DirectoryAvailability = "available" | "missing" | "unknown";
@@ -639,11 +640,36 @@ class OpencodeService {
     providerID?: string;
   }, directory?: string | null): Promise<Session> {
     const requestDirectory = this.normalizeCandidatePath(directory) ?? this.currentDirectory;
+    if (params?.providerID === 'pi') {
+      if (!requestDirectory) throw new Error('Pi session creation requires a directory');
+
+      const runtimeKey = getRuntimeKey();
+      const transportEpoch = getRuntimeTransportEpoch();
+      // session-actions owns the bound transport, but imports this singleton;
+      // loading it here avoids an eager module cycle during client startup.
+      const { bindSessionOperation } = await import('@/sync/session-actions');
+      if (getRuntimeKey() !== runtimeKey || getRuntimeTransportEpoch() !== transportEpoch) {
+        throw new Error('Pi session creation stopped because the runtime changed');
+      }
+
+      const operation = bindSessionOperation();
+      try {
+        if (operation.runtimeKey !== runtimeKey) {
+          throw new Error('Pi session creation stopped because the runtime changed');
+        }
+        operation.assertCurrent();
+        return await operation.create(params, requestDirectory);
+      } finally {
+        operation.release();
+      }
+    }
+
+    const metadata = withAgentBackendMetadata(params?.metadata, params?.providerID ?? '');
     const response = await this.client.session.create({
       ...(requestDirectory ? { directory: requestDirectory } : {}),
       parentID: params?.parentID,
       title: params?.title,
-      metadata: withAgentBackendMetadata(params?.metadata, params?.providerID ?? ''),
+      metadata,
     });
     return unwrapSdkData(response, 'session.create');
   }
@@ -685,14 +711,27 @@ class OpencodeService {
     return unwrapSdkData(response, 'session.update');
   }
 
-  async getSessionMessages(id: string, limit?: number, directory?: string | null): Promise<{ info: Message; parts: Part[] }[]> {
+  async getSessionMessagePage(
+    id: string,
+    limit?: number,
+    directory?: string | null,
+    before?: string,
+  ): Promise<{ records: Array<{ info: Message; parts: Part[] }>; nextCursor: string | null }> {
     const requestDirectory = this.normalizeCandidatePath(directory) ?? this.currentDirectory;
     const response = await this.client.session.messages({
       sessionID: id,
-      ...(requestDirectory ? { directory: requestDirectory } : {}),
-      ...(typeof limit === 'number' ? { limit } : {}),
+      directory: requestDirectory || undefined,
+      limit,
+      before: before || undefined,
     });
-    return unwrapSdkData(response, 'session.messages');
+    return {
+      records: unwrapSdkData(response, 'session.messages'),
+      nextCursor: response.response?.headers?.get('x-next-cursor')?.trim() || null,
+    };
+  }
+
+  async getSessionMessages(id: string, limit?: number, directory?: string | null): Promise<{ info: Message; parts: Part[] }[]> {
+    return (await this.getSessionMessagePage(id, limit, directory)).records;
   }
 
   async getSessionTodos(sessionId: string): Promise<Array<{ id: string; content: string; status: string; priority: string }>> {

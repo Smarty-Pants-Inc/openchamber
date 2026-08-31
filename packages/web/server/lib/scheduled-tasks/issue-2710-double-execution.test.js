@@ -143,18 +143,36 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
     runtimes.forEach((runtime) => runtime.stop());
   });
 
-  it('stamps a scheduled Pi session before dispatch', async () => {
+  it('rejects scheduled Pi before creating a session', async () => {
     vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
     const task = makeTask({ kind: 'daily', times: ['15:00'] });
     task.execution.providerID = 'pi';
     task.execution.modelID = 'anthropic/claude-sonnet-4-5';
+    const { runtimes, projectConfigRuntime } = await startInstances(1, task);
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+
+    expect(sdk.sessionCreateInputs).toHaveLength(0);
+    const [persisted] = await projectConfigRuntime.listScheduledTasks();
+    expect(persisted.state).toMatchObject({
+      lastStatus: 'error',
+      lastError: 'Scheduled tasks do not support Pi because Pi session creation requires an interactive client to own startup dialogs',
+    });
+
+    runtimes.forEach((runtime) => runtime.stop());
+  });
+
+  it('stamps a scheduled OMP session before dispatch', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const task = makeTask({ kind: 'daily', times: ['15:00'] });
+    task.execution.providerID = 'omp';
+    task.execution.modelID = 'gpt-5.5';
     const { runtimes } = await startInstances(1, task);
     await vi.advanceTimersByTimeAsync(HOUR + 3_000);
 
     expect(sdk.sessionCreateInputs).toHaveLength(1);
     expect(sdk.sessionCreateInputs[0]).toMatchObject({
       directory: '/repo',
-      metadata: { openchamber: { agent_backend: 'pi' } },
+      metadata: { openchamber: { agent_backend: 'omp' } },
     });
 
     runtimes.forEach((runtime) => runtime.stop());

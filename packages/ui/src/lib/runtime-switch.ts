@@ -18,6 +18,10 @@ const RUNTIME_ENDPOINT_WILL_CHANGE_EVENT = 'openchamber:runtime-endpoint-will-ch
 
 let activeApiBaseUrl = '';
 let activeRuntimeKey = '';
+// A logical runtime may retain its key while its direct/relay route or
+// credentials change. Long-running mutations capture this monotonically
+// increasing epoch alongside the logical key.
+let runtimeTransportEpoch = 0;
 
 const setWindowRuntimeValue = <K extends '__OPENCHAMBER_API_BASE_URL__' | '__OPENCHAMBER_CLIENT_TOKEN__' | '__OPENCHAMBER_RUNTIME_HEADERS__'>(
   runtimeWindow: typeof window & {
@@ -73,6 +77,8 @@ const sameOrigin = (left: string, right: string): boolean => {
 };
 
 export const getRuntimeApiBaseUrl = (): string => activeApiBaseUrl || readInjectedApiBaseUrl();
+export const getRuntimeTransportEpoch = (): number => runtimeTransportEpoch;
+
 
 // `getRuntimeKey` keys caches, stores, and persisted state across the whole UI,
 // so it runs on store reads, event handling, and render paths. Before the
@@ -141,6 +147,7 @@ export const switchRuntimeEndpoint = (options: { apiBaseUrl: string; clientToken
   const previousRuntimeKey = getRuntimeKey();
   const runtimeKey = options.runtimeKey?.trim() || normalizeRuntimeUrlKey(apiBaseUrl);
   const detail = { apiBaseUrl, previousApiBaseUrl, runtimeKey, previousRuntimeKey };
+  runtimeTransportEpoch += 1;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<RuntimeEndpointChangedDetail>(RUNTIME_ENDPOINT_WILL_CHANGE_EVENT, { detail }));
   }
