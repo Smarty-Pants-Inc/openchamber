@@ -161,18 +161,18 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
     runtimes.forEach((runtime) => runtime.stop());
   });
 
-  it('stamps a scheduled OMP session before dispatch', async () => {
+  it.each(['omp', 'codex'])('stamps a scheduled %s session before dispatch', async (providerID) => {
     vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
     const task = makeTask({ kind: 'daily', times: ['15:00'] });
-    task.execution.providerID = 'omp';
-    task.execution.modelID = 'gpt-5.5';
+    task.execution.providerID = providerID;
+    task.execution.modelID = providerID === 'codex' ? 'gpt-5.6-sol' : 'gpt-5.5';
     const { runtimes } = await startInstances(1, task);
     await vi.advanceTimersByTimeAsync(HOUR + 3_000);
 
     expect(sdk.sessionCreateInputs).toHaveLength(1);
     expect(sdk.sessionCreateInputs[0]).toMatchObject({
       directory: '/repo',
-      metadata: { openchamber: { agent_backend: 'omp' } },
+      metadata: { openchamber: { agent_backend: providerID } },
     });
 
     runtimes.forEach((runtime) => runtime.stop());

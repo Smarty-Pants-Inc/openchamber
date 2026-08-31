@@ -71,6 +71,7 @@ const selectionInputResponse = (url) => {
           { id: 'anthropic', models: [{ id: 'claude-sonnet-5', variants: { high: {} } }] },
           { id: 'pi', models: [{ id: 'anthropic/claude-sonnet-4-5', variants: { high: {} } }] },
           { id: 'omp', models: [{ id: 'gpt-5.5', variants: { high: {} } }] },
+          { id: 'codex', models: [{ id: 'gpt-5.6-sol', variants: { high: {} } }] },
         ],
       }),
     };
@@ -427,34 +428,36 @@ describe('openchamber session routes', () => {
     }
   });
 
-  it('dispatches an initial prompt when model is provided', async () => {
-    const originalFetch = globalThis.fetch;
-    const fetchMock = vi.fn(async (url) => {
-      if (String(url).includes('/prompt_async')) {
-        return { ok: true, text: async () => '' };
-      }
-      return { ok: true, json: async () => createdSessionResponse(url) };
-    });
-    globalThis.fetch = fetchMock;
-    try {
-      const { app } = createApp();
-      const response = await request(app)
-        .post('/api/openchamber/sessions')
-        .send({ directory: '/repo/app', prompt: 'Run this', model: 'omp/gpt-5.5' })
-        .expect(200);
-
-      expect(response.body.sessionId).toBe('ses_123');
-      expect(response.body.promptDispatched).toBe(true);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://opencode.test/session/ses_123/prompt_async?directory=%2Frepo%2Fapp',
-        expect.objectContaining({ method: 'POST' }),
-      );
-      const createCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
-      expect(JSON.parse(createCall?.[1]?.body)).toMatchObject({
-        metadata: { openchamber: { agent_backend: 'omp' } },
+  it('dispatches initial prompts through every managed noninteractive provider', async () => {
+    for (const providerID of ['omp', 'codex']) {
+      const originalFetch = globalThis.fetch;
+      const fetchMock = vi.fn(async (url) => {
+        if (String(url).includes('/prompt_async')) {
+          return { ok: true, text: async () => '' };
+        }
+        return { ok: true, json: async () => createdSessionResponse(url) };
       });
-    } finally {
-      globalThis.fetch = originalFetch;
+      globalThis.fetch = fetchMock;
+      try {
+        const { app } = createApp();
+        const response = await request(app)
+          .post('/api/openchamber/sessions')
+          .send({ directory: '/repo/app', prompt: 'Run this', model: `${providerID}/${providerID === 'codex' ? 'gpt-5.6-sol' : 'gpt-5.5'}` })
+          .expect(200);
+
+        expect(response.body.sessionId).toBe('ses_123');
+        expect(response.body.promptDispatched).toBe(true);
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://opencode.test/session/ses_123/prompt_async?directory=%2Frepo%2Fapp',
+          expect.objectContaining({ method: 'POST' }),
+        );
+        const createCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
+        expect(JSON.parse(createCall?.[1]?.body)).toMatchObject({
+          metadata: { openchamber: { agent_backend: providerID } },
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -1179,7 +1182,7 @@ describe('openchamber session routes', () => {
       await request(app)
         .post('/api/openchamber/sessions/ses_source/fork')
         .send({ directory: '/repo/app', prompt: 'Try another branch', model: 'openai/gpt-5.5', agent: 'build' })
-        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+        .expect(409, { error: 'Mixed native/managed agent backend history cannot be used' });
 
       expect(sessionMessagesMock).toHaveBeenCalledTimes(2);
       expect(sessionUpdateMock).not.toHaveBeenCalled();
@@ -1204,7 +1207,7 @@ describe('openchamber session routes', () => {
       await request(app)
         .post('/api/openchamber/sessions/ses_source/fork')
         .send({ directory: '/repo/app', prompt: 'Try another branch', model: 'openai/gpt-5.5', agent: 'build' })
-        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+        .expect(409, { error: 'Mixed native/managed agent backend history cannot be used' });
 
       expect(sessionMessagesMock).toHaveBeenCalledOnce();
       expect(sessionUpdateMock).not.toHaveBeenCalled();
@@ -1253,7 +1256,7 @@ describe('openchamber session routes', () => {
       await request(app)
         .post('/api/openchamber/sessions/ses_source/fork')
         .send({ directory: '/repo/app', prompt: 'Try another branch', model: 'openai/gpt-5.5', agent: 'build' })
-        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+        .expect(409, { error: 'Mixed native/managed agent backend history cannot be used' });
 
       expect(sessionMessagesMock).toHaveBeenNthCalledWith(1, {
         sessionID: 'ses_source', directory: '/repo/app', limit: 100,
@@ -1282,7 +1285,7 @@ describe('openchamber session routes', () => {
       await request(app)
         .post('/api/openchamber/sessions/ses_source/send')
         .send({ directory: '/repo/app', prompt: 'Continue', model: 'pi/anthropic/claude-sonnet-4-5', agent: 'build' })
-        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+        .expect(409, { error: 'Mixed native/managed agent backend history cannot be used' });
 
       expect(sessionUpdateMock).not.toHaveBeenCalled();
       expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('/prompt_async'))).toBe(false);
@@ -1303,7 +1306,7 @@ describe('openchamber session routes', () => {
       await request(app)
         .post('/api/openchamber/sessions/ses_source/send')
         .send({ directory: '/repo/app', prompt: 'Continue', model: 'omp/gpt-5.5', agent: 'build' })
-        .expect(409, { error: 'Mixed native/Pi/OMP session backend history cannot be used' });
+        .expect(409, { error: 'Mixed native/managed agent backend history cannot be used' });
 
       expect(sessionUpdateMock).not.toHaveBeenCalled();
       expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('/prompt_async'))).toBe(false);
@@ -1312,25 +1315,28 @@ describe('openchamber session routes', () => {
     }
   });
 
-  it.each([
-    'pi/anthropic/claude-sonnet-4-5',
-    'omp/gpt-5.5',
-  ])('does not stamp a native session from requested managed provider %s', async (model) => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (url) => selectionInputResponse(url) || { ok: true, text: async () => '' });
-    try {
-      const { app } = createApp();
-      await request(app)
-        .post('/api/openchamber/sessions/ses_source/send')
-        .send({ directory: '/repo/app', prompt: 'Continue', model, agent: 'build' })
-        .expect(409, {
-          error: 'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
-        });
+  it('does not stamp a native session from any requested managed provider', async () => {
+    for (const model of [
+      'pi/anthropic/claude-sonnet-4-5',
+      'omp/gpt-5.5',
+      'codex/gpt-5.6-sol',
+    ]) {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (url) => selectionInputResponse(url) || { ok: true, text: async () => '' });
+      try {
+        const { app } = createApp();
+        await request(app)
+          .post('/api/openchamber/sessions/ses_source/send')
+          .send({ directory: '/repo/app', prompt: 'Continue', model, agent: 'build' })
+          .expect(409, {
+            error: 'Native sessions cannot be converted to a managed agent backend by sending a prompt',
+          });
 
-      expect(sessionUpdateMock).not.toHaveBeenCalled();
-      expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('/prompt_async'))).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
+        expect(sessionUpdateMock).not.toHaveBeenCalled();
+        expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('/prompt_async'))).toBe(false);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -1377,13 +1383,13 @@ describe('openchamber session routes', () => {
     expect(sessionUpdateMock).not.toHaveBeenCalled();
   });
 
-  it.each(['pi', 'omp'])('rejects native-to-%s sends during preflight', async (providerID) => {
+  it.each(['pi', 'omp', 'codex'])('rejects native-to-%s sends during preflight', async (providerID) => {
     const { app } = createApp();
     await request(app)
       .post('/api/openchamber/sessions/ses_source/send-preflight')
       .send({ directory: '/repo/app', providerID })
       .expect(409, {
-        error: 'Native sessions cannot be converted to a managed Pi/OMP backend by sending a prompt',
+        error: 'Native sessions cannot be converted to a managed agent backend by sending a prompt',
       });
 
     expect(sessionUpdateMock).not.toHaveBeenCalled();
@@ -1392,6 +1398,8 @@ describe('openchamber session routes', () => {
   it.each([
     ['pi', 'omp'],
     ['omp', 'pi'],
+    ['omp', 'codex'],
+    ['codex', 'omp'],
   ])('rejects a %s-to-%s managed backend change during preflight', async (existing, requested) => {
     sessionGetMock.mockImplementation(async ({ sessionID }) => ({
       data: { id: sessionID, metadata: { openchamber: { agent_backend: existing } } },
@@ -1400,7 +1408,7 @@ describe('openchamber session routes', () => {
     await request(app)
       .post('/api/openchamber/sessions/ses_source/send-preflight')
       .send({ directory: '/repo/app', providerID: requested })
-      .expect(409, { error: 'Managed Pi/OMP session backend cannot be changed' });
+      .expect(409, { error: 'Managed agent session backend cannot be changed' });
 
     expect(sessionUpdateMock).not.toHaveBeenCalled();
   });
@@ -1430,7 +1438,7 @@ describe('openchamber session routes', () => {
     await request(app)
       .post('/api/openchamber/sessions/ses_source/send-preflight')
       .send({ directory: '/repo/app', providerID: 'openai' })
-      .expect(409, { error: 'Managed Pi/OMP session backend cannot be changed' });
+      .expect(409, { error: 'Managed agent session backend cannot be changed' });
 
     expect(sessionUpdateMock).toHaveBeenCalledWith({
       sessionID: 'ses_source',
@@ -2087,37 +2095,39 @@ describe('openchamber session routes', () => {
     expect(sessionUpdateMock).not.toHaveBeenCalled();
   });
 
-  it('stamps an authorized OMP fork in its canonical child directory', async () => {
-    sessionForkMock.mockResolvedValueOnce({
-      data: { id: 'ses_fork', directory: '/canonical/forks/ses_fork', title: 'Forked session' },
-    });
-    sessionGetMock.mockImplementation(async ({ sessionID, directory }) => ({
-      data: {
-        id: sessionID,
-        directory,
-        metadata: sessionID === 'ses_source' ? { openchamber: { agent_backend: 'omp' } } : {},
-      },
-    }));
-    const { app } = createApp();
-    const response = await request(app)
-      .post('/api/openchamber/sessions/ses_source/fork-authorized')
-      .send({ directory: '/repo/app', providerID: 'omp' })
-      .expect(200);
+  it('stamps authorized managed forks in their canonical child directories', async () => {
+    for (const providerID of ['omp', 'codex']) {
+      sessionForkMock.mockResolvedValueOnce({
+        data: { id: 'ses_fork', directory: '/canonical/forks/ses_fork', title: 'Forked session' },
+      });
+      sessionGetMock.mockImplementation(async ({ sessionID, directory }) => ({
+        data: {
+          id: sessionID,
+          directory,
+          metadata: sessionID === 'ses_source' ? { openchamber: { agent_backend: providerID } } : {},
+        },
+      }));
+      const { app } = createApp();
+      const response = await request(app)
+        .post('/api/openchamber/sessions/ses_source/fork-authorized')
+        .send({ directory: '/repo/app', providerID })
+        .expect(200);
 
-    expect(sessionForkMock).toHaveBeenCalledWith({
-      sessionID: 'ses_source',
-      directory: '/repo/app',
-      messageID: undefined,
-    });
-    expect(sessionUpdateMock).toHaveBeenCalledWith({
-      sessionID: 'ses_fork',
-      directory: '/canonical/forks/ses_fork',
-      metadata: { openchamber: { agent_backend: 'omp' } },
-    });
-    expect(response.body).toMatchObject({
-      directory: '/canonical/forks/ses_fork',
-      session: { id: 'ses_fork', directory: '/canonical/forks/ses_fork' },
-    });
+      expect(sessionForkMock).toHaveBeenCalledWith({
+        sessionID: 'ses_source',
+        directory: '/repo/app',
+        messageID: undefined,
+      });
+      expect(sessionUpdateMock).toHaveBeenCalledWith({
+        sessionID: 'ses_fork',
+        directory: '/canonical/forks/ses_fork',
+        metadata: { openchamber: { agent_backend: providerID } },
+      });
+      expect(response.body).toMatchObject({
+        directory: '/canonical/forks/ses_fork',
+        session: { id: 'ses_fork', directory: '/canonical/forks/ses_fork' },
+      });
+    }
   });
 
   it('retains an authorized child with unknown directory without probing the source directory', async () => {
