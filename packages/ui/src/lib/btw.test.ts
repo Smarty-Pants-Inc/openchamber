@@ -110,9 +110,15 @@ describe('btwSessionTitle', () => {
 });
 
 describe('filterBtwTailMessages', () => {
-  test('keeps only messages after the boundary id', () => {
-    const records = [record('msg-1'), record('msg-2'), record('msg-3')];
-    expect(filterBtwTailMessages(records, 'msg-2').map((r) => r.info.id)).toEqual(['msg-3']);
+  test('uses record order when fork-tail IDs sort below and inherited IDs sort above the boundary', () => {
+    const records = [record('msg-z-inherited'), record('msg-m-boundary'), record('msg-a-fork-tail')];
+    expect(filterBtwTailMessages(records, 'msg-m-boundary').map((r) => r.info.id)).toEqual(['msg-a-fork-tail']);
+  });
+
+  test('keeps a missing boundary hidden until the newest page resolves', () => {
+    const records = [record('msg-1'), record('msg-2')];
+    expect(filterBtwTailMessages(records, 'msg-missing')).toEqual([]);
+    expect(filterBtwTailMessages(records, 'msg-missing', true)).toBe(records);
   });
 
   test('a null boundary keeps everything (fork of an empty parent)', () => {

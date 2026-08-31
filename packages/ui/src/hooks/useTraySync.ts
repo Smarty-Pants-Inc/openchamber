@@ -63,6 +63,7 @@ type TrayApproval = {
   sessionTitle: string;
   label: string;
   directory: string;
+  canAlwaysAllow?: boolean;
 };
 
 type TrayUsageRow = { label: string; value: string };
@@ -268,7 +269,7 @@ const collectLiveData = (): LiveData => {
       for (const request of requests ?? []) {
         if (!request?.id) continue;
         const sid = request.sessionID || sessionId;
-        approvals.push({ kind: 'permission', id: request.id, sessionId: sid, sessionTitle: '', label: permissionLabel(request), directory });
+        approvals.push({ kind: 'permission', id: request.id, sessionId: sid, sessionTitle: '', label: permissionLabel(request), directory, canAlwaysAllow: Array.isArray(request.always) && request.always.length > 0 });
       }
     }
     for (const [sessionId, requests] of Object.entries(state.question ?? {})) {

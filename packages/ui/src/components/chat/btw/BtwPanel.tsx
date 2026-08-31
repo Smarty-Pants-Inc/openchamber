@@ -9,6 +9,8 @@ import { useBtwStore } from '@/stores/useBtwStore';
 import { useSync } from '@/sync/use-sync';
 import {
     useSessionMessageRecords,
+    useSessionMessageLoadState,
+    useSessionMessageLoader,
     useSessionRenderable,
     useSessionStatus,
     useScopedBlockingPermissions,
@@ -113,6 +115,12 @@ const useBtwSessionData = (
     }, [directory, renderable, sessionId, sync]);
 
     const messageRecords = useSessionMessageRecords(sessionId, directory);
+    const messageLoadState = useSessionMessageLoadState(sessionId, directory);
+    const messageLoader = useSessionMessageLoader();
+    React.useEffect(() => {
+        if (!sessionId || !directory) return;
+        void messageLoader.ensure({ sessionID: sessionId, directory }, { force: true, reason: 'reactive' });
+    }, [directory, messageLoader, sessionId]);
     const status = useSessionStatus(sessionId, directory) ?? IDLE_SESSION_STATUS;
     const streamingMessageId = useStreamingStore(
         React.useCallback((s) => s.streamingMessageIds.get(sessionId) ?? null, [sessionId]),
@@ -127,8 +135,8 @@ const useBtwSessionData = (
     const sessionQuestions = useScopedBlockingQuestions(sessionId, directory);
 
     const tailRecords = React.useMemo(
-        () => filterBtwTailMessages(messageRecords, boundaryMessageID),
-        [boundaryMessageID, messageRecords],
+        () => filterBtwTailMessages(messageRecords, boundaryMessageID, messageLoadState.updatedAt !== undefined),
+        [boundaryMessageID, messageLoadState.updatedAt, messageRecords],
     );
 
     const sessionIsWorking = React.useMemo(() => {

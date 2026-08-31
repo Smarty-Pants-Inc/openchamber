@@ -17,6 +17,7 @@
 
 import { Tray, Menu, nativeImage } from 'electron';
 import { PRODUCT_NAME } from './brand.generated.mjs';
+import { buildPermissionApprovalSubmenu } from './tray-permission-menu.mjs';
 
 const isMac = process.platform === 'darwin';
 const isLinux = process.platform === 'linux';
@@ -204,14 +205,7 @@ export const createTrayController = ({ idleIconPath, unseenIconPath, breathIconP
         if (approval.kind === 'permission') {
           return {
             label: approvalLabel(approval),
-            submenu: [
-              { label: 'Allow once', click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'once' }) },
-              { label: 'Allow always', click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'always' }) },
-              { type: 'separator' },
-              { label: 'Deny', click: () => onAction({ type: 'respond-permission', sessionId: approval.sessionId, id: approval.id, response: 'reject' }) },
-              { type: 'separator' },
-              { label: 'Open in app', click: () => onAction({ type: 'focus-session', sessionId: approval.sessionId, directory: approval.directory || '' }) },
-            ],
+            submenu: buildPermissionApprovalSubmenu(approval, onAction),
           };
         }
         return {
@@ -321,7 +315,7 @@ export const createTrayController = ({ idleIconPath, unseenIconPath, breathIconP
     return JSON.stringify({
       h: typeof snapshot.instanceName === 'string' ? snapshot.instanceName : '',
       s: sessions.map((s) => `${s.id}|${s.title}|${s.status}|${s.unseen}|${s.hasError}|${s.subtitle}|${s.directory}`),
-      a: approvals.map((a) => `${a.id}|${a.kind}|${a.sessionId}|${a.sessionTitle}|${a.label}|${a.directory}`),
+      a: approvals.map((a) => `${a.id}|${a.kind}|${a.sessionId}|${a.sessionTitle}|${a.label}|${a.directory}|${a.canAlwaysAllow === true}`),
       u: usage.mode || '',
       g: groups.map((g) => `${g.provider}|${g.status}|${(Array.isArray(g.rows) ? g.rows : []).map((r) => `${r.label}|${r.value}`).join(',')}`),
     });

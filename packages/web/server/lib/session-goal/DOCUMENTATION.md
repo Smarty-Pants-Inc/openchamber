@@ -25,7 +25,8 @@ the web server and survives UI disconnects.
   statusReason,            // why settled; 'resumed' is a kickoff signal from UI
   evaluationProviderID,    // provider used by the latest successful audit
   evaluationModelID,       // model used by the latest successful audit
-  lastAccountedMessageID,  // incremental accounting cursor
+  lastAccountedMessageID,  // exact tie-break cursor in the chronological response
+  lastAccountedMessageTime,// durable completion-time cursor across paging/replacement
   createdAt, updatedAt
 }
 ```
@@ -101,7 +102,10 @@ before touching the filesystem). Rationale: metadata rides every
      summary turn read the whole context, so its snapshot prices the
      compaction itself) and the next segment starts with a zero baseline.
      `tokensUsed = tokensCommitted + current segment`, kept monotonic so
-     unflagged context shrinks never move the budget backwards;
+     unflagged context shrinks never move the budget backwards. The cursor advances
+     by completion time, with the exact message ID as its same-page tie-breaker, so
+     restart, pagination, history replacement, Pi/hash IDs, and compaction summaries
+     do not double-count or disappear behind a reordered retained cursor;
    - a user abort pauses the goal instead of blocking it: the event path in
      `processPayload` pauses immediately on the MessageAbortedError message
      (before any tick could send a continuation over the user's explicit

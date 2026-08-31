@@ -179,3 +179,130 @@ describe('session goal live activity gate', () => {
     runtime.stop();
   });
 });
+
+describe('session goal token accounting cursor', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('accounts OMP rollover and descending Pi IDs through compaction after a runtime restart', async () => {
+    let persistedGoal = {
+      id: 'goal_pi',
+      objective: 'Finish the task',
+      status: 'active',
+      tokensUsed: 0,
+      tokensBaseline: 0,
+      tokensCommitted: 0,
+      turnsUsed: 0,
+      blockedStreak: 0,
+      auditFailStreak: 0,
+      lastAccountedMessageID: '',
+      lastAccountedMessageTime: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const assistantMessage = ({ id, created, total, summary = false }) => ({
+      info: {
+        id,
+        sessionID: SESSION_ID,
+        role: 'assistant',
+        providerID: 'provider',
+        modelID: 'model',
+        summary,
+        time: { created, completed: created },
+        tokens: { input: total, output: 0, cache: { read: 0 } },
+      },
+      parts: [{ type: 'text', text: 'Progress update.' }],
+    });
+    const messages = [
+      assistantMessage({ id: 'msg_ffffffffffff', created: 10, total: 10 }),
+      assistantMessage({ id: 'msg_000000000000', created: 20, total: 20 }),
+      assistantMessage({ id: 'pi_z', created: 30, total: 30 }),
+      assistantMessage({ id: 'pi_y', created: 40, total: 40 }),
+    ];
+    const currentSession = () => ({
+      id: SESSION_ID,
+      directory: DIRECTORY,
+      metadata: { openchamber: { goal: persistedGoal } },
+    });
+    const fetchImpl = vi.fn(async (input, init = {}) => {
+      const pathname = requestPath(input);
+      if (pathname === `/session/${SESSION_ID}` && init.method === 'PATCH') {
+        persistedGoal = JSON.parse(init.body).metadata.openchamber.goal;
+        return jsonResponse(currentSession());
+      }
+      if (pathname === `/session/${SESSION_ID}`) return jsonResponse(currentSession());
+      if (pathname === '/session/status') return jsonResponse({});
+      if (pathname === `/session/${SESSION_ID}/children`) return jsonResponse([]);
+      if (pathname === `/session/${SESSION_ID}/message`) return jsonResponse(messages);
+      if (pathname === `/session/${SESSION_ID}/prompt_async`) return jsonResponse({});
+      throw new Error(`Unexpected request: ${pathname}`);
+    });
+    const service = {
+      generateSmallModelText: vi.fn(async () => ({
+        text: '{"verdict":"continue","note":"Still working"}',
+        providerID: 'provider',
+        modelID: 'model',
+      })),
+    };
+    const createRuntime = () => createSessionGoalRuntime({
+      buildOpenCodeUrl: (pathname) => `http://opencode.test${pathname}`,
+      getOpenCodeAuthHeaders: () => ({}),
+      getSmallModelService: async () => service,
+      isEnabled: () => true,
+      idleQuietMs: 10,
+    });
+    const tick = async (runtime) => {
+      runtime.processPayload({
+        type: 'session.status',
+        properties: { sessionID: SESSION_ID, status: { type: 'idle' }, directory: DIRECTORY },
+      });
+      await vi.runOnlyPendingTimersAsync();
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+
+    let runtime = createRuntime();
+    await tick(runtime);
+    expect(persistedGoal).toMatchObject({ tokensUsed: 40, lastAccountedMessageID: 'pi_y', lastAccountedMessageTime: 40 });
+
+    messages.unshift(assistantMessage({ id: 'pi_x', created: 50, total: 0, summary: true }));
+    await tick(runtime);
+    expect(persistedGoal).toMatchObject({
+      tokensUsed: 40,
+      tokensCommitted: 40,
+      lastAccountedMessageID: 'pi_x',
+      lastAccountedMessageTime: 50,
+    });
+    runtime.stop();
+
+    messages.push(assistantMessage({ id: 'pi_w', created: 60, total: 7 }));
+    runtime = createRuntime();
+    await tick(runtime);
+    expect(persistedGoal).toMatchObject({
+      tokensUsed: 47,
+      tokensCommitted: 40,
+      lastAccountedMessageID: 'pi_w',
+      lastAccountedMessageTime: 60,
+    });
+    runtime.stop();
+
+    messages.splice(0, messages.length,
+      assistantMessage({ id: 'retained-old', created: 10, total: 10 }),
+      assistantMessage({ id: 'paged-new', created: 70, total: 9 }),
+    );
+    runtime = createRuntime();
+    await tick(runtime);
+    expect(persistedGoal).toMatchObject({
+      tokensUsed: 49,
+      tokensCommitted: 40,
+      lastAccountedMessageID: 'paged-new',
+      lastAccountedMessageTime: 70,
+    });
+    runtime.stop();
+  });
+});
