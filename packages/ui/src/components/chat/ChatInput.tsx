@@ -25,6 +25,7 @@ import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { startReviewFlow } from '@/lib/reviewFlow';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 import {
     createChatDraftIdentity,
     readChatDraft,
@@ -35,7 +36,7 @@ import {
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
 import { BtwPanel } from './btw/BtwPanel';
 import { useBtwPanelState } from './btw/useBtwPanelState';
-import { destroyBtwSession, startBtwSession, type BtwSessionRef } from '@/lib/btw';
+import { startBtwSession, type BtwSessionRef } from '@/lib/btw';
 import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion } from './FileAttachment';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { ToolPopupContent } from './message/types';
@@ -51,6 +52,11 @@ import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { ComposerStatusBar } from './ComposerStatusBar';
 import { PendingChangesBar } from './PendingChangesBar';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
+import {
+    resolveSessionForkCapabilityForSubmit,
+    useChatSessionForkCapability,
+    type ChatSessionForkTarget,
+} from './ChatSessionCapabilities';
 import { MobileAgentButton } from './MobileAgentButton';
 import { MobileModelButton } from './MobileModelButton';
 import { useCurrentSessionActivity, useSessionActivity } from '@/hooks/useSessionActivity';
@@ -319,6 +325,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         Promise.resolve((useSessionUIStore.getState().sendMessage as (...a: unknown[]) => unknown)(...args)),
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+    const {
+        capability: sessionForkCapability,
+        target: sessionForkCapabilityTarget,
+        refresh: refreshSessionForkCapability,
+    } = useChatSessionForkCapability();
+    const sessionForkSupported = sessionForkCapability === 'supported';
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
     const currentSessionDirectoryForSync = useSessionUIStore(
@@ -585,13 +597,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'btw', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
         ]);
+        if (sessionForkSupported) names.add('btw');
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
-        for (const command of availableCommands) names.add(command.name.toLowerCase());
-        for (const skill of availableSkills) names.add(skill.name.toLowerCase());
+        for (const command of availableCommands) {
+            const name = command.name.toLowerCase();
+            if (name !== 'btw' || sessionForkSupported) names.add(name);
+        }
+        for (const skill of availableSkills) {
+            const name = skill.name.toLowerCase();
+            if (name !== 'btw' || sessionForkSupported) names.add(name);
+        }
         return names;
-    }, [availableCommands, availableSkills, isMobile]);
+    }, [availableCommands, availableSkills, isMobile, sessionForkSupported]);
 
     const availableSnippets = useSnippetsStore((s) => s.snippets);
     const knownSnippetTriggers = React.useMemo(() => {
@@ -1012,6 +1031,77 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             console.warn('Cannot send message: provider or model not selected');
             return;
         }
+        const primaryCommandText = queuedMessagesToSend[0]?.content
+            ?? (!queuedOnly && inputSnapshot.hasContent ? inputSnapshot.message : '');
+        const preflightCommand = inputMode === 'normal' ? parseSlashCommand(primaryCommandText) : null;
+        if (preflightCommand?.name === 'btw' && currentSessionId) {
+            const question = preflightCommand.argument.trim();
+            if (!question) {
+                toast.error(t('chat.btw.toast.emptyArgument'));
+                return;
+            }
+
+            const targetDirectory = currentSessionDirectoryForSync ?? currentDirectory;
+            const submitForkTarget: ChatSessionForkTarget | null = targetDirectory
+                ? { runtimeKey: submitRuntimeKey, directory: targetDirectory, sessionId: currentSessionId }
+                : null;
+            const capability = await resolveSessionForkCapabilityForSubmit(
+                sessionForkCapability,
+                sessionForkCapabilityTarget,
+                submitForkTarget,
+                refreshSessionForkCapability,
+            );
+            if (capability !== 'supported') {
+                toast.error(t('chat.btw.toast.createFailed'));
+                return;
+            }
+
+            const currentState = useSessionUIStore.getState();
+            const liveDirectory = currentState.getDirectoryForSession(currentSessionId);
+            if (
+                !submitForkTarget
+                || getRuntimeKey() !== submitForkTarget.runtimeKey
+                || currentState.currentSessionId !== submitForkTarget.sessionId
+                || liveDirectory !== submitForkTarget.directory
+            ) {
+                return;
+            }
+
+            try {
+                await startBtwSession({
+                    parentSessionId: submitForkTarget.sessionId,
+                    question,
+                    directory: submitForkTarget.directory,
+                    providerID: providerIdToSend,
+                    modelID: modelIdToSend,
+                    agent: agentNameToSend,
+                    variant: variantToSend,
+                    previousBtwSession: btwSessionRef ?? undefined,
+                });
+
+                const settledState = useSessionUIStore.getState();
+                const settledDirectory = settledState.getDirectoryForSession(submitForkTarget.sessionId);
+                if (
+                    getRuntimeKey() === submitForkTarget.runtimeKey
+                    && settledState.currentSessionId === submitForkTarget.sessionId
+                    && settledDirectory === submitForkTarget.directory
+                ) {
+                    const queuedCommand = queuedMessagesToSend[0];
+                    if (queuedCommand && capturedTarget) {
+                        removeFromQueue(capturedTarget, queuedCommand.id);
+                    } else if (!queuedOnly && messageRef.current === inputSnapshot.message) {
+                        setMessage('');
+                        confirmedMentionsRef.current.clear();
+                        persistDraftImmediately(chatDraftIdentity, '');
+                        messageHistory.reset();
+                    }
+                }
+                scrollToBottom?.();
+            } catch (error) {
+                toast.error(getSubmitErrorMessage(error, t('chat.btw.toast.createFailed')));
+            }
+            return;
+        }
 
         // Sending is authoritative: if a question prompt is open, dismiss it
         // so the prompt cannot linger or strand the session. The dismiss clears
@@ -1168,15 +1258,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 clearAttachedFiles();
             }
             // Close expanded input overlay when submitting
+            if (isMobile) {
+                composerRef.current?.blur();
+            }
             setExpandedInput(false);
         }
 
-        if (isMobile) {
-            composerRef.current?.blur();
-        }
-
         // Local slash commands, normal mode only.
-        const parsedCommand = inputMode === 'normal' ? parseSlashCommand(primaryText) : null;
+        const parsedCommand = preflightCommand ?? (inputMode === 'normal' ? parseSlashCommand(primaryText) : null);
         if (parsedCommand) {
             const { name: commandName, argument } = parsedCommand;
 
@@ -1204,43 +1293,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 try {
                     await sessionActions.waitForConnectionOrThrow();
                     const compactDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || undefined;
-                    await opencodeClient.summarizeSession(currentSessionId, currentProviderId, currentModelId, compactDirectory);
+                    await withSessionSendPreflight({
+                        sessionId: currentSessionId,
+                        directory: compactDirectory,
+                        providerID: currentProviderId,
+                        runtimeKey: submitRuntimeKey,
+                    }, ({ client }) => client.session.summarize({
+                        sessionID: currentSessionId,
+                        directory: compactDirectory,
+                        providerID: currentProviderId,
+                        modelID: currentModelId,
+                    }, { throwOnError: true }).then(() => undefined));
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, t('chat.chatInput.toast.compactFailed')));
-                }
-                return;
-            }
-            if (commandName === 'btw' && currentSessionId) {
-                const question = argument.trim();
-                if (!question) {
-                    toast.error(t('chat.btw.toast.emptyArgument'));
-                    return;
-                }
-                const targetDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId)
-                    || currentDirectory
-                    || null;
-                if (!targetDirectory) {
-                    toast.error(t('chat.btw.toast.createFailed'));
-                    return;
-                }
-                try {
-                    // A new btw replaces this session's current one: destroy
-                    // the previous fork first so forks never accumulate.
-                    if (btwSessionRef) {
-                        await destroyBtwSession(btwSessionRef);
-                    }
-                    await startBtwSession({
-                        parentSessionId: currentSessionId,
-                        question,
-                        directory: targetDirectory,
-                        providerID: providerIdToSend,
-                        modelID: modelIdToSend,
-                        agent: agentNameToSend,
-                        variant: variantToSend,
-                    });
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(getSubmitErrorMessage(error, t('chat.btw.toast.createFailed')));
                 }
                 return;
             }

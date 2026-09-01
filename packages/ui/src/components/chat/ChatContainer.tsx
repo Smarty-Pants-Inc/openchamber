@@ -62,6 +62,13 @@ import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
+import {
+    ChatSessionForkSupportProvider,
+    isSameChatSessionForkTarget,
+    type ChatSessionForkCapability,
+    type ChatSessionForkTarget,
+} from './ChatSessionCapabilities';
+import { getSessionForkCapability } from '@/sync/session-actions';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -825,6 +832,76 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const hydrationRevealKeyRef = React.useRef<string | null>(null);
 
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
+    const currentForkTarget = React.useMemo<ChatSessionForkTarget | null>(() => {
+        const sessionId = currentSession?.id;
+        const directory = effectiveSessionDirectory;
+        if (!sessionId || !directory) return null;
+        return { runtimeKey: getRuntimeKey(), directory, sessionId };
+    }, [currentSession?.id, effectiveSessionDirectory]);
+    const currentForkTargetRef = React.useRef<ChatSessionForkTarget | null>(currentForkTarget);
+    currentForkTargetRef.current = currentForkTarget;
+    const [sessionForkCapabilityState, setSessionForkCapabilityState] = React.useState<{
+        target: ChatSessionForkTarget | null;
+        capability: ChatSessionForkCapability;
+    }>({ target: null, capability: 'checking' });
+    const sessionForkCapability = isSameChatSessionForkTarget(
+        sessionForkCapabilityState.target,
+        currentForkTarget,
+    )
+        ? sessionForkCapabilityState.capability
+        : currentForkTarget ? 'checking' : 'unsupported';
+    const forkCapabilityRequestRef = React.useRef<{
+        target: string;
+        promise: Promise<ChatSessionForkCapability>;
+    } | null>(null);
+    const refreshSessionForkCapability = React.useCallback(async (
+        requestedTarget: ChatSessionForkTarget | null = currentForkTargetRef.current,
+    ): Promise<ChatSessionForkCapability> => {
+        const target = requestedTarget;
+        if (!target || !isSameChatSessionForkTarget(currentForkTargetRef.current, target)) {
+            return 'unsupported';
+        }
+
+        const targetKey = `${target.runtimeKey}\0${target.directory}\0${target.sessionId}`;
+        if (forkCapabilityRequestRef.current?.target === targetKey) {
+            return forkCapabilityRequestRef.current.promise;
+        }
+
+        setSessionForkCapabilityState({ target, capability: 'checking' });
+        const promise = getSessionForkCapability(target.sessionId, target.directory, target.runtimeKey)
+            .then((supported): ChatSessionForkCapability => supported ? 'supported' : 'unsupported')
+            .catch((): ChatSessionForkCapability => 'error')
+            .then((capability) => {
+                if (
+                    getRuntimeKey() === target.runtimeKey
+                    && isSameChatSessionForkTarget(currentForkTargetRef.current, target)
+                    && forkCapabilityRequestRef.current?.target === targetKey
+                ) {
+                    setSessionForkCapabilityState({ target, capability });
+                }
+                return capability;
+            });
+        forkCapabilityRequestRef.current = { target: targetKey, promise };
+        try {
+            return await promise;
+        } finally {
+            if (forkCapabilityRequestRef.current?.promise === promise) {
+                forkCapabilityRequestRef.current = null;
+            }
+        }
+    }, []);
+    React.useEffect(() => {
+        if (!currentForkTarget) {
+            setSessionForkCapabilityState({ target: null, capability: 'unsupported' });
+            return;
+        }
+        setSessionForkCapabilityState((previous) => (
+            isSameChatSessionForkTarget(previous.target, currentForkTarget)
+                ? previous
+                : { target: currentForkTarget, capability: 'checking' }
+        ));
+        void refreshSessionForkCapability(currentForkTarget);
+    }, [currentForkTarget, refreshSessionForkCapability]);
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
 
     // In the embedded session-chat iframe, hide "Return to parent" when
@@ -1428,7 +1505,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         );
     })();
 
-	return (
+    return (
+		<ChatSessionForkSupportProvider
+			capability={sessionForkCapability}
+			target={currentForkTarget}
+			refresh={refreshSessionForkCapability}
+		>
 		<div ref={workStatusRowRef} className="flex h-full min-h-0 bg-background">
 		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background">
 			{returnToParentButton}
@@ -1526,5 +1608,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             />
         ) : null}
         </div>
+		</ChatSessionForkSupportProvider>
     );
 };

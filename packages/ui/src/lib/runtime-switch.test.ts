@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   getRuntimeApiBaseUrl,
   getRuntimeKey,
+  getRuntimeTransportEpoch,
   subscribeRuntimeEndpointChanged,
   subscribeRuntimeEndpointWillChange,
   switchRuntimeEndpoint,
@@ -35,6 +36,14 @@ describe('runtime endpoint switching', () => {
     } finally {
       deactivateRelayTunnel();
     }
+  });
+
+  test('advances the transport epoch when a logical runtime keeps its key', () => {
+    const epoch = getRuntimeTransportEpoch();
+
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' });
+
+    expect(getRuntimeTransportEpoch()).toBe(epoch + 1);
   });
 
   test('notifies listeners before and after mutating the active endpoint', () => {

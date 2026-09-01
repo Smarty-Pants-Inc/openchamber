@@ -26,6 +26,8 @@ export interface SessionGoalPayload {
   evaluationProviderID: string;
   evaluationModelID: string;
   lastAccountedMessageID: string;
+  lastAccountedMessageIDs: string[];
+  lastAccountedMessageTime: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -55,6 +57,13 @@ export function getSessionGoal(session: Session | null | undefined): SessionGoal
   const asCount = (value: unknown): number =>
     typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 
+  const lastAccountedMessageIDs = Array.isArray(goal.lastAccountedMessageIDs)
+    ? goal.lastAccountedMessageIDs.flatMap((value) => {
+      const text = String(value);
+      return text === value && text.length > 0 ? [text] : [];
+    })
+    : [];
+
   return {
     id,
     objective: objective.slice(0, SESSION_GOAL_OBJECTIVE_CHAR_LIMIT),
@@ -69,6 +78,8 @@ export function getSessionGoal(session: Session | null | undefined): SessionGoal
     evaluationProviderID: typeof goal.evaluationProviderID === 'string' ? goal.evaluationProviderID : '',
     evaluationModelID: typeof goal.evaluationModelID === 'string' ? goal.evaluationModelID : '',
     lastAccountedMessageID: typeof goal.lastAccountedMessageID === 'string' ? goal.lastAccountedMessageID : '',
+    lastAccountedMessageIDs,
+    lastAccountedMessageTime: asCount(goal.lastAccountedMessageTime),
     createdAt: typeof goal.createdAt === 'number' ? goal.createdAt : 0,
     updatedAt: typeof goal.updatedAt === 'number' ? goal.updatedAt : 0,
   };

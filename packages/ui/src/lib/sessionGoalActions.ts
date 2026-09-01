@@ -141,6 +141,8 @@ export async function setSessionGoal(
       note: '',
       statusReason: '',
       lastAccountedMessageID: '',
+      lastAccountedMessageIDs: [],
+      lastAccountedMessageTime: 0,
       createdAt: now,
       updatedAt: now,
     };

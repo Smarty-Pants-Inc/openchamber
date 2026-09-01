@@ -4,6 +4,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionWorktreeStore } from './session-worktree-store';
 import { expandSlashCommandGoalObjective, routeMessage, useSessionUIStore } from './session-ui-store';
+import { withAgentBackendMetadata } from '@/lib/sessionReviewMetadata';
 import { setActionRefs, setOptimisticRefs } from './session-actions';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
@@ -23,6 +24,35 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
  * These tests focus on the contract layer: that setAttachment/getAttachment work
  * correctly and that the contract helpers produce correct results.
  */
+
+const installSessionPreflightFetch = ({ error, onPreflight, onDispatch } = {}) => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    const rawBody = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
+    const body = rawBody ? JSON.parse(String(rawBody)) : null;
+    const call = { url, body };
+    if (url.includes('/send-preflight')) {
+      calls.push(call);
+      onPreflight?.(call);
+      return new Response(JSON.stringify(error ? { error } : { authorized: true }), {
+        status: error ? 409 : 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/prompt_async') || url.includes('/command') || url.includes('/shell')) {
+      calls.push(call);
+      onDispatch?.(call);
+      return new Response(JSON.stringify(true), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return originalFetch(input, init);
+  };
+  return { calls, originalFetch };
+};
 
 describe('session-worktree-store worktree routing', () => {
   beforeEach(() => {
@@ -245,13 +275,10 @@ describe('routeMessage directory scoping', () => {
   test('runs sends in the provided session directory', async () => {
     // The session directory travels as an explicit request param (not via
     // client-wide directory scoping), so concurrent sends can't cross-talk.
-    const calls = [];
-    const originalShellSession = opencodeClient.shellSession;
-
-    opencodeClient.shellSession = async (params) => {
-      calls.push(params);
-      return { info: {}, parts: [] };
-    };
+    const dispatches = [];
+    const preflight = installSessionPreflightFetch({
+      onDispatch: (call) => dispatches.push(call),
+    });
 
     try {
       await routeMessage({
@@ -263,21 +290,135 @@ describe('routeMessage directory scoping', () => {
         inputMode: 'shell',
       });
     } finally {
-      opencodeClient.shellSession = originalShellSession;
+      globalThis.fetch = preflight.originalFetch;
     }
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0].sessionId).toBe('session-a');
-    expect(calls[0].directory).toBe('/session/project');
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0].url).toContain('/session/session-a/shell');
+    expect(dispatches[0].url).toContain('directory=%2Fsession%2Fproject');
+    const authorizations = preflight.calls.filter(({ url }) => url.includes('/send-preflight'));
+    expect(authorizations).toHaveLength(1);
+    expect(authorizations[0].url).toContain('/api/openchamber/sessions/session-a/send-preflight');
+    expect(authorizations[0].body).toEqual({ directory: '/session/project', providerID: 'provider-a' });
+  });
+});
+
+describe('routeMessage backend preflight', () => {
+  const events = [];
+  const optimisticAdds = [];
+  const optimisticRemoves = [];
+  let preflight;
+
+  beforeEach(() => {
+    events.length = 0;
+    optimisticAdds.length = 0;
+    optimisticRemoves.length = 0;
+    const childStore = {
+      getState: () => ({ session: [], message: {}, part: {}, session_status: {} }),
+      setState: () => {},
+    };
+    const childStores = {
+      children: new Map(),
+      ensureChild: () => childStore,
+      getChild: () => childStore,
+    };
+    setActionRefs(opencodeClient, childStores, () => '/session/project');
+    setOptimisticRefs(
+      (input) => optimisticAdds.push(input),
+      (input) => optimisticRemoves.push(input),
+    );
+    useConfigStore.setState({ isConnected: true });
+    useCommandsStore.setState({ commands: [{ name: 'test-command' }] });
+
+    preflight = installSessionPreflightFetch({
+      onPreflight: ({ body }) => events.push(`preflight:${body.providerID}`),
+      onDispatch: ({ body }) => events.push(`dispatch:${typeof body.model === 'string' ? body.model.split('/')[0] : body.model.providerID}`),
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = preflight.originalFetch;
+    useCommandsStore.setState({ commands: [] });
+  });
+
+  test('awaits preflight immediately before normal, slash, and shell dispatch', async () => {
+    await routeMessage({
+      sessionId: 'session-modes',
+      directory: '/session/project',
+      content: 'normal prompt',
+      providerID: 'native-provider',
+      modelID: 'model-a',
+    });
+    await routeMessage({
+      sessionId: 'session-modes',
+      directory: '/session/project',
+      content: '/test-command now',
+      providerID: 'omp',
+      modelID: 'model-b',
+    });
+    await routeMessage({
+      sessionId: 'session-modes',
+      directory: '/session/project',
+      content: 'pwd',
+      providerID: 'pi',
+      modelID: 'model-c',
+      inputMode: 'shell',
+    });
+
+    expect(events).toEqual([
+      'preflight:native-provider',
+      'dispatch:native-provider',
+      'preflight:omp',
+      'dispatch:omp',
+      'preflight:pi',
+      'dispatch:pi',
+    ]);
+    expect(preflight.calls
+      .filter(({ url }) => url.includes('/send-preflight'))
+      .map(({ body }) => body)).toEqual([
+      { directory: '/session/project', providerID: 'native-provider' },
+      { directory: '/session/project', providerID: 'omp' },
+      { directory: '/session/project', providerID: 'pi' },
+    ]);
+  });
+
+  test('rolls back optimistic sends and suppresses shell dispatch when preflight rejects', async () => {
+    globalThis.fetch = preflight.originalFetch;
+    preflight = installSessionPreflightFetch({ error: 'Managed Pi/OMP session backend cannot be changed' });
+    events.length = 0;
+
+    for (const input of [
+      { content: 'normal prompt', providerID: 'omp' },
+      { content: '/test-command now', providerID: 'pi' },
+      { content: 'pwd', providerID: 'omp', inputMode: 'shell' },
+    ]) {
+      await expect(routeMessage({
+        sessionId: 'session-modes',
+        directory: '/session/project',
+        modelID: 'model-a',
+        ...input,
+      })).rejects.toThrow('Managed Pi/OMP session backend cannot be changed');
+    }
+
+    expect(events).toEqual([]);
+    expect(preflight.calls).toHaveLength(3);
+    expect(optimisticAdds).toHaveLength(2);
+    expect(optimisticRemoves).toHaveLength(2);
+    expect(optimisticRemoves.map(({ messageID }) => messageID)).toEqual(
+      optimisticAdds.map(({ message }) => message.id),
+    );
   });
 });
 
 describe('sendMessage captured target', () => {
-  let originalSendMessage;
+  let preflight;
   const calls = [];
 
   beforeEach(() => {
     calls.length = 0;
+    preflight = installSessionPreflightFetch({
+      onDispatch: (call) => calls.push(call),
+    });
     const childStore = {
       getState: () => ({ session: [], message: {}, part: {}, session_status: {} }),
       setState: () => {},
@@ -295,16 +436,10 @@ describe('sendMessage captured target', () => {
       currentSessionDirectory: '/current/project',
       newSessionDraft: { open: false, directoryOverride: null, parentID: null },
     });
-
-    originalSendMessage = opencodeClient.sendMessage;
-    opencodeClient.sendMessage = async (params) => {
-      calls.push(params);
-      return 'msg';
-    };
   });
 
   afterEach(() => {
-    opencodeClient.sendMessage = originalSendMessage;
+    globalThis.fetch = preflight.originalFetch;
   });
 
   const sendToTarget = (target) => useSessionUIStore.getState().sendMessage(
@@ -328,9 +463,9 @@ describe('sendMessage captured target', () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].runtimeKey).toBe(getRuntimeKey());
-    expect(calls[0].id).toBe('session-captured');
-    expect(calls[0].directory).toBe('/captured/project');
+    expect(calls[0].url).toContain('/session/session-captured/prompt_async');
+    expect(calls[0].url).toContain('directory=%2Fcaptured%2Fproject');
+    expect(calls[0].body.model).toEqual({ providerID: 'provider-a', modelID: 'model-a' });
   });
 
   test('does not send a captured target through a different runtime', async () => {
@@ -658,12 +793,15 @@ describe('createSession draft lifecycle', () => {
 describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
   const sendMessageCalls = [];
   const createSessionCalls = [];
-  let originalSendMessage;
   let originalCreateSession;
+  let preflight;
 
   beforeEach(() => {
     sendMessageCalls.length = 0;
     createSessionCalls.length = 0;
+    preflight = installSessionPreflightFetch({
+      onDispatch: (call) => sendMessageCalls.push(call),
+    });
 
     const childStore = {
       getState: () => ({ session: [], message: {}, part: {}, session_status: {} }),
@@ -678,21 +816,16 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     setOptimisticRefs(() => {}, () => {});
     useConfigStore.setState({ isConnected: true });
 
-    originalSendMessage = opencodeClient.sendMessage;
     originalCreateSession = opencodeClient.createSession;
-    opencodeClient.sendMessage = async (params) => {
-      sendMessageCalls.push(params);
-      return 'msg';
-    };
-    opencodeClient.createSession = async (_params, directory) => {
-      createSessionCalls.push(directory);
+    opencodeClient.createSession = async (params, directory) => {
+      createSessionCalls.push({ params, directory });
       return { id: 'session-materialized', directory: directory ?? '/projects/alpha' };
     };
   });
 
   afterEach(() => {
-    opencodeClient.sendMessage = originalSendMessage;
     opencodeClient.createSession = originalCreateSession;
+    globalThis.fetch = preflight.originalFetch;
     useSessionUIStore.setState({
       currentSessionId: null,
       currentSessionDirectory: null,
@@ -725,7 +858,7 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
 
     const sendPromise = useSessionUIStore.getState().sendMessage(
       'message for project A',
-      'provider-a',
+      'pi',
       'model-a',
       undefined,
       undefined,
@@ -743,10 +876,13 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     await sendPromise;
 
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0]).toBe('/projects/alpha');
+    expect(createSessionCalls[0]).toEqual({
+      directory: '/projects/alpha',
+      params: expect.objectContaining({ providerID: 'pi' }),
+    });
     expect(sendMessageCalls).toHaveLength(1);
-    expect(sendMessageCalls[0].id).toBe('session-materialized');
-    expect(sendMessageCalls[0].directory).toBe('/projects/alpha');
+    expect(sendMessageCalls[0].url).toContain('/session/session-materialized/prompt_async');
+    expect(sendMessageCalls[0].url).toContain('directory=%2Fprojects%2Falpha');
     expect(useSessionDisplayStore.getState().singleProjectId).toBe('project-alpha');
   });
 
@@ -775,9 +911,18 @@ describe('sendMessage draft snapshot (issues #2222 / #2315)', () => {
     await sendPromise;
 
     expect(sendMessageCalls).toHaveLength(1);
-    expect(sendMessageCalls[0].id).toBe('session-project-a');
-    expect(sendMessageCalls[0].directory).toBe('/projects/alpha');
+    expect(sendMessageCalls[0].url).toContain('/session/session-project-a/prompt_async');
+    expect(sendMessageCalls[0].url).toContain('directory=%2Fprojects%2Falpha');
   });
+});
+
+test('backend metadata preserves existing OpenChamber metadata and ignores unrelated providers', () => {
+  expect(withAgentBackendMetadata({ openchamber: { project_context_pins: ['a'] }, keep: true }, 'pi')).toEqual({
+    openchamber: { project_context_pins: ['a'], agent_backend: 'pi' },
+    keep: true,
+  });
+  expect(withAgentBackendMetadata(undefined, 'omp')).toEqual({ openchamber: { agent_backend: 'omp' } });
+  expect(withAgentBackendMetadata(undefined, 'anthropic')).toBeUndefined();
 });
 
 describe('routeMessage skill invocation', () => {
@@ -787,13 +932,21 @@ describe('routeMessage skill invocation', () => {
   const sendCommandCalls = [];
   const sendMessageCalls = [];
   const optimisticAddCalls = [];
-  let originalSendCommand;
-  let originalSendMessage;
+  let preflight;
 
   beforeEach(() => {
     sendCommandCalls.length = 0;
     sendMessageCalls.length = 0;
     optimisticAddCalls.length = 0;
+    preflight = installSessionPreflightFetch({
+      onDispatch: (call) => {
+        if (call.url.includes('/command')) {
+          sendCommandCalls.push(call);
+        } else {
+          sendMessageCalls.push(call);
+        }
+      },
+    });
 
     // Minimal optimistic + connection machinery so routeMessage can dispatch.
     const childStore = {
@@ -818,22 +971,10 @@ describe('routeMessage skill invocation', () => {
     // so they start empty here — the skill is only known to the skills store.
     useCommandsStore.setState({ commands: [] });
     useSkillsStore.setState({ skills: [] });
-
-    originalSendCommand = opencodeClient.sendCommand;
-    originalSendMessage = opencodeClient.sendMessage;
-    opencodeClient.sendCommand = async (params) => {
-      sendCommandCalls.push(params);
-      return 'msg';
-    };
-    opencodeClient.sendMessage = async (params) => {
-      sendMessageCalls.push(params);
-      return 'msg';
-    };
   });
 
   afterEach(() => {
-    opencodeClient.sendCommand = originalSendCommand;
-    opencodeClient.sendMessage = originalSendMessage;
+    globalThis.fetch = preflight.originalFetch;
     useSkillsStore.setState({ skills: [] });
   });
 
@@ -851,7 +992,7 @@ describe('routeMessage skill invocation', () => {
     });
 
     expect(sendCommandCalls).toHaveLength(1);
-    expect(sendCommandCalls[0].command).toBe('grill-with-docs');
+    expect(sendCommandCalls[0].body.command).toBe('grill-with-docs');
     expect(sendMessageCalls).toHaveLength(0);
   });
 
@@ -869,8 +1010,8 @@ describe('routeMessage skill invocation', () => {
     });
 
     expect(sendCommandCalls).toHaveLength(1);
-    expect(sendCommandCalls[0].command).toBe('grill-with-docs');
-    expect(sendCommandCalls[0].arguments).toBe('focus on auth');
+    expect(sendCommandCalls[0].body.command).toBe('grill-with-docs');
+    expect(sendCommandCalls[0].body.arguments).toBe('focus on auth');
   });
 
   test('forwards optimistic text and file part IDs to command sends', async () => {
@@ -892,9 +1033,9 @@ describe('routeMessage skill invocation', () => {
     const optimistic = optimisticAddCalls[0];
     const textPart = optimistic.parts.find((part) => part.type === 'text');
     const filePart = optimistic.parts.find((part) => part.type === 'file');
-    expect(sendCommandCalls[0].messageId).toBe(optimistic.message.id);
-    expect(sendCommandCalls[0].textPartId).toBe(textPart.id);
-    expect(sendCommandCalls[0].files[0].id).toBe(filePart.id);
+    expect(sendCommandCalls[0].body.messageID).toBe(optimistic.message.id);
+    expect(sendCommandCalls[0].body.$body_textPartID).toBe(textPart.id);
+    expect(sendCommandCalls[0].body.parts[0].id).toBe(filePart.id);
   });
 
   test('sends an unknown slash token as a plain message', async () => {

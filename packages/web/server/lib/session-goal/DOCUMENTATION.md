@@ -25,7 +25,9 @@ the web server and survives UI disconnects.
   statusReason,            // why settled; 'resumed' is a kickoff signal from UI
   evaluationProviderID,    // provider used by the latest successful audit
   evaluationModelID,       // model used by the latest successful audit
-  lastAccountedMessageID,  // incremental accounting cursor
+  lastAccountedMessageID,  // latest processed identity (legacy cursor compatibility)
+  lastAccountedMessageIDs, // every processed identity at the boundary completion time
+  lastAccountedMessageTime,// durable completion-time boundary across pagination/replacement
   createdAt, updatedAt
 }
 ```
@@ -101,7 +103,16 @@ before touching the filesystem). Rationale: metadata rides every
      summary turn read the whole context, so its snapshot prices the
      compaction itself) and the next segment starts with a zero baseline.
      `tokensUsed = tokensCommitted + current segment`, kept monotonic so
-     unflagged context shrinks never move the budget backwards;
+     unflagged context shrinks never move the budget backwards. Message history is
+     paged backward past every persisted completion-time identity until a strictly
+     older completed assistant is reached (or history is exhausted), rather than
+     stopping as soon as known IDs appear. That extra page boundary collects every
+     equal-timestamp identity before accounting resumes. If retained history has
+     replaced those identities, only a compaction scan that crosses to a completed
+     non-summary assistant strictly before the persisted timestamp may bound the
+     history; a newer intermediate compaction never ends the scan. The post-write
+     collision check reads the newest page directly rather than paging from the
+     pre-write cursor;
    - a user abort pauses the goal instead of blocking it: the event path in
      `processPayload` pauses immediately on the MessageAbortedError message
      (before any tick could send a continuation over the user's explicit
@@ -208,6 +219,3 @@ ordering used by create and scheduled goals.
   `session.updated` but does not run the loop.
 - A goal on a session with no assistant reply yet starts after the first
   user exchange completes (no provider/model to continue with before that).
-- `tokensUsed` only counts completed assistant messages seen within the
-  40-message fetch window per tick; extremely long busy stretches between
-  idles undercount (acceptable: budget is a guardrail, not billing).

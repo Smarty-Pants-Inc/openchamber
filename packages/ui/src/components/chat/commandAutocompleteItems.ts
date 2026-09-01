@@ -63,6 +63,13 @@ export function mergeCommandAutocompleteItems<T extends CommandAutocompleteSearc
   return merged;
 }
 
+export function filterReservedBtwCommands<T extends { name: string }>(
+  items: T[],
+  sessionForkSupported: boolean,
+): T[] {
+  return sessionForkSupported ? items : items.filter((item) => item.name.toLowerCase() !== 'btw');
+}
+
 export function commandMatchesSearch(command: CommandAutocompleteSearchItem, query: string): boolean {
   return fuzzyMatch(command.name, query)
     || Boolean(command.description && fuzzyMatch(command.description, query))

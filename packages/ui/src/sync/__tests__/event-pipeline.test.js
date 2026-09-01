@@ -30,6 +30,9 @@ function installDomStubs() {
     addEventListener() {},
     removeEventListener() {},
   };
+  // Keep SDK-stream tests hermetic even when the runtime provides WebSocket.
+  // Transport-specific tests install FakeWebSocket explicitly below.
+  globalThis.WebSocket = undefined;
 }
 
 class FakeWebSocket {

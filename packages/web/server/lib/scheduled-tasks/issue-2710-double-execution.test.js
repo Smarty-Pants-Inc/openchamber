@@ -16,10 +16,12 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const sdk = vi.hoisted(() => ({
   sessionCreates: [],
+  sessionCreateInputs: [],
   createOpencodeClient: () => ({
     session: {
-      create: async () => {
+      create: async (input) => {
         sdk.sessionCreates.push(Date.now());
+        sdk.sessionCreateInputs.push(input);
         return { data: { id: `sess-${sdk.sessionCreates.length}` } };
       },
     },
@@ -119,6 +121,7 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
   beforeEach(() => {
     vi.useFakeTimers();
     sdk.sessionCreates.length = 0;
+    sdk.sessionCreateInputs.length = 0;
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => '' }));
   });
 
@@ -135,6 +138,42 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
     expect(sdk.sessionCreates.length).toBe(1);
     const firedAt = new Date(sdk.sessionCreates[0]);
     expect(firedAt.getUTCHours()).toBe(15);
+    expect(sdk.sessionCreateInputs[0].metadata).toBeUndefined();
+
+    runtimes.forEach((runtime) => runtime.stop());
+  });
+
+  it('rejects scheduled Pi before creating a session', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const task = makeTask({ kind: 'daily', times: ['15:00'] });
+    task.execution.providerID = 'pi';
+    task.execution.modelID = 'anthropic/claude-sonnet-4-5';
+    const { runtimes, projectConfigRuntime } = await startInstances(1, task);
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+
+    expect(sdk.sessionCreateInputs).toHaveLength(0);
+    const [persisted] = await projectConfigRuntime.listScheduledTasks();
+    expect(persisted.state).toMatchObject({
+      lastStatus: 'error',
+      lastError: 'Scheduled tasks do not support Pi because Pi session creation requires an interactive client to own startup dialogs',
+    });
+
+    runtimes.forEach((runtime) => runtime.stop());
+  });
+
+  it('stamps a scheduled OMP session before dispatch', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const task = makeTask({ kind: 'daily', times: ['15:00'] });
+    task.execution.providerID = 'omp';
+    task.execution.modelID = 'gpt-5.5';
+    const { runtimes } = await startInstances(1, task);
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+
+    expect(sdk.sessionCreateInputs).toHaveLength(1);
+    expect(sdk.sessionCreateInputs[0]).toMatchObject({
+      directory: '/repo',
+      metadata: { openchamber: { agent_backend: 'omp' } },
+    });
 
     runtimes.forEach((runtime) => runtime.stop());
   });

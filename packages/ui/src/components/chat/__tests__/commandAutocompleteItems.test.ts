@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { commandMatchesSearch, mergeCommandAutocompleteItems } from '../commandAutocompleteItems';
+import { commandMatchesSearch, filterReservedBtwCommands, mergeCommandAutocompleteItems } from '../commandAutocompleteItems';
 
 interface Item {
   name: string;
@@ -149,6 +149,22 @@ describe('mergeCommandAutocompleteItems', () => {
       searchAliases: ['Second'],
     }]);
     expect(first.searchAliases).toBe(undefined);
+  });
+
+  test('removes reserved BTW commands from custom and skill sources while forking is unavailable', () => {
+    const custom: Item[] = [
+      { name: 'BTW', source: 'opencode' },
+      { name: 'deploy', source: 'opencode' },
+    ];
+    const skills: Item[] = [
+      { name: 'btw', source: 'skill', isSkill: true },
+      { name: 'explain', source: 'skill', isSkill: true },
+    ];
+
+    expect(filterReservedBtwCommands(custom, false).map((item) => item.name)).toEqual(['deploy']);
+    expect(filterReservedBtwCommands(skills, false).map((item) => item.name)).toEqual(['explain']);
+    expect(filterReservedBtwCommands(custom, true)).toBe(custom);
+    expect(filterReservedBtwCommands(skills, true)).toBe(skills);
   });
 
   test('handles empty inputs', () => {

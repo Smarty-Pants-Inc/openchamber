@@ -23,6 +23,7 @@ other.
   loopback credential.
 - `../openchamber-sessions/routes.js` and `../scheduled-tasks/service.js` own
   their domain operations and are composed into this service.
+- `../openchamber-sessions/session-backend-policy.js` is the canonical Web/VS Code backend-history and send/fork policy. It folds pages without accumulating messages, retaining only the backend class and cursor set. Both adapters map policy conflicts to 409 and malformed or stalled history to 502. Raw SDK transport failures stay adapter-owned: Web preserves a thrown `statusCode` or uses 500, while VS Code preserves an SDK response status or uses 502.
 
 ## Invariants
 
@@ -41,9 +42,10 @@ other.
   After `prompt_async` the service confirms a new user message reached the
   session; when it does not, the result reports `promptDispatched: false` with
   `promptError` instead of claiming success.
-- Send and fork dispatches without an explicit model/agent/variant reuse the
-  target session's last user-message selection before falling back to the
-  configured defaults; only session creation resolves defaults directly.
+- Send and fork dispatches without an explicit model, agent, or variant reuse
+  the target session's last user-message selection, then its persisted
+  promptless-create selection, before falling back to configured defaults; only
+  session creation resolves defaults directly.
 - Usage errors name the missing or conflicting input so CLI and agent-tool
   callers can correct an invalid request without an upfront usage manual.
 - Explicit `projectId` or `directory` scope takes precedence over the managed

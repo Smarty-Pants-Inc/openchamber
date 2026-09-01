@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
+import { RetainedSessionError } from '@/lib/retainedSessionError';
+
+type OpenChamberSessionMetadata = {
+  openchamber?: {
+    project_context_pins?: { notes: string[]; plans: string[] };
+    agent_backend?: 'omp' | 'pi';
+  };
+};
+
+type SessionCreateParams = { title?: string; metadata?: OpenChamberSessionMetadata; providerID?: string };
 
 const upsertedSessions: Session[] = [];
 const registeredDirectories: Array<{ sessionID: string; directory: string }> = [];
@@ -8,8 +18,11 @@ const worktreeMetadataCalls: Array<{ sessionId: string; path: string }> = [];
 const worktreeCreateCalls: Array<{ project: { id?: string; path: string }; args: Record<string, unknown>; options: unknown }> = [];
 const worktreeBootstrapWaitCalls: string[] = [];
 const operationOrder: string[] = [];
+const createSessionParams: SessionCreateParams[] = [];
 let isGitRepository = false;
 let waitForWorktreeSetup = false;
+let createSessionFailure: Error | null = null;
+const createSessionFailures: Error[] = [];
 const createWorktreeWithDefaultsMock = mock((project: { id?: string; path: string }, args: Record<string, unknown>, options: unknown) => {
   worktreeCreateCalls.push({ project, args, options });
   return Promise.resolve({
@@ -55,8 +68,13 @@ mock.module('@/lib/opencode/client', () => ({
         currentDirectory = previous;
       }
     },
-    createSession: async (params?: { title?: string }): Promise<Session> => {
+    createSession: async (params?: SessionCreateParams): Promise<Session> => {
+      createSessionParams.push(params ?? {});
       operationOrder.push(`createSession:${currentDirectory}`);
+      if (params?.providerID === 'pi') {
+        const failure = createSessionFailures.shift() ?? createSessionFailure;
+        if (failure) throw failure;
+      }
       return {
         id: 'ses_multirun',
         title: params?.title ?? '',
@@ -157,13 +175,80 @@ describe('useMultiRunStore', () => {
     worktreeCreateCalls.length = 0;
     worktreeBootstrapWaitCalls.length = 0;
     operationOrder.length = 0;
+    createSessionParams.length = 0;
     isGitRepository = false;
     waitForWorktreeSetup = false;
+    createSessionFailure = null;
+    createSessionFailures.length = 0;
     childState.session = [];
     childState.sessionTotal = 0;
     childState.limit = 5;
     currentDirectory = '/repo';
     useMultiRunStore.setState({ isLoading: false, error: null });
+  });
+
+  test('surfaces every retained Pi tuple when every requested run fails', async () => {
+    createSessionFailures.push(
+      new RetainedSessionError('First Pi session was retained', {
+        sessionID: 'ses_retained',
+        directory: '/repo-a',
+        runtimeKey: 'runtime-a',
+        cause: new Error('runtime changed'),
+        compensationError: new Error('delete was not confirmed'),
+      }),
+      new RetainedSessionError('Second Pi session was retained', {
+        sessionID: 'ses_retained',
+        directory: '/repo-b',
+        runtimeKey: 'runtime-b',
+        cause: new Error('runtime changed'),
+        compensationError: new Error('delete was not confirmed'),
+      }),
+    );
+
+    const result = await useMultiRunStore.getState().createMultiRun({
+      name: 'Fix thing',
+      isolateRuns: false,
+      groups: [{
+        prompt: 'Fix it',
+        models: [
+          { providerID: 'pi', modelID: 'default' },
+          { providerID: 'pi', modelID: 'alternate' },
+        ],
+      }],
+    });
+
+    expect(result).toBeNull();
+    expect(useMultiRunStore.getState().error).toBe(
+      'Failed to create any sessions. Retained Pi sessions: runtimeKey=runtime-a, directory=/repo-a, sessionID=ses_retained; runtimeKey=runtime-b, directory=/repo-b, sessionID=ses_retained',
+    );
+  });
+
+  test('surfaces retained Pi identities alongside successful partial runs', async () => {
+    createSessionFailure = new RetainedSessionError('Pi session was retained', {
+      sessionID: 'ses_retained_partial',
+      directory: '/repo',
+      runtimeKey: 'runtime-a',
+      cause: new Error('runtime changed'),
+      compensationError: new Error('delete was not confirmed'),
+    });
+
+    const result = await useMultiRunStore.getState().createMultiRun({
+      name: 'Fix thing',
+      isolateRuns: false,
+      groups: [{
+        prompt: 'Fix it',
+        models: [
+          { providerID: 'pi', modelID: 'default' },
+          { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+        ],
+      }],
+    });
+
+    expect(result).toBeNull();
+    expect(useMultiRunStore.getState().error).toBe(
+      'Created 1 of 2 sessions. Retained Pi sessions: runtimeKey=runtime-a, directory=/repo, sessionID=ses_retained_partial',
+    );
+    expect(registeredDirectories).toEqual([{ sessionID: 'ses_multirun', directory: '/repo' }]);
   });
 
   test('registers created sessions without waiting for a sidebar refresh', async () => {
@@ -172,7 +257,7 @@ describe('useMultiRunStore', () => {
       isolateRuns: false,
       groups: [{
         prompt: 'Fix it',
-        models: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' }],
+        models: [{ providerID: 'pi', modelID: 'default' }],
       }],
     });
 
@@ -181,6 +266,7 @@ describe('useMultiRunStore', () => {
     expect(registeredDirectories).toEqual([{ sessionID: 'ses_multirun', directory: '/repo' }]);
     expect(ensureChildCalls).toEqual([{ directory: '/repo', bootstrap: false }]);
     expect(childState.session.map((session) => session.id)).toEqual(['ses_multirun']);
+    expect(createSessionParams[0]?.providerID).toBe('pi');
   });
 
   test('uses fast background worktree creation for isolated runs', async () => {

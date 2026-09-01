@@ -13,6 +13,7 @@ import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import { getSyncMessages, getSyncParts } from '@/sync/sync-refs';
+import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import { getFusionSessionTitle, parseMultiRunSessionTitle } from '@/lib/multirun/title';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
@@ -160,26 +161,36 @@ export function MultiRunFusionDialog({
         renderMagicPrompt('session.fusion.visible'),
         renderMagicPrompt('session.fusion.instructions'),
       ]);
-      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null);
+      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null, providerID);
       if (!fusionSession) throw new Error('Failed to create fusion session');
 
-      useSessionUIStore.getState().setCurrentSession(fusionSession.id, directory);
+      const fusionDirectory = fusionSession.directory?.trim()
+        || directory
+        || opencodeClient.getDirectory();
+      useSessionUIStore.getState().setCurrentSession(fusionSession.id, fusionDirectory);
       onOpenChange(false);
 
-      await opencodeClient.sendMessage({
-        id: fusionSession.id,
+      await withSessionSendPreflight({
+        sessionId: fusionSession.id,
+        directory: fusionDirectory,
         providerID,
-        modelID,
-        variant: variant || undefined,
+      }, ({ client }) => client.session.promptAsync({
+        sessionID: fusionSession.id,
+        directory: fusionDirectory,
+        model: { providerID, modelID },
         agent: agent || undefined,
-        text: visiblePrompt,
-        additionalParts: [
-          { text: instructionsPrompt, synthetic: true },
-          ...usableSources.map((item, index) => ({ text: buildSourcePart(item.source, item.text, index), synthetic: true })),
-          { text: '\n\n--- FUSION INPUTS END ---\nNow write the final fused answer.', synthetic: true },
+        variant: variant || undefined,
+        parts: [
+          ...(visiblePrompt.trim() ? [{ type: 'text' as const, text: visiblePrompt }] : []),
+          { type: 'text' as const, text: instructionsPrompt, synthetic: true },
+          ...usableSources.map((item, index) => ({
+            type: 'text' as const,
+            text: buildSourcePart(item.source, item.text, index),
+            synthetic: true,
+          })),
+          { type: 'text' as const, text: '\n\n--- FUSION INPUTS END ---\nNow write the final fused answer.', synthetic: true },
         ],
-        directory: directory ?? opencodeClient.getDirectory(),
-      });
+      }));
     } catch (error) {
       console.error('[MultiRunFusion] Failed to start fusion', error);
       toast.error(t('multirun.fusion.toast.failed'));
