@@ -5,7 +5,10 @@ import {
   classifyRequestedAgentBackend,
   getAgentBackendProviderID,
   getAgentBackendProviderIDFromMessageRecords,
+  isCodexManagedSession,
+  isReadOnlyCodexSubagent,
   isSessionForkSupported,
+  isSessionShareSupported,
   withAgentBackendMetadata,
 } from './sessionReviewMetadata';
 import type { SessionMetadataRecord } from './sessionReviewMetadata';
@@ -19,6 +22,11 @@ const sessionWith = (metadata: SessionMetadataRecord): Session => ({
   version: '1',
   time: { created: 1, updated: 1 },
   metadata,
+});
+
+const sessionWithProvider = (providerID: string): Session => ({
+  ...sessionWith({}),
+  model: { id: 'default', providerID },
 });
 
 describe('managed backend classification', () => {
@@ -41,6 +49,25 @@ describe('managed backend classification', () => {
     expect(classifyPersistedAgentBackend(sessionWith({
       openchamber: { agent_backend: 'anthropic' },
     }))).toBe('unknown');
+  });
+
+  test('hides sharing for managed metadata and legacy direct OMP sessions', () => {
+    expect(isSessionShareSupported(sessionWith({ openchamber: { agent_backend: 'omp' } }))).toBe(false);
+    expect(isSessionShareSupported(sessionWith({ openchamber: { agent_backend: 'codex' } }))).toBe(false);
+    expect(isSessionShareSupported(sessionWithProvider('omp'))).toBe(false);
+    expect(isSessionShareSupported(sessionWithProvider('codex'))).toBe(true);
+    expect(isSessionShareSupported(sessionWithProvider('anthropic'))).toBe(true);
+  });
+
+  test('gates Codex-only actions and preserves OMP and Pi sessions', () => {
+    const codexRoot = sessionWith({ openchamber: { agent_backend: 'codex' } });
+    const codexSubagent = sessionWith({ openchamber: { agent_backend: 'codex' }, ompSubagent: true });
+
+    expect(isCodexManagedSession(codexRoot)).toBe(true);
+    expect(isReadOnlyCodexSubagent(codexRoot)).toBe(false);
+    expect(isReadOnlyCodexSubagent(codexSubagent)).toBe(true);
+    expect(isCodexManagedSession(sessionWith({ openchamber: { agent_backend: 'omp' } }))).toBe(false);
+    expect(isReadOnlyCodexSubagent(sessionWith({ openchamber: { agent_backend: 'pi' }, ompSubagent: true }))).toBe(false);
   });
 
   test('stamps Codex while preserving review and BTW inheritance metadata', () => {

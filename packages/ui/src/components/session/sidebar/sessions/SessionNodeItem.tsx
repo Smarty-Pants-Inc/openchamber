@@ -39,7 +39,7 @@ import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore'
 import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getSessionGoal } from '@/lib/sessionGoalMetadata';
-import { getAgentBackendProviderID } from '@/lib/sessionReviewMetadata';
+import { isReadOnlyCodexSubagent, isSessionShareSupported } from '@/lib/sessionReviewMetadata';
 import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
@@ -295,7 +295,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? 'group-hover:opacity-0'
     : 'group-hover:opacity-0 group-focus-within:opacity-0';
   const showOpenInEditorAction = isVSCode;
-  const showQuickArchiveAction = !archivedBucket && !mobileVariant;
+  const session = node.session;
+  const canManageRetention = !isReadOnlyCodexSubagent(session);
+  const showQuickArchiveAction = !archivedBucket && !mobileVariant && canManageRetention;
   const revealPaddingClass = isVSCode
     // VS Code rows reveal up to three actions on hover
     // (open-in-editor + quick-archive + menu, each h-4). The date sits in the
@@ -327,9 +329,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const renameTargetRef = React.useRef<string | null>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
 
-  const session = node.session;
   const resolvedSession = session;
-  const canShareSession = getAgentBackendProviderID(resolvedSession) === null;
+  const canShareSession = isSessionShareSupported(resolvedSession);
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
   const projectLabelFromStore = useProjectsStore(
@@ -417,6 +418,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     walk(root);
     return out;
   }, []);
+  const collectManageableDescendantIds = React.useCallback(
+    (root: SessionNode): string[] => collectNodeDescendantSessions(root)
+      .filter((candidate) => !isReadOnlyCodexSubagent(candidate))
+      .map((candidate) => candidate.id),
+    [collectNodeDescendantSessions],
+  );
 
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
   const [exportIncludeSubtasks, setExportIncludeSubtasks] = React.useState(true);
@@ -832,20 +839,22 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       return;
     }
     if (selectionModeEnabled) {
+      if (!canManageRetention) return;
       event?.preventDefault();
       event?.stopPropagation();
       if (event?.shiftKey) {
         const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-session-row]'));
         const orderedIds = rows
+          .filter((el) => el.getAttribute('data-session-manage-retention') !== '0')
           .map((el) => el.getAttribute('data-session-row'))
           .filter((id): id is string => id !== null && id.length > 0);
         const currentAnchor = useSessionMultiSelectStore.getState().anchorId;
         const descendantsById = new Map<string, string[]>();
-        descendantsById.set(session.id, collectNodeDescendantIds(node));
+        descendantsById.set(session.id, collectManageableDescendantIds(node));
         setRowRange(currentAnchor, session.id, orderedIds, selectionScopeKey, descendantsById);
         return;
       }
-      toggleRowSelected(session.id, selectionScopeKey, collectNodeDescendantIds(node));
+      toggleRowSelected(session.id, selectionScopeKey, collectManageableDescendantIds(node));
       return;
     }
     if (event?.currentTarget) holdSessionRowPosition(event.currentTarget);
@@ -1086,23 +1095,27 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         </Item>
       ) : null}
 
-      <Separator />
-      {!archivedBucket ? (
-        <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
-          <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.bulkActions.archive')}
-        </Item>
+      {canManageRetention ? (
+        <>
+          <Separator />
+          {!archivedBucket ? (
+            <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
+              <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
+              {t('sessions.sidebar.bulkActions.archive')}
+            </Item>
+          ) : null}
+          {archivedBucket ? (
+            <Item className="[&>svg]:mr-1" onClick={() => handleRestoreSession(session)}>
+              <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
+              {t('sessions.sidebar.bulkActions.restore')}
+            </Item>
+          ) : null}
+          <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
+            <Icon name="delete-bin" className="mr-1 h-4 w-4" />
+            {t('sessions.sidebar.bulkActions.delete')}
+          </Item>
+        </>
       ) : null}
-      {archivedBucket ? (
-        <Item className="[&>svg]:mr-1" onClick={() => handleRestoreSession(session)}>
-          <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.bulkActions.restore')}
-        </Item>
-      ) : null}
-      <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
-        <Icon name="delete-bin" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.bulkActions.delete')}
-      </Item>
     </>
   );
 
@@ -1188,6 +1201,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 data-session-row={session.id}
                 data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
+                data-session-manage-retention={canManageRetention ? '1' : '0'}
                 onClick={handleRowBackgroundClick}
                 // Row geometry mirrors the zone-header band: full container
                 // width, px-1.5 inner edge, a 14px icon-wide gutter (status
