@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { I18nProvider } from '@/lib/i18n';
 import type { DeleteSessionConfirmState } from '../shell/ConfirmDialogs';
 import { useSessionActions } from './useSessionActions';
@@ -84,6 +85,64 @@ describe('explicit session row behavior', () => {
       expect(capture.project).toEqual(capture.recent);
     } finally {
       await act(async () => root.unmount());
+      dom.restore();
+    }
+  });
+
+  test('does not enter rename or delete flows for a read-only Codex child', async () => {
+    const dom = installHookTestDom();
+    const root = createRoot(dom.container);
+    const originalGlobal = useGlobalSessionsStore.getState();
+    const childSession = {
+      ...session('codex-child'),
+      parentID: 'codex-root',
+      metadata: { openchamber: { agent_backend: 'codex' }, ompSubagent: true },
+    } as Session;
+    originalGlobal.applySnapshot([childSession], []);
+    const capture: {
+      actions?: {
+        handleSessionDoubleClick: (sessionId: string, title: string) => void;
+        handleDeleteSession: (session: Session) => void;
+      };
+      editingId?: string | null;
+      confirmation?: DeleteSessionConfirmState;
+    } = {};
+    const Harness = () => {
+      const [editingId, setEditingId] = React.useState<string | null>(null);
+      const [editTitle, setEditTitle] = React.useState('');
+      const [confirmation, setConfirmation] = React.useState<DeleteSessionConfirmState>(null);
+      capture.editingId = editingId;
+      capture.confirmation = confirmation;
+      capture.actions = useSessionActions({
+        mobileVariant: false,
+        allowReselect: false,
+        isSessionSearchOpen: false,
+        sessionSearchQuery: '',
+        setSessionSearchQuery: () => undefined,
+        setIsSessionSearchOpen: () => undefined,
+        descendantIds: [],
+        showDeletionDialog: true,
+        setDeleteSessionConfirm: setConfirmation,
+        deleteSessionConfirm: confirmation,
+        editingId,
+        setEditingId,
+        editTitle,
+        setEditTitle,
+        copiedSessionId: null,
+        setCopiedSessionId: () => undefined,
+      });
+      return null;
+    };
+
+    try {
+      await act(async () => root.render(<I18nProvider><Harness /></I18nProvider>));
+      await act(async () => capture.actions?.handleSessionDoubleClick(childSession.id, childSession.title));
+      await act(async () => capture.actions?.handleDeleteSession(childSession));
+      expect(capture.editingId).toBe(null);
+      expect(capture.confirmation).toBe(null);
+    } finally {
+      await act(async () => root.unmount());
+      useGlobalSessionsStore.getState().applySnapshot(originalGlobal.activeSessions, originalGlobal.archivedSessions);
       dom.restore();
     }
   });

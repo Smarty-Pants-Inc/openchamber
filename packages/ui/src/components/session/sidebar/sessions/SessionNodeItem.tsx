@@ -612,7 +612,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     setRenameDraft(editTitle);
   }, [editingId, editTitle, session.id]);
 
-  if (editingId === session.id) {
+  if (editingId === session.id && canManageRetention) {
     return (
       <div
         key={session.id}
@@ -904,18 +904,20 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     SubContent: React.ElementType;
   }) => (
     <>
-      <Item
-        onClick={() => {
-          // Defer rename until dropdown close transition completes.
-          // onOpenChangeComplete fires after animation + focus cleanup are done,
-          // avoiding focus stealing from Base UI's unmount cleanup.
-          pendingRenameRef.current = { id: session.id, title: sessionTitle };
-        }}
-        className="[&>svg]:mr-1"
-      >
-        <Icon name="pencil-ai" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.session.menu.rename')}
-      </Item>
+      {canManageRetention ? (
+        <Item
+          onClick={() => {
+            // Defer rename until dropdown close transition completes.
+            // onOpenChangeComplete fires after animation + focus cleanup are done,
+            // avoiding focus stealing from Base UI's unmount cleanup.
+            pendingRenameRef.current = { id: session.id, title: sessionTitle };
+          }}
+          className="[&>svg]:mr-1"
+        >
+          <Icon name="pencil-ai" className="mr-1 h-4 w-4" />
+          {t('sessions.sidebar.session.menu.rename')}
+        </Item>
+      ) : null}
       <Item onClick={() => handleCopySessionId(session.id)} className="[&>svg]:mr-1">
         <Icon name="file-copy" className="mr-1 h-4 w-4" />
         {t('sessions.sidebar.session.menu.copyId')}
@@ -1233,7 +1235,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
  	                    onClick={(event) => handleRowSelect(event)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      handleSessionDoubleClick(session.id, sessionTitle);
+                      if (canManageRetention) handleSessionDoubleClick(session.id, sessionTitle);
                     }}
                     className={cn(
 	                      'flex min-w-0 flex-1 cursor-pointer flex-col gap-0 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none transition-[padding]',

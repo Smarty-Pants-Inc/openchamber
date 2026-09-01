@@ -263,17 +263,18 @@ export const useSidebarBulkActions = (args: Args) => {
         const rows = typeof document !== 'undefined'
           ? Array.from(document.querySelectorAll<HTMLElement>('[data-session-row]'))
           : [];
-        if (rows.length === 0) return;
+        const manageableRows = rows.filter((row) => row.getAttribute('data-session-manage-retention') !== '0');
+        if (manageableRows.length === 0) return;
         event.preventDefault();
         const currentScope = useSessionMultiSelectStore.getState().scopeKey;
         const targetScope = currentScope
-          ?? rows[0]?.getAttribute('data-session-scope')
+          ?? manageableRows[0]?.getAttribute('data-session-scope')
           ?? null;
         const scopeFilter = (el: HTMLElement): boolean => {
           if (!targetScope) return true;
           return el.getAttribute('data-session-scope') === targetScope;
         };
-        const ids = rows
+        const ids = manageableRows
           .filter(scopeFilter)
           .map((el) => el.getAttribute('data-session-row'))
           .filter((id): id is string => typeof id === 'string' && id.length > 0);

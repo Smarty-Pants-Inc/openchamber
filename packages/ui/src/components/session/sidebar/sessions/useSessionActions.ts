@@ -6,6 +6,8 @@ import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { streamPerfMark } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { isReadOnlyCodexSubagent } from '@/lib/sessionReviewMetadata';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 
 export type DeleteSessionSource = {
   archivedBucket?: boolean;
@@ -40,6 +42,10 @@ type Args = {
   copiedSessionId: string | null;
   setCopiedSessionId: (sessionId: string | null) => void;
 };
+
+const canMutateSession = (sessionId: string): boolean => (
+  !isReadOnlyCodexSubagent(useGlobalSessionsStore.getState().entityById.get(sessionId))
+);
 
 export const useSessionActions = (args: Args) => {
   const { t } = useI18n();
@@ -120,6 +126,7 @@ export const useSessionActions = (args: Args) => {
   );
 
   const handleSessionDoubleClick = React.useCallback((sessionId: string, sessionTitle: string) => {
+    if (!canMutateSession(sessionId)) return;
     setEditingId(sessionId);
     setEditTitle(sessionTitle);
   }, [setEditTitle, setEditingId]);
@@ -127,6 +134,11 @@ export const useSessionActions = (args: Args) => {
   const handleSaveEdit = React.useCallback(async (titleOverride?: string) => {
     const editingId = editingIdRef.current;
     if (!editingId) return;
+    if (!canMutateSession(editingId)) {
+      setEditingId(null);
+      setEditTitle('');
+      return;
+    }
     const trimmed = (titleOverride ?? editTitleRef.current).trim();
     if (trimmed) {
       await updateSessionTitle(editingId, trimmed);
@@ -203,6 +215,7 @@ export const useSessionActions = (args: Args) => {
       source?: DeleteSessionSource,
       precomputed?: { descendantIds: string[] },
     ) => {
+      if (isReadOnlyCodexSubagent(session)) return;
       const shouldHardDelete = source?.archivedBucket === true || source?.hardDelete === true;
       // Use the snapshot taken when the dialog opened (if any) so the
       // executed list matches what the user was told. Fall back to a fresh
@@ -227,9 +240,9 @@ export const useSessionActions = (args: Args) => {
 
       const ids = [session.id, ...effectiveDescendantIds];
       if (shouldHardDelete) {
-        // Delete root + all descendants individually. If the server
-        // cascade-deletes some children before we get to them, 404 is
-        // treated as success by deleteSession and no rollback occurs.
+        // The shared boundary mutates independent sessions sequentially while
+        // folding read-only Codex descendants into their selected owner.
+        // Native owner deletion cascades those descendants server-side.
         const { deletedIds, failedIds } = await deleteSessions(ids);
         if (failedIds.length === 0) {
           const totalDeleted = deletedIds.length;
@@ -259,6 +272,7 @@ export const useSessionActions = (args: Args) => {
 
   const handleDeleteSession = React.useCallback(
     (session: Session, source?: DeleteSessionSource) => {
+      if (isReadOnlyCodexSubagent(session)) return;
       const shouldHardDelete = source?.archivedBucket === true || source?.hardDelete === true;
       const effectiveDescendantIds = [...descendantIds];
       if (!showDeletionDialog || source?.skipConfirm === true) {
@@ -285,6 +299,7 @@ export const useSessionActions = (args: Args) => {
 
   const handleRestoreSession = React.useCallback(
     async (session: Session) => {
+      if (isReadOnlyCodexSubagent(session)) return;
       const success = await unarchiveSession(session.id);
       if (success) {
         toast.success(t('sessions.sidebar.session.restore.success'));
