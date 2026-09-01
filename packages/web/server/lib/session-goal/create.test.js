@@ -21,7 +21,18 @@ describe('session goal creation', () => {
   });
 
   it('writes the objective before patching active goal metadata', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true }));
+    const fetchMock = vi.fn(async (_url, init = {}) => init.method === 'PATCH'
+      ? { ok: true }
+      : {
+          ok: true,
+          json: async () => ({
+            id: 'ses_123',
+            metadata: {
+              openchamber: { agent_backend: 'pi', assist: { dismissed: true } },
+              keep: true,
+            },
+          }),
+        });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
     try {
@@ -39,10 +50,20 @@ describe('session goal creation', () => {
       expect(writeObjectiveMock).toHaveBeenCalledWith('ses_123', 'Finish and verify the migration');
       expect(writeObjectiveMock.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
       expect(goal).toMatchObject({ objective: '', objectiveFile: true, status: 'active', tokenBudget: 200_000 });
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
         'http://opencode.test/session/ses_123?directory=%2Frepo%2Fapp',
         expect.objectContaining({ method: 'PATCH' }),
       );
+      const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
+      expect(payload.metadata).toMatchObject({
+        keep: true,
+        openchamber: {
+          agent_backend: 'pi',
+          assist: { dismissed: true },
+          goal: expect.objectContaining({ status: 'active' }),
+        },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -50,7 +71,9 @@ describe('session goal creation', () => {
 
   it('falls back to inline metadata when objective storage fails', async () => {
     writeObjectiveMock.mockRejectedValueOnce(new Error('disk unavailable'));
-    const fetchMock = vi.fn(async () => ({ ok: true }));
+    const fetchMock = vi.fn(async (_url, init = {}) => init.method === 'PATCH'
+      ? { ok: true }
+      : { ok: true, json: async () => ({ id: 'ses_123', metadata: {} }) });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
     try {
@@ -63,11 +86,30 @@ describe('session goal creation', () => {
         onWarning: vi.fn(),
       });
 
-      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      const payload = JSON.parse(patchCall[1].body);
       expect(payload.metadata.openchamber.goal).toMatchObject({
         objective: 'Finish the migration',
         objectiveFile: false,
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not replace metadata when the session read is invalid', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => null }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+    try {
+      await expect(createSessionGoal({
+        baseUrl: 'http://opencode.test',
+        authHeaders: {},
+        sessionID: 'ses_123',
+        directory: '/repo/app',
+        objective: 'Finish the migration',
+      })).rejects.toThrow('goal metadata read returned an invalid session');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
     }

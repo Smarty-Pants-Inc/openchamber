@@ -212,7 +212,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
                 if (!shouldIsolateRuns) {
                   const session = await opencodeClient.withDirectory(
                     directory,
-                    () => opencodeClient.createSession({ title: sessionTitle }),
+                    () => opencodeClient.createSession({ title: sessionTitle, providerID: model.providerID }),
                   );
                   registerCreatedSession(session, directory);
 
@@ -251,7 +251,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
                 const session = await opencodeClient.withDirectory(
                   worktreeMetadata.path,
-                  () => opencodeClient.createSession({ title: sessionTitle }),
+                  () => opencodeClient.createSession({ title: sessionTitle, providerID: model.providerID }),
                 );
                 registerCreatedSession(session, worktreeMetadata.path);
 

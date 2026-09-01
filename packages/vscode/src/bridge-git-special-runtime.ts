@@ -187,6 +187,10 @@ const generateBridgeTextWithSessionFlow = async ({
   modelID: string;
   authHeaders?: Record<string, string>;
 }): Promise<string> => {
+  if (providerID === 'pi') {
+    throw new Error('Pi models are unavailable for VS Code Git generation because session creation requires interactive dialog ownership');
+  }
+
   const client = createBridgeGitClient(apiUrl, authHeaders);
   const deadlineAt = Date.now() + BRIDGE_GIT_GENERATION_TIMEOUT_MS;
   const remainingMs = () => Math.max(1_000, deadlineAt - Date.now());
@@ -197,6 +201,9 @@ const generateBridgeTextWithSessionFlow = async ({
       await client.session.create({
         ...(directory ? { directory } : {}),
         title: 'Git Generation',
+        metadata: providerID === 'omp'
+          ? { openchamber: { agent_backend: 'omp' } }
+          : undefined,
       }, { signal: AbortSignal.timeout(remainingMs()) }),
       'session.create'
     );

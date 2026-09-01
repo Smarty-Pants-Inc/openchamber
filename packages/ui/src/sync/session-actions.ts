@@ -3,7 +3,9 @@
  * Replaces the action methods from the old useSessionStore.
  */
 
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
+import { z } from "zod"
 import { Binary } from "./binary"
 import { useSessionUIStore } from "./session-ui-store"
 import { useInputStore } from "./input-store"
@@ -22,15 +24,19 @@ import {
   getOriginalSessionID,
   getSessionMetadata,
   isReviewSession,
+  withAgentBackendMetadata,
   withoutReviewSessionLink,
-  type SessionMetadataRecord,
 } from "@/lib/sessionReviewMetadata"
+import type { SessionMetadataRecord } from "@/lib/sessionReviewMetadata"
+import { bindRuntimeTransport, runtimeFetch } from "@/lib/runtime-fetch"
+import { confirmRetainedSessionDeletion, RetainedSessionError } from "@/lib/retainedSessionError"
+import { createPiSessionWithPendingDialogs } from "./pi-pending-create"
 import { withContextObligatoryMessage, type ContextObligatoryMessage } from "@/lib/contextObligatoryMessages"
 import { getBtwOriginalSessionID, getBtwSessionID, isBtwSession, withoutBtwSessionLink } from "@/lib/sessionBtwMetadata"
 import { withLinkedIssue, type LinkedIssue } from "@/lib/linkedIssues"
 import { getImperativeSessionMessageLoader } from "./session-message-loader"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
-import { getRuntimeKey } from "@/lib/runtime-switch"
+import { getRuntimeKey, getRuntimeTransportEpoch } from "@/lib/runtime-switch"
 import { isAmbiguousTransportFailure } from "@/lib/relay/transport-error"
 import { getStaleRunningToolMessageID } from "./materialization"
 import { normalizePath } from "@/lib/pathNormalization"
@@ -727,7 +733,8 @@ export async function createSession(
   title?: string,
   directoryOverride?: string | null,
   parentID?: string | null,
-  metadata?: Record<string, unknown>,
+  providerID?: string,
+  metadata?: SessionMetadataRecord,
   selectionTransition?: "submitted-draft",
 ): Promise<Session | null> {
   try {
@@ -741,6 +748,7 @@ export async function createSession(
       title,
       parentID: parentID ?? undefined,
       metadata,
+      providerID,
     }, effectiveDirectory)
 
     const sessionDirectory = (session as { directory?: string | null }).directory ?? effectiveDirectory ?? null
@@ -755,6 +763,7 @@ export async function createSession(
     return session
   } catch (error) {
     console.error("[session-actions] createSession failed", error)
+    if (error instanceof RetainedSessionError) throw error
     return null
   }
 }
@@ -769,34 +778,522 @@ function isStaleRuntime(expectedRuntimeKey: string | undefined): boolean {
   return expectedRuntimeKey !== undefined && getRuntimeKey() !== expectedRuntimeKey
 }
 
+type SessionMutationGuard = () => void
+
+const assertSessionMutationCurrent = (
+  expectedRuntimeKey: string | undefined,
+  assertCurrent: SessionMutationGuard | undefined,
+): void => {
+  if (isStaleRuntime(expectedRuntimeKey)) throw new Error("runtime changed")
+  assertCurrent?.()
+}
+
 /**
- * Read a session, apply `updater` to its metadata, and persist the result.
- *
- * `expectedRuntimeKey` is optional here and unguarded when omitted, unlike the
- * archive and delete actions. When supplied, the runtime is rechecked before
- * the read, before the write, and before the global store is updated; a change
- * at any of those points **throws** `"runtime changed"` rather than returning a
- * value, because this function must resolve to a `Session`. Callers that pass a
- * key must therefore be prepared to catch that rejection.
+ * Apply an OpenChamber metadata update through the server-owned compare-and-
+ * swap endpoint. The UI only owns top-level `metadata.openchamber` leaves, so
+ * unrelated metadata cannot be overwritten by a stale full-object update.
  */
+const SESSION_METADATA_CAS_ATTEMPTS = 3
+
+type SessionMetadataOperation = {
+  type: "set" | "delete"
+  path: ["openchamber", string]
+  expected: { exists: boolean; value?: unknown }
+  value?: unknown
+}
+
+const isMetadataObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const metadataValueEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => metadataValueEqual(value, right[index]))
+  }
+  if (!isMetadataObject(left) || !isMetadataObject(right)) return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key)
+      && metadataValueEqual(left[key], right[key]))
+}
+
+const openChamberMetadata = (metadata: SessionMetadataRecord): Record<string, unknown> =>
+  isMetadataObject(metadata.openchamber) ? metadata.openchamber : {}
+
+const updatesOnlyOpenChamberMetadata = (
+  current: SessionMetadataRecord,
+  next: SessionMetadataRecord,
+): boolean => {
+  const currentOutside = { ...current }
+  const nextOutside = { ...next }
+  delete currentOutside.openchamber
+  delete nextOutside.openchamber
+  return metadataValueEqual(currentOutside, nextOutside)
+}
+
+const metadataOperations = (
+  current: SessionMetadataRecord,
+  next: SessionMetadataRecord,
+): SessionMetadataOperation[] => {
+  const currentNamespace = openChamberMetadata(current)
+  const nextNamespace = openChamberMetadata(next)
+  const keys = new Set([...Object.keys(currentNamespace), ...Object.keys(nextNamespace)])
+  const operations: SessionMetadataOperation[] = []
+  for (const key of keys) {
+    const currentExists = Object.prototype.hasOwnProperty.call(currentNamespace, key)
+    const nextExists = Object.prototype.hasOwnProperty.call(nextNamespace, key)
+    if (currentExists === nextExists && (!currentExists || metadataValueEqual(currentNamespace[key], nextNamespace[key]))) {
+      continue
+    }
+    const expected = currentExists
+      ? { exists: true, value: currentNamespace[key] }
+      : { exists: false }
+    operations.push(nextExists
+      ? { type: "set", path: ["openchamber", key], expected, value: nextNamespace[key] }
+      : { type: "delete", path: ["openchamber", key], expected })
+  }
+  return operations
+}
+
+const commitMetadataSession = (updated: Session, targetDirectory: string | null | undefined): Session => {
+  useGlobalSessionsStore.getState().upsertSession(updated)
+  // SAFETY: OpenCode returns a directory field that the SDK Session type omits.
+  const updatedWithDirectory = updated as Session & { directory?: string | null }
+  const sessionDirectory = updatedWithDirectory.directory ?? targetDirectory
+  if (sessionDirectory) registerSessionDirectory(updated.id, sessionDirectory)
+  mirrorSessionIntoLiveStores(updated, sessionDirectory ?? undefined)
+  return updated
+}
+
+type SessionMetadataReader = Pick<typeof opencodeClient, "getSession">
+type SessionMetadataRequester = (
+  input: string,
+  init: { method: "PATCH"; headers: Record<string, string>; body: string },
+) => Promise<Response>
+
+type SessionMetadataPatchOptions = {
+  client: SessionMetadataReader
+  request: SessionMetadataRequester
+  expectedRuntimeKey?: string
+  assertCurrent?: SessionMutationGuard
+  publish: boolean
+}
+
+const patchSessionMetadataWithTransport = async (
+  sessionId: string,
+  directory: string | null | undefined,
+  updater: (metadata: SessionMetadataRecord) => SessionMetadataRecord,
+  options: SessionMetadataPatchOptions,
+): Promise<Session> => {
+  const targetDirectory = directory ?? getSessionDirectory(sessionId)
+  if (!targetDirectory) throw new Error("Session directory is required")
+  const assertCurrent = (): void => {
+    if (options.publish) {
+      assertSessionMutationCurrent(options.expectedRuntimeKey, options.assertCurrent)
+    }
+  }
+  let lastConflict: Error | null = null
+  for (let attempt = 0; attempt < SESSION_METADATA_CAS_ATTEMPTS; attempt += 1) {
+    assertCurrent()
+    const current = await options.client.getSession(sessionId, targetDirectory)
+    assertCurrent()
+    const currentMetadata = getSessionMetadata(current)
+    const nextMetadata = updater(currentMetadata)
+    if (!updatesOnlyOpenChamberMetadata(currentMetadata, nextMetadata)) {
+      throw new Error("Session metadata updates are limited to OpenChamber metadata")
+    }
+    const operations = metadataOperations(currentMetadata, nextMetadata)
+    if (operations.length === 0) {
+      assertCurrent()
+      return options.publish ? commitMetadataSession(current, targetDirectory) : current
+    }
+    const response = await options.request(`/api/openchamber/sessions/${encodeURIComponent(sessionId)}/metadata`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ directory: targetDirectory, operations }),
+    })
+    assertCurrent()
+    if (response.status === 409) {
+      lastConflict = await sessionForkRequestError(response, "Session metadata changed before the update could be applied")
+      continue
+    }
+    if (!response.ok) throw await sessionForkRequestError(response, "Failed to update session metadata")
+    const body = await response.json().catch(() => null) as { session?: unknown } | null
+    // Decoding is asynchronous. Recheck before inspecting this response so a
+    // previous runtime can never reach the local commit path.
+    assertCurrent()
+    if (!isMetadataObject(body?.session) || typeof body.session.id !== "string" || body.session.id.length === 0) {
+      throw new Error("Invalid session metadata response")
+    }
+    // Keep the authority check adjacent to the only local mutation.
+    assertCurrent()
+    return options.publish ? commitMetadataSession(body.session as Session, targetDirectory) : body.session as Session
+  }
+  throw lastConflict ?? new Error("Session metadata changed before the update could be applied")
+}
+
 export async function patchSessionMetadata(
   sessionId: string,
   directory: string | null | undefined,
   updater: (metadata: SessionMetadataRecord) => SessionMetadataRecord,
-  expectedRuntimeKey?: string,
+  expectedRuntimeKey = getRuntimeKey(),
+  client: SessionMetadataReader = opencodeClient,
+  assertCurrent?: SessionMutationGuard,
 ): Promise<Session> {
-  if (isStaleRuntime(expectedRuntimeKey)) throw new Error("runtime changed")
+  return patchSessionMetadataWithTransport(sessionId, directory, updater, {
+    client,
+    request: runtimeFetch,
+    expectedRuntimeKey,
+    assertCurrent,
+    publish: true,
+  })
+}
+
+const forkErrorResponseSchema = z.object({
+  error: z.string().trim().min(1),
+})
+
+const forkRetainedResponseSchema = z.object({
+  error: z.string().trim().min(1),
+  partial: z.literal(true),
+  partialAction: z.literal("fork-retained"),
+  sessionId: z.string().trim().min(1),
+  directory: z.string().trim().min(1).optional(),
+  recovery: z.object({
+    fork: z.object({
+      confirmed: z.literal(false),
+      detail: z.string().trim().min(1),
+    }),
+  }),
+})
+
+const sessionForkRequestError = async (
+  response: Response,
+  fallback: string,
+  runtimeKey?: string,
+): Promise<Error> => {
+  const body: unknown = await response.json().catch(() => null)
+  const parsedError = forkErrorResponseSchema.safeParse(body)
+  const message = parsedError.success ? parsedError.data.error : fallback
+  const cause = Object.assign(new Error(message), { status: response.status })
+  if (!runtimeKey) return cause
+  const retained = forkRetainedResponseSchema.safeParse(body)
+  if (!retained.success) return cause
+  const outcome = retained.data.recovery.fork
+  return new RetainedSessionError(`Forked session ${retained.data.sessionId} was retained: ${outcome.detail}`, {
+    sessionID: retained.data.sessionId,
+    directory: retained.data.directory ?? null,
+    runtimeKey,
+    cause,
+    compensationError: new Error(outcome.detail),
+    outcome,
+  })
+}
+
+export type ForkedSession = Session & { directory: string }
+type ForkAuthorizedRequest = {
+  directory: string
+  messageId?: string
+  providerID?: string
+}
+const forkAuthorizedResponseSchema = z.object({
+  session: z.object({ id: z.string().min(1) }).passthrough(),
+  directory: z.string().min(1),
+})
+
+const confirmForkDeletion = (
+  session: ForkedSession,
+  runtimeKey: string,
+  cause: Error,
+  deleteSession: () => Promise<boolean>,
+): Promise<void> => confirmRetainedSessionDeletion({
+  sessionID: session.id,
+  directory: session.directory,
+  runtimeKey,
+  cause,
+  failureMessage: "Failed to confirm removal of the forked session",
+  deleteSession,
+})
+
+export class BoundSessionOperationError extends Error {
+  readonly status?: number
+
+  constructor(operation: string, status?: number) {
+    super(`${operation} failed`)
+    this.name = "BoundSessionOperationError"
+    this.status = status
+  }
+}
+
+type BoundSdkResponse<T> = {
+  data?: T
+  response?: { status?: number }
+}
+
+const requireBoundSessionData = <T>(response: BoundSdkResponse<T>, operation: string): T => {
+  if (response.data !== undefined && response.data !== null) return response.data
+  throw new BoundSessionOperationError(operation, response.response?.status)
+}
+export type BoundSessionCreateInput = {
+  parentID?: string
+  title?: string
+  metadata?: SessionMetadataRecord
+  providerID?: string
+}
+
+
+export interface BoundSessionOperation {
+  runtimeKey: string
+  request: typeof runtimeFetch
+  create: (input?: BoundSessionCreateInput, directory?: string | null) => Promise<Session>
+  get: (sessionId: string, directory?: string | null) => Promise<Session>
+  getMessages: (sessionId: string, limit?: number, directory?: string | null) => Promise<Array<{ info: Message; parts: Part[] }>>
+  patchMetadata: (
+    sessionId: string,
+    directory: string | null | undefined,
+    updater: (metadata: SessionMetadataRecord) => SessionMetadataRecord,
+  ) => Promise<Session>
+  fork: (
+    sessionId: string,
+    messageId?: string,
+    providerID?: string,
+    directory?: string | null,
+  ) => Promise<ForkedSession>
+  delete: (sessionId: string, directory?: string | null) => Promise<boolean>
+  updateTitle: (sessionId: string, title: string, directory?: string | null) => Promise<Session>
+  assertCurrent: () => void
+  publish: (session: Session, directory?: string | null) => Session
+  finalizeDeletion: (sessionId: string, directory?: string | null) => void
+  release: () => void
+}
+
+export async function getSessionForkCapability(
+  sessionId: string,
+  directory: string | null | undefined,
+  expectedRuntimeKey = getRuntimeKey(),
+  assertCurrent?: SessionMutationGuard,
+): Promise<boolean> {
+  const assertMutationCurrent = () => assertSessionMutationCurrent(expectedRuntimeKey, assertCurrent)
+  assertMutationCurrent()
   const targetDirectory = directory ?? getSessionDirectory(sessionId)
-  const current = await opencodeClient.getSession(sessionId, targetDirectory)
-  if (isStaleRuntime(expectedRuntimeKey)) throw new Error("runtime changed")
-  const nextMetadata = updater(getSessionMetadata(current))
-  const updated = await opencodeClient.updateSession(sessionId, { metadata: nextMetadata }, targetDirectory)
-  if (isStaleRuntime(expectedRuntimeKey)) throw new Error("runtime changed")
-  useGlobalSessionsStore.getState().upsertSession(updated)
-  const sessionDirectory = (updated as { directory?: string | null }).directory ?? targetDirectory
-  if (sessionDirectory) registerSessionDirectory(updated.id, sessionDirectory)
-  mirrorSessionIntoLiveStores(updated, sessionDirectory ?? undefined)
-  return updated
+  if (!targetDirectory) throw new Error("Session directory is required")
+  const response = await runtimeFetch(`/api/openchamber/sessions/${encodeURIComponent(sessionId)}/fork-capability`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ directory: targetDirectory }),
+  })
+  assertMutationCurrent()
+  if (!response.ok) throw await sessionForkRequestError(response, "Failed to check session fork capability")
+  const body = await response.json().catch(() => null) as { supported?: unknown } | null
+  if (typeof body?.supported !== "boolean") throw new Error("Invalid session fork capability response")
+  return body.supported
+}
+
+/**
+ * Preserves the legacy surface for callers that need a source snapshot after
+ * authorization, while moving the authorization itself behind server authority.
+ */
+export async function authorizeSessionFork(
+  sessionId: string,
+  directory: string | null | undefined,
+  expectedRuntimeKey = getRuntimeKey(),
+  client: Pick<typeof opencodeClient, "getSession"> = opencodeClient,
+  assertCurrent?: SessionMutationGuard,
+): Promise<Session> {
+  const assertMutationCurrent = () => assertSessionMutationCurrent(expectedRuntimeKey, assertCurrent)
+  const supported = await getSessionForkCapability(sessionId, directory, expectedRuntimeKey, assertCurrent)
+  if (!supported) throw new Error("Managed Pi/OMP sessions cannot be forked")
+  assertMutationCurrent()
+  const source = await client.getSession(sessionId, directory)
+  assertMutationCurrent()
+  return source
+}
+
+/**
+ * Binds every remote request in a logical session operation to the transport
+ * active at its start. Transport methods never write local state: callers use
+ * `publish` or `finalizeDeletion` only after their final authority guard.
+ */
+export function bindSessionOperation(): BoundSessionOperation {
+  const runtimeKey = getRuntimeKey()
+  const transportEpoch = getRuntimeTransportEpoch()
+  const activeSdkClient = opencodeClient.getSdkClient()
+  const transport = bindRuntimeTransport()
+  const client = createOpencodeClient({
+    baseUrl: transport.apiBaseUrl,
+    fetch: transport.fetch,
+  })
+
+  const assertCurrent = (): void => {
+    if (getRuntimeKey() !== runtimeKey
+      || getRuntimeTransportEpoch() !== transportEpoch
+      || opencodeClient.getSdkClient() !== activeSdkClient) {
+      throw new Error("runtime changed")
+    }
+  }
+
+  const get = async (sessionId: string, directory?: string | null): Promise<Session> => {
+    const response = await client.session.get({ sessionID: sessionId, directory: directory ?? undefined })
+    return requireBoundSessionData(response, "session.get")
+  }
+  const createSession = async (
+    input: BoundSessionCreateInput = {},
+    directory?: string | null,
+  ): Promise<Session> => {
+    assertCurrent()
+    const targetDirectory = directory?.trim() || null
+    const metadata = withAgentBackendMetadata(input.metadata, input.providerID ?? "")
+    if (input.providerID === "pi") {
+      if (!targetDirectory) throw new Error("Session directory is required")
+      return createPiSessionWithPendingDialogs({
+        directory: targetDirectory,
+        parentID: input.parentID,
+        title: input.title,
+        metadata,
+      }, {
+        runtimeKey,
+        request: transport.fetch,
+        get,
+        delete: deleteSession,
+        assertCurrent,
+      })
+    }
+
+    const response = await client.session.create({
+      directory: targetDirectory ?? undefined,
+      parentID: input.parentID,
+      title: input.title,
+      metadata,
+    })
+    return requireBoundSessionData(response, "session.create")
+  }
+
+
+  const getMessages = async (
+    sessionId: string,
+    limit?: number,
+    directory?: string | null,
+  ): Promise<Array<{ info: Message; parts: Part[] }>> => {
+    const response = await client.session.messages({
+      sessionID: sessionId,
+      directory: directory ?? undefined,
+      limit,
+    })
+    return requireBoundSessionData(response, "session.messages")
+  }
+
+  async function deleteSession(sessionId: string, directory?: string | null): Promise<boolean> {
+    const response = await client.session.delete({ sessionID: sessionId, directory: directory ?? undefined })
+    if (response.data === true || response.response?.status === 404) return true
+    if (response.response?.status && response.response.status >= 400) {
+      throw new BoundSessionOperationError("session.delete", response.response.status)
+    }
+    return false
+  }
+
+  const fork = async (
+    sessionId: string,
+    messageId?: string,
+    providerID?: string,
+    directory?: string | null,
+  ): Promise<ForkedSession> => {
+    const targetDirectory = directory ?? getSessionDirectory(sessionId)
+    if (!targetDirectory) throw new Error("Session directory is required")
+    assertCurrent()
+    const requestBody: ForkAuthorizedRequest = { directory: targetDirectory }
+    if (messageId) requestBody.messageId = messageId
+    if (providerID) requestBody.providerID = providerID
+    const response = await transport.fetch(`/api/openchamber/sessions/${encodeURIComponent(sessionId)}/fork-authorized`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+    })
+    if (!response.ok) {
+      const error = await sessionForkRequestError(response, "Failed to fork session", runtimeKey)
+      if (error instanceof RetainedSessionError) throw error
+      assertCurrent()
+      throw error
+    }
+    const forkResponse = forkAuthorizedResponseSchema.safeParse(await response.json().catch(() => null))
+    if (!forkResponse.success) throw new Error("Invalid session fork response")
+    const session = {
+      ...forkResponse.data.session,
+      directory: forkResponse.data.directory,
+    } as ForkedSession
+    try {
+      assertCurrent()
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error("runtime changed")
+      await confirmForkDeletion(session, runtimeKey, cause, () => deleteSession(session.id, session.directory))
+      throw cause
+    }
+    return session
+  }
+
+  return {
+    runtimeKey,
+    request: transport.fetch,
+    get,
+    create: createSession,
+    getMessages,
+    patchMetadata: (sessionId, directory, updater) => patchSessionMetadataWithTransport(sessionId, directory, updater, {
+      client: { getSession: get },
+      request: transport.fetch,
+      publish: false,
+    }),
+    fork,
+    delete: deleteSession,
+    updateTitle: async (sessionId, title, directory) => {
+      const response = await client.session.update({
+        sessionID: sessionId,
+        directory: directory ?? undefined,
+        title,
+      })
+      return requireBoundSessionData(response, "session.update")
+    },
+    assertCurrent,
+    publish: (session, directory) => {
+      assertCurrent()
+      const sessionDirectory = (session as Session & { directory?: string | null }).directory
+        ?? directory
+        ?? getSessionDirectory(session.id)
+      return commitMetadataSession(session, sessionDirectory)
+    },
+    finalizeDeletion: (sessionId, directory) => {
+      assertCurrent()
+      finalizeConfirmedSessionDeletion(sessionId, directory ?? getSessionDirectory(sessionId), runtimeKey)
+    },
+    release: transport.release,
+  }
+}
+
+export async function forkSessionWithAuthorization(
+  sessionId: string,
+  messageId: string | undefined,
+  providerID: string | undefined,
+  directory: string | null | undefined,
+  expectedRuntimeKey = getRuntimeKey(),
+  assertCurrent?: SessionMutationGuard,
+): Promise<ForkedSession> {
+  assertSessionMutationCurrent(expectedRuntimeKey, assertCurrent)
+  const operation = bindSessionOperation()
+  try {
+    const session = await operation.fork(sessionId, messageId, providerID, directory)
+    try {
+      assertSessionMutationCurrent(expectedRuntimeKey, assertCurrent)
+      operation.assertCurrent()
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error("runtime changed")
+      await confirmForkDeletion(session, operation.runtimeKey, cause, () => (
+        operation.delete(session.id, session.directory)
+      ))
+      throw cause
+    }
+    return operation.publish(session, directory)
+  } finally {
+    operation.release()
+  }
 }
 
 export async function setLinkedIssue(
@@ -920,7 +1417,7 @@ function cleanupSessionWorktreeMetadata(sessionId: string): void {
  * it meaningful. Callers must still reject a stale runtime themselves, because
  * the in-memory live/global/UI stores mutated below are not runtime-scoped.
  */
-function finalizeConfirmedSessionDeletion(
+export function finalizeConfirmedSessionDeletion(
   sessionId: string,
   sessionDirectory?: string,
   expectedRuntimeKey = getRuntimeKey(),
@@ -950,12 +1447,16 @@ async function cleanupDeletedChatDirectory(directory: string | undefined, delete
 }
 
 export type DeleteSessionOptions = {
-  /**
-   * Runtime key the deletion is scoped to. Defaults to the active runtime when
-   * the action starts; callers may supply a key captured earlier when
-   * confirmation spans a runtime switch.
-   */
+  /** Directory returned by a just-created session that is not indexed yet. */
+  directory?: string | null
+  /** Skip parent/child metadata cleanup for an unpublished failed fork. */
+  skipRelationshipCleanup?: boolean
+  /** Runtime key the deletion is scoped to. */
   expectedRuntimeKey?: string
+  /** Captured transport client for a runtime-bound compensation delete. */
+  client?: Pick<typeof opencodeClient, "deleteSession">
+  /** Reject a same-runtime transport/client change before local finalization. */
+  assertCurrent?: SessionMutationGuard
 }
 
 /**
@@ -975,15 +1476,27 @@ export type DeleteSessionOptions = {
  */
 export async function deleteSession(sessionId: string, options?: DeleteSessionOptions): Promise<boolean> {
   const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
-  if (isStaleRuntime(expectedRuntimeKey)) return false
-  const sessionDirectory = getSessionDirectory(sessionId)
+  const isCurrent = (): boolean => {
+    if (isStaleRuntime(expectedRuntimeKey)) return false
+    try {
+      options?.assertCurrent?.()
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (!isCurrent()) return false
+  const sessionDirectory = options?.directory ?? getSessionDirectory(sessionId)
   const sessionSnapshot = getGlobalSessionSnapshot(sessionId)
   const deleteManagedDirectory = Boolean(sessionSnapshot && sessionSnapshot.parentID == null)
+  const client = options?.client ?? opencodeClient
   try {
-    await cleanupReviewMetadataBeforeDelete(sessionId, sessionDirectory, expectedRuntimeKey)
-    if (isStaleRuntime(expectedRuntimeKey)) return false
-    const deleted = await opencodeClient.deleteSession(sessionId, sessionDirectory)
-    if (isStaleRuntime(expectedRuntimeKey)) return false
+    if (!options?.skipRelationshipCleanup) {
+      await cleanupReviewMetadataBeforeDelete(sessionId, sessionDirectory, expectedRuntimeKey)
+      if (!isCurrent()) return false
+    }
+    const deleted = await client.deleteSession(sessionId, sessionDirectory)
+    if (!isCurrent()) return false
     if (deleted !== true) {
       throw new Error("session.delete failed: server did not confirm deletion")
     }
@@ -996,7 +1509,7 @@ export async function deleteSession(sessionId: string, options?: DeleteSessionOp
     // Subsequent delete attempts for those children return 404; treat as
     // success since the session was already deleted by the cascade.
     if ((error as { status?: number })?.status === 404) {
-      if (isStaleRuntime(expectedRuntimeKey)) return false
+      if (!isCurrent()) return false
       finalizeConfirmedSessionDeletion(sessionId, sessionDirectory, expectedRuntimeKey)
       await cleanupDeletedChatDirectory(sessionDirectory, deleteManagedDirectory)
       return true
@@ -2018,46 +2531,57 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  * 3. Insert the new session into the child store (so sidebar updates immediately)
  * 4. Switch to new session and set pending input text
  */
-export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
+export async function forkFromMessage(sessionId: string, messageId: string, providerID: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
-  const state = store.getState()
+  const operation = bindSessionOperation()
+  try {
+    const state = store.getState()
 
-  // Extract message text and file attachments for input restoration.
-  // Only non-synthetic text parts — the server adds file content as synthetic
-  // text parts that should not be restored. File parts (images, pasted
-  // screenshots) are user-originated and must be restored.
-  const parts = state.part[messageId] ?? []
-  let messageText = ""
-  const textParts = parts.filter((p) => p.type === "text" && !isSyntheticPart(p))
-  messageText = textParts
-    .map((p: Part) => ((p as Record<string, unknown>).text as string) || ((p as Record<string, unknown>).content as string) || "")
-    .join("\n")
-    .trim()
-  const fileParts = parts.filter((p) => p.type === "file" && !isSyntheticPart(p)) as Array<Record<string, unknown>>
+    // Extract message text and file attachments for input restoration.
+    // Only non-synthetic text parts — the server adds file content as synthetic
+    // text parts that should not be restored. File parts (images, pasted
+    // screenshots) are user-originated and must be restored.
+    const parts = state.part[messageId] ?? []
+    const textParts = parts.filter((p) => p.type === "text" && !isSyntheticPart(p))
+    const messageText = textParts
+      .map((p: Part) => ((p as Record<string, unknown>).text as string) || ((p as Record<string, unknown>).content as string) || "")
+      .join("\n")
+      .trim()
+    const fileParts = parts.filter((p) => p.type === "file" && !isSyntheticPart(p)) as Array<Record<string, unknown>>
 
-  const forkedSession = await opencodeClient.forkSession(sessionId, messageId, directory)
+    const forkedSession = await operation.fork(sessionId, messageId, providerID, directory)
+    try {
+      operation.assertCurrent()
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error("runtime changed")
+      await confirmForkDeletion(forkedSession, operation.runtimeKey, cause, () => (
+        operation.delete(forkedSession.id, forkedSession.directory)
+      ))
+      throw cause
+    }
 
-  // Insert new session into child store so sidebar updates immediately
-  const current = store.getState()
-  const sessions = [...current.session]
-  const searchResult = Binary.search(sessions, forkedSession.id, (s) => s.id)
-  if (!searchResult.found) {
-    sessions.splice(searchResult.index, 0, forkedSession)
-    store.setState({ session: sessions })
+    // There are no awaits after this final guard. Route registration, global
+    // state, directory state, and input restoration therefore publish together.
+    const targetStore = forkedSession.directory === directory
+      ? store
+      : dirStoreForDirectory(forkedSession.directory)
+    const current = targetStore.getState()
+    const sessions = [...current.session]
+    const searchResult = Binary.search(sessions, forkedSession.id, (candidate) => candidate.id)
+    if (!searchResult.found) sessions.splice(searchResult.index, 0, forkedSession)
+    operation.publish(forkedSession, forkedSession.directory)
+    if (!searchResult.found) targetStore.setState({ session: sessions })
+    useSessionUIStore.getState().setCurrentSession(forkedSession.id, forkedSession.directory)
+    if (messageText) {
+      useInputStore.setState({
+        pendingInputText: messageText,
+        pendingInputMode: "replace" as const,
+      })
+    }
+    restoreFilePartsToInput(fileParts)
+  } finally {
+    operation.release()
   }
-
-  // Switch to new session
-  useSessionUIStore.getState().setCurrentSession(forkedSession.id)
-
-  // Restore forked message text and file attachments to input
-  if (messageText) {
-    useInputStore.setState({
-      pendingInputText: messageText,
-      pendingInputMode: "replace" as const,
-    })
-  }
-  // Clear existing attachments and restore file parts from the forked message.
-  restoreFilePartsToInput(fileParts)
 }
 
 export async function fetchMessagesForSession(sessionID: string, directory?: string | null): Promise<void> {

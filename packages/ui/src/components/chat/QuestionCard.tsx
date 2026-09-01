@@ -18,6 +18,13 @@ import { QUESTION_CUSTOM_TEXTAREA_MIN_HEIGHT, getQuestionCustomTextareaHeight } 
 
 interface QuestionCardProps {
   question: QuestionRequest;
+  /** Overrides normal session reply routing for a scoped startup dialog. */
+  onSubmit?: (answers: string[][]) => Promise<void>;
+  onDismiss?: () => Promise<void>;
+  customAnswerPlaceholder?: string;
+  initialCustomAnswer?: string;
+  forceCustomAnswer?: boolean;
+  preserveCustomAnswer?: boolean;
 }
 
 type TabKey = string;
@@ -87,7 +94,15 @@ const CustomAnswerTextarea = React.memo(function CustomAnswerTextarea({
   );
 });
 
-export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
+export const QuestionCard: React.FC<QuestionCardProps> = ({
+  question,
+  onSubmit,
+  onDismiss,
+  customAnswerPlaceholder,
+  initialCustomAnswer,
+  forceCustomAnswer = false,
+  preserveCustomAnswer = false,
+}) => {
   const { t } = useI18n();
   const respondToQuestion = sessionActions.respondToQuestion;
   const rejectQuestion = sessionActions.rejectQuestion;
@@ -119,13 +134,14 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
   }, [activeQuestion?.header, isSummaryTab]);
 
   React.useEffect(() => {
+    const initialAnswer = initialCustomAnswer ?? '';
     setActiveTab('0');
     setSelectedOptions({});
-    setCustomMode({});
-    customTextRef.current = {};
-    setCustomTextFilled({});
+    setCustomMode(forceCustomAnswer ? { 0: true } : {});
+    customTextRef.current = forceCustomAnswer ? { 0: initialAnswer } : {};
+    setCustomTextFilled(forceCustomAnswer && initialAnswer.trim().length > 0 ? { 0: true } : {});
     setHasResponded(false);
-  }, [question.id]);
+  }, [forceCustomAnswer, initialCustomAnswer, question.id]);
 
   const tabs = React.useMemo(() => {
     const questionTabs = questions.map((q, index) => ({
@@ -197,7 +213,8 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     for (let index = 0; index < questions.length; index += 1) {
       const isCustom = Boolean(customMode[index]);
       if (isCustom) {
-        const value = (customTextRef.current[index] ?? '').trim();
+        const rawValue = customTextRef.current[index] ?? '';
+        const value = preserveCustomAnswer ? rawValue : rawValue.trim();
         answers.push(value ? [value] : []);
         continue;
       }
@@ -206,7 +223,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     }
 
     return answers;
-  }, [customMode, questions.length, selectedOptions]);
+  }, [customMode, preserveCustomAnswer, questions.length, selectedOptions]);
 
   const handleToggleOption = React.useCallback(
     (label: string) => {
@@ -247,7 +264,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     setIsResponding(true);
     try {
       const answers = buildAnswersPayload();
-      await respondToQuestion(question.sessionID, question.id, answers);
+      await (onSubmit
+        ? onSubmit(answers)
+        : respondToQuestion(question.sessionID, question.id, answers));
       setHasResponded(true);
     } catch (error) {
       if (sessionActions.isQuestionRequestNotFoundError(error)) {
@@ -261,7 +280,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     } finally {
       setIsResponding(false);
     }
-  }, [buildAnswersPayload, question.id, question.sessionID, requiredSatisfied, respondToQuestion, t]);
+  }, [buildAnswersPayload, onSubmit, question.id, question.sessionID, requiredSatisfied, respondToQuestion, t]);
 
   const handleKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -282,7 +301,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
   const handleDismiss = React.useCallback(async () => {
     setIsResponding(true);
     try {
-      await rejectQuestion(question.sessionID, question.id);
+      await (onDismiss
+        ? onDismiss()
+        : rejectQuestion(question.sessionID, question.id));
       setHasResponded(true);
     } catch (error) {
       if (sessionActions.isQuestionRequestNotFoundError(error)) {
@@ -296,7 +317,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     } finally {
       setIsResponding(false);
     }
-  }, [question.id, question.sessionID, rejectQuestion, t]);
+  }, [onDismiss, question.id, question.sessionID, rejectQuestion, t]);
 
   const handleCopyMarkdown = React.useCallback(async () => {
     const text = serializeQuestionAsMarkdown(question);
@@ -516,7 +537,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
                       <CustomAnswerTextarea
                         value={customTextRef.current[activeIndex] ?? ''}
                         onValueChange={handleCustomValueChange}
-                        placeholder={t('chat.questionCard.yourAnswer')}
+                        placeholder={customAnswerPlaceholder ?? t('chat.questionCard.yourAnswer')}
                         disabled={isResponding}
                         onKeyDown={handleKeyDown}
                       />

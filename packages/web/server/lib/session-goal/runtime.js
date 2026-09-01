@@ -19,6 +19,7 @@ import os from 'os';
 import path from 'path';
 
 import { GOAL_OBJECTIVE_CHAR_LIMIT, readObjective } from './objectives.js';
+import { sessionMetadataMutationRuntime } from '../openchamber-sessions/session-metadata.js';
 
 const OPENCHAMBER_SETTINGS_FILE = path.join(
   process.env.OPENCHAMBER_DATA_DIR
@@ -46,6 +47,9 @@ const KICKOFF_QUIET_MS = 3_000;
 const RESUME_KICKOFF_MS = 250;
 const FETCH_TIMEOUT_MS = 10_000;
 const MESSAGE_FETCH_LIMIT = 40;
+// Persisted compaction markers only need to cover the current completion-time
+// cursor. Bound them to one history page so goal metadata stays small.
+const MAX_SUMMARY_BOUNDARIES = MESSAGE_FETCH_LIMIT;
 const TRANSCRIPT_PART_CHAR_LIMIT = 6_000;
 const NOTE_CHAR_LIMIT = 280;
 const REASON_CHAR_LIMIT = 200;
@@ -185,6 +189,54 @@ const extractSessionUpdate = (payload) => {
   };
 };
 
+const readStringList = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = String(item);
+    return text === item && text.length > 0 ? [text] : [];
+  });
+};
+
+const compareSummaryBoundaries = (left, right) => {
+  const completed = left.completedAt - right.completedAt;
+  if (completed !== 0) return completed;
+  const created = left.createdAt - right.createdAt;
+  if (created !== 0) return created;
+  return left.id < right.id ? -1 : (left.id > right.id ? 1 : 0);
+};
+
+const summaryBoundaryFromInfo = (info) => ({
+  id: info.id,
+  completedAt: info.time.completed,
+  createdAt: Number.isFinite(info.time?.created) ? info.time.created : 0,
+});
+
+const readSummaryBoundaries = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value
+    .slice(-MAX_SUMMARY_BOUNDARIES)
+    .flatMap((item) => {
+      const rawID = item?.id;
+      const id = String(rawID ?? '');
+      const completedAt = Number.isFinite(item?.completedAt) && item.completedAt > 0 ? item.completedAt : 0;
+      if (!id || id !== rawID || !completedAt) return [];
+      return [{
+        id,
+        completedAt,
+        createdAt: Number.isFinite(item?.createdAt) ? item.createdAt : 0,
+      }];
+    })
+    .sort(compareSummaryBoundaries)
+    .filter((item) => {
+      const key = `${item.completedAt}\u0000${item.createdAt}\u0000${item.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(-MAX_SUMMARY_BOUNDARIES);
+};
+
 const parseGoalMetadata = (session) => {
   const metadata = session?.metadata;
   if (!metadata || typeof metadata !== 'object') return null;
@@ -216,6 +268,9 @@ const parseGoalMetadata = (session) => {
     evaluationProviderID: typeof goal.evaluationProviderID === 'string' ? goal.evaluationProviderID : '',
     evaluationModelID: typeof goal.evaluationModelID === 'string' ? goal.evaluationModelID : '',
     lastAccountedMessageID: typeof goal.lastAccountedMessageID === 'string' ? goal.lastAccountedMessageID : '',
+    lastAccountedMessageTime: Number.isFinite(goal.lastAccountedMessageTime) && goal.lastAccountedMessageTime > 0 ? goal.lastAccountedMessageTime : 0,
+    lastAccountedMessageIDs: readStringList(goal.lastAccountedMessageIDs),
+    lastAccountedSummaryBoundaries: readSummaryBoundaries(goal.lastAccountedSummaryBoundaries),
     createdAt: Number.isFinite(goal.createdAt) ? goal.createdAt : 0,
     updatedAt: Number.isFinite(goal.updatedAt) ? goal.updatedAt : 0,
   };
@@ -266,7 +321,7 @@ export const createSessionGoalRuntime = ({
     }
   };
 
-  const openCodeFetch = async (fetchPath, { directory, method = 'GET', body, query } = {}) => {
+  const openCodeRequest = async (fetchPath, { directory, method = 'GET', body, query } = {}) => {
     const base = buildOpenCodeUrl(fetchPath, '');
     const params = new URLSearchParams(query || {});
     if (directory) params.set('directory', directory);
@@ -285,15 +340,102 @@ export const createSessionGoalRuntime = ({
     if (!response.ok) {
       throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
     }
+    return response;
+  };
+
+  const openCodeFetch = async (fetchPath, options = {}) => {
+    const response = await openCodeRequest(fetchPath, options);
     return response.json().catch(() => null);
   };
 
-  const fetchRecentMessages = async (sessionId, directory) => {
-    const messages = await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/message`, {
+  const fetchRecentMessages = async (sessionId, directory, goal) => {
+    const cursorIDs = new Set(goal.lastAccountedMessageIDs);
+    if (goal.lastAccountedMessageID) cursorIDs.add(goal.lastAccountedMessageID);
+    const hasLegacySingletonCursor = Boolean(goal.lastAccountedMessageID)
+      && goal.lastAccountedMessageIDs.length === 0;
+    const hasPersistedCursor = cursorIDs.size > 0;
+    const seenMessageIDs = new Set();
+    const visitedCursors = new Set();
+    let legacyCursorTime = 0;
+    let messages = [];
+    let before;
+
+    for (;;) {
+      const query = { limit: String(MESSAGE_FETCH_LIMIT) };
+      if (before) query.before = before;
+      const response = await openCodeRequest(`/session/${encodeURIComponent(sessionId)}/message`, {
+        directory,
+        query,
+      });
+      const body = await response.json().catch(() => null);
+      const page = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : null);
+      if (!page) throw new Error('OpenCode message history returned an invalid page');
+
+      const uniquePage = [];
+      for (const message of page) {
+        const id = message?.info?.id;
+        if (id) {
+          if (seenMessageIDs.has(id)) continue;
+          seenMessageIDs.add(id);
+        }
+        const completed = message?.info?.time?.completed;
+        if (hasLegacySingletonCursor && id === goal.lastAccountedMessageID && completed > 0) {
+          legacyCursorTime = completed;
+        }
+        uniquePage.push(message);
+      }
+      messages = [...uniquePage, ...messages];
+
+      const nextCursor = response.headers.get('x-next-cursor')?.trim() || '';
+      // A persisted time boundary can contain several assistant completions.
+      // Continue after seeing its IDs so the accounting pass collects every
+      // equal-timestamp ID; only an older completed assistant closes the page.
+      const reachedPersistedBoundary = hasPersistedCursor && (goal.lastAccountedMessageTime > 0
+        ? messages.some((message) => message?.info?.role === 'assistant'
+          && message.info.time?.completed > 0
+          && message.info.time.completed < goal.lastAccountedMessageTime)
+        : !hasLegacySingletonCursor && [...cursorIDs].every((id) => seenMessageIDs.has(id)));
+      const reachedLegacyBoundary = hasLegacySingletonCursor
+        && legacyCursorTime > 0
+        && uniquePage.some((message) => message?.info?.time?.completed > 0
+          && message.info.time.completed < legacyCursorTime);
+      const reachedCompactionBoundary = hasPersistedCursor
+        && goal.lastAccountedMessageTime > 0
+        && messages.some((message, summaryIndex) => {
+          const summaryInfo = message?.info;
+          if (summaryInfo?.role !== 'assistant'
+            || summaryInfo.summary !== true
+            || !(summaryInfo.time?.completed > goal.lastAccountedMessageTime)) return false;
+          return messages.slice(0, summaryIndex).some((previous) => {
+            const info = previous?.info;
+            return info?.role === 'assistant'
+              && info.summary !== true
+              && info.time?.completed > 0
+              && info.time.completed < goal.lastAccountedMessageTime;
+          });
+        });
+      const reachedGoalStart = !hasPersistedCursor
+        && messages.some((message) => message?.info?.role === 'assistant'
+          && message.info.time?.completed > 0
+          && message.info.time.completed <= goal.createdAt);
+      if (reachedPersistedBoundary || reachedLegacyBoundary || reachedCompactionBoundary || reachedGoalStart) return messages;
+
+      if (!nextCursor) return messages;
+      if (visitedCursors.has(nextCursor)) throw new Error('OpenCode message history pagination made no progress');
+      visitedCursors.add(nextCursor);
+      before = nextCursor;
+    }
+  };
+
+  const fetchNewestMessages = async (sessionId, directory) => {
+    const response = await openCodeRequest(`/session/${encodeURIComponent(sessionId)}/message`, {
       directory,
       query: { limit: String(MESSAGE_FETCH_LIMIT) },
-    }).catch(() => null);
-    return Array.isArray(messages) ? messages : null;
+    });
+    const body = await response.json().catch(() => null);
+    const page = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : null);
+    if (!page) throw new Error('OpenCode message history returned an invalid page');
+    return page;
   };
 
   const fetchSessionStatuses = async (directory) => {
@@ -309,46 +451,60 @@ export const createSessionGoalRuntime = ({
 
   const isWorkingStatus = (status) => status?.type === 'busy' || status?.type === 'retry';
 
-  // Merge-write the goal payload from a FRESH session read so concurrent
-  // metadata writes (assist payloads, dismissals, UI goal edits) survive.
-  // Returns the written goal, or null when the stored goal no longer matches
-  // the expected id (user replaced/cleared it while we worked).
+  // Persist a goal from a fresh, serialized metadata snapshot so unrelated
+  // OpenChamber state survives concurrent assist, review, and UI updates.
+  // Returns null when the user replaced or cleared this goal while we worked.
   const writeGoal = async (sessionId, directory, expectedGoalId, mutate) => {
-    const session = await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory });
-    const currentGoal = parseGoalMetadata(session);
-    if (!currentGoal || currentGoal.id !== expectedGoalId) return null;
-    const nextGoal = { ...currentGoal, ...mutate(currentGoal), updatedAt: Date.now() };
-    const currentMetadata = session?.metadata && typeof session.metadata === 'object' ? session.metadata : {};
-    const currentNamespace = currentMetadata.openchamber && typeof currentMetadata.openchamber === 'object'
-      ? currentMetadata.openchamber
-      : {};
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+    const mutation = await sessionMetadataMutationRuntime.mutate({
+      sessionID: sessionId,
       directory,
-      method: 'PATCH',
-      body: {
-        metadata: {
-          ...currentMetadata,
-          openchamber: { ...currentNamespace, goal: nextGoal },
-        },
+      readSession: () => openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory }),
+      writeMetadata: async (metadata) => {
+        await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+          directory,
+          method: 'PATCH',
+          body: { metadata },
+        });
+        return { id: sessionId, metadata };
+      },
+      mutateMetadata: (metadata, session) => {
+        const currentGoal = parseGoalMetadata(session);
+        if (!currentGoal || currentGoal.id !== expectedGoalId) {
+          return { metadata, result: null };
+        }
+        const nextGoal = { ...currentGoal, ...mutate(currentGoal), updatedAt: Date.now() };
+        const currentNamespace = metadata.openchamber && typeof metadata.openchamber === 'object'
+          ? metadata.openchamber
+          : {};
+        return {
+          metadata: { ...metadata, openchamber: { ...currentNamespace, goal: nextGoal } },
+          result: nextGoal,
+        };
       },
     });
-    return nextGoal;
+    return mutation.result ?? null;
   };
 
-  const settleGoal = async ({ sessionId, directory, goal, status, statusReason, note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, evaluationProviderID, evaluationModelID }) => {
-    const written = await writeGoal(sessionId, directory, goal.id, (current) => ({
-      status,
-      statusReason: clampText(statusReason, REASON_CHAR_LIMIT),
-      note: note !== undefined ? clampText(note, NOTE_CHAR_LIMIT) : current.note,
-      blockedStreak: 0,
-      auditFailStreak: 0,
-      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
-      ...(tokensBaseline !== undefined ? { tokensBaseline } : {}),
-      ...(tokensCommitted !== undefined ? { tokensCommitted } : {}),
-      ...(lastAccountedMessageID ? { lastAccountedMessageID } : {}),
-      ...(evaluationProviderID ? { evaluationProviderID } : {}),
-      ...(evaluationModelID ? { evaluationModelID } : {}),
-    }));
+  const settleGoal = async ({ sessionId, directory, goal, status, statusReason, note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID, lastAccountedMessageTime, lastAccountedMessageIDs, lastAccountedSummaryBoundaries, evaluationProviderID, evaluationModelID }) => {
+    const written = await writeGoal(sessionId, directory, goal.id, (current) => {
+      const update = {
+        status,
+        statusReason: clampText(statusReason, REASON_CHAR_LIMIT),
+        note: note !== undefined ? clampText(note, NOTE_CHAR_LIMIT) : current.note,
+        blockedStreak: 0,
+        auditFailStreak: 0,
+      };
+      if (tokensUsed !== undefined) update.tokensUsed = tokensUsed;
+      if (tokensBaseline !== undefined) update.tokensBaseline = tokensBaseline;
+      if (tokensCommitted !== undefined) update.tokensCommitted = tokensCommitted;
+      if (lastAccountedMessageID) update.lastAccountedMessageID = lastAccountedMessageID;
+      if (lastAccountedMessageTime > 0) update.lastAccountedMessageTime = lastAccountedMessageTime;
+      if (Array.isArray(lastAccountedMessageIDs)) update.lastAccountedMessageIDs = lastAccountedMessageIDs;
+      if (Array.isArray(lastAccountedSummaryBoundaries)) update.lastAccountedSummaryBoundaries = lastAccountedSummaryBoundaries;
+      if (evaluationProviderID) update.evaluationProviderID = evaluationProviderID;
+      if (evaluationModelID) update.evaluationModelID = evaluationModelID;
+      return update;
+    });
     if (!written) return;
     console.log(`[session-goal] ${sessionId} settled as ${status}${statusReason ? ` (${statusReason})` : ''}`);
     if (typeof emitGoalNotification === 'function') {
@@ -497,8 +653,14 @@ export const createSessionGoalRuntime = ({
     }
     if (children.some((child) => typeof child?.id === 'string' && isWorkingStatus(statuses[child.id]))) return;
 
-    const messages = await fetchRecentMessages(sessionId, directory);
-    if (!messages) return;
+    const messages = await fetchRecentMessages(sessionId, directory, goal).catch((error) => {
+      console.warn(`[session-goal] message history fetch failed: ${error?.message || error}`);
+      return null;
+    });
+    if (!messages) {
+      armTimer(sessionId, directory, idleQuietMs);
+      return;
+    }
 
     let lastAssistant = null;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -548,8 +710,20 @@ export const createSessionGoalRuntime = ({
     // tokensCommitted; the summary turn itself read the whole context, so
     // its own snapshot prices the compaction), and the next segment starts
     // with a zero baseline.
+    const legacySingletonCursorID = goal.lastAccountedMessageID
+      && goal.lastAccountedMessageIDs.length === 0
+      ? goal.lastAccountedMessageID
+      : '';
+    const legacyCursorMessage = legacySingletonCursorID
+      ? messages.find((message) => message?.info?.id === legacySingletonCursorID)
+      : null;
+    const legacyCursorTime = legacyCursorMessage?.info?.time?.completed > 0
+      ? legacyCursorMessage.info.time.completed
+      : 0;
+    const persistedBoundaryIDs = new Set(goal.lastAccountedMessageIDs);
+    if (goal.lastAccountedMessageID) persistedBoundaryIDs.add(goal.lastAccountedMessageID);
     let tokensBaseline = goal.tokensBaseline;
-    if (!goal.lastAccountedMessageID && !(tokensBaseline > 0)) {
+    if (persistedBoundaryIDs.size === 0 && !(goal.lastAccountedMessageTime > 0) && !(tokensBaseline > 0)) {
       tokensBaseline = 0;
       for (const message of messages) {
         const info = message?.info;
@@ -561,13 +735,83 @@ export const createSessionGoalRuntime = ({
     let tokensCommitted = goal.tokensCommitted;
     let tokensUsed = goal.tokensUsed;
     let lastAccountedMessageID = goal.lastAccountedMessageID;
+    let lastAccountedMessageTime = goal.lastAccountedMessageTime || legacyCursorTime;
+    let lastAccountedMessageIDs = [...persistedBoundaryIDs];
+    const accountedThroughTime = lastAccountedMessageTime;
+    const persistedSummaryBoundaries = goal.lastAccountedSummaryBoundaries
+      .filter((boundary) => boundary.completedAt === accountedThroughTime);
+    let lastAccountedSummaryBoundaries = persistedSummaryBoundaries;
+    const accountingMessages = messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message?.info?.role === 'assistant'
+        && message.info.id
+        && message.info.time?.completed > 0)
+      .sort((left, right) => {
+        const order = compareSummaryBoundaries(
+          summaryBoundaryFromInfo(left.message.info),
+          summaryBoundaryFromInfo(right.message.info),
+        );
+        return order || left.index - right.index;
+      })
+      .map(({ message }) => message);
     let segmentSnapshot = null;
     let sawNewMessages = false;
-    for (const message of messages) {
-      const info = message?.info;
-      if (info?.role !== 'assistant' || typeof info.id !== 'string') continue;
-      if (lastAccountedMessageID && info.id <= lastAccountedMessageID) continue;
-      if (!(info.time?.completed > 0)) continue;
+    let persistedSummaryIndex = 0;
+    const applyPersistedSummaryBarrier = () => {
+      tokensCommitted = Math.max(goal.tokensUsed, tokensCommitted);
+      tokensBaseline = 0;
+      segmentSnapshot = null;
+    };
+    const applyPersistedSummaryBarriersBefore = (info) => {
+      const boundary = summaryBoundaryFromInfo(info);
+      while (
+        persistedSummaryIndex < persistedSummaryBoundaries.length
+        && compareSummaryBoundaries(persistedSummaryBoundaries[persistedSummaryIndex], boundary) < 0
+      ) {
+        applyPersistedSummaryBarrier();
+        persistedSummaryIndex += 1;
+      }
+    };
+    const consumePersistedSummaryBarrier = (info) => {
+      const persisted = persistedSummaryBoundaries[persistedSummaryIndex];
+      if (persisted && compareSummaryBoundaries(persisted, summaryBoundaryFromInfo(info)) === 0) {
+        persistedSummaryIndex += 1;
+      }
+    };
+    const rememberSummaryBoundary = (info) => {
+      if (info.time.completed !== lastAccountedMessageTime) return;
+      const boundary = summaryBoundaryFromInfo(info);
+      if (lastAccountedSummaryBoundaries.some((item) => compareSummaryBoundaries(item, boundary) === 0)) return;
+      lastAccountedSummaryBoundaries = [...lastAccountedSummaryBoundaries, boundary]
+        .sort(compareSummaryBoundaries)
+        .slice(-MAX_SUMMARY_BOUNDARIES);
+    };
+    const recordNewAccountedMessage = (info) => {
+      lastAccountedMessageID = info.id;
+      if (info.time.completed > lastAccountedMessageTime) {
+        lastAccountedMessageTime = info.time.completed;
+        lastAccountedMessageIDs = [info.id];
+        lastAccountedSummaryBoundaries = [];
+      } else if (info.time.completed === lastAccountedMessageTime && !lastAccountedMessageIDs.includes(info.id)) {
+        lastAccountedMessageIDs.push(info.id);
+      }
+      if (info.summary === true) rememberSummaryBoundary(info);
+    };
+    for (const message of accountingMessages) {
+      const info = message.info;
+      applyPersistedSummaryBarriersBefore(info);
+      const alreadyAccounted = accountedThroughTime > 0 && (info.time.completed < accountedThroughTime
+        || (info.time.completed === accountedThroughTime && persistedBoundaryIDs.has(info.id)));
+      if (info.summary === true) consumePersistedSummaryBarrier(info);
+      if (alreadyAccounted) {
+        // Migrate old goal metadata while its summary still exists. The marker
+        // remains useful after OpenCode compacts that message out of history.
+        if (info.summary === true) {
+          applyPersistedSummaryBarrier();
+          rememberSummaryBoundary(info);
+        }
+        continue;
+      }
       sawNewMessages = true;
       const total = messageTokenTotal(info);
       if (info.summary === true) {
@@ -587,9 +831,11 @@ export const createSessionGoalRuntime = ({
       } else {
         segmentSnapshot = total;
       }
-      if (!lastAccountedMessageID || info.id > lastAccountedMessageID) {
-        lastAccountedMessageID = info.id;
-      }
+      recordNewAccountedMessage(info);
+    }
+    while (persistedSummaryIndex < persistedSummaryBoundaries.length) {
+      applyPersistedSummaryBarrier();
+      persistedSummaryIndex += 1;
     }
     if (sawNewMessages) {
       const segmentCurrent = segmentSnapshot !== null ? Math.max(0, segmentSnapshot - tokensBaseline) : 0;
@@ -597,6 +843,15 @@ export const createSessionGoalRuntime = ({
       // never move the budget backwards.
       tokensUsed = Math.max(goal.tokensUsed, tokensCommitted + segmentCurrent);
     }
+    const accountingState = {
+      tokensUsed,
+      tokensBaseline,
+      tokensCommitted,
+      lastAccountedMessageID,
+      lastAccountedMessageTime,
+      lastAccountedMessageIDs,
+      lastAccountedSummaryBoundaries,
+    };
 
     const assistantText = messagePartsToText(lastAssistant);
 
@@ -613,10 +868,7 @@ export const createSessionGoalRuntime = ({
       await writeGoal(sessionId, directory, goal.id, () => ({
         status: 'paused',
         statusReason: 'paused after abort',
-        tokensUsed,
-        tokensBaseline,
-        tokensCommitted,
-        lastAccountedMessageID,
+        ...accountingState,
       }));
       console.log(`[session-goal] ${sessionId} paused after user abort`);
       return;
@@ -628,7 +880,7 @@ export const createSessionGoalRuntime = ({
         ? lastAssistantInfo.error.name
         : 'assistant turn failed';
       await settleGoal({
-        sessionId, directory, goal, status: 'blocked', statusReason: reason, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'blocked', statusReason: reason, ...accountingState,
       });
       return;
     }
@@ -636,7 +888,7 @@ export const createSessionGoalRuntime = ({
     // Token budget crossed → budgetLimited.
     if (typeof goal.tokenBudget === 'number' && tokensUsed >= goal.tokenBudget) {
       await settleGoal({
-        sessionId, directory, goal, status: 'budgetLimited', statusReason: 'token budget reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'budgetLimited', statusReason: 'token budget reached', ...accountingState,
       });
       return;
     }
@@ -644,7 +896,7 @@ export const createSessionGoalRuntime = ({
     // Auto-continuation safety cap → blocked.
     if (goal.turnsUsed >= maxAutoTurns) {
       await settleGoal({
-        sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', ...accountingState,
       });
       return;
     }
@@ -671,7 +923,7 @@ export const createSessionGoalRuntime = ({
         auditFailStreak += 1;
         if (auditFailStreak >= AUDIT_FAIL_LIMIT) {
           await settleGoal({
-            sessionId, directory, goal, status: 'blocked', statusReason: 'progress audit unavailable', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+            sessionId, directory, goal, status: 'blocked', statusReason: 'progress audit unavailable', ...accountingState,
           });
           return;
         }
@@ -682,7 +934,7 @@ export const createSessionGoalRuntime = ({
 
       if (audit?.verdict === 'complete') {
         await settleGoal({
-          sessionId, directory, goal, status: 'complete', statusReason: 'verified by audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+          sessionId, directory, goal, status: 'complete', statusReason: 'verified by audit', note: audit.note, ...accountingState,
           evaluationProviderID: audit.evaluationProviderID, evaluationModelID: audit.evaluationModelID,
         });
         return;
@@ -697,7 +949,7 @@ export const createSessionGoalRuntime = ({
         });
         if (blockedStreak >= BLOCKED_STREAK_LIMIT) {
           await settleGoal({
-            sessionId, directory, goal, status: 'blocked', statusReason: audit.note || 'blocked per audit', note: audit.note, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+            sessionId, directory, goal, status: 'blocked', statusReason: audit.note || 'blocked per audit', note: audit.note, ...accountingState,
             evaluationProviderID: audit.evaluationProviderID, evaluationModelID: audit.evaluationModelID,
           });
           return;
@@ -709,10 +961,7 @@ export const createSessionGoalRuntime = ({
     // Order matters: if the write lands and the prompt fails, the goal just
     // waits for the next idle tick; the reverse could double-charge a turn.
     const written = await writeGoal(sessionId, directory, goal.id, (current) => ({
-      tokensUsed,
-      tokensBaseline,
-      tokensCommitted,
-      lastAccountedMessageID,
+      ...accountingState,
       turnsUsed: current.turnsUsed + 1,
       blockedStreak,
       auditFailStreak,
@@ -728,7 +977,7 @@ export const createSessionGoalRuntime = ({
 
     // The tail may have moved while auditing (user sent a message) — a
     // continuation now would collide with the user's own turn.
-    const latest = await fetchRecentMessages(sessionId, directory);
+    const latest = await fetchNewestMessages(sessionId, directory).catch(() => null);
     const latestLastInfo = latest && latest.length > 0 ? latest[latest.length - 1]?.info : null;
     if (!latestLastInfo || latestLastInfo.id !== lastMessageInfo?.id) {
       console.log('[session-goal] tail moved on, dropping continuation');

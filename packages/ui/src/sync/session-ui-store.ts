@@ -1,6 +1,5 @@
 /**
  * Session UI Store — ephemeral UI state only.
- *
  * Domain data (sessions, messages, parts, permissions, questions, status)
  * lives in sync child stores. This store owns ONLY transient UI concerns:
  * current selection, draft state, viewport anchors, model/agent preferences,
@@ -10,6 +9,7 @@
  * session-worktree-store (shared sync), and session-ui-store routes through it.
  *
  * SDK-calling actions that need domain data read it from sync-refs.
+ *
  */
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
@@ -78,6 +78,7 @@ import {
   type DeleteSessionsOptions,
   type UnarchiveSessionsOptions,
 } from "./session-actions"
+import { preflightSessionSend } from "./session-send-preflight"
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSessionGoalArmStore } from "@/stores/useSessionGoalArmStore"
 import { setSessionGoal } from "@/lib/sessionGoalActions"
@@ -128,7 +129,7 @@ export function expandSlashCommandGoalObjective(content: string, commands: GoalC
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export function routeMessage(params: {
+export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -145,14 +146,20 @@ export function routeMessage(params: {
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
   if (params.inputMode === "shell") {
-    return opencodeClient.shellSession({
+    await preflightSessionSend({
+      sessionId: params.sessionId,
+      directory: requestDirectory,
+      providerID: params.providerID,
+    })
+    await opencodeClient.shellSession({
       runtimeKey: params.runtimeKey,
       sessionId: params.sessionId,
       directory: requestDirectory,
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
-    }).then(() => undefined)
+    })
+    return
   }
 
   // Slash commands — fire and forget, SSE delivers messages and status
@@ -183,10 +190,15 @@ export function routeMessage(params: {
         agent: params.agent,
         directory: requestDirectory,
         files: params.files,
-        send: (messageID, optimisticParts) => {
+        send: async (messageID, optimisticParts) => {
           const textPartId = optimisticParts.find((part) => part.type === "text")?.id
           const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-          return opencodeClient.sendCommand({
+          await preflightSessionSend({
+            sessionId: params.sessionId,
+            directory: requestDirectory,
+            providerID: params.providerID,
+          })
+          await opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
             id: params.sessionId,
             providerID: params.providerID,
@@ -201,7 +213,7 @@ export function routeMessage(params: {
             )),
             messageId: messageID,
             directory: requestDirectory,
-          }).then(() => {})
+          })
         },
       })
     }
@@ -217,10 +229,15 @@ export function routeMessage(params: {
     agent: params.agent,
     directory: requestDirectory,
     files: params.files,
-    send: (messageID, optimisticParts) => {
+    send: async (messageID, optimisticParts) => {
       const textPartId = optimisticParts.find((part) => part.type === "text")?.id
       const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-      return opencodeClient.sendMessage({
+      await preflightSessionSend({
+        sessionId: params.sessionId,
+        directory: requestDirectory,
+        providerID: params.providerID,
+      })
+      await opencodeClient.sendMessage({
         runtimeKey: params.runtimeKey,
         id: params.sessionId,
         providerID: params.providerID,
@@ -237,7 +254,7 @@ export function routeMessage(params: {
         delivery: params.delivery,
         messageId: messageID,
         directory: requestDirectory,
-      }).then(() => {})
+      })
     },
   })
 }
@@ -383,6 +400,7 @@ export type SessionUIState = {
     title?: string,
     directoryOverride?: string | null,
     parentID?: string | null,
+    providerID?: string,
     metadata?: Record<string, unknown>,
   ) => Promise<Session | null>
   deleteSession: (id: string, options?: DeleteSessionOptions) => Promise<boolean>
@@ -742,10 +760,12 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   void activateConfigForDirectory(recovered)
 }
 
+
 const createSessionWithDraftLifecycle = async (
   title?: string,
   directoryOverride?: string | null,
   parentID?: string | null,
+  providerID?: string,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
 ): Promise<Session | null> => {
@@ -761,6 +781,7 @@ const createSessionWithDraftLifecycle = async (
       title,
       directory,
       parentID ?? null,
+      providerID,
       metadata,
       selectionTransition,
     )
@@ -825,6 +846,7 @@ export async function materializeOpenDraftSession(selection: {
     draft.title,
     draftDirectoryOverride,
     draft.parentID ?? null,
+    selection.providerID,
     draftPins.notes.length > 0 || draftPins.plans.length > 0
       ? { openchamber: { project_context_pins: draftPins } }
       : undefined,
@@ -1755,8 +1777,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // createSession
   // ---------------------------------------------------------------------------
-  createSession: (title, directoryOverride, parentID, metadata) =>
-    createSessionWithDraftLifecycle(title, directoryOverride, parentID, metadata),
+  createSession: (title, directoryOverride, parentID, providerID, metadata) =>
+    createSessionWithDraftLifecycle(title, directoryOverride, parentID, providerID, metadata),
 
   // ---------------------------------------------------------------------------
   // deleteSession — calls SDK, SSE event updates child store
@@ -1892,7 +1914,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     if (!existingSession) return
 
     try {
-      await forkFromMessageAction(sessionId, messageId)
+      const sessionSelection = useSelectionStore.getState().getSessionModelSelection(sessionId)
+      const providerID = sessionSelection?.providerId || useConfigStore.getState().currentProviderId || ""
+      await forkFromMessageAction(sessionId, messageId, providerID)
 
       const { toast } = await import("sonner")
       toast.success(`Forked from ${existingSession.title}`)
@@ -1988,7 +2012,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
     }
 
-    const session = await get().createSession(undefined, sessionDirectory || null, null)
+    const session = await get().createSession(undefined, sessionDirectory || null, null, pID)
     if (!session) {
       if (createdWorktree && createdWorktreeProject) {
         const { removeProjectWorktree } = await import("@/lib/worktrees/worktreeManager")

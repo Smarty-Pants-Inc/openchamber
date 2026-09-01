@@ -16,6 +16,7 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { getFullText, getMessagePreview } from './lib/messagePreview';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
+import { useChatSessionForkSupported } from './ChatSessionCapabilities';
 
 interface TimelineDialogProps {
     open: boolean;
@@ -45,6 +46,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     const forkFromMessage = useSessionUIStore((state) => state.forkFromMessage);
     const { isMobile, isTablet } = useDeviceInfo();
     const alwaysShowActions = isMobile || isTablet;
+    const sessionForkSupported = useChatSessionForkSupported();
 
     const [forkingMessageId, setForkingMessageId] = React.useState<string | null>(null);
     const [searchQuery, setSearchQuery] = React.useState('');
@@ -372,26 +374,28 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                                     <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
                                                 </Tooltip>
 
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleFork(message.info.id);
-                                                            }}
-                                                            disabled={forkingMessageId === message.info.id}
-                                                        >
-                                                            {forkingMessageId === message.info.id ? (
-                                                                <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <Icon name="git-branch" className="h-4 w-4" />
-                                                            )}
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.forkFromHere')}</TooltipContent>
-                                                </Tooltip>
+                                                {sessionForkSupported ? (
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleFork(message.info.id);
+                                                                }}
+                                                                disabled={forkingMessageId === message.info.id}
+                                                            >
+                                                                {forkingMessageId === message.info.id ? (
+                                                                    <Icon name="loader-4" className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <Icon name="git-branch" className="h-4 w-4" />
+                                                                )}
+                                                            </button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent sideOffset={6}>{t('chat.timeline.actions.forkFromHere')}</TooltipContent>
+                                                    </Tooltip>
+                                                ) : null}
                                             </div>
                                         </div>
                                     </div>
@@ -419,10 +423,12 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                 <Icon name="arrow-go-back" className="h-4 w-4 flex-shrink-0" />
                                 <span>{t('chat.timeline.help.undoToPoint')}</span>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <Icon name="git-branch" className="h-4 w-4 flex-shrink-0" />
-                                <span>{t('chat.timeline.help.createSessionFromHere')}</span>
-                            </div>
+                            {sessionForkSupported ? (
+                                <div className="flex items-center gap-2">
+                                    <Icon name="git-branch" className="h-4 w-4 flex-shrink-0" />
+                                    <span>{t('chat.timeline.help.createSessionFromHere')}</span>
+                                </div>
+                            ) : null}
                         </div>
                     </div>
                 )}

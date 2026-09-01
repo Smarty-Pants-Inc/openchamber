@@ -2,6 +2,7 @@ import React from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ChatView } from '@/components/views/ChatView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
+import { PiPendingCreateDialogs } from '@/components/chat/PiPendingCreateDialogs';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 import { Toaster } from '@/components/ui/sonner';
 import { Button } from '@/components/ui/button';
@@ -834,6 +835,7 @@ function App({ apis }: AppProps) {
     }
     return undefined;
   };
+  const pendingCreateDialogs = <PiPendingCreateDialogs />;
 
   // Desktop boot view routing.
   // When the boot outcome resolves to a non-main screen (chooser, recovery),
@@ -894,6 +896,7 @@ function App({ apis }: AppProps) {
                   embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled}
                 />
                 <AppLinkConfirmDialog />
+                {pendingCreateDialogs}
               </div>
             </TooltipProvider>
           </RuntimeAPIProvider>
@@ -938,6 +941,7 @@ function App({ apis }: AppProps) {
                   <MainLayout />
                   <Toaster />
                   <AppLinkConfirmDialog />
+                  {pendingCreateDialogs}
                   {!isBootShell && (
                     <>
                       <ConfigUpdateOverlay />

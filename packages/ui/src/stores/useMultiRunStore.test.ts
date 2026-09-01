@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
 
+type OpenChamberSessionMetadata = {
+  openchamber?: {
+    project_context_pins?: { notes: string[]; plans: string[] };
+    agent_backend?: 'omp' | 'pi';
+  };
+};
+
+type SessionCreateParams = { title?: string; metadata?: OpenChamberSessionMetadata; providerID?: string };
+
 const upsertedSessions: Session[] = [];
 const registeredDirectories: Array<{ sessionID: string; directory: string }> = [];
 const ensureChildCalls: Array<{ directory: string; bootstrap?: boolean }> = [];
@@ -8,6 +17,7 @@ const worktreeMetadataCalls: Array<{ sessionId: string; path: string }> = [];
 const worktreeCreateCalls: Array<{ project: { id?: string; path: string }; args: Record<string, unknown>; options: unknown }> = [];
 const worktreeBootstrapWaitCalls: string[] = [];
 const operationOrder: string[] = [];
+const createSessionParams: SessionCreateParams[] = [];
 let isGitRepository = false;
 let waitForWorktreeSetup = false;
 const createWorktreeWithDefaultsMock = mock((project: { id?: string; path: string }, args: Record<string, unknown>, options: unknown) => {
@@ -55,7 +65,8 @@ mock.module('@/lib/opencode/client', () => ({
         currentDirectory = previous;
       }
     },
-    createSession: async (params?: { title?: string }): Promise<Session> => {
+    createSession: async (params?: SessionCreateParams): Promise<Session> => {
+      createSessionParams.push(params ?? {});
       operationOrder.push(`createSession:${currentDirectory}`);
       return {
         id: 'ses_multirun',
@@ -157,6 +168,7 @@ describe('useMultiRunStore', () => {
     worktreeCreateCalls.length = 0;
     worktreeBootstrapWaitCalls.length = 0;
     operationOrder.length = 0;
+    createSessionParams.length = 0;
     isGitRepository = false;
     waitForWorktreeSetup = false;
     childState.session = [];
@@ -172,7 +184,7 @@ describe('useMultiRunStore', () => {
       isolateRuns: false,
       groups: [{
         prompt: 'Fix it',
-        models: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' }],
+        models: [{ providerID: 'pi', modelID: 'default' }],
       }],
     });
 
@@ -181,6 +193,7 @@ describe('useMultiRunStore', () => {
     expect(registeredDirectories).toEqual([{ sessionID: 'ses_multirun', directory: '/repo' }]);
     expect(ensureChildCalls).toEqual([{ directory: '/repo', bootstrap: false }]);
     expect(childState.session.map((session) => session.id)).toEqual(['ses_multirun']);
+    expect(createSessionParams[0]?.providerID).toBe('pi');
   });
 
   test('uses fast background worktree creation for isolated runs', async () => {

@@ -4,6 +4,7 @@ const { handleProxyBridgeMessage } = await import('./bridge-proxy-runtime');
 
 const createDeps = () => ({
   tryHandleLocalFsProxy: mock(() => Promise.resolve(null)),
+  tryHandleOpenChamberSessionProxy: mock(() => Promise.resolve(null)),
   buildUnavailableApiResponse: mock(() => ({ status: 503, headers: {}, bodyText: '' })),
   sanitizeForwardHeaders: mock((headers) => headers || {}),
   collectHeaders: mock(() => ({})),

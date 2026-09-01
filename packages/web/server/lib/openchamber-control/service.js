@@ -291,13 +291,13 @@ export const createOpenChamberControlService = (dependencies) => {
     const startedAt = now();
     let result;
     if (action === 'session.create') {
-      result = await sessionService.create(payload);
+      result = await sessionService.create(payload, { signal });
     } else {
       if (!sessionID) throw new OpenChamberControlError('sessionId is required', 400);
       if (action === 'session.send') {
-        result = await sessionService.send(sessionID, payload);
+        result = await sessionService.send(sessionID, payload, { signal });
       } else {
-        result = await sessionService.fork(sessionID, payload);
+        result = await sessionService.fork(sessionID, payload, { signal });
       }
     }
     if (input.wait !== true) {

@@ -117,14 +117,19 @@ export const useProjectTodoSend = (options: {
             toast.error(t('rightSidebar.contextNotesTodo.toast.worktreeRequiresGitRepo'));
             return;
           }
-          const created = await createWorktreeSessionForNewBranch(projectRef.path, generateBranchName());
+          const created = await createWorktreeSessionForNewBranch(
+            projectRef.path,
+            generateBranchName(),
+            undefined,
+            { providerID: execution.providerID },
+          );
           if (!created?.id) {
             return;
           }
           sessionId = created.id;
           directoryHint = created.path;
         } else {
-          const session = await createSession(undefined, projectRef.path, null);
+          const session = await createSession(undefined, projectRef.path, null, execution.providerID);
           if (!session?.id) {
             toast.error(t('rightSidebar.contextNotesTodo.toast.createSessionFailed'));
             return;

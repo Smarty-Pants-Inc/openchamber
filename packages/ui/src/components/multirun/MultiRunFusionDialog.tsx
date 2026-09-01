@@ -13,6 +13,7 @@ import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import { getSyncMessages, getSyncParts } from '@/sync/sync-refs';
+import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import { getFusionSessionTitle, parseMultiRunSessionTitle } from '@/lib/multirun/title';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
@@ -160,13 +161,20 @@ export function MultiRunFusionDialog({
         renderMagicPrompt('session.fusion.visible'),
         renderMagicPrompt('session.fusion.instructions'),
       ]);
-      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null);
+      const fusionSession = await useSessionUIStore.getState().createSession(fusionTitle, directory, null, providerID);
       if (!fusionSession) throw new Error('Failed to create fusion session');
 
-      useSessionUIStore.getState().setCurrentSession(fusionSession.id, directory);
+      const fusionDirectory = fusionSession.directory?.trim()
+        || directory
+        || opencodeClient.getDirectory();
+      useSessionUIStore.getState().setCurrentSession(fusionSession.id, fusionDirectory);
       onOpenChange(false);
 
-      await opencodeClient.sendMessage({
+      await withSessionSendPreflight({
+        sessionId: fusionSession.id,
+        directory: fusionDirectory,
+        providerID,
+      }, () => opencodeClient.sendMessage({
         id: fusionSession.id,
         providerID,
         modelID,
@@ -178,8 +186,8 @@ export function MultiRunFusionDialog({
           ...usableSources.map((item, index) => ({ text: buildSourcePart(item.source, item.text, index), synthetic: true })),
           { text: '\n\n--- FUSION INPUTS END ---\nNow write the final fused answer.', synthetic: true },
         ],
-        directory: directory ?? opencodeClient.getDirectory(),
-      });
+        directory: fusionDirectory,
+      }));
     } catch (error) {
       console.error('[MultiRunFusion] Failed to start fusion', error);
       toast.error(t('multirun.fusion.toast.failed'));

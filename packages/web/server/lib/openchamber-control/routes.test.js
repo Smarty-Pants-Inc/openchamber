@@ -29,6 +29,9 @@ describe('OpenChamber control route', () => {
         partialAction: 'fork-created',
         sessionId: 'ses_fork',
         directory: '/repo',
+        worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+        sessionCleaned: true,
+        recovery: { bootstrap: { branch: 'openchamber/side-task', createdHead: 'abc123', currentHead: 'def456' } },
       });
     });
     const response = await request(createApp(execute))
@@ -41,6 +44,9 @@ describe('OpenChamber control route', () => {
       partialAction: 'fork-created',
       sessionId: 'ses_fork',
       directory: '/repo',
+      worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+      sessionCleaned: true,
+      recovery: { bootstrap: { branch: 'openchamber/side-task', createdHead: 'abc123', currentHead: 'def456' } },
     });
   });
 });

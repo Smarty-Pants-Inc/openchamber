@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveControlTimeoutMs } from './cli-control.js';
+import { requestControlAction, resolveControlTimeoutMs } from './cli-control.js';
 
 describe('resolveControlTimeoutMs', () => {
   it('keeps the short default HTTP timeout for instant control calls', () => {
@@ -33,5 +33,31 @@ describe('resolveControlTimeoutMs', () => {
     // so the client window must span both rather than the longer of the two.
     expect(resolveControlTimeoutMs({ wait: true, timeout: 30, worktree: 'feature' }, {})).toBe(180_000);
     expect(resolveControlTimeoutMs({ wait: true, worktree: 'feature' }, {})).toBe(750_000);
+  });
+});
+
+describe('requestControlAction recovery errors', () => {
+  it('reports a cleaned session and the worktree that still requires recovery', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: 'Worktree recovery required',
+        partial: true,
+        partialAction: 'worktree-cleanup-pending',
+        sessionId: 'ses_new',
+        directory: '/repo/worktrees/side-task',
+        worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+        sessionCleaned: true,
+      }),
+    });
+    try {
+      await expect(requestControlAction(54_321, 'session.create', {})).rejects.toThrow(
+        'New session ses_new was deleted. Worktree /repo/worktrees/side-task on openchamber/side-task requires recovery.',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

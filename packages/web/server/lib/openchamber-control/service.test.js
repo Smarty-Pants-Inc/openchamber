@@ -121,7 +121,7 @@ describe('OpenChamber control service', () => {
   it('uses the tool context directory for session actions', async () => {
     const { service, sessionService } = createService();
     await service.execute('session.create', { title: 'From tool' }, '/repo');
-    expect(sessionService.create).toHaveBeenCalledWith({ directory: '/repo', title: 'From tool' });
+    expect(sessionService.create).toHaveBeenCalledWith({ directory: '/repo', title: 'From tool' }, { signal: undefined });
   });
 
   it.each([
@@ -133,7 +133,16 @@ describe('OpenChamber control service', () => {
 
     await service.execute(action, { sessionId: 'ses_1', directory: '/repo', prompt: 'Continue' });
 
-    expect(sessionService[method]).toHaveBeenCalledWith('ses_1', { directory: '/repo', prompt: 'Continue' });
+    expect(sessionService[method]).toHaveBeenCalledWith('ses_1', { directory: '/repo', prompt: 'Continue' }, { signal: undefined });
+  });
+
+  it('forwards a control request abort signal into session creation', async () => {
+    const { service, sessionService } = createService();
+    const controller = new AbortController();
+
+    await service.execute('session.create', { directory: '/repo' }, undefined, { signal: controller.signal });
+
+    expect(sessionService.create).toHaveBeenCalledWith({ directory: '/repo' }, { signal: controller.signal });
   });
 
   it('resolves the target session directory from the global session list when send omits it', async () => {
@@ -156,7 +165,7 @@ describe('OpenChamber control service', () => {
 
     await service.execute('session.send', { sessionId: 'ses_target', prompt: 'Continue' }, '/repo');
 
-    expect(sessionService.send).toHaveBeenCalledWith('ses_target', { directory: '/repo/worktrees/target', prompt: 'Continue' });
+    expect(sessionService.send).toHaveBeenCalledWith('ses_target', { directory: '/repo/worktrees/target', prompt: 'Continue' }, { signal: undefined });
   });
 
   it('falls back to the context directory when the session is not in the global list', async () => {
@@ -170,7 +179,7 @@ describe('OpenChamber control service', () => {
 
     await service.execute('session.send', { sessionId: 'ses_unknown', prompt: 'Continue' }, '/repo');
 
-    expect(sessionService.send).toHaveBeenCalledWith('ses_unknown', { directory: '/repo', prompt: 'Continue' });
+    expect(sessionService.send).toHaveBeenCalledWith('ses_unknown', { directory: '/repo', prompt: 'Continue' }, { signal: undefined });
   });
 
   it('waits past initial idle until a completed assistant result appears', async () => {

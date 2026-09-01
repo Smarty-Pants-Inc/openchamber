@@ -8,6 +8,7 @@ import simpleGit from 'simple-git';
 import {
   checkoutCommit,
   cherryPick,
+  cancelWorktreeBootstrap,
   createWorktree,
   getWorktreeBootstrapStatus,
   getBranches,
@@ -82,6 +83,39 @@ const canRunGit = () => {
     return false;
   }
 };
+
+const installGitWrapper = (body) => {
+  const previousPath = process.env.PATH;
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const wrapperDirectory = createTempDir();
+  const wrapperPath = path.join(wrapperDirectory, 'git');
+  fs.writeFileSync(
+    wrapperPath,
+    `#!/bin/sh\nREAL_GIT=${JSON.stringify(realGit)}\n${body}\nexec "$REAL_GIT" "$@"\n`,
+  );
+  fs.chmodSync(wrapperPath, 0o755);
+  process.env.PATH = `${wrapperDirectory}${path.delimiter}${previousPath || ''}`;
+
+  return () => {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  };
+};
+
+const restoreEnvironmentValue = (name, value) => {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+};
+
+const postAddHeadVerificationCondition = (marker) => (
+  `if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ] && [ "$3" = "HEAD" ] && [ -f ".git" ] && [ ! -f ${JSON.stringify(marker)} ]; then`
+);
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -745,6 +779,461 @@ describe('createWorktree', () => {
     }
   });
 
+  it('cancels the composite attach and bootstrap task before safe removal', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupStarted = path.join(dataHome, 'composite-cancel-started');
+    const setupScript = path.join(dataHome, 'composite-cancel.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      setupScript,
+      `require('node:fs').writeFileSync(${JSON.stringify(setupStarted)}, 'started'); setInterval(() => {}, 1000);\n`,
+    );
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/composite-cancel',
+        worktreeName: 'composite-cancel',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+
+      await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
+      const cancellation = await cancelWorktreeBootstrap(created.path);
+
+      expect(cancellation).toMatchObject({
+        settled: true,
+        attached: true,
+        branch: 'feature/composite-cancel',
+        clean: true,
+        safeToRemove: true,
+        createdHead: initialHead,
+        currentHead: initialHead,
+        bootstrapStatus: {
+          status: 'failed',
+          attached: true,
+          branch: 'feature/composite-cancel',
+          createdHead: initialHead,
+        },
+      });
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/composite-cancel',
+        expectedHead: initialHead,
+        requireClean: true,
+      })).resolves.toBe(true);
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  }, 10_000);
+
+  it('publishes exact attachment identity before post-add cancellation', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const verificationStarted = path.join(dataHome, 'post-add-cancel-rev-parse');
+    const controller = new AbortController();
+    let restoreGit = () => {};
+    let createdPath = '';
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      restoreGit = installGitWrapper([
+        postAddHeadVerificationCondition(verificationStarted),
+        `  printf 'started' > ${JSON.stringify(verificationStarted)}`,
+        '  while :; do sleep 1; done',
+        'fi',
+      ].join('\n'));
+
+      const creation = createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/post-add-cancel',
+        worktreeName: 'post-add-cancel',
+      }, { signal: controller.signal });
+      void creation.catch(() => undefined);
+
+      await expect.poll(() => fs.existsSync(verificationStarted), { timeout: 5_000 }).toBe(true);
+      controller.abort();
+      const created = await creation;
+      createdPath = created.path;
+
+      expect(created).toMatchObject({
+        head: initialHead,
+        createdHead: initialHead,
+        branch: 'feature/post-add-cancel',
+        path: createdPath,
+        bootstrapStatus: {
+          attached: true,
+          branch: 'feature/post-add-cancel',
+          createdHead: initialHead,
+        },
+      });
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(createdPath)).status,
+        { timeout: 5_000 },
+      ).toBe('failed');
+
+      const cancellation = await cancelWorktreeBootstrap(createdPath);
+      expect(cancellation).toMatchObject({
+        settled: true,
+        attached: true,
+        branch: 'feature/post-add-cancel',
+        createdHead: initialHead,
+        currentHead: initialHead,
+        bootstrapStatus: {
+          status: 'failed',
+          attached: true,
+          branch: 'feature/post-add-cancel',
+          createdHead: initialHead,
+        },
+      });
+      expect(runGit(repo, ['worktree', 'list', '--porcelain'])).toContain(createdPath);
+
+      await removeWorktree(repo, {
+        directory: createdPath,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/post-add-cancel',
+        expectedHead: initialHead,
+      });
+      createdPath = '';
+    } finally {
+      controller.abort();
+      if (createdPath) {
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+      }
+      restoreGit();
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
+  it('retains exact attachment identity when post-add HEAD verification fails', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const verificationFailed = path.join(dataHome, 'post-add-failed-rev-parse');
+    let restoreGit = () => {};
+    let createdPath = '';
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      restoreGit = installGitWrapper([
+        postAddHeadVerificationCondition(verificationFailed),
+        `  printf 'failed' > ${JSON.stringify(verificationFailed)}`,
+        "  printf 'forced post-add rev-parse failure\\n' >&2",
+        '  exit 42',
+        'fi',
+      ].join('\n'));
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/post-add-rev-parse-failure',
+        worktreeName: 'post-add-rev-parse-failure',
+      });
+      createdPath = created.path;
+
+      expect(created).toMatchObject({
+        head: initialHead,
+        createdHead: initialHead,
+        branch: 'feature/post-add-rev-parse-failure',
+        path: createdPath,
+        bootstrapStatus: {
+          attached: true,
+          branch: 'feature/post-add-rev-parse-failure',
+          createdHead: initialHead,
+        },
+      });
+      await expect.poll(() => fs.existsSync(verificationFailed), { timeout: 5_000 }).toBe(true);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(createdPath)).status,
+        { timeout: 5_000 },
+      ).toBe('failed');
+
+      const cancellation = await cancelWorktreeBootstrap(createdPath);
+      expect(cancellation).toMatchObject({
+        settled: true,
+        attached: true,
+        branch: 'feature/post-add-rev-parse-failure',
+        createdHead: initialHead,
+        currentHead: initialHead,
+        bootstrapStatus: {
+          status: 'failed',
+          attached: true,
+          branch: 'feature/post-add-rev-parse-failure',
+          createdHead: initialHead,
+        },
+      });
+      expect(runGit(repo, ['worktree', 'list', '--porcelain'])).toContain(createdPath);
+
+      await removeWorktree(repo, {
+        directory: createdPath,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/post-add-rev-parse-failure',
+        expectedHead: initialHead,
+      });
+      createdPath = '';
+    } finally {
+      if (createdPath) {
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+      }
+      restoreGit();
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
+  it('waits for normal start commands longer than five seconds', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupStarted = path.join(dataHome, 'slow-start-started');
+    const setupCompleted = path.join(dataHome, 'slow-start-completed');
+    const setupScript = path.join(dataHome, 'slow-start.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      setupScript,
+      `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(setupStarted)}, 'started'); setTimeout(() => fs.writeFileSync(${JSON.stringify(setupCompleted)}, 'completed'), 5_250);\n`,
+    );
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/slow-start',
+        worktreeName: 'slow-start',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+
+      await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
+      await expect.poll(() => fs.existsSync(setupCompleted), { timeout: 10_000 }).toBe(true);
+      await expect(getWorktreeBootstrapStatus(created.path)).resolves.toMatchObject({
+        status: 'ready',
+        phase: 'setup-ready',
+      });
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  }, 15_000);
+
+  it('does not prove removal after a start script advances the created branch', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupCompleted = path.join(dataHome, 'advanced-head');
+    const setupScript = path.join(dataHome, 'advance-head.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      setupScript,
+      [
+        "const fs = require('node:fs');",
+        "const { execFileSync } = require('node:child_process');",
+        "fs.writeFileSync('bootstrap-commit.txt', 'committed\\n');",
+        "execFileSync('git', ['add', 'bootstrap-commit.txt']);",
+        "execFileSync('git', ['commit', '-m', 'Bootstrap advance']);",
+        `fs.writeFileSync(${JSON.stringify(setupCompleted)}, 'committed');`,
+        'setInterval(() => {}, 1000);',
+      ].join('\n'),
+    );
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/advanced-head',
+        worktreeName: 'advanced-head',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+
+      await expect.poll(() => fs.existsSync(setupCompleted), { timeout: 5_000 }).toBe(true);
+      const cancellation = await cancelWorktreeBootstrap(created.path);
+
+      expect(cancellation).toMatchObject({
+        settled: true,
+        attached: true,
+        branch: 'feature/advanced-head',
+        clean: true,
+        safeToRemove: false,
+        createdHead: initialHead,
+        bootstrapStatus: {
+          createdHead: initialHead,
+        },
+      });
+      expect(cancellation.currentHead).toMatch(/^[0-9a-f]{40}$/i);
+      expect(cancellation.currentHead).not.toBe(initialHead);
+      expect(fs.existsSync(created.path)).toBe(true);
+      expect(runGit(repo, ['branch', '--list', 'feature/advanced-head'])).toContain('feature/advanced-head');
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  }, 10_000);
+
+  it('links an already-aborted caller signal before attachment starts', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const controller = new AbortController();
+      controller.abort();
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/aborted-attachment',
+        worktreeName: 'aborted-attachment',
+        returnAfterDirectoryCreated: true,
+      }, { signal: controller.signal });
+
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('failed');
+      expect(runGit(repo, ['worktree', 'list', '--porcelain'])).not.toContain(created.path);
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  });
+
+  it('reserves a worktree key before a competing attachment can start', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const remote = createTempDir();
+    const uploadPackStarted = path.join(dataHome, 'slow-upload-pack-started');
+    const uploadPack = path.join(dataHome, 'slow-upload-pack.sh');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      uploadPack,
+      `#!/bin/sh\nprintf 'running' > ${JSON.stringify(uploadPackStarted)}\nsleep 1\nexec git-upload-pack "$@"\n`,
+    );
+    fs.chmodSync(uploadPack, 0o755);
+
+    try {
+      const repo = createTempDir();
+      runGit(remote, ['init', '--bare', '--initial-branch=main']);
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      runGit(repo, ['remote', 'add', 'slow', remote]);
+      runGit(repo, ['push', 'slow', 'HEAD:main']);
+      runGit(repo, ['config', 'remote.slow.uploadpack', uploadPack]);
+
+      let secondError = null;
+      const firstInput = {
+        mode: 'new',
+        branchName: 'feature/reserved-attachment',
+        worktreeName: 'reserved-attachment',
+        ensureRemoteName: 'slow',
+        ensureRemoteUrl: remote,
+        get startRef() {
+          const secondCreate = createWorktree(repo, {
+            mode: 'new',
+            branchName: 'feature/reserved-attachment',
+            worktreeName: 'reserved-attachment',
+          });
+          void secondCreate.catch((error) => {
+            secondError = error;
+          });
+          return 'slow/main';
+        },
+      };
+
+      const created = await createWorktree(repo, firstInput);
+      await expect.poll(() => secondError?.message, { timeout: 5_000 })
+        .toBe('Worktree bootstrap is already active');
+      expect(fs.existsSync(uploadPackStarted)).toBe(true);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('ready');
+      expect(runGit(repo, ['worktree', 'list', '--porcelain'])).toContain(created.path);
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  });
+
   it('recovers from an unchanged stale index lock while populating a worktree', async () => {
     if (!canRunGit()) return;
 
@@ -765,6 +1254,14 @@ describe('createWorktree', () => {
     await expect(populateWorktreeWithLockRecovery(worktree)).resolves.toBeUndefined();
     expect(fs.existsSync(lockPath)).toBe(false);
     expect(fs.readFileSync(path.join(worktree, 'README.md'), 'utf8')).toBe('# Test\n');
+  });
+
+  it('stops canceled worktree population before running Git commands', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(populateWorktreeWithLockRecovery(createTempDir(), controller.signal))
+      .rejects.toThrow('Worktree bootstrap cancelled');
   });
 
   it('preflights fast create branch-in-use failures before creating the candidate directory', async () => {
@@ -874,6 +1371,7 @@ describe('createWorktree from a forked GitHub PR', () => {
 
       expect(created.branch).toBe('feature/login');
       expect(runGit(created.path, ['rev-parse', 'HEAD']).trim()).toBe(sha);
+      expect(created.createdHead).toBe(sha);
       await expect.poll(() => fs.existsSync(path.join(created.path, 'FORK.md')), { timeout: 5_000 }).toBe(true);
       expect(runGit(repository, ['remote', 'get-url', 'pr-alice']).trim()).toBe(fork);
       await expect.poll(
@@ -975,6 +1473,136 @@ describe('removeWorktree', () => {
       }
     }
   });
+  it('refuses rollback when the worktree has switched away from the created branch', async () => {
+    if (!canRunGit()) return;
+
+    const repo = createTempDir();
+    const worktree = createTempDir();
+    fs.rmSync(worktree, { recursive: true, force: true });
+    runGit(repo, ['init', '-b', 'main']);
+    runGit(repo, ['config', 'user.email', 'test@example.com']);
+    runGit(repo, ['config', 'user.name', 'Test User']);
+    fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+    runGit(repo, ['add', 'README.md']);
+    runGit(repo, ['commit', '-m', 'Initial commit']);
+    runGit(repo, ['worktree', 'add', '-b', 'openchamber/original', worktree, 'HEAD']);
+    runGit(worktree, ['checkout', '-b', 'user/switched']);
+
+    await expect(removeWorktree(repo, {
+      directory: worktree,
+      deleteLocalBranch: true,
+      expectedBranch: 'openchamber/original',
+    })).rejects.toThrow('expected openchamber/original');
+
+    expect(fs.existsSync(worktree)).toBe(true);
+    expect(runGit(repo, ['branch', '--list', 'openchamber/original'])).toContain('openchamber/original');
+    expect(runGit(repo, ['branch', '--list', 'user/switched'])).toContain('user/switched');
+  });
+
+  it('refuses automatic forced removal of a dirty created worktree', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/dirty-rollback',
+        worktreeName: 'dirty-rollback',
+      });
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('ready');
+
+      const dirtyFile = path.join(created.path, 'uncommitted.txt');
+      fs.writeFileSync(dirtyFile, 'keep me\n');
+
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/dirty-rollback',
+        requireClean: true,
+      })).rejects.toThrow('Refusing to force-remove dirty worktree');
+
+      expect(fs.existsSync(created.path)).toBe(true);
+      expect(fs.readFileSync(dirtyFile, 'utf8')).toBe('keep me\n');
+      expect(runGit(repo, ['branch', '--list', 'feature/dirty-rollback'])).toContain('feature/dirty-rollback');
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  });
+
+  it('retains the worktree, branch, and commit when HEAD advances after the rollback snapshot', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    process.env.XDG_DATA_HOME = dataHome;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/advanced-rollback',
+        worktreeName: 'advanced-rollback',
+      });
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('ready');
+
+      const cancellation = await cancelWorktreeBootstrap(created.path);
+      expect(cancellation).toMatchObject({
+        safeToRemove: true,
+        currentHead: created.createdHead,
+      });
+
+      fs.writeFileSync(path.join(created.path, 'after-snapshot.txt'), 'keep me\n');
+      runGit(created.path, ['add', 'after-snapshot.txt']);
+      runGit(created.path, ['commit', '-m', 'Advance after rollback snapshot']);
+      const advancedHead = runGit(created.path, ['rev-parse', 'HEAD']).trim();
+      expect(advancedHead).not.toBe(cancellation.currentHead);
+      expect(runGit(created.path, ['status', '--porcelain'])).toBe('');
+
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/advanced-rollback',
+        expectedHead: cancellation.currentHead,
+        requireClean: true,
+      })).rejects.toThrow(`expected ${cancellation.currentHead}`);
+
+      expect(fs.existsSync(created.path)).toBe(true);
+      expect(runGit(created.path, ['rev-parse', 'HEAD']).trim()).toBe(advancedHead);
+      expect(runGit(repo, ['rev-parse', 'refs/heads/feature/advanced-rollback']).trim()).toBe(advancedHead);
+      expect(runGit(repo, ['show', `${advancedHead}:after-snapshot.txt`])).toBe('keep me\n');
+    } finally {
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  });
+
 });
 
 // ---------------------------------------------------------------------------

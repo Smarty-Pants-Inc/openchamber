@@ -8,6 +8,7 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 
 export type {
   GitRemote,
@@ -587,6 +588,7 @@ export async function generatePullRequestDescription(
 
 type SessionGenerationContext = {
   sessionId: string;
+  directory?: string;
   providerID: string;
   modelID: string;
   agent?: string;
@@ -628,6 +630,7 @@ async function resolveGenerationSessionContext(): Promise<SessionGenerationConte
 
   return {
     sessionId: createdDraftSession.sessionId,
+    directory: createdDraftSession.directory ?? undefined,
     providerID: config.currentProviderId,
     modelID: config.currentModelId,
     agent: createdDraftSession.agent,
@@ -674,6 +677,7 @@ const resolveSessionGenerationContext = (): SessionGenerationContext | null => {
 
   return {
     sessionId,
+    directory: useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined,
     providerID: selectedModel.providerId,
     modelID: selectedModel.modelId,
     agent,
@@ -705,6 +709,7 @@ const runStructuredGenerationInActiveSession = async ({
     variant: generationSession.variant,
   });
   const trimmedDirectory = typeof directory === 'string' ? directory.trim() : '';
+  const sessionDirectory = generationSession.directory?.trim() || trimmedDirectory;
   const visiblePromptText = typeof visiblePrompt === 'string' ? visiblePrompt.trim() : '';
   const hiddenPromptText = typeof hiddenPrompt === 'string' ? hiddenPrompt.trim() : '';
   const promptParts: Array<{ type: 'text'; text: string; synthetic?: boolean }> = [];
@@ -724,10 +729,14 @@ const runStructuredGenerationInActiveSession = async ({
 
   requestChatForceScrollBottom(generationSession.sessionId);
 
-  const response = await opencodeClient.withDirectory(directory, async () => {
-    return opencodeClient.getApiClient().session.prompt({
+  const response = await opencodeClient.withDirectory(sessionDirectory, async () => {
+    return withSessionSendPreflight({
+      sessionId: generationSession.sessionId,
+      directory: sessionDirectory,
+      providerID: generationSession.providerID,
+    }, () => opencodeClient.getApiClient().session.prompt({
       sessionID: generationSession.sessionId,
-      ...(trimmedDirectory.length > 0 ? { directory: trimmedDirectory } : {}),
+      ...(sessionDirectory.length > 0 ? { directory: sessionDirectory } : {}),
       model: {
         providerID: generationSession.providerID,
         modelID: generationSession.modelID,
@@ -735,7 +744,7 @@ const runStructuredGenerationInActiveSession = async ({
       ...(generationSession.agent ? { agent: generationSession.agent } : {}),
       ...(generationSession.variant ? { variant: generationSession.variant } : {}),
       parts: promptParts,
-    });
+    }));
   });
 
   const responseError = response?.error as { message?: string } | undefined;

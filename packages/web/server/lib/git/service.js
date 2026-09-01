@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 const gpgconfCandidates = ['gpgconf', '/opt/homebrew/bin/gpgconf', '/usr/local/bin/gpgconf'];
 let resolvedGitBinary = null;
 const worktreeBootstrapState = new Map();
-const activeWorktreeBootstrapTasks = new Map();
+const activeWorktreeBootstraps = new Map();
 const remoteExistenceCache = new Map();
 const SIMPLE_GIT_SAFE_BINARY_PATTERN = /^([a-z]:)?([a-z0-9/.\\_~-]+)$/i;
 const SIMPLE_GIT_UNSAFE_BINARY_WARNING = 'Invalid value supplied for custom binary, restricted characters must be removed';
@@ -29,6 +29,13 @@ const WORKTREE_BOOTSTRAP_PHASE_SETUP_READY = 'setup-ready';
 const GIT_NULL_REF = '0'.repeat(40);
 const WORKTREE_INDEX_LOCK_RETRY_DELAY_MS = 250;
 const WORKTREE_INDEX_LOCK_STALE_DELAY_MS = 750;
+const WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS = 5_000;
+const FULL_GIT_COMMIT_HASH = /^[0-9a-f]{40}$/i;
+
+const normalizeFullGitCommitHash = (value) => {
+  const hash = String(value || '').trim();
+  return FULL_GIT_COMMIT_HASH.test(hash) ? hash : '';
+};
 
 const toBootstrapStateKey = (directory) => {
   const normalized = normalizeDirectoryPath(directory);
@@ -38,19 +45,31 @@ const toBootstrapStateKey = (directory) => {
   return path.resolve(normalized);
 };
 
-const createWorktreeBootstrapState = (status, phase, error = null) => ({
+const createWorktreeBootstrapState = (status, phase, error = null, {
+  attached = false,
+  branch = null,
+  createdHead = '',
+} = {}) => ({
   status,
   phase,
   error: typeof error === 'string' && error.trim().length > 0 ? error.trim() : null,
+  attached: attached === true,
+  branch: typeof branch === 'string' && branch.trim().length > 0 ? branch.trim() : null,
+  createdHead: normalizeFullGitCommitHash(createdHead),
   updatedAt: Date.now(),
 });
 
-const setWorktreeBootstrapState = (directory, status, phase, error = null) => {
+const setWorktreeBootstrapState = (directory, status, phase, error = null, details = {}) => {
   const key = toBootstrapStateKey(directory);
   if (!key) {
     return null;
   }
-  const state = createWorktreeBootstrapState(status, phase, error);
+  const previous = worktreeBootstrapState.get(key);
+  const state = createWorktreeBootstrapState(status, phase, error, {
+    attached: details.attached ?? previous?.attached ?? false,
+    branch: details.branch ?? previous?.branch ?? null,
+    createdHead: details.createdHead ?? previous?.createdHead ?? '',
+  });
   worktreeBootstrapState.set(key, state);
   return state;
 };
@@ -63,20 +82,18 @@ const clearWorktreeBootstrapState = (directory) => {
   worktreeBootstrapState.delete(key);
 };
 
-const trackWorktreeBootstrapTask = (directory, task) => {
+const reserveWorktreeBootstrap = (directory, controller) => {
   const key = toBootstrapStateKey(directory);
   if (!key) {
-    return task;
+    throw new Error('Worktree directory is required');
+  }
+  if (activeWorktreeBootstraps.has(key)) {
+    throw new Error('Worktree bootstrap is already active');
   }
 
-  activeWorktreeBootstrapTasks.set(key, task);
-  const clearTask = () => {
-    if (activeWorktreeBootstrapTasks.get(key) === task) {
-      activeWorktreeBootstrapTasks.delete(key);
-    }
-  };
-  void task.then(clearTask, clearTask);
-  return task;
+  const operation = { controller, task: null };
+  activeWorktreeBootstraps.set(key, operation);
+  return { key, operation };
 };
 
 const waitForActiveWorktreeBootstrap = async (directory) => {
@@ -86,11 +103,98 @@ const waitForActiveWorktreeBootstrap = async (directory) => {
   }
 
   while (true) {
-    const task = activeWorktreeBootstrapTasks.get(key);
-    if (!task) {
+    const operation = activeWorktreeBootstraps.get(key);
+    if (!operation) {
       return;
     }
+    const task = operation.task;
+    if (!task) {
+      await Promise.resolve();
+      continue;
+    }
     await task.catch(() => undefined);
+  }
+};
+
+const normalizeWorktreeBootstrapCancelTimeout = (timeoutMs) => {
+  const requested = Number(timeoutMs);
+  if (!Number.isFinite(requested)) {
+    return WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS;
+  }
+  return Math.min(
+    WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS,
+    Math.max(1, Math.floor(requested))
+  );
+};
+
+export const cancelWorktreeBootstrap = async (directory, timeoutMs = WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS) => {
+  const key = toBootstrapStateKey(directory);
+  if (!key) {
+    throw new Error('Worktree directory is required');
+  }
+
+  const deadline = Date.now() + normalizeWorktreeBootstrapCancelTimeout(timeoutMs);
+  const operation = activeWorktreeBootstraps.get(key);
+  let settled = true;
+  if (operation) {
+    operation.controller.abort();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      settled = false;
+    } else {
+      const task = operation.task;
+      let timeout;
+      try {
+        settled = task
+          ? await Promise.race([
+            task.then(() => true, () => true),
+            new Promise((resolve) => {
+              timeout = setTimeout(() => resolve(false), remaining);
+            }),
+          ])
+          : false;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
+  const bootstrapStatus = {
+    ...(worktreeBootstrapState.get(key) || createWorktreeBootstrapState(
+      WORKTREE_BOOTSTRAP_READY,
+      WORKTREE_BOOTSTRAP_PHASE_SETUP_READY
+    )),
+  };
+  const createdHead = normalizeFullGitCommitHash(bootstrapStatus.createdHead);
+  const provenAttachment = settled
+    && bootstrapStatus.status !== WORKTREE_BOOTSTRAP_PENDING
+    && bootstrapStatus.attached === true;
+  const currentHead = provenAttachment
+    ? await getWorktreeHead(key, Math.max(0, deadline - Date.now()))
+    : '';
+  const clean = provenAttachment
+    ? await getWorktreeCleanliness(key, Math.max(0, deadline - Date.now()))
+    : null;
+
+  return {
+    settled,
+    attached: bootstrapStatus.attached === true,
+    branch: bootstrapStatus.branch,
+    clean,
+    safeToRemove: provenAttachment
+      && Boolean(bootstrapStatus.branch)
+      && Boolean(createdHead)
+      && createdHead === currentHead
+      && clean === true,
+    createdHead,
+    currentHead,
+    bootstrapStatus,
+  };
+};
+
+const throwIfWorktreeBootstrapCancelled = (signal) => {
+  if (signal?.aborted) {
+    throw new Error('Worktree bootstrap cancelled');
   }
 };
 
@@ -760,7 +864,7 @@ const parseRemoteBranchRef = (value) => {
   };
 };
 
-const resolveRemoteBranchRef = async (primaryWorktree, value) => {
+const resolveRemoteBranchRef = async (primaryWorktree, value, signal) => {
   const raw = String(value || '').trim();
   const parsed = parseRemoteBranchRef(raw);
   if (!parsed) {
@@ -772,7 +876,7 @@ const resolveRemoteBranchRef = async (primaryWorktree, value) => {
   }
 
   const localRef = `refs/heads/${raw}`;
-  const localExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', localRef]);
+  const localExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', localRef], { signal });
   if (localExists.success) {
     return null;
   }
@@ -916,11 +1020,12 @@ const isMissingDirectoryError = (error) => {
   return /directory that does not exist|does not exist|no such file or directory/i.test(text);
 };
 
-const runGitCommand = async (cwd, args) => {
+const runGitCommand = async (cwd, args, { signal } = {}) => {
   try {
     const { stdout, stderr } = await execFileAsync(getGitBinary(), args, {
       cwd,
       env: await buildGitEnv(),
+      signal,
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -941,6 +1046,43 @@ const runGitCommand = async (cwd, args) => {
   }
 };
 
+const runGitCommandWithTimeout = async (cwd, args, timeoutMs) => {
+  const boundedTimeout = Math.max(0, Math.floor(Number(timeoutMs) || 0));
+  if (!boundedTimeout) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  let timeout;
+  try {
+    return await Promise.race([
+      runGitCommand(cwd, args, { signal: controller.signal }),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve(null);
+        }, boundedTimeout);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const getWorktreeCleanliness = async (directory, timeoutMs = WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS) => {
+  const result = await runGitCommandWithTimeout(
+    directory,
+    ['status', '--porcelain', '--untracked-files=all'],
+    timeoutMs
+  );
+  return result?.success ? String(result.stdout || '').trim().length === 0 : null;
+};
+
+const getWorktreeHead = async (directory, timeoutMs = WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS) => {
+  const result = await runGitCommandWithTimeout(directory, ['rev-parse', '--verify', 'HEAD'], timeoutMs);
+  return result?.success ? normalizeFullGitCommitHash(result.stdout) : '';
+};
+
 const resolveGitCommitFilePath = async (repoRoot, hash, candidates) => {
   for (const candidate of candidates) {
     const [originalTreeResult, modifiedTreeResult] = await Promise.all([
@@ -956,8 +1098,8 @@ const resolveGitCommitFilePath = async (repoRoot, hash, candidates) => {
   throw new Error('Invalid file path');
 };
 
-const runGitCommandOrThrow = async (cwd, args, fallbackMessage) => {
-  const result = await runGitCommand(cwd, args);
+const runGitCommandOrThrow = async (cwd, args, fallbackMessage, options) => {
+  const result = await runGitCommand(cwd, args, options);
   if (!result.success) {
     throw new Error(result.message || fallbackMessage || 'Git command failed');
   }
@@ -971,8 +1113,8 @@ const isIndexLockError = (result) => {
   return /index\.lock['"]?: File exists|another git process seems to be running/i.test(message);
 };
 
-const getWorktreeIndexLockPath = async (directory) => {
-  const result = await runGitCommand(directory, ['rev-parse', '--git-path', 'index.lock']);
+const getWorktreeIndexLockPath = async (directory, signal) => {
+  const result = await runGitCommand(directory, ['rev-parse', '--git-path', 'index.lock'], { signal });
   if (!result.success) {
     return null;
   }
@@ -1014,8 +1156,8 @@ const formatWorktreePopulateError = (message) => {
   ].join('\n');
 };
 
-export const ensureWorktreeLongpaths = async (directory) => {
-  const current = await runGitCommand(directory, ['config', '--get', 'core.longpaths']);
+export const ensureWorktreeLongpaths = async (directory, signal) => {
+  const current = await runGitCommand(directory, ['config', '--get', 'core.longpaths'], { signal });
   if (String(current.stdout || '').trim().toLowerCase() === 'true') {
     return;
   }
@@ -1023,13 +1165,19 @@ export const ensureWorktreeLongpaths = async (directory) => {
   // subsequent OpenChamber and CLI git operations in this repo also get long
   // path support. Failures here are non-fatal: populate still passes
   // `-c core.longpaths=true` on reset.
-  await runGitCommand(directory, ['config', 'core.longpaths', 'true']);
+  await runGitCommand(directory, ['config', 'core.longpaths', 'true'], { signal });
 };
 
-export const populateWorktreeWithLockRecovery = async (directory) => {
-  await ensureWorktreeLongpaths(directory);
+export const populateWorktreeWithLockRecovery = async (directory, signal) => {
+  const throwIfCancelled = () => {
+    if (signal?.aborted) throw new Error('Worktree bootstrap cancelled');
+  };
+  throwIfCancelled();
+  await ensureWorktreeLongpaths(directory, signal);
+  throwIfCancelled();
 
-  let result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS);
+  let result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS, { signal });
+  throwIfCancelled();
   if (result.success) {
     return;
   }
@@ -1038,7 +1186,9 @@ export const populateWorktreeWithLockRecovery = async (directory) => {
   }
 
   await wait(WORKTREE_INDEX_LOCK_RETRY_DELAY_MS);
-  result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS);
+  throwIfCancelled();
+  result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS, { signal });
+  throwIfCancelled();
   if (result.success) {
     return;
   }
@@ -1046,11 +1196,14 @@ export const populateWorktreeWithLockRecovery = async (directory) => {
     throw new Error(formatWorktreePopulateError(result.message));
   }
 
-  const lockPath = await getWorktreeIndexLockPath(directory);
+  const lockPath = await getWorktreeIndexLockPath(directory, signal);
+  throwIfCancelled();
   const identity = lockPath ? await getFileIdentity(lockPath) : null;
   await wait(WORKTREE_INDEX_LOCK_STALE_DELAY_MS);
+  throwIfCancelled();
 
-  result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS);
+  result = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS, { signal });
+  throwIfCancelled();
   if (result.success) {
     return;
   }
@@ -1063,7 +1216,9 @@ export const populateWorktreeWithLockRecovery = async (directory) => {
       throw error;
     }
   });
-  const finalResult = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS);
+  throwIfCancelled();
+  const finalResult = await runGitCommand(directory, WORKTREE_POPULATE_RESET_ARGS, { signal });
+  throwIfCancelled();
   if (!finalResult.success) {
     throw new Error(formatWorktreePopulateError(finalResult.message || 'Failed to populate worktree'));
   }
@@ -1076,10 +1231,10 @@ export const populateWorktreeWithLockRecovery = async (directory) => {
 // checkout semantics: git passes the previous HEAD (null ref for a brand-new
 // worktree), the new HEAD, and flag 1 for a branch checkout, and runs the hook
 // from the worktree top-level.
-const runPostCheckoutHook = async (directory) => {
+const runPostCheckoutHook = async (directory, signal) => {
   let hookDirectory = null;
   try {
-    const result = await runGitCommand(directory, ['rev-parse', '--git-path', 'hooks']);
+    const result = await runGitCommand(directory, ['rev-parse', '--git-path', 'hooks'], { signal });
     if (!result.success) return;
     hookDirectory = normalizeDirectoryPath(String(result.stdout || '').trim());
   } catch {
@@ -1100,8 +1255,8 @@ const runPostCheckoutHook = async (directory) => {
   }
 
   const [headResult, gitDirResult] = await Promise.all([
-    runGitCommand(directory, ['rev-parse', 'HEAD']),
-    runGitCommand(directory, ['rev-parse', '--absolute-git-dir']),
+    runGitCommand(directory, ['rev-parse', 'HEAD'], { signal }),
+    runGitCommand(directory, ['rev-parse', '--absolute-git-dir'], { signal }),
   ]);
   if (!headResult.success || !gitDirResult.success) return;
   const head = String(headResult.stdout || '').trim();
@@ -1116,6 +1271,7 @@ const runPostCheckoutHook = async (directory) => {
         GIT_DIR: gitDir,
         GIT_WORK_TREE: path.resolve(directory),
       },
+      signal,
       windowsHide: true,
     });
   } catch (error) {
@@ -1588,11 +1744,12 @@ const resolveWorktreeProjectContext = async (directory) => {
   };
 };
 
-const listWorktreeEntries = async (directory) => {
+const listWorktreeEntries = async (directory, signal) => {
   const rawResult = await runGitCommandOrThrow(
     directory,
     ['worktree', 'list', '--porcelain'],
-    'Failed to list git worktrees'
+    'Failed to list git worktrees',
+    { signal }
   );
   return parseWorktreePorcelain(rawResult.stdout);
 };
@@ -1636,7 +1793,7 @@ const resolveCandidateDirectory = async (worktreeRoot, preferredName, explicitBr
   throw new Error('Failed to generate a unique worktree name');
 };
 
-const resolveBranchForExistingMode = async (primaryWorktree, existingBranch, preferredBranchName) => {
+const resolveBranchForExistingMode = async (primaryWorktree, existingBranch, preferredBranchName, signal) => {
   const requested = String(existingBranch || '').trim();
   if (!requested) {
     throw new Error('existingBranch is required in existing mode');
@@ -1644,7 +1801,7 @@ const resolveBranchForExistingMode = async (primaryWorktree, existingBranch, pre
 
   const normalizedLocal = cleanBranchName(requested);
   const localRef = `refs/heads/${normalizedLocal}`;
-  const localExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', localRef]);
+  const localExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', localRef], { signal });
   if (localExists.success) {
     return {
       localBranch: normalizedLocal,
@@ -1659,10 +1816,13 @@ const resolveBranchForExistingMode = async (primaryWorktree, existingBranch, pre
     throw new Error(`Branch not found: ${requested}`);
   }
 
-  const remoteExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', remoteRef.fullRef]);
+  const remoteExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', remoteRef.fullRef], { signal });
   if (!remoteExists.success) {
-    await fetchRemoteBranchRef(primaryWorktree, remoteRef.remote, remoteRef.branch).catch(() => undefined);
-    const recheck = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', remoteRef.fullRef]);
+    await fetchRemoteBranchRef(primaryWorktree, remoteRef.remote, remoteRef.branch, signal).catch((error) => {
+      if (signal?.aborted) throw error;
+    });
+    throwIfWorktreeBootstrapCancelled(signal);
+    const recheck = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', remoteRef.fullRef], { signal });
     if (!recheck.success) {
       throw new Error(`Remote branch not found: ${requested}`);
     }
@@ -1681,11 +1841,11 @@ const resolveBranchForExistingMode = async (primaryWorktree, existingBranch, pre
   };
 };
 
-const findBranchInUse = async (primaryWorktree, localBranchName) => {
+const findBranchInUse = async (primaryWorktree, localBranchName, signal) => {
   if (!localBranchName) {
     return null;
   }
-  const entries = await listWorktreeEntries(primaryWorktree);
+  const entries = await listWorktreeEntries(primaryWorktree, signal);
   const targetRef = `refs/heads/${localBranchName}`;
   const targetClean = cleanBranchName(targetRef);
   return entries.find((entry) => {
@@ -1695,38 +1855,42 @@ const findBranchInUse = async (primaryWorktree, localBranchName) => {
   }) || null;
 };
 
-const runWorktreeStartCommand = async (directory, command) => {
+const runWorktreeStartCommand = async (directory, command, signal) => {
   const text = String(command || '').trim();
   if (!text) {
     return { success: true };
   }
 
-  if (process.platform === 'win32') {
-    const result = await execFileAsync('cmd', ['/c', text], {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) {
+    abort();
+  } else {
+    signal?.addEventListener('abort', abort, { once: true });
+  }
+
+  const executable = process.platform === 'win32' ? 'cmd' : 'bash';
+  const args = process.platform === 'win32' ? ['/c', text] : ['-lc', text];
+  try {
+    const { stdout, stderr } = await buildGitEnv().then((env) => execFileAsync(executable, args, {
       cwd: directory,
-      env: await buildGitEnv(),
+      env,
+      signal: controller.signal,
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
-    }).then(({ stdout, stderr }) => ({ success: true, stdout, stderr })).catch((error) => ({
+      killSignal: 'SIGKILL',
+    }));
+    return { success: true, stdout, stderr };
+  } catch (error) {
+    return {
       success: false,
       stdout: error?.stdout,
       stderr: error?.stderr,
       message: parseGitErrorText(error),
-    }));
-    return result;
+    };
+  } finally {
+    signal?.removeEventListener('abort', abort);
   }
-
-  const result = await execFileAsync('bash', ['-lc', text], {
-    cwd: directory,
-    env: await buildGitEnv(),
-    maxBuffer: 20 * 1024 * 1024,
-  }).then(({ stdout, stderr }) => ({ success: true, stdout, stderr })).catch((error) => ({
-    success: false,
-    stdout: error?.stdout,
-    stderr: error?.stderr,
-    message: parseGitErrorText(error),
-  }));
-  return result;
 };
 
 const loadProjectStartCommand = async (projectID) => {
@@ -1749,20 +1913,20 @@ const loadProjectStartCommand = async (projectID) => {
 // never told, so a worktree created while OpenCode was running stayed unknown
 // to it until a restart. Registration is not ours to perform.
 
-const isAttachedGitWorktreeDirectory = async (directory) => {
+const isAttachedGitWorktreeDirectory = async (directory, signal) => {
   try {
-    const result = await runGitCommand(directory, ['rev-parse', '--is-inside-work-tree']);
+    const result = await runGitCommand(directory, ['rev-parse', '--is-inside-work-tree'], { signal });
     return result.success && String(result.stdout || '').trim() === 'true';
   } catch {
     return false;
   }
 };
 
-const cleanupFailedFastWorktreeCreate = async (context, candidate) => {
+const cleanupFailedFastWorktreeCreate = async (context, candidate, signal) => {
   const candidateDirectory = path.resolve(candidate.directory);
   const worktreeRoot = path.resolve(context.worktreeRoot);
   const isInsideWorktreeRoot = isInsideOrSameDirectory(worktreeRoot, candidateDirectory) && candidateDirectory !== worktreeRoot;
-  const isAttached = await isAttachedGitWorktreeDirectory(candidateDirectory);
+  const isAttached = await isAttachedGitWorktreeDirectory(candidateDirectory, signal);
 
   if (!isInsideWorktreeRoot || isAttached) {
     return;
@@ -1780,10 +1944,12 @@ const cleanupFailedFastWorktreeCreate = async (context, candidate) => {
   }
 };
 
-const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
+const runWorktreeStartScripts = async (directory, projectID, startCommand, signal) => {
   const projectStart = await loadProjectStartCommand(projectID);
+  throwIfWorktreeBootstrapCancelled(signal);
   if (projectStart) {
-    const projectResult = await runWorktreeStartCommand(directory, projectStart);
+    const projectResult = await runWorktreeStartCommand(directory, projectStart, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     if (!projectResult.success) {
       console.warn('Worktree project start command failed:', projectResult.message || projectResult.stderr || projectResult.stdout);
       return;
@@ -1794,13 +1960,15 @@ const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
   if (!extraCommand) {
     return;
   }
-  const extraResult = await runWorktreeStartCommand(directory, extraCommand);
+  throwIfWorktreeBootstrapCancelled(signal);
+  const extraResult = await runWorktreeStartCommand(directory, extraCommand, signal);
+  throwIfWorktreeBootstrapCancelled(signal);
   if (!extraResult.success) {
     console.warn('Worktree start command failed:', extraResult.message || extraResult.stderr || extraResult.stdout);
   }
 };
 
-const queueWorktreeBootstrap = (args) => {
+const queueWorktreeBootstrap = (args, signal) => {
   const {
     directory,
     projectID,
@@ -1813,10 +1981,13 @@ const queueWorktreeBootstrap = (args) => {
     ensureRemoteUrl,
     startCommand,
   } = args;
-  const task = new Promise((resolve) => setTimeout(resolve, 0))
+  return new Promise((resolve) => setTimeout(resolve, 0))
     .then(async () => {
-      await populateWorktreeWithLockRecovery(directory);
-      await runPostCheckoutHook(directory);
+      throwIfWorktreeBootstrapCancelled(signal);
+      await populateWorktreeWithLockRecovery(directory, signal);
+      throwIfWorktreeBootstrapCancelled(signal);
+      await runPostCheckoutHook(directory, signal);
+      throwIfWorktreeBootstrapCancelled(signal);
       if (setUpstream) {
         await applyUpstreamConfiguration({
           primaryWorktree,
@@ -1827,18 +1998,22 @@ const queueWorktreeBootstrap = (args) => {
           upstreamBranch,
           ensureRemoteName,
           ensureRemoteUrl,
+          signal,
         }).catch((error) => {
           console.warn('Worktree upstream configuration failed:', error instanceof Error ? error.message : String(error));
         });
+        throwIfWorktreeBootstrapCancelled(signal);
       }
       setWorktreeBootstrapState(
         directory,
         WORKTREE_BOOTSTRAP_PENDING,
         WORKTREE_BOOTSTRAP_PHASE_GIT_READY
       );
-      await runWorktreeStartScripts(directory, projectID, startCommand).catch((error) => {
+      await runWorktreeStartScripts(directory, projectID, startCommand, signal).catch((error) => {
+        if (signal?.aborted) throw error;
         console.warn('Worktree start script task failed:', error instanceof Error ? error.message : String(error));
       });
+      throwIfWorktreeBootstrapCancelled(signal);
       setWorktreeBootstrapState(
         directory,
         WORKTREE_BOOTSTRAP_READY,
@@ -1854,30 +2029,28 @@ const queueWorktreeBootstrap = (args) => {
       );
       console.warn('Worktree bootstrap task failed:', error instanceof Error ? error.message : String(error));
     });
-
-  trackWorktreeBootstrapTask(directory, task);
 };
 
-const ensureRemoteWithUrl = async (primaryWorktree, remoteName, remoteUrl) => {
+const ensureRemoteWithUrl = async (primaryWorktree, remoteName, remoteUrl, signal) => {
   const name = String(remoteName || '').trim();
   const url = String(remoteUrl || '').trim();
   if (!name || !url) {
     return;
   }
 
-  const getUrl = await runGitCommand(primaryWorktree, ['remote', 'get-url', name]);
+  const getUrl = await runGitCommand(primaryWorktree, ['remote', 'get-url', name], { signal });
   if (getUrl.success) {
     const currentUrl = String(getUrl.stdout || '').trim();
     if (currentUrl !== url) {
-      await runGitCommandOrThrow(primaryWorktree, ['remote', 'set-url', name, url], 'Failed to update git remote URL');
+      await runGitCommandOrThrow(primaryWorktree, ['remote', 'set-url', name, url], 'Failed to update git remote URL', { signal });
     }
     return;
   }
 
-  await runGitCommandOrThrow(primaryWorktree, ['remote', 'add', name, url], 'Failed to add git remote');
+  await runGitCommandOrThrow(primaryWorktree, ['remote', 'add', name, url], 'Failed to add git remote', { signal });
 };
 
-const fetchRemoteBranchRef = async (primaryWorktree, remoteName, branchName) => {
+const fetchRemoteBranchRef = async (primaryWorktree, remoteName, branchName, signal) => {
   const remote = String(remoteName || '').trim();
   const branch = String(branchName || '').trim();
   if (!remote || !branch) {
@@ -1888,7 +2061,8 @@ const fetchRemoteBranchRef = async (primaryWorktree, remoteName, branchName) => 
   await runGitCommandOrThrow(
     primaryWorktree,
     ['fetch', remote, refspec],
-    `Failed to fetch ${remote}/${branch}`
+    `Failed to fetch ${remote}/${branch}`,
+    { signal }
   );
 };
 
@@ -1899,7 +2073,7 @@ const fetchRemoteBranchRef = async (primaryWorktree, remoteName, branchName) => 
  *
  * @param {'validate'|'create'} intent
  */
-const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent = 'create') => {
+const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent = 'create', signal) => {
   const preferredBranchName = cleanBranchName(String(input?.branchName || '').trim());
   const ensureRemoteName = String(input?.ensureRemoteName || '').trim();
   const ensureRemoteUrl = String(input?.ensureRemoteUrl || '').trim();
@@ -1907,7 +2081,7 @@ const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent
   const wantUpstream = Boolean(input?.setUpstream);
   const explicitUpstreamRemote = String(input?.upstreamRemote || '').trim();
   const explicitUpstreamBranch = String(input?.upstreamBranch || '').trim();
-  const parsedExistingRemote = await resolveRemoteBranchRef(primaryWorktree, requestedExistingBranch);
+  const parsedExistingRemote = await resolveRemoteBranchRef(primaryWorktree, requestedExistingBranch, signal);
 
   if (
     parsedExistingRemote
@@ -1918,7 +2092,8 @@ const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent
     if (intent === 'validate') {
       const lsRemote = await runGitCommand(
         primaryWorktree,
-        ['ls-remote', '--heads', ensureRemoteUrl, `refs/heads/${parsedExistingRemote.branch}`]
+        ['ls-remote', '--heads', ensureRemoteUrl, `refs/heads/${parsedExistingRemote.branch}`],
+        { signal }
       );
       if (!lsRemote.success) {
         throw new Error(
@@ -1930,14 +2105,16 @@ const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent
         throw new Error(`Remote branch not found: ${parsedExistingRemote.remoteRef}`);
       }
     } else {
-      await ensureRemoteWithUrl(primaryWorktree, ensureRemoteName, ensureRemoteUrl);
+      await ensureRemoteWithUrl(primaryWorktree, ensureRemoteName, ensureRemoteUrl, signal);
       try {
         await fetchRemoteBranchRef(
           primaryWorktree,
           parsedExistingRemote.remote,
-          parsedExistingRemote.branch
+          parsedExistingRemote.branch,
+          signal
         );
       } catch (error) {
+        throwIfWorktreeBootstrapCancelled(signal);
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(
           `Unable to fetch ${parsedExistingRemote.remote}/${parsedExistingRemote.branch} `
@@ -1966,7 +2143,8 @@ const resolveExistingWorktreeSource = async (primaryWorktree, input = {}, intent
   const resolved = await resolveBranchForExistingMode(
     primaryWorktree,
     requestedExistingBranch,
-    preferredBranchName
+    preferredBranchName,
+    signal
   );
   const upstream = resolved.remoteRef
     ? {
@@ -2019,6 +2197,7 @@ const applyUpstreamConfiguration = async (args) => {
     upstreamBranch,
     ensureRemoteName,
     ensureRemoteUrl,
+    signal,
   } = args;
 
   if (!setUpstream) {
@@ -2026,7 +2205,7 @@ const applyUpstreamConfiguration = async (args) => {
   }
 
   if (ensureRemoteName && ensureRemoteUrl) {
-    await ensureRemoteWithUrl(primaryWorktree, ensureRemoteName, ensureRemoteUrl);
+    await ensureRemoteWithUrl(primaryWorktree, ensureRemoteName, ensureRemoteUrl, signal);
   }
 
   const upstream = normalizeUpstreamTarget(upstreamRemote, upstreamBranch);
@@ -2035,7 +2214,7 @@ const applyUpstreamConfiguration = async (args) => {
   }
 
   try {
-    await fetchRemoteBranchRef(primaryWorktree, upstream.remote, upstream.branch);
+    await fetchRemoteBranchRef(primaryWorktree, upstream.remote, upstream.branch, signal);
   } catch {
     // Fetch failed: leave tracking unset. Do not write branch.*.remote/merge
     // pointing at a ref that was never fetched.
@@ -2045,7 +2224,8 @@ const applyUpstreamConfiguration = async (args) => {
   await runGitCommandOrThrow(
     worktreeDirectory,
     ['branch', `--set-upstream-to=${upstream.full}`, localBranch],
-    `Failed to set upstream to ${upstream.full}`
+    `Failed to set upstream to ${upstream.full}`,
+    { signal }
   );
 };
 
@@ -4090,23 +4270,28 @@ export async function previewWorktreeCreate(directory, input = {}) {
   };
 }
 
-async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
+async function attachGitWorktreeToCandidate(context, candidate, input = {}, signal, publishAttached) {
+  throwIfWorktreeBootstrapCancelled(signal);
   const mode = input?.mode === 'existing' ? 'existing' : 'new';
   const startRef = normalizeStartRef(input?.startRef);
-  let ensureRemoteName = String(input?.ensureRemoteName || '').trim();
-  let ensureRemoteUrl = String(input?.ensureRemoteUrl || '').trim();
+  const ensureRemoteName = String(input?.ensureRemoteName || '').trim();
+  const ensureRemoteUrl = String(input?.ensureRemoteUrl || '').trim();
 
   let localBranch = '';
+  let attachmentRef = 'HEAD';
   let inferredUpstream = null;
   let shouldSetUpstream = Boolean(input?.setUpstream);
   const worktreeAddArgs = ['worktree', 'add', '--no-checkout'];
 
   if (mode === 'existing') {
-    const resolved = await resolveExistingWorktreeSource(context.primaryWorktree, input, 'create');
+    const resolved = await resolveExistingWorktreeSource(context.primaryWorktree, input, 'create', signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     localBranch = resolved.localBranch;
+    attachmentRef = resolved.checkoutRef;
     shouldSetUpstream = resolved.setUpstream;
 
-    const inUse = await findBranchInUse(context.primaryWorktree, localBranch);
+    const inUse = await findBranchInUse(context.primaryWorktree, localBranch, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     if (inUse) {
       throw new Error(`Branch is already checked out in ${inUse.worktree}`);
     }
@@ -4114,7 +4299,7 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
     if (resolved.createLocalBranch) {
       worktreeAddArgs.push('-b', localBranch);
     }
-    worktreeAddArgs.push(candidate.directory, resolved.checkoutRef);
+    worktreeAddArgs.push(candidate.directory, attachmentRef);
 
     if (resolved.upstream) {
       inferredUpstream = {
@@ -4128,22 +4313,30 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
       throw new Error('Failed to resolve branch name for new worktree');
     }
 
-    const branchExists = await runGitCommand(context.primaryWorktree, ['show-ref', '--verify', '--quiet', `refs/heads/${localBranch}`]);
+    const branchExists = await runGitCommand(
+      context.primaryWorktree,
+      ['show-ref', '--verify', '--quiet', `refs/heads/${localBranch}`],
+      { signal }
+    );
+    throwIfWorktreeBootstrapCancelled(signal);
     if (branchExists.success) {
       throw new Error(`Branch already exists: ${localBranch}`);
     }
 
-    const inUse = await findBranchInUse(context.primaryWorktree, localBranch);
+    const inUse = await findBranchInUse(context.primaryWorktree, localBranch, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     if (inUse) {
       throw new Error(`Branch is already checked out in ${inUse.worktree}`);
     }
 
     worktreeAddArgs.push('-b', localBranch, candidate.directory);
     if (startRef && startRef !== 'HEAD') {
+      attachmentRef = startRef;
       worktreeAddArgs.push(startRef);
     }
 
-    const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef);
+    const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     if (parsedRemoteStartRef) {
       inferredUpstream = {
         remote: parsedRemoteStartRef.remote,
@@ -4153,17 +4346,84 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
   }
 
   if (ensureRemoteName && ensureRemoteUrl) {
-    await ensureRemoteWithUrl(context.primaryWorktree, ensureRemoteName, ensureRemoteUrl);
+    await ensureRemoteWithUrl(context.primaryWorktree, ensureRemoteName, ensureRemoteUrl, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
   }
 
   if (mode === 'new') {
-    const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef);
+    const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef, signal);
+    throwIfWorktreeBootstrapCancelled(signal);
     if (parsedRemoteStartRef) {
-      await fetchRemoteBranchRef(context.primaryWorktree, parsedRemoteStartRef.remote, parsedRemoteStartRef.branch);
+      await fetchRemoteBranchRef(context.primaryWorktree, parsedRemoteStartRef.remote, parsedRemoteStartRef.branch, signal);
+      throwIfWorktreeBootstrapCancelled(signal);
     }
   }
 
-  await runGitCommandOrThrow(context.primaryWorktree, worktreeAddArgs, 'Failed to create git worktree');
+  const expectedHeadResult = await runGitCommandOrThrow(
+    context.primaryWorktree,
+    ['rev-parse', '--verify', `${attachmentRef}^{commit}`],
+    'Failed to resolve created worktree HEAD',
+    { signal }
+  );
+  throwIfWorktreeBootstrapCancelled(signal);
+  const expectedHead = normalizeFullGitCommitHash(expectedHeadResult.stdout);
+  if (!expectedHead) {
+    throw new Error('Failed to resolve created worktree HEAD');
+  }
+
+  await runGitCommandOrThrow(
+    context.primaryWorktree,
+    worktreeAddArgs,
+    'Failed to create git worktree',
+    { signal }
+  );
+
+  let createdHead = expectedHead;
+  let bootstrapStatus = setWorktreeBootstrapState(
+    candidate.directory,
+    WORKTREE_BOOTSTRAP_PENDING,
+    WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
+    null,
+    { attached: true, branch: localBranch, createdHead }
+  );
+  const worktree = {
+    head: createdHead,
+    createdHead,
+    name: candidate.name,
+    branch: localBranch,
+    path: candidate.directory,
+    directoryCreated: true,
+    bootstrapStatus,
+  };
+
+  // Once Git attaches the worktree, callers need its exact recovery identity
+  // before cancellation or verification can fail.
+  publishAttached?.(worktree);
+
+  const headResult = await runGitCommandOrThrow(
+    candidate.directory,
+    ['rev-parse', '--verify', 'HEAD'],
+    'Failed to resolve created worktree HEAD',
+    { signal }
+  );
+  throwIfWorktreeBootstrapCancelled(signal);
+  const verifiedHead = normalizeFullGitCommitHash(headResult.stdout);
+  if (!verifiedHead) {
+    throw new Error('Failed to resolve created worktree HEAD');
+  }
+  if (verifiedHead !== createdHead) {
+    createdHead = verifiedHead;
+    bootstrapStatus = setWorktreeBootstrapState(
+      candidate.directory,
+      WORKTREE_BOOTSTRAP_PENDING,
+      WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
+      null,
+      { attached: true, branch: localBranch, createdHead }
+    );
+    worktree.head = createdHead;
+    worktree.createdHead = createdHead;
+    worktree.bootstrapStatus = bootstrapStatus;
+  }
 
   const upstreamRemote = shouldSetUpstream
     ? String(inferredUpstream?.remote || input?.upstreamRemote || '').trim()
@@ -4171,14 +4431,7 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
   const upstreamBranch = shouldSetUpstream
     ? String(inferredUpstream?.branch || input?.upstreamBranch || '').trim()
     : '';
-
-  const bootstrapStatus = setWorktreeBootstrapState(
-    candidate.directory,
-    WORKTREE_BOOTSTRAP_PENDING,
-    WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED
-  );
-
-  queueWorktreeBootstrap({
+  const bootstrapTask = queueWorktreeBootstrap({
     directory: candidate.directory,
     projectID: context.projectID,
     primaryWorktree: context.primaryWorktree,
@@ -4189,22 +4442,80 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
     ensureRemoteName,
     ensureRemoteUrl,
     startCommand: input?.startCommand,
-  });
+  }, signal);
 
-  const headResult = await runGitCommand(candidate.directory, ['rev-parse', 'HEAD']);
-  const head = String(headResult.stdout || '').trim();
-
-  return {
-    head,
-    name: candidate.name,
-    branch: localBranch,
-    path: candidate.directory,
-    directoryCreated: true,
-    bootstrapStatus,
-  };
+  return { worktree, bootstrapTask };
 }
 
-export async function createWorktree(directory, input = {}) {
+const startWorktreeCreateOperation = (context, candidate, input, { signal } = {}, cleanupOnFailure = false) => {
+  const controller = new AbortController();
+  const { key, operation } = reserveWorktreeBootstrap(candidate.directory, controller);
+  const abort = () => controller.abort();
+  if (signal?.aborted) {
+    abort();
+  } else {
+    signal?.addEventListener('abort', abort, { once: true });
+  }
+
+  let resolveAttached;
+  let rejectAttached;
+  const attached = new Promise((resolve, reject) => {
+    resolveAttached = resolve;
+    rejectAttached = reject;
+  });
+  void attached.catch(() => undefined);
+  let attachmentPublished = false;
+  const publishAttached = (worktree) => {
+    if (attachmentPublished) {
+      return;
+    }
+    attachmentPublished = true;
+    resolveAttached(worktree);
+  };
+
+  const task = Promise.resolve().then(async () => {
+    try {
+      const attachment = await attachGitWorktreeToCandidate(
+        context,
+        candidate,
+        input,
+        controller.signal,
+        publishAttached
+      );
+      publishAttached(attachment.worktree);
+      await attachment.bootstrapTask;
+    } catch (error) {
+      if (worktreeBootstrapState.has(key)) {
+        setWorktreeBootstrapState(
+          candidate.directory,
+          WORKTREE_BOOTSTRAP_FAILED,
+          WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      if (!attachmentPublished) {
+        rejectAttached(error);
+      }
+      if (cleanupOnFailure) {
+        await cleanupFailedFastWorktreeCreate(context, candidate, controller.signal).catch((cleanupError) => {
+          console.warn('Failed to clean up worktree creation:', cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+        });
+        console.warn('Background worktree creation failed:', error instanceof Error ? error.message : String(error));
+      }
+    }
+  });
+  operation.task = task;
+  const clearTask = () => {
+    signal?.removeEventListener('abort', abort);
+    if (activeWorktreeBootstraps.get(key) === operation) {
+      activeWorktreeBootstraps.delete(key);
+    }
+  };
+  void task.then(clearTask, clearTask);
+  return { attached };
+};
+
+export async function createWorktree(directory, input = {}, { signal } = {}) {
   const mode = input?.mode === 'existing' ? 'existing' : 'new';
   const context = await resolveWorktreeProjectContext(directory);
 
@@ -4216,7 +4527,6 @@ export async function createWorktree(directory, input = {}) {
 
   const preferredName = String(input?.worktreeName || input?.name || '').trim();
   const preferredBranchName = cleanBranchName(String(input?.branchName || '').trim());
-
   const candidate = await resolveCandidateDirectory(
     context.worktreeRoot,
     preferredName,
@@ -4226,30 +4536,21 @@ export async function createWorktree(directory, input = {}) {
 
   if (input?.returnAfterDirectoryCreated === true) {
     await fsp.mkdir(candidate.directory, { recursive: false });
-
-    const bootstrapStatus = setWorktreeBootstrapState(
-      candidate.directory,
-      WORKTREE_BOOTSTRAP_PENDING,
-      WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED
-    );
     const localBranch = mode === 'existing'
       ? cleanBranchName(String(input?.branchName || input?.existingBranch || candidate.branch || '').trim())
       : candidate.branch;
-
-    const task = attachGitWorktreeToCandidate(context, candidate, input).catch(async (error) => {
-      setWorktreeBootstrapState(
-        candidate.directory,
-        WORKTREE_BOOTSTRAP_FAILED,
-        WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
-        error instanceof Error ? error.message : String(error)
-      );
-      await cleanupFailedFastWorktreeCreate(context, candidate);
-      console.warn('Background worktree creation failed:', error instanceof Error ? error.message : String(error));
-    });
-    trackWorktreeBootstrapTask(candidate.directory, task);
+    const bootstrapStatus = setWorktreeBootstrapState(
+      candidate.directory,
+      WORKTREE_BOOTSTRAP_PENDING,
+      WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
+      null,
+      { attached: false, branch: localBranch }
+    );
+    startWorktreeCreateOperation(context, candidate, input, { signal }, true);
 
     return {
       head: '',
+      createdHead: '',
       name: candidate.name,
       branch: localBranch,
       path: candidate.directory,
@@ -4258,7 +4559,7 @@ export async function createWorktree(directory, input = {}) {
     };
   }
 
-  return attachGitWorktreeToCandidate(context, candidate, input);
+  return startWorktreeCreateOperation(context, candidate, input, { signal }).attached;
 }
 
 export async function getWorktreeBootstrapStatus(directory) {
@@ -4288,6 +4589,13 @@ export async function removeWorktree(directory, input = {}) {
 
   const context = await resolveWorktreeProjectContext(directory);
   const deleteLocalBranch = input?.deleteLocalBranch === true;
+  const expectedBranch = cleanBranchName(String(input?.expectedBranch || '').trim());
+  const expectedHeadInput = String(input?.expectedHead || '').trim();
+  const expectedHead = normalizeFullGitCommitHash(expectedHeadInput);
+  if (expectedHeadInput && !expectedHead) {
+    throw new Error('Expected worktree HEAD must be a full commit hash');
+  }
+  const requireClean = input?.requireClean === true;
 
   const targetCanonical = await canonicalPath(targetDirectory);
   const primaryCanonical = await canonicalPath(context.primaryWorktree);
@@ -4315,6 +4623,9 @@ export async function removeWorktree(directory, input = {}) {
       && isInsideOrSameDirectory(worktreeRootCanonical, targetCanonical);
 
     const targetExists = await checkPathExists(targetDirectory);
+    if (expectedBranch && targetExists) {
+      throw new Error(`Refusing to remove worktree without verifying created branch ${expectedBranch}`);
+    }
     if (targetExists && isManagedOrphan) {
       await fsp.rm(targetDirectory, { recursive: true, force: true });
     }
@@ -4324,21 +4635,43 @@ export async function removeWorktree(directory, input = {}) {
     return true;
   }
 
+  const attachedBranch = cleanBranchName(String(matchedEntry.branchRef || matchedEntry.branch || '').trim());
+  if (expectedBranch && attachedBranch !== expectedBranch) {
+    throw new Error(`Refusing to remove worktree on branch ${attachedBranch || 'detached HEAD'}; expected ${expectedBranch}`);
+  }
+  if (requireClean && await getWorktreeCleanliness(matchedEntry.worktree) !== true) {
+    throw new Error('Refusing to force-remove dirty worktree');
+  }
+
+  const branchName = expectedBranch || attachedBranch;
+  let removalHead = '';
+  if (expectedHead || (deleteLocalBranch && branchName)) {
+    removalHead = await getWorktreeHead(matchedEntry.worktree);
+    if (!removalHead) {
+      throw new Error('Refusing to remove worktree without verifying its current HEAD');
+    }
+    if (expectedHead && removalHead.toLowerCase() !== expectedHead.toLowerCase()) {
+      throw new Error(`Refusing to remove worktree at HEAD ${removalHead}; expected ${expectedHead}`);
+    }
+  }
+
+  const worktreeRemoveArgs = ['worktree', 'remove'];
+  if (!requireClean) {
+    worktreeRemoveArgs.push('--force');
+  }
+  worktreeRemoveArgs.push(matchedEntry.worktree);
   await runGitCommandOrThrow(
     context.primaryWorktree,
-    ['worktree', 'remove', '--force', matchedEntry.worktree],
+    worktreeRemoveArgs,
     'Failed to remove git worktree'
   );
 
-  if (deleteLocalBranch) {
-    const branchName = cleanBranchName(String(matchedEntry.branchRef || matchedEntry.branch || '').trim());
-    if (branchName) {
-      await runGitCommandOrThrow(
-        context.primaryWorktree,
-        ['branch', '-D', branchName],
-        `Failed to delete local branch ${branchName}`
-      );
-    }
+  if (deleteLocalBranch && branchName) {
+    await runGitCommandOrThrow(
+      context.primaryWorktree,
+      ['update-ref', '-d', `refs/heads/${branchName}`, expectedHead || removalHead],
+      `Failed to delete local branch ${branchName}`
+    );
   }
 
   clearWorktreeBootstrapState(matchedEntry.worktree);
