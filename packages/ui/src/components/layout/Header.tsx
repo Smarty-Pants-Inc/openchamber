@@ -96,7 +96,7 @@ const HeaderIconActionButton = React.memo(function HeaderIconActionButton({
   className,
   Icon: iconName,
   iconClassName,
-  pressed = false,
+  pressed,
 }: HeaderIconActionButtonProps) {
   if (!visible) {
     return null;
@@ -940,10 +940,10 @@ export const Header: React.FC = () => {
 
 
   const beginHeaderSessionRename = React.useCallback(() => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || currentSession?.canManageRetention !== true) return;
     setHeaderSessionTitleDraft(currentSession?.title?.trim() || currentSessionTitle);
     setIsRenamingHeaderSession(true);
-  }, [currentSession?.title, currentSessionId, currentSessionTitle]);
+  }, [currentSession?.canManageRetention, currentSession?.title, currentSessionId, currentSessionTitle]);
 
   const beginHeaderSessionRenameRef = React.useRef(beginHeaderSessionRename);
   beginHeaderSessionRenameRef.current = beginHeaderSessionRename;
@@ -963,13 +963,16 @@ export const Header: React.FC = () => {
   }, [currentSessionId]);
 
   const saveHeaderSessionRename = React.useCallback(async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || currentSession?.canManageRetention !== true) {
+      setIsRenamingHeaderSession(false);
+      return;
+    }
     const title = headerSessionTitleDraft.trim();
-    if (title && title !== currentSession?.title?.trim()) {
+    if (title && title !== currentSession.title?.trim()) {
       await updateSessionTitle(currentSessionId, title);
     }
     setIsRenamingHeaderSession(false);
-  }, [currentSession?.title, currentSessionId, headerSessionTitleDraft, updateSessionTitle]);
+  }, [currentSession?.canManageRetention, currentSession?.title, currentSessionId, headerSessionTitleDraft, updateSessionTitle]);
 
   React.useEffect(() => {
     if (!isRenamingHeaderSession) return;
@@ -1442,7 +1445,7 @@ export const Header: React.FC = () => {
 
   useKeybinds({
     rename_current_session: () => {
-      if (!currentSessionId || isMobile) return false;
+      if (!currentSessionId || isMobile || currentSession?.canManageRetention !== true) return false;
       beginHeaderSessionRename();
     },
     toggle_services_menu: () => {
@@ -1499,9 +1502,11 @@ export const Header: React.FC = () => {
     const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
     return (
       <>
-        <Item onClick={() => { if (!isActive) select(); pendingHeaderRenameRef.current = session.id; }}>
-          <Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}
-        </Item>
+        {canManageRetention ? (
+          <Item onClick={() => { if (!isActive) select(); pendingHeaderRenameRef.current = session.id; }}>
+            <Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}
+          </Item>
+        ) : null}
         <Item onClick={() => copySessionIdFor(session.id)}>
           <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}
         </Item>
@@ -1713,7 +1718,7 @@ export const Header: React.FC = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
-                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = currentSessionId; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem>
+                    {currentSession?.canManageRetention ? <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = currentSessionId; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem> : null}
                     <DropdownMenuItem onClick={() => currentSessionId && copySessionIdFor(currentSessionId)}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {currentSession?.canShare ? (currentSession.shareUrl ? (

@@ -23,6 +23,7 @@ import { sessionEvents } from "@/lib/sessionEvents"
 import {
   getOriginalSessionID,
   getSessionMetadata,
+  isReadOnlyCodexSubagent,
   isReviewSession,
   withAgentBackendMetadata,
   withoutReviewSessionLink,
@@ -447,6 +448,84 @@ type DirectoryStoreApi = ReturnType<ChildStoreManager["ensureChild"]>
 function getGlobalSessionSnapshot(sessionId: string): Session | null {
   const global = useGlobalSessionsStore.getState()
   return [...global.activeSessions, ...global.archivedSessions].find((session) => session.id === sessionId) ?? null
+}
+
+function getSessionMutationSnapshot(sessionId: string): Session | null {
+  const globalSession = getGlobalSessionSnapshot(sessionId)
+  if (globalSession) return globalSession
+  if (!_childStores) return null
+  for (const store of _childStores.children.values()) {
+    const session = store.getState().session.find((candidate) => candidate.id === sessionId)
+    if (session) return session
+  }
+  return null
+}
+
+type SessionMutationPlan = {
+  requestedIds: string[]
+  directIds: string[]
+  coveredIdsByOwner: Map<string, string[]>
+  blocked: boolean
+}
+
+function planSessionMutations(ids: string[]): SessionMutationPlan {
+  const selectedRequestedIds = [...new Set(ids)]
+  const selectedIds = new Set(selectedRequestedIds)
+  const sessions = new Map<string, Session>()
+  const global = useGlobalSessionsStore.getState()
+  for (const session of [...global.activeSessions, ...global.archivedSessions]) sessions.set(session.id, session)
+  if (_childStores) {
+    for (const store of _childStores.children.values()) {
+      for (const session of store.getState().session) {
+        if (!sessions.has(session.id)) sessions.set(session.id, session)
+      }
+    }
+  }
+
+  const directIds = selectedRequestedIds.filter((id) => !isReadOnlyCodexSubagent(sessions.get(id)))
+  const coveredIdsByOwner = new Map<string, string[]>()
+  let blocked = false
+  for (const session of sessions.values()) {
+    if (!isReadOnlyCodexSubagent(session)) continue
+
+    const seen = new Set([session.id])
+    let parentId = session.parentID ?? null
+    let ownerId: string | null = null
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = sessions.get(parentId)
+      if (!parent) break
+      if (selectedIds.has(parentId) && !isReadOnlyCodexSubagent(parent)) {
+        ownerId = parentId
+        break
+      }
+      parentId = parent.parentID ?? null
+    }
+
+    if (!ownerId) {
+      if (selectedIds.has(session.id)) blocked = true
+      continue
+    }
+    const coveredIds = coveredIdsByOwner.get(ownerId) ?? []
+    coveredIds.push(session.id)
+    coveredIdsByOwner.set(ownerId, coveredIds)
+  }
+
+  const requestedIds = [...selectedRequestedIds]
+  const expandedIds = new Set(requestedIds)
+  for (const id of directIds) {
+    for (const coveredId of coveredIdsByOwner.get(id) ?? []) {
+      if (expandedIds.has(coveredId)) continue
+      expandedIds.add(coveredId)
+      requestedIds.push(coveredId)
+    }
+  }
+
+  return { requestedIds, directIds: blocked ? [] : directIds, coveredIdsByOwner, blocked }
+}
+
+function isReadOnlyCodexChildMutation(sessionId: string): boolean {
+  return isReadOnlyCodexSubagent(getSessionMutationSnapshot(sessionId))
 }
 
 function getSessionDirectory(sessionId: string): string | undefined {
@@ -1446,6 +1525,49 @@ async function cleanupDeletedChatDirectory(directory: string | undefined, delete
   }
 }
 
+function finalizeConfirmedOwnerDeletion(
+  ownerId: string,
+  ownerDirectory: string | undefined,
+  plan: SessionMutationPlan,
+  coveredDirectories: Map<string, string | undefined>,
+  expectedRuntimeKey: string,
+): void {
+  finalizeConfirmedSessionDeletion(ownerId, ownerDirectory, expectedRuntimeKey)
+  for (const coveredId of plan.coveredIdsByOwner.get(ownerId) ?? []) {
+    finalizeConfirmedSessionDeletion(coveredId, coveredDirectories.get(coveredId), expectedRuntimeKey)
+  }
+}
+
+function finalizeConfirmedOwnerArchive(
+  ownerId: string,
+  owner: Session,
+  ownerDirectory: string | undefined,
+  plan: SessionMutationPlan,
+  archivedAt: number,
+  expectedRuntimeKey: string,
+): boolean {
+  if (isStaleRuntime(expectedRuntimeKey)) return false
+  const coveredIds = plan.coveredIdsByOwner.get(ownerId) ?? []
+  const snapshots = removeSessionFromLiveStores(ownerId, ownerDirectory)
+  invalidateSessionLoads(ownerId, [...snapshots.map((snapshot) => snapshot.directory), ownerDirectory])
+  for (const coveredId of coveredIds) {
+    const coveredDirectory = getSessionDirectory(coveredId)
+    const coveredSnapshots = removeSessionFromLiveStores(coveredId, coveredDirectory)
+    invalidateSessionLoads(coveredId, [
+      ...coveredSnapshots.map((snapshot) => snapshot.directory),
+      coveredDirectory,
+    ])
+  }
+  const global = useGlobalSessionsStore.getState()
+  global.upsertSession(owner)
+  global.archiveSessions(coveredIds, archivedAt)
+  const currentSessionId = useSessionUIStore.getState().currentSessionId
+  if (currentSessionId === ownerId || coveredIds.includes(currentSessionId ?? "")) {
+    useSessionUIStore.getState().setCurrentSession(null)
+  }
+  return true
+}
+
 export type DeleteSessionOptions = {
   /** Directory returned by a just-created session that is not indexed yet. */
   directory?: string | null
@@ -1475,6 +1597,16 @@ export type DeleteSessionOptions = {
  * failure and leaves reconciliation to the next authoritative load.
  */
 export async function deleteSession(sessionId: string, options?: DeleteSessionOptions): Promise<boolean> {
+  const plan = planSessionMutations([sessionId])
+  if (plan.blocked) return false
+  return deleteSessionWithPlan(sessionId, plan, options)
+}
+
+async function deleteSessionWithPlan(
+  sessionId: string,
+  plan: SessionMutationPlan,
+  options?: DeleteSessionOptions,
+): Promise<boolean> {
   const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
   const isCurrent = (): boolean => {
     if (isStaleRuntime(expectedRuntimeKey)) return false
@@ -1486,6 +1618,9 @@ export async function deleteSession(sessionId: string, options?: DeleteSessionOp
     }
   }
   if (!isCurrent()) return false
+  const coveredDirectories = new Map(
+    (plan.coveredIdsByOwner.get(sessionId) ?? []).map((id) => [id, getSessionDirectory(id)]),
+  )
   const sessionDirectory = options?.directory ?? getSessionDirectory(sessionId)
   const sessionSnapshot = getGlobalSessionSnapshot(sessionId)
   const deleteManagedDirectory = Boolean(sessionSnapshot && sessionSnapshot.parentID == null)
@@ -1500,7 +1635,7 @@ export async function deleteSession(sessionId: string, options?: DeleteSessionOp
     if (deleted !== true) {
       throw new Error("session.delete failed: server did not confirm deletion")
     }
-    finalizeConfirmedSessionDeletion(sessionId, sessionDirectory, expectedRuntimeKey)
+    finalizeConfirmedOwnerDeletion(sessionId, sessionDirectory, plan, coveredDirectories, expectedRuntimeKey)
     await cleanupDeletedChatDirectory(sessionDirectory, deleteManagedDirectory)
     return true
   } catch (error) {
@@ -1510,7 +1645,7 @@ export async function deleteSession(sessionId: string, options?: DeleteSessionOp
     // success since the session was already deleted by the cascade.
     if ((error as { status?: number })?.status === 404) {
       if (!isCurrent()) return false
-      finalizeConfirmedSessionDeletion(sessionId, sessionDirectory, expectedRuntimeKey)
+      finalizeConfirmedOwnerDeletion(sessionId, sessionDirectory, plan, coveredDirectories, expectedRuntimeKey)
       await cleanupDeletedChatDirectory(sessionDirectory, deleteManagedDirectory)
       return true
     }
@@ -1524,7 +1659,11 @@ export async function deleteSessionInDirectory(
   directory: string,
   expectedRuntimeKey = getRuntimeKey(),
 ): Promise<boolean> {
-  if (isStaleRuntime(expectedRuntimeKey)) return false
+  const plan = planSessionMutations([sessionId])
+  if (plan.blocked || isStaleRuntime(expectedRuntimeKey)) return false
+  const coveredDirectories = new Map(
+    (plan.coveredIdsByOwner.get(sessionId) ?? []).map((id) => [id, getSessionDirectory(id)]),
+  )
   const sessionSnapshot = getGlobalSessionSnapshot(sessionId)
   const deleteManagedDirectory = Boolean(sessionSnapshot && sessionSnapshot.parentID == null)
   try {
@@ -1535,14 +1674,14 @@ export async function deleteSessionInDirectory(
     if (deleted !== true) {
       throw new Error("session.delete failed: server did not confirm deletion")
     }
-    finalizeConfirmedSessionDeletion(sessionId, directory, expectedRuntimeKey)
+    finalizeConfirmedOwnerDeletion(sessionId, directory, plan, coveredDirectories, expectedRuntimeKey)
     await cleanupDeletedChatDirectory(directory, deleteManagedDirectory)
     return true
   } catch (error) {
     console.error("[session-actions] deleteSessionInDirectory failed", error)
     if ((error as { status?: number })?.status === 404) {
       if (isStaleRuntime(expectedRuntimeKey)) return false
-      finalizeConfirmedSessionDeletion(sessionId, directory, expectedRuntimeKey)
+      finalizeConfirmedOwnerDeletion(sessionId, directory, plan, coveredDirectories, expectedRuntimeKey)
       await cleanupDeletedChatDirectory(directory, deleteManagedDirectory)
       return true
     }
@@ -1559,32 +1698,35 @@ export type DeleteSessionsOptions = {
 }
 
 /**
- * Delete several sessions sequentially, preserving partial results.
+ * Delete several sessions sequentially after an atomic read-only preflight.
  *
- * One failed session never blocks or erases the others: it is reported in
- * `failedIds` while the remaining IDs are still attempted. When the runtime
- * changes mid-batch, the sessions already committed on the captured runtime
- * stay in `deletedIds` and every ID that was not committed there is reported in
- * `failedIds`, so existing partial-failure feedback stays truthful.
+ * A selected mutable owner covers every known read-only Codex descendant, so
+ * only the owner request reaches the gateway. A selected read-only child with
+ * no selected owner rejects the whole batch before the first request. Runtime
+ * or transport failures after that preflight still preserve truthful partial
+ * results for independent mutable sessions.
  */
 export async function deleteSessions(
   ids: string[],
   options?: DeleteSessionsOptions,
 ): Promise<{ deletedIds: string[]; failedIds: string[] }> {
-  const deletedIds: string[] = []
-  const failedIds: string[] = []
-  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const plan = planSessionMutations(ids)
+  if (plan.blocked) return { deletedIds: [], failedIds: plan.requestedIds }
 
-  for (const [index, id] of ids.entries()) {
-    if (isStaleRuntime(expectedRuntimeKey)) {
-      failedIds.push(...ids.slice(index))
-      break
-    }
-    if (await deleteSession(id, { expectedRuntimeKey })) deletedIds.push(id)
-    else failedIds.push(id)
+  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const deleted = new Set<string>()
+
+  for (const id of plan.directIds) {
+    if (isStaleRuntime(expectedRuntimeKey)) break
+    if (!await deleteSessionWithPlan(id, plan, { expectedRuntimeKey })) continue
+    deleted.add(id)
+    for (const coveredId of plan.coveredIdsByOwner.get(id) ?? []) deleted.add(coveredId)
   }
 
-  return { deletedIds, failedIds }
+  return {
+    deletedIds: plan.requestedIds.filter((id) => deleted.has(id)),
+    failedIds: plan.requestedIds.filter((id) => !deleted.has(id)),
+  }
 }
 
 /**
@@ -1600,6 +1742,16 @@ export async function deleteSessions(
  * the runtime is loaded.
  */
 export async function archiveSession(sessionId: string, expectedRuntimeKey = getRuntimeKey()): Promise<boolean> {
+  const plan = planSessionMutations([sessionId])
+  if (plan.blocked) return false
+  return archiveSessionWithPlan(sessionId, plan, expectedRuntimeKey)
+}
+
+async function archiveSessionWithPlan(
+  sessionId: string,
+  plan: SessionMutationPlan,
+  expectedRuntimeKey: string,
+): Promise<boolean> {
   if (isStaleRuntime(expectedRuntimeKey)) return false
   const sessionDirectory = getSessionDirectory(sessionId)
   const archivedAt = Date.now()
@@ -1611,12 +1763,7 @@ export async function archiveSession(sessionId: string, expectedRuntimeKey = get
     if (!archived) {
       throw new Error("session.update failed: server did not return the archived session")
     }
-    const snapshots = removeSessionFromLiveStores(sessionId, sessionDirectory)
-    invalidateSessionLoads(sessionId, [...snapshots.map((snapshot) => snapshot.directory), sessionDirectory])
-    useGlobalSessionsStore.getState().upsertSession(archived)
-    const ui = useSessionUIStore.getState()
-    if (ui.currentSessionId === sessionId) ui.setCurrentSession(null)
-    return true
+    return finalizeConfirmedOwnerArchive(sessionId, archived, sessionDirectory, plan, archivedAt, expectedRuntimeKey)
   } catch (error) {
     console.error("[session-actions] archiveSession failed", error)
     return false
@@ -1632,34 +1779,33 @@ export type ArchiveSessionsOptions = {
 }
 
 /**
- * Archive several sessions sequentially, preserving partial results.
+ * Archive several sessions sequentially after an atomic read-only preflight.
  *
- * One failed session never blocks or erases the others: it is reported in
- * `failedIds` while the remaining IDs are still attempted. When
- * `expectedRuntimeKey` is supplied and the runtime changes mid-batch, the
- * already-confirmed sessions stay in `archivedIds` and every ID that was not
- * confirmed on the captured runtime is reported in `failedIds`, so callers keep
- * showing the existing partial-failure feedback instead of silently dropping
- * work.
+ * Selected mutable owners cover their known read-only Codex descendants while
+ * sending only owner PATCH requests. An uncovered selected child rejects the
+ * batch before any request; later runtime or transport failures retain partial
+ * results for independent mutable sessions.
  */
 export async function archiveSessions(
   ids: string[],
   options?: ArchiveSessionsOptions,
 ): Promise<{ archivedIds: string[]; failedIds: string[] }> {
-  const archivedIds: string[] = []
-  const failedIds: string[] = []
-  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const plan = planSessionMutations(ids)
+  if (plan.blocked) return { archivedIds: [], failedIds: plan.requestedIds }
 
-  for (const [index, id] of ids.entries()) {
-    if (isStaleRuntime(expectedRuntimeKey)) {
-      failedIds.push(...ids.slice(index))
-      break
-    }
-    if (await archiveSession(id, expectedRuntimeKey)) archivedIds.push(id)
-    else failedIds.push(id)
+  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const archived = new Set<string>()
+  for (const id of plan.directIds) {
+    if (isStaleRuntime(expectedRuntimeKey)) break
+    if (!await archiveSessionWithPlan(id, plan, expectedRuntimeKey)) continue
+    archived.add(id)
+    for (const coveredId of plan.coveredIdsByOwner.get(id) ?? []) archived.add(coveredId)
   }
 
-  return { archivedIds, failedIds }
+  return {
+    archivedIds: plan.requestedIds.filter((id) => archived.has(id)),
+    failedIds: plan.requestedIds.filter((id) => !archived.has(id)),
+  }
 }
 
 /**
@@ -1749,6 +1895,9 @@ export async function unarchiveSessions(
 }
 
 export async function updateSessionTitle(sessionId: string, title: string): Promise<void> {
+  if (isReadOnlyCodexChildMutation(sessionId)) {
+    throw new Error("Codex subagent sessions are read-only while their parent app-server owns them")
+  }
   const sessionDirectory = getSessionDirectory(sessionId)
   const session = await opencodeClient.updateSession(sessionId, { title }, sessionDirectory)
   useGlobalSessionsStore.getState().upsertSession(session)

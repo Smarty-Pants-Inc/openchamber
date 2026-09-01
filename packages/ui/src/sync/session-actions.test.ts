@@ -66,7 +66,16 @@ mock.module("@/lib/runtime-fetch", () => ({
 }))
 const globalUpsertedSessions: unknown[] = []
 const globalRemovedSessionIds: string[] = []
+const globalArchivedSessionIds: string[] = []
 const deletedCleanupIdentities: Array<{ runtimeKey: string; directory: string; sessionId: string }> = []
+let globalActiveSessions: Session[] = []
+let globalArchivedSessions: Session[] = []
+
+beforeEach(() => {
+  globalActiveSessions = []
+  globalArchivedSessions = []
+  globalArchivedSessionIds.length = 0
+})
 const movedSessionDirectories: Array<{ sessionID: string; directory: string }> = []
 
 const mockScopedClient = {
@@ -295,13 +304,16 @@ mock.module("@/stores/useGlobalSessionsStore", () => ({
   },
   useGlobalSessionsStore: {
     getState: () => ({
-      activeSessions: [],
-      archivedSessions: [],
+      activeSessions: globalActiveSessions,
+      archivedSessions: globalArchivedSessions,
       upsertSession: (session: unknown) => {
         globalUpsertedSessions.push(session)
       },
       removeSessions: (ids: Iterable<string>) => {
         globalRemovedSessionIds.push(...ids)
+      },
+      archiveSessions: (ids: Iterable<string>) => {
+        globalArchivedSessionIds.push(...ids)
       },
     }),
   },
@@ -330,6 +342,23 @@ type OptimisticRemoveCall = { sessionID: string; directory?: string | null; mess
 type SessionWithDirectory = Session & {
   directory?: string | null
   project?: { worktree?: string | null }
+}
+
+function codexSession(id: string, parentID?: string): Session {
+  return {
+    id,
+    slug: id,
+    projectID: 'project',
+    title: id,
+    version: '1',
+    directory: '/test/project',
+    ...(parentID ? { parentID } : {}),
+    time: { created: 1, updated: 1 },
+    metadata: {
+      openchamber: { agent_backend: 'codex' },
+      ...(parentID ? { ompSubagent: true } : {}),
+    },
+  }
 }
 
 function createStore(
@@ -1108,6 +1137,78 @@ describe("confirmed session removal", () => {
       .toEqual(["session-a", "session-b"])
   })
 
+  test("expands an owner-only Codex delete and finalizes read-only descendants locally", async () => {
+    const rootSession = codexSession("session-a")
+    const childSession = codexSession("session-child", rootSession.id)
+    globalActiveSessions = [rootSession, childSession]
+    const source = createStore({}, { session: [rootSession, childSession] })
+    const { deleteSessions, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    const result = await deleteSessions([rootSession.id])
+
+    expect(result).toEqual({ deletedIds: [rootSession.id, childSession.id], failedIds: [] })
+    expect(replyCalls.filter((call) => call.method === "session.delete").map((call) => call.params.sessionID))
+      .toEqual([rootSession.id])
+    expect(source.getState().session).toEqual([])
+    expect(globalRemovedSessionIds).toEqual([rootSession.id, childSession.id])
+  })
+
+  test("expands an owner-only Codex archive and finalizes read-only descendants locally", async () => {
+    const rootSession = codexSession("session-a")
+    const childSession = codexSession("session-child", rootSession.id)
+    globalActiveSessions = [rootSession, childSession]
+    sessionUpdateResult = {
+      data: { ...rootSession, time: { ...rootSession.time, archived: 2 } },
+    }
+    const source = createStore({}, { session: [rootSession, childSession] })
+    const { archiveSessions, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    const result = await archiveSessions([rootSession.id])
+
+    expect(result).toEqual({ archivedIds: [rootSession.id, childSession.id], failedIds: [] })
+    expect(replyCalls.filter((call) => call.method === "session.update").map((call) => call.params.sessionID))
+      .toEqual([rootSession.id])
+    expect(source.getState().session).toEqual([])
+    expect(globalArchivedSessionIds).toEqual([childSession.id])
+  })
+
+  test("collapses an explicitly selected Codex child into its selected owner request", async () => {
+    const rootSession = codexSession("session-a")
+    const childSession = codexSession("session-child", rootSession.id)
+    globalActiveSessions = [rootSession, childSession]
+    const source = createStore({}, { session: [rootSession, childSession] })
+    const { deleteSessions, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    expect(await deleteSessions([childSession.id, rootSession.id])).toEqual({
+      deletedIds: [childSession.id, rootSession.id],
+      failedIds: [],
+    })
+    expect(replyCalls.filter((call) => call.method === "session.delete").map((call) => call.params.sessionID))
+      .toEqual([rootSession.id])
+  })
+
+  test("rejects an unowned read-only child batch before mutating any session", async () => {
+    const normalSession = { id: "session-a", directory: "/test/project", time: { created: 1 } } as Session
+    const childSession = codexSession("session-child", "missing-owner")
+    globalActiveSessions = [normalSession, childSession]
+    const source = createStore({}, { session: [normalSession, childSession] })
+    const { archiveSessions, deleteSessions, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    expect(await archiveSessions([normalSession.id, childSession.id])).toEqual({
+      archivedIds: [],
+      failedIds: [normalSession.id, childSession.id],
+    })
+    expect(await deleteSessions([normalSession.id, childSession.id])).toEqual({
+      deletedIds: [],
+      failedIds: [normalSession.id, childSession.id],
+    })
+    expect(replyCalls.filter((call) => call.method === "session.update" || call.method === "session.delete")).toEqual([])
+  })
+
   test("does not archive locally until the server returns the archived session", async () => {
     const source = createStore({}, {
       session: [{ id: "session-a", directory: "/test/project", time: { created: 1 } } as Session],
@@ -1485,6 +1586,19 @@ describe("updateSessionTitle live state", () => {
     expect(updateCall?.params.directory).toBe("/test/project")
     expect(globalUpsertedSessions).toEqual([updatedSession])
     expect(sessionStore.getState().session[0].title).toBe("New Title")
+  })
+
+  test("rejects direct read-only Codex child rename, archive, and delete", async () => {
+    const childSession = codexSession("session-child", "session-owner")
+    globalActiveSessions = [childSession]
+    const sessionStore = createStore({}, { session: [childSession] })
+    const { archiveSession, deleteSession, setActionRefs, updateSessionTitle } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", sessionStore]]), () => "/test/project")
+
+    expect(await archiveSession(childSession.id)).toBe(false)
+    expect(await deleteSession(childSession.id)).toBe(false)
+    await expect(updateSessionTitle(childSession.id, "New Title")).rejects.toThrow("read-only")
+    expect(replyCalls.filter((call) => call.method === "session.update" || call.method === "session.delete")).toEqual([])
   })
 })
 
