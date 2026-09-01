@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import simpleGit from 'simple-git';
 
 import {
@@ -10,6 +10,7 @@ import {
   cherryPick,
   cancelWorktreeBootstrap,
   createWorktree,
+  finalizeWorktreeBootstrapOwnership,
   getWorktreeBootstrapStatus,
   getBranches,
   getRangeDiff,
@@ -915,6 +916,220 @@ describe('createWorktree', () => {
     }
   }, 10_000);
 
+  it('retains a detached descendant after its launcher exits until rollback', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const launcherExited = path.join(dataHome, 'detached-bootstrap-launcher-exited');
+    const lateWrite = path.join(dataHome, 'detached-bootstrap-late-write');
+    const grandchildScript = path.join(dataHome, 'detached-bootstrap-grandchild.cjs');
+    const setupScript = path.join(dataHome, 'detached-bootstrap-launcher.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      grandchildScript,
+      "const fs = require('node:fs'); setTimeout(() => fs.writeFileSync(process.argv[2], 'survived'), 1500);\n",
+    );
+    fs.writeFileSync(
+      setupScript,
+      [
+        "const fs = require('node:fs');",
+        "const { spawn } = require('node:child_process');",
+        `const child = spawn(process.execPath, [${JSON.stringify(grandchildScript)}, ${JSON.stringify(lateWrite)}], { detached: true, stdio: 'ignore' });`,
+        'child.unref();',
+        `setTimeout(() => fs.writeFileSync(${JSON.stringify(launcherExited)}, 'exited'), 75);`,
+      ].join('\n'),
+    );
+
+    let createdPath = '';
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/detached-launcher-exit',
+        worktreeName: 'detached-launcher-exit',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+      createdPath = created.path;
+
+      await expect.poll(() => fs.existsSync(launcherExited), { timeout: 5_000 }).toBe(true);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('ready');
+      await expect(cancelWorktreeBootstrap(created.path)).resolves.toMatchObject({
+        settled: true,
+        processesExited: true,
+        processOwnershipConfirmed: true,
+        safeToRemove: true,
+        currentHead: initialHead,
+      });
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/detached-launcher-exit',
+        expectedHead: initialHead,
+        requireClean: true,
+      })).resolves.toBe(true);
+      createdPath = '';
+
+      await new Promise((resolve) => setTimeout(resolve, 1_750));
+      expect(fs.existsSync(lateWrite)).toBe(false);
+    } finally {
+      if (createdPath) {
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+      }
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
+  it('does not claim rollback is safe when POSIX process discovery is unavailable', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPath = process.env.PATH;
+    const dataHome = createTempDir();
+    const commandDirectory = createTempDir();
+    const setupStarted = path.join(dataHome, 'missing-ps-started');
+    const setupScript = path.join(dataHome, 'missing-ps.cjs');
+    let createdPath = '';
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      setupScript,
+      `require('node:fs').writeFileSync(${JSON.stringify(setupStarted)}, 'started'); setInterval(() => {}, 1000);\n`,
+    );
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const bashPath = execFileSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim();
+      const gitPath = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+      fs.symlinkSync(bashPath, path.join(commandDirectory, 'bash'));
+      fs.symlinkSync(gitPath, path.join(commandDirectory, 'git'));
+      process.env.PATH = commandDirectory;
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/missing-ps',
+        worktreeName: 'missing-ps',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+      createdPath = created.path;
+      await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
+
+      const cancellation = await cancelWorktreeBootstrap(created.path);
+      expect(cancellation).toMatchObject({
+        processOwnershipConfirmed: false,
+        safeToRemove: false,
+      });
+      expect(fs.existsSync(created.path)).toBe(true);
+    } finally {
+      restoreEnvironmentValue('PATH', previousPath);
+      if (createdPath) {
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+        finalizeWorktreeBootstrapOwnership(createdPath);
+      }
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
+  it('bounds cancellation when a bootstrap process cannot confirm exit', async () => {
+    if (!canRunGit() || process.platform === 'win32') return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupPidPath = path.join(dataHome, 'unkillable-bootstrap-pid');
+    const setupScript = path.join(dataHome, 'unkillable-bootstrap.cjs');
+    let createdPath = '';
+    let killSpy;
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      setupScript,
+      `require('node:fs').writeFileSync(${JSON.stringify(setupPidPath)}, String(process.pid)); setInterval(() => {}, 1000);\n`,
+    );
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/unkillable-bootstrap',
+        worktreeName: 'unkillable-bootstrap',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+      createdPath = created.path;
+      await expect.poll(() => fs.existsSync(setupPidPath), { timeout: 5_000 }).toBe(true);
+
+      killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const startedAt = Date.now();
+      const cancellation = await cancelWorktreeBootstrap(created.path, 50);
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(cancellation).toMatchObject({
+        settled: false,
+        processesExited: false,
+        processOwnershipConfirmed: false,
+        safeToRemove: false,
+      });
+
+      killSpy.mockRestore();
+      killSpy = undefined;
+      process.kill(Number(fs.readFileSync(setupPidPath, 'utf8')), 'SIGKILL');
+      await expect(cancelWorktreeBootstrap(created.path)).resolves.toMatchObject({
+        settled: true,
+        processesExited: true,
+        processOwnershipConfirmed: true,
+        safeToRemove: true,
+        currentHead: initialHead,
+      });
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/unkillable-bootstrap',
+        expectedHead: initialHead,
+        requireClean: true,
+      })).resolves.toBe(true);
+      createdPath = '';
+    } finally {
+      killSpy?.mockRestore();
+      if (createdPath) {
+        const setupPid = Number(fs.existsSync(setupPidPath) ? fs.readFileSync(setupPidPath, 'utf8') : 0);
+        if (Number.isInteger(setupPid) && setupPid > 0) {
+          try {
+            process.kill(setupPid, 'SIGKILL');
+          } catch {
+          }
+        }
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+        finalizeWorktreeBootstrapOwnership(createdPath);
+      }
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
   it('publishes exact attachment identity before post-add cancellation', async () => {
     if (!canRunGit() || process.platform === 'win32') return;
 
@@ -1121,7 +1336,10 @@ describe('createWorktree', () => {
 
       await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
       await expect.poll(() => fs.existsSync(setupCompleted), { timeout: 10_000 }).toBe(true);
-      await expect(getWorktreeBootstrapStatus(created.path)).resolves.toMatchObject({
+      await expect.poll(
+        () => getWorktreeBootstrapStatus(created.path),
+        { timeout: 5_000 },
+      ).toMatchObject({
         status: 'ready',
         phase: 'setup-ready',
       });

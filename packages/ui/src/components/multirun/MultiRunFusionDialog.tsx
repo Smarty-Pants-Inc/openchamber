@@ -174,19 +174,22 @@ export function MultiRunFusionDialog({
         sessionId: fusionSession.id,
         directory: fusionDirectory,
         providerID,
-      }, () => opencodeClient.sendMessage({
-        id: fusionSession.id,
-        providerID,
-        modelID,
-        variant: variant || undefined,
-        agent: agent || undefined,
-        text: visiblePrompt,
-        additionalParts: [
-          { text: instructionsPrompt, synthetic: true },
-          ...usableSources.map((item, index) => ({ text: buildSourcePart(item.source, item.text, index), synthetic: true })),
-          { text: '\n\n--- FUSION INPUTS END ---\nNow write the final fused answer.', synthetic: true },
-        ],
+      }, ({ client }) => client.session.promptAsync({
+        sessionID: fusionSession.id,
         directory: fusionDirectory,
+        model: { providerID, modelID },
+        agent: agent || undefined,
+        variant: variant || undefined,
+        parts: [
+          ...(visiblePrompt.trim() ? [{ type: 'text' as const, text: visiblePrompt }] : []),
+          { type: 'text' as const, text: instructionsPrompt, synthetic: true },
+          ...usableSources.map((item, index) => ({
+            type: 'text' as const,
+            text: buildSourcePart(item.source, item.text, index),
+            synthetic: true,
+          })),
+          { type: 'text' as const, text: '\n\n--- FUSION INPUTS END ---\nNow write the final fused answer.', synthetic: true },
+        ],
       }));
     } catch (error) {
       console.error('[MultiRunFusion] Failed to start fusion', error);

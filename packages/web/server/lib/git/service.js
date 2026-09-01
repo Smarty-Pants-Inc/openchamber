@@ -14,8 +14,8 @@ const gpgconfCandidates = ['gpgconf', '/opt/homebrew/bin/gpgconf', '/usr/local/b
 let resolvedGitBinary = null;
 const worktreeBootstrapState = new Map();
 const activeWorktreeBootstraps = new Map();
+const worktreeBootstrapProcessOwnership = new Map();
 const remoteExistenceCache = new Map();
-const SIMPLE_GIT_SAFE_BINARY_PATTERN = /^([a-z]:)?([a-z0-9/.\\_~-]+)$/i;
 const SIMPLE_GIT_UNSAFE_BINARY_WARNING = 'Invalid value supplied for custom binary, restricted characters must be removed';
 const REMOTE_EXISTENCE_CACHE_TTL_MS = 30_000;
 const gitIndexMutationQueues = new Map();
@@ -30,6 +30,8 @@ const GIT_NULL_REF = '0'.repeat(40);
 const WORKTREE_INDEX_LOCK_RETRY_DELAY_MS = 250;
 const WORKTREE_INDEX_LOCK_STALE_DELAY_MS = 750;
 const WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS = 5_000;
+const WORKTREE_BOOTSTRAP_PROCESS_DISCOVERY_INTERVAL_MS = 10;
+const WORKTREE_BOOTSTRAP_PROCESS_EXIT_POLL_MS = 25;
 const FULL_GIT_COMMIT_HASH = /^[0-9a-f]{40}$/i;
 
 const normalizeFullGitCommitHash = (value) => {
@@ -80,6 +82,7 @@ const clearWorktreeBootstrapState = (directory) => {
     return;
   }
   worktreeBootstrapState.delete(key);
+  worktreeBootstrapProcessOwnership.delete(key);
 };
 
 const reserveWorktreeBootstrap = (directory, controller) => {
@@ -159,6 +162,10 @@ export const cancelWorktreeBootstrap = async (directory, timeoutMs = WORKTREE_BO
     }
   }
 
+  const ownership = worktreeBootstrapProcessOwnership.get(key);
+  const processOwnership = ownership
+    ? await terminateWorktreeBootstrapProcesses(ownership, deadline)
+    : { exited: true, confirmed: true };
   const bootstrapStatus = {
     ...(worktreeBootstrapState.get(key) || createWorktreeBootstrapState(
       WORKTREE_BOOTSTRAP_READY,
@@ -167,6 +174,7 @@ export const cancelWorktreeBootstrap = async (directory, timeoutMs = WORKTREE_BO
   };
   const createdHead = normalizeFullGitCommitHash(bootstrapStatus.createdHead);
   const provenAttachment = settled
+    && processOwnership.confirmed
     && bootstrapStatus.status !== WORKTREE_BOOTSTRAP_PENDING
     && bootstrapStatus.attached === true;
   const currentHead = provenAttachment
@@ -181,6 +189,8 @@ export const cancelWorktreeBootstrap = async (directory, timeoutMs = WORKTREE_BO
     attached: bootstrapStatus.attached === true,
     branch: bootstrapStatus.branch,
     clean,
+    processesExited: processOwnership.exited,
+    processOwnershipConfirmed: processOwnership.confirmed,
     safeToRemove: provenAttachment
       && Boolean(bootstrapStatus.branch)
       && Boolean(createdHead)
@@ -190,6 +200,14 @@ export const cancelWorktreeBootstrap = async (directory, timeoutMs = WORKTREE_BO
     currentHead,
     bootstrapStatus,
   };
+};
+
+export const finalizeWorktreeBootstrapOwnership = (directory) => {
+  const key = toBootstrapStateKey(directory);
+  if (!key) {
+    throw new Error('Worktree directory is required');
+  }
+  return worktreeBootstrapProcessOwnership.delete(key);
 };
 
 const throwIfWorktreeBootstrapCancelled = (signal) => {
@@ -1855,7 +1873,33 @@ const findBranchInUse = async (primaryWorktree, localBranchName, signal) => {
   }) || null;
 };
 
-const listWorktreeBootstrapDescendantPids = async (rootPid) => {
+const createWorktreeBootstrapProcessOwnership = (directory) => {
+  const key = toBootstrapStateKey(directory);
+  if (!key) {
+    throw new Error('Worktree directory is required');
+  }
+
+  const existing = worktreeBootstrapProcessOwnership.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const ownership = {
+    pids: new Set(),
+    processGroupLeaders: new Set(),
+    discoveryAvailable: true,
+    termination: null,
+  };
+  worktreeBootstrapProcessOwnership.set(key, ownership);
+  return ownership;
+};
+
+const listWorktreeBootstrapDescendantPids = async (rootPids) => {
+  const roots = Array.from(rootPids).filter((pid) => Number.isInteger(pid) && pid > 0);
+  if (roots.length === 0) {
+    return { pids: [], complete: true };
+  }
+
   try {
     const { stdout } = await execFileAsync('ps', ['-ax', '-o', 'pid=', '-o', 'ppid='], {
       windowsHide: true,
@@ -1875,7 +1919,7 @@ const listWorktreeBootstrapDescendantPids = async (rootPid) => {
     }
 
     const descendants = [];
-    const pending = [rootPid];
+    const pending = [...roots];
     const seen = new Set(pending);
     while (pending.length > 0) {
       const parentPid = pending.pop();
@@ -1888,54 +1932,160 @@ const listWorktreeBootstrapDescendantPids = async (rootPid) => {
         pending.push(pid);
       }
     }
-    return descendants;
+    return { pids: descendants, complete: true };
   } catch {
-    return [];
+    return { pids: [], complete: false };
   }
 };
 
-const waitForWorktreeBootstrapPidsToExit = async (pids) => {
-  while (pids.some((pid) => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (error) {
-      return error?.code === 'EPERM';
+const captureWorktreeBootstrapDescendants = async (ownership) => {
+  if (process.platform === 'win32' || !ownership.discoveryAvailable) {
+    return ownership.discoveryAvailable;
+  }
+
+  const roots = Array.from(ownership.pids);
+  if (roots.length === 0) {
+    return true;
+  }
+
+  const discovery = await listWorktreeBootstrapDescendantPids(roots);
+  if (!discovery.complete) {
+    ownership.discoveryAvailable = false;
+    return false;
+  }
+  for (const pid of discovery.pids) {
+    ownership.pids.add(pid);
+  }
+  return true;
+};
+
+const startWorktreeBootstrapDescendantMonitor = (ownership) => {
+  if (process.platform === 'win32') {
+    return { stop: async () => undefined };
+  }
+
+  let scanInFlight = null;
+  const scan = () => {
+    if (scanInFlight || !ownership.discoveryAvailable) {
+      return;
     }
-  })) {
-    await wait(25);
+    scanInFlight = captureWorktreeBootstrapDescendants(ownership)
+      .finally(() => {
+        scanInFlight = null;
+      });
+  };
+  scan();
+  const interval = setInterval(scan, WORKTREE_BOOTSTRAP_PROCESS_DISCOVERY_INTERVAL_MS);
+
+  return {
+    stop: async () => {
+      clearInterval(interval);
+      await scanInFlight;
+      if (ownership.discoveryAvailable) {
+        await captureWorktreeBootstrapDescendants(ownership);
+      }
+    },
+  };
+};
+
+const isWorktreeBootstrapProcessAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ESRCH';
   }
 };
 
-const terminateWorktreeStartCommand = async (child) => {
+const waitForWorktreeBootstrapPidsToExit = async (pids, deadline) => {
+  let remainingPids = pids.filter(isWorktreeBootstrapProcessAlive);
+  while (remainingPids.length > 0) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return { exited: false, remainingPids };
+    }
+    await wait(Math.min(WORKTREE_BOOTSTRAP_PROCESS_EXIT_POLL_MS, remaining));
+    remainingPids = pids.filter(isWorktreeBootstrapProcessAlive);
+  }
+  return { exited: true, remainingPids: [] };
+};
+
+const waitForWorktreeBootstrapTermination = async (termination, deadline) => {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return { exited: false, confirmed: false };
+  }
+
+  let timeout;
+  try {
+    return await Promise.race([
+      termination,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve({ exited: false, confirmed: false }), remaining);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const startWorktreeBootstrapProcessTermination = (ownership, deadline) => {
+  if (ownership.termination) {
+    return ownership.termination;
+  }
+
+  ownership.termination = (async () => {
+    try {
+      await captureWorktreeBootstrapDescendants(ownership);
+      const pids = Array.from(ownership.pids);
+      if (process.platform === 'win32') {
+        await Promise.all(Array.from(ownership.processGroupLeaders).map((pid) => (
+          execFileAsync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true }).catch(() => undefined)
+        )));
+      } else {
+        for (const pid of ownership.processGroupLeaders) {
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+          }
+        }
+        for (const pid of pids) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+          }
+        }
+      }
+
+      const exit = await waitForWorktreeBootstrapPidsToExit(pids, deadline);
+      return {
+        exited: exit.exited,
+        confirmed: ownership.discoveryAvailable && exit.exited,
+      };
+    } catch {
+      return { exited: false, confirmed: false };
+    }
+  })();
+  return ownership.termination;
+};
+
+const terminateWorktreeBootstrapProcesses = async (ownership, deadline) => {
+  const termination = startWorktreeBootstrapProcessTermination(ownership, deadline);
+  return waitForWorktreeBootstrapTermination(termination, deadline);
+};
+
+const terminateWorktreeStartCommand = (child, ownership) => {
   const pid = Number(child?.pid);
   if (!Number.isInteger(pid) || pid <= 0) {
-    return;
+    return Promise.resolve({ exited: false, confirmed: false });
   }
 
-  if (process.platform === 'win32') {
-    await execFileAsync('taskkill', ['/pid', String(pid), '/t', '/f'], {
-      windowsHide: true,
-    }).catch(() => undefined);
-    return;
-  }
-
-  const pids = [pid, ...await listWorktreeBootstrapDescendantPids(pid)];
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {
-  }
-  for (const descendantPid of pids.slice(1)) {
-    try {
-      process.kill(descendantPid, 'SIGKILL');
-    } catch {
-    }
-  }
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-  }
-  await waitForWorktreeBootstrapPidsToExit(pids);
+  ownership.pids.add(pid);
+  ownership.processGroupLeaders.add(pid);
+  return terminateWorktreeBootstrapProcesses(
+    ownership,
+    Date.now() + WORKTREE_BOOTSTRAP_CANCEL_TIMEOUT_MS
+  );
 };
 
 const runWorktreeStartCommand = async (directory, command, signal) => {
@@ -1944,11 +2094,19 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
     return { success: true };
   }
 
+  const ownership = createWorktreeBootstrapProcessOwnership(directory);
   let child;
+  let monitor;
   let termination;
+  let resolveCancellation;
+  const cancellation = new Promise((resolve) => {
+    resolveCancellation = resolve;
+  });
   const abort = () => {
     if (child && !termination) {
-      termination = terminateWorktreeStartCommand(child).catch(() => undefined);
+      termination = terminateWorktreeStartCommand(child, ownership)
+        .catch(() => ({ exited: false, confirmed: false }));
+      void termination.then(resolveCancellation);
     }
   };
   if (signal?.aborted) {
@@ -1962,7 +2120,7 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
   try {
     const env = await buildGitEnv();
     throwIfWorktreeBootstrapCancelled(signal);
-    const { stdout, stderr } = await new Promise((resolve, reject) => {
+    const commandResult = new Promise((resolve, reject) => {
       child = execFile(executable, args, {
         cwd: directory,
         env,
@@ -1970,17 +2128,46 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
         maxBuffer: 20 * 1024 * 1024,
         detached: process.platform !== 'win32',
       }, (error, commandStdout, commandStderr) => {
+        const pid = Number(child?.pid);
+        if (Number.isInteger(pid) && pid > 0) {
+          ownership.pids.delete(pid);
+          ownership.processGroupLeaders.delete(pid);
+        }
         if (error) {
           reject(Object.assign(error, { stdout: commandStdout, stderr: commandStderr }));
           return;
         }
         resolve({ stdout: commandStdout, stderr: commandStderr });
       });
+      const pid = Number(child?.pid);
+      if (Number.isInteger(pid) && pid > 0) {
+        ownership.pids.add(pid);
+        ownership.processGroupLeaders.add(pid);
+      }
+      monitor = startWorktreeBootstrapDescendantMonitor(ownership);
       if (signal?.aborted) {
         abort();
       }
     });
-    return { success: true, stdout, stderr };
+    const result = await Promise.race([
+      commandResult.then(
+        ({ stdout, stderr }) => ({ success: true, stdout, stderr }),
+        (error) => ({ success: false, error })
+      ),
+      cancellation.then(() => ({ cancelled: true })),
+    ]);
+    if (result.cancelled) {
+      return { success: false, message: 'Worktree bootstrap cancelled' };
+    }
+    if (result.success) {
+      return result;
+    }
+    return {
+      success: false,
+      stdout: result.error?.stdout,
+      stderr: result.error?.stderr,
+      message: parseGitErrorText(result.error),
+    };
   } catch (error) {
     return {
       success: false,
@@ -1995,6 +2182,7 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
     if (termination) {
       await termination;
     }
+    await monitor?.stop();
     signal?.removeEventListener('abort', abort);
   }
 };

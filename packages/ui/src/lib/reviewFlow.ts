@@ -393,26 +393,39 @@ const sendPlainMessage = async (
     onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
     send: (messageID, optimisticParts) => {
       assertAutoReviewRuntimeStillCurrent(runtimeKey);
+      const textPartId = getOptimisticTextPartID(optimisticParts);
+      const parts = [
+        ...(text.trim() ? [{
+          ...(textPartId ? { id: textPartId } : {}),
+          type: 'text' as const,
+          text,
+        }] : []),
+        ...((additionalParts ?? [])
+          .filter((part) => part.text.trim().length > 0)
+          .map((part) => ({
+            ...(part.synthetic ? { synthetic: true } : {}),
+            type: 'text' as const,
+            text: part.text,
+          }))),
+      ];
+      if (parts.length === 0) throw new Error('Message must have at least one part (text or file)');
       return withSessionSendPreflight({
         sessionId: sessionID,
         directory,
         providerID: resolved.providerID,
-      }, () => {
-        assertAutoReviewRuntimeStillCurrent(runtimeKey);
-        return opencodeClient.sendMessage({
-          runtimeKey,
-          id: sessionID,
-          directory,
+        runtimeKey,
+      }, ({ client }) => client.session.promptAsync({
+        sessionID,
+        directory,
+        model: {
           providerID: resolved.providerID,
           modelID: resolved.modelID,
-          agent: resolved.agent,
-          variant: resolved.variant,
-          text,
-          textPartId: getOptimisticTextPartID(optimisticParts),
-          additionalParts,
-          messageId: messageID,
-        }).then(() => undefined);
-      });
+        },
+        ...(resolved.agent ? { agent: resolved.agent } : {}),
+        ...(resolved.variant ? { variant: resolved.variant } : {}),
+        messageID,
+        parts,
+      }, { throwOnError: true }).then(() => undefined));
     },
   });
   if (!sentMessageID) throw new Error('Failed to prepare review flow message');

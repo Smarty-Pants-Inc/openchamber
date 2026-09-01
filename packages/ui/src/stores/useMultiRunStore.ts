@@ -171,7 +171,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
             variant?: string;
             prompt: string;
           }> = [];
-          const retainedPiSessionIDs = new Set<string>();
+          const retainedPiSessionRecoveries: RetainedSessionError['recovery'][] = [];
 
           const commandsToRun = setupCommands?.filter((cmd) => cmd.trim().length > 0) ?? [];
 
@@ -269,7 +269,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
                 });
               } catch (err) {
                 if (model.providerID === 'pi' && err instanceof RetainedSessionError) {
-                  retainedPiSessionIDs.add(err.recovery.sessionID);
+                  retainedPiSessionRecoveries.push(err.recovery);
                 }
                 console.warn('[MultiRun] Failed to create session:', err);
               }
@@ -285,11 +285,15 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
           const sessionIds = createdRuns.map((r) => r.sessionId);
           const firstSessionId = createdRuns[0]?.sessionId ?? null;
-          const retainedPiSessions = Array.from(retainedPiSessionIDs);
+          const retainedPiDetail = retainedPiSessionRecoveries
+            .map(({ runtimeKey, directory: retainedDirectory, sessionID }) => (
+              `runtimeKey=${runtimeKey}, directory=${retainedDirectory ?? 'null'}, sessionID=${sessionID}`
+            ))
+            .join('; ');
 
           if (sessionIds.length === 0) {
-            const retainedDetail = retainedPiSessions.length > 0
-              ? `. Retained Pi sessions: ${retainedPiSessions.join(', ')}`
+            const retainedDetail = retainedPiSessionRecoveries.length > 0
+              ? `. Retained Pi sessions: ${retainedPiDetail}`
               : '';
             set({ error: `Failed to create any sessions${retainedDetail}`, isLoading: false });
             return null;
@@ -329,9 +333,9 @@ export const useMultiRunStore = create<MultiRunStore>()(
             }
           })();
 
-          if (retainedPiSessions.length > 0) {
+          if (retainedPiSessionRecoveries.length > 0) {
             set({
-              error: `Created ${sessionIds.length} of ${groups.reduce((count, group) => count + group.models.length, 0)} sessions. Retained Pi sessions: ${retainedPiSessions.join(', ')}`,
+              error: `Created ${sessionIds.length} of ${groups.reduce((count, group) => count + group.models.length, 0)} sessions. Retained Pi sessions: ${retainedPiDetail}`,
               isLoading: false,
             });
             return null;

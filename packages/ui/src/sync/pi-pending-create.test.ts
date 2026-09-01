@@ -72,7 +72,7 @@ const {
   usePiPendingCreateStore,
 } = await import('./pi-pending-create');
 
-const createOperation = (): PiSessionCreateOperation<CreatedSession> => {
+const createOperation = (onAssertCurrent?: () => void): PiSessionCreateOperation<CreatedSession> => {
   const capturedRuntimeKey = runtimeKey;
   return {
     runtimeKey: capturedRuntimeKey,
@@ -86,6 +86,7 @@ const createOperation = (): PiSessionCreateOperation<CreatedSession> => {
       return deleteImpl(sessionID, directory);
     },
     assertCurrent: () => {
+      onAssertCurrent?.();
       if (runtimeKey !== capturedRuntimeKey) throw new Error('runtime changed');
     },
   };
@@ -106,6 +107,14 @@ const waitForPendingDialog = async (dialogID: string): Promise<void> => {
     await Promise.resolve();
   }
   throw new Error(`Timed out waiting for pending dialog ${dialogID}`);
+};
+
+const waitForPendingCreatesToClear = async (): Promise<void> => {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    if (Object.keys(usePiPendingCreateStore.getState().pendingCreates).length === 0) return;
+    await Promise.resolve();
+  }
+  throw new Error('Timed out waiting for pending creates to clear');
 };
 
 beforeEach(() => {
@@ -217,6 +226,42 @@ describe('Pi pending create dialogs', () => {
     expect(await created).toEqual({ id: 'ses-pi', directory: '/canonical/pi' });
   });
 
+  test('clears an observed lane when a valid snapshot no longer has its correlation', async () => {
+    const createResponse = deferred<Response>();
+    const secondPollStarted = deferred<void>();
+    let correlation = '';
+    let pollCount = 0;
+    requestImpl = async (input, init) => {
+      if (input === '/api/session') {
+        correlation = correlationQuerySchema.parse(init?.query).correlation;
+        return createResponse.promise;
+      }
+      if (input === '/api/pending-create') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return jsonResponse([{
+            pendingCreateID: 'pending-observed',
+            directory: '/workspace/pi',
+            correlation,
+            dialogs: [{ type: 'extension_ui_request', id: 'confirm-observed', method: 'confirm', message: 'Continue?' }],
+          }]);
+        }
+        secondPollStarted.resolve();
+        return jsonResponse([]);
+      }
+      return new Response(null, { status: 204 });
+    };
+
+    const created = createPiSessionWithPendingDialogs({ directory: '/workspace/pi' }, createOperation());
+    await waitForPendingDialog('confirm-observed');
+    await secondPollStarted.promise;
+    await waitForPendingCreatesToClear();
+
+    expect(pollCount).toBe(2);
+    createResponse.resolve(jsonResponse({ id: 'ses-pi', directory: '/canonical/pi' }));
+    expect(await created).toEqual({ id: 'ses-pi', directory: '/canonical/pi' });
+  });
+
   test('stops the poll lane before loading a successful create response', async () => {
     const createResponse = deferred<Response>();
     const pendingPollResponse = deferred<Response>();
@@ -248,6 +293,46 @@ describe('Pi pending create dialogs', () => {
 
     loaded.resolve({ id: 'ses-pi', directory: '/canonical/pi' });
     expect(await created).toEqual({ id: 'ses-pi', directory: '/canonical/pi' });
+  });
+
+  test('compensates an exact created session when the runtime switches during the poll drain', async () => {
+    const pendingPollResponse = deferred<Response>();
+    const loaded = deferred<CreatedSession>();
+    const loadStarted = deferred<void>();
+    const postLoadAuthorityCheck = deferred<void>();
+    let assertions = 0;
+    let pollSignal: AbortSignal | undefined;
+    requestImpl = async (input, init) => {
+      if (input === '/api/pending-create') {
+        pollSignal = init?.signal ?? undefined;
+        return pendingPollResponse.promise;
+      }
+      if (input === '/api/session') return jsonResponse({ id: 'ses-pi', directory: '/canonical/created' });
+      return new Response(null, { status: 204 });
+    };
+    getImpl = async () => {
+      loadStarted.resolve();
+      return loaded.promise;
+    };
+
+    const created = createPiSessionWithPendingDialogs({ directory: '/workspace/pi' }, createOperation(() => {
+      assertions += 1;
+      if (assertions === 3) postLoadAuthorityCheck.resolve();
+    }));
+    await waitForPiFetch('/api/pending-create');
+    await loadStarted.promise;
+    expect(pollSignal?.aborted).toBe(true);
+
+    loaded.resolve({ id: 'ses-pi', directory: '/canonical/loaded' });
+    await postLoadAuthorityCheck.promise;
+    expect(assertions).toBe(3);
+
+    runtimeKey = 'runtime-b';
+    pendingPollResponse.resolve(jsonResponse([]));
+
+    await expect(created).rejects.toThrow('runtime changed');
+    expect(assertions).toBe(4);
+    expect(deleteCalls).toEqual([{ sessionID: 'ses-pi', directory: '/canonical/loaded' }]);
   });
 
   test('compensates a load failure in the directory returned by the gateway', async () => {
@@ -374,14 +459,12 @@ describe('Pi pending create dialogs', () => {
     expect(pollSignal?.aborted).toBe(false);
     expect(usePiPendingCreateStore.getState().pendingCreates).toEqual({});
 
-    pendingPollResponse.resolve({
-      ok: true,
-      status: 200,
-      json: async () => {
-        pendingPollJsonRequested.resolve(true);
-        return pendingPollPayload.promise;
-      },
-    } as Response);
+    const pendingResponse = new Response(null, { status: 200 });
+    pendingResponse.json = async () => {
+      pendingPollJsonRequested.resolve(true);
+      return pendingPollPayload.promise;
+    };
+    pendingPollResponse.resolve(pendingResponse);
     await pendingPollJsonRequested.promise;
 
     let settled = false;

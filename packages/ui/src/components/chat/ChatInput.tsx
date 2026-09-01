@@ -25,6 +25,7 @@ import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { startReviewFlow } from '@/lib/reviewFlow';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 import {
     createChatDraftIdentity,
     readChatDraft,
@@ -1292,7 +1293,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 try {
                     await sessionActions.waitForConnectionOrThrow();
                     const compactDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || undefined;
-                    await opencodeClient.summarizeSession(currentSessionId, currentProviderId, currentModelId, compactDirectory);
+                    await withSessionSendPreflight({
+                        sessionId: currentSessionId,
+                        directory: compactDirectory,
+                        providerID: currentProviderId,
+                        runtimeKey: submitRuntimeKey,
+                    }, ({ client }) => client.session.summarize({
+                        sessionID: currentSessionId,
+                        directory: compactDirectory,
+                        providerID: currentProviderId,
+                        modelID: currentModelId,
+                    }, { throwOnError: true }).then(() => undefined));
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, t('chat.chatInput.toast.compactFailed')));
                 }

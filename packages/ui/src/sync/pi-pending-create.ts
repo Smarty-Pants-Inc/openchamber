@@ -355,25 +355,29 @@ const parsePendingPiCreate = (
   directory: string,
   correlation: string,
 ): {
-  pendingCreateID: string;
-  directory: string;
-  correlation: string;
-  dialogs: PiCreateDialog[];
+  pending: {
+    pendingCreateID: string;
+    directory: string;
+    correlation: string;
+    dialogs: PiCreateDialog[];
+  } | null;
 } | null => {
   const pendingCreates = pendingCreateListSchema.safeParse(payload);
   if (!pendingCreates.success) return null;
   const envelope = pendingCreates.data.find((candidate) => (
     candidate.directory === directory && candidate.correlation === correlation
   ));
-  if (!envelope) return null;
+  if (!envelope) return { pending: null };
   return {
-    pendingCreateID: envelope.pendingCreateID,
-    directory: envelope.directory,
-    correlation: envelope.correlation,
-    dialogs: envelope.dialogs.flatMap((dialog) => {
-      const parsed = piCreateDialogSchema.safeParse(dialog);
-      return parsed.success ? [parsed.data] : [];
-    }),
+    pending: {
+      pendingCreateID: envelope.pendingCreateID,
+      directory: envelope.directory,
+      correlation: envelope.correlation,
+      dialogs: envelope.dialogs.flatMap((dialog) => {
+        const parsed = piCreateDialogSchema.safeParse(dialog);
+        return parsed.success ? [parsed.data] : [];
+      }),
+    },
   };
 };
 
@@ -453,6 +457,7 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
   let runtimeChanged = false;
   const cancelledDialogs = new Set<string>();
   const cancellationTasks: Promise<void>[] = [];
+  let completedSession: { sessionID: string; directory: string } | null = null;
 
   const stopPolling = (): void => {
     if (!pollActive) return;
@@ -500,7 +505,8 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
             break;
           }
         } else {
-          const pending = parsePendingPiCreate(await response.json(), input.directory, correlation);
+          const snapshot = parsePendingPiCreate(await response.json(), input.directory, correlation);
+          const pending = snapshot?.pending;
           if (pending) {
             observedPendingRecord = true;
             if (runtimeChanged || !isRuntimeCurrent()) {
@@ -514,9 +520,8 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
             } else {
               publishPendingPiCreate({ ...pending, runtimeKey });
             }
-          } else if (runtimeChanged && observedPendingRecord) {
-            // Once this known correlation is gone, no later dialog can belong
-            // to the retained create request.
+          } else if (snapshot && observedPendingRecord) {
+            // A complete valid snapshot proves this known dialog lane ended.
             stopPolling();
             break;
           }
@@ -602,11 +607,20 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
         new Error('Pi session creation stopped because the runtime changed'),
       );
     }
+    completedSession = { sessionID: created.data.id, directory: authoritativeDirectory };
     return normalizedSession;
   } finally {
     unsubscribeRuntimeChange();
     stopPolling();
     await pollTask;
     await Promise.all(cancellationTasks);
+    if (completedSession && !isRuntimeCurrent()) {
+      await compensateKnownPiSession(
+        operation,
+        completedSession.sessionID,
+        completedSession.directory,
+        new Error('Pi session creation stopped because the runtime changed'),
+      );
+    }
   }
 };

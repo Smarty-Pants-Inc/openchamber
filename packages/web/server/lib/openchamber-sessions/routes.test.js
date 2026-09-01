@@ -20,6 +20,7 @@ const cancelWorktreeBootstrapMock = vi.fn(async () => ({
   currentHead: 'abc123',
   bootstrapStatus: { status: 'ready', phase: 'setup-ready' },
 }));
+const finalizeWorktreeBootstrapOwnershipMock = vi.fn(() => true);
 const getWorktreeBootstrapStatusMock = vi.fn(async () => ({
   status: 'ready',
   phase: 'setup-ready',
@@ -92,6 +93,7 @@ globalThis.__openchamberCreateWorktreeMock = createWorktreeMock;
 globalThis.__openchamberGetWorktreeBootstrapStatusMock = getWorktreeBootstrapStatusMock;
 globalThis.__openchamberRemoveWorktreeMock = removeWorktreeMock;
 globalThis.__openchamberCancelWorktreeBootstrapMock = cancelWorktreeBootstrapMock;
+globalThis.__openchamberFinalizeWorktreeBootstrapOwnershipMock = finalizeWorktreeBootstrapOwnershipMock;
 
 let createOpenChamberSessionService;
 let registerOpenChamberSessionRoutes;
@@ -116,6 +118,7 @@ vi.mock('@opencode-ai/sdk/v2', () => ({
 vi.mock('../git/index.js', () => ({
   cancelWorktreeBootstrap: (...args) => globalThis.__openchamberCancelWorktreeBootstrapMock(...args),
   createWorktree: (...args) => globalThis.__openchamberCreateWorktreeMock(...args),
+  finalizeWorktreeBootstrapOwnership: (...args) => globalThis.__openchamberFinalizeWorktreeBootstrapOwnershipMock(...args),
   getWorktreeBootstrapStatus: (...args) => globalThis.__openchamberGetWorktreeBootstrapStatusMock(...args),
   removeWorktree: (...args) => globalThis.__openchamberRemoveWorktreeMock(...args),
 }));
@@ -158,6 +161,7 @@ describe('openchamber session routes', () => {
     getWorktreeBootstrapStatusMock.mockClear();
     removeWorktreeMock.mockClear();
     cancelWorktreeBootstrapMock.mockClear();
+    finalizeWorktreeBootstrapOwnershipMock.mockClear();
     cancelWorktreeBootstrapMock.mockResolvedValue({
       settled: true,
       attached: true,
@@ -353,6 +357,27 @@ describe('openchamber session routes', () => {
         recovery: { session: { confirmed: false } },
       });
       expect(sessionDeleteMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('finalizes worktree bootstrap ownership when the created session lacks its directory', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ id: 'ses_123' }) }));
+    try {
+      await expect(createSessionService().create({
+        directory: '/repo/app',
+        worktree: { name: 'side-task' },
+      })).rejects.toMatchObject({
+        statusCode: 502,
+        partial: true,
+        partialAction: 'session-worktree-retained',
+        sessionId: 'ses_123',
+      });
+
+      expect(finalizeWorktreeBootstrapOwnershipMock).toHaveBeenCalledWith('/repo/worktrees/side-task');
+      expect(removeWorktreeMock).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -590,7 +615,7 @@ describe('openchamber session routes', () => {
   it('uses the canonical child directory returned after worktree session creation', async () => {
     const originalFetch = globalThis.fetch;
     const emitSessionCreatedEvent = vi.fn();
-    globalThis.fetch = vi.fn(async (url) => {
+    const fetchMock = vi.fn(async (url) => {
       const requestUrl = String(url);
       if (requestUrl.includes('/prompt_async')) {
         return { ok: true, text: async () => '' };
@@ -600,6 +625,7 @@ describe('openchamber session routes', () => {
       }
       return selectionInputResponse(url);
     });
+    globalThis.fetch = fetchMock;
     try {
       const { app } = createApp({ emitSessionCreatedEvent });
       const response = await request(app)
@@ -639,6 +665,10 @@ describe('openchamber session routes', () => {
         directory: '/canonical/worktrees/side-task',
         worktree: expect.objectContaining({ path: '/repo/worktrees/side-task' }),
       }));
+      expect(finalizeWorktreeBootstrapOwnershipMock).toHaveBeenCalledWith('/repo/worktrees/side-task');
+      const promptCallIndex = fetchMock.mock.calls.findIndex(([url]) => String(url).includes('/prompt_async'));
+      expect(finalizeWorktreeBootstrapOwnershipMock.mock.invocationCallOrder[0])
+        .toBeLessThan(fetchMock.mock.invocationCallOrder[promptCallIndex]);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -660,6 +690,7 @@ describe('openchamber session routes', () => {
       const sessionRequest = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
       expect(getOpenCodeAuthHeaders).toHaveBeenCalledTimes(2);
       expect(sessionRequest?.[1]?.headers).toMatchObject({ Authorization: 'Bearer credential-2' });
+      expect(finalizeWorktreeBootstrapOwnershipMock).toHaveBeenCalledWith('/repo/worktrees/side-task');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -696,6 +727,7 @@ describe('openchamber session routes', () => {
       expect(cancelWorktreeBootstrapMock).toHaveBeenCalledWith('/repo/worktrees/side-task', 5_000);
       expect(cancelWorktreeBootstrapMock.mock.invocationCallOrder[0]).toBeLessThan(removeWorktreeMock.mock.invocationCallOrder[0]);
       expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('directory=%2Frepo%2Fworktrees%2Fside-task'))).toBe(true);
+      expect(finalizeWorktreeBootstrapOwnershipMock).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -919,6 +951,48 @@ describe('openchamber session routes', () => {
       });
       // The default-selection inputs (config/providers/agents) must not be consulted.
       expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/prompt_async'))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+  it.each(['send', 'fork'])('reuses a promptless session selection for an empty-session %s', async (action) => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes('/prompt_async')) return { ok: true, text: async () => '' };
+      throw new Error(`Unexpected default-selection request: ${String(url)}`);
+    });
+    globalThis.fetch = fetchMock;
+    sessionMessagesMock.mockResolvedValueOnce({ data: [] });
+    sessionGetMock.mockImplementation(async ({ sessionID }) => ({
+      data: {
+        id: sessionID,
+        directory: '/repo/app',
+        agent: 'plan',
+        model: { providerID: 'omp', id: 'gpt-5.5', variant: 'high' },
+        metadata: { openchamber: { agent_backend: 'omp' } },
+      },
+    }));
+    try {
+      const { app } = createApp();
+      const response = await request(app)
+        .post(`/api/openchamber/sessions/ses_source/${action}`)
+        .send({ directory: '/repo/app', prompt: 'Continue where you left off' })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        action,
+        model: { providerID: 'omp', modelID: 'gpt-5.5' },
+        agent: 'plan',
+        variant: 'high',
+        promptDispatched: true,
+      });
+      const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/prompt_async'));
+      expect(JSON.parse(promptCall?.[1]?.body)).toMatchObject({
+        model: { providerID: 'omp', modelID: 'gpt-5.5' },
+        agent: 'plan',
+        variant: 'high',
+      });
+      expect(fetchMock.mock.calls).toHaveLength(1);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1797,6 +1871,7 @@ describe('openchamber session routes', () => {
       expect(sessionDeleteMock).not.toHaveBeenCalled();
       expect(cancelWorktreeBootstrapMock).not.toHaveBeenCalled();
       expect(removeWorktreeMock).not.toHaveBeenCalled();
+      expect(finalizeWorktreeBootstrapOwnershipMock).toHaveBeenCalledWith('/repo/worktrees/side-task');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1830,6 +1905,7 @@ describe('openchamber session routes', () => {
       expect(sessionDeleteMock).not.toHaveBeenCalled();
       expect(cancelWorktreeBootstrapMock).not.toHaveBeenCalled();
       expect(removeWorktreeMock).not.toHaveBeenCalled();
+      expect(finalizeWorktreeBootstrapOwnershipMock).toHaveBeenCalledWith('/repo/worktrees/side-task');
     } finally {
       globalThis.fetch = originalFetch;
     }

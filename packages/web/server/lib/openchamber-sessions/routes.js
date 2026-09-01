@@ -1,6 +1,6 @@
 import express from 'express';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { cancelWorktreeBootstrap, createWorktree, getWorktreeBootstrapStatus, removeWorktree } from '../git/index.js';
+import { cancelWorktreeBootstrap, createWorktree, finalizeWorktreeBootstrapOwnership, getWorktreeBootstrapStatus, removeWorktree } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
 import { expandCommandGoalObjective, parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
@@ -699,6 +699,33 @@ export const createOpenChamberSessionService = (dependencies) => {
     }
     return null;
   };
+  // Promptless creation persists its selection on the session record, before
+  // any user message exists to carry that configuration forward.
+  const fetchPersistedSessionSelection = async ({ client, sessionID, directory, signal }) => {
+    try {
+      const session = await readSession({
+        client,
+        sessionID,
+        directory,
+        signal,
+        operation: 'read persisted session selection',
+      });
+      const providerID = asNonEmptyString(session?.model?.providerID);
+      const modelID = asNonEmptyString(session?.model?.id);
+      const agent = asNonEmptyString(session?.agent);
+      if (!providerID || !modelID) {
+        return agent ? { model: null, agent, variant: undefined } : null;
+      }
+      return {
+        model: { providerID, modelID },
+        agent,
+        variant: asNonEmptyString(session?.model?.variant),
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+  };
 
   // Explicit model/agent/variant are never checked by `prompt_async`: an unknown
   // agent makes the forked run fail silently, leaving a session with no message.
@@ -764,6 +791,16 @@ export const createOpenChamberSessionService = (dependencies) => {
           if (variant == null) variant = previous.variant ?? undefined;
         }
         if (!agent && previous.agent) agent = previous.agent;
+      }
+    }
+    if (reuseSessionSelection && (!model || !agent)) {
+      const persisted = await fetchPersistedSessionSelection({ client, sessionID, directory, signal });
+      if (persisted) {
+        if (!model && persisted.model) {
+          model = persisted.model;
+          if (variant == null) variant = persisted.variant;
+        }
+        if (!agent && persisted.agent) agent = persisted.agent;
       }
     }
     if (!model || !agent) {
@@ -1167,6 +1204,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       createdSessionID = createdSession.id;
       sessionDirectory = asNonEmptyString(createdSession.directory);
       if (!sessionDirectory) {
+        if (worktreeDirectory) finalizeWorktreeBootstrapOwnership(worktreeDirectory);
         throw recoveryError(
           new OpenChamberControlError('Session creation did not return an authoritative session directory', 502),
           worktree ? 'session-worktree-retained' : 'session-retained',
@@ -1198,9 +1236,11 @@ export const createOpenChamberSessionService = (dependencies) => {
           signal,
           onDispatchStarted: () => {
             dispatchStarted = true;
+            if (worktreeDirectory) finalizeWorktreeBootstrapOwnership(worktreeDirectory);
           },
         });
       }
+      if (!prompt && worktreeDirectory) finalizeWorktreeBootstrapOwnership(worktreeDirectory);
 
       const result = {
         sessionId: sessionID,

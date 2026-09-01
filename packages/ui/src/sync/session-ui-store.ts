@@ -15,6 +15,7 @@
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@opencode-ai/sdk/v2/client"
+import type { AgentPartInput, FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
@@ -78,7 +79,7 @@ import {
   type DeleteSessionsOptions,
   type UnarchiveSessionsOptions,
 } from "./session-actions"
-import { preflightSessionSend } from "./session-send-preflight"
+import { withSessionSendPreflight } from "./session-send-preflight"
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSessionGoalArmStore } from "@/stores/useSessionGoalArmStore"
 import { setSessionGoal } from "@/lib/sessionGoalActions"
@@ -147,20 +148,18 @@ export async function routeMessage(params: {
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
   if (params.inputMode === "shell") {
-    await preflightSessionSend({
+    return withSessionSendPreflight({
       sessionId: params.sessionId,
       directory: requestDirectory,
       providerID: params.providerID,
-    })
-    await opencodeClient.shellSession({
       runtimeKey: params.runtimeKey,
-      sessionId: params.sessionId,
-      directory: requestDirectory,
+    }, ({ client }) => client.session.shell({
+      sessionID: params.sessionId,
+      ...(requestDirectory ? { directory: requestDirectory } : {}),
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
-    })
-    return
+    }, { throwOnError: true }).then(() => undefined))
   }
 
   // Slash commands — fire and forget, SSE delivers messages and status
@@ -191,29 +190,44 @@ export async function routeMessage(params: {
         agent: params.agent,
         directory: requestDirectory,
         files: params.files,
-        send: async (messageID, optimisticParts) => {
+        send: (messageID, optimisticParts) => {
           const textPartId = optimisticParts.find((part) => part.type === "text")?.id
           const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-          await preflightSessionSend({
+          const commandRequest = {
+            sessionID: params.sessionId,
+            ...(requestDirectory ? { directory: requestDirectory } : {}),
+            command: cmdName,
+            arguments: tail.join(" "),
+            model: `${params.providerID}/${params.modelID}`,
+            agent: params.agent,
+            variant: params.variant,
+            ...(params.files?.length ? {
+              parts: params.files.map((file, index) => (
+                filePartIds[index] ? { ...file, id: filePartIds[index] } : file
+              )),
+            } : {}),
+            ...(params.providerID === "omp" && textPartId ? { $body_textPartID: textPartId } : {}),
+            messageID,
+          }
+          return withSessionSendPreflight({
             sessionId: params.sessionId,
             directory: requestDirectory,
             providerID: params.providerID,
-          })
-          await opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
-            id: params.sessionId,
-            providerID: params.providerID,
-            modelID: params.modelID,
-            command: cmdName,
-            arguments: tail.join(" "),
-            agent: params.agent,
-            variant: params.variant,
-            textPartId,
-            files: params.files?.map((file, index) => (
-              filePartIds[index] ? { ...file, id: filePartIds[index] } : file
-            )),
-            messageId: messageID,
-            directory: requestDirectory,
+          }, ({ client, fetch }) => {
+            if (params.providerID !== "omp" || !textPartId) {
+              return client.session.command(commandRequest, { throwOnError: true }).then(() => undefined)
+            }
+            const directoryQuery = requestDirectory ? `?directory=${encodeURIComponent(requestDirectory)}` : ""
+            return fetch(`/api/session/${encodeURIComponent(params.sessionId)}/command${directoryQuery}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(commandRequest),
+            }).then((response) => {
+              if (!response.ok) {
+                throw Object.assign(new Error(`Failed to send command (${response.status})`), { status: response.status })
+              }
+            })
           })
         },
       })
@@ -230,32 +244,51 @@ export async function routeMessage(params: {
     agent: params.agent,
     directory: requestDirectory,
     files: params.files,
-    send: async (messageID, optimisticParts) => {
+    send: (messageID, optimisticParts) => {
       const textPartId = optimisticParts.find((part) => part.type === "text")?.id
       const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-      await preflightSessionSend({
+      const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = []
+      if (params.content.trim()) {
+        parts.push({
+          ...(textPartId ? { id: textPartId } : {}),
+          type: "text",
+          text: params.content,
+        })
+      }
+      for (const [index, file] of (params.files ?? []).entries()) {
+        parts.push(filePartIds[index] ? { ...file, id: filePartIds[index] } : file)
+      }
+      for (const additional of params.additionalParts ?? []) {
+        if (additional.text.trim()) {
+          parts.push({
+            ...(additional.synthetic ? { synthetic: true } : {}),
+            ...(additional.metadata ? { metadata: additional.metadata } : {}),
+            type: "text",
+            text: additional.text,
+          })
+        }
+        for (const file of additional.files ?? []) parts.push(file)
+      }
+      if (params.agentMentionName) {
+        parts.push({ type: "agent", name: params.agentMentionName })
+      }
+      if (parts.length === 0) throw new Error("Message must have at least one part (text or file)")
+      const promptRequest = {
+        sessionID: params.sessionId,
+        ...(requestDirectory ? { directory: requestDirectory } : {}),
+        model: { providerID: params.providerID, modelID: params.modelID },
+        ...(params.agent ? { agent: params.agent } : {}),
+        ...(params.variant ? { variant: params.variant } : {}),
+        ...(params.delivery ? { delivery: params.delivery } : {}),
+        messageID,
+        parts,
+      }
+      return withSessionSendPreflight({
         sessionId: params.sessionId,
         directory: requestDirectory,
         providerID: params.providerID,
-      })
-      await opencodeClient.sendMessage({
         runtimeKey: params.runtimeKey,
-        id: params.sessionId,
-        providerID: params.providerID,
-        modelID: params.modelID,
-        text: params.content,
-        textPartId,
-        agent: params.agent,
-        agentMentions: params.agentMentionName ? [{ name: params.agentMentionName }] : undefined,
-        variant: params.variant,
-        files: params.files?.map((file, index) => (
-          filePartIds[index] ? { ...file, id: filePartIds[index] } : file
-        )),
-        additionalParts: params.additionalParts,
-        delivery: params.delivery,
-        messageId: messageID,
-        directory: requestDirectory,
-      })
+      }, ({ client }) => client.session.promptAsync(promptRequest, { throwOnError: true }).then(() => undefined))
     },
   })
 }

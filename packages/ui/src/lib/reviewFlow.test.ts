@@ -22,11 +22,19 @@ let reviewLinkFetchImpl: (path: string, init?: RequestInit) => Promise<Response>
 };
 const runtimeFetchMock = mock((path: string, init?: RequestInit) => reviewLinkFetchImpl(path, init));
 
+const boundTransportRequests: Array<{ url: string; body: unknown }> = [];
+let boundTransportFetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = async () => {
+  throw new Error('bound transport fixture is not installed');
+};
+let boundTransportReleaseCount = 0;
+
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: runtimeFetchMock,
-  bindRuntimeTransport: () => {
-    throw new Error('bound transport fixture is not installed');
-  },
+  bindRuntimeTransport: () => ({
+    apiBaseUrl: 'http://runtime-a.test/api',
+    fetch: (input: string | URL | Request, init?: RequestInit) => boundTransportFetchImpl(input, init),
+    release: () => { boundTransportReleaseCount += 1; },
+  }),
 }));
 
 mock.module('@/lib/magicPrompts', () => ({
@@ -237,6 +245,11 @@ afterEach(() => {
     input.onMessageID?.('message-sent');
   };
   reviewLinkRequests.length = 0;
+  boundTransportRequests.length = 0;
+  boundTransportFetchImpl = async () => {
+    throw new Error('bound transport fixture is not installed');
+  };
+  boundTransportReleaseCount = 0;
   useGlobalSessionsStore.getState().applySnapshot([], []);
   useConfigStore.setState({ currentProviderId: '', currentModelId: '', currentAgentName: undefined });
   switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' });
@@ -253,8 +266,10 @@ type ReviewTransactionOptions = {
   returnFalseForNewDelete?: boolean;
   oldDeleteNotFound?: boolean;
   switchRuntimeDuringOldDelete?: boolean;
+  switchRuntimeDuringOldCleanupCheck?: boolean;
   switchTransportDuringCreate?: boolean;
   switchTransportDuringOldDelete?: boolean;
+  switchRuntimeDuringReplacementLink?: boolean;
   replaceLinkDuringOldDelete?: boolean;
   indexOldReview?: boolean;
   omitOldReviewDirectoryInResponse?: boolean;
@@ -297,6 +312,7 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
   const deleteCalls: Array<{ sessionID: string; directory?: string | null }> = [];
   let nextReviewNumber = 0;
   let transportCurrent = true;
+  let switchedRuntimeDuringOldCleanupCheck = false;
   let released = false;
 
   const get = async (sessionID: string, directory?: string | null): Promise<Session> => {
@@ -304,6 +320,15 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
     const value = sessions.get(sessionID);
     if (!value || directory !== value.directory) {
       throw new TestBoundSessionOperationError('session.get', 404);
+    }
+    if (
+      options.switchRuntimeDuringOldCleanupCheck
+      && !switchedRuntimeDuringOldCleanupCheck
+      && sessionID === 'original-transaction'
+      && getLinkedReviewID(value) === 'review-new-1'
+    ) {
+      switchedRuntimeDuringOldCleanupCheck = true;
+      switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
     }
     if (options.omitOldReviewDirectoryInResponse && sessionID === 'review-old') {
       const response = { ...value };
@@ -357,12 +382,15 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
     const id = `review-new-${++nextReviewNumber}`;
     events.push(`create:${id}`);
     const metadata = withAgentBackendMetadata(params?.metadata, params?.providerID ?? '') ?? {};
-    const returnedDirectory = Object.prototype.hasOwnProperty.call(options, 'createdDirectory')
-      ? options.createdDirectory ?? null
-      : directory ?? null;
-    const created = makeSession(id, metadata, returnedDirectory);
+    const createdDirectory = options.createdDirectory ?? directory ?? null;
+    const created = makeSession(id, metadata, createdDirectory);
     sessions.set(created.id, created);
     if (options.switchTransportDuringCreate) transportCurrent = false;
+    if (options.createdDirectory === null) {
+      const response = { ...created };
+      Reflect.deleteProperty(response, 'directory');
+      return response;
+    }
     return created;
   };
 
@@ -415,6 +443,9 @@ const installReviewTransactionClient = (options: ReviewTransactionOptions = {}) 
       metadata: { ...currentMetadata, openchamber },
     };
     sessions.set(original.id, updated);
+    if (options.switchRuntimeDuringReplacementLink) {
+      switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
+    }
     return new Response(JSON.stringify({ replaced: true, session: updated }), {
       headers: { 'Content-Type': 'application/json' },
     });
@@ -617,14 +648,74 @@ describe('reviewSessionLifecycle replacement transaction', () => {
     expect(sessions.has('review-new-1')).toBe(false);
   });
 
-  test('retains typed recovery instead of guessing a missing created directory', async () => {
-    const { deleteCalls } = installReviewTransactionClient({ createdDirectory: null });
-    const error = await captureFailure(createOrReuseReviewSession('original-transaction', '/workspace', 'pi'));
+  test('uses the original directory fallback to clean a directory-less created replacement', async () => {
+    const { deleteCalls, sessions } = installReviewTransactionClient({
+      createdDirectory: null,
+      failReplacementLink: true,
+      originalDirectory: '/canonical/original',
+    });
+
+    await expect(createOrReuseReviewSession('original-transaction', '/canonical/original', 'pi'))
+      .rejects.toThrow('session.review-link failed');
+
+    expect(deleteCalls.some((call) => (
+      call.sessionID === 'review-new-1' && call.directory === '/canonical/original'
+    ))).toBe(true);
+    expect(sessions.has('review-new-1')).toBe(false);
+  });
+
+  test('returns the original directory when a created review response omits it', async () => {
+    installReviewTransactionClient({
+      createdDirectory: null,
+      originalDirectory: '/canonical/original',
+    });
+
+    const review = await createOrReuseReviewSession('original-transaction', '/canonical/original', 'pi');
+
+    expect(review.directory).toBe('/canonical/original');
+  });
+
+  test('confirms and cleans the old review on retained transport after a stale link response', async () => {
+    const { deleteCalls, events, sessions } = installReviewTransactionClient({
+      switchRuntimeDuringReplacementLink: true,
+    });
+
+    await expect(createOrReuseReviewSession('original-transaction', '/workspace', 'pi', 'runtime-a'))
+      .rejects.toThrow('runtime changed');
+
+    expect(getLinkedReviewID(sessions.get('original-transaction'))).toBe('review-new-1');
+    expect(sessions.has('review-old')).toBe(false);
+    expect(deleteCalls.some((call) => call.sessionID === 'review-old' && call.directory === '/workspace')).toBe(true);
+    expect(events).toEqual(['create:review-new-1', 'link:review-new-1', 'delete:review-old']);
+  });
+
+  test('cleans the old review when staleness occurs before its deletion attempt', async () => {
+    const { events, sessions } = installReviewTransactionClient({
+      switchRuntimeDuringOldCleanupCheck: true,
+    });
+
+    await expect(createOrReuseReviewSession('original-transaction', '/workspace', 'pi', 'runtime-a'))
+      .rejects.toThrow('runtime changed');
+
+    expect(sessions.has('review-old')).toBe(false);
+    expect(events).toEqual(['create:review-new-1', 'link:review-new-1', 'delete:review-old']);
+  });
+
+  test('keeps typed retained recovery when stale link reconciliation cannot clean the old review', async () => {
+    installReviewTransactionClient({
+      failOldDelete: true,
+      oldReviewDirectory: '/canonical/old-review',
+      switchRuntimeDuringReplacementLink: true,
+    });
+
+    const error = await captureFailure(createOrReuseReviewSession('original-transaction', '/workspace', 'pi', 'runtime-a'));
+
     expect(error).toBeInstanceOf(ReviewSessionRetainedError);
     if (!(error instanceof ReviewSessionRetainedError)) throw error;
-    expect(error.recovery.sessionID).toBe('review-new-1');
-    expect(error.recovery.directory).toBeNull();
-    expect(deleteCalls).toEqual([]);
+    expect(error.recovery.sessionID).toBe('review-old');
+    expect(error.recovery.directory).toBe('/canonical/old-review');
+    expect(error.recovery.cause.message).toBe('Auto-review stopped because the runtime changed.');
+    expect(error.recovery.compensationError.message).toBe('session.delete failed');
   });
 
   test('does not compensate a replacement that is already linked when the runtime changes', async () => {
@@ -709,28 +800,41 @@ describe('reviewFlow linked counterpart routing', () => {
       if (!session || directory !== session.directory) throw new Error('session.get failed (404)');
       return session;
     });
-    const sentRuntimeKeys: Array<string | undefined> = [];
-    opencodeClient.sendMessage = mock(async (params: { runtimeKey?: string }): Promise<string> => {
-      sentRuntimeKeys.push(params.runtimeKey);
-      return 'message-sent';
-    });
     optimisticSendImpl = async (input) => {
       optimisticSendCalls.push(input);
       input.onMessageID?.('message-sent');
       await input.send('message-sent', []);
     };
     let switchDuringPreflight = false;
-    reviewLinkFetchImpl = async () => {
-      if (switchDuringPreflight) {
-        switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
+    let switchDuringPromptDispatch = false;
+    boundTransportFetchImpl = async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const rawBody = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
+      boundTransportRequests.push({ url, body: rawBody ? JSON.parse(String(rawBody)) : null });
+      if (url.includes('/send-preflight')) {
+        if (switchDuringPreflight) {
+          switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
+        }
+        return new Response(JSON.stringify({ authorized: true }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
-      return new Response(JSON.stringify({ authorized: true }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      if (url.includes('/prompt_async')) {
+        if (switchDuringPromptDispatch) {
+          switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
+        }
+        return new Response(JSON.stringify(true), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected bound request: ${url}`);
     };
 
     await sendReviewFeedbackToOriginal(review.id, '/canonical/review', 'fix this', 'runtime-a');
-    expect(sentRuntimeKeys).toEqual(['runtime-a']);
+    expect(boundTransportRequests.map(({ url }) => url)).toEqual([
+      '/api/openchamber/sessions/original-preflight/send-preflight',
+      'http://runtime-a.test/api/session/original-preflight/prompt_async?directory=%2Fcanonical%2Foriginal',
+    ]);
 
     switchDuringPreflight = true;
     await expect(sendReviewFeedbackToOriginal(
@@ -739,7 +843,17 @@ describe('reviewFlow linked counterpart routing', () => {
       'fix this',
       'runtime-a',
     )).rejects.toThrow('runtime changed');
-    expect(sentRuntimeKeys).toEqual(['runtime-a']);
+    expect(boundTransportRequests.filter(({ url }) => url.includes('/prompt_async'))).toHaveLength(1);
+
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' });
+    switchDuringPreflight = false;
+    switchDuringPromptDispatch = true;
+    await sendReviewFeedbackToOriginal(review.id, '/canonical/review', 'fix this', 'runtime-a');
+    expect(boundTransportRequests.filter(({ url }) => url.includes('/prompt_async')).map(({ url }) => url)).toEqual([
+      'http://runtime-a.test/api/session/original-preflight/prompt_async?directory=%2Fcanonical%2Foriginal',
+      'http://runtime-a.test/api/session/original-preflight/prompt_async?directory=%2Fcanonical%2Foriginal',
+    ]);
+    expect(boundTransportReleaseCount).toBe(3);
   });
   test('gets and sends implementation responses in the review session authoritative directory', async () => {
     const { getCalls } = installReviewTransactionClient({

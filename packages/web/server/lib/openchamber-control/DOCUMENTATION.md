@@ -42,9 +42,10 @@ other.
   After `prompt_async` the service confirms a new user message reached the
   session; when it does not, the result reports `promptDispatched: false` with
   `promptError` instead of claiming success.
-- Send and fork dispatches without an explicit model/agent/variant reuse the
-  target session's last user-message selection before falling back to the
-  configured defaults; only session creation resolves defaults directly.
+- Send and fork dispatches without an explicit model, agent, or variant reuse
+  the target session's last user-message selection, then its persisted
+  promptless-create selection, before falling back to configured defaults; only
+  session creation resolves defaults directly.
 - Usage errors name the missing or conflicting input so CLI and agent-tool
   callers can correct an invalid request without an upfront usage manual.
 - Explicit `projectId` or `directory` scope takes precedence over the managed

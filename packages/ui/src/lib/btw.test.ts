@@ -153,6 +153,19 @@ const startInput = {
   variant: 'v',
 };
 
+const installBtwMetadata = (metadataBySession: Map<string, SessionMetadataRecord>): void => {
+  getSessionImpl = (sessionId, directory) => Promise.resolve({
+    ...makeSession(sessionId, directory ?? '/project'),
+    metadata: metadataBySession.get(sessionId) ?? {},
+  });
+  patchSessionMetadataImpl = (sessionId, _directory, updater) => {
+    const result = updater(metadataBySession.get(sessionId) ?? {});
+    metadataBySession.set(sessionId, result);
+    metadataPatches.push({ sessionId, result });
+    return Promise.resolve({ ...makeSession(sessionId), metadata: result });
+  };
+};
+
 beforeEach(() => {
   currentSessionSwitches.length = 0;
   metadataPatches.length = 0;
@@ -296,6 +309,32 @@ describe('startBtwSession', () => {
     expect(metadataPatches.map((p) => p.sessionId)).toEqual(['fork-1', 'fork-1', 'parent-1', 'parent-1']);
     expect(metadataPatches[3]?.result).toEqual({});
     expect(useBtwStore.getState().byParent).toEqual({});
+  });
+
+  test('retains a dispatched fork when authority changes after the send', async () => {
+    forkSessionWithAuthorizationImpl = () => Promise.resolve(makeSession('fork-1', '/project'));
+    sendMessageImpl = () => {
+      assertOperationCurrentImpl = () => { throw new Error('runtime changed'); };
+      return Promise.resolve();
+    };
+    let caught: unknown;
+
+    try {
+      await startBtwSession(startInput);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(RetainedSessionError);
+    if (!(caught instanceof RetainedSessionError)) throw caught;
+    expect(caught.recovery.cause.message).toBe('runtime changed');
+    expect(caught.recovery.compensationError.message).toBe('Prompt dispatch may have been accepted');
+    expect(boundDeleteCalls).toEqual([]);
+    expect(metadataPatches.map(({ sessionId }) => sessionId)).toEqual(['fork-1', 'fork-1', 'parent-1']);
+    expect(publishedSessions).toEqual([]);
+    expect(useBtwStore.getState().byParent).toEqual({
+      'parent-1': { creating: true },
+    });
   });
 
   test('returns typed retained recovery when failed-send rollback deletion is unconfirmed', async () => {
@@ -454,7 +493,12 @@ describe('startBtwSession', () => {
 describe('destroyBtwSession', () => {
   const ref = { parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' };
 
-  test('deletes through the bound operation before unlinking and clearing the panel', async () => {
+  test('unlinks through the bound operation before deleting and clearing the panel', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
     const deleted: string[] = [];
     deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
 
@@ -464,17 +508,27 @@ describe('destroyBtwSession', () => {
     expect(boundDeleteCalls).toEqual([{ sessionId: 'fork-1', directory: '/project' }]);
     expect(deleteSessionCalls).toEqual([]);
     expect(metadataPatches).toEqual([{ sessionId: 'parent-1', result: {} }]);
+    expect(metadataBySession.get('parent-1')).toEqual({});
     expect(finalizedDeletionCalls).toEqual([{ sessionId: 'fork-1', directory: '/project' }]);
     expect(useBtwStore.getState().byParent).toEqual({});
     expect(releaseCalls).toBe(1);
   });
 
-  test('keeps an unconfirmed fork linked and visible', async () => {
+  test('restores an unconfirmed fork link on the bound transport', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
     deleteSessionImpl = () => Promise.resolve(false);
 
     expect(await destroyBtwSession(ref)).toBe(false);
 
-    expect(metadataPatches).toEqual([]);
+    expect(metadataPatches).toEqual([
+      { sessionId: 'parent-1', result: {} },
+      { sessionId: 'parent-1', result: { openchamber: { btwSessionID: 'fork-1' } } },
+    ]);
+    expect(metadataBySession.get('parent-1')).toEqual({ openchamber: { btwSessionID: 'fork-1' } });
     expect(finalizedDeletionCalls).toEqual([]);
     expect(useBtwStore.getState().byParent).toEqual({
       'parent-1': { destroying: false },
@@ -482,18 +536,60 @@ describe('destroyBtwSession', () => {
     expect(releaseCalls).toBe(1);
   });
 
-  test('surfaces a failed parent cleanup after confirmed deletion', async () => {
+  test('does not delete the fork when parent cleanup fails', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
     patchSessionMetadataImpl = () => Promise.reject(new Error('patch failed'));
     const deleted: string[] = [];
     deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
 
     expect(await destroyBtwSession(ref)).toBe(false);
 
-    expect(deleted).toEqual(['fork-1']);
+    expect(deleted).toEqual([]);
+    expect(metadataBySession.get('parent-1')).toEqual({ openchamber: { btwSessionID: 'fork-1' } });
     expect(finalizedDeletionCalls).toEqual([]);
     expect(useBtwStore.getState().byParent).toEqual({
       'parent-1': { destroying: false },
     });
+  });
+
+  test('keeps the parent unlinked when authority changes after deletion', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
+    deleteSessionImpl = () => {
+      assertOperationCurrentImpl = () => { throw new Error('runtime changed'); };
+      return Promise.resolve(true);
+    };
+
+    expect(await destroyBtwSession(ref)).toBe(false);
+
+    expect(metadataBySession.get('parent-1')).toEqual({});
+    expect(finalizedDeletionCalls).toEqual([]);
+    expect(publishedSessions).toEqual([]);
+    expect(useBtwStore.getState().byParent).toEqual({
+      'parent-1': { destroying: true },
+    });
+  });
+
+  test('refuses to delete a linked fork after its BTW marker is gone', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', {}],
+    ]);
+    installBtwMetadata(metadataBySession);
+    const deleted: string[] = [];
+    deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
+
+    expect(await destroyBtwSession(ref)).toBe(false);
+
+    expect(deleted).toEqual([]);
+    expect(metadataPatches).toEqual([]);
   });
 });
 
@@ -501,14 +597,11 @@ describe('promoteBtwSession', () => {
   const ref = { parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' };
 
   test('confirms marker cleanup, then unlinks and navigates to the promoted fork', async () => {
-    patchSessionMetadataImpl = (sessionId, _directory, updater) => {
-      const base = sessionId === 'fork-1'
-        ? { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1' } }
-        : { openchamber: { btwSessionID: 'fork-1' } };
-      const result = updater(base);
-      metadataPatches.push({ sessionId, result });
-      return Promise.resolve(makeSession(sessionId));
-    };
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
 
     await promoteBtwSession(ref);
 
@@ -522,6 +615,11 @@ describe('promoteBtwSession', () => {
   });
 
   test('keeps the existing panel state when marker cleanup fails', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
     useBtwStore.setState({ byParent: { 'parent-1': { collapsed: true } } });
     patchSessionMetadataImpl = () => Promise.reject(new Error('patch failed'));
 
@@ -535,18 +633,66 @@ describe('promoteBtwSession', () => {
     expect(releaseCalls).toBe(1);
   });
 
-  test('does not unlink or navigate after runtime authority changes mid-promote', async () => {
-    patchSessionMetadataImpl = (sessionId, _directory, updater) => {
-      const result = updater({ openchamber: { kind: 'btw', originalSessionID: 'parent-1' } });
-      metadataPatches.push({ sessionId, result });
-      assertOperationCurrentImpl = () => { throw new Error('runtime changed'); };
-      return Promise.resolve(makeSession(sessionId));
+  test('restores the marker when parent unlinking fails after promotion starts', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1', agent_backend: 'pi' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
+    const patch = patchSessionMetadataImpl;
+    patchSessionMetadataImpl = (sessionId, directory, updater) => {
+      if (sessionId === 'parent-1') return Promise.reject(new Error('unlink failed'));
+      return patch(sessionId, directory, updater);
+    };
+
+    await expect(promoteBtwSession(ref)).rejects.toThrow('unlink failed');
+
+    expect(metadataBySession.get('parent-1')).toEqual({ openchamber: { btwSessionID: 'fork-1' } });
+    expect(metadataBySession.get('fork-1')).toEqual({
+      openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1', agent_backend: 'pi' },
+    });
+    expect(metadataPatches).toEqual([
+      { sessionId: 'fork-1', result: { openchamber: { agent_backend: 'pi' } } },
+      { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1', agent_backend: 'pi' } } },
+    ]);
+    expect(publishedSessions).toEqual([]);
+    expect(currentSessionSwitches).toEqual([]);
+  });
+
+  test('completes unlinking on the bound transport after authority changes mid-promote', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', { openchamber: { kind: 'btw', originalSessionID: 'parent-1' } }],
+    ]);
+    installBtwMetadata(metadataBySession);
+    const patch = patchSessionMetadataImpl;
+    patchSessionMetadataImpl = async (sessionId, directory, updater) => {
+      const result = await patch(sessionId, directory, updater);
+      if (sessionId === 'fork-1') {
+        assertOperationCurrentImpl = () => { throw new Error('runtime changed'); };
+      }
+      return result;
     };
 
     await expect(promoteBtwSession(ref)).rejects.toThrow('runtime changed');
 
-    expect(metadataPatches).toEqual([{ sessionId: 'fork-1', result: {} }]);
+    expect(metadataBySession.get('parent-1')).toEqual({});
+    expect(metadataBySession.get('fork-1')).toEqual({});
+    expect(publishedSessions).toEqual([]);
     expect(currentSessionSwitches).toEqual([]);
     expect(releaseCalls).toBe(1);
+  });
+
+  test('refuses to promote an unmarked linked fork', async () => {
+    const metadataBySession = new Map<string, SessionMetadataRecord>([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['fork-1', {}],
+    ]);
+    installBtwMetadata(metadataBySession);
+
+    await expect(promoteBtwSession(ref)).rejects.toThrow('no longer active');
+
+    expect(metadataPatches).toEqual([]);
+    expect(currentSessionSwitches).toEqual([]);
   });
 });

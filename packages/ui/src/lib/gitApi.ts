@@ -1,6 +1,5 @@
 
 import * as gitHttp from './gitApiHttp';
-import { opencodeClient } from './opencode/client';
 import { renderMagicPrompt } from './magicPrompts';
 import { requestSmallModel } from './smallModelRequest';
 import { materializeOpenDraftSession, useSessionUIStore } from '@/sync/session-ui-store';
@@ -8,6 +7,7 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { withSessionSendPreflight } from '@/sync/session-send-preflight';
 
 export type {
@@ -587,6 +587,7 @@ export async function generatePullRequestDescription(
 }
 
 type SessionGenerationContext = {
+  runtimeKey: string;
   sessionId: string;
   directory?: string;
   providerID: string;
@@ -629,6 +630,7 @@ async function resolveGenerationSessionContext(): Promise<SessionGenerationConte
   }
 
   return {
+    runtimeKey: getRuntimeKey(),
     sessionId: createdDraftSession.sessionId,
     directory: createdDraftSession.directory ?? undefined,
     providerID: config.currentProviderId,
@@ -676,6 +678,7 @@ const resolveSessionGenerationContext = (): SessionGenerationContext | null => {
   const variant = selectionVariant || lastChoiceVariant || configVariant || undefined;
 
   return {
+    runtimeKey: getRuntimeKey(),
     sessionId,
     directory: useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined,
     providerID: selectedModel.providerId,
@@ -729,23 +732,22 @@ const runStructuredGenerationInActiveSession = async ({
 
   requestChatForceScrollBottom(generationSession.sessionId);
 
-  const response = await opencodeClient.withDirectory(sessionDirectory, async () => {
-    return withSessionSendPreflight({
-      sessionId: generationSession.sessionId,
-      directory: sessionDirectory,
+  const response = await withSessionSendPreflight({
+    sessionId: generationSession.sessionId,
+    directory: sessionDirectory,
+    providerID: generationSession.providerID,
+    runtimeKey: generationSession.runtimeKey,
+  }, ({ client }) => client.session.prompt({
+    sessionID: generationSession.sessionId,
+    ...(sessionDirectory.length > 0 ? { directory: sessionDirectory } : {}),
+    model: {
       providerID: generationSession.providerID,
-    }, () => opencodeClient.getApiClient().session.prompt({
-      sessionID: generationSession.sessionId,
-      ...(sessionDirectory.length > 0 ? { directory: sessionDirectory } : {}),
-      model: {
-        providerID: generationSession.providerID,
-        modelID: generationSession.modelID,
-      },
-      ...(generationSession.agent ? { agent: generationSession.agent } : {}),
-      ...(generationSession.variant ? { variant: generationSession.variant } : {}),
-      parts: promptParts,
-    }));
-  });
+      modelID: generationSession.modelID,
+    },
+    ...(generationSession.agent ? { agent: generationSession.agent } : {}),
+    ...(generationSession.variant ? { variant: generationSession.variant } : {}),
+    parts: promptParts,
+  }));
 
   const responseError = response?.error as { message?: string } | undefined;
   if (!response?.data) {

@@ -91,25 +91,27 @@ const PiPendingCreateDialogCard: React.FC<{
 /** Startup Pi prompts are global to the pending create, before a session exists. */
 export const PiPendingCreateDialogs: React.FC = () => {
   const pendingCreates = usePiPendingCreateStore((state) => state.pendingCreates);
-  const cards = Object.values(pendingCreates).flatMap((pending) => (
-    pending.dialogs.map((dialog) => ({ pending, dialog }))
-  ));
+  const activeCard = Object.values(pendingCreates)
+    .flatMap((pending) => pending.dialogs.map((dialog) => ({ pending, dialog })))
+    .sort((left, right) => (
+      left.dialog.observedAt - right.dialog.observedAt
+      || left.pending.correlation.localeCompare(right.pending.correlation)
+      || left.dialog.id.localeCompare(right.dialog.id)
+    ))[0];
 
-  if (cards.length === 0) return null;
+  if (!activeCard) return null;
 
   return (
     <Dialog open modal disablePointerDismissal>
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-sm" />
         <div className="fixed inset-0 z-[70] overflow-y-auto px-3 py-4">
-          <BaseDialog.Popup aria-label={cards[0].dialog.title} className="outline-none" initialFocus>
-            {cards.map(({ pending, dialog }) => (
-              <PiPendingCreateDialogCard
-                key={`${pending.correlation}:${dialog.id}`}
-                pending={pending}
-                dialog={dialog}
-              />
-            ))}
+          <BaseDialog.Popup aria-label={activeCard.dialog.title} className="outline-none" initialFocus>
+            <PiPendingCreateDialogCard
+              key={`${activeCard.pending.correlation}:${activeCard.dialog.id}`}
+              pending={activeCard.pending}
+              dialog={activeCard.dialog}
+            />
           </BaseDialog.Popup>
         </div>
       </BaseDialog.Portal>

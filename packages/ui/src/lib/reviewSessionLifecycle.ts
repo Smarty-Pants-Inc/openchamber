@@ -183,18 +183,22 @@ export const requireLinkedSessionDirectory = (
   return directory;
 };
 
-const removeUnlinkedReviewSession = async (
+const removeUnlinkedReviewSessionOnTransport = async (
   client: ReviewSessionClient,
   originalSessionID: string,
   reviewSessionID: string,
   originalDirectory: string,
   reviewDirectory: string,
-  runtimeKey: string,
   assertCurrent: () => void,
+  skipDeleteWhenMissing = false,
 ): Promise<boolean> => {
   const beforeDelete = await client.getSession(originalSessionID, originalDirectory);
   assertCurrent();
   if (getReviewSessionID(beforeDelete) === reviewSessionID) return false;
+  if (skipDeleteWhenMissing) {
+    const existingReview = await getSessionOrNull(client, reviewSessionID, reviewDirectory, assertCurrent);
+    if (!existingReview) return true;
+  }
 
   let deleteError: Error | null = null;
   try {
@@ -214,6 +218,27 @@ const removeUnlinkedReviewSession = async (
     if (deleteError) throw deleteError;
     throw new Error('Failed to remove the replaced review session');
   }
+  return true;
+};
+
+const removeUnlinkedReviewSession = async (
+  client: ReviewSessionClient,
+  originalSessionID: string,
+  reviewSessionID: string,
+  originalDirectory: string,
+  reviewDirectory: string,
+  runtimeKey: string,
+  assertCurrent: () => void,
+): Promise<boolean> => {
+  const removed = await removeUnlinkedReviewSessionOnTransport(
+    client,
+    originalSessionID,
+    reviewSessionID,
+    originalDirectory,
+    reviewDirectory,
+    assertCurrent,
+  );
+  if (!removed) return false;
   finalizeConfirmedSessionDeletion(reviewSessionID, reviewDirectory, runtimeKey);
   return true;
 };
@@ -279,24 +304,49 @@ export const createOrReuseReviewSession = async (
       return { ...existing, directory: existingReviewDirectory };
     }
 
-    const review = await client.createSession({
+    const createdReview = await client.createSession({
       title: `Review: ${original.title?.trim() || original.id}`,
       metadata: withReviewSessionMarker({}, originalSessionID),
       providerID,
     }, originalDirectory);
-    const reviewDirectory = resolveSessionDirectory(review);
+    const reviewDirectory = resolveSessionDirectory(createdReview, originalDirectory);
     if (!reviewDirectory) {
       const cause = new Error('Review session creation could not continue without its authoritative directory');
       throw new ReviewSessionRetainedError(
-        review.id,
+        createdReview.id,
         null,
         runtimeKey,
         cause,
         new Error('Exact cleanup target is unknown because the created review directory was not returned'),
       );
     }
+    const review = { ...createdReview, directory: reviewDirectory };
     createdDirectoryKey = `${runtimeKey}\u0000${review.id}`;
     activeReviewSessionDirectories.set(createdDirectoryKey, reviewDirectory);
+
+    const compensateCreatedReview = async (cause: Error): Promise<never> => {
+      try {
+        await removeCreatedUnlinkedReviewSession(
+          client,
+          originalSessionID,
+          review.id,
+          originalDirectory,
+          reviewDirectory,
+        );
+      } catch (compensationError) {
+        const parsedCompensationError = reviewErrorSchema.safeParse(compensationError);
+        throw new ReviewSessionRetainedError(
+          review.id,
+          reviewDirectory,
+          runtimeKey,
+          cause,
+          parsedCompensationError.success
+            ? parsedCompensationError.data
+            : new Error('Failed to remove the created review session'),
+        );
+      }
+      throw cause;
+    };
 
     const assertCurrentOrCompensate = async (): Promise<void> => {
       try {
@@ -306,30 +356,14 @@ export const createOrReuseReviewSession = async (
         const cause = parsedError.success
           ? parsedError.data
           : new Error('Review session creation stopped because the runtime changed');
-        try {
-          await removeCreatedUnlinkedReviewSession(
-            client,
-            originalSessionID,
-            review.id,
-            originalDirectory,
-            reviewDirectory,
-          );
-        } catch (compensationError) {
-          const parsedCompensationError = reviewErrorSchema.safeParse(compensationError);
-          throw new ReviewSessionRetainedError(
-            review.id,
-            reviewDirectory,
-            runtimeKey,
-            cause,
-            parsedCompensationError.success
-              ? parsedCompensationError.data
-              : new Error('Failed to remove the created review session'),
-          );
-        }
-        throw cause;
+        await compensateCreatedReview(cause);
       }
     };
     await assertCurrentOrCompensate();
+
+    const existingDirectory = existing
+      ? resolveSessionDirectory(existing, existingReviewDirectory ?? undefined)
+      : null;
 
     const cleanReplacement = async (): Promise<Error | null> => {
       try {
@@ -350,6 +384,71 @@ export const createOrReuseReviewSession = async (
       }
     };
 
+    const confirmLinkedReplacementAfterStale = async (cause: Error): Promise<never> => {
+      let linkedOriginal: Session;
+      try {
+        linkedOriginal = await client.getSession(originalSessionID, originalDirectory);
+      } catch (error) {
+        const parsedError = reviewErrorSchema.safeParse(error);
+        throw new ReviewSessionRetainedError(
+          review.id,
+          reviewDirectory,
+          runtimeKey,
+          cause,
+          parsedError.success
+            ? parsedError.data
+            : new Error('Failed to confirm the linked review session'),
+        );
+      }
+
+      if (getReviewSessionID(linkedOriginal) !== review.id) {
+        return compensateCreatedReview(cause);
+      }
+
+      const continueOnRetainedTransport = (): void => {};
+
+      if (existing && existingDirectory && isReviewSession(existing)) {
+        try {
+          const removed = await removeUnlinkedReviewSessionOnTransport(
+            client,
+            originalSessionID,
+            existing.id,
+            originalDirectory,
+            existingDirectory,
+            continueOnRetainedTransport,
+            true,
+          );
+          if (!removed) throw new Error('Failed to confirm removal of the replaced review session');
+        } catch (cleanupError) {
+          const parsedCleanupError = reviewErrorSchema.safeParse(cleanupError);
+          throw new ReviewSessionRetainedError(
+            existing.id,
+            existingDirectory,
+            runtimeKey,
+            cause,
+            parsedCleanupError.success
+              ? parsedCleanupError.data
+              : new Error('Failed to remove the replaced review session'),
+          );
+        }
+      }
+
+      throw cause;
+    };
+
+    const assertLinkCurrentOrReconcile = async (): Promise<void> => {
+      try {
+        assertCurrent();
+      } catch (error) {
+        const parsedError = reviewErrorSchema.safeParse(error);
+        await confirmLinkedReplacementAfterStale(
+          parsedError.success
+            ? parsedError.data
+            : new Error('Review session creation stopped because the runtime changed'),
+        );
+      }
+    };
+
     let linkCommitted = false;
     let linkError: Error | null = null;
     try {
@@ -362,11 +461,11 @@ export const createOrReuseReviewSession = async (
         assertCurrent,
       );
     } catch (error) {
-      await assertCurrentOrCompensate();
+      await assertLinkCurrentOrReconcile();
       const parsedError = reviewErrorSchema.safeParse(error);
       linkError = parsedError.success ? parsedError.data : new Error('Failed to link the replacement review session');
     }
-    await assertCurrentOrCompensate();
+    await assertLinkCurrentOrReconcile();
     if (!linkCommitted) {
       const cleanupError = await cleanReplacement();
       if (cleanupError) {
@@ -392,9 +491,6 @@ export const createOrReuseReviewSession = async (
     }
 
     let oldCleanupError: Error | null = null;
-    const existingDirectory = existing
-      ? resolveSessionDirectory(existing, existingReviewDirectory ?? undefined)
-      : null;
     if (existing && existingDirectory && isReviewSession(existing)) {
       try {
         await removeUnlinkedReviewSession(
@@ -410,18 +506,13 @@ export const createOrReuseReviewSession = async (
         const parsedError = reviewErrorSchema.safeParse(error);
         oldCleanupError = parsedError.success ? parsedError.data : new Error('Failed to remove the replaced review session');
         try {
-          await assertCurrentOrCompensate();
+          assertCurrent();
         } catch (currentError) {
-          if (currentError instanceof RetainedSessionError) throw currentError;
           const parsedCurrentError = reviewErrorSchema.safeParse(currentError);
-          throw new ReviewSessionRetainedError(
-            existing.id,
-            existingDirectory,
-            runtimeKey,
+          await confirmLinkedReplacementAfterStale(
             parsedCurrentError.success
               ? parsedCurrentError.data
               : new Error('Review session creation stopped before cleanup was reconciled'),
-            oldCleanupError,
           );
         }
       }
@@ -430,7 +521,6 @@ export const createOrReuseReviewSession = async (
     let authority: Session;
     try {
       authority = await client.getSession(originalSessionID, originalDirectory);
-      await assertCurrentOrCompensate();
     } catch (error) {
       if (!oldCleanupError || !existing || !existingDirectory || error instanceof RetainedSessionError) throw error;
       const parsedError = reviewErrorSchema.safeParse(error);
@@ -442,6 +532,7 @@ export const createOrReuseReviewSession = async (
         oldCleanupError,
       );
     }
+    await assertLinkCurrentOrReconcile();
 
     if (getReviewSessionID(authority) !== review.id) {
       const cleanupError = await cleanReplacement();
@@ -485,9 +576,9 @@ export const createOrReuseReviewSession = async (
       );
     }
 
-    await assertCurrentOrCompensate();
+    await assertLinkCurrentOrReconcile();
     registerSessionDirectory(review.id, reviewDirectory);
-    await assertCurrentOrCompensate();
+    await assertLinkCurrentOrReconcile();
     useGlobalSessionsStore.getState().upsertSession(review);
     return review;
   } finally {

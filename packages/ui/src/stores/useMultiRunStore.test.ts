@@ -22,6 +22,7 @@ const createSessionParams: SessionCreateParams[] = [];
 let isGitRepository = false;
 let waitForWorktreeSetup = false;
 let createSessionFailure: Error | null = null;
+const createSessionFailures: Error[] = [];
 const createWorktreeWithDefaultsMock = mock((project: { id?: string; path: string }, args: Record<string, unknown>, options: unknown) => {
   worktreeCreateCalls.push({ project, args, options });
   return Promise.resolve({
@@ -70,7 +71,10 @@ mock.module('@/lib/opencode/client', () => ({
     createSession: async (params?: SessionCreateParams): Promise<Session> => {
       createSessionParams.push(params ?? {});
       operationOrder.push(`createSession:${currentDirectory}`);
-      if (createSessionFailure && params?.providerID === 'pi') throw createSessionFailure;
+      if (params?.providerID === 'pi') {
+        const failure = createSessionFailures.shift() ?? createSessionFailure;
+        if (failure) throw failure;
+      }
       return {
         id: 'ses_multirun',
         title: params?.title ?? '',
@@ -175,6 +179,7 @@ describe('useMultiRunStore', () => {
     isGitRepository = false;
     waitForWorktreeSetup = false;
     createSessionFailure = null;
+    createSessionFailures.length = 0;
     childState.session = [];
     childState.sessionTotal = 0;
     childState.limit = 5;
@@ -182,27 +187,39 @@ describe('useMultiRunStore', () => {
     useMultiRunStore.setState({ isLoading: false, error: null });
   });
 
-  test('surfaces retained Pi identities when every requested run fails', async () => {
-    createSessionFailure = new RetainedSessionError('Pi session was retained', {
-      sessionID: 'ses_retained_all_failed',
-      directory: '/repo',
-      runtimeKey: 'runtime-a',
-      cause: new Error('runtime changed'),
-      compensationError: new Error('delete was not confirmed'),
-    });
+  test('surfaces every retained Pi tuple when every requested run fails', async () => {
+    createSessionFailures.push(
+      new RetainedSessionError('First Pi session was retained', {
+        sessionID: 'ses_retained',
+        directory: '/repo-a',
+        runtimeKey: 'runtime-a',
+        cause: new Error('runtime changed'),
+        compensationError: new Error('delete was not confirmed'),
+      }),
+      new RetainedSessionError('Second Pi session was retained', {
+        sessionID: 'ses_retained',
+        directory: '/repo-b',
+        runtimeKey: 'runtime-b',
+        cause: new Error('runtime changed'),
+        compensationError: new Error('delete was not confirmed'),
+      }),
+    );
 
     const result = await useMultiRunStore.getState().createMultiRun({
       name: 'Fix thing',
       isolateRuns: false,
       groups: [{
         prompt: 'Fix it',
-        models: [{ providerID: 'pi', modelID: 'default' }],
+        models: [
+          { providerID: 'pi', modelID: 'default' },
+          { providerID: 'pi', modelID: 'alternate' },
+        ],
       }],
     });
 
     expect(result).toBeNull();
     expect(useMultiRunStore.getState().error).toBe(
-      'Failed to create any sessions. Retained Pi sessions: ses_retained_all_failed',
+      'Failed to create any sessions. Retained Pi sessions: runtimeKey=runtime-a, directory=/repo-a, sessionID=ses_retained; runtimeKey=runtime-b, directory=/repo-b, sessionID=ses_retained',
     );
   });
 
@@ -229,7 +246,7 @@ describe('useMultiRunStore', () => {
 
     expect(result).toBeNull();
     expect(useMultiRunStore.getState().error).toBe(
-      'Created 1 of 2 sessions. Retained Pi sessions: ses_retained_partial',
+      'Created 1 of 2 sessions. Retained Pi sessions: runtimeKey=runtime-a, directory=/repo, sessionID=ses_retained_partial',
     );
     expect(registeredDirectories).toEqual([{ sessionID: 'ses_multirun', directory: '/repo' }]);
   });

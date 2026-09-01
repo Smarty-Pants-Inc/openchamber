@@ -133,19 +133,24 @@ describe('Pi pending create dialog presentation', () => {
     });
   });
 
-  test('uses a top-level modal portal and unique permission keyboard identity per pending create', async () => {
-    const dialog: Extract<PendingPiCreateDialog, { method: 'confirm' }> = {
+  test('shows one deterministic active prompt with scoped keyboard identity', async () => {
+    const activeDialog: Extract<PendingPiCreateDialog, { method: 'confirm' }> = {
       type: 'extension_ui_request',
       id: 'confirm-1',
       method: 'confirm',
-      title: 'Use this directory?',
+      title: 'Active prompt',
       message: 'The extension needs confirmation.',
       observedAt: 1,
     };
+    const queuedDialog: Extract<PendingPiCreateDialog, { method: 'confirm' }> = {
+      ...activeDialog,
+      title: 'Queued prompt',
+      observedAt: 2,
+    };
     pendingCreateStoreState = {
       pendingCreates: {
-        'correlation-a': { ...pending, correlation: 'correlation-a', dialogs: [dialog] },
-        'correlation-b': { ...pending, correlation: 'correlation-b', dialogs: [dialog] },
+        'correlation-b': { ...pending, correlation: 'correlation-b', dialogs: [queuedDialog] },
+        'correlation-a': { ...pending, correlation: 'correlation-a', dialogs: [activeDialog] },
       },
     };
 
@@ -153,22 +158,47 @@ describe('Pi pending create dialog presentation', () => {
 
     expect(dialogProps).toEqual({ open: true, modal: true, disablePointerDismissal: true });
     expect(portalRenderCount).toBe(1);
-    expect(popupProps).toEqual({ ariaLabel: 'Use this directory?', initialFocus: true });
+    expect(popupProps).toEqual({ ariaLabel: 'Active prompt', initialFocus: true });
     expect(markup.match(/z-\[70\]/g)).toHaveLength(2);
-    expect(permissionCardCalls.map(({ permission }) => permission.id)).toEqual([
-      'correlation-a:confirm-1',
-      'correlation-b:confirm-1',
-    ]);
+    expect(permissionCardCalls.map(({ permission }) => permission.id)).toEqual(['correlation-a:confirm-1']);
+    expect(pendingCreateStoreState.pendingCreates['correlation-b']?.dialogs).toEqual([queuedDialog]);
 
-    const onRespond = permissionCardCalls[0]?.onRespond;
-    if (!onRespond) throw new Error('Expected a permission response handler');
-    await onRespond('once');
+    const activeResponse = permissionCardCalls[0]?.onRespond;
+    if (!activeResponse) throw new Error('Expected an active permission response handler');
+    await activeResponse('once');
 
     expect(replies).toEqual([{
       correlation: 'correlation-a',
       dialogID: 'confirm-1',
       reply: { confirmed: true },
     }]);
+
+    permissionCardCalls.length = 0;
+    pendingCreateStoreState = {
+      pendingCreates: {
+        'correlation-b': { ...pending, correlation: 'correlation-b', dialogs: [queuedDialog] },
+      },
+    };
+    renderToStaticMarkup(React.createElement(PiPendingCreateDialogs));
+
+    expect(popupProps).toEqual({ ariaLabel: 'Queued prompt', initialFocus: true });
+    expect(permissionCardCalls.map(({ permission }) => permission.id)).toEqual(['correlation-b:confirm-1']);
+    const queuedResponse = permissionCardCalls[0]?.onRespond;
+    if (!queuedResponse) throw new Error('Expected a queued permission response handler');
+    await queuedResponse('once');
+
+    expect(replies).toEqual([
+      {
+        correlation: 'correlation-a',
+        dialogID: 'confirm-1',
+        reply: { confirmed: true },
+      },
+      {
+        correlation: 'correlation-b',
+        dialogID: 'confirm-1',
+        reply: { confirmed: true },
+      },
+    ]);
   });
 
   test('mounts exactly one global presenter in every session-creating shell', () => {
