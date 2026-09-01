@@ -342,61 +342,78 @@ describe('Pi pending create dialogs', () => {
     expect(deleteCalls).toEqual([]);
   });
 
-  test('cancels known dialogs on the old transport without aborting create, then compensates exactly', async () => {
+  test('discovers and awaits old-runtime dialog cancellation after a runtime switch', async () => {
     const createResponse = deferred<Response>();
-    const requestOrder: string[] = [];
+    const pendingPollResponse = deferred<Response>();
+    const pendingPollPayload = deferred<JsonValue>();
+    const pendingPollJsonRequested = deferred<boolean>();
+    const cancellationResponse = deferred<Response>();
     let pollSignal: AbortSignal | undefined;
+    let correlation = '';
     requestImpl = async (input, init) => {
-      if (input === '/api/session') return createResponse.promise;
-      if (input === '/api/pending-create') {
-        const { correlation } = correlationQuerySchema.parse(init?.query);
-        pollSignal = init?.signal ?? undefined;
-        pollSignal?.addEventListener('abort', () => requestOrder.push('poll-abort'), { once: true });
-        return jsonResponse([{
-          pendingCreateID: 'pending-runtime-switch',
-          directory: '/requested/pi',
-          correlation,
-          dialogs: [
-            { type: 'extension_ui_request', id: 'confirm-runtime-switch', method: 'confirm', message: 'Continue?', timeout: 300_000 },
-            { type: 'extension_ui_request', id: 'input-runtime-switch', method: 'input', title: 'Value', timeout: 300_000 },
-          ],
-        }]);
+      if (input === '/api/session') {
+        correlation = correlationQuerySchema.parse(init?.query).correlation;
+        return createResponse.promise;
       }
-      if (input.includes('/api/pending-create/pending-runtime-switch/dialog/')) {
-        requestOrder.push(input.split('/').at(-1) ?? 'unknown-dialog');
-        return jsonResponse({ accepted: true });
+      if (input === '/api/pending-create') {
+        pollSignal = init?.signal ?? undefined;
+        return pendingPollResponse.promise;
+      }
+      if (input === '/api/pending-create/pending-runtime-switch/dialog/confirm-runtime-switch') {
+        return cancellationResponse.promise;
       }
       return jsonResponse([]);
     };
 
     const created = createPiSessionWithPendingDialogs({ directory: '/requested/pi' }, createOperation());
-    await waitForPendingDialog('confirm-runtime-switch');
-    const [pending] = Object.values(usePiPendingCreateStore.getState().pendingCreates);
-    const correlation = pending?.correlation ?? '';
+    await waitForPiFetch('/api/pending-create');
 
     runtimeKey = 'runtime-b';
     runtimeChangeListeners.forEach((listener) => listener());
 
-    const cancellations = fetchCalls.filter((call) => call.input.includes('/api/pending-create/pending-runtime-switch/dialog/'));
-    expect(cancellations.map((call) => call.input).sort()).toEqual([
-      '/api/pending-create/pending-runtime-switch/dialog/confirm-runtime-switch',
-      '/api/pending-create/pending-runtime-switch/dialog/input-runtime-switch',
-    ]);
-    expect(cancellations.map((call) => call.init?.query)).toEqual([
-      { directory: '/requested/pi', correlation },
-      { directory: '/requested/pi', correlation },
-    ]);
-    expect(cancellations.map((call) => call.init?.body)).toEqual([
-      JSON.stringify({ cancelled: true }),
-      JSON.stringify({ cancelled: true }),
-    ]);
-    expect(requestOrder).toEqual(['confirm-runtime-switch', 'input-runtime-switch', 'poll-abort']);
-    expect(pollSignal?.aborted).toBe(true);
-    expect(fetchCalls.find((call) => call.input === '/api/session')?.init?.signal).toBe(undefined);
+    expect(pollSignal?.aborted).toBe(false);
+    expect(usePiPendingCreateStore.getState().pendingCreates).toEqual({});
 
+    pendingPollResponse.resolve({
+      ok: true,
+      status: 200,
+      json: async () => {
+        pendingPollJsonRequested.resolve(true);
+        return pendingPollPayload.promise;
+      },
+    } as Response);
+    await pendingPollJsonRequested.promise;
+
+    let settled = false;
+    void created.then(() => { settled = true; }, () => { settled = true; });
     createResponse.resolve(jsonResponse({ id: 'ses-pi', directory: '/canonical/pi' }));
-    await expect(created).rejects.toThrow('runtime changed');
+    for (let attempt = 0; attempt < 32 && deleteCalls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(pollSignal?.aborted).toBe(true);
     expect(deleteCalls).toEqual([{ sessionID: 'ses-pi', directory: '/canonical/pi' }]);
+    expect(settled).toBe(false);
+
+    pendingPollPayload.resolve([{
+      pendingCreateID: 'pending-runtime-switch',
+      directory: '/requested/pi',
+      correlation,
+      dialogs: [
+        { type: 'extension_ui_request', id: 'confirm-runtime-switch', method: 'confirm', message: 'Continue?', timeout: 300_000 },
+      ],
+    }]);
+    await waitForPiFetch('/api/pending-create/pending-runtime-switch/dialog/confirm-runtime-switch');
+
+    const cancellation = fetchCalls.find((call) => (
+      call.input === '/api/pending-create/pending-runtime-switch/dialog/confirm-runtime-switch'
+    ));
+    expect(cancellation?.init?.query).toEqual({ directory: '/requested/pi', correlation });
+    expect(cancellation?.init?.body).toBe(JSON.stringify({ cancelled: true }));
+    expect(settled).toBe(false);
+
+    cancellationResponse.resolve(jsonResponse({ accepted: true }));
+    await expect(created).rejects.toThrow('runtime changed');
     expect(usePiPendingCreateStore.getState().pendingCreates).toEqual({});
   });
 

@@ -90,6 +90,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { RetainedSessionError } from "@/lib/retainedSessionError"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -801,6 +802,7 @@ const createSessionWithDraftLifecycle = async (
     return session
   } catch (error) {
     console.error("[session-ui-store] createSession failed", error)
+    if (error instanceof RetainedSessionError) throw error
     return null
   }
 }

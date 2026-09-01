@@ -101,7 +101,7 @@ export const foldSessionBackendHistory = async (readPage) => {
 const reconcileManagedBackend = (session, historyBackendClass) => {
   const existingBackend = getAgentBackendProviderID(session);
   const historyBackend = isManagedBackendProviderID(historyBackendClass) ? historyBackendClass : null;
-  if (historyBackend && existingBackend && historyBackend !== existingBackend) {
+  if (existingBackend && historyBackendClass && historyBackendClass !== existingBackend) {
     throw conflict('managed-backend-change', 'Managed Pi/OMP session backend cannot be changed');
   }
   return {

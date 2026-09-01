@@ -261,8 +261,14 @@ export type PiCreateDialogReply =
   | { value: string }
   | { cancelled: true; timedOut?: true };
 
+type PendingPiCreateReplyTarget = Pick<PendingPiCreate, 'serverPendingCreateID' | 'directory' | 'correlation'>;
+
+type PendingPiCreateCancellationTarget = PendingPiCreateReplyTarget & {
+  dialogs: Array<{ id: string }>;
+};
+
 const requestPendingPiCreateDialogReply = (
-  pending: PendingPiCreate,
+  pending: PendingPiCreateReplyTarget,
   requestID: string,
   reply: PiCreateDialogReply,
   request: PiCreateTransportRequest,
@@ -276,22 +282,26 @@ const requestPendingPiCreateDialogReply = (
   },
 );
 
-const cancelKnownPendingPiCreateDialogs = (
-  correlation: string,
+const cancelPendingPiCreateDialogs = (
+  pending: PendingPiCreateCancellationTarget,
   request: PiCreateTransportRequest,
-): void => {
-  const pending = usePiPendingCreateStore.getState().pendingCreates[correlation];
-  if (!pending?.serverPendingCreateID) return;
+  cancelledDialogs: Set<string>,
+): Promise<void>[] => {
+  if (!pending.serverPendingCreateID) return [];
 
-  const cancellations: Promise<Response>[] = [];
+  const cancellations: Promise<void>[] = [];
   for (const requestID of new Set(pending.dialogs.map((dialog) => dialog.id))) {
+    const key = `${pending.serverPendingCreateID}:${requestID}`;
+    if (cancelledDialogs.has(key)) continue;
+    cancelledDialogs.add(key);
     try {
-      cancellations.push(requestPendingPiCreateDialogReply(pending, requestID, { cancelled: true }, request));
+      cancellations.push(requestPendingPiCreateDialogReply(pending, requestID, { cancelled: true }, request)
+        .then(() => undefined, () => undefined));
     } catch {
       // Every known dialog was attempted on the retained transport.
     }
   }
-  void Promise.allSettled(cancellations);
+  return cancellations;
 };
 
 /**
@@ -441,11 +451,23 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
   let pollActive = true;
   let observedPendingRecord = false;
   let runtimeChanged = false;
+  const cancelledDialogs = new Set<string>();
+  const cancellationTasks: Promise<void>[] = [];
 
   const stopPolling = (): void => {
     if (!pollActive) return;
     pollActive = false;
     pollController.abort();
+    clearPendingPiCreate(correlation);
+  };
+  const queuePendingDialogCancellations = (pending: PendingPiCreateCancellationTarget): void => {
+    cancellationTasks.push(...cancelPendingPiCreateDialogs(pending, operation.request, cancelledDialogs));
+  };
+  const retireRuntime = (): void => {
+    if (runtimeChanged) return;
+    runtimeChanged = true;
+    const pending = usePiPendingCreateStore.getState().pendingCreates[correlation];
+    if (pending) queuePendingDialogCancellations(pending);
     clearPendingPiCreate(correlation);
   };
   const isRuntimeCurrent = (): boolean => {
@@ -459,14 +481,7 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
   };
 
   registerPendingPiCreate({ runtimeKey, directory: input.directory, correlation });
-  const unsubscribeRuntimeChange = subscribeRuntimeEndpointWillChange(() => {
-    runtimeChanged = true;
-    // The POST may already have reached Pi. Reject every dialog through the
-    // retained old transport before stopping its poll lane, then await the POST
-    // so a returned session ID can be compensated exactly.
-    cancelKnownPendingPiCreateDialogs(correlation, operation.request);
-    stopPolling();
-  });
+  const unsubscribeRuntimeChange = subscribeRuntimeEndpointWillChange(retireRuntime);
 
   const poll = async (): Promise<void> => {
     while (pollActive) {
@@ -476,10 +491,7 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
           signal: pollController.signal,
         });
         if (!pollActive) break;
-        if (!isRuntimeCurrent()) {
-          stopPolling();
-          break;
-        }
+        if (!runtimeChanged && !isRuntimeCurrent()) retireRuntime();
         if (!response.ok) {
           if (response.status === 400 || (response.status === 404 && observedPendingRecord)) {
             // A pending dialog lane can end independently of the POST. Never
@@ -489,9 +501,24 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
           }
         } else {
           const pending = parsePendingPiCreate(await response.json(), input.directory, correlation);
-          if (pending && isRuntimeCurrent()) {
+          if (pending) {
             observedPendingRecord = true;
-            publishPendingPiCreate({ ...pending, runtimeKey });
+            if (runtimeChanged || !isRuntimeCurrent()) {
+              retireRuntime();
+              queuePendingDialogCancellations({
+                serverPendingCreateID: pending.pendingCreateID,
+                directory: pending.directory,
+                correlation: pending.correlation,
+                dialogs: pending.dialogs,
+              });
+            } else {
+              publishPendingPiCreate({ ...pending, runtimeKey });
+            }
+          } else if (runtimeChanged && observedPendingRecord) {
+            // Once this known correlation is gone, no later dialog can belong
+            // to the retained create request.
+            stopPolling();
+            break;
           }
         }
       } catch (error) {
@@ -515,7 +542,7 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
       metadata: input.metadata,
     }),
   });
-  void poll();
+  const pollTask = poll();
 
   try {
     const response = await createRequest;
@@ -579,5 +606,7 @@ export const createPiSessionWithPendingDialogs = async <T extends { directory?: 
   } finally {
     unsubscribeRuntimeChange();
     stopPolling();
+    await pollTask;
+    await Promise.all(cancellationTasks);
   }
 };

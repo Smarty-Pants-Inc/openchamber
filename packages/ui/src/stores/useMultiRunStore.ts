@@ -4,6 +4,7 @@ import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
 import { devtools } from 'zustand/middleware';
 import type { CreateMultiRunParams, CreateMultiRunResult } from '@/types/multirun';
 import { opencodeClient } from '@/lib/opencode/client';
+import { RetainedSessionError } from '@/lib/retainedSessionError';
 import { getWorktreeSetupWaitEnabled, saveWorktreeSetupCommands } from '@/lib/openchamberConfig';
 import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktreeWithDefaults, resolveRootTrackingRemote } from '@/lib/worktrees/worktreeCreate';
@@ -170,6 +171,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
             variant?: string;
             prompt: string;
           }> = [];
+          const retainedPiSessionIDs = new Set<string>();
 
           const commandsToRun = setupCommands?.filter((cmd) => cmd.trim().length > 0) ?? [];
 
@@ -266,6 +268,9 @@ export const useMultiRunStore = create<MultiRunStore>()(
                   prompt,
                 });
               } catch (err) {
+                if (model.providerID === 'pi' && err instanceof RetainedSessionError) {
+                  retainedPiSessionIDs.add(err.recovery.sessionID);
+                }
                 console.warn('[MultiRun] Failed to create session:', err);
               }
             }
@@ -280,9 +285,13 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
           const sessionIds = createdRuns.map((r) => r.sessionId);
           const firstSessionId = createdRuns[0]?.sessionId ?? null;
+          const retainedPiSessions = Array.from(retainedPiSessionIDs);
 
           if (sessionIds.length === 0) {
-            set({ error: 'Failed to create any sessions', isLoading: false });
+            const retainedDetail = retainedPiSessions.length > 0
+              ? `. Retained Pi sessions: ${retainedPiSessions.join(', ')}`
+              : '';
+            set({ error: `Failed to create any sessions${retainedDetail}`, isLoading: false });
             return null;
           }
 
@@ -320,7 +329,15 @@ export const useMultiRunStore = create<MultiRunStore>()(
             }
           })();
 
-          set({ isLoading: false });
+          if (retainedPiSessions.length > 0) {
+            set({
+              error: `Created ${sessionIds.length} of ${groups.reduce((count, group) => count + group.models.length, 0)} sessions. Retained Pi sessions: ${retainedPiSessions.join(', ')}`,
+              isLoading: false,
+            });
+            return null;
+          }
+
+          set({ error: null, isLoading: false });
           return { groupSlug, sessionIds, firstSessionId };
         } catch (error) {
           set({

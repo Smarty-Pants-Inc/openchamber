@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { togglePermissionAutoAccept } from "../../components/chat/permissionAutoAccept"
+import { RetainedSessionError } from "@/lib/retainedSessionError"
 
 const storage = new Map<string, string>()
 const createSessionCalls: Array<{ title?: string; directory: string | null; parentID: string | null; providerID?: string; metadata?: unknown }> = []
@@ -10,6 +11,7 @@ let configVariantOverride: string | null | undefined
 // resolution reads it as the authoritative source, so the mock has to keep one.
 const sessionDirectoryRegistry = new Map<string, string>()
 let createdSessionDirectory: string | undefined
+let createSessionFailure: Error | null = null
 
 const getMockCalls = (fn: unknown): unknown[][] => ((fn as { mock?: { calls: unknown[][] } }).mock?.calls ?? [])
 
@@ -271,6 +273,7 @@ mock.module("../session-actions", () => ({
     selectionTransition?: "submitted-draft",
   ) => {
     createSessionCalls.push({ title, directory, parentID, providerID, metadata })
+    if (createSessionFailure) throw createSessionFailure
     const session = { id: "ses_issue_2039", directory: createdSessionDirectory ?? directory }
     const sessionDirectory = session.directory ?? null
     if (sessionDirectory) {
@@ -359,6 +362,7 @@ describe("issue 2039 draft auto-accept", () => {
     savedVariantCalls.length = 0
     configVariantOverride = undefined
     createdSessionDirectory = undefined
+    createSessionFailure = null
 
     useSessionUIStore.setState({
       currentSessionId: null,
@@ -371,6 +375,28 @@ describe("issue 2039 draft auto-accept", () => {
         target: "chat",
       },
     })
+  })
+
+  test("rethrows a retained session recovery from the draft lifecycle", async () => {
+    const retained = new RetainedSessionError("Pi session was retained", {
+      sessionID: "ses_retained",
+      directory: "/canonical/pi",
+      runtimeKey: "test-runtime",
+      cause: new Error("runtime changed"),
+      compensationError: new Error("delete was not confirmed"),
+    })
+    createSessionFailure = retained
+    useSessionUIStore.getState().openNewSessionDraft({ directoryOverride: "/requested/pi" })
+
+    let error: unknown
+    try {
+      await useSessionUIStore.getState().createSession("Pi session", "/requested/pi", null, "pi")
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBe(retained)
+
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true)
   })
 
   test("stores auto-accept in the draft and applies it when the session materializes", async () => {

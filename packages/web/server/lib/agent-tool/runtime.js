@@ -331,22 +331,27 @@ export const createAgentToolRuntime = (dependencies) => {
       const data = await executeAction(action, { ...payload.input, action }, payload.contextDirectory, options);
       return createResult({ ok: true, action, data });
     } catch (error) {
-      return createResult({
+      const result = {
         ok: false,
         action,
-        ...(error?.partial === true ? { data: {
-          partial: true,
-          partialAction: error.partialAction,
-          sessionId: error.sessionId,
-          directory: error.directory,
-          ...(error.worktree ? { worktree: error.worktree } : {}),
-          ...(error.sessionCleaned === true ? { sessionCleaned: true } : {}),
-        } } : {}),
         error: {
           message: error instanceof Error ? error.message : String(error),
           kind: Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 499 ? 'usage' : 'runtime',
         },
-      });
+      };
+      if (error?.partial === true) {
+        const data = {
+          partial: true,
+          partialAction: error.partialAction,
+          sessionId: error.sessionId,
+          directory: error.directory,
+        };
+        if (error.worktree) data.worktree = error.worktree;
+        if (error.sessionCleaned === true) data.sessionCleaned = true;
+        if (error.recovery !== undefined) data.recovery = error.recovery;
+        result.data = data;
+      }
+      return createResult(result);
     }
   };
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 import {
@@ -7,6 +8,7 @@ import {
   type PendingPiCreateDialog,
   usePiPendingCreateStore,
 } from '@/sync/pi-pending-create';
+import { Dialog } from '@/components/ui/dialog';
 import { PermissionCard } from './PermissionCard';
 import { QuestionCard } from './QuestionCard';
 
@@ -58,7 +60,10 @@ const PiPendingCreateDialogCard: React.FC<{
   if (dialog.method === 'confirm') {
     return (
       <PermissionCard
-        permission={toPiPendingCreatePermission(pending, dialog)}
+        permission={{
+          ...toPiPendingCreatePermission(pending, dialog),
+          id: `${pending.correlation}:${dialog.id}`,
+        }}
         onRespond={(response) => replyToPendingPiCreateDialog(pending.correlation, dialog.id, {
           confirmed: response !== 'reject',
         })}
@@ -93,14 +98,21 @@ export const PiPendingCreateDialogs: React.FC = () => {
   if (cards.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-20 overflow-y-auto bg-background/95 px-3 py-4 backdrop-blur-sm">
-      {cards.map(({ pending, dialog }) => (
-        <PiPendingCreateDialogCard
-          key={`${pending.correlation}:${dialog.id}`}
-          pending={pending}
-          dialog={dialog}
-        />
-      ))}
-    </div>
+    <Dialog open modal disablePointerDismissal>
+      <BaseDialog.Portal>
+        <BaseDialog.Backdrop className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-sm" />
+        <div className="fixed inset-0 z-[70] overflow-y-auto px-3 py-4">
+          <BaseDialog.Popup aria-label={cards[0].dialog.title} className="outline-none" initialFocus>
+            {cards.map(({ pending, dialog }) => (
+              <PiPendingCreateDialogCard
+                key={`${pending.correlation}:${dialog.id}`}
+                pending={pending}
+                dialog={dialog}
+              />
+            ))}
+          </BaseDialog.Popup>
+        </div>
+      </BaseDialog.Portal>
+    </Dialog>
   );
 };

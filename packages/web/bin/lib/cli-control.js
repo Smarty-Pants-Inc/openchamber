@@ -48,7 +48,9 @@ export const requestControlAction = async (port, action, input, options = {}) =>
   const partialDirectory = isPartial ? asNonEmptyString(body?.directory) : null;
   const partialWorktreePath = isPartial ? asNonEmptyString(body?.worktree?.path) : null;
   const partialWorktreeBranch = isPartial ? asNonEmptyString(body?.worktree?.branch) : null;
-  const partialSubject = body?.partialAction === 'goal-configured' ? 'Goal on session' : 'Forked session';
+  let partialSubject = 'Forked session';
+  if (body?.partialAction === 'goal-configured') partialSubject = 'Goal on session';
+  else if (action === 'session.create') partialSubject = 'New session';
   const worktreeRecovery = partialWorktreePath
     ? ` Worktree ${partialWorktreePath}${partialWorktreeBranch ? ` on ${partialWorktreeBranch}` : ''} requires recovery.`
     : '';

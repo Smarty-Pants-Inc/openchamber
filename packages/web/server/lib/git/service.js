@@ -1855,14 +1855,102 @@ const findBranchInUse = async (primaryWorktree, localBranchName, signal) => {
   }) || null;
 };
 
+const listWorktreeBootstrapDescendantPids = async (rootPid) => {
+  try {
+    const { stdout } = await execFileAsync('ps', ['-ax', '-o', 'pid=', '-o', 'ppid='], {
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    const childrenByParent = new Map();
+    for (const line of String(stdout || '').split(/\r?\n/)) {
+      const [pidText, parentPidText] = line.trim().split(/\s+/, 2);
+      const pid = Number(pidText);
+      const parentPid = Number(parentPidText);
+      if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(parentPid) || parentPid < 0) {
+        continue;
+      }
+      const children = childrenByParent.get(parentPid) || [];
+      children.push(pid);
+      childrenByParent.set(parentPid, children);
+    }
+
+    const descendants = [];
+    const pending = [rootPid];
+    const seen = new Set(pending);
+    while (pending.length > 0) {
+      const parentPid = pending.pop();
+      for (const pid of childrenByParent.get(parentPid) || []) {
+        if (seen.has(pid)) {
+          continue;
+        }
+        seen.add(pid);
+        descendants.push(pid);
+        pending.push(pid);
+      }
+    }
+    return descendants;
+  } catch {
+    return [];
+  }
+};
+
+const waitForWorktreeBootstrapPidsToExit = async (pids) => {
+  while (pids.some((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return error?.code === 'EPERM';
+    }
+  })) {
+    await wait(25);
+  }
+};
+
+const terminateWorktreeStartCommand = async (child) => {
+  const pid = Number(child?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    await execFileAsync('taskkill', ['/pid', String(pid), '/t', '/f'], {
+      windowsHide: true,
+    }).catch(() => undefined);
+    return;
+  }
+
+  const pids = [pid, ...await listWorktreeBootstrapDescendantPids(pid)];
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+  }
+  for (const descendantPid of pids.slice(1)) {
+    try {
+      process.kill(descendantPid, 'SIGKILL');
+    } catch {
+    }
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+  }
+  await waitForWorktreeBootstrapPidsToExit(pids);
+};
+
 const runWorktreeStartCommand = async (directory, command, signal) => {
   const text = String(command || '').trim();
   if (!text) {
     return { success: true };
   }
 
-  const controller = new AbortController();
-  const abort = () => controller.abort();
+  let child;
+  let termination;
+  const abort = () => {
+    if (child && !termination) {
+      termination = terminateWorktreeStartCommand(child).catch(() => undefined);
+    }
+  };
   if (signal?.aborted) {
     abort();
   } else {
@@ -1872,14 +1960,26 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
   const executable = process.platform === 'win32' ? 'cmd' : 'bash';
   const args = process.platform === 'win32' ? ['/c', text] : ['-lc', text];
   try {
-    const { stdout, stderr } = await buildGitEnv().then((env) => execFileAsync(executable, args, {
-      cwd: directory,
-      env,
-      signal: controller.signal,
-      windowsHide: true,
-      maxBuffer: 20 * 1024 * 1024,
-      killSignal: 'SIGKILL',
-    }));
+    const env = await buildGitEnv();
+    throwIfWorktreeBootstrapCancelled(signal);
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      child = execFile(executable, args, {
+        cwd: directory,
+        env,
+        windowsHide: true,
+        maxBuffer: 20 * 1024 * 1024,
+        detached: process.platform !== 'win32',
+      }, (error, commandStdout, commandStderr) => {
+        if (error) {
+          reject(Object.assign(error, { stdout: commandStdout, stderr: commandStderr }));
+          return;
+        }
+        resolve({ stdout: commandStdout, stderr: commandStderr });
+      });
+      if (signal?.aborted) {
+        abort();
+      }
+    });
     return { success: true, stdout, stderr };
   } catch (error) {
     return {
@@ -1889,6 +1989,12 @@ const runWorktreeStartCommand = async (directory, command, signal) => {
       message: parseGitErrorText(error),
     };
   } finally {
+    if (signal?.aborted) {
+      abort();
+    }
+    if (termination) {
+      await termination;
+    }
     signal?.removeEventListener('abort', abort);
   }
 };

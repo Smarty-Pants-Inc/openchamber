@@ -221,11 +221,13 @@ const getLinkedReviewID = (session: Session | undefined): string | undefined => 
 const originalClientMethods = {
   createSession: opencodeClient.createSession,
   getSession: opencodeClient.getSession,
+  sendMessage: opencodeClient.sendMessage,
 };
 
 afterEach(() => {
   opencodeClient.createSession = originalClientMethods.createSession;
   opencodeClient.getSession = originalClientMethods.getSession;
+  opencodeClient.sendMessage = originalClientMethods.sendMessage;
   boundOperationFactory = () => {
     throw new Error('bound review transport fixture is not installed');
   };
@@ -695,6 +697,50 @@ describe('reviewFlow linked counterpart routing', () => {
     ]);
   });
 
+  test('rechecks and passes captured runtime authority after send preflight', async () => {
+    const original = makeSession('original-preflight', {}, '/canonical/original');
+    const review = makeSession('review-preflight', {
+      openchamber: { kind: 'review', originalSessionID: original.id, agent_backend: 'pi' },
+    }, '/canonical/review');
+    const sessions = new Map([[original.id, original], [review.id, review]]);
+    useGlobalSessionsStore.getState().applySnapshot([original, review], []);
+    opencodeClient.getSession = mock(async (sessionID: string, directory?: string | null): Promise<Session> => {
+      const session = sessions.get(sessionID);
+      if (!session || directory !== session.directory) throw new Error('session.get failed (404)');
+      return session;
+    });
+    const sentRuntimeKeys: Array<string | undefined> = [];
+    opencodeClient.sendMessage = mock(async (params: { runtimeKey?: string }): Promise<string> => {
+      sentRuntimeKeys.push(params.runtimeKey);
+      return 'message-sent';
+    });
+    optimisticSendImpl = async (input) => {
+      optimisticSendCalls.push(input);
+      input.onMessageID?.('message-sent');
+      await input.send('message-sent', []);
+    };
+    let switchDuringPreflight = false;
+    reviewLinkFetchImpl = async () => {
+      if (switchDuringPreflight) {
+        switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' });
+      }
+      return new Response(JSON.stringify({ authorized: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    await sendReviewFeedbackToOriginal(review.id, '/canonical/review', 'fix this', 'runtime-a');
+    expect(sentRuntimeKeys).toEqual(['runtime-a']);
+
+    switchDuringPreflight = true;
+    await expect(sendReviewFeedbackToOriginal(
+      review.id,
+      '/canonical/review',
+      'fix this',
+      'runtime-a',
+    )).rejects.toThrow('runtime changed');
+    expect(sentRuntimeKeys).toEqual(['runtime-a']);
+  });
   test('gets and sends implementation responses in the review session authoritative directory', async () => {
     const { getCalls } = installReviewTransactionClient({
       existingBackend: 'pi',

@@ -60,4 +60,32 @@ describe('requestControlAction recovery errors', () => {
       globalThis.fetch = originalFetch;
     }
   });
+  it('labels a retained create partial as a new session', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: 'Prompt dispatch failed',
+        partial: true,
+        partialAction: 'session-retained',
+        sessionId: 'ses_new',
+        directory: '/repo/app',
+      }),
+    });
+    try {
+      let error;
+      try {
+        await requestControlAction(54_321, 'session.create', {});
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain('New session ses_new remains available in /repo/app.');
+      expect(error.message).not.toContain('Forked session');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
 });

@@ -121,6 +121,23 @@ describe('session backend policy conformance', () => {
     );
   });
 
+  it.each([
+    ['send', resolveSessionSend],
+    ['fork', resolveSessionForkSource],
+  ])('rejects managed metadata against native history for %s while allowing empty history', (_action, resolve) => {
+    for (const backend of ['pi', 'omp']) {
+      expect(resolve({
+        session: session(backend),
+        historyBackendClass: null,
+      })).toEqual({ backend, backfillBackend: null });
+      expectPolicyError(
+        () => resolve({ session: session(backend), historyBackendClass: 'native' }),
+        'managed-backend-change',
+        'Managed Pi/OMP session backend cannot be changed',
+      );
+    }
+  });
+
   it('keeps fork source, target, review, and child-stamp decisions unchanged', () => {
     expect(resolveSessionForkSource({
       session: session(null),

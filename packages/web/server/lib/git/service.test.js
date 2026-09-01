@@ -844,6 +844,77 @@ describe('createWorktree', () => {
     }
   }, 10_000);
 
+  it('kills a detached bootstrap grandchild before rollback removes the worktree', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupStarted = path.join(dataHome, 'detached-bootstrap-started');
+    const lateWrite = path.join(dataHome, 'detached-bootstrap-survived');
+    const grandchildScript = path.join(dataHome, 'detached-bootstrap-grandchild.cjs');
+    const setupScript = path.join(dataHome, 'detached-bootstrap-parent.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(
+      grandchildScript,
+      "const fs = require('node:fs'); setTimeout(() => fs.writeFileSync(process.argv[2], 'survived'), 1000);\n",
+    );
+    fs.writeFileSync(
+      setupScript,
+      [
+        "const fs = require('node:fs');",
+        "const { spawn } = require('node:child_process');",
+        `const child = spawn(process.execPath, [${JSON.stringify(grandchildScript)}, ${JSON.stringify(lateWrite)}], { detached: true, stdio: 'ignore' });`,
+        'child.unref();',
+        `fs.writeFileSync(${JSON.stringify(setupStarted)}, 'started');`,
+        'setTimeout(() => {}, 2000);',
+      ].join('\n'),
+    );
+
+    let createdPath = '';
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const initialHead = runGit(repo, ['rev-parse', 'HEAD']).trim();
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/detached-bootstrap-cancel',
+        worktreeName: 'detached-bootstrap-cancel',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+      createdPath = created.path;
+
+      await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
+      await expect(cancelWorktreeBootstrap(created.path)).resolves.toMatchObject({
+        settled: true,
+        safeToRemove: true,
+        currentHead: initialHead,
+      });
+      await expect(removeWorktree(repo, {
+        directory: created.path,
+        deleteLocalBranch: true,
+        expectedBranch: 'feature/detached-bootstrap-cancel',
+        expectedHead: initialHead,
+        requireClean: true,
+      })).resolves.toBe(true);
+      createdPath = '';
+
+      await new Promise((resolve) => setTimeout(resolve, 1_250));
+      expect(fs.existsSync(lateWrite)).toBe(false);
+    } finally {
+      if (createdPath) {
+        await cancelWorktreeBootstrap(createdPath).catch(() => undefined);
+      }
+      restoreEnvironmentValue('XDG_DATA_HOME', previousXdgDataHome);
+    }
+  }, 10_000);
+
   it('publishes exact attachment identity before post-add cancellation', async () => {
     if (!canRunGit() || process.platform === 'win32') return;
 

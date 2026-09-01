@@ -1,13 +1,73 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { PendingPiCreate, PendingPiCreateDialog } from '@/sync/pi-pending-create';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { PermissionRequest, PermissionResponse } from '@/types/permission';
+import type { PendingPiCreate, PendingPiCreateDialog, PiCreateDialogReply } from '@/sync/pi-pending-create';
 
-mock.module('./PermissionCard', () => ({ PermissionCard: () => null }));
+type PermissionCardCall = {
+  permission: PermissionRequest;
+  onRespond?: (response: PermissionResponse) => Promise<void>;
+};
+
+type PendingCreateStoreState = {
+  pendingCreates: Record<string, PendingPiCreate>;
+};
+
+let pendingCreateStoreState: PendingCreateStoreState = { pendingCreates: {} };
+const permissionCardCalls: PermissionCardCall[] = [];
+const replies: Array<{ correlation: string; dialogID: string; reply: PiCreateDialogReply }> = [];
+let dialogProps: { open?: boolean; modal?: boolean; disablePointerDismissal?: boolean } | null = null;
+let popupProps: { ariaLabel?: string; initialFocus?: boolean } | null = null;
+let portalRenderCount = 0;
+
+mock.module('@/sync/pi-pending-create', () => ({
+  replyToPendingPiCreateDialog: async (correlation: string, dialogID: string, reply: PiCreateDialogReply) => {
+    replies.push({ correlation, dialogID, reply });
+  },
+  usePiPendingCreateStore: <T,>(selector: (state: PendingCreateStoreState) => T): T => (
+    selector(pendingCreateStoreState)
+  ),
+}));
+mock.module('@/components/ui/dialog', () => ({
+  Dialog: ({ children, ...props }: { children?: React.ReactNode; open?: boolean; modal?: boolean; disablePointerDismissal?: boolean }) => {
+    dialogProps = props;
+    return React.createElement(React.Fragment, null, children);
+  },
+}));
+mock.module('@base-ui/react/dialog', () => ({
+  Dialog: {
+    Portal: ({ children }: { children?: React.ReactNode }) => {
+      portalRenderCount += 1;
+      return React.createElement(React.Fragment, null, children);
+    },
+    Backdrop: ({ className }: { className?: string }) => React.createElement('div', { className }),
+    Popup: ({ children, 'aria-label': ariaLabel, initialFocus }: { children?: React.ReactNode; 'aria-label'?: string; initialFocus?: boolean }) => {
+      popupProps = { ariaLabel, initialFocus };
+      return React.createElement(React.Fragment, null, children);
+    },
+  },
+}));
+mock.module('./PermissionCard', () => ({
+  PermissionCard: (props: PermissionCardCall) => {
+    permissionCardCalls.push(props);
+    return null;
+  },
+}));
 mock.module('./QuestionCard', () => ({ QuestionCard: () => null }));
 // The card modules load browser-only workers, so mock them before loading this presentation boundary.
-const { toPiPendingCreatePermission, toPiPendingCreateQuestion } = await import('./PiPendingCreateDialogs');
+const { PiPendingCreateDialogs, toPiPendingCreatePermission, toPiPendingCreateQuestion } = await import('./PiPendingCreateDialogs');
+
+beforeEach(() => {
+  pendingCreateStoreState = { pendingCreates: {} };
+  permissionCardCalls.length = 0;
+  replies.length = 0;
+  dialogProps = null;
+  popupProps = null;
+  portalRenderCount = 0;
+});
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(join(__dirname, '..', '..', 'App.tsx'), 'utf-8');
@@ -71,6 +131,44 @@ describe('Pi pending create dialog presentation', () => {
         ],
       }],
     });
+  });
+
+  test('uses a top-level modal portal and unique permission keyboard identity per pending create', async () => {
+    const dialog: Extract<PendingPiCreateDialog, { method: 'confirm' }> = {
+      type: 'extension_ui_request',
+      id: 'confirm-1',
+      method: 'confirm',
+      title: 'Use this directory?',
+      message: 'The extension needs confirmation.',
+      observedAt: 1,
+    };
+    pendingCreateStoreState = {
+      pendingCreates: {
+        'correlation-a': { ...pending, correlation: 'correlation-a', dialogs: [dialog] },
+        'correlation-b': { ...pending, correlation: 'correlation-b', dialogs: [dialog] },
+      },
+    };
+
+    const markup = renderToStaticMarkup(React.createElement(PiPendingCreateDialogs));
+
+    expect(dialogProps).toEqual({ open: true, modal: true, disablePointerDismissal: true });
+    expect(portalRenderCount).toBe(1);
+    expect(popupProps).toEqual({ ariaLabel: 'Use this directory?', initialFocus: true });
+    expect(markup.match(/z-\[70\]/g)).toHaveLength(2);
+    expect(permissionCardCalls.map(({ permission }) => permission.id)).toEqual([
+      'correlation-a:confirm-1',
+      'correlation-b:confirm-1',
+    ]);
+
+    const onRespond = permissionCardCalls[0]?.onRespond;
+    if (!onRespond) throw new Error('Expected a permission response handler');
+    await onRespond('once');
+
+    expect(replies).toEqual([{
+      correlation: 'correlation-a',
+      dialogID: 'confirm-1',
+      reply: { confirmed: true },
+    }]);
   });
 
   test('mounts exactly one global presenter in every session-creating shell', () => {

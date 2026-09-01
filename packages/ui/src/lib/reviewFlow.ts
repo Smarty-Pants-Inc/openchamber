@@ -365,7 +365,8 @@ const sendPlainMessage = async (
   additionalParts?: Array<{ text: string; synthetic?: boolean }>,
   expectedRuntimeKey?: string,
 ): Promise<string> => {
-  assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
+  const runtimeKey = expectedRuntimeKey ?? getRuntimeKey();
+  assertAutoReviewRuntimeStillCurrent(runtimeKey);
   const resolved = modelContext ?? resolveModelContext(sessionID);
   if (!resolved) throw new Error('Select a model before sending review flow messages');
   const selection = useSelectionStore.getState();
@@ -378,6 +379,7 @@ const sendPlainMessage = async (
   markPendingUserSendAnimation(sessionID);
   let sentMessageID: string | null = null;
   await optimisticSend({
+    runtimeKey,
     sessionId: sessionID,
     content: text,
     directory,
@@ -387,26 +389,30 @@ const sendPlainMessage = async (
     onMessageID: (messageID) => {
       sentMessageID = messageID;
     },
-    beforeOptimisticInsert: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
+    beforeOptimisticInsert: () => assertAutoReviewRuntimeStillCurrent(runtimeKey),
     onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
     send: (messageID, optimisticParts) => {
-      assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
+      assertAutoReviewRuntimeStillCurrent(runtimeKey);
       return withSessionSendPreflight({
         sessionId: sessionID,
         directory,
         providerID: resolved.providerID,
-      }, () => opencodeClient.sendMessage({
-        id: sessionID,
-        directory,
-        providerID: resolved.providerID,
-        modelID: resolved.modelID,
-        agent: resolved.agent,
-        variant: resolved.variant,
-        text,
-        textPartId: getOptimisticTextPartID(optimisticParts),
-        additionalParts,
-        messageId: messageID,
-      }).then(() => undefined));
+      }, () => {
+        assertAutoReviewRuntimeStillCurrent(runtimeKey);
+        return opencodeClient.sendMessage({
+          runtimeKey,
+          id: sessionID,
+          directory,
+          providerID: resolved.providerID,
+          modelID: resolved.modelID,
+          agent: resolved.agent,
+          variant: resolved.variant,
+          text,
+          textPartId: getOptimisticTextPartID(optimisticParts),
+          additionalParts,
+          messageId: messageID,
+        }).then(() => undefined);
+      });
     },
   });
   if (!sentMessageID) throw new Error('Failed to prepare review flow message');

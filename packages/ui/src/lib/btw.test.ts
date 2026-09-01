@@ -454,34 +454,53 @@ describe('startBtwSession', () => {
 describe('destroyBtwSession', () => {
   const ref = { parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' };
 
-  test('unlinks the parent and deletes the fork', async () => {
+  test('deletes through the bound operation before unlinking and clearing the panel', async () => {
     const deleted: string[] = [];
     deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
+
     expect(await destroyBtwSession(ref)).toBe(true);
-    expect(metadataPatches).toEqual([{ sessionId: 'parent-1', result: {} }]);
+
     expect(deleted).toEqual(['fork-1']);
+    expect(boundDeleteCalls).toEqual([{ sessionId: 'fork-1', directory: '/project' }]);
+    expect(deleteSessionCalls).toEqual([]);
+    expect(metadataPatches).toEqual([{ sessionId: 'parent-1', result: {} }]);
+    expect(finalizedDeletionCalls).toEqual([{ sessionId: 'fork-1', directory: '/project' }]);
     expect(useBtwStore.getState().byParent).toEqual({});
+    expect(releaseCalls).toBe(1);
   });
 
-  test('reports an unconfirmed delete and still cleans UI state', async () => {
+  test('keeps an unconfirmed fork linked and visible', async () => {
     deleteSessionImpl = () => Promise.resolve(false);
+
     expect(await destroyBtwSession(ref)).toBe(false);
-    expect(useBtwStore.getState().byParent).toEqual({});
+
+    expect(metadataPatches).toEqual([]);
+    expect(finalizedDeletionCalls).toEqual([]);
+    expect(useBtwStore.getState().byParent).toEqual({
+      'parent-1': { destroying: false },
+    });
+    expect(releaseCalls).toBe(1);
   });
 
-  test('a failed unlink still attempts the delete', async () => {
+  test('surfaces a failed parent cleanup after confirmed deletion', async () => {
     patchSessionMetadataImpl = () => Promise.reject(new Error('patch failed'));
     const deleted: string[] = [];
     deleteSessionImpl = (sessionId) => { deleted.push(sessionId); return Promise.resolve(true); };
-    expect(await destroyBtwSession(ref)).toBe(true);
+
+    expect(await destroyBtwSession(ref)).toBe(false);
+
     expect(deleted).toEqual(['fork-1']);
+    expect(finalizedDeletionCalls).toEqual([]);
+    expect(useBtwStore.getState().byParent).toEqual({
+      'parent-1': { destroying: false },
+    });
   });
 });
 
 describe('promoteBtwSession', () => {
   const ref = { parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' };
 
-  test('unlinks the parent, strips the marker, and navigates to the fork', async () => {
+  test('confirms marker cleanup, then unlinks and navigates to the promoted fork', async () => {
     patchSessionMetadataImpl = (sessionId, _directory, updater) => {
       const base = sessionId === 'fork-1'
         ? { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-1' } }
@@ -494,15 +513,40 @@ describe('promoteBtwSession', () => {
     await promoteBtwSession(ref);
 
     expect(metadataPatches).toEqual([
-      { sessionId: 'parent-1', result: {} },
       { sessionId: 'fork-1', result: {} },
+      { sessionId: 'parent-1', result: {} },
     ]);
+    expect(publishedSessions.map(({ session }) => session.id)).toEqual(['fork-1', 'parent-1']);
     expect(currentSessionSwitches).toEqual(['fork-1']);
+    expect(releaseCalls).toBe(1);
   });
 
-  test('a failed unlink aborts the promote without navigating', async () => {
+  test('keeps the existing panel state when marker cleanup fails', async () => {
+    useBtwStore.setState({ byParent: { 'parent-1': { collapsed: true } } });
     patchSessionMetadataImpl = () => Promise.reject(new Error('patch failed'));
+
     await expect(promoteBtwSession(ref)).rejects.toThrow('patch failed');
+
+    expect(metadataPatches).toEqual([]);
     expect(currentSessionSwitches).toEqual([]);
+    expect(useBtwStore.getState().byParent).toEqual({
+      'parent-1': { collapsed: true },
+    });
+    expect(releaseCalls).toBe(1);
+  });
+
+  test('does not unlink or navigate after runtime authority changes mid-promote', async () => {
+    patchSessionMetadataImpl = (sessionId, _directory, updater) => {
+      const result = updater({ openchamber: { kind: 'btw', originalSessionID: 'parent-1' } });
+      metadataPatches.push({ sessionId, result });
+      assertOperationCurrentImpl = () => { throw new Error('runtime changed'); };
+      return Promise.resolve(makeSession(sessionId));
+    };
+
+    await expect(promoteBtwSession(ref)).rejects.toThrow('runtime changed');
+
+    expect(metadataPatches).toEqual([{ sessionId: 'fork-1', result: {} }]);
+    expect(currentSessionSwitches).toEqual([]);
+    expect(releaseCalls).toBe(1);
   });
 });

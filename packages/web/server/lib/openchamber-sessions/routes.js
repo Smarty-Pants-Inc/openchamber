@@ -452,13 +452,24 @@ const stampForkedSessionBackend = async ({ client, session, directory, sourceBac
   return { ...session, ...mutation.session, directory };
 };
 
-const createSession = async ({ baseUrl, authHeaders, directory, title, providerID, signal }) => {
+const createSession = async ({ baseUrl, authHeaders, directory, title, model, agent, variant, includeSelection = false, signal }) => {
   throwIfAborted(signal);
-  if (providerID === 'pi') throw createInteractivePiRequiredError();
+  if (model?.providerID === 'pi') throw createInteractivePiRequiredError();
   const sessionUrl = new URL(`${baseUrl}/session`);
   sessionUrl.searchParams.set('directory', directory);
   // This POST has no idempotency key. Let it finish if the HTTP caller goes
   // away, then the surrounding create flow can compensate the known session.
+  const sessionBody = { directory };
+  if (title) sessionBody.title = title;
+  if (includeSelection && agent) sessionBody.agent = agent;
+  if (includeSelection && model) {
+    sessionBody.model = {
+      id: model.modelID,
+      providerID: model.providerID,
+    };
+    if (variant) sessionBody.model.variant = variant;
+  }
+  sessionBody.metadata = withAgentBackendMetadata(undefined, model?.providerID);
   const response = await fetch(sessionUrl.toString(), {
     method: 'POST',
     headers: {
@@ -467,11 +478,7 @@ const createSession = async ({ baseUrl, authHeaders, directory, title, providerI
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({
-      directory,
-      ...(title ? { title } : {}),
-      metadata: withAgentBackendMetadata(undefined, providerID),
-    }),
+    body: JSON.stringify(sessionBody),
   });
 
   if (!response.ok) {
@@ -934,6 +941,10 @@ export const createOpenChamberSessionService = (dependencies) => {
     const model = resolveRequestedModel(payload);
     const agent = asNonEmptyString(payload.agent);
     const variant = asNonEmptyString(payload.variant);
+    const hasExplicitModel = payload?.model !== undefined
+      || payload?.providerID !== undefined
+      || payload?.modelID !== undefined;
+    const hasExplicitSelection = hasExplicitModel || agent !== null || variant !== null;
 
     const resolvedDirectory = await resolveRequestedDirectory({
       payload,
@@ -944,6 +955,13 @@ export const createOpenChamberSessionService = (dependencies) => {
     if (!resolvedDirectory.ok) {
       throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
     }
+    if (!prompt && hasExplicitModel && !model) {
+      throw new OpenChamberControlError('model must be provider/model or provide both providerID and modelID', 400);
+    }
+    if (!prompt && variant && !model) {
+      throw new OpenChamberControlError('variant requires model', 400);
+    }
+    if (!prompt && model?.providerID === 'pi') throw createInteractivePiRequiredError();
     throwIfAborted(signal);
 
     const worktreeInput = resolveWorktreeInput(payload);
@@ -970,14 +988,18 @@ export const createOpenChamberSessionService = (dependencies) => {
       client = createOpencodeClient({ baseUrl, headers: authHeaders });
     };
 
-    let resolvedPromptSelection = null;
-    if (prompt && !worktreeInput) {
+    if (hasExplicitSelection && (!prompt || !worktreeInput)) {
       await validateRequestedSelection({
         directory: resolvedDirectory.directory,
         requestedModel: model,
         requestedAgent: agent,
         requestedVariant: variant,
       });
+      throwIfAborted(signal);
+    }
+
+    let resolvedPromptSelection = null;
+    if (prompt && !worktreeInput) {
       resolvedPromptSelection = await resolvePromptSelection({
         client,
         authHeaders,
@@ -1109,14 +1131,14 @@ export const createOpenChamberSessionService = (dependencies) => {
         throwIfAborted(signal);
         await waitForWorktreeBootstrapReady({ directory: worktreeDirectory, signal });
         await refreshOpenCodeConnection();
+        await validateRequestedSelection({
+          directory: sessionRequestDirectory,
+          requestedModel: model,
+          requestedAgent: agent,
+          requestedVariant: variant,
+        });
+        throwIfAborted(signal);
         if (prompt) {
-          await validateRequestedSelection({
-            directory: sessionRequestDirectory,
-            requestedModel: model,
-            requestedAgent: agent,
-            requestedVariant: variant,
-          });
-          throwIfAborted(signal);
           resolvedPromptSelection = await resolvePromptSelection({
             client,
             authHeaders,
@@ -1136,7 +1158,10 @@ export const createOpenChamberSessionService = (dependencies) => {
         authHeaders,
         directory: sessionRequestDirectory,
         ...(title ? { title } : {}),
-        providerID: resolvedPromptSelection?.model.providerID ?? model?.providerID,
+        model: resolvedPromptSelection?.model ?? model,
+        agent: resolvedPromptSelection?.agent ?? agent,
+        variant: resolvedPromptSelection?.variant ?? variant,
+        includeSelection: !prompt,
         signal,
       });
       createdSessionID = createdSession.id;
@@ -1183,32 +1208,33 @@ export const createOpenChamberSessionService = (dependencies) => {
         ...(resolvedDirectory.projectId ? { projectId: resolvedDirectory.projectId } : {}),
         ...(title ? { title } : {}),
         ...(worktree ? { worktree } : {}),
-        ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
-        ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
-        ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
         promptDispatched: dispatch.promptDispatched,
         ...(dispatch.promptError ? { promptError: dispatch.promptError } : {}),
         dispatchedAsCommand: dispatch.dispatchedAsCommand,
         ...(goalInput.enabled ? { goalEnabled: true } : {}),
         ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
       };
+      if (dispatch.model) result.model = dispatch.model;
+      if (dispatch.agent) result.agent = dispatch.agent;
+      if (dispatch.variant) result.variant = dispatch.variant;
 
       try {
-        emitSessionCreatedEvent?.({
+        const createdEvent = {
           sessionID,
           directory: sessionDirectory,
           ...(resolvedDirectory.projectId ? { projectID: resolvedDirectory.projectId } : {}),
           ...(title ? { title } : {}),
           ...(worktree ? { worktree } : {}),
-          ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
-          ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
-          ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
           promptDispatched: dispatch.promptDispatched,
           dispatchedAsCommand: dispatch.dispatchedAsCommand,
           ...(goalInput.enabled ? { goalEnabled: true } : {}),
           ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
           createdAt: Date.now(),
-        });
+        };
+        if (dispatch.model) createdEvent.model = dispatch.model;
+        if (dispatch.agent) createdEvent.agent = dispatch.agent;
+        if (dispatch.variant) createdEvent.variant = dispatch.variant;
+        emitSessionCreatedEvent?.(createdEvent);
       } catch {
       }
 

@@ -304,35 +304,71 @@ export const adoptBtwNewestPageAuthority = (
 
 
 /**
- * Destroy the temporary fork. The panel disappears immediately (optimistic
- * `destroying` flag); the parent is unlinked and the fork deleted in the
- * background. Resolves `false` when the server could not confirm deletion —
- * the fork then remains in the sidebar and the caller should surface that.
+ * Destroy the temporary fork only after the bound runtime confirms deletion.
+ * An unconfirmed delete leaves the server-backed parent link intact so the
+ * surviving fork remains available to the user.
  */
 export async function destroyBtwSession(ref: BtwSessionRef): Promise<boolean> {
   const { setPanelState, clearPanelState } = useBtwStore.getState();
   setPanelState(ref.parentSessionId, { destroying: true });
+  const operation = sessionActions.bindSessionOperation();
+  let confirmed = false;
   try {
-    // deleteSession's metadata cleanup also unlinks the parent; doing it first
-    // makes the panel close authoritative even if the delete then fails.
-    await sessionActions.patchSessionMetadata(ref.parentSessionId, ref.directory, (metadata) =>
-      withoutBtwSessionLink(metadata, ref.btwSessionId)).catch(() => undefined);
-    return await sessionActions.deleteSession(ref.btwSessionId);
-  } finally {
+    operation.assertCurrent();
+    const deleted = await operation.delete(ref.btwSessionId, ref.directory);
+    operation.assertCurrent();
+    if (!deleted) return false;
+
+    const parent = await operation.patchMetadata(ref.parentSessionId, ref.directory, (metadata) => (
+      withoutBtwSessionLink(metadata, ref.btwSessionId)
+    ));
+    operation.assertCurrent();
+    if (getBtwSessionID(parent) === ref.btwSessionId) {
+      throw new Error('Failed to confirm removal of the BTW link');
+    }
+
+    operation.publish(parent, ref.directory);
+    operation.finalizeDeletion(ref.btwSessionId, ref.directory);
+    confirmed = true;
     clearPanelState(ref.parentSessionId);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    operation.release();
+    if (!confirmed) setPanelState(ref.parentSessionId, { destroying: false });
   }
 }
 
 /**
- * Keep the fork as a normal session: unlink it from the parent, drop its btw
- * marker, and navigate to it. The conversation continues there as a regular
- * session.
+ * Keep the fork as a normal session. The marker is removed before the parent
+ * link so a failed cleanup leaves the original linked fork usable.
  */
 export async function promoteBtwSession(ref: BtwSessionRef): Promise<void> {
-  await sessionActions.patchSessionMetadata(ref.parentSessionId, ref.directory, (metadata) =>
-    withoutBtwSessionLink(metadata, ref.btwSessionId));
-  await sessionActions.patchSessionMetadata(ref.btwSessionId, ref.directory, withoutBtwSessionMarker)
-    .catch(() => undefined);
-  useBtwStore.getState().clearPanelState(ref.parentSessionId);
-  useSessionUIStore.getState().setCurrentSession(ref.btwSessionId);
+  const operation = sessionActions.bindSessionOperation();
+  try {
+    operation.assertCurrent();
+    const promotedFork = await operation.patchMetadata(
+      ref.btwSessionId,
+      ref.directory,
+      withoutBtwSessionMarker,
+    );
+    operation.assertCurrent();
+    if (isBtwSession(promotedFork)) throw new Error('Failed to confirm BTW promotion');
+
+    const parent = await operation.patchMetadata(ref.parentSessionId, ref.directory, (metadata) => (
+      withoutBtwSessionLink(metadata, ref.btwSessionId)
+    ));
+    operation.assertCurrent();
+    if (getBtwSessionID(parent) === ref.btwSessionId) {
+      throw new Error('Failed to confirm removal of the BTW link');
+    }
+
+    operation.publish(promotedFork, ref.directory);
+    operation.publish(parent, ref.directory);
+    useBtwStore.getState().clearPanelState(ref.parentSessionId);
+    useSessionUIStore.getState().setCurrentSession(ref.btwSessionId, ref.directory);
+  } finally {
+    operation.release();
+  }
 }

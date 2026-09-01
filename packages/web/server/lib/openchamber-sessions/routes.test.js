@@ -304,6 +304,43 @@ describe('openchamber session routes', () => {
     }
   });
 
+  it('persists a validated promptless selection with the created session', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url) => selectionInputResponse(url) || {
+      ok: true,
+      json: async () => createdSessionResponse(url),
+    });
+    globalThis.fetch = fetchMock;
+    try {
+      const { app } = createApp();
+      const response = await request(app)
+        .post('/api/openchamber/sessions')
+        .send({
+          directory: '/repo/app',
+          model: 'omp/gpt-5.5',
+          agent: 'plan',
+          variant: 'high',
+        })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        model: { providerID: 'omp', modelID: 'gpt-5.5' },
+        agent: 'plan',
+        variant: 'high',
+        promptDispatched: false,
+      });
+      const createCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/session?directory='));
+      expect(JSON.parse(createCall?.[1]?.body)).toEqual({
+        directory: '/repo/app',
+        agent: 'plan',
+        model: { id: 'gpt-5.5', providerID: 'omp', variant: 'high' },
+        metadata: { openchamber: { agent_backend: 'omp' } },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('fails closed when session creation omits its authoritative directory', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ id: 'ses_123' }) }));
@@ -342,6 +379,30 @@ describe('openchamber session routes', () => {
         .expect(409, { error: 'Pi session creation requires an interactive client to own startup dialogs' });
 
       expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each([
+    ['provider/model', { providerID: 'openai', modelID: 'gpt-nope' }, "Unknown model 'openai/gpt-nope' for /repo/app"],
+    ['agent', { agent: 'not-an-agent' }, "Unknown agent 'not-an-agent' for /repo/app"],
+    ['variant', { model: 'openai/gpt-5.5', variant: 'ultra' }, "Unknown variant 'ultra' for model 'openai/gpt-5.5'"],
+    ['variant without a model', { variant: 'high' }, 'variant requires model'],
+    ['incomplete provider/model', { providerID: 'openai' }, 'model must be provider/model or provide both providerID and modelID'],
+  ])('validates a promptless %s before creating a worktree or session', async (_name, selection, message) => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url) => selectionInputResponse(url));
+    globalThis.fetch = fetchMock;
+    try {
+      await expect(createSessionService().create({
+        directory: '/repo/app',
+        worktree: { name: 'side-task' },
+        ...selection,
+      })).rejects.toMatchObject({ statusCode: 400, message });
+
+      expect(createWorktreeMock).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/session?directory='))).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -453,6 +514,8 @@ describe('openchamber session routes', () => {
       expect(JSON.parse(createCall?.[1]?.body)).toMatchObject({
         metadata: { openchamber: { agent_backend: 'omp' } },
       });
+      expect(JSON.parse(createCall?.[1]?.body)).not.toHaveProperty('model');
+      expect(JSON.parse(createCall?.[1]?.body)).not.toHaveProperty('agent');
     } finally {
       globalThis.fetch = originalFetch;
     }
