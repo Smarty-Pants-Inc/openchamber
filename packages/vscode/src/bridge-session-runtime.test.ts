@@ -198,31 +198,30 @@ describe('VS Code OpenChamber session bridge', () => {
     });
   });
 
-  test('forks a proven Codex source only to Codex and stamps the child from source authority', async () => {
+  test('does not advertise or authorize Codex forks', async () => {
     const source: Session = { id: 'source', metadata: { openchamber: { agent_backend: 'codex' } } };
-    const fork: Session = { id: 'fork', directory: '/canonical/forks/fork', metadata: { keep: true, openchamber: {} } };
-    const updates: Array<{ sessionID: string; directory: string; metadata: Record<string, unknown> }> = [];
+    let forkCount = 0;
     const client = createClient({
-      get: async (input) => ({ data: input.sessionID === 'source' ? source : fork }),
-      update: async (input) => {
-        updates.push({ sessionID: input.sessionID, directory: input.directory, metadata: input.metadata });
-        fork.metadata = input.metadata;
-        return { data: fork };
+      get: async () => ({ data: source }),
+      fork: async () => {
+        forkCount += 1;
+        return { data: { id: 'unexpected', directory: '/repo', metadata: {} } };
       },
-      fork: async () => ({ data: fork }),
     });
+
+    const capability = await invoke(client, '/api/openchamber/sessions/source/fork-capability', {
+      directory: '/repo',
+    });
+    assert.equal(capability?.status, 200);
+    assert.deepEqual(decode(capability?.bodyText || '{}'), { supported: false });
 
     const response = await invoke(client, '/openchamber/sessions/source/fork-authorized', {
       directory: '/repo',
       providerID: 'codex',
     });
-
-    assert.equal(response?.status, 200);
-    assert.deepEqual(updates, [{
-      sessionID: 'fork',
-      directory: '/canonical/forks/fork',
-      metadata: { keep: true, openchamber: { agent_backend: 'codex' } },
-    }]);
+    assert.equal(response?.status, 409);
+    assert.deepEqual(decode(response?.bodyText || '{}'), { error: 'Codex sessions cannot be forked' });
+    assert.equal(forkCount, 0);
   });
 
   test('keeps a native child native for a nonmanaged target', async () => {

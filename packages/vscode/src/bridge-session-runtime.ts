@@ -347,7 +347,7 @@ const authorizeInteractiveSend = async (
 };
 
 
-type ForkSource = { backend: Exclude<ManagedBackend, 'pi'> | null };
+type ForkSource = { backend: 'omp' | null };
 
 const authorizeForkSource = async (
   client: SessionClient,
@@ -370,7 +370,7 @@ const authorizeForkSource = async (
   }, signal);
   assertSessionForkSourceBackend(mutation.result.backend);
   throwIfAborted(signal);
-  return { backend: mutation.result.backend === 'pi' ? null : mutation.result.backend };
+  return { backend: mutation.result.backend === 'omp' ? 'omp' : null };
 };
 
 
@@ -379,7 +379,7 @@ const stampForkedSessionBackend = async (
   client: SessionClient,
   session: SessionRecord,
   directory: string,
-  sourceBackend: Exclude<ManagedBackend, 'pi'> | null,
+  sourceBackend: 'omp' | null,
   signal?: AbortSignal,
 ): Promise<SessionRecord> => {
   if (!sourceBackend) return { ...session, directory };

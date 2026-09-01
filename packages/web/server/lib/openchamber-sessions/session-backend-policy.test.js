@@ -156,6 +156,13 @@ describe('session backend policy conformance', () => {
       'pi-session-fork',
       'Pi sessions cannot be forked',
     );
+    const legacyCodex = resolveSessionForkSource({ session: session(null), historyBackendClass: 'codex' });
+    expect(legacyCodex).toEqual({ backend: 'codex', backfillBackend: 'codex' });
+    expectPolicyError(
+      () => assertSessionForkSourceBackend(legacyCodex.backend),
+      'codex-session-fork',
+      'Codex sessions cannot be forked',
+    );
     expectPolicyError(
       () => authorizeSessionForkTarget({ sourceBackend: null, targetProviderID: 'pi' }),
       'pi-fork-target',
