@@ -52,6 +52,16 @@ export const getAgentBackendProviderID = (session: Session | null | undefined): 
   const value = getOpenChamberMetadata(getSessionMetadata(session)).agent_backend;
   return isAgentBackendProviderID(value) ? value : null;
 };
+export const isCodexManagedSession = (session: Session | null | undefined): boolean =>
+  getAgentBackendProviderID(session) === 'codex';
+
+export const isReadOnlyCodexSubagent = (session: Session | null | undefined): boolean =>
+  isCodexManagedSession(session) && getSessionMetadata(session).ompSubagent === true;
+
+export const isSessionShareSupported = (session: Session | null | undefined): boolean =>
+  getAgentBackendProviderID(session) === null
+  && (session as (Session & { model?: { providerID?: string } }) | null | undefined)?.model?.providerID !== 'omp';
+
 export const classifyRequestedAgentBackend = (providerID: string): RequestedAgentBackend =>
   isAgentBackendProviderID(providerID) ? providerID : 'native';
 

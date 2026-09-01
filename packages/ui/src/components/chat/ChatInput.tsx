@@ -18,8 +18,9 @@ import {
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue } from '@/lib/linkedIssues';
-import { useUserMessageHistory } from "@/sync/sync-context";
+import { useSession, useUserMessageHistory } from "@/sync/sync-context";
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
+import { isCodexManagedSession } from '@/lib/sessionReviewMetadata';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { startReviewFlow } from '@/lib/reviewFlow';
@@ -335,6 +336,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const currentSessionDirectoryForSync = useSessionUIStore(
         React.useCallback((s) => currentSessionId ? s.getDirectoryForSession(currentSessionId) : null, [currentSessionId]),
     );
+    const currentSession = useSession(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     // btw mode: the CURRENT session's metadata links an active btw fork and
     // the panel is expanded, so this composer's sends route to the fork
     // instead of the main session. Collapsed keeps the fork alive (chip stays
@@ -393,6 +395,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
 
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
+    const canUseShellCommands = currentSession
+        ? !isCodexManagedSession(currentSession)
+        : currentProviderId !== 'codex';
     const currentModelId = useConfigStore((state) => state.currentModelId);
     const getModelMetadata = useConfigStore((state) => state.getModelMetadata);
     // Subscribe to both sources read by getModelMetadata so async metadata and provider updates are observed.
@@ -1578,7 +1583,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Enter shell mode before CodeMirror inserts the trigger. Keeping the
         // document unchanged also keeps the caret at the start for the first
         // command character.
-        if (inputMode === 'normal' && e.key === '!') {
+        if (canUseShellCommands && inputMode === 'normal' && e.key === '!') {
             const selection = composerRef.current?.getSelection();
             if (selection?.start === 0 && selection.end === 0) {
                 e.preventDefault();
@@ -1911,7 +1916,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Mobile keyboards and paste may update the document without a usable
         // keydown, so consume the trigger in the same editor transaction rather
         // than moving the caret in a later frame against stale text.
-        if (inputMode === 'normal' && value.startsWith('!')) {
+        if (canUseShellCommands && inputMode === 'normal' && value.startsWith('!')) {
             const shellCommand = value.slice(1);
             const nextCursor = Math.max(0, selection.start - 1);
             setInputMode('shell');

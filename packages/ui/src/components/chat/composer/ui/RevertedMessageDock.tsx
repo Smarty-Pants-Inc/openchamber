@@ -16,13 +16,14 @@ import { useI18n } from '@/lib/i18n';
 import { isSyntheticPart } from '@/lib/messages/synthetic';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useDirectorySync } from '@/sync/sync-context';
+import { useDirectorySync, useSession } from '@/sync/sync-context';
 import {
     EMPTY_REVERTED_MESSAGE_DOCK_STATE,
     buildRevertedMessageDockState,
     type RevertedMessageDockState,
 } from '../../revertedMessageDockState';
 import { useChatSessionForkSupported } from '../../ChatSessionCapabilities';
+import { isCodexManagedSession } from '@/lib/sessionReviewMetadata';
 
 /**
  * A one-line preview of a reverted message: its text parts joined and
@@ -60,6 +61,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
     const sessionForkSupported = useChatSessionForkSupported();
+    const session = useSession(sessionId, directory);
     const [restoringId, setRestoringId] = React.useState<string | null>(null);
     const [forkingId, setForkingId] = React.useState<string | null>(null);
     const [collapsed, setCollapsed] = React.useState(true);
@@ -117,7 +119,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         }
     }, [forkFromMessage, forkingId, sessionId]);
 
-    if (!sessionId || items.length === 0) return null;
+    if (!sessionId || isCodexManagedSession(session) || items.length === 0) return null;
 
     return (
         <div className="pb-2 w-full px-1">
