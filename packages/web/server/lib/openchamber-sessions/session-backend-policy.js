@@ -141,6 +141,9 @@ export const assertSessionForkSourceBackend = (backend) => {
   if (backend === 'pi') {
     throw conflict('pi-session-fork', 'Pi sessions cannot be forked');
   }
+  if (backend === 'codex') {
+    throw conflict('codex-session-fork', 'Codex sessions cannot be forked');
+  }
 };
 
 export const authorizeSessionForkTarget = ({ sourceBackend, targetProviderID }) => {

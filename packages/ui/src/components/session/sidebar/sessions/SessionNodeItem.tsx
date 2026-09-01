@@ -39,6 +39,7 @@ import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore'
 import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getSessionGoal } from '@/lib/sessionGoalMetadata';
+import { getAgentBackendProviderID } from '@/lib/sessionReviewMetadata';
 import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
@@ -328,7 +329,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   const session = node.session;
   const resolvedSession = session;
-  const canShareSession = (resolvedSession as Session & { model?: { providerID?: string } }).model?.providerID !== 'omp';
+  const canShareSession = getAgentBackendProviderID(resolvedSession) === null;
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
   const projectLabelFromStore = useProjectsStore(

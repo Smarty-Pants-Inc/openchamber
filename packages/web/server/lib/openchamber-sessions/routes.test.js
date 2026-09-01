@@ -1247,6 +1247,29 @@ describe('openchamber session routes', () => {
     }
   });
 
+  it('rejects managed Codex sources before calling session.fork', async () => {
+    const originalFetch = globalThis.fetch;
+    sessionGetMock.mockImplementation(async ({ sessionID }) => ({
+      data: { id: sessionID, metadata: { openchamber: { agent_backend: 'codex' } } },
+    }));
+    globalThis.fetch = vi.fn(async (url) => selectionInputResponse(url) || { ok: true, text: async () => '' });
+    try {
+      const { app } = createApp();
+      await request(app)
+        .post('/api/openchamber/sessions/ses_source/fork')
+        .send({
+          directory: '/repo/app',
+          prompt: 'Try another branch',
+          model: 'codex/gpt-5.6-sol',
+          agent: 'build',
+        })
+        .expect(409, { error: 'Codex sessions cannot be forked' });
+
+      expect(sessionForkMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 
   it('backfills and rejects an unmarked legacy Pi source before calling session.fork', async () => {
     const originalFetch = globalThis.fetch;
@@ -2234,8 +2257,27 @@ describe('openchamber session routes', () => {
     expect(sessionUpdateMock).not.toHaveBeenCalled();
   });
 
+  it('does not advertise or authorize Codex forks', async () => {
+    sessionGetMock.mockImplementation(async ({ sessionID }) => ({
+      data: { id: sessionID, metadata: { openchamber: { agent_backend: 'codex' } } },
+    }));
+    const { app } = createApp();
+
+    await request(app)
+      .post('/api/openchamber/sessions/ses_source/fork-capability')
+      .send({ directory: '/repo/app' })
+      .expect(200, { supported: false });
+    await request(app)
+      .post('/api/openchamber/sessions/ses_source/fork-authorized')
+      .send({ directory: '/repo/app', providerID: 'codex' })
+      .expect(409, { error: 'Codex sessions cannot be forked' });
+
+    expect(sessionForkMock).not.toHaveBeenCalled();
+    expect(sessionUpdateMock).not.toHaveBeenCalled();
+  });
+
   it('stamps authorized managed forks in their canonical child directories', async () => {
-    for (const providerID of ['omp', 'codex']) {
+    for (const providerID of ['omp']) {
       sessionForkMock.mockResolvedValueOnce({
         data: { id: 'ses_fork', directory: '/canonical/forks/ses_fork', title: 'Forked session' },
       });
