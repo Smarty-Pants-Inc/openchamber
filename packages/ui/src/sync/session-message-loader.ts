@@ -41,6 +41,9 @@ export type SessionMessageLoadState = {
   cursor: string | undefined
   complete: boolean
   generation: number
+  // The generation of the most recent successful tail refresh. Unlike loading
+  // status, this remains authoritative across a later transient refresh error.
+  newestPageGeneration: number | null
   updatedAt: number | undefined
 }
 
@@ -48,7 +51,7 @@ type LoaderEntry = {
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
-  queuedRefresh: Promise<void> | null
+  queuedRefresh: Promise<number | null> | null
   queuedRefreshLimit: number
   optimistic: Map<string, OptimisticItem>
 }
@@ -120,6 +123,7 @@ const createDefaultState = (generation = 0): SessionMessageLoadState => ({
   cursor: undefined,
   complete: false,
   generation,
+  newestPageGeneration: null,
   updatedAt: undefined,
 })
 
@@ -261,9 +265,9 @@ export class SessionMessageLoader {
     }
   }
 
-  refreshTail(target: SessionMessageTarget, limit: number): Promise<void> {
+  refreshTail(target: SessionMessageTarget, limit: number): Promise<number | null> {
     const normalized = this.normalizeTarget(target)
-    if (!normalized || this.disposed) return Promise.resolve()
+    if (!normalized || this.disposed) return Promise.resolve(null)
     const entry = this.getEntry(normalized)
     if (entry.inflight) {
       entry.queuedRefreshLimit = Math.max(entry.queuedRefreshLimit, limit)
@@ -285,7 +289,7 @@ export class SessionMessageLoader {
           || this.entries.get(entryKey) !== entry
         ) {
           clearQueuedRefresh()
-          return
+          return null
         }
         const refreshLimit = entry.queuedRefreshLimit
         clearQueuedRefresh()
@@ -295,8 +299,10 @@ export class SessionMessageLoader {
       return queuedRefresh
     }
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
-    this.bumpGeneration(entry)
-    return this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
+    const generation = this.bumpGeneration(entry)
+    const sdkEpoch = this.sdkEpoch
+    const entryKey = this.keyFor(normalized)
+    const refresh = this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
       const previousCoverage = entry.snapshot.resolved
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
         : null
@@ -316,10 +322,20 @@ export class SessionMessageLoader {
         // history coverage and spuriously expose "load older".
         cursor: coverage.cursor,
         complete: coverage.complete,
+        newestPageGeneration: generation,
         updatedAt: Date.now(),
       })
       this.persistCoverage(normalized, entry.snapshot)
     })
+    return refresh.then(() => (
+      !this.disposed
+      && this.sdkEpoch === sdkEpoch
+      && this.entries.get(entryKey) === entry
+      && entry.snapshot.generation === generation
+      && entry.snapshot.status === "ready"
+        ? generation
+        : null
+    ))
   }
 
   getSnapshot(target: SessionMessageTarget): SessionMessageLoadState {

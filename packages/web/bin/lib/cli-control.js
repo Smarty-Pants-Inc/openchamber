@@ -46,10 +46,19 @@ export const requestControlAction = async (port, action, input, options = {}) =>
   const isPartial = body?.partial === true;
   const partialSessionId = isPartial ? asNonEmptyString(body?.sessionId) : null;
   const partialDirectory = isPartial ? asNonEmptyString(body?.directory) : null;
-  const partialSubject = body?.partialAction === 'goal-configured' ? 'Goal on session' : 'Forked session';
-  const partial = partialSessionId
-    ? ` ${partialSubject} ${partialSessionId} remains available${partialDirectory ? ` in ${partialDirectory}` : ''}.`
+  const partialWorktreePath = isPartial ? asNonEmptyString(body?.worktree?.path) : null;
+  const partialWorktreeBranch = isPartial ? asNonEmptyString(body?.worktree?.branch) : null;
+  let partialSubject = 'Forked session';
+  if (body?.partialAction === 'goal-configured') partialSubject = 'Goal on session';
+  else if (action === 'session.create') partialSubject = 'New session';
+  const worktreeRecovery = partialWorktreePath
+    ? ` Worktree ${partialWorktreePath}${partialWorktreeBranch ? ` on ${partialWorktreeBranch}` : ''} requires recovery.`
     : '';
+  const partial = partialSessionId
+    ? body?.sessionCleaned === true
+      ? ` New session ${partialSessionId} was deleted.${worktreeRecovery}`
+      : ` ${partialSubject} ${partialSessionId} remains available${partialDirectory ? ` in ${partialDirectory}` : ''}.${worktreeRecovery}`
+    : worktreeRecovery;
   const message = `${asNonEmptyString(body?.error) || `Failed to execute ${action}`}${partial}`;
   const status = Number(response?.status);
   throw new TunnelCliError(message, status === 400 || status === 404 ? EXIT_CODE.USAGE_ERROR : EXIT_CODE.GENERAL_ERROR);

@@ -222,10 +222,12 @@ describe("SessionMessageLoader", () => {
     expect(limits).toEqual([50, 80])
 
     refresh.resolve(response([createRecord(target.sessionID, "msg_2")]))
-    await Promise.all([refreshing, duplicateRefresh])
+    const [refreshGeneration, duplicateGeneration] = await Promise.all([refreshing, duplicateRefresh])
 
     expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.map((message) => message.id))
       .toEqual(["msg_1", "msg_2"])
+    expect(refreshGeneration).toBe(loader.getSnapshot(target).generation)
+    expect(duplicateGeneration).toBe(refreshGeneration)
     loader.dispose()
     childStores.disposeAll()
   })
@@ -248,6 +250,42 @@ describe("SessionMessageLoader", () => {
 
     expect(loader.getSnapshot(target).complete).toBe(true)
     expect(loader.getSnapshot(target).cursor).toBe(undefined)
+    loader.dispose()
+    childStores.disposeAll()
+  })
+
+  test("retains successful newest-page authority after a later tail refresh fails", async () => {
+    let calls = 0
+    const { childStores, loader } = createLoader(async ({ sessionID }) => {
+      calls += 1
+      return calls === 1
+        ? response([createRecord(sessionID, "newest")])
+        : { error: { message: "refresh rejected" }, response: { status: 503 } }
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+
+    const successfulGeneration = await loader.refreshTail(target, 50)
+    expect(successfulGeneration).not.toBeNull()
+    expect(loader.getSnapshot(target).newestPageGeneration).toBe(successfulGeneration)
+
+    expect(await loader.refreshTail(target, 50)).toBeNull()
+    expect(loader.getSnapshot(target).status).toBe("error")
+    expect(loader.getSnapshot(target).newestPageGeneration).toBe(successfulGeneration)
+    loader.dispose()
+    childStores.disposeAll()
+  })
+
+  test("returns null when the requested newest-page refresh fails", async () => {
+    const { childStores, loader } = createLoader(async () => ({
+      error: { message: "refresh rejected" },
+      response: { status: 503 },
+    }))
+    const target = { directory: "/repo", sessionID: "session-a" }
+
+    const generation = await loader.refreshTail(target, 50)
+
+    expect(generation).toBeNull()
+    expect(loader.getSnapshot(target).status).toBe("error")
     loader.dispose()
     childStores.disposeAll()
   })

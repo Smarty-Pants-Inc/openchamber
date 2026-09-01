@@ -206,6 +206,9 @@ mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: mock(async () => new Response(JSON.stringify({}), {
     headers: { 'Content-Type': 'application/json' },
   })),
+  bindRuntimeTransport: () => {
+    throw new Error('bound transport fixture is not installed');
+  },
 }));
 
 mock.module('@/lib/persistence', () => ({

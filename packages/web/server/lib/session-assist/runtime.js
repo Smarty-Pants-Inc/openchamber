@@ -11,6 +11,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { sessionMetadataMutationRuntime } from '../openchamber-sessions/session-metadata.js';
 
 const OPENCHAMBER_SETTINGS_FILE = path.join(
   process.env.OPENCHAMBER_DATA_DIR
@@ -308,35 +309,39 @@ export const createSessionAssistRuntime = ({
       return;
     }
 
-    // Merge from a FRESH read: generation takes tens of seconds, and merging
-    // from the session snapshot fetched before it would clobber any metadata
-    // written meanwhile (suggestion dismissals, review links, …).
-    const freshSession = await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory })
-      .catch(() => null);
-    const currentMetadata = freshSession?.metadata && typeof freshSession.metadata === 'object'
-      ? freshSession.metadata
-      : (session.metadata && typeof session.metadata === 'object' ? session.metadata : {});
-    const currentNamespace = currentMetadata.openchamber && typeof currentMetadata.openchamber === 'object'
-      ? currentMetadata.openchamber
-      : {};
-
+    // Serialize the fresh read and merge so unrelated metadata writes cannot
+    // interleave between this generated payload and its patch.
     console.log(`[session-assist] generated for ${sessionId} via ${generated.providerID}/${generated.modelID}`);
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+    await sessionMetadataMutationRuntime.mutate({
+      sessionID: sessionId,
       directory,
-      method: 'PATCH',
-      body: {
-        metadata: {
-          ...currentMetadata,
-          openchamber: {
-            ...currentNamespace,
-            assist: {
-              recap,
-              suggestion,
-              forMessageID: lastAssistantInfo.id,
-              generatedAt: Date.now(),
+      readSession: () => openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, { directory }),
+      writeMetadata: async (metadata) => {
+        await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+          directory,
+          method: 'PATCH',
+          body: { metadata },
+        });
+        return { id: sessionId, metadata };
+      },
+      mutateMetadata: (metadata) => {
+        const currentNamespace = metadata.openchamber && typeof metadata.openchamber === 'object'
+          ? metadata.openchamber
+          : {};
+        return {
+          metadata: {
+            ...metadata,
+            openchamber: {
+              ...currentNamespace,
+              assist: {
+                recap,
+                suggestion,
+                forMessageID: lastAssistantInfo.id,
+                generatedAt: Date.now(),
+              },
             },
           },
-        },
+        };
       },
     });
   };

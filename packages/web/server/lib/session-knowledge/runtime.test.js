@@ -208,6 +208,7 @@ describe('reading what a session was told', () => {
         requests.push({ path, options });
         if (options.method === 'PATCH') return {};
         return {
+          id: 'ses_a',
           metadata: { openchamber: { project_context_pins: { notes: [], plans: [] }, knowledge_context_delivered: 'old' } },
         };
       },

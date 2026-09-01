@@ -12,6 +12,7 @@ const JITTER_MAX_MS = 2_000;
 const TASK_TITLE_MAX_LENGTH = 120;
 const TASK_DUE_SLACK_MS = 5_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const SCHEDULED_PI_UNSUPPORTED_ERROR = 'Scheduled tasks do not support Pi because Pi session creation requires an interactive client to own startup dialogs';
 
 const buildTaskKey = (projectID, taskID) => `${projectID}:${taskID}`;
 
@@ -545,6 +546,9 @@ export const createScheduledTasksRuntime = (deps) => {
     if (!projectPath) {
       throw new Error('project path is unavailable');
     }
+    if (task.execution.providerID === 'pi') {
+      throw new Error(SCHEDULED_PI_UNSUPPORTED_ERROR);
+    }
 
     if (typeof waitForOpenCodeReady === 'function') {
       await waitForOpenCodeReady(10_000, 250);
@@ -560,6 +564,9 @@ export const createScheduledTasksRuntime = (deps) => {
     const sessionResponse = await client.session.create({
       directory: projectPath,
       title,
+      metadata: task.execution.providerID === 'omp'
+        ? { openchamber: { agent_backend: task.execution.providerID } }
+        : undefined,
     });
     const sessionID = sessionResponse?.data?.id;
     if (!sessionID) {

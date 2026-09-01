@@ -35,9 +35,13 @@ const getOpenChamberMetadata = (metadata: SessionMetadataRecord): BtwMetadata =>
 const nonEmpty = (value: string | undefined): string | null =>
   typeof value === 'string' && value.trim().length > 0 ? value : null;
 
+/** The parent's active btw link from raw session metadata, or null. */
+export const getBtwSessionIDFromMetadata = (metadata: SessionMetadataRecord): string | null =>
+  nonEmpty(getOpenChamberMetadata(metadata).btwSessionID);
+
 /** The parent's link to its active btw fork, or null. */
 export const getBtwSessionID = (session: Session | null | undefined): string | null =>
-  nonEmpty(getOpenChamberMetadata(getSessionMetadata(session)).btwSessionID);
+  getBtwSessionIDFromMetadata(getSessionMetadata(session));
 
 export const isBtwSession = (session: Session | null | undefined): boolean =>
   getOpenChamberMetadata(getSessionMetadata(session)).kind === 'btw'

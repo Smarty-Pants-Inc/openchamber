@@ -4,6 +4,7 @@ import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
 import { devtools } from 'zustand/middleware';
 import type { CreateMultiRunParams, CreateMultiRunResult } from '@/types/multirun';
 import { opencodeClient } from '@/lib/opencode/client';
+import { RetainedSessionError } from '@/lib/retainedSessionError';
 import { getWorktreeSetupWaitEnabled, saveWorktreeSetupCommands } from '@/lib/openchamberConfig';
 import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktreeWithDefaults, resolveRootTrackingRemote } from '@/lib/worktrees/worktreeCreate';
@@ -170,6 +171,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
             variant?: string;
             prompt: string;
           }> = [];
+          const retainedPiSessionRecoveries: RetainedSessionError['recovery'][] = [];
 
           const commandsToRun = setupCommands?.filter((cmd) => cmd.trim().length > 0) ?? [];
 
@@ -212,7 +214,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
                 if (!shouldIsolateRuns) {
                   const session = await opencodeClient.withDirectory(
                     directory,
-                    () => opencodeClient.createSession({ title: sessionTitle }),
+                    () => opencodeClient.createSession({ title: sessionTitle, providerID: model.providerID }),
                   );
                   registerCreatedSession(session, directory);
 
@@ -251,7 +253,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
                 const session = await opencodeClient.withDirectory(
                   worktreeMetadata.path,
-                  () => opencodeClient.createSession({ title: sessionTitle }),
+                  () => opencodeClient.createSession({ title: sessionTitle, providerID: model.providerID }),
                 );
                 registerCreatedSession(session, worktreeMetadata.path);
 
@@ -266,6 +268,9 @@ export const useMultiRunStore = create<MultiRunStore>()(
                   prompt,
                 });
               } catch (err) {
+                if (model.providerID === 'pi' && err instanceof RetainedSessionError) {
+                  retainedPiSessionRecoveries.push(err.recovery);
+                }
                 console.warn('[MultiRun] Failed to create session:', err);
               }
             }
@@ -280,9 +285,17 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
           const sessionIds = createdRuns.map((r) => r.sessionId);
           const firstSessionId = createdRuns[0]?.sessionId ?? null;
+          const retainedPiDetail = retainedPiSessionRecoveries
+            .map(({ runtimeKey, directory: retainedDirectory, sessionID }) => (
+              `runtimeKey=${runtimeKey}, directory=${retainedDirectory ?? 'null'}, sessionID=${sessionID}`
+            ))
+            .join('; ');
 
           if (sessionIds.length === 0) {
-            set({ error: 'Failed to create any sessions', isLoading: false });
+            const retainedDetail = retainedPiSessionRecoveries.length > 0
+              ? `. Retained Pi sessions: ${retainedPiDetail}`
+              : '';
+            set({ error: `Failed to create any sessions${retainedDetail}`, isLoading: false });
             return null;
           }
 
@@ -320,7 +333,15 @@ export const useMultiRunStore = create<MultiRunStore>()(
             }
           })();
 
-          set({ isLoading: false });
+          if (retainedPiSessionRecoveries.length > 0) {
+            set({
+              error: `Created ${sessionIds.length} of ${groups.reduce((count, group) => count + group.models.length, 0)} sessions. Retained Pi sessions: ${retainedPiDetail}`,
+              isLoading: false,
+            });
+            return null;
+          }
+
+          set({ error: null, isLoading: false });
           return { groupSlug, sessionIds, firstSessionId };
         } catch (error) {
           set({

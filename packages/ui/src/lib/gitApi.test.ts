@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import { useConfigStore } from "@/stores/useConfigStore"
+import { useSessionUIStore } from "@/sync/session-ui-store"
+import { switchRuntimeEndpoint } from "./runtime-switch"
 import type { GitAPI, GitStatus } from "./api/types"
-import { getGitStatus, stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from "./gitApi"
+import { generateCommitMessage, getGitStatus, stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from "./gitApi"
 
 const status: GitStatus = {
   current: "main",
@@ -17,6 +20,8 @@ const withRuntimeGit = async (git: GitAPI, callback: () => Promise<void>) => {
     configurable: true,
     value: {
       __OPENCHAMBER_RUNTIME_APIS__: { git },
+      location: { origin: 'http://git-generation.test', href: 'http://git-generation.test/' },
+      dispatchEvent: () => true,
     },
   })
 
@@ -46,6 +51,65 @@ describe("getGitStatus", () => {
     })
 
     expect(received).toEqual({ directory: "/repo", options: { mode: "light" } })
+  })
+})
+
+describe("git session fallback preflight", () => {
+  test("cancels fallback before its bound prompt when the runtime switches during authorization", async () => {
+    const originalFetch = globalThis.fetch
+    const config = useConfigStore.getState()
+    const sessionState = useSessionUIStore.getState()
+    const requests: string[] = []
+    globalThis.fetch = async (input) => {
+      const url = input instanceof Request ? input.url : String(input)
+      requests.push(url)
+      if (url.includes('/api/magic-prompts')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (url.includes('/api/small-model/generate')) {
+        return new Response('', { status: 404 })
+      }
+      if (url.includes('/send-preflight')) {
+        switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-b.test', runtimeKey: 'runtime-b' })
+        return new Response(JSON.stringify({ authorized: true }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    }
+
+    try {
+      await withRuntimeGit({
+        getGitLog: async () => ({ all: [], latest: null, total: 0 }),
+      } as Partial<GitAPI> as GitAPI, async () => {
+        switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' })
+        useConfigStore.setState({ currentProviderId: 'pi', currentModelId: 'model-a' })
+        useSessionUIStore.setState({
+          currentSessionId: 'session-generation',
+          currentSessionDirectory: '/repo',
+          newSessionDraft: { draftId: 0, open: false, directoryOverride: null, parentID: null, target: 'chat' },
+        })
+
+        await expect(generateCommitMessage('/repo', [])).rejects.toThrow('runtime changed')
+      })
+
+      expect(requests.some((url) => url.includes('/send-preflight'))).toBe(true)
+      expect(requests.some((url) => url.includes('/session/session-generation/prompt'))).toBe(false)
+    } finally {
+      globalThis.fetch = originalFetch
+      useConfigStore.setState({
+        currentProviderId: config.currentProviderId,
+        currentModelId: config.currentModelId,
+        currentAgentName: config.currentAgentName,
+        currentVariant: config.currentVariant,
+      })
+      useSessionUIStore.setState({
+        currentSessionId: sessionState.currentSessionId,
+        currentSessionDirectory: sessionState.currentSessionDirectory,
+        newSessionDraft: sessionState.newSessionDraft,
+      })
+      switchRuntimeEndpoint({ apiBaseUrl: 'http://runtime-a.test', runtimeKey: 'runtime-a' })
+    }
   })
 })
 

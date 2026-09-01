@@ -47,6 +47,8 @@ const PERMISSION_JSON_CUSTOM_STYLE: React.CSSProperties = {
 
 interface PermissionCardProps {
   permission: PermissionRequest;
+  /** Overrides the normal session endpoint for a scoped startup dialog. */
+  onRespond?: (response: PermissionResponse) => Promise<void>;
   onResponse?: (response: 'once' | 'always' | 'reject') => void;
 }
 
@@ -102,7 +104,8 @@ const getToolDisplayName = (toolName: string): string => {
 
 export const PermissionCard: React.FC<PermissionCardProps> = ({
   permission,
-  onResponse
+  onRespond,
+  onResponse,
 }) => {
   const { t } = useI18n();
   const [isResponding, setIsResponding] = React.useState(false);
@@ -115,12 +118,17 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
     const sourceSession = sessions.find((session) => session.id === permission.sessionID);
     return Boolean(sourceSession?.parentID && sourceSession.parentID === currentSessionId);
   }, [permission.sessionID, currentSessionId, sessions]);
+  const canAlwaysAllow = permission.always.length > 0;
 
   const handleResponse = async (response: PermissionResponse) => {
-    setIsResponding(true);
+    if (response === 'always' && !canAlwaysAllow) return;
 
+    setIsResponding(true);
     try {
-      await respondToPermission(permission.sessionID, permission.id, response);
+
+      await (onRespond
+        ? onRespond(response)
+        : respondToPermission(permission.sessionID, permission.id, response));
       setHasResponded(true);
       onResponse?.(response);
     } catch (error) {
@@ -140,7 +148,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
       if (activePermissionCardIds.at(-1) !== permission.id) return;
       if (!event.altKey || event.metaKey || event.ctrlKey) return;
       const response = event.key === 'Enter'
-        ? (event.shiftKey ? 'always' as const : 'once' as const)
+        ? (event.shiftKey ? (canAlwaysAllow ? 'always' as const : null) : 'once' as const)
         : event.key === 'Backspace' && !event.shiftKey
           ? 'reject' as const
           : null;
@@ -155,7 +163,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
       const index = activePermissionCardIds.lastIndexOf(permission.id);
       if (index !== -1) activePermissionCardIds.splice(index, 1);
     };
-  }, [hasResponded, permission.id]);
+  }, [canAlwaysAllow, hasResponded, permission.id]);
 
   if (hasResponded) {
     return null;
@@ -414,7 +422,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
               <kbd className="ml-1 hidden sm:inline typography-micro opacity-60">{formatShortcutForDisplay('alt+enter')}</kbd>
             </button>
 
-            {permission.always.length > 0 ? (
+            {canAlwaysAllow && (
               <button
                 onClick={() => handleResponse('always')}
                 disabled={isResponding}
@@ -435,40 +443,15 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
               >
                 <Icon name="time" className="h-3.5 w-3.5 sm:h-3 sm:w-3 flex-shrink-0" />
                 {(() => {
-                  const always = (permission.always as string[]) || (permission.metadata.always as string[]) || [];
-                  if (always.length === 0) return "Always Allow";
-                  const displayPatterns = always.slice(0, 2);
+                  const displayPatterns = permission.always.slice(0, 2);
                   const text = displayPatterns.join(", ");
-                  const hasMore = always.length > 2;
+                  const hasMore = permission.always.length > 2;
                   return (
                     <span className="truncate max-w-[180px]">
                       {hasMore ? `Always: ${text}...` : `Always: ${text}`}
                     </span>
                   );
                 })()}
-              </button>
-            ) : (
-              <button
-                onClick={() => handleResponse('always')}
-                disabled={isResponding}
-                className={cn(
-                  "flex items-center gap-1.5 sm:gap-1 px-3 sm:px-2 py-1.5 sm:py-1 typography-meta font-medium rounded transition-all min-h-[32px] sm:min-h-0 w-full sm:w-auto",
-                  "disabled:opacity-50 disabled:cursor-not-allowed"
-                )}
-                style={{
-                  backgroundColor: 'rgb(var(--muted) / 0.5)',
-                  color: 'var(--muted-foreground)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgb(var(--muted) / 0.7)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgb(var(--muted) / 0.5)';
-                }}
-              >
-                <Icon name="time" className="h-3.5 w-3.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                Always Allow
-                <kbd className="ml-1 hidden sm:inline typography-micro opacity-60">{formatShortcutForDisplay('alt+shift+enter')}</kbd>
               </button>
             )}
 
