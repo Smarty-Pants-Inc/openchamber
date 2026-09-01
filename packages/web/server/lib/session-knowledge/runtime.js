@@ -15,6 +15,8 @@
  * that has just been summarised away.
  */
 
+import { sessionMetadataMutationRuntime } from '../openchamber-sessions/session-metadata.js';
+
 const KNOWLEDGE_METADATA_KEY = 'knowledge_context_delivered';
 const PINS_METADATA_KEY = 'project_context_pins';
 
@@ -265,29 +267,40 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
   };
 
   const setPin = async (sessionId, directory, kind, id, pinned) => {
-    const fresh = await readSession(sessionId, directory);
-    const metadata = isRecord(fresh?.metadata) ? fresh.metadata : {};
-    const openchamber = isRecord(metadata.openchamber) ? metadata.openchamber : {};
-    const pins = readPins(fresh);
-    const key = kind === 'note' ? 'notes' : 'plans';
-    const next = new Set(pins[key]);
-    if (pinned) next.add(id);
-    else next.delete(id);
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+    const mutation = await sessionMetadataMutationRuntime.mutate({
+      sessionID: sessionId,
       directory,
-      method: 'PATCH',
-      body: {
-        metadata: {
-          ...metadata,
-          openchamber: {
-            ...openchamber,
-            [PINS_METADATA_KEY]: { ...pins, [key]: [...next] },
-            [KNOWLEDGE_METADATA_KEY]: '',
+      readSession: () => readSession(sessionId, directory),
+      writeMetadata: async (metadata) => {
+        await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+          directory,
+          method: 'PATCH',
+          body: { metadata },
+        });
+        return { id: sessionId, metadata };
+      },
+      mutateMetadata: (metadata, fresh) => {
+        const openchamber = isRecord(metadata.openchamber) ? metadata.openchamber : {};
+        const pins = readPins(fresh);
+        const key = kind === 'note' ? 'notes' : 'plans';
+        const next = new Set(pins[key]);
+        if (pinned) next.add(id);
+        else next.delete(id);
+        const nextPins = { ...pins, [key]: [...next] };
+        return {
+          metadata: {
+            ...metadata,
+            openchamber: {
+              ...openchamber,
+              [PINS_METADATA_KEY]: nextPins,
+              [KNOWLEDGE_METADATA_KEY]: '',
+            },
           },
-        },
+          result: nextPins,
+        };
       },
     });
-    return { ...pins, [key]: [...next] };
+    return mutation.result;
   };
 
   /**
@@ -300,17 +313,26 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
    * drop whatever changed in between.
    */
   const recordDelivered = async (sessionId, directory, signature) => {
-    const fresh = await readSession(sessionId, directory);
-    const metadata = isRecord(fresh?.metadata) ? fresh.metadata : {};
-    const openchamber = isRecord(metadata.openchamber) ? metadata.openchamber : {};
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+    await sessionMetadataMutationRuntime.mutate({
+      sessionID: sessionId,
       directory,
-      method: 'PATCH',
-      body: {
-        metadata: {
-          ...metadata,
-          openchamber: { ...openchamber, [KNOWLEDGE_METADATA_KEY]: signature },
-        },
+      readSession: () => readSession(sessionId, directory),
+      writeMetadata: async (metadata) => {
+        await openCodeFetch(`/session/${encodeURIComponent(sessionId)}`, {
+          directory,
+          method: 'PATCH',
+          body: { metadata },
+        });
+        return { id: sessionId, metadata };
+      },
+      mutateMetadata: (metadata) => {
+        const openchamber = isRecord(metadata.openchamber) ? metadata.openchamber : {};
+        return {
+          metadata: {
+            ...metadata,
+            openchamber: { ...openchamber, [KNOWLEDGE_METADATA_KEY]: signature },
+          },
+        };
       },
     });
   };

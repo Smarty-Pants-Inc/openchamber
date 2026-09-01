@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import type { RuntimeFetchOptions } from '@/lib/runtime-fetch';
 
 type ConfigResponse = { data: Record<string, unknown> };
 
@@ -11,6 +12,20 @@ const promptAsyncCalls: unknown[][] = [];
 const promptAsyncResults: Array<unknown> = [];
 const pathGetResults: Array<unknown> = [];
 const commandCalls: unknown[][] = [];
+const sessionCreateCalls: unknown[][] = [];
+const boundCreateCalls: unknown[][] = [];
+let boundReleaseCount = 0;
+const runtimeFetchCalls: Array<{ input: string; init?: RuntimeFetchOptions }> = [];
+let boundCreateImpl: (...args: unknown[]) => Promise<{ id: string; directory: string }> = async () => ({
+  id: 'ses_pi',
+  directory: '/canonical/pi',
+});
+
+const sessionCreateMock = mock(async (...args: unknown[]) => {
+  sessionCreateCalls.push(args);
+  return { data: { id: `ses_${sessionCreateCalls.length}` } };
+});
+const sessionGetMock = mock(async () => ({ data: { id: 'ses_pi' } }));
 
 const promptAsyncMock = mock(async (...args: unknown[]) => {
   promptAsyncCalls.push(args);
@@ -41,6 +56,8 @@ mock.module('@opencode-ai/sdk/v2', () => ({
       }),
     },
     session: {
+      create: sessionCreateMock,
+      get: sessionGetMock,
       promptAsync: promptAsyncMock,
       command: commandMock,
     },
@@ -63,16 +80,44 @@ mock.module('@/lib/runtime-url', () => ({
 mock.module('@/lib/runtime-switch', () => ({
   getRuntimeApiBaseUrl: mock(() => ''),
   getRuntimeKey: mock(() => runtimeKey),
+  getRuntimeTransportEpoch: mock(() => 0),
+  subscribeRuntimeEndpointWillChange: mock(() => () => undefined),
+  subscribeRuntimeEndpointChanged: mock(() => () => undefined),
 }));
 
 mock.module('@/lib/runtime-fetch', () => ({
-  runtimeFetch: mock(async () => new Response(JSON.stringify([]), {
-    headers: { 'Content-Type': 'application/json' },
-  })),
+  runtimeFetch: mock(async (input: string, init?: RuntimeFetchOptions) => {
+    runtimeFetchCalls.push({ input, init });
+    if (init?.method === 'POST' && input === '/api/session') {
+      return new Response(JSON.stringify({ id: 'ses_pi' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify([]), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }),
 }));
 
 mock.module('@/lib/startupTrace', () => ({
   markStartupTrace: mock(() => undefined),
+  measureStartupTrace: mock(async <T>(_name: string, fn: () => Promise<T>) => fn()),
+}));
+
+mock.module('@/sync/session-actions', () => ({
+  bindSessionOperation: () => ({
+    runtimeKey,
+    create: async (...args: unknown[]) => {
+      boundCreateCalls.push(args);
+      return boundCreateImpl(...args);
+    },
+    assertCurrent: () => {
+      if (runtimeKey !== 'test-runtime') throw new Error('runtime changed');
+    },
+    release: () => {
+      boundReleaseCount += 1;
+    },
+  }),
 }));
 
 const { opencodeClient } = await import(`./client?cache-test=${Date.now()}`);
@@ -83,6 +128,11 @@ beforeEach(() => {
   commandCalls.length = 0;
   promptAsyncResults.length = 0;
   pathGetResults.length = 0;
+  sessionCreateCalls.length = 0;
+  boundCreateCalls.length = 0;
+  boundReleaseCount = 0;
+  runtimeFetchCalls.length = 0;
+  boundCreateImpl = async () => ({ id: 'ses_pi', directory: '/canonical/pi' });
 });
 
 describe('opencodeClient directory availability', () => {
@@ -94,6 +144,64 @@ describe('opencodeClient directory availability', () => {
     expect(await opencodeClient.getDirectoryAvailability('/private/deleted-worktree')).toBe('unknown');
   });
 });
+
+describe('opencodeClient session metadata', () => {
+  test('routes Pi creation through the bound operation and stamps exact SDK backends', async () => {
+    const piSession = await opencodeClient.createSession({
+      title: 'Pi review',
+      providerID: 'pi',
+      metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'omp' } },
+    }, '/workspace/pi');
+    await opencodeClient.createSession({
+      title: 'OMP task',
+      providerID: 'omp',
+      metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'pi' } },
+    }, '/workspace/omp');
+    await opencodeClient.createSession({
+      title: 'Other task',
+      providerID: 'anthropic',
+      metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'omp' } },
+    }, '/workspace/other');
+
+    expect(piSession).toEqual({ id: 'ses_pi', directory: '/canonical/pi' });
+    expect(boundCreateCalls).toEqual([[
+      {
+        title: 'Pi review',
+        providerID: 'pi',
+        metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'omp' } },
+      },
+      '/workspace/pi',
+    ]]);
+    expect(boundReleaseCount).toBe(1);
+    expect(runtimeFetchCalls).toEqual([]);
+    expect(sessionCreateCalls[0]?.[0]).toEqual({
+      directory: '/workspace/omp',
+      parentID: undefined,
+      title: 'OMP task',
+      metadata: { custom: true, openchamber: { kind: 'review', agent_backend: 'omp' } },
+    });
+    expect(sessionCreateCalls[1]?.[0]).toEqual({
+      directory: '/workspace/other',
+      parentID: undefined,
+      title: 'Other task',
+      metadata: { custom: true, openchamber: { kind: 'review' } },
+    });
+  });
+});
+
+test('releases the bound transport when Pi creation fails during a runtime switch', async () => {
+  boundCreateImpl = async () => {
+    runtimeKey = 'runtime-b';
+    throw new Error('Pi session creation stopped because the runtime changed');
+  };
+
+  await expect(opencodeClient.createSession({ providerID: 'pi' }, '/workspace/pi')).rejects.toThrow(
+    'Pi session creation stopped because the runtime changed',
+  );
+  expect(boundCreateCalls).toHaveLength(1);
+  expect(boundReleaseCount).toBe(1);
+});
+
 
 describe('opencodeClient getConfig cache', () => {
   test('cleared stale in-flight requests do not repopulate cache or delete newer in-flight requests', async () => {

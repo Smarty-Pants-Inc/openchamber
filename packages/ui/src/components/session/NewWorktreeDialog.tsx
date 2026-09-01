@@ -89,6 +89,13 @@ interface ExistingBranchState {
   worktreeName: string;
 }
 
+interface LinkedContextExecution {
+  providerID: string;
+  modelID: string;
+  agentName?: string;
+  variant?: string;
+}
+
 const normalizeBranchName = (value: string): string => {
   return value
     .trim()
@@ -475,30 +482,34 @@ export function NewWorktreeDialog({
     return undefined;
   }, []);
 
+  const resolveLinkedContextExecution = React.useCallback((): LinkedContextExecution | null => {
+    const configState = useConfigStore.getState();
+    const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
+    const defaultModel = resolveDefaultModelSelection();
+    const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
+    const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
+    if (!providerID || !modelID) return null;
+    return {
+      providerID,
+      modelID,
+      agentName: resolveDefaultAgentName() || configState.currentAgentName || undefined,
+      variant: resolveDefaultVariant(providerID, modelID),
+    };
+  }, [resolveDefaultAgentName, resolveDefaultModelSelection, resolveDefaultVariant]);
+
   const sendLinkedContextMessage = React.useCallback(async (args: {
     sessionId: string;
     directory: string;
     issue: GitHubIssue | null;
     pr: GitHubPullRequestSummary | null;
     includeDiff: boolean;
+    execution: LinkedContextExecution;
   }) => {
     if (!projectDirectory || !github) {
       return;
     }
 
-    const configState = useConfigStore.getState();
-    const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
-    const defaultModel = resolveDefaultModelSelection();
-    const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
-    const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
-    const agentName = resolveDefaultAgentName() || configState.currentAgentName || undefined;
-
-    if (!providerID || !modelID) {
-      toast.error(t('session.newWorktree.error.noModelSelected'));
-      return;
-    }
-
-    const variant = resolveDefaultVariant(providerID, modelID);
+    const { providerID, modelID, agentName, variant } = args.execution;
 
     if (args.issue) {
       if (!github.issueGet || !github.issueComments) {
@@ -613,14 +624,7 @@ export function NewWorktreeDialog({
 
       toast.success(t('session.newWorktree.toast.sessionFromPr'));
     }
-  }, [
-    github,
-    projectDirectory,
-    resolveDefaultAgentName,
-    resolveDefaultModelSelection,
-    resolveDefaultVariant,
-    t,
-  ]);
+  }, [github, projectDirectory, t]);
 
   // Get current state based on mode
   const currentState = mode === 'new-branch' ? newBranchState : existingBranchState;
@@ -865,6 +869,11 @@ export function NewWorktreeDialog({
       const linkedPrState = mode === 'new-branch' ? newBranchState.linkedPr : null;
       const includePrDiff = mode === 'new-branch' ? newBranchState.includePrDiff : false;
       const shouldCreateSession = Boolean(linkedIssue || linkedPrState);
+      const linkedExecution = shouldCreateSession ? resolveLinkedContextExecution() : null;
+      if (shouldCreateSession && !linkedExecution) {
+        toast.error(t('session.newWorktree.error.noModelSelected'));
+        return;
+      }
 
       const setupCommands = await getWorktreeSetupCommands(projectRef);
       const sourceBranch = newBranchState.sourceBranch;
@@ -909,7 +918,7 @@ export function NewWorktreeDialog({
 
       let createdSessionId: string | null = null;
 
-      if (shouldCreateSession) {
+      if (shouldCreateSession && linkedExecution) {
         if (await getWorktreeSetupWaitEnabled(projectRef)) {
           await waitForWorktreeBootstrap(metadata.path);
         }
@@ -920,7 +929,7 @@ export function NewWorktreeDialog({
             ? `#${linkedPrState.number} ${linkedPrState.title}`.trim()
             : t('session.newWorktree.newSessionTitle');
 
-        const session = await sessionActions.createSession(sessionTitle, metadata.path, null);
+        const session = await sessionActions.createSession(sessionTitle, metadata.path, null, linkedExecution.providerID);
         if (!session?.id) {
           throw new Error('Failed to create session');
         }
@@ -960,13 +969,14 @@ export function NewWorktreeDialog({
         }),
       });
 
-      if (createdSessionId) {
+      if (createdSessionId && linkedExecution) {
         void sendLinkedContextMessage({
           sessionId: createdSessionId,
           directory: metadata.path,
           issue: linkedIssue,
           pr: linkedPrState,
           includeDiff: includePrDiff,
+          execution: linkedExecution,
         }).catch((error) => {
           const message = error instanceof Error ? error.message : t('session.newWorktree.error.sendGitHubContextFailed');
           toast.error(t('session.newWorktree.error.sendGitHubContextFailed'), { description: message });

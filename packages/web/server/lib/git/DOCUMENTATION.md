@@ -49,6 +49,7 @@ The following functions are exported and used by the web server:
 - `getWorktrees(directory)`: List all git worktrees for a repository.
 - `validateWorktreeCreate(directory, input)`: Validate worktree creation parameters (mode, branchName, startRef, upstream config).
 - `createWorktree(directory, input)`: Create a new worktree (supports 'new' and 'existing' modes, upstream setup). After populating the worktree, the repository's `post-checkout` hook runs once with git's standard arguments (null ref as previous HEAD, the checked-out HEAD, and flag `1`) from the worktree directory, mirroring `git worktree add` without `--no-checkout`; a missing or non-executable hook is skipped and a failing hook is logged as a warning, never failing worktree creation or the session bootstrap.
+- `finalizeWorktreeBootstrapOwnership(directory)`: Release retained start-command process ownership after the enclosing session/worktree create has crossed its rollback boundary.
 - `removeWorktree(directory, input)`: Remove a worktree (optionally delete local branch).
 - `isLinkedWorktree(directory)`: Check if directory is a linked worktree (not primary).
 
@@ -145,6 +146,7 @@ The following functions are internal helpers used by exported functions:
 - Worktree removal waits for any active create/bootstrap task for that directory before deleting it, preventing a background Git or setup task from restoring removed state or racing filesystem cleanup.
 - Worktree bootstrap retries transient `index.lock` conflicts. If the lock remains byte-for-byte and metadata-identical across the retry window, it is treated as stale, removed, and population continues automatically; changing locks are left untouched and reported as failures.
 - Worktree population enables Git `core.longpaths` (local repo config plus `-c core.longpaths=true` on `git reset --hard`) so deeply nested checkouts under the managed data-dir worktree root do not fail on Windows MAX_PATH with "Filename too long". Path-component limits that the filesystem itself rejects still fail bootstrap, with a clearer path-length guidance message.
+- Start-command process ownership persists after a launcher exits so rollback can terminate captured detached descendants. Call `finalizeWorktreeBootstrapOwnership` only once the enclosing create can no longer roll back. Cancellation has a deadline and reports `processesExited: false` or `processOwnershipConfirmed: false` when removal is unsafe, including when POSIX process discovery is unavailable.
 
 ### Log Response
 - `all`: Array of commit objects with hash, date, message, author info, stats.

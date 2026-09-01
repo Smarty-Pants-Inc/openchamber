@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { addRuntimeProxyHeaders, buildRuntimeFetchUrl, isLatin1Safe, runtimeFetch, sanitizeHeadersForBrowser } from './runtime-fetch';
+import { addRuntimeProxyHeaders, bindRuntimeTransport, buildRuntimeFetchUrl, isLatin1Safe, runtimeFetch, sanitizeHeadersForBrowser, type BoundRuntimeTransport } from './runtime-fetch';
 import { clearRuntimeAuthCredentialProvider, setRuntimeBearerToken } from './runtime-auth';
 import { configureRuntimeUrlResolver, getRuntimeUrlResolver, setRuntimeUrlResolver } from './runtime-url';
+import { switchRuntimeEndpoint } from './runtime-switch';
 
 const originalFetch = globalThis.fetch;
 
@@ -77,6 +78,52 @@ describe('runtimeFetch transport contract', () => {
       expect(capturedHeaders.get('ngrok-skip-browser-warning')).toBe('openchamber');
     } finally {
       setRuntimeUrlResolver(previous);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('keeps its captured base URL and auth after a runtime switch', async () => {
+    const previousResolver = getRuntimeUrlResolver();
+    const calls: Request[] = [];
+    let transport: BoundRuntimeTransport | null = null;
+
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (request.url.includes('/api/session/source')) calls.push(request);
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch;
+
+      switchRuntimeEndpoint({
+        apiBaseUrl: 'https://runtime-a.example',
+        runtimeKey: 'runtime-a',
+        requestHeaders: { 'x-runtime-auth': 'a' },
+      });
+      setRuntimeBearerToken('token-a');
+      transport = bindRuntimeTransport();
+      const client = createOpencodeClient({ baseUrl: transport.apiBaseUrl, fetch: transport.fetch });
+
+      switchRuntimeEndpoint({
+        apiBaseUrl: 'https://runtime-b.example',
+        runtimeKey: 'runtime-b',
+        requestHeaders: { 'x-runtime-auth': 'b' },
+      });
+      setRuntimeBearerToken('token-b');
+      await client.session.delete({ sessionID: 'source', directory: '/repo' });
+      await client.session.update({ sessionID: 'source', directory: '/repo', title: 'Bound title' });
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.url).toBe('https://runtime-a.example/api/session/source?directory=%2Frepo');
+      expect(calls[0]?.headers.get('authorization')).toBe('Bearer token-a');
+      expect(calls[0]?.headers.get('x-runtime-auth')).toBe('a');
+      expect(calls[1]?.method).toBe('PATCH');
+      expect(await calls[1]?.clone().text()).toBe(JSON.stringify({ title: 'Bound title' }));
+      expect(calls[1]?.headers.get('authorization')).toBe('Bearer token-a');
+      expect(calls[1]?.headers.get('x-runtime-auth')).toBe('a');
+    } finally {
+      transport?.release();
+      setRuntimeUrlResolver(previousResolver);
+      clearRuntimeAuthCredentialProvider();
       globalThis.fetch = originalFetch;
     }
   });

@@ -5,6 +5,7 @@ import { handleProxyBridgeMessage } from './bridge-proxy-runtime';
 
 const deps = {
   tryHandleLocalFsProxy: async () => null,
+  tryHandleOpenChamberSessionProxy: async () => null,
   buildUnavailableApiResponse: () => ({ status: 503, headers: {}, bodyText: '' }),
   sanitizeForwardHeaders: (input: Record<string, string> | undefined) => input ?? {},
   collectHeaders: (headers: Headers) => {
@@ -127,5 +128,113 @@ describe('VS Code API proxy read coalescing', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('VS Code explicit OpenChamber session proxying', () => {
+  test('dispatches explicit session routes before generic upstream forwarding', async () => {
+    const originalFetch = globalThis.fetch;
+    let genericFetches = 0;
+    const handled: Array<{ method: string; path: string }> = [];
+
+    try {
+      globalThis.fetch = (async () => {
+        genericFetches += 1;
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch;
+
+      const sessionDeps = {
+        ...deps,
+        tryHandleOpenChamberSessionProxy: async (method: string, path: string) => {
+          handled.push({ method, path });
+          return {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+            bodyText: JSON.stringify({ authorized: true }),
+          };
+        },
+      };
+      const metadataResponse = await handleProxyBridgeMessage(
+        {
+          id: 'metadata_1',
+          type: 'api:proxy',
+          payload: {
+            method: 'PATCH',
+            path: '/openchamber/sessions/source/metadata',
+            bodyBase64: Buffer.from('{}').toString('base64'),
+          },
+        },
+        ctx,
+        sessionDeps,
+      );
+      const preflightResponse = await handleProxyBridgeMessage(
+        {
+          id: 'send_preflight_1',
+          type: 'api:proxy',
+          payload: {
+            method: 'POST',
+            path: '/openchamber/sessions/source/send-preflight',
+            bodyBase64: Buffer.from('{}').toString('base64'),
+          },
+        },
+        ctx,
+        sessionDeps,
+      );
+
+      assert.deepEqual(handled, [
+        { method: 'PATCH', path: '/openchamber/sessions/source/metadata' },
+        { method: 'POST', path: '/openchamber/sessions/source/send-preflight' },
+      ]);
+      assert.equal(genericFetches, 0);
+      assert.equal((metadataResponse?.data as { status?: number }).status, 200);
+      assert.equal((preflightResponse?.data as { status?: number }).status, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('registers explicit session routes in the request-id abort lifecycle before dispatch', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+
+    const pending = handleProxyBridgeMessage(
+      {
+        id: 'fork_request',
+        type: 'api:proxy',
+        payload: {
+          method: 'POST',
+          path: '/openchamber/sessions/source/fork-authorized',
+          bodyBase64: Buffer.from('{"directory":"/repo"}').toString('base64'),
+        },
+      },
+      ctx,
+      {
+        ...deps,
+        tryHandleOpenChamberSessionProxy: async (_method, _path, _body, _ctx, signal) => {
+          capturedSignal = signal;
+          markStarted?.();
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+          }
+          return {
+            status: 499,
+            headers: { 'content-type': 'application/json' },
+            bodyText: JSON.stringify({ error: 'Request cancelled' }),
+          };
+        },
+      },
+    );
+
+    await started;
+    await handleProxyBridgeMessage(
+      { id: 'abort_fork_request', type: 'api:proxy:abort', payload: { requestID: 'fork_request' } },
+      ctx,
+      deps,
+    );
+
+    assert.equal(capturedSignal?.aborted, true);
+    const response = await pending;
+    assert.equal((response?.data as { status?: number }).status, 499);
   });
 });

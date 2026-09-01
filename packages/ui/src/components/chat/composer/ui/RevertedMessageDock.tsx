@@ -22,6 +22,7 @@ import {
     buildRevertedMessageDockState,
     type RevertedMessageDockState,
 } from '../../revertedMessageDockState';
+import { useChatSessionForkSupported } from '../../ChatSessionCapabilities';
 
 /**
  * A one-line preview of a reverted message: its text parts joined and
@@ -58,6 +59,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
     const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
+    const sessionForkSupported = useChatSessionForkSupported();
     const [restoringId, setRestoringId] = React.useState<string | null>(null);
     const [forkingId, setForkingId] = React.useState<string | null>(null);
     const [collapsed, setCollapsed] = React.useState(true);
@@ -142,20 +144,22 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                                 <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
                                     {item.text}
                                 </span>
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="xs"
-                                    disabled={Boolean(restoringId || forkingId)}
-                                    onClick={() => { void handleFork(item.id); }}
-                                >
-                                    {forkingId === item.id ? (
-                                        <Icon name="loader-4" className="h-3 w-3 animate-spin" aria-hidden="true" />
-                                    ) : (
-                                        <Icon name="git-branch" className="h-3 w-3" aria-hidden="true" />
-                                    )}
-                                    {t('chat.revertPopover.fork')}
-                                </Button>
+                                {sessionForkSupported ? (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="xs"
+                                        disabled={Boolean(restoringId || forkingId)}
+                                        onClick={() => { void handleFork(item.id); }}
+                                    >
+                                        {forkingId === item.id ? (
+                                            <Icon name="loader-4" className="h-3 w-3 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                            <Icon name="git-branch" className="h-3 w-3" aria-hidden="true" />
+                                        )}
+                                        {t('chat.revertPopover.fork')}
+                                    </Button>
+                                ) : null}
                                 <Button
                                     type="button"
                                     variant="secondary"

@@ -46,7 +46,10 @@ describe('bridge git special runtime', () => {
     gitService.getGitRangeFiles.mockImplementation(async () => ['src/a.ts']);
     gitService.getGitRangeDiff.mockImplementation(async () => ({ diff: 'diff --git a/src/a.ts b/src/a.ts\n+new line' }));
     sdkClient.v2.model.list.mockImplementation(async () => ({
-      data: [{ providerID: 'anthropic', id: 'claude-sonnet-4-5' }],
+      data: [
+        { providerID: 'omp', id: 'anthropic/claude-sonnet-4-5' },
+        { providerID: 'pi', id: 'anthropic/claude-sonnet-4-5' },
+      ],
       error: undefined,
     }));
     sdkClient.session.create.mockImplementation(async () => ({
@@ -72,8 +75,8 @@ describe('bridge git special runtime', () => {
         directory: '/repo',
         base: 'main',
         head: 'feature',
-        providerId: 'anthropic',
-        modelId: 'claude-sonnet-4-5',
+        providerId: 'omp',
+        modelId: 'anthropic/claude-sonnet-4-5',
       },
     }, {
       manager: {
@@ -100,11 +103,12 @@ describe('bridge git special runtime', () => {
     expect(sdkClient.session.create).toHaveBeenCalledWith({
       directory: '/repo',
       title: 'Git Generation',
+      metadata: { openchamber: { agent_backend: 'omp' } },
     }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(sdkClient.session.promptAsync).toHaveBeenCalledWith(expect.objectContaining({
       sessionID: 'ses_1',
       directory: '/repo',
-      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      model: { providerID: 'omp', modelID: 'anthropic/claude-sonnet-4-5' },
     }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(sdkClient.session.messages).toHaveBeenCalledWith({
       sessionID: 'ses_1',
@@ -112,5 +116,36 @@ describe('bridge git special runtime', () => {
       limit: 10,
     }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(sdkClient.session.delete).toHaveBeenCalledWith({ sessionID: 'ses_1' }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it('rejects Pi before noninteractive Git generation creates a session', async () => {
+    const response = await handleSpecialGitBridgeMessage({
+      id: '2',
+      type: 'api:git/pr-description',
+      payload: {
+        directory: '/repo',
+        base: 'main',
+        head: 'feature',
+        providerId: 'pi',
+        modelId: 'anthropic/claude-sonnet-4-5',
+      },
+    }, {
+      manager: {
+        getApiUrl: () => 'http://opencode.test',
+        getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer test' }),
+      },
+    }, {
+      readSettings: () => ({}),
+      execGit: mock(),
+    });
+
+    expect(response).toEqual({
+      id: '2',
+      type: 'api:git/pr-description',
+      success: false,
+      error: 'Pi models are unavailable for VS Code Git generation because session creation requires interactive dialog ownership',
+    });
+    expect(sdkClient.session.create).not.toHaveBeenCalled();
+    expect(sdkClient.session.promptAsync).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,5 @@
 /**
  * Session UI Store — ephemeral UI state only.
- *
  * Domain data (sessions, messages, parts, permissions, questions, status)
  * lives in sync child stores. This store owns ONLY transient UI concerns:
  * current selection, draft state, viewport anchors, model/agent preferences,
@@ -10,11 +9,13 @@
  * session-worktree-store (shared sync), and session-ui-store routes through it.
  *
  * SDK-calling actions that need domain data read it from sync-refs.
+ *
  */
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@opencode-ai/sdk/v2/client"
+import type { AgentPartInput, FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
@@ -78,6 +79,7 @@ import {
   type DeleteSessionsOptions,
   type UnarchiveSessionsOptions,
 } from "./session-actions"
+import { withSessionSendPreflight } from "./session-send-preflight"
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSessionGoalArmStore } from "@/stores/useSessionGoalArmStore"
 import { setSessionGoal } from "@/lib/sessionGoalActions"
@@ -89,6 +91,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { RetainedSessionError } from "@/lib/retainedSessionError"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -128,7 +131,7 @@ export function expandSlashCommandGoalObjective(content: string, commands: GoalC
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export function routeMessage(params: {
+export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -145,14 +148,18 @@ export function routeMessage(params: {
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
   if (params.inputMode === "shell") {
-    return opencodeClient.shellSession({
-      runtimeKey: params.runtimeKey,
+    return withSessionSendPreflight({
       sessionId: params.sessionId,
       directory: requestDirectory,
+      providerID: params.providerID,
+      runtimeKey: params.runtimeKey,
+    }, ({ client }) => client.session.shell({
+      sessionID: params.sessionId,
+      ...(requestDirectory ? { directory: requestDirectory } : {}),
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
-    }).then(() => undefined)
+    }, { throwOnError: true }).then(() => undefined))
   }
 
   // Slash commands — fire and forget, SSE delivers messages and status
@@ -186,22 +193,42 @@ export function routeMessage(params: {
         send: (messageID, optimisticParts) => {
           const textPartId = optimisticParts.find((part) => part.type === "text")?.id
           const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-          return opencodeClient.sendCommand({
-            runtimeKey: params.runtimeKey,
-            id: params.sessionId,
-            providerID: params.providerID,
-            modelID: params.modelID,
+          const commandRequest = {
+            sessionID: params.sessionId,
+            ...(requestDirectory ? { directory: requestDirectory } : {}),
             command: cmdName,
             arguments: tail.join(" "),
+            model: `${params.providerID}/${params.modelID}`,
             agent: params.agent,
             variant: params.variant,
-            textPartId,
-            files: params.files?.map((file, index) => (
-              filePartIds[index] ? { ...file, id: filePartIds[index] } : file
-            )),
-            messageId: messageID,
+            ...(params.files?.length ? {
+              parts: params.files.map((file, index) => (
+                filePartIds[index] ? { ...file, id: filePartIds[index] } : file
+              )),
+            } : {}),
+            ...(params.providerID === "omp" && textPartId ? { $body_textPartID: textPartId } : {}),
+            messageID,
+          }
+          return withSessionSendPreflight({
+            sessionId: params.sessionId,
             directory: requestDirectory,
-          }).then(() => {})
+            providerID: params.providerID,
+            runtimeKey: params.runtimeKey,
+          }, ({ client, fetch }) => {
+            if (params.providerID !== "omp" || !textPartId) {
+              return client.session.command(commandRequest, { throwOnError: true }).then(() => undefined)
+            }
+            const directoryQuery = requestDirectory ? `?directory=${encodeURIComponent(requestDirectory)}` : ""
+            return fetch(`/api/session/${encodeURIComponent(params.sessionId)}/command${directoryQuery}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(commandRequest),
+            }).then((response) => {
+              if (!response.ok) {
+                throw Object.assign(new Error(`Failed to send command (${response.status})`), { status: response.status })
+              }
+            })
+          })
         },
       })
     }
@@ -220,24 +247,48 @@ export function routeMessage(params: {
     send: (messageID, optimisticParts) => {
       const textPartId = optimisticParts.find((part) => part.type === "text")?.id
       const filePartIds = optimisticParts.filter((part) => part.type === "file").map((part) => part.id)
-      return opencodeClient.sendMessage({
-        runtimeKey: params.runtimeKey,
-        id: params.sessionId,
-        providerID: params.providerID,
-        modelID: params.modelID,
-        text: params.content,
-        textPartId,
-        agent: params.agent,
-        agentMentions: params.agentMentionName ? [{ name: params.agentMentionName }] : undefined,
-        variant: params.variant,
-        files: params.files?.map((file, index) => (
-          filePartIds[index] ? { ...file, id: filePartIds[index] } : file
-        )),
-        additionalParts: params.additionalParts,
-        delivery: params.delivery,
-        messageId: messageID,
+      const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = []
+      if (params.content.trim()) {
+        parts.push({
+          ...(textPartId ? { id: textPartId } : {}),
+          type: "text",
+          text: params.content,
+        })
+      }
+      for (const [index, file] of (params.files ?? []).entries()) {
+        parts.push(filePartIds[index] ? { ...file, id: filePartIds[index] } : file)
+      }
+      for (const additional of params.additionalParts ?? []) {
+        if (additional.text.trim()) {
+          parts.push({
+            ...(additional.synthetic ? { synthetic: true } : {}),
+            ...(additional.metadata ? { metadata: additional.metadata } : {}),
+            type: "text",
+            text: additional.text,
+          })
+        }
+        for (const file of additional.files ?? []) parts.push(file)
+      }
+      if (params.agentMentionName) {
+        parts.push({ type: "agent", name: params.agentMentionName })
+      }
+      if (parts.length === 0) throw new Error("Message must have at least one part (text or file)")
+      const promptRequest = {
+        sessionID: params.sessionId,
+        ...(requestDirectory ? { directory: requestDirectory } : {}),
+        model: { providerID: params.providerID, modelID: params.modelID },
+        ...(params.agent ? { agent: params.agent } : {}),
+        ...(params.variant ? { variant: params.variant } : {}),
+        ...(params.delivery ? { delivery: params.delivery } : {}),
+        messageID,
+        parts,
+      }
+      return withSessionSendPreflight({
+        sessionId: params.sessionId,
         directory: requestDirectory,
-      }).then(() => {})
+        providerID: params.providerID,
+        runtimeKey: params.runtimeKey,
+      }, ({ client }) => client.session.promptAsync(promptRequest, { throwOnError: true }).then(() => undefined))
     },
   })
 }
@@ -383,6 +434,7 @@ export type SessionUIState = {
     title?: string,
     directoryOverride?: string | null,
     parentID?: string | null,
+    providerID?: string,
     metadata?: Record<string, unknown>,
   ) => Promise<Session | null>
   deleteSession: (id: string, options?: DeleteSessionOptions) => Promise<boolean>
@@ -742,10 +794,12 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   void activateConfigForDirectory(recovered)
 }
 
+
 const createSessionWithDraftLifecycle = async (
   title?: string,
   directoryOverride?: string | null,
   parentID?: string | null,
+  providerID?: string,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
 ): Promise<Session | null> => {
@@ -761,6 +815,7 @@ const createSessionWithDraftLifecycle = async (
       title,
       directory,
       parentID ?? null,
+      providerID,
       metadata,
       selectionTransition,
     )
@@ -780,6 +835,7 @@ const createSessionWithDraftLifecycle = async (
     return session
   } catch (error) {
     console.error("[session-ui-store] createSession failed", error)
+    if (error instanceof RetainedSessionError) throw error
     return null
   }
 }
@@ -825,6 +881,7 @@ export async function materializeOpenDraftSession(selection: {
     draft.title,
     draftDirectoryOverride,
     draft.parentID ?? null,
+    selection.providerID,
     draftPins.notes.length > 0 || draftPins.plans.length > 0
       ? { openchamber: { project_context_pins: draftPins } }
       : undefined,
@@ -1755,8 +1812,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // createSession
   // ---------------------------------------------------------------------------
-  createSession: (title, directoryOverride, parentID, metadata) =>
-    createSessionWithDraftLifecycle(title, directoryOverride, parentID, metadata),
+  createSession: (title, directoryOverride, parentID, providerID, metadata) =>
+    createSessionWithDraftLifecycle(title, directoryOverride, parentID, providerID, metadata),
 
   // ---------------------------------------------------------------------------
   // deleteSession — calls SDK, SSE event updates child store
@@ -1892,7 +1949,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     if (!existingSession) return
 
     try {
-      await forkFromMessageAction(sessionId, messageId)
+      const sessionSelection = useSelectionStore.getState().getSessionModelSelection(sessionId)
+      const providerID = sessionSelection?.providerId || useConfigStore.getState().currentProviderId || ""
+      await forkFromMessageAction(sessionId, messageId, providerID)
 
       const { toast } = await import("sonner")
       toast.success(`Forked from ${existingSession.title}`)
@@ -1988,7 +2047,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
     }
 
-    const session = await get().createSession(undefined, sessionDirectory || null, null)
+    const session = await get().createSession(undefined, sessionDirectory || null, null, pID)
     if (!session) {
       if (createdWorktree && createdWorktreeProject) {
         const { removeProjectWorktree } = await import("@/lib/worktrees/worktreeManager")

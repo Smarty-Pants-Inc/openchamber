@@ -1,4 +1,5 @@
 import { GOAL_OBJECTIVE_CHAR_LIMIT, writeObjective } from './objectives.js';
+import { sessionMetadataMutationRuntime as sharedSessionMetadataMutationRuntime } from '../openchamber-sessions/session-metadata.js';
 
 const TRIM_MARKER = '\n\n[… objective trimmed for the auditor — the full prompt was delivered in the chat message …]\n\n';
 
@@ -55,6 +56,7 @@ export const createSessionGoal = async ({
   providerID,
   modelID,
   onWarning,
+  sessionMetadataMutationRuntime = sharedSessionMetadataMutationRuntime,
 }) => {
   const warn = (message, error) => {
     if (typeof onWarning === 'function') {
@@ -93,20 +95,50 @@ export const createSessionGoal = async ({
     note: '',
     statusReason: '',
     lastAccountedMessageID: '',
+    lastAccountedMessageIDs: [],
+    lastAccountedMessageTime: 0,
     createdAt: now,
     updatedAt: now,
   };
   const url = new URL(`${baseUrl}/session/${encodeURIComponent(sessionID)}`);
   url.searchParams.set('directory', directory);
-  const response = await fetch(url.toString(), {
-    method: 'PATCH',
-    headers: {
-      ...authHeaders,
-      'content-type': 'application/json',
-      accept: 'application/json',
+  const readSession = async () => {
+    const response = await fetch(url.toString(), {
+      headers: { ...authHeaders, accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`goal metadata read failed (${response.status})`);
+    const body = await response.json().catch(() => null);
+    const session = body?.data ?? body;
+    if (!session?.id) throw new Error('goal metadata read returned an invalid session');
+    return session;
+  };
+  const writeMetadata = async (metadata) => {
+    const response = await fetch(url.toString(), {
+      method: 'PATCH',
+      headers: {
+        ...authHeaders,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({ metadata }),
+    });
+    if (!response.ok) throw new Error(`goal metadata patch failed (${response.status})`);
+    return { id: sessionID, metadata };
+  };
+  const mutation = await sessionMetadataMutationRuntime.mutate({
+    sessionID,
+    directory,
+    readSession,
+    writeMetadata,
+    mutateMetadata: (metadata) => {
+      const currentNamespace = metadata.openchamber && typeof metadata.openchamber === 'object'
+        ? metadata.openchamber
+        : {};
+      return {
+        metadata: { ...metadata, openchamber: { ...currentNamespace, goal } },
+        result: goal,
+      };
     },
-    body: JSON.stringify({ metadata: { openchamber: { goal } } }),
   });
-  if (!response.ok) throw new Error(`goal metadata patch failed (${response.status})`);
-  return goal;
+  return mutation.result;
 };

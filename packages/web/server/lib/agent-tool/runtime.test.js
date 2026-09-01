@@ -315,6 +315,70 @@ describe('managed agent tool runtime', () => {
     }));
   });
 
+  it('forwards worktree, cleaned-session, and recovery data on partial create failures', async () => {
+    const recovery = {
+      session: { confirmed: false, detail: 'session cleanup could not be confirmed' },
+      bootstrap: { safeToRemove: false },
+    };
+    const error = Object.assign(new Error('Worktree recovery required'), {
+      statusCode: 500,
+      partial: true,
+      partialAction: 'worktree-retained',
+      sessionId: 'ses_new',
+      directory: '/repo/worktrees/side-task',
+      worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+      sessionCleaned: true,
+      recovery,
+    });
+    const { runtime } = await createRuntime({ executeAction: vi.fn(async () => { throw error; }) });
+
+    const result = await runtime.execute({ input: { action: 'session.create' } });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'session.create',
+      data: {
+        partial: true,
+        partialAction: 'worktree-retained',
+        sessionId: 'ses_new',
+        directory: '/repo/worktrees/side-task',
+        worktree: { path: '/repo/worktrees/side-task', branch: 'openchamber/side-task' },
+        sessionCleaned: true,
+        recovery,
+      },
+    }));
+    expect(result.data.recovery).toBe(recovery);
+  });
+
+
+  it('forwards recovery unchanged on partial fork failures', async () => {
+    const recovery = { fork: { confirmed: false, detail: 'dispatch already began' } };
+    const error = Object.assign(new Error('Fork recovery required'), {
+      statusCode: 500,
+      partial: true,
+      partialAction: 'fork-retained',
+      sessionId: 'ses_fork',
+      directory: '/repo/app',
+      recovery,
+    });
+    const { runtime } = await createRuntime({ executeAction: vi.fn(async () => { throw error; }) });
+
+    const result = await runtime.execute({ input: { action: 'session.fork' } });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      action: 'session.fork',
+      data: {
+        partial: true,
+        partialAction: 'fork-retained',
+        sessionId: 'ses_fork',
+        directory: '/repo/app',
+        recovery,
+      },
+    }));
+    expect(result.data.recovery).toBe(recovery);
+  });
+
   it('forwards cancellation to the shared control service', async () => {
     const executeAction = vi.fn(async (_action, _input, _directory, options) => {
       await new Promise((resolve, reject) => {
