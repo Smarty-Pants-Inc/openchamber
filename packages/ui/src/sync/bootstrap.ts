@@ -19,14 +19,15 @@ export const hasLiveProjectCatalogCapability = (value: RuntimeHealthPayload): bo
   value.runtime === LIVE_PROJECT_CATALOG_RUNTIME
 )
 
-async function loadLiveProjectCatalogCapability(): Promise<boolean> {
+async function loadLiveProjectCatalogCapability(): Promise<boolean | null> {
   try {
     const response = await runtimeFetch("/health", { signal: AbortSignal.timeout(4_000) })
-    if (!response.ok) return false
+    if (!response.ok) return null
     const health = runtimeHealthSchema.safeParse(await response.json().catch(() => null))
-    return health.success && hasLiveProjectCatalogCapability(health.data)
+    if (!health.success || health.data.runtime === undefined || health.data.runtime.trim().length === 0) return null
+    return hasLiveProjectCatalogCapability(health.data)
   } catch {
-    return false
+    return null
   }
 }
 
@@ -94,10 +95,11 @@ async function loadRuntimeProjects(sdk: OpencodeClient): Promise<Project[]> {
 
 export function createProjectCatalogRefresh(
   sdk: OpencodeClient,
-  onProjects: (projects: Project[], options: { liveCatalog: boolean }) => void,
+  onProjects: (projects: Project[], options: { liveCatalog: boolean | null }) => void,
   options?: {
     isCurrent?: () => boolean
-    getLiveProjectCatalogCapability?: () => Promise<boolean>
+    getOwnerGeneration?: () => number
+    getLiveProjectCatalogCapability?: () => Promise<boolean | null>
   },
 ): () => Promise<void> {
   let request: Promise<void> | null = null
@@ -110,21 +112,30 @@ export function createProjectCatalogRefresh(
 
     const run = async () => {
       while (true) {
+        if (options?.isCurrent && !options.isCurrent()) return
         const generation = invalidationGeneration
+        const ownerGeneration = options?.getOwnerGeneration?.()
         let projects: Project[]
-        let liveCatalog: boolean
+        let liveCatalog: boolean | null
         try {
           [projects, liveCatalog] = await Promise.all([
             loadRuntimeProjects(sdk),
-            getLiveProjectCatalogCapability().catch(() => false),
+            getLiveProjectCatalogCapability().catch(() => null),
           ])
         } catch (error) {
           if (generation !== invalidationGeneration) continue
+          if (
+            (options?.isCurrent && !options.isCurrent())
+            || (ownerGeneration !== undefined && options?.getOwnerGeneration?.() !== ownerGeneration)
+          ) return
           throw error
         }
 
         if (generation !== invalidationGeneration) continue
-        if (options?.isCurrent && !options.isCurrent()) return
+        if (
+          (options?.isCurrent && !options.isCurrent())
+          || (ownerGeneration !== undefined && options?.getOwnerGeneration?.() !== ownerGeneration)
+        ) return
         onProjects(projects, { liveCatalog })
         if (generation === invalidationGeneration) return
       }

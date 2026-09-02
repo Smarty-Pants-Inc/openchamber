@@ -133,7 +133,7 @@ describe("runtime project catalog refresh", () => {
     const runtimeProjects = [project]
     const sdk = createSdk({ projectList: async () => ({ data: runtimeProjects }) })
     let publishedProjects: Project[] = []
-    let liveCatalog = true
+    let liveCatalog: boolean | null = true
     const refresh = createProjectCatalogRefresh(
       sdk,
       (projects, authority) => {
@@ -151,7 +151,7 @@ describe("runtime project catalog refresh", () => {
 
   test("marks a gateway catalog as authoritative when its capability is present", async () => {
     const runtimeProjects = [project]
-    let liveCatalog = false
+    let liveCatalog: boolean | null = false
     const refresh = createProjectCatalogRefresh(
       createSdk({ projectList: async () => ({ data: runtimeProjects }) }),
       (_projects, authority) => {
@@ -163,5 +163,46 @@ describe("runtime project catalog refresh", () => {
     await refresh()
 
     expect(liveCatalog).toBe(true)
+  })
+
+  test("keeps an unknown health identity non-authoritative", async () => {
+    let liveCatalog: boolean | null = false
+    const refresh = createProjectCatalogRefresh(
+      createSdk({ projectList: async () => ({ data: [project] }) }),
+      (_projects, authority) => {
+        liveCatalog = authority.liveCatalog
+      },
+      { getLiveProjectCatalogCapability: async () => null },
+    )
+
+    await refresh()
+
+    expect(liveCatalog).toBeNull()
+  })
+
+  test("does not publish after its provider generation changes", async () => {
+    let resolveProjects!: (result: { data: Project[] }) => void
+    const projects = new Promise<{ data: Project[] }>((resolve) => {
+      resolveProjects = resolve
+    })
+    let ownerGeneration = 0
+    const published: Project[][] = []
+    const refresh = createProjectCatalogRefresh(
+      createSdk({ projectList: async () => await projects }),
+      (nextProjects) => {
+        published.push(nextProjects)
+      },
+      {
+        getLiveProjectCatalogCapability: async () => true,
+        getOwnerGeneration: () => ownerGeneration,
+      },
+    )
+
+    const refreshing = refresh()
+    ownerGeneration += 1
+    resolveProjects({ data: [project] })
+    await refreshing
+
+    expect(published).toEqual([])
   })
 })

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
+import React, { createContext, useContext, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { Session } from "@opencode-ai/sdk/v2"
 import type { StoreApi } from "zustand"
@@ -2075,34 +2075,48 @@ export function SyncProvider(props: {
   const pipelineHasConnectedRef = useRef(false)
   const pipelineDisconnectedBeforeFirstConnectRef = useRef(false)
 
-  const projectCatalogEpochRef = useRef<{ sdk: OpencodeClient; runtimeKey: string; epoch: number } | null>(null)
-  if (
-    !projectCatalogEpochRef.current
-    || projectCatalogEpochRef.current.sdk !== props.sdk
-    || projectCatalogEpochRef.current.runtimeKey !== runtimeKey
-  ) {
-    projectCatalogEpochRef.current = {
+  const projectCatalogLifecycle = useMemo(
+    () => ({
       sdk: props.sdk,
       runtimeKey,
-      epoch: (projectCatalogEpochRef.current?.epoch ?? 0) + 1,
-    }
-  }
-  const projectCatalogEpoch = projectCatalogEpochRef.current.epoch
+      generation: 0,
+      active: false,
+    }),
+    [props.sdk, runtimeKey],
+  )
+  const projectCatalogLifecycleRef = useRef(projectCatalogLifecycle)
   const refreshRuntimeProjects = useMemo(() => createProjectCatalogRefresh(
     props.sdk,
     (projects, { liveCatalog }) => {
       useGlobalSyncStore.getState().actions.set({ projects })
-      if (liveCatalog) {
+      if (liveCatalog === true) {
         useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: true })
+      } else if (liveCatalog === false) {
+        useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: false })
       }
     },
     {
-      isCurrent: () => projectCatalogEpochRef.current?.epoch === projectCatalogEpoch
-        && projectCatalogEpochRef.current.sdk === props.sdk
-        && projectCatalogEpochRef.current.runtimeKey === runtimeKey
+      getOwnerGeneration: () => projectCatalogLifecycle.generation,
+      isCurrent: () => projectCatalogLifecycle.active
+        && projectCatalogLifecycleRef.current === projectCatalogLifecycle
         && runtimeKey === getRuntimeKey(),
     },
-  ), [props.sdk, projectCatalogEpoch, runtimeKey])
+  ), [props.sdk, projectCatalogLifecycle, runtimeKey])
+
+  useLayoutEffect(() => {
+    const previousLifecycle = projectCatalogLifecycleRef.current
+    if (previousLifecycle !== projectCatalogLifecycle) {
+      previousLifecycle.active = false
+      previousLifecycle.generation += 1
+      projectCatalogLifecycleRef.current = projectCatalogLifecycle
+    }
+    projectCatalogLifecycle.active = true
+    projectCatalogLifecycle.generation += 1
+    return () => {
+      projectCatalogLifecycle.active = false
+      projectCatalogLifecycle.generation += 1
+    }
+  }, [projectCatalogLifecycle])
 
   const runtime = useMemo<SyncRuntime>(
     () => ({ childStores, messageLoader, runtimeKey, sdk: props.sdk }),

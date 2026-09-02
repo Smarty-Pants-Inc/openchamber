@@ -74,7 +74,7 @@ interface ProjectsStore {
   resetForRuntimeSwitch: () => void;
   validateProjectPath: (path: string) => ProjectPathValidationResult;
   synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => void;
-  synchronizeFromRuntimeProjects: (projects: RuntimeProject[], options?: { liveCatalog?: true }) => void;
+  synchronizeFromRuntimeProjects: (projects: RuntimeProject[], options?: { liveCatalog?: boolean }) => void;
   syncVSCodeWorkspaceFolders: (folders: VSCodeWorkspaceFolderConfig[], activePath?: string | null) => ProjectEntry | null;
   getActiveProject: () => ProjectEntry | null;
 }
@@ -686,6 +686,29 @@ if (vscodeWorkspace) {
   cacheProjects(effectiveInitialProjects, initialActiveProjectId);
 }
 
+const materializeLiveProjectPresentation = async (
+  id: string,
+  get: () => ProjectsStore,
+  set: (state: Partial<ProjectsStore>) => void,
+): Promise<void> => {
+  const current = get();
+  const project = current.projects.find((project) => project.id === id);
+  if (!current.runtimeProjectMembershipActive || !project) {
+    return;
+  }
+
+  const existing = current.presentationProjects.find((project) => project.id === id);
+  const presentationProject = existing ? { ...project, ...existing } : project;
+  const presentationProjects = existing
+    ? current.presentationProjects.map((project) => project.id === id ? presentationProject : project)
+    : [...current.presentationProjects, presentationProject];
+  if (JSON.stringify(current.presentationProjects) !== JSON.stringify(presentationProjects)) {
+    set({ presentationProjects });
+    cacheProjects(presentationProjects, current.activeProjectId);
+  }
+  await updateDesktopSettings({ projects: presentationProjects });
+};
+
 export const useProjectsStore = create<ProjectsStore>()(
   devtools((set, get) => ({
     projects: effectiveInitialProjects,
@@ -951,6 +974,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
 
       try {
+        await materializeLiveProjectPresentation(id, get, set);
+
         const dataUrl = await readFileAsDataUrl(file);
         const normalizedDataUrl = dataUrl.replace(/^data:[^;]+;/i, `data:${mime};`);
 
@@ -1014,6 +1039,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
 
       try {
+        await materializeLiveProjectPresentation(id, get, set);
+
         const response = await runtimeFetch(`/api/projects/${encodeURIComponent(id)}/icon/discover`, {
           method: 'POST',
           headers: {
@@ -1107,9 +1134,23 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     synchronizeFromRuntimeProjects: (runtimeProjects, options) => {
-      if (isVSCodeProjectsRuntime || options?.liveCatalog !== true) return;
+      if (isVSCodeProjectsRuntime) return;
 
       const current = get();
+      if (options?.liveCatalog === false) {
+        if (!current.runtimeProjectMembershipActive) return;
+        const projects = current.presentationProjects;
+        const ids = new Set(projects.map((project) => project.id));
+        const activeProjectId = current.activeProjectId && ids.has(current.activeProjectId)
+          ? current.activeProjectId
+          : projects[0]?.id ?? null;
+        set({ projects, activeProjectId, runtimeProjectMembershipActive: false });
+        cacheProjects(projects, activeProjectId);
+        applyActiveProjectSelection(projects, current.activeProjectId, activeProjectId);
+        return;
+      }
+      if (options?.liveCatalog !== true) return;
+
       const projects = reconcileRuntimeProjects(
         runtimeProjects,
         current.presentationProjects,
@@ -1139,9 +1180,11 @@ export const useProjectsStore = create<ProjectsStore>()(
         const runtimeProjects = current.projects.map((project) => ({ worktree: project.path }));
         const projects = reconcileRuntimeProjects(runtimeProjects, incomingProjects, current.projects);
         const ids = new Set(projects.map((project) => project.id));
-        const nextActive = current.activeProjectId && ids.has(current.activeProjectId)
-          ? current.activeProjectId
-          : projects[0]?.id ?? null;
+        const nextActive = adoptActiveProject && incomingActive && ids.has(incomingActive)
+          ? incomingActive
+          : (current.activeProjectId && ids.has(current.activeProjectId)
+            ? current.activeProjectId
+            : projects[0]?.id ?? null);
         const manualProjectOrder = incomingProjects.map((project) => project.id);
         set({
           presentationProjects: incomingProjects,

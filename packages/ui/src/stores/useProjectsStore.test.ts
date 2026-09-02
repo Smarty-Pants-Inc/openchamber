@@ -187,4 +187,65 @@ describe("useProjectsStore runtime project catalog authority", () => {
     expect(reconnected?.path).toBe("/repo-b")
     expect(reconnected?.label).toBe("Gateway B")
   })
+
+  test("adopts a valid bootstrap active project without restoring settings-only projects", () => {
+    const settings: DesktopSettings = {
+      projects: [
+        { id: "configured-a", path: "/repo-a" },
+        { id: "configured-b", path: "/repo-b" },
+        { id: "settings-only", path: "/settings-only" },
+      ],
+    }
+    useProjectsStore.getState().synchronizeFromSettings(settings)
+    const [first, second, settingsOnly] = useProjectsStore.getState().projects
+    if (!first || !second || !settingsOnly) throw new Error("settings projects were not created")
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: first.path },
+      { worktree: second.path },
+    ], { liveCatalog: true })
+    useProjectsStore.setState({ activeProjectId: first.id })
+
+    useProjectsStore.getState().synchronizeFromSettings({
+      ...settings,
+      activeProjectId: second.id,
+    })
+
+    const state = useProjectsStore.getState()
+    expect(state.activeProjectId).toBe(second.id)
+    expect(state.projects.map((project) => project.path)).toEqual(["/repo-a", "/repo-b"])
+    expect(state.projects.some((project) => project.id === settingsOnly.id)).toBe(false)
+  })
+
+  test("keeps live-only projects out of presentation settings until an icon action needs them", () => {
+    const settings: DesktopSettings = {
+      projects: [{ id: "settings-project", path: "/settings-project" }],
+    }
+    useProjectsStore.getState().synchronizeFromSettings(settings)
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: "/gateway-project" },
+    ], { liveCatalog: true })
+
+    const state = useProjectsStore.getState()
+    expect(state.projects.map((project) => project.path)).toEqual(["/gateway-project"])
+    expect(state.presentationProjects.map((project) => project.path)).toEqual(["/settings-project"])
+  })
+
+  test("releases live membership only after an explicit non-gateway identity", () => {
+    const settings: DesktopSettings = {
+      projects: [{ id: "settings-project", path: "/settings-project" }],
+    }
+    useProjectsStore.getState().synchronizeFromSettings(settings)
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: "/gateway-project" },
+    ], { liveCatalog: true })
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([], {})
+    expect(useProjectsStore.getState().runtimeProjectMembershipActive).toBe(true)
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
+    expect(useProjectsStore.getState().runtimeProjectMembershipActive).toBe(false)
+    expect(useProjectsStore.getState().addProject("/settings-added")?.path).toBe("/settings-added")
+  })
 })
