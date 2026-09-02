@@ -76,7 +76,15 @@ mock.module('@/lib/runtime-switch', () => ({
 // The test mocks must be registered before this module captures its runtime dependencies.
 const { useProjectsStore } = await import('./useProjectsStore')
 
-const createDeferred = <T>() => Promise.withResolvers<T>()
+const createDeferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 const switchTestRuntime = (nextRuntimeKey = 'runtime-b') => {
   runtimeApiBaseUrl = 'https://runtime-b.example'
@@ -86,7 +94,7 @@ const switchTestRuntime = (nextRuntimeKey = 'runtime-b') => {
 
 const bootstrapPresentedProject = (): ProjectEntry => {
   useProjectsStore.getState().synchronizeFromSettings({
-    projects: [{ path: '/live-project' }],
+    projects: [{ id: 'live-project', path: '/live-project' }],
   })
   useProjectsStore.getState().synchronizeFromRuntimeProjects([
     { worktree: '/live-project' },
@@ -258,7 +266,7 @@ describe('live catalog selection and icon materialization', () => {
 
   test('persists only presented and explicitly targeted live projects', () => {
     useProjectsStore.getState().synchronizeFromSettings({
-      projects: [{ path: '/presented-project' }],
+      projects: [{ id: 'presented-project', path: '/presented-project' }],
     })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/presented-project' },
@@ -285,7 +293,7 @@ describe('live catalog selection and icon materialization', () => {
 
   test('preserves cleaned manual order and appends new projects in normal and live syncs', () => {
     useProjectsStore.getState().synchronizeFromSettings({
-      projects: [{ path: '/normal-a' }, { path: '/normal-b' }, { path: '/normal-c' }],
+      projects: [{ id: 'normal-a', path: '/normal-a' }, { id: 'normal-b', path: '/normal-b' }, { id: 'normal-c', path: '/normal-c' }],
     })
     const normalProjects = useProjectsStore.getState().projects
     const normalA = normalProjects.find((project) => project.path === '/normal-a')
@@ -295,14 +303,14 @@ describe('live catalog selection and icon materialization', () => {
     useProjectsStore.setState({ manualProjectOrder: [normalC.id, normalA.id, 'missing', normalA.id] })
 
     useProjectsStore.getState().synchronizeFromSettings({
-      projects: [{ path: '/normal-b' }, { path: '/normal-new' }, { path: '/normal-a' }],
+      projects: [{ id: 'normal-b', path: '/normal-b' }, { id: 'normal-new', path: '/normal-new' }, { id: 'normal-a', path: '/normal-a' }],
     })
     const normalNew = useProjectsStore.getState().projects.find((project) => project.path === '/normal-new')
     if (!normalNew) throw new Error('new normal project was not created')
     expect(useProjectsStore.getState().manualProjectOrder).toEqual([normalA.id, normalB.id, normalNew.id])
 
     useProjectsStore.getState().synchronizeFromSettings({
-      projects: [{ path: '/live-a' }, { path: '/live-b' }],
+      projects: [{ id: 'live-a', path: '/live-a' }, { id: 'live-b', path: '/live-b' }],
     })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/live-a' },
@@ -317,7 +325,7 @@ describe('live catalog selection and icon materialization', () => {
     useProjectsStore.setState({ manualProjectOrder: [liveB.id, 'missing'] })
 
     useProjectsStore.getState().synchronizeFromSettings({
-      projects: [{ path: '/live-b' }, { path: '/live-a' }],
+      projects: [{ id: 'live-b', path: '/live-b' }, { id: 'live-a', path: '/live-a' }],
     })
     expect(useProjectsStore.getState().manualProjectOrder).toEqual([liveB.id, liveA.id, liveOnly.id])
   })
@@ -341,7 +349,7 @@ describe('live catalog selection and icon materialization', () => {
   })
 
   test('guards reorder while the runtime owns membership and reorders after release', () => {
-    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: '/reorder-a' }] })
+    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ id: 'reorder-a', path: '/reorder-a' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/reorder-a' },
       { worktree: '/reorder-b' },
@@ -378,7 +386,7 @@ describe('live catalog selection and icon materialization', () => {
   })
 
   test('rolls back live presentation materialization when settings save fails', async () => {
-    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: '/settings-project' }] })
+    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ id: 'settings-project', path: '/settings-project' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([{ worktree: '/live-icon-project' }], { liveCatalog: true })
     const project = useProjectsStore.getState().projects[0]
     if (!project) throw new Error('live icon project was not created')
@@ -394,7 +402,7 @@ describe('live catalog selection and icon materialization', () => {
   test('retains a cached live-only selection through a partial catalog and a logical-key relay switch', () => {
     runtimeKey = 'logical-runtime-cache-test'
     runtimeApiBaseUrl = 'https://lan-runtime.example'
-    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: '/cache-a' }] })
+    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ id: 'cache-a', path: '/cache-a' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/cache-a' },
       { worktree: '/cache-live-only' },
@@ -406,7 +414,7 @@ describe('live catalog selection and icon materialization', () => {
     runtimeApiBaseUrl = 'https://relay-runtime.example'
     runtimeTransportEpoch += 1
     useProjectsStore.getState().resetForRuntimeSwitch()
-    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: '/cache-a' }] })
+    useProjectsStore.getState().synchronizeFromSettings({ projects: [{ id: 'cache-a', path: '/cache-a' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([{ worktree: '/cache-a' }], { liveCatalog: true })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/cache-a' },
