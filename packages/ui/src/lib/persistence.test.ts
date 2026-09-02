@@ -391,6 +391,66 @@ describe('updateDesktopSettings', () => {
     });
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-b')) ?? '{}')).toEqual({});
   });
+  test('canonicalizes an omitted project catalog on complete bootstrap sync', async () => {
+    getWindow();
+    const syncedSettings: SettingsPayload[] = [];
+    const handleSettingsSynced = (event: Event) => {
+      syncedSettings.push((event as CustomEvent<{ settings: SettingsPayload }>).detail.settings);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: { draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
+      source: 'web',
+    }));
+
+    try {
+      await syncDesktopSettings();
+
+      expect(syncedSettings.at(-1)?.projects).toEqual([]);
+    } finally {
+      getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    }
+  });
+
+  test('keeps an explicit empty project catalog authoritative through sanitization', async () => {
+    getWindow();
+    const syncedSettings: SettingsPayload[] = [];
+    const handleSettingsSynced = (event: Event) => {
+      syncedSettings.push((event as CustomEvent<{ settings: SettingsPayload }>).detail.settings);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: { projects: [], draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
+      source: 'web',
+    }));
+
+    try {
+      await syncDesktopSettings();
+
+      expect(syncedSettings.at(-1)?.projects).toEqual([]);
+    } finally {
+      getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    }
+  });
+
+  test('preserves an omitted project catalog in a partial settings save response', async () => {
+    getWindow();
+    const syncedSettings: SettingsPayload[] = [];
+    const handleSettingsSynced = (event: Event) => {
+      syncedSettings.push((event as CustomEvent<{ settings: SettingsPayload }>).detail.settings);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+    registerSettingsSave(async () => ({ showReasoningTraces: false }));
+
+    try {
+      await updateDesktopSettings({ showReasoningTraces: false });
+
+      expect(Object.hasOwn(syncedSettings.at(-1) ?? {}, 'projects')).toBe(false);
+    } finally {
+      getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    }
+  });
+
 
   test('resets in-memory preferences omitted by an authoritative runtime snapshot', async () => {
     getWindow();

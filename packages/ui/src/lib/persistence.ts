@@ -452,7 +452,7 @@ const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefin
     result.push(project);
   }
 
-  return result.length > 0 ? result : undefined;
+  return result.length > 0 || value.length === 0 ? result : undefined;
 };
 
 const sanitizeManagedRemoteTunnelPresets = (value: unknown): DesktopSettings['managedRemoteTunnelPresets'] | undefined => {
@@ -1925,7 +1925,12 @@ export const syncDesktopSettings = async (options?: { adoptWorkspace?: boolean }
     const shouldSeedSidebarSessionGroupingMode = settings.sidebarSessionGroupingMode === undefined;
     const shouldSeedSidebarProjectSortOrder = settings.sidebarProjectSortOrder === undefined;
     const shouldSeedSidebarShowRecentSection = settings.sidebarShowRecentSection === undefined;
-    const authoritativeSettings = materializeAuthoritativeUiSettings(settings);
+    const authoritativeSettings = materializeAuthoritativeUiSettings({
+      ...settings,
+      // A successful settings load is a complete bootstrap snapshot. The
+      // persisted catalog defaults to empty when older settings omit it.
+      projects: settings.projects ?? [],
+    });
     try {
       persistToLocalStorage(settings);
     } catch (error) {
