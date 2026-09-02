@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createOpencodeClient } from '@opencode-ai/sdk/v2'
-import { SyncProvider, useSyncDirectory } from './sync-context'
+import { SyncProvider, useSyncDirectory, createProjectCatalogInvalidationRefresh } from './sync-context'
 import { usePrefetchSessionMessages } from './use-sync'
 import { installHookTestDom } from '../components/session/sidebar/test-utils/testDom'
 import { useProjectsStore } from '../stores/useProjectsStore'
@@ -148,5 +148,42 @@ describe('SyncProvider selection boundary', () => {
       globalThis.fetch = originalFetch
       dom.restore()
     }
+  })
+
+  test('coalesces transient catalog invalidations and clears the completed request', async () => {
+    let calls = 0
+    const refresh = createProjectCatalogInvalidationRefresh(
+      async () => {
+        calls += 1
+        if (calls === 1) throw new Error('project.list failed (503)')
+      },
+      () => true,
+      () => true,
+    )
+
+    const first = refresh()
+    expect(refresh()).toBe(first)
+    await first
+    expect(calls).toBe(2)
+
+    await refresh()
+    expect(calls).toBe(3)
+  })
+
+  test('clears a rejected invalidation so a reconnect can refresh again', async () => {
+    let connected = false
+    let calls = 0
+    const refresh = createProjectCatalogInvalidationRefresh(
+      async () => {
+        calls += 1
+      },
+      () => true,
+      () => connected,
+    )
+
+    await expect(refresh()).rejects.toThrow('no longer current')
+    connected = true
+    await refresh()
+    expect(calls).toBe(1)
   })
 })

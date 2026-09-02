@@ -8,6 +8,7 @@ import {
   LIVE_PROJECT_CATALOG_RUNTIME,
 } from "./bootstrap"
 import { INITIAL_STATE, type State } from "./types"
+import { getRuntimeKey, getRuntimeTransportEpoch, switchRuntimeEndpoint } from "@/lib/runtime-switch"
 
 const createSdk = (options?: {
   commandList?: () => Promise<{ data: unknown[] }>
@@ -132,7 +133,7 @@ describe("runtime project catalog refresh", () => {
   test("keeps a normal runtime catalog visible without granting membership authority", async () => {
     const runtimeProjects = [project]
     const sdk = createSdk({ projectList: async () => ({ data: runtimeProjects }) })
-    let publishedProjects: Project[] = []
+    let publishedProjects: Project[] | null = []
     let liveCatalog: boolean | null = true
     const refresh = createProjectCatalogRefresh(
       sdk,
@@ -147,6 +148,66 @@ describe("runtime project catalog refresh", () => {
 
     expect(publishedProjects).toEqual(runtimeProjects)
     expect(liveCatalog).toBe(false)
+  })
+
+  test("releases ordinary runtime authority before its project list failure rejects", async () => {
+    let resolveHealth!: (value: boolean | null) => void
+    const health = new Promise<boolean | null>((resolve) => {
+      resolveHealth = resolve
+    })
+    const failure = new Error("project.list unavailable")
+    let rejectProjects!: (error: Error) => void
+    const projects = new Promise<{ data: Project[] }>((_resolve, reject) => {
+      rejectProjects = reject
+    })
+    const published: Array<{ projects: Project[] | null; liveCatalog: boolean | null }> = []
+    let resolveAuthority!: () => void
+    const authorityReleased = new Promise<void>((resolve) => {
+      resolveAuthority = resolve
+    })
+    const refresh = createProjectCatalogRefresh(
+      createSdk({ projectList: async () => await projects }),
+      (nextProjects, authority) => {
+        published.push({ projects: nextProjects, liveCatalog: authority.liveCatalog })
+        if (nextProjects === null && authority.liveCatalog === false) resolveAuthority()
+      },
+      { getLiveProjectCatalogCapability: async () => await health },
+    )
+
+    const refreshing = refresh()
+    resolveHealth(false)
+    await authorityReleased
+
+    expect(published).toEqual([{ projects: null, liveCatalog: false }])
+    rejectProjects(failure)
+    await expect(refreshing).rejects.toThrow(failure.message)
+    expect(published).toEqual([{ projects: null, liveCatalog: false }])
+  })
+
+  test("clears a rejected catalog request so the next invalidation can refresh", async () => {
+    const failure = new Error("project.list unavailable")
+    let calls = 0
+    const published: Array<Project[] | null> = []
+    const refresh = createProjectCatalogRefresh(
+      createSdk({
+        projectList: async () => {
+          calls += 1
+          if (calls === 1) throw failure
+          return { data: [project] }
+        },
+      }),
+      (projects) => {
+        published.push(projects)
+      },
+      { getLiveProjectCatalogCapability: async () => true },
+    )
+    const first = refresh()
+    expect(refresh()).toBe(first)
+    await expect(first).rejects.toThrow(failure.message)
+    await refresh()
+
+    expect(calls).toBe(2)
+    expect(published).toEqual([[project]])
   })
 
   test("marks a gateway catalog as authoritative when its capability is present", async () => {
@@ -180,13 +241,41 @@ describe("runtime project catalog refresh", () => {
     expect(liveCatalog).toBeNull()
   })
 
+  test("drops a catalog response after a same-key transport switch", async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: "https://catalog-before.test", runtimeKey: "catalog-test" })
+    const runtimeKey = getRuntimeKey()
+    const transportEpoch = getRuntimeTransportEpoch()
+    let resolveProjects!: (result: { data: Project[] }) => void
+    const projects = new Promise<{ data: Project[] }>((resolve) => {
+      resolveProjects = resolve
+    })
+    const published: Array<Project[] | null> = []
+    const refresh = createProjectCatalogRefresh(
+      createSdk({ projectList: async () => await projects }),
+      (nextProjects) => {
+        published.push(nextProjects)
+      },
+      {
+        getLiveProjectCatalogCapability: async () => true,
+        isCurrent: () => runtimeKey === getRuntimeKey() && transportEpoch === getRuntimeTransportEpoch(),
+      },
+    )
+
+    const refreshing = refresh()
+    switchRuntimeEndpoint({ apiBaseUrl: "https://catalog-after.test", runtimeKey })
+    resolveProjects({ data: [project] })
+    await refreshing
+
+    expect(published).toEqual([])
+  })
+
   test("does not publish after its provider generation changes", async () => {
     let resolveProjects!: (result: { data: Project[] }) => void
     const projects = new Promise<{ data: Project[] }>((resolve) => {
       resolveProjects = resolve
     })
     let ownerGeneration = 0
-    const published: Project[][] = []
+    const published: Array<Project[] | null> = []
     const refresh = createProjectCatalogRefresh(
       createSdk({ projectList: async () => await projects }),
       (nextProjects) => {

@@ -95,7 +95,7 @@ async function loadRuntimeProjects(sdk: OpencodeClient): Promise<Project[]> {
 
 export function createProjectCatalogRefresh(
   sdk: OpencodeClient,
-  onProjects: (projects: Project[], options: { liveCatalog: boolean | null }) => void,
+  onProjects: (projects: Project[] | null, options: { liveCatalog: boolean | null }) => void,
   options?: {
     isCurrent?: () => boolean
     getOwnerGeneration?: () => number
@@ -106,36 +106,49 @@ export function createProjectCatalogRefresh(
   let invalidationGeneration = 0
   const getLiveProjectCatalogCapability = options?.getLiveProjectCatalogCapability ?? loadLiveProjectCatalogCapability
 
+  const isCurrent = (ownerGeneration: number | undefined, generation?: number): boolean => (
+    (generation === undefined || generation === invalidationGeneration)
+    && (!options?.isCurrent || options.isCurrent())
+    && (ownerGeneration === undefined || options?.getOwnerGeneration?.() === ownerGeneration)
+  )
+
   return () => {
     invalidationGeneration += 1
     if (request) return request
 
     const run = async () => {
       while (true) {
-        if (options?.isCurrent && !options.isCurrent()) return
         const generation = invalidationGeneration
+        if (!isCurrent(undefined, generation)) return
         const ownerGeneration = options?.getOwnerGeneration?.()
+
+        // Health and catalog have independent authority. A healthy ordinary
+        // runtime must release live membership immediately, even when its
+        // project list request is unavailable.
+        const liveCatalogPromise = getLiveProjectCatalogCapability()
+          .catch(() => null)
+          .then((liveCatalog) => {
+            if (liveCatalog === false && isCurrent(ownerGeneration, generation)) {
+              onProjects(null, { liveCatalog: false })
+            }
+            return liveCatalog
+          })
+
         let projects: Project[]
-        let liveCatalog: boolean | null
         try {
-          [projects, liveCatalog] = await Promise.all([
-            loadRuntimeProjects(sdk),
-            getLiveProjectCatalogCapability().catch(() => null),
-          ])
+          projects = await loadRuntimeProjects(sdk)
         } catch (error) {
-          if (generation !== invalidationGeneration) continue
-          if (
-            (options?.isCurrent && !options.isCurrent())
-            || (ownerGeneration !== undefined && options?.getOwnerGeneration?.() !== ownerGeneration)
-          ) return
+          await liveCatalogPromise
+          if (generation !== invalidationGeneration) throw error
+          if (!isCurrent(ownerGeneration, generation)) return
+          // A failed list must not prevent a confirmed ordinary runtime from
+          // releasing live membership authority before this request rejects.
           throw error
         }
 
+        const liveCatalog = await liveCatalogPromise
         if (generation !== invalidationGeneration) continue
-        if (
-          (options?.isCurrent && !options.isCurrent())
-          || (ownerGeneration !== undefined && options?.getOwnerGeneration?.() !== ownerGeneration)
-        ) return
+        if (!isCurrent(ownerGeneration, generation)) return
         onProjects(projects, { liveCatalog })
         if (generation === invalidationGeneration) return
       }

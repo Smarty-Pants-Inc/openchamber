@@ -73,7 +73,7 @@ import {
 import { openSessionFromToast } from "./session-navigation"
 import { getPermissionToastKey, showPermissionNeededToast } from "./permission-toast"
 import { getRuntimeLiveStatusSeed, LIVE_STATUS_TTL_MS } from "./runtime-live-memory"
-import { getRuntimeKey } from "@/lib/runtime-switch"
+import { getRuntimeKey, getRuntimeTransportEpoch } from "@/lib/runtime-switch"
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
 import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
@@ -143,6 +143,30 @@ function assertSdkSuccess<T>(result: SdkResult<T>, operation: string): T | undef
   if (!result.error) return result.data
   const status = result.response?.status
   throw new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`)
+}
+export function createProjectCatalogInvalidationRefresh(
+  refresh: () => Promise<void>,
+  isCurrent: () => boolean,
+  isConnected: () => boolean,
+): () => Promise<void> {
+  let request: Promise<void> | null = null
+  return () => {
+    if (request && isCurrent()) return request
+
+    const pending = retry(async () => {
+      if (!isCurrent() || !isConnected()) {
+        throw new Error("Project catalog refresh stopped because its runtime is no longer current")
+      }
+      await refresh()
+      if (!isCurrent()) {
+        throw new Error("Project catalog refresh stopped because its runtime is no longer current")
+      }
+    }, { attempts: 3, delay: 250 }).finally(() => {
+      if (request === pending) request = null
+    })
+    request = pending
+    return pending
+  }
 }
 
 function useSyncSystem() {
@@ -2049,6 +2073,7 @@ export function SyncProvider(props: {
   if (!childStoresRef.current) childStoresRef.current = new ChildStoreManager()
   const childStores = childStoresRef.current
   const runtimeKey = getRuntimeKey()
+  const runtimeTransportEpoch = getRuntimeTransportEpoch()
   const messageLoaderRef = useRef<SessionMessageLoader | null>(null)
   if (!messageLoaderRef.current) {
     messageLoaderRef.current = new SessionMessageLoader(childStores, {
@@ -2079,29 +2104,41 @@ export function SyncProvider(props: {
     () => ({
       sdk: props.sdk,
       runtimeKey,
+      runtimeTransportEpoch,
       generation: 0,
       active: false,
     }),
-    [props.sdk, runtimeKey],
+    [props.sdk, runtimeKey, runtimeTransportEpoch],
   )
   const projectCatalogLifecycleRef = useRef(projectCatalogLifecycle)
   const refreshRuntimeProjects = useMemo(() => createProjectCatalogRefresh(
     props.sdk,
     (projects, { liveCatalog }) => {
-      useGlobalSyncStore.getState().actions.set({ projects })
-      if (liveCatalog === true) {
+      if (projects) {
+        useGlobalSyncStore.getState().actions.set({ projects })
+      }
+      if (liveCatalog === true && projects) {
         useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: true })
       } else if (liveCatalog === false) {
-        useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: false })
+        useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
       }
     },
     {
       getOwnerGeneration: () => projectCatalogLifecycle.generation,
       isCurrent: () => projectCatalogLifecycle.active
         && projectCatalogLifecycleRef.current === projectCatalogLifecycle
-        && runtimeKey === getRuntimeKey(),
+        && runtimeKey === getRuntimeKey()
+        && runtimeTransportEpoch === getRuntimeTransportEpoch(),
     },
-  ), [props.sdk, projectCatalogLifecycle, runtimeKey])
+  ), [props.sdk, projectCatalogLifecycle, runtimeKey, runtimeTransportEpoch])
+  const refreshInvalidatedRuntimeProjects = useMemo(() => createProjectCatalogInvalidationRefresh(
+    refreshRuntimeProjects,
+    () => projectCatalogLifecycle.active
+      && projectCatalogLifecycleRef.current === projectCatalogLifecycle
+      && runtimeKey === getRuntimeKey()
+      && runtimeTransportEpoch === getRuntimeTransportEpoch(),
+    () => useConfigStore.getState().isConnected,
+  ), [projectCatalogLifecycle, refreshRuntimeProjects, runtimeKey, runtimeTransportEpoch])
 
   useLayoutEffect(() => {
     const previousLifecycle = projectCatalogLifecycleRef.current
@@ -2356,7 +2393,7 @@ export function SyncProvider(props: {
         try {
           for (const payload of payloads) {
             if (String(payload.type) === "project.list.changed") {
-              void refreshRuntimeProjects().catch(() => undefined)
+              void refreshInvalidatedRuntimeProjects().catch(() => undefined)
             }
             dispatchVSCodeRuntimeNotificationEvent(directory, payload)
             if (payload.type === "installation.update-available") {
@@ -2424,7 +2461,7 @@ export function SyncProvider(props: {
       }
       pipeline.cleanup()
     }
-  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync, refreshRuntimeProjects])
+  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync, refreshRuntimeProjects, refreshInvalidatedRuntimeProjects])
 
   useEffect(() => {
     let stopped = false
