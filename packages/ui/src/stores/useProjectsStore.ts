@@ -6,6 +6,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 import type { Project } from '@opencode-ai/sdk/v2/client';
 import type { DesktopSettings } from '@/lib/desktop';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
+import * as persistence from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { getDeferredSafeStorage } from './utils/safeStorage';
 import { useDirectoryStore } from './useDirectoryStore';
@@ -13,7 +14,7 @@ import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeApiBaseUrl, getRuntimeKey, getRuntimeTransportEpoch } from '@/lib/runtime-switch';
+import { getRuntimeKey, getRuntimeTransportEpoch } from '@/lib/runtime-switch';
 import { getVSCodeBootstrapConfig, isVSCodeRuntime } from './utils/vscodeRuntime';
 
 /** Pick a color key that's least used among existing projects */
@@ -62,6 +63,11 @@ const PROJECT_ICON_RUNTIME_CHANGED_RESULT = {
   error: 'Runtime changed',
 };
 
+const PROJECT_SETTINGS_SAVE_FAILED_RESULT = {
+  ok: false as const,
+  error: 'Failed to save project settings',
+};
+
 interface ProjectsStore {
   projects: ProjectEntry[];
   activeProjectId: string | null;
@@ -98,17 +104,7 @@ const safeStorage = getDeferredSafeStorage();
 const PROJECTS_STORAGE_KEY = 'projects';
 const ACTIVE_PROJECT_STORAGE_KEY = 'activeProjectId';
 
-const getLocalRuntimeOrigin = (): string => {
-  if (typeof window === 'undefined') return '';
-  const value = (window as typeof window & { __OPENCHAMBER_LOCAL_ORIGIN__?: string }).__OPENCHAMBER_LOCAL_ORIGIN__;
-  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : '';
-};
-
-const getProjectsStorageNamespace = (): string => {
-  const apiBaseUrl = getRuntimeApiBaseUrl().trim().replace(/\/+$/, '');
-  if (!apiBaseUrl) return '';
-  return apiBaseUrl;
-};
+const getProjectsStorageNamespace = (): string => getRuntimeKey().trim();
 
 const getProjectsStorageKey = (): string => {
   const namespace = getProjectsStorageNamespace();
@@ -122,9 +118,7 @@ const getActiveProjectStorageKey = (): string => {
 
 const shouldReadLegacyProjectsCache = (): boolean => {
   const namespace = getProjectsStorageNamespace();
-  if (!namespace) return true;
-  const localOrigin = getLocalRuntimeOrigin();
-  return Boolean(localOrigin && namespace === localOrigin);
+  return !namespace || namespace === 'local';
 };
 
 const resolveTildePath = (value: string, homeDir?: string | null): string => {
@@ -428,18 +422,28 @@ const updatePresentedProject = (
   update: (project: ProjectEntry) => ProjectEntry,
 ): ProjectEntry[] => projects.map((project) => project.id === id ? update(project) : project);
 
-const getPresentationProjects = (current: Pick<ProjectsStore, 'projects' | 'presentationProjects'>): ProjectEntry[] => {
+const getPresentationProjects = (
+  current: Pick<ProjectsStore, 'projects' | 'presentationProjects' | 'runtimeProjectMembershipActive'>,
+): ProjectEntry[] => {
+  if (!current.runtimeProjectMembershipActive) {
+    return current.projects;
+  }
+
   const currentById = new Map(current.projects.map((project) => [project.id, project]));
-  const knownIds = new Set<string>();
-  const presentationProjects = current.presentationProjects.map((project) => {
-    knownIds.add(project.id);
+  return current.presentationProjects.map((project) => {
     const currentProject = currentById.get(project.id);
     return currentProject ? { ...currentProject, ...project } : project;
   });
-  return [
-    ...presentationProjects,
-    ...current.projects.filter((project) => !knownIds.has(project.id)),
-  ];
+};
+
+const getPresentationProjectsWithTargets = (
+  current: Pick<ProjectsStore, 'projects' | 'presentationProjects' | 'runtimeProjectMembershipActive'>,
+  ids: readonly string[],
+): ProjectEntry[] => {
+  const presentationProjects = getPresentationProjects(current);
+  const presentedIds = new Set(presentationProjects.map((project) => project.id));
+  const targetedProjects = current.projects.filter((project) => ids.includes(project.id) && !presentedIds.has(project.id));
+  return targetedProjects.length > 0 ? [...presentationProjects, ...targetedProjects] : presentationProjects;
 };
 
 const reorderProjectEntries = (
@@ -475,16 +479,44 @@ const reorderProjectIds = (
   return result;
 };
 
+const reconcileManualProjectOrder = (
+  manualProjectOrder: readonly string[],
+  projects: readonly ProjectEntry[],
+): string[] => {
+  const projectIds = new Set(projects.map((project) => project.id));
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const id of manualProjectOrder) {
+    if (!projectIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    order.push(id);
+  }
+  for (const project of projects) {
+    if (seen.has(project.id)) continue;
+    seen.add(project.id);
+    order.push(project.id);
+  }
+  return order;
+};
+
+const getLiveOnlyProjects = (
+  projects: readonly ProjectEntry[],
+  presentationProjects: readonly ProjectEntry[],
+): ProjectEntry[] => {
+  const presentedIds = new Set(presentationProjects.map((project) => project.id));
+  return projects.filter((project) => !presentedIds.has(project.id));
+};
+
 const reconcileRuntimeProjects = (
   runtimeProjects: RuntimeProject[],
   presentationProjects: ProjectEntry[],
-  currentProjects: ProjectEntry[],
+  fallbackProjects: ProjectEntry[],
 ): ProjectEntry[] => {
   const metadataByPath = new Map(
     presentationProjects.map((project) => [normalizeProjectPath(project.path), project]),
   );
   const currentByPath = new Map(
-    currentProjects.map((project) => [normalizeProjectPath(project.path), project]),
+    fallbackProjects.map((project) => [normalizeProjectPath(project.path), project]),
   );
   const paths = new Set<string>();
   const projects: ProjectEntry[] = [];
@@ -709,25 +741,36 @@ if (vscodeWorkspace) {
 
 const materializeLiveProjectPresentation = async (
   id: string,
+  runtimeContext: ProjectIconRuntimeContext,
   get: () => ProjectsStore,
   set: (state: Partial<ProjectsStore>) => void,
-): Promise<void> => {
+): Promise<boolean> => {
   const current = get();
   const project = current.projects.find((project) => project.id === id);
   if (!current.runtimeProjectMembershipActive || !project) {
-    return;
+    return true;
   }
 
-  const existing = current.presentationProjects.find((project) => project.id === id);
-  const presentationProject = existing ? { ...project, ...existing } : project;
-  const presentationProjects = existing
-    ? current.presentationProjects.map((project) => project.id === id ? presentationProject : project)
-    : [...current.presentationProjects, presentationProject];
-  if (JSON.stringify(current.presentationProjects) !== JSON.stringify(presentationProjects)) {
-    set({ presentationProjects });
-    cacheProjects(presentationProjects, current.activeProjectId);
+  if (current.presentationProjects.some((presentation) => presentation.id === id)) {
+    return true;
   }
-  await updateDesktopSettings({ projects: presentationProjects });
+
+  const presentationProjects = [...current.presentationProjects, project];
+  try {
+    await updateDesktopSettings({ projects: presentationProjects });
+  } catch {
+    return false;
+  }
+  const settingsSaveState = typeof persistence.getSettingsSaveState === 'function'
+    ? persistence.getSettingsSaveState()
+    : 'idle';
+  if (!isProjectIconRuntimeCurrent(runtimeContext) || settingsSaveState === 'error') {
+    return false;
+  }
+
+  set({ presentationProjects });
+  cacheProjects(presentationProjects, get().activeProjectId);
+  return true;
 };
 
 export const useProjectsStore = create<ProjectsStore>()(
@@ -868,7 +911,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         ? reconcileRuntimeProjects(
             projects.map((project) => ({ worktree: project.path })),
             presentationProjects,
-            projects,
+            getLiveOnlyProjects(projects, presentationProjects),
           )
         : projects.map((project) => project.id === id ? { ...project, lastOpenedAt: now } : project);
 
@@ -911,7 +954,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
 
       const current = get();
-      const presentationProjects = updatePresentedProject(getPresentationProjects(current), id, (project) => ({
+      const presentationProjects = updatePresentedProject(getPresentationProjectsWithTargets(current, [id]), id, (project) => ({
         ...project,
         label: trimmed,
       }));
@@ -919,7 +962,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         ? reconcileRuntimeProjects(
             current.projects.map((project) => ({ worktree: project.path })),
             presentationProjects,
-            current.projects,
+            getLiveOnlyProjects(current.projects, presentationProjects),
           )
         : presentationProjects;
       set({ projects, presentationProjects });
@@ -938,7 +981,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
       const current = get();
-      const presentationProjects = updatePresentedProject(getPresentationProjects(current), id, (project) => {
+      const presentationProjects = updatePresentedProject(getPresentationProjectsWithTargets(current, [id]), id, (project) => {
         const updated = { ...project };
         if (meta.label !== undefined) {
           const trimmed = meta.label.trim();
@@ -976,7 +1019,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         ? reconcileRuntimeProjects(
             current.projects.map((project) => ({ worktree: project.path })),
             presentationProjects,
-            current.projects,
+            getLiveOnlyProjects(current.projects, presentationProjects),
           )
         : presentationProjects;
       set({ projects, presentationProjects });
@@ -1004,14 +1047,15 @@ export const useProjectsStore = create<ProjectsStore>()(
         transportEpoch: getRuntimeTransportEpoch(),
       };
       try {
-        await materializeLiveProjectPresentation(id, get, set);
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
-          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        const materialized = await materializeLiveProjectPresentation(id, runtimeContext, get, set);
+        if (!materialized) {
+          return isProjectIconRuntimeCurrent(runtimeContext)
+            ? PROJECT_SETTINGS_SAVE_FAILED_RESULT
+            : PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
         const dataUrl = await readFileAsDataUrl(file);
         const normalizedDataUrl = dataUrl.replace(/^data:[^;]+;/i, `data:${mime};`);
-
         if (!isProjectIconRuntimeCurrent(runtimeContext)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
@@ -1024,13 +1068,17 @@ export const useProjectsStore = create<ProjectsStore>()(
           },
           body: JSON.stringify({ dataUrl: normalizedDataUrl }),
         });
-
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          return { ok: false, error: payload?.error || 'Failed to upload project icon' };
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
-        const payload = (await response.json().catch(() => null)) as { settings?: DesktopSettings } | null;
+        const payload = (await response.json().catch(() => null)) as { error?: string; settings?: DesktopSettings } | null;
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        }
+        if (!response.ok) {
+          return { ok: false, error: payload?.error || 'Failed to upload project icon' };
+        }
         if (payload?.settings) {
           get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
         }
@@ -1046,6 +1094,10 @@ export const useProjectsStore = create<ProjectsStore>()(
         return { ok: false, error: 'Custom icons are not supported in this runtime' };
       }
 
+      const runtimeContext = {
+        runtimeKey: getRuntimeKey(),
+        transportEpoch: getRuntimeTransportEpoch(),
+      };
       try {
         const response = await runtimeFetch(`/api/projects/${encodeURIComponent(id)}/icon`, {
           method: 'DELETE',
@@ -1053,13 +1105,17 @@ export const useProjectsStore = create<ProjectsStore>()(
             Accept: 'application/json',
           },
         });
-
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          return { ok: false, error: payload?.error || 'Failed to remove project icon' };
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
-        const payload = (await response.json().catch(() => null)) as { settings?: DesktopSettings } | null;
+        const payload = (await response.json().catch(() => null)) as { error?: string; settings?: DesktopSettings } | null;
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        }
+        if (!response.ok) {
+          return { ok: false, error: payload?.error || 'Failed to remove project icon' };
+        }
         if (payload?.settings) {
           get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
         }
@@ -1080,7 +1136,12 @@ export const useProjectsStore = create<ProjectsStore>()(
         transportEpoch: getRuntimeTransportEpoch(),
       };
       try {
-        await materializeLiveProjectPresentation(id, get, set);
+        const materialized = await materializeLiveProjectPresentation(id, runtimeContext, get, set);
+        if (!materialized) {
+          return isProjectIconRuntimeCurrent(runtimeContext)
+            ? PROJECT_SETTINGS_SAVE_FAILED_RESULT
+            : PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        }
         if (!isProjectIconRuntimeCurrent(runtimeContext)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
@@ -1093,6 +1154,9 @@ export const useProjectsStore = create<ProjectsStore>()(
           },
           body: JSON.stringify({ force: options?.force === true }),
         });
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        }
 
         const payload = (await response.json().catch(() => null)) as {
           error?: string;
@@ -1100,6 +1164,9 @@ export const useProjectsStore = create<ProjectsStore>()(
           reason?: string;
           settings?: DesktopSettings;
         } | null;
+        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+          return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
+        }
 
         if (!response.ok) {
           return { ok: false, error: payload?.error || 'Failed to discover project icon' };
@@ -1127,11 +1194,11 @@ export const useProjectsStore = create<ProjectsStore>()(
       const current = get();
       const { projects, activeProjectId } = current;
       if (
-        fromIndex < 0 ||
-        fromIndex >= projects.length ||
-        toIndex < 0 ||
-        toIndex >= projects.length ||
-        fromIndex === toIndex
+        fromIndex < 0
+        || fromIndex >= projects.length
+        || toIndex < 0
+        || toIndex >= projects.length
+        || fromIndex === toIndex
       ) {
         return;
       }
@@ -1140,20 +1207,21 @@ export const useProjectsStore = create<ProjectsStore>()(
       const [moved] = nextProjects.splice(fromIndex, 1);
       nextProjects.splice(toIndex, 0, moved);
       const reorderedIds = nextProjects.map((project) => project.id);
-      const presentationProjects = reorderProjectEntries(getPresentationProjects(current), reorderedIds);
-      const presentationIds = new Set(presentationProjects.map((project) => project.id));
-      const manualProjectOrder = reorderProjectIds(
-        current.manualProjectOrder.filter((id) => presentationIds.has(id)),
-        reorderedIds,
+      const targetIds = [projects[fromIndex]?.id, projects[toIndex]?.id]
+        .filter((id): id is string => Boolean(id));
+      const presentationBeforeReorder = getPresentationProjectsWithTargets(current, targetIds);
+      const presentationIds = new Set(presentationBeforeReorder.map((project) => project.id));
+      const reorderedPresentationIds = reorderedIds.filter((id) => presentationIds.has(id));
+      const presentationProjects = reorderProjectEntries(presentationBeforeReorder, reorderedPresentationIds);
+      const manualProjectOrder = reconcileManualProjectOrder(
+        reorderProjectIds(current.manualProjectOrder, reorderedPresentationIds),
+        presentationProjects,
       );
-      for (const project of presentationProjects) {
-        if (!manualProjectOrder.includes(project.id)) manualProjectOrder.push(project.id);
-      }
       const reconciledProjects = current.runtimeProjectMembershipActive
         ? reconcileRuntimeProjects(
             current.projects.map((project) => ({ worktree: project.path })),
             presentationProjects,
-            current.projects,
+            getLiveOnlyProjects(current.projects, presentationProjects),
           )
         : nextProjects;
       set({ projects: reconciledProjects, presentationProjects, manualProjectOrder });
@@ -1201,21 +1269,23 @@ export const useProjectsStore = create<ProjectsStore>()(
       const projects = reconcileRuntimeProjects(
         runtimeProjects,
         current.presentationProjects,
-        current.projects,
+        getLiveOnlyProjects(current.projects, current.presentationProjects),
       );
       const ids = new Set(projects.map((project) => project.id));
       const cachedActiveProjectId = readPersistedActiveProjectId();
-      const cachedLiveOnlyActiveProjectId = cachedActiveProjectId
-        && ids.has(cachedActiveProjectId)
+      const cachedDesiredLiveOnlyActiveId = cachedActiveProjectId
         && !current.presentationProjects.some((project) => project.id === cachedActiveProjectId)
         ? cachedActiveProjectId
+        : null;
+      const cachedLiveOnlyActiveProjectId = cachedDesiredLiveOnlyActiveId && ids.has(cachedDesiredLiveOnlyActiveId)
+        ? cachedDesiredLiveOnlyActiveId
         : null;
       const activeProjectId = cachedLiveOnlyActiveProjectId
         || (current.activeProjectId && ids.has(current.activeProjectId)
           ? current.activeProjectId
           : projects[0]?.id ?? null);
       set({ projects, activeProjectId, runtimeProjectMembershipActive: true });
-      cacheActiveProjectId(activeProjectId);
+      cacheActiveProjectId(cachedDesiredLiveOnlyActiveId ?? activeProjectId);
       applyActiveProjectSelection(projects, current.activeProjectId, activeProjectId);
     },
 
@@ -1232,13 +1302,20 @@ export const useProjectsStore = create<ProjectsStore>()(
       const current = get();
       if (current.runtimeProjectMembershipActive) {
         const runtimeProjects = current.projects.map((project) => ({ worktree: project.path }));
-        const projects = reconcileRuntimeProjects(runtimeProjects, incomingProjects, current.projects);
+        const projects = reconcileRuntimeProjects(
+          runtimeProjects,
+          incomingProjects,
+          getLiveOnlyProjects(current.projects, current.presentationProjects),
+        );
         const ids = new Set(projects.map((project) => project.id));
         const cachedActiveProjectId = readPersistedActiveProjectId();
-        const cachedLiveOnlyActiveProjectId = cachedActiveProjectId
-          && ids.has(cachedActiveProjectId)
+        const cachedDesiredLiveOnlyActiveId = cachedActiveProjectId
           && !incomingProjects.some((project) => project.id === cachedActiveProjectId)
+          && !current.presentationProjects.some((project) => project.id === cachedActiveProjectId)
           ? cachedActiveProjectId
+          : null;
+        const cachedLiveOnlyActiveProjectId = cachedDesiredLiveOnlyActiveId && ids.has(cachedDesiredLiveOnlyActiveId)
+          ? cachedDesiredLiveOnlyActiveId
           : null;
         const nextActive = cachedLiveOnlyActiveProjectId
           || (adoptActiveProject && incomingActive && ids.has(incomingActive)
@@ -1246,21 +1323,20 @@ export const useProjectsStore = create<ProjectsStore>()(
             : (current.activeProjectId && ids.has(current.activeProjectId)
               ? current.activeProjectId
               : projects[0]?.id ?? null));
-        const manualProjectOrder = incomingProjects.map((project) => project.id);
+        const manualProjectOrder = reconcileManualProjectOrder(current.manualProjectOrder, projects);
         set({
           presentationProjects: incomingProjects,
           projects,
           activeProjectId: nextActive,
           manualProjectOrder,
         });
-        cacheProjects(incomingProjects, nextActive);
+        cacheProjects(incomingProjects, cachedDesiredLiveOnlyActiveId ?? nextActive);
         persistManualProjectOrder(manualProjectOrder);
         applyActiveProjectSelection(projects, current.activeProjectId, nextActive);
         return;
       }
 
       const incomingIds = new Set(incomingProjects.map((project) => project.id));
-
       // The settings document is shared by every window on this server, so
       // outside a bootstrap sync the incoming active pointer is just another
       // window's choice — the project LIST still reconciles, but this
@@ -1270,7 +1346,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         : (current.activeProjectId && incomingIds.has(current.activeProjectId)
           ? current.activeProjectId
           : incomingActive);
-      const manualProjectOrder = incomingProjects.map((project) => project.id);
+      const manualProjectOrder = reconcileManualProjectOrder(current.manualProjectOrder, incomingProjects);
 
       const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
       const presentationChanged = JSON.stringify(current.presentationProjects) !== JSON.stringify(incomingProjects);
@@ -1288,12 +1364,12 @@ export const useProjectsStore = create<ProjectsStore>()(
         manualProjectOrder,
       });
       const cachedActiveProjectId = readPersistedActiveProjectId();
-      const activeProjectIdForCache = cachedActiveProjectId
+      const cachedDesiredLiveOnlyActiveId = cachedActiveProjectId
         && !current.presentationProjects.some((project) => project.id === cachedActiveProjectId)
         && !incomingIds.has(cachedActiveProjectId)
         ? cachedActiveProjectId
-        : nextActive;
-      cacheProjects(incomingProjects, activeProjectIdForCache);
+        : null;
+      cacheProjects(incomingProjects, cachedDesiredLiveOnlyActiveId ?? nextActive);
       persistManualProjectOrder(manualProjectOrder);
       applyActiveProjectSelection(incomingProjects, current.activeProjectId, nextActive);
     },
