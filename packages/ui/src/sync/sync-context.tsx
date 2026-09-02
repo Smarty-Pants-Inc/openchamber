@@ -151,7 +151,13 @@ export function createProjectCatalogInvalidationRefresh(
 ): () => Promise<void> {
   let request: Promise<void> | null = null
   return () => {
-    if (request && isCurrent()) return request
+    if (request && isCurrent()) {
+      // Coalesce the retry, but every invalidation still advances the inner
+      // refresh's tracker so its in-flight snapshot is marked stale and
+      // re-reads instead of committing an outdated catalog.
+      void refresh().catch(() => undefined)
+      return request
+    }
 
     const pending = retry(async () => {
       if (!isCurrent() || !isConnected()) {

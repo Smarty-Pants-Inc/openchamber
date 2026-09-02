@@ -164,6 +164,39 @@ describe('SyncProvider selection boundary', () => {
     const first = refresh()
     expect(refresh()).toBe(first)
     await first
+    // attempt 1 (503) + coalesced invalidation advancing the tracker + retry attempt
+    expect(calls).toBe(3)
+
+    await refresh()
+    expect(calls).toBe(4)
+  })
+
+  test('advances the catalog refresh tracker when an invalidation lands mid-flight', async () => {
+    let calls = 0
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const refresh = createProjectCatalogInvalidationRefresh(
+      async () => {
+        calls += 1
+        if (calls === 1) await firstGate
+      },
+      () => true,
+      () => true,
+    )
+
+    const first = refresh()
+    expect(calls).toBe(1)
+
+    const coalesced = refresh()
+    expect(coalesced).toBe(first)
+    // The underlying refresh is re-invoked so the in-flight snapshot re-reads
+    // instead of committing a catalog captured before this event.
+    expect(calls).toBe(2)
+
+    releaseFirst()
+    await first
     expect(calls).toBe(2)
 
     await refresh()

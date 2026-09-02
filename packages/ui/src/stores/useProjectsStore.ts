@@ -1192,6 +1192,11 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
       const current = get();
+      // The live runtime catalog owns membership: reordering the shared
+      // settings document is a membership mutation the runtime owns.
+      if (current.runtimeProjectMembershipActive) {
+        return;
+      }
       const { projects, activeProjectId } = current;
       if (
         fromIndex < 0
@@ -1207,24 +1212,12 @@ export const useProjectsStore = create<ProjectsStore>()(
       const [moved] = nextProjects.splice(fromIndex, 1);
       nextProjects.splice(toIndex, 0, moved);
       const reorderedIds = nextProjects.map((project) => project.id);
-      const targetIds = [projects[fromIndex]?.id, projects[toIndex]?.id]
-        .filter((id): id is string => Boolean(id));
-      const presentationBeforeReorder = getPresentationProjectsWithTargets(current, targetIds);
-      const presentationIds = new Set(presentationBeforeReorder.map((project) => project.id));
-      const reorderedPresentationIds = reorderedIds.filter((id) => presentationIds.has(id));
-      const presentationProjects = reorderProjectEntries(presentationBeforeReorder, reorderedPresentationIds);
+      const presentationProjects = reorderProjectEntries(getPresentationProjects(current), reorderedIds);
       const manualProjectOrder = reconcileManualProjectOrder(
-        reorderProjectIds(current.manualProjectOrder, reorderedPresentationIds),
+        reorderProjectIds(current.manualProjectOrder, reorderedIds),
         presentationProjects,
       );
-      const reconciledProjects = current.runtimeProjectMembershipActive
-        ? reconcileRuntimeProjects(
-            current.projects.map((project) => ({ worktree: project.path })),
-            presentationProjects,
-            getLiveOnlyProjects(current.projects, presentationProjects),
-          )
-        : nextProjects;
-      set({ projects: reconciledProjects, presentationProjects, manualProjectOrder });
+      set({ projects: nextProjects, presentationProjects, manualProjectOrder });
       persistProjects(presentationProjects, activeProjectId, manualProjectOrder);
     },
     resetForRuntimeSwitch: () => {

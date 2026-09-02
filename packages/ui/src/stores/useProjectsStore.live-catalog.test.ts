@@ -340,7 +340,7 @@ describe('live catalog selection and icon materialization', () => {
     expect(state.projects.find((project) => project.path === '/live-only')?.label).toBe('Keep live metadata')
   })
 
-  test('reorders only presented and explicitly targeted live records and guards invalid indices', () => {
+  test('guards reorder while the runtime owns membership and reorders after release', () => {
     useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: '/reorder-a' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([
       { worktree: '/reorder-a' },
@@ -348,6 +348,22 @@ describe('live catalog selection and icon materialization', () => {
       { worktree: '/reorder-c' },
     ], { liveCatalog: true })
     settingsWrites = []
+
+    const beforeLive = useProjectsStore.getState().projects.map((project) => project.path)
+    useProjectsStore.getState().reorderProjects(0, 2)
+    // The runtime owns membership: reorder is a no-op with no settings write.
+    expect(settingsWrites).toEqual([])
+    expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(beforeLive)
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
+    const released: ProjectEntry[] = [
+      { id: 'reorder-a', path: '/reorder-a' },
+      { id: 'reorder-b', path: '/reorder-b' },
+      { id: 'reorder-c', path: '/reorder-c' },
+    ]
+    useProjectsStore.getState().synchronizeFromSettings({ projects: released })
+    settingsWrites = []
+
     const beforeInvalid = useProjectsStore.getState().projects.map((project) => project.path)
     useProjectsStore.getState().reorderProjects(-1, 0)
     expect(settingsWrites).toEqual([])
@@ -355,10 +371,10 @@ describe('live catalog selection and icon materialization', () => {
 
     useProjectsStore.getState().reorderProjects(0, 2)
     expect(settingsWrites.at(-1)?.projects?.map((project) => project.path)).toEqual([
+      '/reorder-b',
       '/reorder-c',
       '/reorder-a',
     ])
-    expect(settingsWrites.at(-1)?.projects?.some((project) => project.path === '/reorder-b')).toBe(false)
   })
 
   test('rolls back live presentation materialization when settings save fails', async () => {
