@@ -719,7 +719,7 @@ describe("forkFromMessage server authorization", () => {
           recovery: {
             fork: {
               confirmed: false,
-              detail: "OpenCode did not confirm deletion of the forked session",
+              detail: "The engine did not confirm deletion of the forked session",
             },
           },
         }
@@ -751,11 +751,11 @@ describe("forkFromMessage server authorization", () => {
       runtimeKey: "fork-runtime-a",
       outcome: {
         confirmed: false,
-        detail: "OpenCode did not confirm deletion of the forked session",
+        detail: "The engine did not confirm deletion of the forked session",
       },
     })
     expect(caught.recovery.cause.message).toBe("backend stamping failed")
-    expect(caught.recovery.compensationError.message).toBe("OpenCode did not confirm deletion of the forked session")
+    expect(caught.recovery.compensationError.message).toBe("The engine did not confirm deletion of the forked session")
   })
 
   test("preserves a retained fork ID when the server could not determine its directory", async () => {

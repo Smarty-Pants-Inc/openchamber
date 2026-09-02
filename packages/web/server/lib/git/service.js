@@ -1722,7 +1722,7 @@ const ensureOpenCodeProjectId = async (primaryWorktree) => {
 
   const projectId = roots[0] || '';
   if (!projectId) {
-    throw new Error('Failed to derive OpenCode project ID');
+    throw new Error('Failed to derive engine project ID');
   }
 
   await fsp.mkdir(gitDir, { recursive: true }).catch(() => undefined);

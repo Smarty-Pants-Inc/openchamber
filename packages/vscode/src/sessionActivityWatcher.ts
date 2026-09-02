@@ -196,7 +196,7 @@ export const startGlobalEventWatcher = async (
     return;
   }
   if (!port) {
-    console.warn('[VSCode:Activity] OpenCode port unavailable; will retry');
+    console.warn('[VSCode:Activity] Engine port unavailable; will retry');
     globalEventWatcherRetryTimer = setTimeout(() => {
       globalEventWatcherRetryTimer = null;
       if (startToken === globalEventWatcherStartToken) {
@@ -218,7 +218,7 @@ export const startGlobalEventWatcher = async (
       try {
         const baseUrl = manager.getApiUrl();
         if (!baseUrl) {
-          throw new Error('OpenCode API URL not available');
+          throw new Error('Engine API URL not available');
         }
 
         const client = createOpencodeClient({

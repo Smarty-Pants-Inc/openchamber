@@ -2500,6 +2500,7 @@ export const dict = {
   'openCodeStatusDialog.toast.copiedTitle': 'Copied',
   'openCodeStatusDialog.toast.copiedDescription': 'Status copied to clipboard',
   'openCodeStatusDialog.toast.copyFailed': 'Failed to copy status',
+  'openCodeStatusDialog.toast.collectFailed': 'Could not collect OpenCode status',
   'saveProjectPlanDialog.title': 'Save Project Plan',
   'saveProjectPlanDialog.description': 'Save this plan into your project as a Markdown file.',
   'saveProjectPlanDialog.field.title': 'Title',

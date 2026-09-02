@@ -1,17 +1,17 @@
 ---
 title: Змінні середовища
-description: Налаштуйте інтеграцію smarty-code і OpenCode через змінні середовища.
+description: Налаштуйте інтеграцію Smarty Code і OpenCode через змінні середовища.
 ---
 
 # Змінні середовища
 
-smarty-code читає ці змінні під час запуску. Для startup-сервісів `openchamber startup enable` типово зберігає snapshot поточного середовища, тому після змін перезапустіть цю команду.
+Smarty Code читає ці змінні під час запуску. Для startup-сервісів `openchamber startup enable` типово зберігає snapshot поточного середовища, тому після змін перезапустіть цю команду.
 
-## Сервер smarty-code
+## Сервер Smarty Code
 
 ### `OPENCHAMBER_HOST`
 
-Адреса, на якій слухає web-сервер smarty-code. Використовуйте `0.0.0.0`, щоб відкрити доступ з інших машин.
+Адреса, на якій слухає web-сервер Smarty Code. Використовуйте `0.0.0.0`, щоб відкрити доступ з інших машин.
 
 ### `OPENCHAMBER_UI_PASSWORD`
 
@@ -19,11 +19,11 @@ smarty-code читає ці змінні під час запуску. Для st
 
 ### `OPENCHAMBER_API_ONLY`
 
-Запускає smarty-code у headless mode, якщо встановлено `true` або `1`. API routes залишаються доступними для desktop і mobile clients, але browser UI не віддається.
+Запускає Smarty Code у headless mode, якщо встановлено `true` або `1`. API routes залишаються доступними для desktop і mobile clients, але browser UI не віддається.
 
 ### `OPENCHAMBER_DATA_DIR`
 
-Перевизначає директорію даних smarty-code. Типово це `~/.config/openchamber`.
+Перевизначає директорію даних Smarty Code. Типово це `~/.config/openchamber`.
 
 ### `OPENCHAMBER_COMPRESS_API`
 
@@ -49,23 +49,23 @@ smarty-code читає ці змінні під час запуску. Для st
 
 ### `OPENCODE_HOST`
 
-Підключає smarty-code до вже запущеного OpenCode server. Значення має бути `http` або `https` origin з явним портом і без path, query або hash. `OPENCODE_HOST` має пріоритет над `OPENCODE_PORT`.
+Підключає Smarty Code до вже запущеного OpenCode server. Значення має бути `http` або `https` origin з явним портом і без path, query або hash. `OPENCODE_HOST` має пріоритет над `OPENCODE_PORT`.
 
 ### `OPENCODE_PORT`
 
-Задає порт OpenCode server. Для managed OpenCode це бажаний порт; з `OPENCODE_SKIP_START=true` smarty-code підключається до зовнішнього сервера на цьому порту.
+Задає порт OpenCode server. Для managed OpenCode це бажаний порт; з `OPENCODE_SKIP_START=true` Smarty Code підключається до зовнішнього сервера на цьому порту.
 
 ### `OPENCODE_SKIP_START`
 
-Не дає smarty-code запускати власний OpenCode server, якщо встановлено `true`.
+Не дає Smarty Code запускати власний OpenCode server, якщо встановлено `true`.
 
 ### `OPENCHAMBER_OPENCODE_HOSTNAME`
 
-Hostname для OpenCode server, яким керує smarty-code. Типово `127.0.0.1`.
+Hostname для OpenCode server, яким керує Smarty Code. Типово `127.0.0.1`.
 
 ### `OPENCODE_BINARY`
 
-Шлях до executable `opencode`, який має запускати smarty-code.
+Шлях до executable `opencode`, який має запускати Smarty Code.
 
 ### `OPENCODE_CONFIG`
 
@@ -85,7 +85,7 @@ Hostname для OpenCode server, яким керує smarty-code. Типово `
 
 ### `OPENCHAMBER_OPENCODE_WSL_DISTRO`
 
-smarty-code-specific alias для вибору WSL distro. `OPENCODE_WSL_DISTRO` має пріоритет, якщо задані обидві змінні.
+Smarty Code-specific alias для вибору WSL distro. `OPENCODE_WSL_DISTRO` має пріоритет, якщо задані обидві змінні.
 
 ### `OPENCODE_JWT_SECRET`
 
@@ -95,15 +95,15 @@ Secret для підпису UI auth tokens. Для постійних service d
 
 ### `OPENCHAMBER_TERMINAL_SHELL`
 
-Shell executable для terminal sessions в smarty-code.
+Shell executable для terminal sessions в Smarty Code.
 
 ### `OPENCHAMBER_GIT_BINARY`
 
-Git executable для Git-функцій smarty-code.
+Git executable для Git-функцій Smarty Code.
 
 ### `GIT_BINARY`
 
-Альтернативний override для Git executable. Для smarty-code-specific налаштувань краще використовуйте `OPENCHAMBER_GIT_BINARY`.
+Альтернативний override для Git executable. Для Smarty Code-specific налаштувань краще використовуйте `OPENCHAMBER_GIT_BINARY`.
 
 ### `OPENCHAMBER_GIT_READ_CACHE_TTL_MS`
 
@@ -113,7 +113,7 @@ TTL у мілісекундах для cached Git-backed file reads. Встан�
 
 ### `OPENAI_API_KEY`
 
-API key для voice-функцій smarty-code, які викликають OpenAI-compatible services.
+API key для voice-функцій Smarty Code, які викликають OpenAI-compatible services.
 
 ### `OPENCHAMBER_ALLOW_REMOTE_OPENAI_COMPAT_URLS`
 
@@ -121,17 +121,17 @@ API key для voice-функцій smarty-code, які викликають Ope
 
 ### `NGROK_AUTHTOKEN`
 
-ngrok auth token для tunnel-команд smarty-code. Також можна налаштувати ngrok через `ngrok config add-authtoken <token>`.
+ngrok auth token для tunnel-команд Smarty Code. Також можна налаштувати ngrok через `ngrok config add-authtoken <token>`.
 
 ## Runtime helpers
 
 ### `BUN_BINARY`
 
-Bun executable, який smarty-code має використовувати для запуску daemon processes.
+Bun executable, який Smarty Code має використовувати для запуску daemon processes.
 
 ### `BUN_INSTALL`
 
-Корінь інсталяції Bun. smarty-code використовує його, щоб знайти `bin/bun` для daemon startup і updates.
+Корінь інсталяції Bun. Smarty Code використовує його, щоб знайти `bin/bun` для daemon startup і updates.
 
 ### `VITE_OPENCODE_URL`
 

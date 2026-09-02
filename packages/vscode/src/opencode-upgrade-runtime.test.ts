@@ -51,7 +51,7 @@ describe('VS Code OpenCode upgrades', () => {
       body: {
         success: false,
         code: 'OPENCODE_UPGRADE_UNSUPPORTED',
-        error: `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.`,
+        error: `This engine cannot be upgraded by ${PRODUCT_NAME}.`,
       },
     });
     assert.equal(fetchCount, 0);

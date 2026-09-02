@@ -2580,6 +2580,7 @@ export const dict: Record<I18nKey, string> = {
   'openCodeStatusDialog.toast.copiedDescription': 'Status skopiowany do schowka',
   'openCodeStatusDialog.toast.copiedTitle': 'Skopiowano',
   'openCodeStatusDialog.toast.copyFailed': 'Nie udało się skopiować statusu',
+  'openCodeStatusDialog.toast.collectFailed': 'Nie udało się zebrać statusu OpenCode',
   'openInApp.actions.chooseAppAria': 'Wybierz aplikację do otwarcia',
   'openInApp.actions.copyPath': 'Kopiuj ścieżkę',
   'openInApp.actions.open': 'Otwórz',

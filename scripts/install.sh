@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smarty-code Install Script
+# Smarty Code Install Script
 # Usage: curl -fsSL https://raw.githubusercontent.com/btriapitsyn/openchamber/main/scripts/install.sh | bash
 
 set -euo pipefail
@@ -156,7 +156,7 @@ main() {
   echo ""
   echo "  ╭───────────────────────────────────╮"
   echo "  │                                   │"
-  echo "  │   smarty-code Installer           │"
+  echo "  │   Smarty Code Installer           │"
   echo "  │   AI coding workspace             │"
   echo "  │                                   │"
   echo "  ╰───────────────────────────────────╯"
@@ -176,16 +176,16 @@ main() {
   fi
   success "Node.js v$NODE_VERSION found"
 
-  # If smarty-code is already installed, hand off to its own updater instead
+  # If Smarty Code is already installed, hand off to its own updater instead
   # of guessing a package manager. `openchamber update` detects which manager
   # actually owns the existing global install and reinstalls with that one —
   # reinstalling with a different manager here would orphan files and break PATH.
   if command_exists "$BIN_NAME"; then
-    info "smarty-code is already installed — updating via 'openchamber update'..."
+    info "Smarty Code is already installed — updating via 'openchamber update'..."
     echo ""
     if openchamber update; then
       echo ""
-      success "smarty-code is up to date!"
+      success "Smarty Code is up to date!"
       exit 0
     fi
     echo ""
@@ -216,16 +216,16 @@ main() {
 
   # Install
   echo ""
-  info "Installing smarty-code..."
+  info "Installing Smarty Code..."
   echo "  Running: $INSTALL_CMD"
   echo ""
   
   if eval "$INSTALL_CMD"; then
     echo ""
     # brand:mark
-    printf '%s\n' '  🤓  smarty-code'
+    printf '%s\n' '  🤓  Smarty Code'
     printf '%b\n' "$NC"
-    success "smarty-code installed successfully!"
+    success "Smarty Code installed successfully!"
     echo ""
 
     # Verify the binary is actually reachable. Global installs frequently

@@ -2470,6 +2470,7 @@ export const dict: Record<I18nKey, string> = {
   'openCodeStatusDialog.toast.copiedTitle': '已複製',
   'openCodeStatusDialog.toast.copiedDescription': '狀態已複製到剪貼簿',
   'openCodeStatusDialog.toast.copyFailed': '複製狀態失敗',
+  'openCodeStatusDialog.toast.collectFailed': '無法收集 OpenCode 狀態',
   'saveProjectPlanDialog.title': '儲存專案計畫',
   'saveProjectPlanDialog.description': '將此計畫以 Markdown 檔案儲存到你的專案中。',
   'saveProjectPlanDialog.field.title': '標題',

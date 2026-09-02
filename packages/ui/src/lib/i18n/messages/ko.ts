@@ -2500,6 +2500,7 @@ export const dict: Record<I18nKey, string> = {
   'openCodeStatusDialog.toast.copiedTitle': '복사됨',
   'openCodeStatusDialog.toast.copiedDescription': '상태를 클립보드에 복사했습니다',
   'openCodeStatusDialog.toast.copyFailed': '상태 복사에 실패했습니다',
+  'openCodeStatusDialog.toast.collectFailed': 'OpenCode 상태를 수집하지 못했습니다',
   'saveProjectPlanDialog.title': '프로젝트 계획 저장',
   'saveProjectPlanDialog.description': '이 플랜을 프로젝트에 Markdown 파일로 저장합니다.',
   'saveProjectPlanDialog.field.title': '제목',

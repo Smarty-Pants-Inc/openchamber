@@ -2466,6 +2466,7 @@ export const dict: Record<I18nKey, string> = {
   "openCodeStatusDialog.toast.copiedTitle": "Скопійовано",
   "openCodeStatusDialog.toast.copiedDescription": "Статус скопійовано в буфер обміну",
   "openCodeStatusDialog.toast.copyFailed": "Не вдалося скопіювати статус",
+  "openCodeStatusDialog.toast.collectFailed": "Не вдалося зібрати стан OpenCode",
   "saveProjectPlanDialog.title": "Зберегти план проєкту",
   "saveProjectPlanDialog.description": "Збережіть цей план у своєму проєкті як файл Markdown.",
   "saveProjectPlanDialog.field.title": "Назва",

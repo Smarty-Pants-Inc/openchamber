@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">smarty-code</string>
-    <string name="title_activity_main">smarty-code</string>
+    <string name="app_name">Smarty Code</string>
+    <string name="title_activity_main">Smarty Code</string>
     <string name="package_name">com.openchamber.app</string>
     <string name="custom_url_scheme">com.openchamber.app</string>
 </resources>

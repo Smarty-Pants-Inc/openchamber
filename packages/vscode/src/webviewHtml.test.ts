@@ -35,13 +35,13 @@ describe('VS Code branding boundaries', () => {
     assert.match(source, /The opencode executable was not found\. Install the opencode CLI first\./);
     assert.match(opencodeSource, /t\('Failed to start \{0\}: \{1\}', PRODUCT_NAME, message\)/);
     assert.doesNotMatch(opencodeSource, /OpenCode CLI not found|Failed to start OpenCode/);
-    assert.equal(englishBundle['smarty-code: Failed to open sidebar - {0}'], 'smarty-code: Failed to open sidebar - {0}');
-    assert.equal(frenchBundle['smarty-code: Failed to open sidebar - {0}'], 'smarty-code : impossible d’ouvrir la barre latérale — {0}');
+    assert.equal(englishBundle['Smarty Code: Failed to open sidebar - {0}'], 'Smarty Code: Failed to open sidebar - {0}');
+    assert.equal(frenchBundle['Smarty Code: Failed to open sidebar - {0}'], 'Smarty Code : impossible d’ouvrir la barre latérale — {0}');
     assert.equal(englishBundle['Failed to start {0}: {1}'], 'Failed to start {0}: {1}');
     assert.equal(frenchBundle['Failed to start {0}: {1}'], 'Impossible de démarrer {0} : {1}');
     assert.equal(englishBundle['The opencode executable was not found. Install the opencode CLI first.'], 'The opencode executable was not found. Install the opencode CLI first.');
     assert.equal(frenchBundle['The opencode executable was not found. Install the opencode CLI first.'], 'L’exécutable opencode est introuvable. Installez d’abord le CLI opencode.');
-    assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');
-    assert.equal(frenchBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
+    assert.equal(englishBundle['Smarty Code: No folder is open. Open a folder to start a new session.'], 'Smarty Code: No folder is open. Open a folder to start a new session.');
+    assert.equal(frenchBundle['Smarty Code: No folder is open. Open a folder to start a new session.'], 'Smarty Code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
   });
 });

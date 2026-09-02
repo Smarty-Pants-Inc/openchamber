@@ -1018,7 +1018,7 @@ export const registerSettingsUtilityRoutes = (app, dependencies) => {
 
       if (refreshResult?.external) {
         return res.json(buildExternalManualRestartResponse(
-          'Configuration is saved on disk. Restart your connected OpenCode server to apply the changes.',
+          'Configuration is saved on disk. Restart your connected server to apply the changes.',
         ));
       }
 

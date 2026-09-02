@@ -232,7 +232,7 @@ export async function handleSystemBridgeMessage(
       const resolvedPath = deps.resolveUserPath(target, baseDirectory);
       const result = await ctx?.manager?.setWorkingDirectory(resolvedPath);
       if (!result) {
-        return { id, type, success: false, error: 'OpenCode manager unavailable' };
+        return { id, type, success: false, error: 'Local engine manager unavailable' };
       }
       return { id, type, success: true, data: result };
     }
@@ -251,7 +251,7 @@ export async function handleSystemBridgeMessage(
       try {
         const apiUrl = ctx?.manager?.getApiUrl();
         if (!apiUrl) {
-          return { id, type, success: true, data: { version: null, error: 'OpenCode manager unavailable' } };
+          return { id, type, success: true, data: { version: null, error: 'Local engine manager unavailable' } };
         }
         const base = `${apiUrl.replace(/\/+$/, '')}/`;
         const response = await fetch(new URL('global/health', base).toString(), {
@@ -260,7 +260,7 @@ export async function handleSystemBridgeMessage(
         });
         const health = await response.json().catch(() => null) as { version?: unknown; error?: unknown } | null;
         if (!response.ok) {
-          const message = typeof health?.error === 'string' ? health.error : response.statusText || 'Failed to read OpenCode version';
+          const message = typeof health?.error === 'string' ? health.error : response.statusText || 'Failed to read engine version';
           return { id, type, success: true, data: { version: null, error: message } };
         }
         const version = typeof health?.version === 'string' && health.version.trim().length > 0
@@ -449,7 +449,7 @@ export async function handleSystemBridgeMessage(
           data: {
             removed,
             ...(removed
-              ? buildDeferredRestartResponse(`Provider ${providerId} disconnected successfully. Restart OpenCode to apply.`)
+              ? buildDeferredRestartResponse(`Provider ${providerId} disconnected successfully. Restart the engine to apply.`)
               : {
                 success: true,
                 requiresReload: false,

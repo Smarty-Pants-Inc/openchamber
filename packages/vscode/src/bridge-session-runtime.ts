@@ -402,7 +402,7 @@ const confirmSessionRemoved = async (
       cleanupRequestOptions(),
     );
     if (response.data !== true && response.response?.status !== 404) {
-      deleteError = 'OpenCode did not confirm deletion of the forked session';
+      deleteError = 'The engine did not confirm deletion of the forked session';
     }
   } catch (error) {
     deleteError = error instanceof Error ? error.message : String(error);
@@ -532,7 +532,7 @@ export const tryHandleOpenChamberSessionProxy = async (
     const directory = requiredString(body.directory, 'directory');
     const apiUrl = await deps.waitForApiUrl(ctx?.manager);
     throwIfAborted(signal);
-    if (!apiUrl) return jsonResponse(503, { error: 'OpenCode API unavailable' });
+    if (!apiUrl) return jsonResponse(503, { error: 'Engine API unavailable' });
     const client = deps.createClient(apiUrl, ctx?.manager?.getOpenCodeAuthHeaders());
     const lockKey = `${directory}\u0000${route.sessionId}`;
 

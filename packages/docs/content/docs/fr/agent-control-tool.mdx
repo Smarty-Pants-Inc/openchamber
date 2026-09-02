@@ -1,40 +1,40 @@
 ---
 title: Outil de contrôle pour les agents
-description: Permettez à un agent de gérer les sessions, worktrees et tâches planifiées smarty-code depuis le chat.
+description: Permettez à un agent de gérer les sessions, worktrees et tâches planifiées Smarty Code depuis le chat.
 ---
 
 # Outil de contrôle pour les agents
 
-Utilisez l’outil d’agent `openchamber` pour gérer le travail dans l’application directement depuis le chat. Il est activé par défaut quand smarty-code exécute son propre serveur OpenCode local ; aucun outil séparé ni aucune commande shell ne sont nécessaires.
+Utilisez l’outil d’agent `openchamber` pour gérer le travail dans l’application directement depuis le chat. Il est activé par défaut quand Smarty Code exécute son propre serveur OpenCode local ; aucun outil séparé ni aucune commande shell ne sont nécessaires.
 
 ## Ce que vous pouvez demander
 
 Demandez-le à l’agent en langage naturel. Par exemple :
 
-- « Crée une nouvelle session smarty-code dans ce projet, utilise le modèle `openai/gpt-5.6-sol` et envoie-lui ce prompt : vérifie le flux d’authentification. »
-- « Crée une nouvelle session smarty-code pour cette tâche dans un worktree séparé et demande-lui d’ajouter des tests au flux de connexion. »
-- « Utilise smarty-code pour afficher mes 10 sessions les plus récentes avec leur état actuel. »
-- « Crée dans smarty-code une tâche planifiée nommée Revue des jours ouvrés qui envoie ce prompt à 09:00 chaque jour ouvré : vérifie les changements depuis la dernière exécution. »
-- « Exécute maintenant la tâche planifiée smarty-code nommée Revue des jours ouvrés. »
-- « Vérifie la session smarty-code nommée Revue de l’authentification et affiche la dernière réponse de l’assistant. »
+- « Crée une nouvelle session Smarty Code dans ce projet, utilise le modèle `openai/gpt-5.6-sol` et envoie-lui ce prompt : vérifie le flux d’authentification. »
+- « Crée une nouvelle session Smarty Code pour cette tâche dans un worktree séparé et demande-lui d’ajouter des tests au flux de connexion. »
+- « Utilise Smarty Code pour afficher mes 10 sessions les plus récentes avec leur état actuel. »
+- « Crée dans Smarty Code une tâche planifiée nommée Revue des jours ouvrés qui envoie ce prompt à 09:00 chaque jour ouvré : vérifie les changements depuis la dernière exécution. »
+- « Exécute maintenant la tâche planifiée Smarty Code nommée Revue des jours ouvrés. »
+- « Vérifie la session Smarty Code nommée Revue de l’authentification et affiche la dernière réponse de l’assistant. »
 
-L’outil peut répertorier les projets et les préférences de modèles, créer et poursuivre des sessions, bifurquer une session, créer des sessions dans des worktrees isolés et gérer les tâches planifiées. Les sessions ainsi lancées apparaissent dans smarty-code comme les autres : vous pouvez les ouvrir et poursuivre le travail vous-même.
+L’outil peut répertorier les projets et les préférences de modèles, créer et poursuivre des sessions, bifurquer une session, créer des sessions dans des worktrees isolés et gérer les tâches planifiées. Les sessions ainsi lancées apparaissent dans Smarty Code comme les autres : vous pouvez les ouvrir et poursuivre le travail vous-même.
 
 ## À retenir
 
-- Les prompts de nouvelles sessions rendent la main immédiatement par défaut. Suivez la session dans smarty-code ou demandez à l’agent de la vérifier plus tard.
+- Les prompts de nouvelles sessions rendent la main immédiatement par défaut. Suivez la session dans Smarty Code ou demandez à l’agent de la vérifier plus tard.
 - Un worktree séparé n’est créé que si vous le demandez. Les modifications non commitées du worktree actuel n’y sont pas copiées.
 - L’outil ne peut pas supprimer de sessions ou de worktrees, enregistrer des chemins de projets, exécuter des commandes shell arbitraires ni appeler des URL arbitraires.
 
 ## Activer ou désactiver l’outil
 
-Ouvrez **Paramètres → Général → Outils smarty-code** et modifiez **Outil de contrôle pour les agents**. Le réglage s’applique au redémarrage du serveur OpenCode géré, que smarty-code propose sous **Apply & Restart**.
+Ouvrez **Paramètres → Général → Outils Smarty Code** et modifiez **Outil de contrôle pour les agents**. Le réglage s’applique au redémarrage du serveur OpenCode géré, que Smarty Code propose sous **Apply & Restart**.
 
-L’outil n’est pas disponible quand smarty-code se connecte à un serveur OpenCode externe avec `OPENCODE_HOST` ou skip-start, ni dans l’extension VS Code. Les installations desktop et web utilisant le serveur OpenCode géré par smarty-code le prennent automatiquement en charge.
+L’outil n’est pas disponible quand Smarty Code se connecte à un serveur OpenCode externe avec `OPENCODE_HOST` ou skip-start, ni dans l’extension VS Code. Les installations desktop et web utilisant le serveur OpenCode géré par Smarty Code le prennent automatiquement en charge.
 
 ## Pages associées
 
 - [Tâches planifiées](/fr/scheduled-tasks/)
 - [Sessions worktree](/fr/worktrees/)
 - [Objectifs de session](/fr/session-goals/)
-- [Panneau navigateur](/fr/desktop-browser/) — l'outil smarty-code Web, pour consulter une page et la piloter
+- [Panneau navigateur](/fr/desktop-browser/) — l'outil Smarty Code Web, pour consulter une page et la piloter

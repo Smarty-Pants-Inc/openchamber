@@ -2204,6 +2204,7 @@ export const dict = {
   'openCodeStatusDialog.toast.copiedTitle': 'Copié',
   'openCodeStatusDialog.toast.copiedDescription': 'Statut copié dans le presse-papiers',
   'openCodeStatusDialog.toast.copyFailed': 'Échec de la copie du statut',
+  'openCodeStatusDialog.toast.collectFailed': 'Impossible de recueillir l’état d’OpenCode',
   'saveProjectPlanDialog.title': 'Enregistrer le plan de projet',
   'saveProjectPlanDialog.description': 'Enregistrez ce plan dans votre projet en tant que fichier Markdown.',
   'saveProjectPlanDialog.field.title': 'Titre',

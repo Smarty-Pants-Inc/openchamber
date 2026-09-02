@@ -1,40 +1,40 @@
 ---
 title: Narzędzie sterowania dla agentów
-description: Pozwól agentowi zarządzać sesjami, worktree i zaplanowanymi zadaniami smarty-code z czatu.
+description: Pozwól agentowi zarządzać sesjami, worktree i zaplanowanymi zadaniami Smarty Code z czatu.
 ---
 
 # Narzędzie sterowania dla agentów
 
-Użyj narzędzia agenta `openchamber`, aby zarządzać pracą w aplikacji bezpośrednio z czatu. Jest ono domyślnie włączone, gdy smarty-code uruchamia własny lokalny serwer OpenCode; nie trzeba instalować osobnego narzędzia ani uruchamiać polecenia powłoki.
+Użyj narzędzia agenta `openchamber`, aby zarządzać pracą w aplikacji bezpośrednio z czatu. Jest ono domyślnie włączone, gdy Smarty Code uruchamia własny lokalny serwer OpenCode; nie trzeba instalować osobnego narzędzia ani uruchamiać polecenia powłoki.
 
 ## O co możesz poprosić
 
 Poproś agenta zwykłym językiem. Na przykład:
 
-- „Utwórz nową sesję smarty-code w tym projekcie, użyj modelu `openai/gpt-5.6-sol` i wyślij jej prompt: sprawdź proces uwierzytelniania”.
-- „Utwórz dla tego zadania nową sesję smarty-code w osobnym worktree i poproś ją o dodanie testów procesu logowania”.
-- „Użyj smarty-code, aby wyświetlić 10 moich ostatnich sesji wraz z ich bieżącym stanem”.
-- „Utwórz w smarty-code zaplanowane zadanie o nazwie Przegląd w dni robocze, które o 09:00 w każdy dzień roboczy wyśle prompt: sprawdź zmiany od ostatniego uruchomienia”.
-- „Uruchom teraz zaplanowane zadanie smarty-code o nazwie Przegląd w dni robocze”.
-- „Sprawdź sesję smarty-code o nazwie Przegląd uwierzytelniania i pokaż najnowszą odpowiedź asystenta”.
+- „Utwórz nową sesję Smarty Code w tym projekcie, użyj modelu `openai/gpt-5.6-sol` i wyślij jej prompt: sprawdź proces uwierzytelniania”.
+- „Utwórz dla tego zadania nową sesję Smarty Code w osobnym worktree i poproś ją o dodanie testów procesu logowania”.
+- „Użyj Smarty Code, aby wyświetlić 10 moich ostatnich sesji wraz z ich bieżącym stanem”.
+- „Utwórz w Smarty Code zaplanowane zadanie o nazwie Przegląd w dni robocze, które o 09:00 w każdy dzień roboczy wyśle prompt: sprawdź zmiany od ostatniego uruchomienia”.
+- „Uruchom teraz zaplanowane zadanie Smarty Code o nazwie Przegląd w dni robocze”.
+- „Sprawdź sesję Smarty Code o nazwie Przegląd uwierzytelniania i pokaż najnowszą odpowiedź asystenta”.
 
-Narzędzie może wyświetlać projekty i preferencje modeli, tworzyć i kontynuować sesje, rozwidlać sesję, tworzyć izolowane sesje worktree oraz zarządzać zaplanowanymi zadaniami. Uruchomione w ten sposób sesje pojawiają się w smarty-code jak każde inne, więc możesz je otworzyć i samodzielnie kontynuować pracę.
+Narzędzie może wyświetlać projekty i preferencje modeli, tworzyć i kontynuować sesje, rozwidlać sesję, tworzyć izolowane sesje worktree oraz zarządzać zaplanowanymi zadaniami. Uruchomione w ten sposób sesje pojawiają się w Smarty Code jak każde inne, więc możesz je otworzyć i samodzielnie kontynuować pracę.
 
 ## Pamiętaj
 
-- Prompty nowych sesji domyślnie zwracają sterowanie od razu. Śledź sesję w smarty-code lub poproś agenta, aby sprawdził ją później.
+- Prompty nowych sesji domyślnie zwracają sterowanie od razu. Śledź sesję w Smarty Code lub poproś agenta, aby sprawdził ją później.
 - Osobny worktree jest tworzony tylko na Twoją prośbę. Niezatwierdzone zmiany z bieżącego worktree nie są do niego kopiowane.
 - Narzędzie nie może usuwać sesji ani worktree, rejestrować ścieżek projektów, uruchamiać dowolnych poleceń powłoki ani wywoływać dowolnych adresów URL.
 
 ## Włączanie i wyłączanie narzędzia
 
-Otwórz **Ustawienia → Ogólne → Narzędzia smarty-code** i zmień **Narzędzie sterowania dla agentów**. Ustawienie zacznie działać po ponownym uruchomieniu zarządzanego serwera OpenCode, które smarty-code proponuje jako **Apply & Restart**.
+Otwórz **Ustawienia → Ogólne → Narzędzia Smarty Code** i zmień **Narzędzie sterowania dla agentów**. Ustawienie zacznie działać po ponownym uruchomieniu zarządzanego serwera OpenCode, które Smarty Code proponuje jako **Apply & Restart**.
 
-Narzędzie nie jest dostępne, gdy smarty-code łączy się z zewnętrznym serwerem OpenCode przez `OPENCODE_HOST` lub skip-start, ani w rozszerzeniu VS Code. Instalacje desktopowe i webowe korzystające z serwera OpenCode zarządzanego przez smarty-code obsługują je automatycznie.
+Narzędzie nie jest dostępne, gdy Smarty Code łączy się z zewnętrznym serwerem OpenCode przez `OPENCODE_HOST` lub skip-start, ani w rozszerzeniu VS Code. Instalacje desktopowe i webowe korzystające z serwera OpenCode zarządzanego przez Smarty Code obsługują je automatycznie.
 
 ## Powiązane
 
 - [Zaplanowane zadania](/pl/scheduled-tasks/)
 - [Sesje worktree](/pl/worktrees/)
 - [Cele sesji](/pl/session-goals/)
-- [Panel przeglądarki](/pl/desktop-browser/) — narzędzie smarty-code Web — oglądanie strony i sterowanie nią
+- [Panel przeglądarki](/pl/desktop-browser/) — narzędzie Smarty Code Web — oglądanie strony i sterowanie nią

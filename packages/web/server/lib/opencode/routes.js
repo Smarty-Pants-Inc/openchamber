@@ -131,7 +131,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      throw new Error(`OpenCode releases responded with ${response.status}`);
+      throw new Error(`The upstream releases API responded with ${response.status}`);
     }
     const payload = await response.json();
     const tag = typeof payload?.tag_name === 'string' ? payload.tag_name.trim() : '';
@@ -144,7 +144,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      throw new Error(`OpenCode npm registry responded with ${response.status}`);
+      throw new Error(`The upstream npm registry responded with ${response.status}`);
     }
     const payload = await response.json();
     return typeof payload?.version === 'string' ? payload.version.trim().replace(/^v/, '') : '';
@@ -160,7 +160,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       .map((result) => result.value);
     if (versions.length === 0) {
       const failure = results.find((result) => result.status === 'rejected');
-      throw failure?.reason instanceof Error ? failure.reason : new Error('Failed to resolve latest OpenCode version');
+      throw failure?.reason instanceof Error ? failure.reason : new Error('Failed to resolve the latest engine version');
     }
     return versions.sort((left, right) => compareVersions(right, left))[0];
   };
@@ -190,8 +190,8 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       const resolution = await getOpenCodeResolutionSnapshot(settings);
       res.json(resolution);
     } catch (error) {
-      console.error('Failed to resolve OpenCode binary:', error);
-      res.status(500).json({ error: 'Failed to resolve OpenCode binary' });
+      console.error('Failed to resolve engine binary:', error);
+      res.status(500).json({ error: 'Failed to resolve engine binary' });
     }
   });
 
@@ -207,15 +207,15 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
             ? 'OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER'
             : 'OPENCODE_UPGRADE_UNSUPPORTED',
           error: capability.reason === 'bundled'
-            ? `OpenCode is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`
-            : `This OpenCode runtime cannot be upgraded by ${PRODUCT_NAME}.`,
+            ? `The engine is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`
+            : `This engine cannot be upgraded by ${PRODUCT_NAME}.`,
         });
       }
       if (openCodeUpgradePromise) {
         return res.status(409).json({
           success: false,
           code: 'OPENCODE_UPGRADE_IN_PROGRESS',
-          error: 'An OpenCode upgrade is already in progress.',
+          error: 'An engine update is already in progress.',
         });
       }
 
@@ -238,13 +238,13 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
             status: response.status,
             body: {
               success: false,
-              error: payload?.error || response.statusText || 'Failed to upgrade OpenCode',
+              error: payload?.error || response.statusText || 'Failed to update engine',
             },
           };
         }
 
         try {
-          await refreshOpenCodeAfterConfigChange('OpenCode upgrade');
+          await refreshOpenCodeAfterConfigChange('engine upgrade');
         } catch (restartError) {
           return {
             status: 500,
@@ -252,8 +252,8 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
               success: false,
               upgraded: true,
               error: restartError instanceof Error
-                ? `OpenCode upgraded, but restart failed: ${restartError.message}`
-                : 'OpenCode upgraded, but restart failed',
+                ? `The engine was updated, but restart failed: ${restartError.message}`
+                : 'The engine was updated, but restart failed',
             },
           };
         }
@@ -274,10 +274,10 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
         }
       }
     } catch (error) {
-      console.error('Failed to upgrade OpenCode:', error);
+      console.error('Failed to update engine:', error);
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to upgrade OpenCode',
+        error: error instanceof Error ? error.message : 'Failed to update engine',
       });
     }
   });
@@ -306,7 +306,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       if (!healthResponse.ok) {
         return res.status(healthResponse.status).json({
           available: null,
-          error: health?.error || healthResponse.statusText || 'Failed to read OpenCode version',
+          error: health?.error || healthResponse.statusText || 'Failed to read engine version',
         });
       }
       const currentVersion = typeof health?.version === 'string' ? health.version.replace(/^v/, '') : null;
@@ -323,7 +323,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
     } catch (error) {
       return res.status(500).json({
         available: null,
-        error: error instanceof Error ? error.message : 'Failed to check OpenCode upgrade status',
+        error: error instanceof Error ? error.message : 'Failed to check for updates',
       });
     }
   });
@@ -338,14 +338,14 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       if (!healthResponse.ok) {
         return res.status(healthResponse.status).json({
           healthy: false,
-          error: health?.error || healthResponse.statusText || 'OpenCode health check failed',
+          error: health?.error || healthResponse.statusText || 'Engine health check failed',
         });
       }
       return res.json({ healthy: health?.healthy === true });
     } catch (error) {
       return res.status(503).json({
         healthy: false,
-        error: error instanceof Error ? error.message : 'OpenCode health check failed',
+        error: error instanceof Error ? error.message : 'Engine health check failed',
       });
     }
   });
@@ -360,7 +360,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       if (!healthResponse.ok) {
         return res.status(healthResponse.status).json({
           version: null,
-          error: health?.error || healthResponse.statusText || 'Failed to read OpenCode version',
+          error: health?.error || healthResponse.statusText || 'Failed to read engine version',
         });
       }
       const version = typeof health?.version === 'string' ? health.version.replace(/^v/, '') : null;
@@ -368,7 +368,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
     } catch (error) {
       return res.status(500).json({
         version: null,
-        error: error instanceof Error ? error.message : 'Failed to read OpenCode version',
+        error: error instanceof Error ? error.message : 'Failed to read engine version',
       });
     }
   });
@@ -628,7 +628,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
 
       return res.json({
         ...buildDeferredRestartResponse(
-          `Provider ${providerID} saved. Restart OpenCode to apply.`,
+          `Provider ${providerID} saved. Restart the engine to apply.`,
         ),
         providerId: upsertResult.providerId,
         path: upsertResult.path,
@@ -690,7 +690,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
         return res.json({
           success: true,
           removed,
-          ...buildDeferredRestartResponse('Provider disconnected successfully. Restart OpenCode to apply.'),
+          ...buildDeferredRestartResponse('Provider disconnected successfully. Restart the engine to apply.'),
         });
       }
 
@@ -797,7 +797,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       await fs.promises.writeFile(AGENTS_MD_PATH, content, 'utf8');
 
       return res.json(buildDeferredRestartResponse(
-        'AGENTS.md saved. Restart OpenCode to apply.',
+        'AGENTS.md saved. Restart the engine to apply.',
       ));
     } catch (error) {
       console.error('Failed to write AGENTS.md:', error);

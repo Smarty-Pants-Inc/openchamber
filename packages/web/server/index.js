@@ -675,8 +675,8 @@ const ENV_CONFIGURED_API_PREFIX = normalizeApiPrefix(
   process.env.OPENCODE_API_PREFIX || process.env.OPENCHAMBER_API_PREFIX || ''
 );
 
-  if (ENV_CONFIGURED_API_PREFIX && ENV_CONFIGURED_API_PREFIX !== '') {
-  console.warn('Ignoring configured OpenCode API prefix; API runs at root.');
+if (ENV_CONFIGURED_API_PREFIX && ENV_CONFIGURED_API_PREFIX !== '') {
+  console.warn('Ignoring configured engine API prefix; API runs at root.');
 }
 
 let cachedLoginShellEnvSnapshot;
@@ -846,7 +846,7 @@ const sessionKnowledgeRuntime = createSessionKnowledgeRuntime({
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
+    if (!response.ok) throw new Error(`Engine ${method} ${fetchPath} failed with ${response.status}`);
     return response.json().catch(() => null);
   },
 });
@@ -1175,7 +1175,7 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
     try {
       messageStreamRuntime?.rebindUpstream();
     } catch (error) {
-      console.warn('Failed to rebind message stream after OpenCode restart:', error?.message ?? error);
+      console.warn('Failed to rebind message stream after engine restart:', error?.message ?? error);
     }
     try {
       const { sessionIds } = sessionRuntime.interruptBusySessionsAfterRestart();
@@ -1184,15 +1184,15 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
         broadcastUiNotification({
           title: multiple ? 'Chats interrupted' : 'Chat interrupted',
           body: multiple
-            ? 'OpenCode restarted during running responses. Send a message in each chat to continue.'
-            : 'OpenCode restarted during a running response. Send a message to continue.',
+            ? 'The engine restarted during running responses. Send a message in each chat to continue.'
+            : 'The engine restarted during a running response. Send a message to continue.',
           tag: 'opencode-restart-interrupted',
           kind: 'opencode-restart-interrupted',
           sessionId: sessionIds[0],
         });
       }
     } catch (error) {
-      console.warn('Failed to reconcile sessions after OpenCode restart:', error?.message ?? error);
+      console.warn('Failed to reconcile sessions after engine restart:', error?.message ?? error);
     }
   },
   getManagedOpenCodeEnv: async () => {

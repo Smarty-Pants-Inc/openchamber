@@ -18,7 +18,7 @@ export const collectHeaders = (headers: Headers): Record<string, string> => {
 };
 
 export const buildUnavailableApiResponse = (): ApiProxyResponsePayload => {
-  const body = JSON.stringify({ error: 'OpenCode API unavailable' });
+  const body = JSON.stringify({ error: 'Engine API unavailable' });
   return {
     status: 503,
     headers: { 'content-type': 'application/json' },

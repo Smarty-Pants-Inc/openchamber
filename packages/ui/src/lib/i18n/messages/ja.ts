@@ -2499,6 +2499,7 @@ export const dict: Record<I18nKey, string> = {
   'openCodeStatusDialog.toast.copiedTitle': 'コピーしました',
   'openCodeStatusDialog.toast.copiedDescription': 'ステータスをクリップボードにコピーしました',
   'openCodeStatusDialog.toast.copyFailed': 'ステータスのコピーに失敗しました',
+  'openCodeStatusDialog.toast.collectFailed': 'OpenCode のステータスを取得できませんでした',
   'saveProjectPlanDialog.title': 'プロジェクト計画を保存',
   'saveProjectPlanDialog.description': 'この計画をMarkdownファイルとしてプロジェクトに保存します。',
   'saveProjectPlanDialog.field.title': 'タイトル',
