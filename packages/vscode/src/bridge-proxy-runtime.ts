@@ -119,7 +119,7 @@ const performApiProxyFetch = async (
       status: 502,
       headers: { 'content-type': 'application/json' },
       bodyText: JSON.stringify({
-        error: error instanceof Error ? error.message : 'Failed to reach OpenCode API',
+        error: error instanceof Error ? error.message : 'Failed to reach the engine API',
       }),
     };
   }
@@ -307,7 +307,7 @@ export async function handleProxyBridgeMessage(
           ((error as Error & { name?: string }).name === 'TimeoutError' ||
             (error as Error & { name?: string }).name === 'AbortError');
         const body = JSON.stringify({
-          error: isTimeout ? 'OpenCode message forward timed out' : error instanceof Error ? error.message : 'OpenCode message forward failed',
+          error: isTimeout ? 'Engine message forward timed out' : error instanceof Error ? error.message : 'Engine message forward failed',
         });
         const data: ApiProxyResponsePayload = {
           status: isTimeout ? 504 : 503,

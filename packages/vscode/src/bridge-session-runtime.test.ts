@@ -749,7 +749,7 @@ describe('VS Code OpenChamber session bridge', () => {
       recovery: {
         fork: {
           confirmed: false,
-          detail: 'OpenCode did not confirm deletion of the forked session',
+          detail: 'The engine did not confirm deletion of the forked session',
         },
       },
     });

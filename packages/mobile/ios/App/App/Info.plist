@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>smarty-code</string>
+	<string>Smarty Code</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -32,11 +32,11 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>smarty-code connects to smarty-code servers on your local network.</string>
+	<string>Smarty Code connects to Smarty Code servers on your local network.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>smarty-code uses the camera to scan a server's pairing QR code.</string>
+	<string>Smarty Code uses the camera to scan a server's pairing QR code.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>smarty-code uses the microphone for voice dictation in the chat composer.</string>
+	<string>Smarty Code uses the microphone for voice dictation in the chat composer.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

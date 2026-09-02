@@ -549,7 +549,7 @@
 					CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = smarty-code;
+				INFOPLIST_KEY_CFBundleDisplayName = "Smarty Code";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -575,7 +575,7 @@
 					CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = smarty-code;
+				INFOPLIST_KEY_CFBundleDisplayName = "Smarty Code";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (

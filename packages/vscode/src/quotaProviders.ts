@@ -285,7 +285,7 @@ const readAuthFile = (): AuthFile => {
     return JSON.parse(trimmed) as AuthFile;
   } catch (error) {
     console.error('Failed to read auth file:', error);
-    throw new Error('Failed to read OpenCode auth configuration');
+    throw new Error('Failed to read engine authentication configuration');
   }
 };
 

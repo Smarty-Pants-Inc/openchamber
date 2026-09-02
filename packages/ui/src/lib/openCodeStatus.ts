@@ -262,21 +262,21 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
   lines.push(`Time: ${now.toISOString()}`);
   lines.push(`${PRODUCT_NAME} version: ${appVersion}`);
   lines.push(`Runtime: ${origin || '(unknown)'} (api=${apiBase || '(unknown)'})`);
-  lines.push(`opencode SDK base: ${opencodeClient.getBaseUrl()}`);
+  lines.push(`Engine SDK base: ${opencodeClient.getBaseUrl()}`);
   lines.push(`Event stream: ${eventStreamStatus}`);
   lines.push(`Directory: ${directory || '(none)'}`);
   lines.push(`Platform: ${platform}`);
 
   const runtimeOpenCodePort = normalizePort(openChamberHealth?.openCodePort);
-  lines.push(`opencode runtime port: ${runtimeOpenCodePort ?? '(unknown)'}`);
+  lines.push(`Engine runtime port: ${runtimeOpenCodePort ?? '(unknown)'}`);
   if (typeof openChamberHealth?.openCodeRunning === 'boolean') {
-    lines.push(`opencode runtime running: ${openChamberHealth.openCodeRunning ? 'yes' : 'no'}`);
+    lines.push(`Engine runtime running: ${openChamberHealth.openCodeRunning ? 'yes' : 'no'}`);
   }
   if (typeof openChamberHealth?.openCodeSecureConnection === 'boolean') {
-    lines.push(`Secure opencode connection: ${openChamberHealth.openCodeSecureConnection ? 'true' : 'false'}`);
+    lines.push(`Secure engine connection: ${openChamberHealth.openCodeSecureConnection ? 'true' : 'false'}`);
   }
   if (typeof openChamberHealth?.openCodeAuthSource === 'string' && openChamberHealth.openCodeAuthSource.trim()) {
-    lines.push(`opencode auth source: ${openChamberHealth.openCodeAuthSource}`);
+    lines.push(`Engine auth source: ${openChamberHealth.openCodeAuthSource}`);
   }
 
   if (typeof window !== 'undefined') {
@@ -289,7 +289,7 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
   const isLikelyMac = /Mac OS X|Macintosh/.test(platform);
   if (isLikelyMac) {
     lines.push('');
-    lines.push('opencode CLI resolution:');
+    lines.push('Engine CLI resolution:');
 
     const launchDiagnostics = isRecord(openChamberHealth?.lastOpenCodeLaunchDiagnostics)
       ? openChamberHealth.lastOpenCodeLaunchDiagnostics
@@ -351,9 +351,9 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
 
     if (resolved) {
       const dir = resolvedDir || (resolved.includes('/') ? resolved.split('/').slice(0, -1).join('/') || '/' : '');
-      lines.push(`- opencode: ${resolved}${dir ? ` (dir=${dir})` : ''}`);
+      lines.push(`- binary: ${resolved}${dir ? ` (dir=${dir})` : ''}`);
     } else {
-      lines.push('- opencode: (n/a)');
+      lines.push('- binary: (n/a)');
     }
 
     lines.push(`- source: ${source || '(n/a)'}`);
@@ -382,7 +382,7 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
 
   lines.push('');
   if (probes.length) {
-    lines.push('opencode API probes:');
+    lines.push('Engine API probes:');
     for (const probe of probes) {
       if (!probe.result) {
         lines.push(`- ${probe.label}: (no url)`);
@@ -393,7 +393,7 @@ const buildOpenCodeStatusReport = async (): Promise<string> => {
       lines.push(`- ${probe.label}: ${ok ? 'ok' : 'fail'} status=${status} time=${elapsedMs}ms ${summary}${suffix}`);
     }
   } else {
-    lines.push('opencode API probes: (skipped)');
+    lines.push('Engine API probes: (skipped)');
   }
 
   lines.push('');

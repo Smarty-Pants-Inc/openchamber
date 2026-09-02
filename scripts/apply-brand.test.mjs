@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -51,6 +51,11 @@ const assertFailedWith = (result, pattern) => {
   assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(`${result.stdout}\n${result.stderr}`, pattern);
 };
+const findMdxFiles = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  const file = path.join(directory, entry.name);
+  return entry.isDirectory() ? findMdxFiles(file) : entry.name.endsWith('.mdx') ? [file] : [];
+});
+
 
 test('canonical generated brandText follows configured presentation aliases', async () => {
   assert.equal(brandConfig.presentationAliases.includes('OpenCode'), true);
@@ -58,10 +63,25 @@ test('canonical generated brandText follows configured presentation aliases', as
   for (const alias of brandConfig.presentationAliases) {
     assert.equal(generatedBrandModule.brandText(alias), brandConfig.name);
   }
-  assert.equal(generatedBrandModule.brandProductText("qu’OpenChamber d’OpenChamber l’OpenChamber"), 'que smarty-code de smarty-code le smarty-code');
-  assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), 'de smarty-code');
+  assert.equal(generatedBrandModule.brandProductText("qu’OpenChamber d’OpenChamber l’OpenChamber"), `que ${brandConfig.name} de ${brandConfig.name} le ${brandConfig.name}`);
+  assert.equal(generatedBrandModule.brandProductText("d’OpenChamber"), `de ${brandConfig.name}`);
   assert.equal(generatedBrandModule.brandProductText('OpenChamber OpenCode'), `${brandConfig.name} OpenCode`);
   assert.equal(generatedBrandModule.brandProductText("xQu'OpenChamber"), "xQu'OpenChamber");
+});
+test('branded MDX descriptions stay parseable without column-zero continuations', () => {
+  for (const file of findMdxFiles(path.join(root, 'packages/docs/content/docs'))) {
+    const relative = path.relative(root, file);
+    const source = readFileSync(file, 'utf8');
+    const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/);
+    assert.ok(frontmatter, `${relative}: missing frontmatter`);
+    const document = parseDocument(frontmatter[1]);
+    assert.equal(document.errors.length, 0, `${relative}: ${document.errors.map(({ message }) => message).join('\n')}`);
+    const description = document.get('description');
+    if (!String(description).includes(brandConfig.name)) continue;
+    const descriptionNode = document.get('description', true);
+    assert.ok(descriptionNode?.range, `${relative}: description has no source range`);
+    assert.doesNotMatch(frontmatter[1].slice(descriptionNode.range[0], descriptionNode.range[1]), /\r?\n\S/, `${relative}: branded description continuation starts at column zero`);
+  }
 });
 test('rejects product names that contain presentation aliases', () => {
   const fixture = copyFixture();
@@ -90,6 +110,7 @@ test('runtime-facing product labels use generated branding', () => {
 test('brand check detects missing assets, manifest drift, and required text drift', () => {
   const fixture = copyFixture();
   try {
+    assertSucceeded(runBrand(fixture));
     assertSucceeded(runBrand(fixture, '--check'));
 
     const missingAsset = path.join(fixture, 'packages/web/public/pwa-512.png');
@@ -133,7 +154,7 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
       ...JSON.parse(readFileSync(path.join(fixture, 'branding/brand.json'), 'utf8')),
       name: 'Fixture Brand',
       mark: 'F!',
-      presentationAliases: ['Legacy Product', '@old', 'C++', 'smarty-code'],
+      presentationAliases: ['Legacy Product', '@old', 'C++', 'smarty-code', 'Smarty Code'],
     };
     writeFileSync(path.join(fixture, 'branding/brand.json'), `${JSON.stringify(alternateConfig, null, 2)}\n`);
     writeFileSync(path.join(fixture, 'branding/logo.svg'), alternateLogo);
@@ -206,13 +227,19 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assertSucceeded(runBrand(fixture, '--check'));
     const docsFixtureDir = path.join(fixture, 'packages/docs/content');
     mkdirSync(docsFixtureDir, { recursive: true });
-    writeFileSync(path.join(docsFixtureDir, 'hostile.mdx'), '---\ndescription: OpenChamber\n---\n# OpenChamber\n\n```json\n{"description":"OpenChamber"}\n```\n\n```yaml\ndescription: OpenChamber\n```\n');
+    const brandedDescription = `Let an agent manage ${alternateConfig.name} sessions, worktrees, and scheduled tasks from chat.`;
+    writeFileSync(path.join(docsFixtureDir, 'hostile.mdx'), '---\ndescription: Let an agent manage OpenChamber sessions, worktrees, and scheduled tasks from chat.\n---\n# OpenChamber\n\n```json\n{"description":"OpenChamber"}\n```\n\n```yaml\ndescription: OpenChamber\n```\n');
     assertSucceeded(runBrand(fixture, '--docs', 'packages/docs'));
     const hostileDocs = readFileSync(path.join(docsFixtureDir, 'hostile.mdx'), 'utf8');
     assert.equal(hostileDocs.includes('# Fixture&#39;s &quot;Brand&quot; &amp; $&amp; &lt;tag&gt;'), true);
     const frontmatter = hostileDocs.match(/^---\n([\s\S]*?)\n---/);
     assert.ok(frontmatter);
-    assert.equal(parseDocument(frontmatter[1]).toJS().description, alternateConfig.name);
+    const document = parseDocument(frontmatter[1]);
+    assert.equal(document.errors.length, 0);
+    assert.equal(document.toJS().description, brandedDescription);
+    const description = document.get('description', true);
+    assert.ok(description?.range);
+    assert.doesNotMatch(frontmatter[1].slice(description.range[0], description.range[1]), /\r?\n\S/);
     const jsonFence = hostileDocs.match(/```json\n([\s\S]*?)\n```/);
     assert.ok(jsonFence);
     assert.equal(JSON.parse(jsonFence[1]).description, alternateConfig.name);
@@ -321,7 +348,7 @@ test('escapes block-level Markdown markers in branded prose', () => {
     rmSync(fixture, { recursive: true, force: true });
   }
 });
-test('escapes ordered-list, fence, and setext Markdown product names', () => {
+test('escapes ordered-list, fence, and setext Markdown product names', { timeout: 30_000 }, () => {
   const cases = [
     ['# Brand', '\\# Brand'],
     ['- Brand', '\\- Brand'],
@@ -367,7 +394,7 @@ test('installer treats percent and backslash branding as data', () => {
     assert.equal(electronPackage.build.linux.desktop.entry.Name, String.raw`Percent %s \\c`);
     assert.equal(electronPackage.build.linux.desktop.entry.Comment, String.raw`Desktop runtime for Percent %s \\c`);
     const marker = installer.split('\n').find((line) => line.includes('# brand:mark') === false && line.includes("printf '%s\\n'"));
-    assert.equal(marker, String.raw`    printf '%s\n' '  🤓  Percent %s \c'`);
+    assert.equal(marker, String.raw`    printf '%s\n' '  ${brandConfig.mark}  Percent %s \c'`);
     assert.match(installer, /printf '%b  %s\\n'/g);
     assert.equal(spawnSync('bash', ['-n', path.join(fixture, 'scripts/install.sh')], { encoding: 'utf8' }).status, 0);
   } finally {
@@ -448,11 +475,11 @@ test('runtime branding is limited to owned templates and compatibility identitie
   assert.match(updateRoutes, /quoteCmd\(`Update successful, restarting \$\{PRODUCT_NAME\}/);
   const englishBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
   const frenchBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.fr.json'), 'utf8'));
-  assert.equal(englishBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code: No folder is open. Open a folder to start a new session.');
-  assert.equal(frenchBundle['smarty-code: No folder is open. Open a folder to start a new session.'], 'smarty-code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
+  assert.equal(englishBundle['Smarty Code: No folder is open. Open a folder to start a new session.'], 'Smarty Code: No folder is open. Open a folder to start a new session.');
+  assert.equal(frenchBundle['Smarty Code: No folder is open. Open a folder to start a new session.'], 'Smarty Code : aucun dossier n’est ouvert. Ouvrez un dossier pour démarrer une nouvelle session.');
   const agentControlDocs = readFileSync(path.join(root, 'packages/docs/content/docs/agent-control-tool.mdx'), 'utf8');
-  assert.match(agentControlDocs, /Create a scheduled task in smarty-code named Weekday review/);
-  assert.doesNotMatch(agentControlDocs, /Create an smarty-code/);
+  assert.match(agentControlDocs, /Create a scheduled task in Smarty Code named Weekday review/);
+  assert.doesNotMatch(agentControlDocs, /Create an Smarty Code/);
   for (const relative of [
     'packages/ui/src/components/ui/toast.ts',
     'packages/ui/src/components/chat/ChatMessage.tsx',
@@ -487,8 +514,8 @@ test('runtime branding is limited to owned templates and compatibility identitie
   assert.match(startupSource, /Description=\$\{systemdDescription\(PRODUCT_NAME\)\} web server/);
   assert.match(lifecycleSource, /Launching OpenCode through WSL/);
   assert.match(lifecycleSource, /external OpenCode server/);
-  assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} web interface companion for OpenCode AI coding agent`/);
-  assert.match(webIndex, /description: __PRODUCT_NAME_JSON__ \+ ' web interface companion for OpenCode AI coding agent'/);
+  assert.match(pwaRoute, /description: `\$\{PRODUCT_NAME\} AI coding workspace`/);
+  assert.match(webIndex, /description: __PRODUCT_NAME_JSON__ \+ ' AI coding workspace'/);
 
   const repairedPresentationFiles = [
     'packages/web/bin/lib/commands-logs.js',

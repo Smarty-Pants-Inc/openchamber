@@ -310,7 +310,7 @@ export const createSessionRuntime = ({ writeSseEvent, getNotificationClients, br
     const eventId = `opencode-restart-${Date.now()}`;
     for (const sessionId of interruptedSessionIds) {
       updateSessionState(sessionId, 'idle', eventId, {
-        message: 'Interrupted by OpenCode restart',
+        message: 'Interrupted by engine restart',
         reason: 'opencode-restart',
       });
       broadcastEvent?.({
@@ -319,7 +319,7 @@ export const createSessionRuntime = ({ writeSseEvent, getNotificationClients, br
           sessionID: sessionId,
           error: {
             name: 'MessageAbortedError',
-            message: 'The running turn was interrupted when OpenCode restarted.',
+            message: 'The running turn was interrupted when the engine restarted.',
           },
         },
       });

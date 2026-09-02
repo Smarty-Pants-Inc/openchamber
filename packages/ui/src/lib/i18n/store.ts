@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { brandProductText } from '@/lib/brand.generated';
+import { brandProductText, brandText, PRODUCT_NAME } from '@/lib/brand.generated';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
@@ -15,6 +15,55 @@ type I18nState = {
 };
 
 const dictionaries = new Map<Locale, I18nDictionary>([[DEFAULT_LOCALE, enDict]]);
+
+// User-facing copy is branded as Smarty Code by default. The small exception
+// list names upstream OpenCode products or artifacts that users must identify
+// accurately (the CLI, update channel, diagnostics, official docs, and Go).
+const UPSTREAM_OPEN_CODE_KEYS: Partial<Record<I18nKey, true>> = {
+  'aboutDialog.openCodeVersionLabel': true,
+  'aboutDialog.diagnosticsDescription': true,
+  'onboarding.localSetup.description': true,
+  'onboarding.localSetup.errors.cliNotReady': true,
+  'onboarding.localSetup.windows.stepInstallWsl': true,
+  'onboarding.localSetup.windows.stepSetBinaryPath': true,
+  'onboarding.localSetup.intro': true,
+  'onboarding.localSetup.docs.windows': true,
+  'onboarding.localSetup.docs.default': true,
+  'onboarding.localSetup.helper.checkAndContinue': true,
+  'onboarding.localSetup.status.watching': true,
+  'onboarding.localSetup.field.alreadyInstalled': true,
+  'onboarding.localSetup.helper.saveAndReload': true,
+  'onboarding.localSetup.windows.hintInstallInWsl': true,
+  'onboarding.desktopRecovery.localUnavailable.description': true,
+  'opencodeUpdate.toast.available.title': true,
+  'opencodeUpdate.toast.actions.reload': true,
+  'opencodeUpdate.toast.upgrading.title': true,
+  'opencodeUpdate.toast.updated.title': true,
+  'opencodeUpdate.toast.failed.title': true,
+  'opencodeUpdate.toast.failed.description': true,
+  'opencodeUpdate.toast.reload.message': true,
+  'settings.providers.page.openCodeGo.title': true,
+  'settings.providers.page.openCodeGo.description': true,
+  'settings.providers.page.openCodeGo.saveFailed': true,
+  'settings.providers.page.openCodeGo.valid': true,
+  'settings.providers.page.openCodeGo.invalid': true,
+  'settings.providers.page.openCodeGo.deleted': true,
+  'settings.providers.page.openCodeGo.deleteFailed': true,
+  'settings.openchamber.about.field.openCodeVersion': true,
+  'settings.openchamber.opencodeCli.title': true,
+  'settings.openchamber.opencodeCli.field.binaryPath': true,
+  'settings.openchamber.opencodeCli.field.showUpdateNotifications': true,
+  'settings.openchamber.opencodeCli.field.showUpdateNotificationsAria': true,
+  'settings.openchamber.opencodeCli.actions.browseAria': true,
+  'settings.openchamber.opencodeCli.actions.restartingOpenCode': true,
+  'settings.providers.page.custom.field.apiKey.info': true,
+  'settings.providers.page.auth.apiKeyTooltip': true,
+};
+
+const normalizeOpenCodeElisions = (value: string): string => value.replace(/([dDlL])([’'])OpenCode\b/g, (match, prefix, _apostrophe, offset, input) => {
+  if (offset > 0 && /\w/.test(input[offset - 1])) return match;
+  return prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`;
+});
 
 export function resetI18nDictionaryCacheForTests(): void {
   dictionaries.clear();
@@ -95,7 +144,10 @@ export function initializeLocale(): void {
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
   const sourceTemplate = dictionary[key] ?? enDict[key] ?? key;
-  const template = brandProductText(sourceTemplate);
+  const productTemplate = brandProductText(sourceTemplate);
+  const template = UPSTREAM_OPEN_CODE_KEYS[key] === true
+    ? productTemplate
+    : brandText(normalizeOpenCodeElisions(productTemplate));
   if (!params) {
     return template;
   }

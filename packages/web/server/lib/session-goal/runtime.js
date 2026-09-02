@@ -338,7 +338,7 @@ export const createSessionGoalRuntime = ({
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
+      throw new Error(`Engine ${method} ${fetchPath} failed with ${response.status}`);
     }
     return response;
   };
@@ -369,7 +369,7 @@ export const createSessionGoalRuntime = ({
       });
       const body = await response.json().catch(() => null);
       const page = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : null);
-      if (!page) throw new Error('OpenCode message history returned an invalid page');
+      if (!page) throw new Error('Engine message history returned an invalid page');
 
       const uniquePage = [];
       for (const message of page) {
@@ -421,7 +421,7 @@ export const createSessionGoalRuntime = ({
       if (reachedPersistedBoundary || reachedLegacyBoundary || reachedCompactionBoundary || reachedGoalStart) return messages;
 
       if (!nextCursor) return messages;
-      if (visitedCursors.has(nextCursor)) throw new Error('OpenCode message history pagination made no progress');
+      if (visitedCursors.has(nextCursor)) throw new Error('Engine message history pagination made no progress');
       visitedCursors.add(nextCursor);
       before = nextCursor;
     }
@@ -434,7 +434,7 @@ export const createSessionGoalRuntime = ({
     });
     const body = await response.json().catch(() => null);
     const page = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : null);
-    if (!page) throw new Error('OpenCode message history returned an invalid page');
+    if (!page) throw new Error('Engine message history returned an invalid page');
     return page;
   };
 

@@ -1,6 +1,6 @@
-# smarty-code Docs Source
+# Smarty Code Docs Source
 
-This package is the source-of-truth for smarty-code public docs content.
+This package is the source-of-truth for Smarty Code public docs content.
 
 ## Layout
 

@@ -1274,7 +1274,7 @@ const ensureOpenCodeProjectId = async (primaryWorktree: string): Promise<string>
 
   const projectId = roots[0] || '';
   if (!projectId) {
-    throw new Error('Failed to derive OpenCode project ID');
+    throw new Error('Failed to derive engine project ID');
   }
 
   await fs.promises.mkdir(gitDir, { recursive: true }).catch(() => undefined);

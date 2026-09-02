@@ -90,7 +90,7 @@ struct OverviewWidget: Widget {
             OverviewWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("smarty-code")
+        .configurationDisplayName("Smarty Code")
         .description("Recent sessions and quick actions.")
         .supportedFamilies([.systemMedium])
     }
@@ -266,7 +266,7 @@ struct LockNewSessionWidget: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .configurationDisplayName("New Session")
-        .description("Start a new smarty-code session.")
+        .description("Start a new Smarty Code session.")
         .supportedFamilies([.accessoryCircular])
     }
 }

@@ -342,7 +342,7 @@ export async function handleSpecialGitBridgeMessage(
       try {
         const apiUrl = ctx?.manager?.getApiUrl();
         if (!apiUrl) {
-          return { id, type, success: false, error: 'OpenCode API unavailable' };
+          return { id, type, success: false, error: 'Engine API unavailable' };
         }
 
         const settings = deps.readSettings(ctx) as Record<string, unknown>;

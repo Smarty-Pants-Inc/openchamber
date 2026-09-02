@@ -1,17 +1,17 @@
 ---
 title: 環境変数
-description: 環境変数で smarty-code と OpenCode 連携を設定します。
+description: 環境変数で Smarty Code と OpenCode 連携を設定します。
 ---
 
 # 環境変数
 
-smarty-code は起動時にこれらの環境変数を読み取ります。スタートアップサービスでは、`openchamber startup enable` がデフォルトで現在の環境をスナップショットするため、サービスに使わせたい変数を変更した後は再実行してください。
+Smarty Code は起動時にこれらの環境変数を読み取ります。スタートアップサービスでは、`openchamber startup enable` がデフォルトで現在の環境をスナップショットするため、サービスに使わせたい変数を変更した後は再実行してください。
 
-## smarty-code サーバー
+## Smarty Code サーバー
 
 ### `OPENCHAMBER_HOST`
 
-smarty-code Web サーバーのバインドアドレスです。他のマシンからアクセスできるようにするには `0.0.0.0` を使います。
+Smarty Code Web サーバーのバインドアドレスです。他のマシンからアクセスできるようにするには `0.0.0.0` を使います。
 
 ### `OPENCHAMBER_UI_PASSWORD`
 
@@ -19,11 +19,11 @@ smarty-code Web サーバーのバインドアドレスです。他のマシン�
 
 ### `OPENCHAMBER_API_ONLY`
 
-`true` または `1` に設定すると、smarty-code をヘッドレスモードで起動します。デスクトップおよびモバイルクライアント向けの API ルートは利用できますが、ブラウザ UI は配信されません。
+`true` または `1` に設定すると、Smarty Code をヘッドレスモードで起動します。デスクトップおよびモバイルクライアント向けの API ルートは利用できますが、ブラウザ UI は配信されません。
 
 ### `OPENCHAMBER_DATA_DIR`
 
-smarty-code のデータディレクトリを上書きします。デフォルトは `~/.config/openchamber` です。
+Smarty Code のデータディレクトリを上書きします。デフォルトは `~/.config/openchamber` です。
 
 ### `OPENCHAMBER_COMPRESS_API`
 
@@ -49,7 +49,7 @@ API レスポンス圧縮を制御します。`true` または `1` で強制的�
 
 ### `OPENCODE_HOST`
 
-smarty-code を既存の OpenCode サーバーに接続します。値は明示的なポートを含み、パス、クエリ、ハッシュを含まない `http` または `https` の origin である必要があります。`OPENCODE_HOST` は `OPENCODE_PORT` より優先されます。
+Smarty Code を既存の OpenCode サーバーに接続します。値は明示的なポートを含み、パス、クエリ、ハッシュを含まない `http` または `https` の origin である必要があります。`OPENCODE_HOST` は `OPENCODE_PORT` より優先されます。
 
 ### `OPENCODE_PORT`
 
@@ -57,15 +57,15 @@ OpenCode サーバーのポートを設定します。管理対象 OpenCode で�
 
 ### `OPENCODE_SKIP_START`
 
-`true` に設定すると、smarty-code が独自の OpenCode サーバーを起動しません。
+`true` に設定すると、Smarty Code が独自の OpenCode サーバーを起動しません。
 
 ### `OPENCHAMBER_OPENCODE_HOSTNAME`
 
-smarty-code が管理する OpenCode サーバーのバインドホスト名です。デフォルトは `127.0.0.1` です。
+Smarty Code が管理する OpenCode サーバーのバインドホスト名です。デフォルトは `127.0.0.1` です。
 
 ### `OPENCODE_BINARY`
 
-smarty-code が実行する `opencode` 実行ファイルへのパスです。
+Smarty Code が実行する `opencode` 実行ファイルへのパスです。
 
 ### `OPENCODE_CONFIG`
 
@@ -85,7 +85,7 @@ Windows 上の OpenCode 連携に使う WSL ディストリビューションを
 
 ### `OPENCHAMBER_OPENCODE_WSL_DISTRO`
 
-WSL ディストリビューション選択用の smarty-code 固有エイリアスです。両方が設定されている場合は `OPENCODE_WSL_DISTRO` が優先されます。
+WSL ディストリビューション選択用の Smarty Code 固有エイリアスです。両方が設定されている場合は `OPENCODE_WSL_DISTRO` が優先されます。
 
 ### `OPENCODE_JWT_SECRET`
 
@@ -95,15 +95,15 @@ UI 認証トークンの署名に使うシークレットです。永続的な�
 
 ### `OPENCHAMBER_TERMINAL_SHELL`
 
-smarty-code のターミナルセッションで使うシェル実行ファイルです。
+Smarty Code のターミナルセッションで使うシェル実行ファイルです。
 
 ### `OPENCHAMBER_GIT_BINARY`
 
-smarty-code の Git 機能で使う Git 実行ファイルです。
+Smarty Code の Git 機能で使う Git 実行ファイルです。
 
 ### `GIT_BINARY`
 
-代替の Git 実行ファイル上書きです。smarty-code 固有の設定には `OPENCHAMBER_GIT_BINARY` を推奨します。
+代替の Git 実行ファイル上書きです。Smarty Code 固有の設定には `OPENCHAMBER_GIT_BINARY` を推奨します。
 
 ### `OPENCHAMBER_GIT_READ_CACHE_TTL_MS`
 
@@ -113,7 +113,7 @@ Git に基づくファイル読み取りキャッシュの有効期間（ミリ�
 
 ### `OPENAI_API_KEY`
 
-OpenAI 互換サービスを呼び出す smarty-code の音声機能で使う API キーです。
+OpenAI 互換サービスを呼び出す Smarty Code の音声機能で使う API キーです。
 
 ### `OPENCHAMBER_ALLOW_REMOTE_OPENAI_COMPAT_URLS`
 
@@ -121,17 +121,17 @@ OpenAI 互換サービスを呼び出す smarty-code の音声機能で使う AP
 
 ### `NGROK_AUTHTOKEN`
 
-smarty-code のトンネルコマンドで使う ngrok 認証トークンです。`ngrok config add-authtoken <token>` で ngrok 側に設定することもできます。
+Smarty Code のトンネルコマンドで使う ngrok 認証トークンです。`ngrok config add-authtoken <token>` で ngrok 側に設定することもできます。
 
 ## ランタイムヘルパー
 
 ### `BUN_BINARY`
 
-デーモンプロセスを起動するときに smarty-code が使う Bun 実行ファイルです。
+デーモンプロセスを起動するときに Smarty Code が使う Bun 実行ファイルです。
 
 ### `BUN_INSTALL`
 
-Bun のインストールルートです。smarty-code はデーモン起動と更新のために `bin/bun` を探す際に使います。
+Bun のインストールルートです。Smarty Code はデーモン起動と更新のために `bin/bun` を探す際に使います。
 
 ### `VITE_OPENCODE_URL`
 

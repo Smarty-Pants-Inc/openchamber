@@ -1,6 +1,6 @@
 # Custom Themes
 
-smarty-code supports user-defined themes. Drop a JSON file into the themes directory and reload — no app restart required.
+Smarty Code supports user-defined themes. Drop a JSON file into the themes directory and reload — no app restart required.
 
 ## Quick Start
 
@@ -11,7 +11,7 @@ smarty-code supports user-defined themes. Drop a JSON file into the themes direc
 
 2. Create a theme JSON file (e.g., `my-theme.json`) with the format below.
 
-3. In smarty-code: **Settings → Theme → Reload themes**.
+3. In Smarty Code: **Settings → Theme → Reload themes**.
 
 4. Select your theme from the dropdown.
 
@@ -28,7 +28,7 @@ smarty-code supports user-defined themes. Drop a JSON file into the themes direc
   "metadata": {
     "id": "my-custom-theme",
     "name": "My Custom Theme",
-    "description": "A custom theme for smarty-code",
+    "description": "A custom theme for Smarty Code",
     "version": "1.0.0",
     "variant": "dark",
     "tags": ["dark", "custom"]

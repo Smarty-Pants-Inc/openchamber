@@ -1,17 +1,17 @@
 ---
 title: Variables d’environnement
-description: Configurez smarty-code et l’intégration OpenCode avec des variables d’environnement.
+description: Configurez Smarty Code et l’intégration OpenCode avec des variables d’environnement.
 ---
 
 # Variables d’environnement
 
-smarty-code lit ces variables d’environnement au démarrage. Pour les services de démarrage, `openchamber startup enable` capture l’environnement actuel par défaut ; relancez donc la commande après avoir changé les variables que le service doit utiliser.
+Smarty Code lit ces variables d’environnement au démarrage. Pour les services de démarrage, `openchamber startup enable` capture l’environnement actuel par défaut ; relancez donc la commande après avoir changé les variables que le service doit utiliser.
 
-## Serveur smarty-code
+## Serveur Smarty Code
 
 ### `OPENCHAMBER_HOST`
 
-Adresse d’écoute du serveur web smarty-code. Utilisez `0.0.0.0` pour autoriser l’accès depuis d’autres machines.
+Adresse d’écoute du serveur web Smarty Code. Utilisez `0.0.0.0` pour autoriser l’accès depuis d’autres machines.
 
 ### `OPENCHAMBER_UI_PASSWORD`
 
@@ -19,11 +19,11 @@ Mot de passe pour l’UI navigateur. Utilisez-le lorsque vous écoutez hors de l
 
 ### `OPENCHAMBER_API_ONLY`
 
-Démarre smarty-code en mode headless lorsqu’il vaut `true` ou `1`. Les routes API restent disponibles pour les clients desktop et mobile, mais l’UI navigateur n’est pas servie.
+Démarre Smarty Code en mode headless lorsqu’il vaut `true` ou `1`. Les routes API restent disponibles pour les clients desktop et mobile, mais l’UI navigateur n’est pas servie.
 
 ### `OPENCHAMBER_DATA_DIR`
 
-Remplace le dossier de données smarty-code. La valeur par défaut est `~/.config/openchamber`.
+Remplace le dossier de données Smarty Code. La valeur par défaut est `~/.config/openchamber`.
 
 ### `OPENCHAMBER_COMPRESS_API`
 
@@ -49,23 +49,23 @@ Force le gestionnaire de paquets utilisé par les opérations de mise à jour lo
 
 ### `OPENCODE_HOST`
 
-Connecte smarty-code à un serveur OpenCode existant. La valeur doit être une origine `http` ou `https` avec un port explicite, sans chemin, query ni hash. `OPENCODE_HOST` a priorité sur `OPENCODE_PORT`.
+Connecte Smarty Code à un serveur OpenCode existant. La valeur doit être une origine `http` ou `https` avec un port explicite, sans chemin, query ni hash. `OPENCODE_HOST` a priorité sur `OPENCODE_PORT`.
 
 ### `OPENCODE_PORT`
 
-Définit le port du serveur OpenCode. Avec OpenCode géré, cela demande le port géré ; avec `OPENCODE_SKIP_START=true`, smarty-code se connecte à un serveur externe sur ce port.
+Définit le port du serveur OpenCode. Avec OpenCode géré, cela demande le port géré ; avec `OPENCODE_SKIP_START=true`, Smarty Code se connecte à un serveur externe sur ce port.
 
 ### `OPENCODE_SKIP_START`
 
-Empêche smarty-code de démarrer son propre serveur OpenCode lorsqu’il vaut `true`.
+Empêche Smarty Code de démarrer son propre serveur OpenCode lorsqu’il vaut `true`.
 
 ### `OPENCHAMBER_OPENCODE_HOSTNAME`
 
-Nom d’hôte d’écoute du serveur OpenCode géré par smarty-code. La valeur par défaut est `127.0.0.1`.
+Nom d’hôte d’écoute du serveur OpenCode géré par Smarty Code. La valeur par défaut est `127.0.0.1`.
 
 ### `OPENCODE_BINARY`
 
-Chemin vers l’exécutable `opencode` que smarty-code doit lancer.
+Chemin vers l’exécutable `opencode` que Smarty Code doit lancer.
 
 ### `OPENCODE_CONFIG`
 
@@ -85,7 +85,7 @@ Sélectionne la distribution WSL utilisée pour l’intégration OpenCode sur Wi
 
 ### `OPENCHAMBER_OPENCODE_WSL_DISTRO`
 
-Alias propre à smarty-code pour sélectionner la distribution WSL. `OPENCODE_WSL_DISTRO` a priorité lorsque les deux sont définies.
+Alias propre à Smarty Code pour sélectionner la distribution WSL. `OPENCODE_WSL_DISTRO` a priorité lorsque les deux sont définies.
 
 ### `OPENCODE_JWT_SECRET`
 
@@ -95,15 +95,15 @@ Secret utilisé pour signer les tokens d’authentification UI. Utilisez une lon
 
 ### `OPENCHAMBER_TERMINAL_SHELL`
 
-Exécutable shell utilisé pour les sessions de terminal smarty-code.
+Exécutable shell utilisé pour les sessions de terminal Smarty Code.
 
 ### `OPENCHAMBER_GIT_BINARY`
 
-Exécutable Git utilisé par les fonctionnalités Git de smarty-code.
+Exécutable Git utilisé par les fonctionnalités Git de Smarty Code.
 
 ### `GIT_BINARY`
 
-Autre exécutable Git de remplacement. Préférez `OPENCHAMBER_GIT_BINARY` pour une configuration propre à smarty-code.
+Autre exécutable Git de remplacement. Préférez `OPENCHAMBER_GIT_BINARY` pour une configuration propre à Smarty Code.
 
 ### `OPENCHAMBER_GIT_READ_CACHE_TTL_MS`
 
@@ -113,7 +113,7 @@ Durée de vie, en millisecondes, du cache de lecture des fichiers adossés à Gi
 
 ### `OPENAI_API_KEY`
 
-Clé API utilisée par les fonctionnalités vocales de smarty-code qui appellent des services compatibles OpenAI.
+Clé API utilisée par les fonctionnalités vocales de Smarty Code qui appellent des services compatibles OpenAI.
 
 ### `OPENCHAMBER_ALLOW_REMOTE_OPENAI_COMPAT_URLS`
 
@@ -121,17 +121,17 @@ Autorise les URL de base compatibles OpenAI distantes pour les fonctionnalités 
 
 ### `NGROK_AUTHTOKEN`
 
-Token d’authentification ngrok utilisé par les commandes de tunnel smarty-code. Vous pouvez aussi configurer ngrok avec `ngrok config add-authtoken <token>`.
+Token d’authentification ngrok utilisé par les commandes de tunnel Smarty Code. Vous pouvez aussi configurer ngrok avec `ngrok config add-authtoken <token>`.
 
 ## Helpers runtime
 
 ### `BUN_BINARY`
 
-Exécutable Bun que smarty-code doit utiliser lorsqu’il lance des processus daemon.
+Exécutable Bun que Smarty Code doit utiliser lorsqu’il lance des processus daemon.
 
 ### `BUN_INSTALL`
 
-Racine d’installation de Bun. smarty-code l’utilise pour trouver `bin/bun` lors du démarrage des daemons et des mises à jour.
+Racine d’installation de Bun. Smarty Code l’utilise pour trouver `bin/bun` lors du démarrage des daemons et des mises à jour.
 
 ### `VITE_OPENCODE_URL`
 
