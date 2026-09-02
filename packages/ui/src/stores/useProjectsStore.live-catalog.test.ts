@@ -432,6 +432,47 @@ describe('live catalog selection and icon materialization', () => {
     expect(state.projects.find((project) => project.path === '/live-only')?.label).toBe('Keep live metadata')
   })
 
+  test('preserves live presentation metadata when a partial settings patch omits projects', () => {
+    const presented: ProjectEntry = {
+      id: 'presented',
+      path: '/presented',
+      label: 'Presented label',
+      icon: 'folder',
+      color: '#123456',
+      defaultModel: 'provider/model',
+    }
+    const liveOnly: ProjectEntry = {
+      id: 'live-only',
+      path: '/live-only',
+      label: 'Live label',
+      color: '#654321',
+    }
+    useProjectsStore.setState({
+      projects: [presented, liveOnly],
+      presentationProjects: [presented],
+      runtimeProjectMembershipActive: true,
+      activeProjectId: liveOnly.id,
+      manualProjectOrder: [presented.id, liveOnly.id],
+    })
+
+    useProjectsStore.getState().synchronizeFromSettings({ sidebarProjectSortOrder: 'a-z' })
+
+    const state = useProjectsStore.getState()
+    expect(state.presentationProjects).toEqual([presented])
+    expect(state.projects.find((project) => project.path === presented.path)).toMatchObject({
+      path: presented.path,
+      label: presented.label,
+      icon: presented.icon,
+      color: presented.color,
+      defaultModel: presented.defaultModel,
+    })
+    expect(state.projects.find((project) => project.path === liveOnly.path)).toMatchObject({
+      path: liveOnly.path,
+      label: liveOnly.label,
+      color: liveOnly.color,
+    })
+  })
+
   test('guards reorder while the runtime owns membership and reorders after release', () => {
     useProjectsStore.getState().synchronizeFromSettings({ projects: [{ id: 'reorder-a', path: '/reorder-a' }] })
     useProjectsStore.getState().synchronizeFromRuntimeProjects([

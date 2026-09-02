@@ -1316,12 +1316,14 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
       const adoptActiveProject = options?.adoptActiveProject !== false;
-      const incomingProjects = sanitizeProjects(settings.projects ?? []);
+      const current = get();
+      const incomingProjects = Array.isArray(settings.projects)
+        ? sanitizeProjects(settings.projects)
+        : current.presentationProjects;
       const incomingActive = typeof settings.activeProjectId === 'string' && settings.activeProjectId.trim()
         ? settings.activeProjectId.trim()
         : null;
 
-      const current = get();
       if (current.runtimeProjectMembershipActive) {
         const runtimeProjects = current.projects.map((project) => ({ worktree: project.path }));
         const projects = reconcileRuntimeProjects(
