@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ProjectEntry } from '@/lib/api/types'
 import type { DesktopSettings } from '@/lib/desktop'
 
-let settingsWrites: Array<{ projects?: ProjectEntry[] }> = []
+let settingsWrites: Array<{ projects?: ProjectEntry[]; activeProjectId?: string }> = []
 let routeProjects: ProjectEntry[] | undefined
 
 mock.module('@/lib/persistence', () => ({
-  updateDesktopSettings: async (changes: { projects?: ProjectEntry[] }) => {
+  updateDesktopSettings: async (changes: { projects?: ProjectEntry[]; activeProjectId?: string }) => {
     settingsWrites.push(changes)
   },
 }))
@@ -37,6 +37,38 @@ describe('live catalog icon materialization', () => {
       activeProjectId: null,
       manualProjectOrder: [],
     })
+  })
+
+  test('selecting a live-only project leaves catalog membership out of settings after authority revocation', () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: 'settings-project', path: '/settings-project' }],
+    })
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: '/gateway-project' },
+      { worktree: '/removed-live-project' },
+    ], { liveCatalog: true })
+
+    const removedProject = useProjectsStore.getState().projects.find((project) => project.path === '/removed-live-project')
+    if (!removedProject) throw new Error('live-only project was not created')
+
+    useProjectsStore.getState().setActiveProject(removedProject.id)
+
+    const selected = useProjectsStore.getState()
+    expect(selected.activeProjectId).toBe(removedProject.id)
+    expect(selected.presentationProjects.map((project) => project.path)).toEqual(['/settings-project'])
+    expect(settingsWrites.filter((changes) => changes.projects).at(-1)).toEqual({
+      projects: selected.presentationProjects,
+      activeProjectId: removedProject.id,
+    })
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: '/gateway-project' },
+    ], { liveCatalog: true })
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
+
+    const released = useProjectsStore.getState()
+    expect(released.runtimeProjectMembershipActive).toBe(false)
+    expect(released.projects.map((project) => project.path)).toEqual(['/settings-project'])
   })
 
   test('persists a live-only project before discovering its icon without changing membership authority', async () => {

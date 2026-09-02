@@ -839,7 +839,7 @@ export const useProjectsStore = create<ProjectsStore>()(
 
       const now = Date.now();
       const presentationProjects = updatePresentedProject(
-        getPresentationProjects(current),
+        current.runtimeProjectMembershipActive ? current.presentationProjects : getPresentationProjects(current),
         id,
         (project) => ({ ...project, lastOpenedAt: now }),
       );
