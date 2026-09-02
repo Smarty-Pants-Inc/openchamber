@@ -16,6 +16,7 @@ import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/Setting
 export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onItemSelect }) => {
   const { t } = useI18n();
   const projects = useProjectsStore((state) => state.projects);
+  const runtimeProjectMembershipActive = useProjectsStore((state) => state.runtimeProjectMembershipActive);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
   const setSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
   const { currentTheme } = useThemeSystem();
@@ -23,6 +24,7 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
   const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
 
   const handleAddProject = React.useCallback(() => {
+    if (useProjectsStore.getState().runtimeProjectMembershipActive) return;
     sessionEvents.requestDirectoryDialog();
   }, []);
 
@@ -47,7 +49,7 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
           <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{t('settings.page.projects.title')}</h2>
           <div className="flex items-center justify-between gap-2">
             <span className="typography-meta text-muted-foreground">{t('settings.projects.sidebar.total', { count: projects.length })}</span>
-            {!isVSCode && (
+            {!isVSCode && !runtimeProjectMembershipActive && (
               <Button
                 type="button"
                 variant="ghost"

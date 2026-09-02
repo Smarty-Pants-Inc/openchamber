@@ -15,6 +15,10 @@ class TestFileReader {
 Object.defineProperty(globalThis, 'FileReader', { value: TestFileReader, configurable: true })
 
 let settingsWrites: Array<Partial<DesktopSettings>> = []
+let durableSettingsWrites: Array<Partial<DesktopSettings>> = []
+let pendingSettingsChanges: Partial<DesktopSettings> | null = null
+let settingsFlushWaiters: Array<() => void> = []
+let settingsFlushScheduled = false
 let routeProjects: ProjectEntry[] | undefined
 let runtimeFetchCalls: string[] = []
 let runtimeApiBaseUrl = 'https://runtime-a.example'
@@ -25,9 +29,32 @@ let iconResponseGate: Promise<void> | null = null
 let iconResponseStatus = 200
 let iconResponsePayload: Record<string, unknown> = { skipped: true }
 let settingsSaveState: 'idle' | 'saving' | 'error' = 'idle'
+let coalesceSettingsWrites = false
 let settingsSaveShouldFail = false
 let runtimeFetchStarted: Promise<void> = Promise.resolve()
 let resolveRuntimeFetchStarted: (() => void) | null = null
+
+const flushSettingsQueue = async () => {
+  settingsFlushScheduled = false
+  const changes = pendingSettingsChanges
+  pendingSettingsChanges = null
+  const waiters = settingsFlushWaiters
+  settingsFlushWaiters = []
+  if (!changes) {
+    waiters.forEach((resolve) => resolve())
+    return
+  }
+  if (materializationGate) await materializationGate
+  durableSettingsWrites.push(changes)
+  waiters.forEach((resolve) => resolve())
+}
+
+const enqueueSettingsChanges = (changes: Partial<DesktopSettings>) => {
+  pendingSettingsChanges = { ...(pendingSettingsChanges ?? {}), ...changes }
+  if (settingsFlushScheduled) return
+  settingsFlushScheduled = true
+  queueMicrotask(() => { void flushSettingsQueue() })
+}
 
 mock.module('@/lib/persistence', () => ({
   getSettingsSaveState: () => settingsSaveState,
@@ -37,21 +64,33 @@ mock.module('@/lib/persistence', () => ({
       settingsSaveState = 'error'
       return Promise.reject(new Error('settings save failed'))
     }
-    if (materializationGate) {
-      settingsSaveState = 'saving'
-      return materializationGate.then(() => {
-        settingsSaveState = 'idle'
-      })
+    if (!coalesceSettingsWrites) {
+      if (materializationGate) {
+        settingsSaveState = 'saving'
+        return materializationGate.then(() => {
+          settingsSaveState = 'idle'
+        })
+      }
+      settingsSaveState = 'idle'
+      return Promise.resolve()
     }
-    settingsSaveState = 'idle'
-    return Promise.resolve()
+    settingsSaveState = 'saving'
+    enqueueSettingsChanges(changes)
+    return new Promise<void>((resolve) => {
+      settingsFlushWaiters.push(() => {
+        settingsSaveState = 'idle'
+        resolve()
+      })
+    })
   },
 }))
 
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: async (url: string) => {
     runtimeFetchCalls.push(url)
-    routeProjects = settingsWrites.at(-1)?.projects
+    routeProjects = coalesceSettingsWrites
+      ? durableSettingsWrites.at(-1)?.projects
+      : settingsWrites.at(-1)?.projects
     resolveRuntimeFetchStarted?.()
     resolveRuntimeFetchStarted = null
     await iconResponseGate
@@ -107,6 +146,10 @@ const bootstrapPresentedProject = (): ProjectEntry => {
 describe('live catalog selection and icon materialization', () => {
   beforeEach(() => {
     settingsWrites = []
+    durableSettingsWrites = []
+    pendingSettingsChanges = null
+    settingsFlushWaiters = []
+    settingsFlushScheduled = false
     routeProjects = undefined
     runtimeFetchCalls = []
     runtimeApiBaseUrl = 'https://runtime-a.example'
@@ -117,6 +160,7 @@ describe('live catalog selection and icon materialization', () => {
     iconResponseStatus = 200
     iconResponsePayload = { skipped: true }
     settingsSaveState = 'idle'
+    coalesceSettingsWrites = false
     settingsSaveShouldFail = false
     const started = createDeferred<void>()
     runtimeFetchStarted = started.promise
@@ -262,6 +306,46 @@ describe('live catalog selection and icon materialization', () => {
     const result = await pending
     expect(result).toEqual({ ok: false, error: 'Runtime changed' })
     expect(runtimeFetchCalls).toEqual([])
+  })
+
+  test('serializes overlapping icon materializations through the coalescing settings queue', async () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: 'settings-project', path: '/settings-project' }],
+    })
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: '/live-project-a' },
+      { worktree: '/live-project-b' },
+    ], { liveCatalog: true })
+    const projects = useProjectsStore.getState().projects
+    const liveA = projects.find((project) => project.path === '/live-project-a')
+    const liveB = projects.find((project) => project.path === '/live-project-b')
+    if (!liveA || !liveB) throw new Error('live projects were not created')
+
+    settingsWrites = []
+    durableSettingsWrites = []
+    coalesceSettingsWrites = true
+    const deferred = createDeferred<void>()
+    materializationGate = deferred.promise
+
+    const first = useProjectsStore.getState().discoverProjectIcon(liveA.id)
+    const second = useProjectsStore.getState().discoverProjectIcon(liveB.id)
+    expect(settingsWrites).toHaveLength(1)
+    expect(durableSettingsWrites).toEqual([])
+
+    deferred.resolve(undefined)
+    expect(await Promise.all([first, second])).toEqual([
+      { ok: true, skipped: true },
+      { ok: true, skipped: true },
+    ])
+    expect(durableSettingsWrites.map((changes) => changes.projects?.map((project) => project.path))).toEqual([
+      ['/settings-project', '/live-project-a'],
+      ['/settings-project', '/live-project-a', '/live-project-b'],
+    ])
+    expect(useProjectsStore.getState().presentationProjects.map((project) => project.path)).toEqual([
+      '/settings-project',
+      '/live-project-a',
+      '/live-project-b',
+    ])
   })
 
   test('persists only presented and explicitly targeted live projects', () => {

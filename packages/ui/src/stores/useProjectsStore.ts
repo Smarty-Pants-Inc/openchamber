@@ -739,38 +739,67 @@ if (vscodeWorkspace) {
   cacheProjects(effectiveInitialProjects, initialActiveProjectId);
 }
 
-const materializeLiveProjectPresentation = async (
+// Settings persistence shallow-coalesces pending patches. Serialize live-only
+// presentation materializations so each save starts from the last committed
+// presentation list rather than overwriting a sibling materialization.
+let liveProjectPresentationQueue: Promise<void> | null = null;
+
+const materializeLiveProjectPresentation = (
   id: string,
   runtimeContext: ProjectIconRuntimeContext,
   get: () => ProjectsStore,
   set: (state: Partial<ProjectsStore>) => void,
 ): Promise<boolean> => {
-  const current = get();
-  const project = current.projects.find((project) => project.id === id);
-  if (!current.runtimeProjectMembershipActive || !project) {
+  const materialize = async (): Promise<boolean> => {
+    if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+      return false;
+    }
+
+    const current = get();
+    const project = current.projects.find((project) => project.id === id);
+    if (!current.runtimeProjectMembershipActive || !project) {
+      return true;
+    }
+
+    if (current.presentationProjects.some((presentation) => presentation.id === id)) {
+      return true;
+    }
+
+    const presentationProjects = [...current.presentationProjects, project];
+    try {
+      await updateDesktopSettings({ projects: presentationProjects });
+    } catch {
+      return false;
+    }
+    const settingsSaveState = typeof persistence.getSettingsSaveState === 'function'
+      ? persistence.getSettingsSaveState()
+      : 'idle';
+    if (!isProjectIconRuntimeCurrent(runtimeContext) || settingsSaveState === 'error') {
+      return false;
+    }
+
+    const latest = get();
+    if (latest.presentationProjects.some((presentation) => presentation.id === id)) {
+      return true;
+    }
+    const latestProject = latest.projects.find((entry) => entry.id === id) ?? project;
+    const committedPresentationProjects = [...latest.presentationProjects, latestProject];
+    set({ presentationProjects: committedPresentationProjects });
+    cacheProjects(committedPresentationProjects, latest.activeProjectId);
     return true;
-  }
+  };
 
-  if (current.presentationProjects.some((presentation) => presentation.id === id)) {
-    return true;
-  }
-
-  const presentationProjects = [...current.presentationProjects, project];
-  try {
-    await updateDesktopSettings({ projects: presentationProjects });
-  } catch {
-    return false;
-  }
-  const settingsSaveState = typeof persistence.getSettingsSaveState === 'function'
-    ? persistence.getSettingsSaveState()
-    : 'idle';
-  if (!isProjectIconRuntimeCurrent(runtimeContext) || settingsSaveState === 'error') {
-    return false;
-  }
-
-  set({ presentationProjects });
-  cacheProjects(presentationProjects, get().activeProjectId);
-  return true;
+  const pending = liveProjectPresentationQueue
+    ? liveProjectPresentationQueue.then(materialize)
+    : materialize();
+  const queueTail = pending.then(() => undefined, () => undefined);
+  liveProjectPresentationQueue = queueTail;
+  void queueTail.then(() => {
+    if (liveProjectPresentationQueue === queueTail) {
+      liveProjectPresentationQueue = null;
+    }
+  });
+  return pending;
 };
 
 export const useProjectsStore = create<ProjectsStore>()(

@@ -32,6 +32,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
+import { applyRuntimeProjectMembership, buildAddWorkspaceMenuItem } from './project-membership-menu.mjs';
 import { shouldAllowBrowserPanelCertificateError } from './browser-panel-security.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 
@@ -275,9 +276,12 @@ const state = {
   sshLogs: new Map(),
   trayController: null,
   trayFocusListener: null,
+  applicationMenuInitialized: false,
   lastFocusedWindowId: null,
   keepAwakeBlockerId: null,
 };
+
+let refreshApplicationMenu = null;
 
 const setDesktopKeepAwakeActive = (enabled) => {
   const currentId = state.keepAwakeBlockerId;
@@ -2455,6 +2459,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   browserWindow.__ocRuntimeConfig = { apiBaseUrl: desktopApiBaseUrl, clientToken: desktopClientToken, requestHeaders: desktopRequestHeaders };
   browserWindow.__ocInitScript = buildInitScript(desktopLocalOrigin, state.bootOutcome, desktopApiBaseUrl, desktopClientToken, desktopRequestHeaders);
   browserWindow.__ocTitleBarOverlayEnabled = titleBarOverlayEnabled;
+  browserWindow.__ocRuntimeProjectMembershipActive = false;
   browserWindow.on('app-command', (event, command) => {
     if (command === 'browser-backward') event.preventDefault();
   });
@@ -2465,6 +2470,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
 
   browserWindow.on('focus', () => {
     state.focusedWindowIds.add(browserWindow.id);
+    if (state.applicationMenuInitialized) refreshApplicationMenu?.();
   });
   browserWindow.on('blur', () => {
     state.focusedWindowIds.delete(browserWindow.id);
@@ -3786,6 +3792,13 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       }
       return null;
 
+    case 'desktop_set_runtime_project_membership_active':
+      if (browserWindow && !browserWindow.isDestroyed()) {
+        applyRuntimeProjectMembership(browserWindow, args.active);
+        if (state.applicationMenuInitialized) refreshApplicationMenu?.();
+      }
+      return null;
+
     case 'desktop_get_app_version':
       return APP_VERSION;
 
@@ -4744,7 +4757,11 @@ const buildMacMenu = () => {
         // renderer own the (customizable) key binding, avoiding a double open.
         { label: 'New Mini Chat', accelerator: 'Cmd+Alt+N', registerAccelerator: false, click: () => dispatchOpenMiniChat() },
         { type: 'separator' },
-        { label: 'Add Workspace', click: () => dispatchAction('change-workspace') },
+        buildAddWorkspaceMenuItem({
+          targetWindow: getMenuTargetWindow(),
+          getTargetWindow: getMenuTargetWindow,
+          onAction: () => dispatchAction('change-workspace'),
+        }),
         { type: 'separator' },
         { role: 'close' },
       ],
@@ -4842,7 +4859,11 @@ const buildAutoHiddenMenu = () => {
         { label: 'New Session', accelerator: 'Ctrl+N', click: () => dispatchAction('new-session') },
         { label: 'New Worktree', accelerator: 'Ctrl+Shift+N', click: () => dispatchAction('new-worktree-session') },
         { type: 'separator' },
-        { label: 'Add Workspace', click: () => dispatchAction('change-workspace') },
+        buildAddWorkspaceMenuItem({
+          targetWindow: getMenuTargetWindow(),
+          getTargetWindow: getMenuTargetWindow,
+          onAction: () => dispatchAction('change-workspace'),
+        }),
         { type: 'separator' },
         { role: 'quit' },
       ],
@@ -4921,6 +4942,11 @@ const buildAutoHiddenMenu = () => {
       ],
     },
   ]);
+};
+
+refreshApplicationMenu = () => {
+  if (!state.applicationMenuInitialized) return;
+  Menu.setApplicationMenu(process.platform === 'darwin' ? buildMacMenu() : buildAutoHiddenMenu());
 };
 
 contextMenu({
@@ -5013,6 +5039,7 @@ const COMMANDS_SAFE_FOR_REMOTE = new Set([
   'desktop_get_lan_address',
   'desktop_capture_page_rect',
   'desktop_tray_update',
+  'desktop_set_runtime_project_membership_active',
 ]);
 
 ipcMain.handle('openchamber:invoke', async (event, command, args) => {
@@ -5386,11 +5413,8 @@ app.whenReady().then(async () => {
   hardenBrowserPanelSession();
   setupAutoUpdater();
 
-  if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(buildMacMenu());
-  } else {
-    Menu.setApplicationMenu(buildAutoHiddenMenu());
-  }
+  state.applicationMenuInitialized = true;
+  refreshApplicationMenu?.();
   setupTray();
 
   if ((process.platform === 'darwin' || process.platform === 'win32') && app.isPackaged) {
