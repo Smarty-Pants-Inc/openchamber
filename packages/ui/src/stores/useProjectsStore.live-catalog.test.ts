@@ -459,18 +459,16 @@ describe('live catalog selection and icon materialization', () => {
 
     const state = useProjectsStore.getState()
     expect(state.presentationProjects).toEqual([presented])
-    expect(state.projects.find((project) => project.path === presented.path)).toMatchObject({
-      path: presented.path,
-      label: presented.label,
-      icon: presented.icon,
-      color: presented.color,
-      defaultModel: presented.defaultModel,
-    })
-    expect(state.projects.find((project) => project.path === liveOnly.path)).toMatchObject({
-      path: liveOnly.path,
-      label: liveOnly.label,
-      color: liveOnly.color,
-    })
+    const presentedProject = state.projects.find((project) => project.path === presented.path)
+    expect(presentedProject?.path).toBe(presented.path)
+    expect(presentedProject?.label).toBe(presented.label)
+    expect(presentedProject?.icon).toBe(presented.icon)
+    expect(presentedProject?.color).toBe(presented.color)
+    expect(presentedProject?.defaultModel).toBe(presented.defaultModel)
+    const liveProject = state.projects.find((project) => project.path === liveOnly.path)
+    expect(liveProject?.path).toBe(liveOnly.path)
+    expect(liveProject?.label).toBe(liveOnly.label)
+    expect(liveProject?.color).toBe(liveOnly.color)
   })
 
   test('guards reorder while the runtime owns membership and reorders after release', () => {
