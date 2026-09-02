@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { brandProductText } from '@/lib/brand.generated';
+import { brandProductText, brandText } from '@/lib/brand.generated';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
@@ -15,6 +15,20 @@ type I18nState = {
 };
 
 const dictionaries = new Map<Locale, I18nDictionary>([[DEFAULT_LOCALE, enDict]]);
+
+// These labels describe the product-level Settings action. Keep the legacy
+// OpenCode wording in their keys for compatibility, but present the current
+// product name to users. Other OpenCode labels remain technical on purpose.
+const OPEN_CODE_PRODUCT_KEYS: Partial<Record<I18nKey, true>> = {
+  'settings.view.actions.reloadOpenCode': true,
+  'settings.view.actions.reloadOpenCodeTooltip': true,
+  'settings.view.actions.applyAndRestartOpenCodeTooltipSingle': true,
+  'settings.view.actions.applyAndRestartOpenCodeTooltipPlural': true,
+  'settings.view.pendingRestart.applied': true,
+  'settings.view.pendingRestart.manualRestartRequired': true,
+  'settings.view.pendingRestart.saved': true,
+  'settings.view.pendingRestart.confirm.description': true,
+};
 
 export function resetI18nDictionaryCacheForTests(): void {
   dictionaries.clear();
@@ -95,7 +109,9 @@ export function initializeLocale(): void {
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
   const sourceTemplate = dictionary[key] ?? enDict[key] ?? key;
-  const template = brandProductText(sourceTemplate);
+  const template = OPEN_CODE_PRODUCT_KEYS[key] === true
+    ? brandText(sourceTemplate)
+    : brandProductText(sourceTemplate);
   if (!params) {
     return template;
   }

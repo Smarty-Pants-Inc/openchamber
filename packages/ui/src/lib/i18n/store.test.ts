@@ -35,12 +35,37 @@ describe('i18n store', () => {
       .toBe(`Keep ${PRODUCT_NAME} open.`);
   });
 
+  test('brands the product-owned Settings restart action', () => {
+    expect(formatMessage(defaultDictionary, 'settings.view.actions.reloadOpenCode'))
+      .toBe(`Reload ${PRODUCT_NAME}`);
+    expect(formatMessage(defaultDictionary, 'settings.view.actions.reloadOpenCodeTooltip'))
+      .toBe(`Restart ${PRODUCT_NAME} and reload its configuration.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.actions.applyAndRestartOpenCodeTooltipSingle'))
+      .toBe(`Apply 1 pending configuration change and restart ${PRODUCT_NAME}.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.actions.applyAndRestartOpenCodeTooltipPlural', { count: 2 }))
+      .toBe(`Apply 2 pending configuration changes and restart ${PRODUCT_NAME}.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.pendingRestart.applied'))
+      .toBe(`${PRODUCT_NAME} restarted with pending configuration changes.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.pendingRestart.manualRestartRequired'))
+      .toBe(`Saved on disk. Restart your connected ${PRODUCT_NAME} server to apply the changes.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.pendingRestart.saved'))
+      .toBe(`Saved. Restart ${PRODUCT_NAME} to apply.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.pendingRestart.confirm.description'))
+      .toBe(`Restarting ${PRODUCT_NAME} will stop any running chats. Your saved configuration changes will take effect after the restart.`);
+  });
+
   test('preserves upstream OpenCode labels and mixed diagnostics', () => {
     const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
     expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
       .toBe(`OpenCode version ${runtimeValue}`);
     expect(formatMessage(defaultDictionary, 'aboutDialog.diagnosticsDescription'))
       .toBe(`Includes ${PRODUCT_NAME} state, OpenCode health, directories, and projects.`);
+    expect(formatMessage(defaultDictionary, 'settings.view.nav.group.opencode'))
+      .toBe('OpenCode');
+    expect(formatMessage(defaultDictionary, 'settings.openchamber.opencodeCli.title'))
+      .toBe('OpenCode CLI');
+    expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.actions.reload'))
+      .toBe('Reload OpenCode');
   });
 
   test('preserves technical OpenCode identifiers', () => {
