@@ -85,6 +85,17 @@ describe('i18n store', () => {
       .toBe('Version d’OpenCode');
   });
 
+  test('preserves OpenCode credential storage and transport ownership', () => {
+    expect(formatMessage(defaultDictionary, 'settings.providers.page.custom.field.apiKey.info'))
+      .toBe('Stored in OpenCode auth, not by Smarty Code. Use {env:VAR_NAME} to read a key from the environment instead.');
+    expect(formatMessage(defaultDictionary, 'settings.providers.page.auth.apiKeyTooltip'))
+      .toBe('Keys are sent directly to OpenCode and never stored by Smarty Code.');
+    expect(formatMessage(frDict, 'settings.providers.page.custom.field.apiKey.info'))
+      .toBe('Stockée dans l’auth OpenCode, pas par Smarty Code. Utilisez {env:VAR_NAME} pour lire une clé depuis l’environnement.');
+    expect(formatMessage(frDict, 'settings.providers.page.auth.apiKeyTooltip'))
+      .toBe('Les clés sont envoyées directement à OpenCode et ne sont jamais stockées par Smarty Code.');
+  });
+
   test('preserves technical OpenCode identifiers', () => {
     expect(brandText('OpenCode opencode OPENCODE_BINARY OpenCodeClient'))
       .toBe('Smarty Code opencode OPENCODE_BINARY OpenCodeClient');

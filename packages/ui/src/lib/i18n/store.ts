@@ -56,6 +56,8 @@ const UPSTREAM_OPEN_CODE_KEYS: Partial<Record<I18nKey, true>> = {
   'settings.openchamber.opencodeCli.field.showUpdateNotificationsAria': true,
   'settings.openchamber.opencodeCli.actions.browseAria': true,
   'settings.openchamber.opencodeCli.actions.restartingOpenCode': true,
+  'settings.providers.page.custom.field.apiKey.info': true,
+  'settings.providers.page.auth.apiKeyTooltip': true,
 };
 
 const normalizeOpenCodeElisions = (value: string): string => value.replace(/([dDlL])([’'])OpenCode\b/g, (match, prefix, _apostrophe, offset, input) => {
