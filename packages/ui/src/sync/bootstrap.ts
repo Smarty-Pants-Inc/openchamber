@@ -2,9 +2,33 @@ import type { OpencodeClient, PermissionRequest, Project, QuestionRequest } from
 import { retry } from "./retry"
 import type { GlobalState, State } from "./types"
 import { runtimeFetch } from "../lib/runtime-fetch"
+import { z } from "zod"
 import { emitSyncConfigChanged } from "./sync-refs"
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+export const LIVE_PROJECT_CATALOG_RUNTIME = "smarty-oc"
+
+const runtimeHealthSchema = z.object({
+  runtime: z.string().optional(),
+})
+
+type RuntimeHealthPayload = z.infer<typeof runtimeHealthSchema>
+
+export const hasLiveProjectCatalogCapability = (value: RuntimeHealthPayload): boolean => (
+  value.runtime === LIVE_PROJECT_CATALOG_RUNTIME
+)
+
+async function loadLiveProjectCatalogCapability(): Promise<boolean> {
+  try {
+    const response = await runtimeFetch("/health", { signal: AbortSignal.timeout(4_000) })
+    if (!response.ok) return false
+    const health = runtimeHealthSchema.safeParse(await response.json().catch(() => null))
+    return health.success && hasLiveProjectCatalogCapability(health.data)
+  } catch {
+    return false
+  }
+}
 
 /**
  * SDK returns `{ data, error, response }` without throwing on non-2xx.
@@ -60,6 +84,60 @@ function projectID(directory: string, projects: Project[]) {
   )?.id
 }
 
+async function loadRuntimeProjects(sdk: OpencodeClient): Promise<Project[]> {
+  const data = unwrap(await sdk.project.list(), "project.list")
+  return data
+    .filter((project): project is Project => !!project?.id)
+    .filter((project) => !!project.worktree && !project.worktree.includes("opencode-test"))
+    .sort((a, b) => cmp(a.id, b.id))
+}
+
+export function createProjectCatalogRefresh(
+  sdk: OpencodeClient,
+  onProjects: (projects: Project[], options: { liveCatalog: boolean }) => void,
+  options?: {
+    isCurrent?: () => boolean
+    getLiveProjectCatalogCapability?: () => Promise<boolean>
+  },
+): () => Promise<void> {
+  let request: Promise<void> | null = null
+  let invalidationGeneration = 0
+  const getLiveProjectCatalogCapability = options?.getLiveProjectCatalogCapability ?? loadLiveProjectCatalogCapability
+
+  return () => {
+    invalidationGeneration += 1
+    if (request) return request
+
+    const run = async () => {
+      while (true) {
+        const generation = invalidationGeneration
+        let projects: Project[]
+        let liveCatalog: boolean
+        try {
+          [projects, liveCatalog] = await Promise.all([
+            loadRuntimeProjects(sdk),
+            getLiveProjectCatalogCapability().catch(() => false),
+          ])
+        } catch (error) {
+          if (generation !== invalidationGeneration) continue
+          throw error
+        }
+
+        if (generation !== invalidationGeneration) continue
+        if (options?.isCurrent && !options.isCurrent()) return
+        onProjects(projects, { liveCatalog })
+        if (generation === invalidationGeneration) return
+      }
+    }
+
+    const pending = run().finally(() => {
+      if (request === pending) request = null
+    })
+    request = pending
+    return pending
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap global state
 // ---------------------------------------------------------------------------
@@ -67,20 +145,17 @@ function projectID(directory: string, projects: Project[]) {
 export async function bootstrapGlobal(
   sdk: OpencodeClient,
   set: (patch: Partial<GlobalState>) => void,
+  onProjects?: (projects: Project[]) => void,
+  loadProjects?: () => Promise<void>,
 ) {
   const results = await Promise.allSettled([
     retry(() => sdk.path.get().then((x) => set({ path: unwrap(x, "path.get") }))),
     retry(() => sdk.global.config.get().then((x) => set({ config: unwrap(x, "global.config.get") }))),
-    retry(() =>
-      sdk.project.list().then((x) => {
-        const data = unwrap(x, "project.list")
-        const projects = data
-          .filter((p): p is Project => !!p?.id)
-          .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-          .sort((a, b) => cmp(a.id, b.id))
-        set({ projects })
-      }),
-    ),
+    retry(loadProjects ?? (async () => {
+      const projects = await loadRuntimeProjects(sdk)
+      set({ projects })
+      onProjects?.(projects)
+    })),
   ])
 
   const errors = results

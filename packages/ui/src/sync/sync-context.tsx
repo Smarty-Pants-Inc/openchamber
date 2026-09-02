@@ -28,7 +28,7 @@ import {
   areStatusMapsEquivalent,
   findLiveSession,
 } from "./live-aggregate"
-import { bootstrapGlobal, bootstrapDirectory } from "./bootstrap"
+import { bootstrapGlobal, bootstrapDirectory, createProjectCatalogRefresh } from "./bootstrap"
 import { retry } from "./retry"
 import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
 import { countSyncPerformance } from "./performance-diagnostics"
@@ -78,6 +78,7 @@ import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
 import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
+import { useProjectsStore } from "@/stores/useProjectsStore"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type UserMessageHistorySnapshot } from "./user-message-history"
 import {
@@ -2074,6 +2075,35 @@ export function SyncProvider(props: {
   const pipelineHasConnectedRef = useRef(false)
   const pipelineDisconnectedBeforeFirstConnectRef = useRef(false)
 
+  const projectCatalogEpochRef = useRef<{ sdk: OpencodeClient; runtimeKey: string; epoch: number } | null>(null)
+  if (
+    !projectCatalogEpochRef.current
+    || projectCatalogEpochRef.current.sdk !== props.sdk
+    || projectCatalogEpochRef.current.runtimeKey !== runtimeKey
+  ) {
+    projectCatalogEpochRef.current = {
+      sdk: props.sdk,
+      runtimeKey,
+      epoch: (projectCatalogEpochRef.current?.epoch ?? 0) + 1,
+    }
+  }
+  const projectCatalogEpoch = projectCatalogEpochRef.current.epoch
+  const refreshRuntimeProjects = useMemo(() => createProjectCatalogRefresh(
+    props.sdk,
+    (projects, { liveCatalog }) => {
+      useGlobalSyncStore.getState().actions.set({ projects })
+      if (liveCatalog) {
+        useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: true })
+      }
+    },
+    {
+      isCurrent: () => projectCatalogEpochRef.current?.epoch === projectCatalogEpoch
+        && projectCatalogEpochRef.current.sdk === props.sdk
+        && projectCatalogEpochRef.current.runtimeKey === runtimeKey
+        && runtimeKey === getRuntimeKey(),
+    },
+  ), [props.sdk, projectCatalogEpoch, runtimeKey])
+
   const runtime = useMemo<SyncRuntime>(
     () => ({ childStores, messageLoader, runtimeKey, sdk: props.sdk }),
     [childStores, messageLoader, props.sdk, runtimeKey],
@@ -2266,29 +2296,30 @@ export function SyncProvider(props: {
   // redundant refresh events during startup
   useEffect(() => {
     const generation = ++globalBootstrapGeneration
+    const bootstrapRuntimeKey = runtimeKey
     bootingRoot = true
     const globalActions = useGlobalSyncStore.getState().actions
     bootstrapGlobal(props.sdk, (patch) => {
-      if (globalBootstrapGeneration === generation) {
+      if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
         globalActions.set(patch)
       }
-    })
+    }, undefined, refreshRuntimeProjects)
       .then(() => {
-        if (globalBootstrapGeneration === generation) {
+        if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
           bootedAt = Date.now()
         }
       })
       .finally(() => {
-        if (globalBootstrapGeneration === generation) {
+        if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
           bootingRoot = false
         }
       })
     return () => {
-      if (globalBootstrapGeneration === generation) {
+      if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
         bootingRoot = false
       }
     }
-  }, [props.sdk])
+  }, [props.sdk, refreshRuntimeProjects, runtimeKey])
 
   // Event pipeline — created once per mount. No class, no start/stop.
   // Abort controller owned by the pipeline closure. Cleanup aborts + flushes.
@@ -2310,6 +2341,9 @@ export function SyncProvider(props: {
         const batch = createDirectoryEventBatch()
         try {
           for (const payload of payloads) {
+            if (String(payload.type) === "project.list.changed") {
+              void refreshRuntimeProjects().catch(() => undefined)
+            }
             dispatchVSCodeRuntimeNotificationEvent(directory, payload)
             if (payload.type === "installation.update-available") {
               const version = typeof (payload.properties as { version?: unknown })?.version === "string"
@@ -2331,6 +2365,7 @@ export function SyncProvider(props: {
           hasEverConnected: true,
           connectionPhase: "connected",
         })
+        void refreshRuntimeProjects().catch(() => undefined)
         const isFirstConnect = !pipelineHasConnectedRef.current
         pipelineHasConnectedRef.current = true
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
@@ -2362,6 +2397,7 @@ export function SyncProvider(props: {
           hasEverConnected: true,
           connectionPhase: "connected",
         })
+        void refreshRuntimeProjects().catch(() => undefined)
         for (const dir of childStores.children.keys()) {
           triggerDirectoryResync(dir, "transport-switch")
         }
@@ -2374,7 +2410,7 @@ export function SyncProvider(props: {
       }
       pipeline.cleanup()
     }
-  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync])
+  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync, refreshRuntimeProjects])
 
   useEffect(() => {
     let stopped = false

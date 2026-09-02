@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { ProjectEntry } from '@/lib/api/types';
+import type { Project } from '@opencode-ai/sdk/v2/client';
 import type { DesktopSettings } from '@/lib/desktop';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
@@ -44,10 +45,14 @@ interface VSCodeWorkspaceFolderConfig {
   path: string;
 }
 
+type RuntimeProject = Pick<Project, 'worktree'>;
+
 interface ProjectsStore {
   projects: ProjectEntry[];
   activeProjectId: string | null;
   manualProjectOrder: string[];
+  presentationProjects: ProjectEntry[];
+  runtimeProjectMembershipActive: boolean;
 
   addProject: (path: string, options?: { label?: string; id?: string }) => ProjectEntry | null;
   removeProject: (id: string) => void;
@@ -69,6 +74,7 @@ interface ProjectsStore {
   resetForRuntimeSwitch: () => void;
   validateProjectPath: (path: string) => ProjectPathValidationResult;
   synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => void;
+  synchronizeFromRuntimeProjects: (projects: RuntimeProject[], options?: { liveCatalog?: true }) => void;
   syncVSCodeWorkspaceFolders: (folders: VSCodeWorkspaceFolderConfig[], activePath?: string | null) => ProjectEntry | null;
   getActiveProject: () => ProjectEntry | null;
 }
@@ -395,6 +401,121 @@ const persistManualProjectOrder = (manualOrder: string[]) => {
   }
 };
 
+const updatePresentedProject = (
+  projects: ProjectEntry[],
+  id: string,
+  update: (project: ProjectEntry) => ProjectEntry,
+): ProjectEntry[] => projects.map((project) => project.id === id ? update(project) : project);
+
+const getPresentationProjects = (current: Pick<ProjectsStore, 'projects' | 'presentationProjects'>): ProjectEntry[] => {
+  const currentById = new Map(current.projects.map((project) => [project.id, project]));
+  const knownIds = new Set<string>();
+  const presentationProjects = current.presentationProjects.map((project) => {
+    knownIds.add(project.id);
+    const currentProject = currentById.get(project.id);
+    return currentProject ? { ...currentProject, ...project } : project;
+  });
+  return [
+    ...presentationProjects,
+    ...current.projects.filter((project) => !knownIds.has(project.id)),
+  ];
+};
+
+const reorderProjectEntries = (
+  entries: readonly ProjectEntry[],
+  reorderedIds: readonly string[],
+): ProjectEntry[] => {
+  const movedIds = new Set(reorderedIds);
+  const byId = new Map(entries.map((project) => [project.id, project]));
+  let nextIndex = 0;
+  return entries.map((project) => {
+    if (!movedIds.has(project.id)) return project;
+    const replacement = byId.get(reorderedIds[nextIndex]);
+    nextIndex += 1;
+    return replacement ?? project;
+  });
+};
+
+const reorderProjectIds = (
+  order: readonly string[],
+  reorderedIds: readonly string[],
+): string[] => {
+  const movedIds = new Set(reorderedIds);
+  let nextIndex = 0;
+  const result = order.map((id) => {
+    if (!movedIds.has(id)) return id;
+    const replacement = reorderedIds[nextIndex];
+    nextIndex += 1;
+    return replacement ?? id;
+  });
+  for (; nextIndex < reorderedIds.length; nextIndex += 1) {
+    result.push(reorderedIds[nextIndex]);
+  }
+  return result;
+};
+
+const reconcileRuntimeProjects = (
+  runtimeProjects: RuntimeProject[],
+  presentationProjects: ProjectEntry[],
+  currentProjects: ProjectEntry[],
+): ProjectEntry[] => {
+  const metadataByPath = new Map(
+    presentationProjects.map((project) => [normalizeProjectPath(project.path), project]),
+  );
+  const currentByPath = new Map(
+    currentProjects.map((project) => [normalizeProjectPath(project.path), project]),
+  );
+  const paths = new Set<string>();
+  const projects: ProjectEntry[] = [];
+
+  for (const runtimeProject of runtimeProjects) {
+    if (!runtimeProject.worktree) continue;
+    const path = normalizeProjectPath(runtimeProject.worktree);
+    if (!path || paths.has(path)) continue;
+
+    paths.add(path);
+    const metadata = metadataByPath.get(path) ?? currentByPath.get(path);
+    projects.push(metadata
+      ? { ...metadata, id: createProjectIdFromPath(path), path }
+      : {
+        id: createProjectIdFromPath(path),
+        path,
+        label: deriveProjectLabel(path),
+        color: pickAutoColor(projects),
+      });
+  }
+
+  const presentationOrder = new Map<string, number>();
+  for (const [index, project] of presentationProjects.entries()) {
+    const path = normalizeProjectPath(project.path);
+    if (path) presentationOrder.set(path, index);
+  }
+  return projects.sort((a, b) => {
+    const aOrder = presentationOrder.get(a.path) ?? Number.POSITIVE_INFINITY;
+    const bOrder = presentationOrder.get(b.path) ?? Number.POSITIVE_INFINITY;
+    return aOrder - bOrder;
+  });
+};
+
+const applyActiveProjectSelection = (
+  projects: ProjectEntry[],
+  previousActiveProjectId: string | null,
+  activeProjectId: string | null,
+) => {
+  if (activeProjectId === previousActiveProjectId && (activeProjectId !== null || projects.length > 0)) {
+    return;
+  }
+  const activeProject = activeProjectId
+    ? projects.find((project) => project.id === activeProjectId)
+    : null;
+  if (activeProject) {
+    opencodeClient.setDirectory(activeProject.path);
+    useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });
+  } else {
+    void useDirectoryStore.getState().goHome();
+  }
+};
+
 const initialProjects = readPersistedProjects();
 const normalizeVSCodeWorkspaceFolders = (folders: VSCodeWorkspaceFolderConfig[]): VSCodeWorkspaceFolderConfig[] => {
   const result: VSCodeWorkspaceFolderConfig[] = [];
@@ -568,6 +689,8 @@ if (vscodeWorkspace) {
 export const useProjectsStore = create<ProjectsStore>()(
   devtools((set, get) => ({
     projects: effectiveInitialProjects,
+    presentationProjects: effectiveInitialProjects,
+    runtimeProjectMembershipActive: false,
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
 
@@ -586,6 +709,9 @@ export const useProjectsStore = create<ProjectsStore>()(
 
     addProject: (path: string, options?: { label?: string; id?: string }) => {
       if (isVSCodeProjectsRuntime) {
+        return null;
+      }
+      if (get().runtimeProjectMembershipActive) {
         return null;
       }
       const { validateProjectPath } = get();
@@ -613,8 +739,10 @@ export const useProjectsStore = create<ProjectsStore>()(
         lastOpenedAt: now,
       };
 
-      const nextProjects = [...get().projects, entry];
-      set({ projects: nextProjects });
+      const current = get();
+      const nextProjects = [...current.projects, entry];
+      const nextPresentationProjects = [...getPresentationProjects(current), entry];
+      set({ projects: nextProjects, presentationProjects: nextPresentationProjects });
 
       if (streamDebugEnabled()) {
         console.info('[ProjectsStore] Added project', entry);
@@ -629,18 +757,27 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (isVSCodeProjectsRuntime) {
         return;
       }
+      if (get().runtimeProjectMembershipActive) {
+        return;
+      }
       const current = get();
       const project = current.projects.find((p) => p.id === id);
       const nextProjects = current.projects.filter((project) => project.id !== id);
+      const nextPresentationProjects = getPresentationProjects(current).filter((project) => project.id !== id);
       let nextActiveId = current.activeProjectId;
 
       if (current.activeProjectId === id) {
         nextActiveId = nextProjects[0]?.id ?? null;
       }
 
-      const nextManualOrder = get().manualProjectOrder.filter((oid) => oid !== id);
-      set({ projects: nextProjects, activeProjectId: nextActiveId, manualProjectOrder: nextManualOrder });
-      persistProjects(nextProjects, nextActiveId, nextManualOrder);
+      const nextManualOrder = current.manualProjectOrder.filter((oid) => oid !== id);
+      set({
+        projects: nextProjects,
+        presentationProjects: nextPresentationProjects,
+        activeProjectId: nextActiveId,
+        manualProjectOrder: nextManualOrder,
+      });
+      persistProjects(nextPresentationProjects, nextActiveId, nextManualOrder);
 
       // Clean up worktree entries for the removed project
       if (project) {
@@ -667,7 +804,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (isVSCodeProjectsRuntime) {
         return;
       }
-      const { projects, activeProjectId } = get();
+      const current = get();
+      const { projects, activeProjectId } = current;
       if (activeProjectId === id) {
         return;
       }
@@ -677,12 +815,21 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
 
       const now = Date.now();
-      const nextProjects = projects.map((project) =>
-        project.id === id ? { ...project, lastOpenedAt: now } : project
+      const presentationProjects = updatePresentedProject(
+        getPresentationProjects(current),
+        id,
+        (project) => ({ ...project, lastOpenedAt: now }),
       );
+      const nextProjects = current.runtimeProjectMembershipActive
+        ? reconcileRuntimeProjects(
+            projects.map((project) => ({ worktree: project.path })),
+            presentationProjects,
+            projects,
+          )
+        : projects.map((project) => project.id === id ? { ...project, lastOpenedAt: now } : project);
 
-      set({ projects: nextProjects, activeProjectId: id });
-      persistProjects(nextProjects, id, get().manualProjectOrder);
+      set({ projects: nextProjects, presentationProjects, activeProjectId: id });
+      persistProjects(presentationProjects, id, current.manualProjectOrder);
 
       opencodeClient.setDirectory(target.path);
       useDirectoryStore.getState().setDirectory(target.path, { showOverlay: false });
@@ -714,12 +861,20 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
 
-      const { projects, activeProjectId } = get();
-      const nextProjects = projects.map((project) =>
-        project.id === id ? { ...project, label: trimmed } : project
-      );
-      set({ projects: nextProjects });
-      persistProjects(nextProjects, activeProjectId, get().manualProjectOrder);
+      const current = get();
+      const presentationProjects = updatePresentedProject(getPresentationProjects(current), id, (project) => ({
+        ...project,
+        label: trimmed,
+      }));
+      const projects = current.runtimeProjectMembershipActive
+        ? reconcileRuntimeProjects(
+            current.projects.map((project) => ({ worktree: project.path })),
+            presentationProjects,
+            current.projects,
+          )
+        : presentationProjects;
+      set({ projects, presentationProjects });
+      persistProjects(presentationProjects, current.activeProjectId, current.manualProjectOrder);
     },
 
     updateProjectMeta: (id: string, meta: {
@@ -733,9 +888,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (isVSCodeProjectsRuntime) {
         return;
       }
-      const { projects, activeProjectId } = get();
-      const nextProjects = projects.map((project) => {
-        if (project.id !== id) return project;
+      const current = get();
+      const presentationProjects = updatePresentedProject(getPresentationProjects(current), id, (project) => {
         const updated = { ...project };
         if (meta.label !== undefined) {
           const trimmed = meta.label.trim();
@@ -769,8 +923,15 @@ export const useProjectsStore = create<ProjectsStore>()(
         }
         return updated;
       });
-      set({ projects: nextProjects });
-      persistProjects(nextProjects, activeProjectId, get().manualProjectOrder);
+      const projects = current.runtimeProjectMembershipActive
+        ? reconcileRuntimeProjects(
+            current.projects.map((project) => ({ worktree: project.path })),
+            presentationProjects,
+            current.projects,
+          )
+        : presentationProjects;
+      set({ projects, presentationProjects });
+      persistProjects(presentationProjects, current.activeProjectId, current.manualProjectOrder);
     },
 
     uploadProjectIcon: async (id: string, file: File) => {
@@ -892,7 +1053,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (isVSCodeProjectsRuntime) {
         return;
       }
-      const { projects, activeProjectId } = get();
+      const current = get();
+      const { projects, activeProjectId } = current;
       if (
         fromIndex < 0 ||
         fromIndex >= projects.length ||
@@ -906,12 +1068,26 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextProjects = [...projects];
       const [moved] = nextProjects.splice(fromIndex, 1);
       nextProjects.splice(toIndex, 0, moved);
-
-      const newOrder = nextProjects.map((p) => p.id);
-      set({ projects: nextProjects, manualProjectOrder: newOrder });
-      persistProjects(nextProjects, activeProjectId, newOrder);
+      const reorderedIds = nextProjects.map((project) => project.id);
+      const presentationProjects = reorderProjectEntries(getPresentationProjects(current), reorderedIds);
+      const presentationIds = new Set(presentationProjects.map((project) => project.id));
+      const manualProjectOrder = reorderProjectIds(
+        current.manualProjectOrder.filter((id) => presentationIds.has(id)),
+        reorderedIds,
+      );
+      for (const project of presentationProjects) {
+        if (!manualProjectOrder.includes(project.id)) manualProjectOrder.push(project.id);
+      }
+      const reconciledProjects = current.runtimeProjectMembershipActive
+        ? reconcileRuntimeProjects(
+            current.projects.map((project) => ({ worktree: project.path })),
+            presentationProjects,
+            current.projects,
+          )
+        : nextProjects;
+      set({ projects: reconciledProjects, presentationProjects, manualProjectOrder });
+      persistProjects(presentationProjects, activeProjectId, manualProjectOrder);
     },
-
     resetForRuntimeSwitch: () => {
       if (isVSCodeProjectsRuntime) {
         return;
@@ -921,7 +1097,31 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextActiveProjectId = projects.some((project) => project.id === activeProjectId)
         ? activeProjectId
         : projects[0]?.id ?? null;
-      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [] });
+      set({
+        projects,
+        presentationProjects: projects,
+        runtimeProjectMembershipActive: false,
+        activeProjectId: nextActiveProjectId,
+        manualProjectOrder: [],
+      });
+    },
+
+    synchronizeFromRuntimeProjects: (runtimeProjects, options) => {
+      if (isVSCodeProjectsRuntime || options?.liveCatalog !== true) return;
+
+      const current = get();
+      const projects = reconcileRuntimeProjects(
+        runtimeProjects,
+        current.presentationProjects,
+        current.projects,
+      );
+      const ids = new Set(projects.map((project) => project.id));
+      const activeProjectId = current.activeProjectId && ids.has(current.activeProjectId)
+        ? current.activeProjectId
+        : projects[0]?.id ?? null;
+      set({ projects, activeProjectId, runtimeProjectMembershipActive: true });
+      cacheActiveProjectId(activeProjectId);
+      applyActiveProjectSelection(projects, current.activeProjectId, activeProjectId);
     },
 
     synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => {
@@ -935,7 +1135,27 @@ export const useProjectsStore = create<ProjectsStore>()(
         : null;
 
       const current = get();
-      const incomingIds = new Set(incomingProjects.map((p) => p.id));
+      if (current.runtimeProjectMembershipActive) {
+        const runtimeProjects = current.projects.map((project) => ({ worktree: project.path }));
+        const projects = reconcileRuntimeProjects(runtimeProjects, incomingProjects, current.projects);
+        const ids = new Set(projects.map((project) => project.id));
+        const nextActive = current.activeProjectId && ids.has(current.activeProjectId)
+          ? current.activeProjectId
+          : projects[0]?.id ?? null;
+        const manualProjectOrder = incomingProjects.map((project) => project.id);
+        set({
+          presentationProjects: incomingProjects,
+          projects,
+          activeProjectId: nextActive,
+          manualProjectOrder,
+        });
+        cacheProjects(incomingProjects, nextActive);
+        persistManualProjectOrder(manualProjectOrder);
+        applyActiveProjectSelection(projects, current.activeProjectId, nextActive);
+        return;
+      }
+
+      const incomingIds = new Set(incomingProjects.map((project) => project.id));
 
       // The settings document is shared by every window on this server, so
       // outside a bootstrap sync the incoming active pointer is just another
@@ -946,26 +1166,26 @@ export const useProjectsStore = create<ProjectsStore>()(
         : (current.activeProjectId && incomingIds.has(current.activeProjectId)
           ? current.activeProjectId
           : incomingActive);
+      const manualProjectOrder = incomingProjects.map((project) => project.id);
 
       const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
+      const presentationChanged = JSON.stringify(current.presentationProjects) !== JSON.stringify(incomingProjects);
       const activeChanged = current.activeProjectId !== nextActive;
+      const orderChanged = JSON.stringify(current.manualProjectOrder) !== JSON.stringify(manualProjectOrder);
 
-      if (!projectsChanged && !activeChanged) {
+      if (!projectsChanged && !presentationChanged && !activeChanged && !orderChanged) {
         return;
       }
 
-      const cleanedOrder = get().manualProjectOrder.filter((id) => incomingIds.has(id));
-      set({ projects: incomingProjects, activeProjectId: nextActive, manualProjectOrder: cleanedOrder });
+      set({
+        projects: incomingProjects,
+        presentationProjects: incomingProjects,
+        activeProjectId: nextActive,
+        manualProjectOrder,
+      });
       cacheProjects(incomingProjects, nextActive);
-      persistManualProjectOrder(cleanedOrder);
-
-      if (activeChanged && nextActive) {
-        const activeProject = incomingProjects.find((project) => project.id === nextActive);
-        if (activeProject) {
-          opencodeClient.setDirectory(activeProject.path);
-          useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });
-        }
-      }
+      persistManualProjectOrder(manualProjectOrder);
+      applyActiveProjectSelection(incomingProjects, current.activeProjectId, nextActive);
     },
 
     syncVSCodeWorkspaceFolders: (folders, activePath) => {

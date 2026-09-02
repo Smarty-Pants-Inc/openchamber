@@ -1,7 +1,17 @@
-import { describe, expect, test } from "bun:test"
+import { beforeEach, describe, expect, test } from "bun:test"
 import type { ProjectEntry } from "@/lib/api/types"
 import type { DesktopSettings } from "@/lib/desktop"
 import { useProjectsStore } from "./useProjectsStore"
+
+beforeEach(() => {
+  useProjectsStore.setState({
+    projects: [],
+    presentationProjects: [],
+    runtimeProjectMembershipActive: false,
+    activeProjectId: null,
+    manualProjectOrder: [],
+  })
+})
 
 describe("useProjectsStore settings synchronization", () => {
   test("treats a successful empty project snapshot as authoritative", () => {
@@ -117,5 +127,64 @@ describe("useProjectsStore default model and thinking level", () => {
 
     const project = useProjectsStore.getState().projects[0]
     expect(project?.defaultVariant).toBe(undefined)
+  })
+})
+
+describe("useProjectsStore runtime project catalog authority", () => {
+  test("keeps ordinary runtime project membership settings-owned", () => {
+    const settingsProject: ProjectEntry = { id: "settings-a", path: "/settings-a", label: "Settings A" }
+    useProjectsStore.setState({
+      projects: [settingsProject],
+      presentationProjects: [settingsProject],
+      activeProjectId: settingsProject.id,
+      manualProjectOrder: [settingsProject.id],
+    })
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([{ worktree: "/runtime-only" }])
+
+    expect(useProjectsStore.getState().runtimeProjectMembershipActive).toBe(false)
+    expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(["/settings-a"])
+
+    const added = useProjectsStore.getState().addProject("/settings-b")
+    expect(added?.path).toBe("/settings-b")
+    useProjectsStore.getState().removeProject(settingsProject.id)
+    expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(["/settings-b"])
+  })
+
+  test("uses a live gateway catalog for membership while preserving metadata across reconnects", () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: "configured-a", path: "/repo-a", label: "Configured A" }],
+    })
+    const configuredA = useProjectsStore.getState().projects[0]
+    if (!configuredA) throw new Error("settings project was not created")
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: "/repo-a" },
+      { worktree: "/repo-b" },
+    ], { liveCatalog: true })
+
+    const runtimeB = useProjectsStore.getState().projects.find((project) => project.path === "/repo-b")
+    expect(configuredA).toBeDefined()
+    expect(runtimeB).toBeDefined()
+    expect(useProjectsStore.getState().runtimeProjectMembershipActive).toBe(true)
+    expect(useProjectsStore.getState().addProject("/settings-only")).toBeNull()
+    useProjectsStore.getState().removeProject(configuredA.id)
+    expect(useProjectsStore.getState().projects.map((project) => project.path).sort()).toEqual(["/repo-a", "/repo-b"])
+
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: "configured-b", path: "/repo-b", label: "Gateway B" }],
+    })
+    expect(useProjectsStore.getState().projects.map((project) => project.path).sort()).toEqual(["/repo-a", "/repo-b"])
+
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([
+      { worktree: "/repo-b" },
+      { worktree: "/repo-c" },
+    ], { liveCatalog: true })
+    expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(["/repo-b", "/repo-c"])
+    expect(useProjectsStore.getState().projects[0]?.label).toBe("Gateway B")
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([{ worktree: "/repo-b" }], { liveCatalog: true })
+    const reconnected = useProjectsStore.getState().projects[0]
+    expect(reconnected?.path).toBe("/repo-b")
+    expect(reconnected?.label).toBe("Gateway B")
   })
 })
