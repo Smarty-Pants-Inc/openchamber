@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { brandText, PRODUCT_NAME } from '@/lib/brand.generated';
+import { dict as frDict } from './messages/fr';
 import { DEFAULT_LOCALE, type Locale } from './runtime';
 import { formatMessage, resetI18nDictionaryCacheForTests, useI18nStore } from './store';
 
@@ -59,6 +60,15 @@ describe('i18n store', () => {
       .toBe(`Restarting ${PRODUCT_NAME} will stop any running chats. Your saved configuration changes will take effect after the restart.`);
   });
 
+  test('normalizes French OpenCode elisions in product-owned toast and Settings text', () => {
+    expect(formatMessage(frDict, 'openCodeStatusDialog.toast.collectFailed'))
+      .toBe('Impossible de recueillir l’état de Smarty Code');
+    expect(formatMessage(frDict, 'settings.behavior.page.systemPromptOptimization.enableAria'))
+      .toBe('Optimiser la taille du prompt système de Smarty Code');
+    expect(formatMessage(frDict, 'settings.behavior.page.systemPromptOptimization.restarting'))
+      .toBe('Redémarrage de Smarty Code pour appliquer l’optimisation du prompt système…');
+  });
+
   test('retains upstream proper nouns only where they identify external artifacts', () => {
     const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
     expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
@@ -71,6 +81,8 @@ describe('i18n store', () => {
       .toBe('OpenCode CLI');
     expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.actions.reload'))
       .toBe('Reload OpenCode');
+    expect(formatMessage(frDict, 'settings.openchamber.about.field.openCodeVersion'))
+      .toBe('Version d’OpenCode');
   });
 
   test('preserves technical OpenCode identifiers', () => {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { brandProductText, brandText } from '@/lib/brand.generated';
+import { brandProductText, brandText, PRODUCT_NAME } from '@/lib/brand.generated';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
@@ -57,6 +57,11 @@ const UPSTREAM_OPEN_CODE_KEYS: Partial<Record<I18nKey, true>> = {
   'settings.openchamber.opencodeCli.actions.browseAria': true,
   'settings.openchamber.opencodeCli.actions.restartingOpenCode': true,
 };
+
+const normalizeOpenCodeElisions = (value: string): string => value.replace(/([dDlL])([’'])OpenCode\b/g, (match, prefix, _apostrophe, offset, input) => {
+  if (offset > 0 && /\w/.test(input[offset - 1])) return match;
+  return prefix === 'D' ? `De ${PRODUCT_NAME}` : prefix === 'L' ? `Le ${PRODUCT_NAME}` : prefix === 'd' ? `de ${PRODUCT_NAME}` : `le ${PRODUCT_NAME}`;
+});
 
 export function resetI18nDictionaryCacheForTests(): void {
   dictionaries.clear();
@@ -140,7 +145,7 @@ export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?:
   const productTemplate = brandProductText(sourceTemplate);
   const template = UPSTREAM_OPEN_CODE_KEYS[key] === true
     ? productTemplate
-    : brandText(productTemplate);
+    : brandText(normalizeOpenCodeElisions(productTemplate));
   if (!params) {
     return template;
   }

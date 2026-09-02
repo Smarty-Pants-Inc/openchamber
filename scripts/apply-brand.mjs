@@ -72,9 +72,16 @@ const escapeMarkdown = (value) => {
 const documentationBrandTextForHtml = (value) => documentationProductText(value, escapeHtml(PRODUCT_NAME));
 const documentationBrandTextForMarkdown = (value) => documentationProductText(value, escapeHtml(escapeMarkdown(PRODUCT_NAME)));
 const documentationBrandTextForJson = (value) => documentationProductText(value, JSON.stringify(PRODUCT_NAME).slice(1, -1));
+const repairYamlDescriptionContinuations = (value) => value.replace(
+  /^(description:[^\r\n]*)(?<continuations>(?:\r?\n(?![ \t]|[\w-]+:|---)[^\r\n]+)+)/gm,
+  (_match, description, continuations) => `${description}${continuations.replace(/\r?\n/g, '\n  ')}`,
+);
+
 const brandYamlDocumentation = (value) => {
   const indentation = value.match(/^(?<indent>[ \t]*)\S/m)?.groups?.indent ?? '';
-  const normalized = indentation ? value.split('\n').map((line) => line.startsWith(indentation) ? line.slice(indentation.length) : line).join('\n') : value;
+  const unindented = indentation ? value.split('\n').map((line) => line.startsWith(indentation) ? line.slice(indentation.length) : line).join('\n') : value;
+  const normalized = repairYamlDescriptionContinuations(unindented);
+  const repaired = normalized !== unindented;
   const document = parseDocument(normalized);
   if (document.errors.length > 0) {
     if (documentationBrandText(normalized) !== normalized) throw new Error('Cannot safely brand invalid YAML documentation');
@@ -85,7 +92,8 @@ const brandYamlDocumentation = (value) => {
     Scalar(_key, node) {
       if (typeof node.value !== 'string' || !node.range) return;
       const branded = documentationBrandText(node.value);
-      if (branded !== node.value) replacements.push({ start: node.range[0], end: node.range[1], text: stringify(branded).trimEnd() });
+      const scalarSource = normalized.slice(node.range[0], node.range[1]);
+      if (branded !== node.value || (repaired && /\r?\n/.test(scalarSource))) replacements.push({ start: node.range[0], end: node.range[1], text: stringify(branded, null, { lineWidth: 0 }).trimEnd() });
     },
   });
   let output = normalized;
