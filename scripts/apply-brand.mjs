@@ -228,7 +228,7 @@ const escapeShellSingleQuoted = (value) => String(value).replace(/'/g, () => "'\
 await patchText('packages/web/public/site.webmanifest', (source) => {
   let branded = setJsonString(source, 'name', `${PRODUCT_NAME} - AI Coding Companion`, 'PWA name');
   branded = setJsonString(branded, 'short_name', PRODUCT_NAME, 'PWA short_name');
-  return setJsonString(branded, 'description', `${PRODUCT_NAME} web interface companion for OpenCode AI coding agent`, 'PWA description');
+  return setJsonString(branded, 'description', `${PRODUCT_NAME} AI coding workspace`, 'PWA description');
 });
 for (const file of ['docs/REVERSE_PROXY.md', 'docs/CUSTOM_THEMES.md']) await patchText(file, brandDocs);
 

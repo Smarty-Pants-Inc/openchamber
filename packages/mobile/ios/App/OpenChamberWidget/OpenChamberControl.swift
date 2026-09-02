@@ -21,13 +21,13 @@ struct OpenChamberNewSessionControl: ControlWidget {
             }
         }
         .displayName("New Session")
-        .description("Start a new smarty-code session.")
+        .description("Start a new Smarty Code session.")
     }
 }
 
 @available(iOS 18.0, *)
 struct OpenNewSessionIntent: AppIntent {
-    static let title: LocalizedStringResource = "New smarty-code session"
+    static let title: LocalizedStringResource = "New Smarty Code session"
     static let openAppWhenRun: Bool = true
     static let isDiscoverable: Bool = true
 

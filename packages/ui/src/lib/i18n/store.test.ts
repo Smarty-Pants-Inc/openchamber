@@ -26,13 +26,18 @@ const waitForLocaleLoadToSettle = async (locale: Locale) => {
 
 describe('i18n store', () => {
   beforeEach(resetStore);
-  test('brands product-owned templates without rewriting parameters', () => {
+  test('renders product-owned labels as Smarty Code without rewriting parameters', () => {
+    expect(PRODUCT_NAME).toBe('Smarty Code');
     expect(formatMessage(defaultDictionary, 'aboutDialog.openChamberVersionLabel', { version: 'OpenChamber' }))
-      .toBe(`${PRODUCT_NAME} version OpenChamber`);
+      .toBe('Smarty Code version OpenChamber');
     expect(formatMessage(defaultDictionary, 'pwa.installPrompt.description'))
-      .toBe(`Install ${PRODUCT_NAME} for quicker access`);
+      .toBe('Install Smarty Code for quicker access');
+    expect(formatMessage(defaultDictionary, 'chat.emptyState.opencodeUnreachable'))
+      .toBe('Smarty Code is not reachable');
+    expect(formatMessage(defaultDictionary, 'openCodeStatusDialog.title'))
+      .toBe('Smarty Code Status');
     expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.upgrading.description'))
-      .toBe(`Keep ${PRODUCT_NAME} open.`);
+      .toBe('Keep Smarty Code open.');
   });
 
   test('brands the product-owned Settings restart action', () => {
@@ -54,14 +59,14 @@ describe('i18n store', () => {
       .toBe(`Restarting ${PRODUCT_NAME} will stop any running chats. Your saved configuration changes will take effect after the restart.`);
   });
 
-  test('preserves upstream OpenCode labels and mixed diagnostics', () => {
+  test('retains upstream proper nouns only where they identify external artifacts', () => {
     const runtimeValue = 'OpenCode /tmp/OpenChamber https://provider.example/OpenCode';
     expect(formatMessage(defaultDictionary, 'aboutDialog.openCodeVersionLabel', { version: runtimeValue }))
       .toBe(`OpenCode version ${runtimeValue}`);
     expect(formatMessage(defaultDictionary, 'aboutDialog.diagnosticsDescription'))
-      .toBe(`Includes ${PRODUCT_NAME} state, OpenCode health, directories, and projects.`);
+      .toBe('Includes Smarty Code state, OpenCode health, directories, and projects.');
     expect(formatMessage(defaultDictionary, 'settings.view.nav.group.opencode'))
-      .toBe('OpenCode');
+      .toBe('Smarty Code');
     expect(formatMessage(defaultDictionary, 'settings.openchamber.opencodeCli.title'))
       .toBe('OpenCode CLI');
     expect(formatMessage(defaultDictionary, 'opencodeUpdate.toast.actions.reload'))
@@ -70,7 +75,7 @@ describe('i18n store', () => {
 
   test('preserves technical OpenCode identifiers', () => {
     expect(brandText('OpenCode opencode OPENCODE_BINARY OpenCodeClient'))
-      .toBe(`${PRODUCT_NAME} opencode OPENCODE_BINARY OpenCodeClient`);
+      .toBe('Smarty Code opencode OPENCODE_BINARY OpenCodeClient');
   });
 
   test('retries loading the active locale when it is not cached', async () => {

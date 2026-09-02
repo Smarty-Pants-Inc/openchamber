@@ -206,7 +206,7 @@ const fetchMessage = async ({ sessionId, messageId, directory, buildOpenCodeUrl,
     signal: AbortSignal.timeout(10_000),
   });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`OpenCode returned ${response.status}`);
+  if (!response.ok) throw new Error(`Engine returned ${response.status}`);
   const message = await response.json().catch(() => null);
   return message?.info && Array.isArray(message.parts) ? message : null;
 };

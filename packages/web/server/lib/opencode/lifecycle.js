@@ -804,7 +804,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
           state.openCodeNotReadySince = 0;
           syncToHmrState();
         } else {
-          state.lastOpenCodeError = `External OpenCode server on port ${probePort} is not responding`;
+          state.lastOpenCodeError = `External engine server on port ${probePort} is not responding`;
           console.error(state.lastOpenCodeError);
           throw new Error(state.lastOpenCodeError);
         }

@@ -1,15 +1,15 @@
 ---
 title: OpenCode Server
-description: Conecte o smarty-code a um servidor OpenCode local ou remoto.
+description: Conecte o Smarty Code a um servidor OpenCode local ou remoto.
 ---
 
 # OpenCode Server
 
-O smarty-code roda sobre um servidor OpenCode. Por padrão, ele inicia um para você, então não precisa fazer nada. Você só precisa desta página se quiser apontar o smarty-code para um servidor que já executa, ou gerenciar o que ele inicia.
+O Smarty Code roda sobre um servidor OpenCode. Por padrão, ele inicia um para você, então não precisa fazer nada. Você só precisa desta página se quiser apontar o Smarty Code para um servidor que já executa, ou gerenciar o que ele inicia.
 
-## Como o smarty-code encontra um servidor
+## Como o Smarty Code encontra um servidor
 
-Quando o smarty-code inicia, ele procura por um servidor nesta ordem:
+Quando o Smarty Code inicia, ele procura por um servidor nesta ordem:
 
 1. reutilizar um servidor que ele já iniciou
 2. conectar a um servidor externo, se você indicou (veja abaixo)
@@ -20,18 +20,18 @@ Se nada estiver configurado, o passo 4 acontece automaticamente e você já est�
 
 ## Conectar a um servidor que você já executa
 
-Defina estas variáveis antes de iniciar o smarty-code:
+Defina estas variáveis antes de iniciar o Smarty Code:
 
 ```bash
 OPENCODE_HOST=http://localhost:4096 OPENCODE_SKIP_START=true openchamber
 ```
 
 - `OPENCODE_HOST` — o endereço completo do seu servidor OpenCode, incluindo a porta (um valor como `http://localhost:4096`). Ele não deve ter um caminho no final.
-- `OPENCODE_SKIP_START=true` — diz ao smarty-code para não iniciar o próprio servidor.
+- `OPENCODE_SKIP_START=true` — diz ao Smarty Code para não iniciar o próprio servidor.
 
 Se você só precisa mudar a porta, defina `OPENCODE_PORT` em vez de `OPENCODE_HOST`.
 
-Se faltar a porta em `OPENCODE_HOST` ou se ele tiver um caminho, o smarty-code o ignora e volta a iniciar o próprio servidor. Fique de olho nos logs de inicialização para um aviso `[config]` caso uma conexão esperada não aconteça.
+Se faltar a porta em `OPENCODE_HOST` ou se ele tiver um caminho, o Smarty Code o ignora e volta a iniciar o próprio servidor. Fique de olho nos logs de inicialização para um aviso `[config]` caso uma conexão esperada não aconteça.
 
 ## Gerenciar o servidor pela CLI
 
@@ -44,9 +44,9 @@ openchamber stop
 
 `openchamber` sozinho inicia o servidor em segundo plano. Adicione `--foreground` para mantê-lo anexado ao seu terminal.
 
-## Iniciar o smarty-code no login
+## Iniciar o Smarty Code no login
 
-Use `startup enable` para instalar um serviço nativo do usuário. O smarty-code usa `launchd` no macOS, `systemd --user` no Linux e Task Scheduler no Windows.
+Use `startup enable` para instalar um serviço nativo do usuário. O Smarty Code usa `launchd` no macOS, `systemd --user` no Linux e Task Scheduler no Windows.
 
 ```bash
 openchamber startup enable
@@ -70,7 +70,7 @@ openchamber startup enable --port 3000 --api-only --host 0.0.0.0 --ui-password s
 
 O serviço de inicialização lembra `--port`, `--host`, `--ui-password` e `--api-only`. Reinícios pela CLI e reinícios durante atualização reutilizam essas configurações salvas.
 
-Para criar um link de conexão para outro app smarty-code, use:
+Para criar um link de conexão para outro app Smarty Code, use:
 
 ```bash
 openchamber connect-url --port 3000 --server http://your-host:3000 --qr
@@ -89,7 +89,7 @@ Parar o túnel não reinicia o serviço nem o app.
 
 ## "OpenCode is restarting"
 
-Enquanto o servidor está iniciando ou reiniciando, o smarty-code mostra um estado "OpenCode is restarting" e pausa as requisições até ele estar pronto. Isso é normal logo após a inicialização ou um reinício. Se nunca sair desse estado, veja [Conexão com o OpenCode](/pt-br/troubleshooting/opencode-connection/).
+Enquanto o servidor está iniciando ou reiniciando, o Smarty Code mostra um estado "OpenCode is restarting" e pausa as requisições até ele estar pronto. Isso é normal logo após a inicialização ou um reinício. Se nunca sair desse estado, veja [Conexão com o OpenCode](/pt-br/troubleshooting/opencode-connection/).
 
 ## Relacionado
 

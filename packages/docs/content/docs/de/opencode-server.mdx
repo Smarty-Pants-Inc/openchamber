@@ -1,15 +1,15 @@
 ---
 title: OpenCode-Server
-description: Verbinde smarty-code mit einem lokalen oder entfernten OpenCode-Server.
+description: Verbinde Smarty Code mit einem lokalen oder entfernten OpenCode-Server.
 ---
 
 # OpenCode-Server
 
-smarty-code läuft auf einem OpenCode-Server auf. Standardmäßig startet es einen für dich, sodass du nichts tun musst. Diese Seite brauchst du nur, wenn du smarty-code auf einen Server zeigen lassen willst, den du bereits betreibst, oder den Server verwalten willst, den es startet.
+Smarty Code läuft auf einem OpenCode-Server auf. Standardmäßig startet es einen für dich, sodass du nichts tun musst. Diese Seite brauchst du nur, wenn du Smarty Code auf einen Server zeigen lassen willst, den du bereits betreibst, oder den Server verwalten willst, den es startet.
 
-## Wie smarty-code einen Server findet
+## Wie Smarty Code einen Server findet
 
-Wenn smarty-code startet, sucht es in dieser Reihenfolge nach einem Server:
+Wenn Smarty Code startet, sucht es in dieser Reihenfolge nach einem Server:
 
 1. einen Server wiederverwenden, den es bereits gestartet hat
 2. zu einem externen verbinden, wenn du es so angegeben hast (siehe unten)
@@ -20,18 +20,18 @@ Wenn nichts konfiguriert ist, geschieht Schritt 4 automatisch und du bist startk
 
 ## Mit einem Server verbinden, den du bereits betreibst
 
-Setze diese Variablen, bevor du smarty-code startest:
+Setze diese Variablen, bevor du Smarty Code startest:
 
 ```bash
 OPENCODE_HOST=http://localhost:4096 OPENCODE_SKIP_START=true openchamber
 ```
 
 - `OPENCODE_HOST` — die vollständige Adresse deines OpenCode-Servers einschließlich des Ports (ein Wert wie `http://localhost:4096`). Sie darf am Ende keinen Pfad haben.
-- `OPENCODE_SKIP_START=true` — weist smarty-code an, keinen eigenen Server zu starten.
+- `OPENCODE_SKIP_START=true` — weist Smarty Code an, keinen eigenen Server zu starten.
 
 Wenn du nur den Port ändern musst, setze `OPENCODE_PORT` statt `OPENCODE_HOST`.
 
-Wenn `OPENCODE_HOST` keinen Port hat oder einen Pfad enthält, ignoriert smarty-code ihn und fällt darauf zurück, den eigenen Server zu starten. Achte beim Start auf eine `[config]`-Warnung in den Logs, wenn eine erwartete Verbindung nicht zustande kam.
+Wenn `OPENCODE_HOST` keinen Port hat oder einen Pfad enthält, ignoriert Smarty Code ihn und fällt darauf zurück, den eigenen Server zu starten. Achte beim Start auf eine `[config]`-Warnung in den Logs, wenn eine erwartete Verbindung nicht zustande kam.
 
 ## Den Server über das CLI verwalten
 
@@ -44,9 +44,9 @@ openchamber stop
 
 `openchamber` allein startet den Server im Hintergrund. Füge `--foreground` hinzu, damit er an dein Terminal gebunden bleibt.
 
-## smarty-code beim Anmelden starten
+## Smarty Code beim Anmelden starten
 
-Verwende `startup enable`, um einen nativen Benutzerdienst zu installieren. smarty-code nutzt `launchd` auf macOS, `systemd --user` auf Linux und den Taskplaner auf Windows.
+Verwende `startup enable`, um einen nativen Benutzerdienst zu installieren. Smarty Code nutzt `launchd` auf macOS, `systemd --user` auf Linux und den Taskplaner auf Windows.
 
 ```bash
 openchamber startup enable
@@ -70,7 +70,7 @@ openchamber startup enable --port 3000 --api-only --host 0.0.0.0 --ui-password s
 
 Der Startup-Dienst merkt sich `--port`, `--host`, `--ui-password` und `--api-only`. CLI-Neustarts und Update-Neustarts verwenden diese gespeicherten Einstellungen wieder.
 
-Um einen Verbindungslink für eine andere smarty-code-App zu erstellen, verwende:
+Um einen Verbindungslink für eine andere Smarty Code-App zu erstellen, verwende:
 
 ```bash
 openchamber connect-url --port 3000 --server http://your-host:3000 --qr
@@ -89,7 +89,7 @@ Das Stoppen des Tunnels startet weder den Dienst noch die App neu.
 
 ## „OpenCode wird neu gestartet“
 
-Während der Server startet oder neu startet, zeigt smarty-code den Status „OpenCode wird neu gestartet“ an und pausiert Anfragen, bis er bereit ist. Das ist direkt nach dem Start oder einem Neustart normal. Wenn er nie verschwindet, siehe [OpenCode-Verbindung](/troubleshooting/opencode-connection/).
+Während der Server startet oder neu startet, zeigt Smarty Code den Status „OpenCode wird neu gestartet“ an und pausiert Anfragen, bis er bereit ist. Das ist direkt nach dem Start oder einem Neustart normal. Wenn er nie verschwindet, siehe [OpenCode-Verbindung](/troubleshooting/opencode-connection/).
 
 ## Verwandtes
 

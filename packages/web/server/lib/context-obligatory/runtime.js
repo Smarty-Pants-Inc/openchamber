@@ -54,7 +54,7 @@ export const createContextObligatoryRuntime = ({
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
+    if (!response.ok) throw new Error(`Engine ${method} ${fetchPath} failed with ${response.status}`);
     return response.json().catch(() => null);
   };
 

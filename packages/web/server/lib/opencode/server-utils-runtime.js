@@ -60,7 +60,7 @@ export const createServerUtilsRuntime = (dependencies) => {
       }
     }
 
-    throw new Error('Timed out waiting for OpenCode port');
+    throw new Error('Timed out waiting for engine port');
   };
 
   const getEnvValue = (name) => {
@@ -179,7 +179,7 @@ export const createServerUtilsRuntime = (dependencies) => {
 
   const fetchArraySnapshot = async (route, invalidMessage) => {
     if (!getOpenCodePort()) {
-      throw new Error('OpenCode port is not available');
+      throw new Error('Engine port is not available');
     }
 
     const response = await fetch(buildOpenCodeUrl(route), {
@@ -193,7 +193,7 @@ export const createServerUtilsRuntime = (dependencies) => {
 
     const payload = await response.json().catch(() => null);
     if (!Array.isArray(payload)) {
-      throw new Error(`Invalid ${invalidMessage} payload from OpenCode`);
+      throw new Error(`Invalid ${invalidMessage} payload from engine`);
     }
     return payload;
   };

@@ -50,7 +50,7 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
     const response = await runtimeFetch(RELOAD_ENDPOINT, { method: 'POST' });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || 'Failed to restart OpenCode');
+      throw new Error(error.error || 'Failed to restart the server');
     }
     return { restarted: true };
   },

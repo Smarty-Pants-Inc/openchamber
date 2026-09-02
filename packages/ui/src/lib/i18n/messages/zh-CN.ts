@@ -2466,6 +2466,7 @@ export const dict: Record<I18nKey, string> = {
   'openCodeStatusDialog.toast.copiedTitle': '已复制',
   'openCodeStatusDialog.toast.copiedDescription': '状态已复制到剪贴板',
   'openCodeStatusDialog.toast.copyFailed': '复制状态失败',
+  'openCodeStatusDialog.toast.collectFailed': '无法收集 OpenCode 状态',
   'saveProjectPlanDialog.title': '保存项目计划',
   'saveProjectPlanDialog.description': '将此计划以 Markdown 文件保存到你的项目中。',
   'saveProjectPlanDialog.field.title': '标题',

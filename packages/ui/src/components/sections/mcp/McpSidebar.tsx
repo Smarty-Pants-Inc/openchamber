@@ -156,7 +156,7 @@ export const McpSidebar: React.FC<McpSidebarProps> = ({ onItemSelect }) => {
     const result = await deleteMcp(deleteTarget.name, settingsDirectory);
     if (result.ok) {
       if (result.reloadFailed) {
-        toast.warning(result.message || `MCP server "${deleteTarget.name}" deleted, but OpenCode reload failed`, {
+        toast.warning(result.message || t('settings.mcp.page.toast.serverDeletedReloadFailed', { name: deleteTarget.name }), {
           description: result.warning || t('settings.mcp.sidebar.toast.refreshListIfStale'),
         });
       } else {

@@ -562,7 +562,7 @@ const formatJsoncParseError = (filePath: string, errors: ParseError[]): string =
   const location = first && Number.isFinite(first.offset)
     ? ` (${printParseErrorCode(first.error)} at offset ${first.offset})`
     : '';
-  return `OpenCode configuration at ${filePath} contains invalid JSONC and cannot be loaded safely${location}`;
+  return `Engine configuration at ${filePath} contains invalid JSONC and cannot be loaded safely${location}`;
 };
 
 const isInvalidJsoncError = (error: unknown): error is Error & { code: string } =>

@@ -140,16 +140,16 @@ export function createGlobalMessageStreamWsBridge({
       const error = status.error;
       if (error?.type === 'upstream_unavailable') {
         closeClientsWithInitialError({
-          message: `OpenCode event stream unavailable (${error.status})`,
-          closeReason: 'OpenCode event stream unavailable',
+          message: `Engine event stream unavailable (${error.status})`,
+          closeReason: 'Engine event stream unavailable',
           triggerHealthCheckFor: error.response,
         });
         return;
       }
 
       closeClientsWithInitialError({
-        message: status.buildUrlFailed ? 'OpenCode service unavailable' : 'Failed to connect to OpenCode event stream',
-        closeReason: status.buildUrlFailed ? 'OpenCode service unavailable' : 'Failed to connect to OpenCode event stream',
+        message: status.buildUrlFailed ? 'Engine service unavailable' : 'Failed to connect to engine event stream',
+        closeReason: status.buildUrlFailed ? 'Engine service unavailable' : 'Failed to connect to engine event stream',
         triggerHealthCheckFor: !status.buildUrlFailed,
       });
       return;

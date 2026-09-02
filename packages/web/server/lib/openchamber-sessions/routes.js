@@ -508,7 +508,7 @@ const confirmSessionRemoved = async ({ client, sessionID, directory, description
       cleanupSessionRequestOptions(),
     );
     if (response?.data !== true && Number(response?.response?.status) !== 404) {
-      deleteError = `OpenCode did not confirm deletion of the ${description}`;
+      deleteError = `The engine did not confirm deletion of the ${description}`;
     }
   } catch (error) {
     deleteError = error instanceof Error ? error.message : String(error);
@@ -959,7 +959,7 @@ export const createOpenChamberSessionService = (dependencies) => {
           variant,
           promptDispatched: false,
           dispatchedAsCommand: false,
-          promptError: 'OpenCode accepted the prompt but it never appeared in the session',
+          promptError: 'The engine accepted the prompt but it never appeared in the session',
         };
       }
     }

@@ -153,7 +153,7 @@ const clearCustomRedirectUriForNativeFlow = async (name: string): Promise<void> 
     if (!applied.ok) {
       throw new McpAuthorizationError(
         applied.requiresManualRestart
-          ? 'The callback settings changed, but OpenCode must be restarted manually before authorization can start.'
+          ? 'The callback settings changed, but the server must be restarted manually before authorization can start.'
           : 'Failed to apply the callback settings. Use Apply & Restart, then authorize again.',
       );
     }
@@ -260,7 +260,7 @@ export const startMcpAuthorization = async (input: {
           const applied = await applyPendingOpenCodeRestart();
           if (applied.requiresManualRestart) {
             throw new McpAuthorizationError(
-              'The callback URL was saved, but OpenCode must be restarted manually before authorization can start.',
+              'The callback URL was saved, but the server must be restarted manually before authorization can start.',
             );
           }
           if (!applied.ok) {

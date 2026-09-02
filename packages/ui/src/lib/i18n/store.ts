@@ -16,18 +16,46 @@ type I18nState = {
 
 const dictionaries = new Map<Locale, I18nDictionary>([[DEFAULT_LOCALE, enDict]]);
 
-// These labels describe the product-level Settings action. Keep the legacy
-// OpenCode wording in their keys for compatibility, but present the current
-// product name to users. Other OpenCode labels remain technical on purpose.
-const OPEN_CODE_PRODUCT_KEYS: Partial<Record<I18nKey, true>> = {
-  'settings.view.actions.reloadOpenCode': true,
-  'settings.view.actions.reloadOpenCodeTooltip': true,
-  'settings.view.actions.applyAndRestartOpenCodeTooltipSingle': true,
-  'settings.view.actions.applyAndRestartOpenCodeTooltipPlural': true,
-  'settings.view.pendingRestart.applied': true,
-  'settings.view.pendingRestart.manualRestartRequired': true,
-  'settings.view.pendingRestart.saved': true,
-  'settings.view.pendingRestart.confirm.description': true,
+// User-facing copy is branded as Smarty Code by default. The small exception
+// list names upstream OpenCode products or artifacts that users must identify
+// accurately (the CLI, update channel, diagnostics, official docs, and Go).
+const UPSTREAM_OPEN_CODE_KEYS: Partial<Record<I18nKey, true>> = {
+  'aboutDialog.openCodeVersionLabel': true,
+  'aboutDialog.diagnosticsDescription': true,
+  'onboarding.localSetup.description': true,
+  'onboarding.localSetup.errors.cliNotReady': true,
+  'onboarding.localSetup.windows.stepInstallWsl': true,
+  'onboarding.localSetup.windows.stepSetBinaryPath': true,
+  'onboarding.localSetup.intro': true,
+  'onboarding.localSetup.docs.windows': true,
+  'onboarding.localSetup.docs.default': true,
+  'onboarding.localSetup.helper.checkAndContinue': true,
+  'onboarding.localSetup.status.watching': true,
+  'onboarding.localSetup.field.alreadyInstalled': true,
+  'onboarding.localSetup.helper.saveAndReload': true,
+  'onboarding.localSetup.windows.hintInstallInWsl': true,
+  'onboarding.desktopRecovery.localUnavailable.description': true,
+  'opencodeUpdate.toast.available.title': true,
+  'opencodeUpdate.toast.actions.reload': true,
+  'opencodeUpdate.toast.upgrading.title': true,
+  'opencodeUpdate.toast.updated.title': true,
+  'opencodeUpdate.toast.failed.title': true,
+  'opencodeUpdate.toast.failed.description': true,
+  'opencodeUpdate.toast.reload.message': true,
+  'settings.providers.page.openCodeGo.title': true,
+  'settings.providers.page.openCodeGo.description': true,
+  'settings.providers.page.openCodeGo.saveFailed': true,
+  'settings.providers.page.openCodeGo.valid': true,
+  'settings.providers.page.openCodeGo.invalid': true,
+  'settings.providers.page.openCodeGo.deleted': true,
+  'settings.providers.page.openCodeGo.deleteFailed': true,
+  'settings.openchamber.about.field.openCodeVersion': true,
+  'settings.openchamber.opencodeCli.title': true,
+  'settings.openchamber.opencodeCli.field.binaryPath': true,
+  'settings.openchamber.opencodeCli.field.showUpdateNotifications': true,
+  'settings.openchamber.opencodeCli.field.showUpdateNotificationsAria': true,
+  'settings.openchamber.opencodeCli.actions.browseAria': true,
+  'settings.openchamber.opencodeCli.actions.restartingOpenCode': true,
 };
 
 export function resetI18nDictionaryCacheForTests(): void {
@@ -109,9 +137,10 @@ export function initializeLocale(): void {
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
   const sourceTemplate = dictionary[key] ?? enDict[key] ?? key;
-  const template = OPEN_CODE_PRODUCT_KEYS[key] === true
-    ? brandText(sourceTemplate)
-    : brandProductText(sourceTemplate);
+  const productTemplate = brandProductText(sourceTemplate);
+  const template = UPSTREAM_OPEN_CODE_KEYS[key] === true
+    ? productTemplate
+    : brandText(productTemplate);
   if (!params) {
     return template;
   }
