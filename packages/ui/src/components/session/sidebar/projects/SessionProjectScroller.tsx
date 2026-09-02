@@ -101,6 +101,8 @@ type SessionProjectScrollerView = {
   mobileVariant: boolean;
   alwaysShowActions: boolean;
   projectSortOrder: ProjectSortOrder;
+  /** Live runtime catalog owns membership: add/close/reorder are disabled. */
+  runtimeProjectMembershipActive: boolean;
 };
 
 type SessionProjectScrollerActions = {
@@ -142,6 +144,9 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
   const { t } = useI18n();
   const { model, view, actions } = props;
   const isInlineEditing = model.state.editingId !== null;
+  // While the runtime owns project membership (live catalog), add/close/reorder
+  // controls would silently no-op in the store — disable them at the UI edge.
+  const membershipControlsDisabled = view.runtimeProjectMembershipActive === true;
   const enableStickyFade = view.isDesktopShellRuntime && view.stickyZoneHeaders && !model.singleProjectMode;
   const projectSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -277,6 +282,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
           collisionDetection={closestCenter}
           onDragEnd={(event) => {
              if (isInlineEditing) return;
+            if (membershipControlsDisabled) return;
             // Drag only allowed in manual sort mode - indices from visual order don't match store order in other modes
             if (view.projectSortOrder !== 'manual') return;
             const { active, over } = event;
@@ -300,7 +306,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                 <SortableProjectItem
                   key={projectKey}
                   id={projectKey}
-                  disabled={model.singleProjectMode || view.projectSortOrder !== 'manual'}
+                  disabled={model.singleProjectMode || membershipControlsDisabled || view.projectSortOrder !== 'manual'}
                   projectLabel={projectLabel}
                   projectDescription={projectDescription}
                   projectIcon={project.icon}
@@ -333,7 +339,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                   }}
                   onManageWorktrees={() => actions.openWorktreesPage(projectKey)}
                   onRenameStart={() => actions.openProjectEditDialog(projectKey)}
-                  onClose={() => actions.removeProject(projectKey)}
+                  onClose={membershipControlsDisabled ? undefined : () => actions.removeProject(projectKey)}
                   sentinelRef={(el) => { model.projectHeaderSentinelRefs.current.set(projectKey, el); }}
                   showCreateButtons
                  >

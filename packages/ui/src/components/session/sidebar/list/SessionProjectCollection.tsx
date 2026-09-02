@@ -24,6 +24,7 @@ import { useStickyProjectHeaders } from '../projects/useStickyProjectHeaders';
 import { SessionBulkActions } from '../folders/SessionBulkActions';
 import { RecentSessionSection } from '../recent/RecentSessionSection';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import type { useSessionProjectViewState } from '../projects/useSessionProjectViewState';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
@@ -115,6 +116,7 @@ type SessionProjectCollectionProps = {
 
 const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topology, view, actions }) => {
   const { alwaysShowActions, notifyOnSubtasks, projectViewActions, rowActions, ...scrollerActions } = actions;
+  const runtimeProjectMembershipActive = useProjectsStore((state) => state.runtimeProjectMembershipActive);
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
   const createFolder = useSessionFoldersStore((state) => state.createFolder);
   const addSessionToFolder = useSessionFoldersStore((state) => state.addSessionToFolder);
@@ -535,6 +537,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     mobileVariant: view.mobileVariant,
     alwaysShowActions,
     projectSortOrder: view.projectSortOrder,
+    runtimeProjectMembershipActive,
   }), [
     projectView.collapsedProjects,
     view.homeDirectory,
@@ -547,6 +550,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     view.projectSortOrder,
     view.showOnlyMainWorkspace,
     view.stickyZoneHeaders,
+    runtimeProjectMembershipActive,
   ]);
   const scrollerActionSet = React.useMemo(() => ({
     group: groupActions,
