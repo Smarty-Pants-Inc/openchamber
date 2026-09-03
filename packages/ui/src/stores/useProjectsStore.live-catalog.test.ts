@@ -58,6 +58,8 @@ const enqueueSettingsChanges = (changes: Partial<DesktopSettings>) => {
 }
 
 mock.module('@/lib/persistence', () => ({
+  sanitizeProjects: (value: unknown) => Array.isArray(value) ? value as DesktopSettings['projects'] : undefined,
+  sanitizeWebSettings: (value: unknown) => value && typeof value === 'object' ? value as DesktopSettings : null,
   getSettingsSaveState: () => settingsSaveState,
   updateDesktopSettings: (changes: Partial<DesktopSettings>) => {
     settingsWrites.push(changes)
