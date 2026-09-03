@@ -1142,7 +1142,7 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
     result.desktopMacMenuBarEnabled = candidate.desktopMacMenuBarEnabled;
   }
 
-  if (Array.isArray(candidate.projects)) {
+  if (Object.prototype.hasOwnProperty.call(candidate, 'projects')) {
     result.projects = sanitizeProjects(candidate.projects);
   }
   if (typeof candidate.activeProjectId === 'string' && candidate.activeProjectId.length > 0) {

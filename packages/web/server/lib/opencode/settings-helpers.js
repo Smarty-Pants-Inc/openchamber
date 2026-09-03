@@ -918,8 +918,8 @@ export const createSettingsHelpers = (dependencies) => {
 
   const formatSettingsResponse = (settings) => {
     const sanitized = sanitizeSettingsUpdate(settings);
-    if (Array.isArray(settings?.projects)) {
-      sanitized.projects = sanitizeProjects(settings.projects);
+    if (Object.prototype.hasOwnProperty.call(settings ?? {}, 'projects')) {
+      sanitized.projects = sanitizeProjects(settings.projects) ?? null;
     }
     delete sanitized.managedRemoteTunnelToken;
     const bookmarks = normalizeStringArray(settings.securityScopedBookmarks);

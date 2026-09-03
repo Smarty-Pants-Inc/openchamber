@@ -493,6 +493,7 @@ describe('updateDesktopSettings', () => {
 
     try {
       await updateDesktopSettings({ showReasoningTraces: false });
+      expect(Object.hasOwn(syncedSettings.at(-1) ?? {}, 'projects')).toBe(true);
       expect(syncedSettings.at(-1)?.projects).toBe(undefined);
     } finally {
       getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);

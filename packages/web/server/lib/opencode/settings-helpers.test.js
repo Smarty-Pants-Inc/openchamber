@@ -341,11 +341,12 @@ describe('settings helpers', () => {
     expect(response.collapsibleThinkingBlocks).toBe(true);
   });
 
-  it('signals malformed present projects without returning an empty authority', () => {
+  it('signals malformed present projects through JSON without returning empty authority', () => {
     const helpers = createTestHelpersWithRealSanitizers();
     const response = helpers.formatSettingsResponse({ projects: [{ path: '' }] });
     expect(Object.prototype.hasOwnProperty.call(response, 'projects')).toBe(true);
-    expect(response.projects).toBeUndefined();
+    expect(response.projects).toBe(null);
+    expect(JSON.parse(JSON.stringify(response)).projects).toBe(null);
   });
 
   it('includes transient desktop LAN access runtime status in desktop settings response', () => {
