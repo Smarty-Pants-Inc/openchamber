@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
+import React, { createContext, useContext, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { Session } from "@opencode-ai/sdk/v2"
 import type { StoreApi } from "zustand"
@@ -28,7 +28,7 @@ import {
   areStatusMapsEquivalent,
   findLiveSession,
 } from "./live-aggregate"
-import { bootstrapGlobal, bootstrapDirectory } from "./bootstrap"
+import { bootstrapGlobal, bootstrapDirectory, createProjectCatalogRefresh } from "./bootstrap"
 import { retry } from "./retry"
 import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
 import { countSyncPerformance } from "./performance-diagnostics"
@@ -73,11 +73,12 @@ import {
 import { openSessionFromToast } from "./session-navigation"
 import { getPermissionToastKey, showPermissionNeededToast } from "./permission-toast"
 import { getRuntimeLiveStatusSeed, LIVE_STATUS_TTL_MS } from "./runtime-live-memory"
-import { getRuntimeKey } from "@/lib/runtime-switch"
+import { getRuntimeKey, getRuntimeTransportEpoch } from "@/lib/runtime-switch"
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
 import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
+import { useProjectsStore } from "@/stores/useProjectsStore"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type UserMessageHistorySnapshot } from "./user-message-history"
 import {
@@ -142,6 +143,36 @@ function assertSdkSuccess<T>(result: SdkResult<T>, operation: string): T | undef
   if (!result.error) return result.data
   const status = result.response?.status
   throw new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`)
+}
+export function createProjectCatalogInvalidationRefresh(
+  refresh: () => Promise<void>,
+  isCurrent: () => boolean,
+  isConnected: () => boolean,
+): () => Promise<void> {
+  let request: Promise<void> | null = null
+  return () => {
+    if (request && isCurrent()) {
+      // Coalesce the retry, but every invalidation still advances the inner
+      // refresh's tracker so its in-flight snapshot is marked stale and
+      // re-reads instead of committing an outdated catalog.
+      void refresh().catch(() => undefined)
+      return request
+    }
+
+    const pending = retry(async () => {
+      if (!isCurrent() || !isConnected()) {
+        throw new Error("Project catalog refresh stopped because its runtime is no longer current")
+      }
+      await refresh()
+      if (!isCurrent()) {
+        throw new Error("Project catalog refresh stopped because its runtime is no longer current")
+      }
+    }, { attempts: 3, delay: 250 }).finally(() => {
+      if (request === pending) request = null
+    })
+    request = pending
+    return pending
+  }
 }
 
 function useSyncSystem() {
@@ -2048,6 +2079,7 @@ export function SyncProvider(props: {
   if (!childStoresRef.current) childStoresRef.current = new ChildStoreManager()
   const childStores = childStoresRef.current
   const runtimeKey = getRuntimeKey()
+  const runtimeTransportEpoch = getRuntimeTransportEpoch()
   const messageLoaderRef = useRef<SessionMessageLoader | null>(null)
   if (!messageLoaderRef.current) {
     messageLoaderRef.current = new SessionMessageLoader(childStores, {
@@ -2073,6 +2105,61 @@ export function SyncProvider(props: {
   const pipelineReconnectRef = useRef<((reason?: string) => void) | null>(null)
   const pipelineHasConnectedRef = useRef(false)
   const pipelineDisconnectedBeforeFirstConnectRef = useRef(false)
+
+  const projectCatalogLifecycle = useMemo(
+    () => ({
+      sdk: props.sdk,
+      runtimeKey,
+      runtimeTransportEpoch,
+      generation: 0,
+      active: false,
+    }),
+    [props.sdk, runtimeKey, runtimeTransportEpoch],
+  )
+  const projectCatalogLifecycleRef = useRef(projectCatalogLifecycle)
+  const refreshRuntimeProjects = useMemo(() => createProjectCatalogRefresh(
+    props.sdk,
+    (projects, { liveCatalog }) => {
+      if (projects) {
+        useGlobalSyncStore.getState().actions.set({ projects })
+      }
+      if (liveCatalog === true && projects) {
+        useProjectsStore.getState().synchronizeFromRuntimeProjects(projects, { liveCatalog: true })
+      } else if (liveCatalog === false) {
+        useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
+      }
+    },
+    {
+      getOwnerGeneration: () => projectCatalogLifecycle.generation,
+      isCurrent: () => projectCatalogLifecycle.active
+        && projectCatalogLifecycleRef.current === projectCatalogLifecycle
+        && runtimeKey === getRuntimeKey()
+        && runtimeTransportEpoch === getRuntimeTransportEpoch(),
+    },
+  ), [props.sdk, projectCatalogLifecycle, runtimeKey, runtimeTransportEpoch])
+  const refreshInvalidatedRuntimeProjects = useMemo(() => createProjectCatalogInvalidationRefresh(
+    refreshRuntimeProjects,
+    () => projectCatalogLifecycle.active
+      && projectCatalogLifecycleRef.current === projectCatalogLifecycle
+      && runtimeKey === getRuntimeKey()
+      && runtimeTransportEpoch === getRuntimeTransportEpoch(),
+    () => useConfigStore.getState().isConnected,
+  ), [projectCatalogLifecycle, refreshRuntimeProjects, runtimeKey, runtimeTransportEpoch])
+
+  useLayoutEffect(() => {
+    const previousLifecycle = projectCatalogLifecycleRef.current
+    if (previousLifecycle !== projectCatalogLifecycle) {
+      previousLifecycle.active = false
+      previousLifecycle.generation += 1
+      projectCatalogLifecycleRef.current = projectCatalogLifecycle
+    }
+    projectCatalogLifecycle.active = true
+    projectCatalogLifecycle.generation += 1
+    return () => {
+      projectCatalogLifecycle.active = false
+      projectCatalogLifecycle.generation += 1
+    }
+  }, [projectCatalogLifecycle])
 
   const runtime = useMemo<SyncRuntime>(
     () => ({ childStores, messageLoader, runtimeKey, sdk: props.sdk }),
@@ -2266,29 +2353,30 @@ export function SyncProvider(props: {
   // redundant refresh events during startup
   useEffect(() => {
     const generation = ++globalBootstrapGeneration
+    const bootstrapRuntimeKey = runtimeKey
     bootingRoot = true
     const globalActions = useGlobalSyncStore.getState().actions
     bootstrapGlobal(props.sdk, (patch) => {
-      if (globalBootstrapGeneration === generation) {
+      if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
         globalActions.set(patch)
       }
-    })
+    }, undefined, refreshRuntimeProjects)
       .then(() => {
-        if (globalBootstrapGeneration === generation) {
+        if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
           bootedAt = Date.now()
         }
       })
       .finally(() => {
-        if (globalBootstrapGeneration === generation) {
+        if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
           bootingRoot = false
         }
       })
     return () => {
-      if (globalBootstrapGeneration === generation) {
+      if (globalBootstrapGeneration === generation && getRuntimeKey() === bootstrapRuntimeKey) {
         bootingRoot = false
       }
     }
-  }, [props.sdk])
+  }, [props.sdk, refreshRuntimeProjects, runtimeKey])
 
   // Event pipeline — created once per mount. No class, no start/stop.
   // Abort controller owned by the pipeline closure. Cleanup aborts + flushes.
@@ -2310,6 +2398,9 @@ export function SyncProvider(props: {
         const batch = createDirectoryEventBatch()
         try {
           for (const payload of payloads) {
+            if (String(payload.type) === "project.list.changed") {
+              void refreshInvalidatedRuntimeProjects().catch(() => undefined)
+            }
             dispatchVSCodeRuntimeNotificationEvent(directory, payload)
             if (payload.type === "installation.update-available") {
               const version = typeof (payload.properties as { version?: unknown })?.version === "string"
@@ -2331,6 +2422,7 @@ export function SyncProvider(props: {
           hasEverConnected: true,
           connectionPhase: "connected",
         })
+        void refreshRuntimeProjects().catch(() => undefined)
         const isFirstConnect = !pipelineHasConnectedRef.current
         pipelineHasConnectedRef.current = true
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
@@ -2362,6 +2454,7 @@ export function SyncProvider(props: {
           hasEverConnected: true,
           connectionPhase: "connected",
         })
+        void refreshRuntimeProjects().catch(() => undefined)
         for (const dir of childStores.children.keys()) {
           triggerDirectoryResync(dir, "transport-switch")
         }
@@ -2374,7 +2467,7 @@ export function SyncProvider(props: {
       }
       pipeline.cleanup()
     }
-  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync])
+  }, [props.sdk, childStores, routingIndex, messageStreamTransport, runtimeKey, triggerDirectoryResync, refreshRuntimeProjects, refreshInvalidatedRuntimeProjects])
 
   useEffect(() => {
     let stopped = false

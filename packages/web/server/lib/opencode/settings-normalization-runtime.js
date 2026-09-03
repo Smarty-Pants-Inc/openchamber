@@ -208,7 +208,7 @@ export const createSettingsNormalizationRuntime = (dependencies) => {
       result.push(project);
     }
 
-    return result;
+    return result.length > 0 || input.length === 0 ? result : undefined;
   };
 
   const normalizeSettingsPaths = (input) => {
@@ -257,8 +257,8 @@ export const createSettingsNormalizationRuntime = (dependencies) => {
     normalizePathArrayField('pinnedDirectories');
 
     if (Array.isArray(settings.projects)) {
-      const normalizedProjects = sanitizeProjects(settings.projects) || [];
-      if (JSON.stringify(normalizedProjects) !== JSON.stringify(settings.projects)) {
+      const normalizedProjects = sanitizeProjects(settings.projects);
+      if (normalizedProjects && JSON.stringify(normalizedProjects) !== JSON.stringify(settings.projects)) {
         ensureNext();
         next.projects = normalizedProjects;
         changed = true;

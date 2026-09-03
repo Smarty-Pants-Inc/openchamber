@@ -24,6 +24,17 @@ import { PRODUCT_NAME } from '../../brand.generated.js';
 
 const DAEMON_READY_TIMEOUT_MS = 30000;
 
+// Ordinary `openchamber serve` launches the web runtime, but an explicit
+// OPENCHAMBER_RUNTIME set in the environment (e.g. a gateway supervisor
+// pinning 'smarty-oc' so /health activates the live project catalog) must
+// survive both the foreground and daemon launch paths.
+const resolveServeRuntime = () => {
+  const explicit = typeof process.env.OPENCHAMBER_RUNTIME === 'string'
+    ? process.env.OPENCHAMBER_RUNTIME.trim()
+    : '';
+  return explicit.length > 0 ? explicit : 'web';
+};
+
 function createServeCommand({
   serverPath,
   bunBin,
@@ -104,6 +115,7 @@ async function serveCommand(options) {
     const opencodeBinary = await checkOpenCodeCLI(emitNotice);
     const preferredRuntime = getPreferredServerRuntime();
     const runtimeBin = preferredRuntime === 'bun' ? bunBin : process.execPath;
+    const serveRuntime = resolveServeRuntime();
 
     ensureLogsDir();
     const initialLogPort = targetPort === 0 ? 'auto' : String(targetPort);
@@ -163,7 +175,7 @@ async function serveCommand(options) {
         process.env.OPENCHAMBER_UI_PASSWORD = effectiveUiPassword;
       }
       process.env.OPENCHAMBER_HOST = effectiveHost;
-      process.env.OPENCHAMBER_RUNTIME = 'web';
+      process.env.OPENCHAMBER_RUNTIME = serveRuntime;
 
       // In --quiet mode, redirect stdout/stderr to the log file so that
       // server runtime output (console.log calls) does not pollute the
@@ -284,7 +296,7 @@ async function serveCommand(options) {
       env: {
         ...process.env,
         OPENCHAMBER_PORT: String(targetPort),
-        OPENCHAMBER_RUNTIME: 'web',
+        OPENCHAMBER_RUNTIME: serveRuntime,
         OPENCODE_BINARY: opencodeBinary,
         OPENCHAMBER_HOST: effectiveHost,
         ...(effectiveUiPassword ? { OPENCHAMBER_UI_PASSWORD: effectiveUiPassword } : {}),

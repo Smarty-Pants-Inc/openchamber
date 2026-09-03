@@ -2,6 +2,13 @@ import { describe, expect, test } from "bun:test"
 import type { Event, OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createEventPipeline } from "./event-pipeline"
 
+interface GatewayProjectListChangedEvent {
+  type: "project.list.changed"
+  properties: Record<never, never>
+}
+
+type StreamEvent = Event | GatewayProjectListChangedEvent
+
 const failAfter = (ms: number) => new Promise<never>((_, reject) => {
   setTimeout(() => reject(new Error("Timed out waiting for event pipeline flush")), ms)
 })
@@ -45,7 +52,7 @@ function statusEvent(type: "busy" | "retry"): Event {
   } as Event
 }
 
-function createSdk(events: Event[], streamFinished: () => void): OpencodeClient {
+function createSdk(events: readonly StreamEvent[], streamFinished: () => void): OpencodeClient {
   return {
     global: {
       event: async ({ signal }: { signal: AbortSignal }) => ({
@@ -259,4 +266,42 @@ describe("createEventPipeline", () => {
       pipeline.cleanup()
     }
   })
+  test("delivers SDK-untyped project list invalidations to the refresh handler", async () => {
+    let resolveStreamFinished!: () => void
+    const streamFinished = new Promise<void>((resolve) => {
+      resolveStreamFinished = resolve
+    })
+    let resolveRefresh!: () => void
+    const refreshed = new Promise<void>((resolve) => {
+      resolveRefresh = resolve
+    })
+    let refreshes = 0
+    const pipeline = createEventPipeline({
+      sdk: createSdk([
+        // The gateway event is intentionally absent from the SDK's generated Event union.
+        {
+          type: "project.list.changed",
+          properties: {},
+        },
+      ], resolveStreamFinished),
+      onEvents: (_directory, events) => {
+        for (const event of events) {
+          if (String(event.type) !== "project.list.changed") continue
+          refreshes += 1
+          resolveRefresh()
+        }
+      },
+      transport: "sse",
+      heartbeatTimeoutMs: 1_000,
+    })
+
+    try {
+      await streamFinished
+      await Promise.race([refreshed, failAfter(500)])
+      expect(refreshes).toBe(1)
+    } finally {
+      pipeline.cleanup()
+    }
+  })
+
 })
