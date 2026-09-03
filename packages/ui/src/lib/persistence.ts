@@ -373,6 +373,23 @@ const normalizeIconBackground = (value: unknown): string | null => {
   return HEX_COLOR_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
 };
 
+const normalizeDefaultModel = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  const separatorIndex = trimmed.indexOf('/');
+  return separatorIndex > 0 && separatorIndex < trimmed.length - 1 ? trimmed : undefined;
+};
+
+const deriveProjectLabel = (path: string): string => {
+  const segments = path.split('/').filter(Boolean);
+  return segments[segments.length - 1] || 'Root';
+};
+
+const legacyAutoProjectLabel = (path: string): string => {
+  const derived = deriveProjectLabel(path);
+  return derived.replace(/[-_]/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
 export const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
@@ -405,7 +422,10 @@ export const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | 
     };
 
     if (typeof candidate.label === 'string' && candidate.label.trim().length > 0) {
-      project.label = candidate.label.trim();
+      const storedLabel = candidate.label.trim();
+      project.label = storedLabel === legacyAutoProjectLabel(normalizedPath)
+        ? deriveProjectLabel(normalizedPath)
+        : storedLabel;
     }
     if (typeof candidate.icon === 'string' && candidate.icon.trim().length > 0) {
       project.icon = candidate.icon.trim();
@@ -423,6 +443,13 @@ export const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | 
         : null;
       if (mime && updatedAt > 0 && source) {
         project.iconImage = { mime, updatedAt, source };
+      }
+    }
+    const defaultModel = normalizeDefaultModel(candidate.defaultModel);
+    if (defaultModel) {
+      project.defaultModel = defaultModel;
+      if (typeof candidate.defaultVariant === 'string' && candidate.defaultVariant.trim().length > 0) {
+        project.defaultVariant = candidate.defaultVariant.trim();
       }
     }
     if (typeof candidate.color === 'string' && candidate.color.trim().length > 0) {

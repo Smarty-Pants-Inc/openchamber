@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ProjectEntry } from '@/lib/api/types'
 import type { DesktopSettings } from '@/lib/desktop'
+import { createProjectIdFromPath } from '@/lib/projectId';
 
 class TestFileReader {
   result = 'data:image/png;base64,eA=='
@@ -57,8 +58,27 @@ const enqueueSettingsChanges = (changes: Partial<DesktopSettings>) => {
   queueMicrotask(() => { void flushSettingsQueue() })
 }
 
+const sanitizeProjectsForTest = (value: unknown): DesktopSettings['projects'] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const result: NonNullable<DesktopSettings['projects']> = [];
+  const seenIds = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const candidate = entry as Record<string, unknown>;
+    const path = typeof candidate.path === 'string'
+      ? candidate.path.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+      : '';
+    const id = path ? createProjectIdFromPath(path) : null;
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+    result.push({ ...candidate, id, path });
+  }
+  return result.length > 0 || value.length === 0 ? result : undefined;
+};
+
+
 mock.module('@/lib/persistence', () => ({
-  sanitizeProjects: (value: unknown) => Array.isArray(value) ? value as DesktopSettings['projects'] : undefined,
+  sanitizeProjects: sanitizeProjectsForTest,
   sanitizeWebSettings: (value: unknown) => value && typeof value === 'object' ? value as DesktopSettings : null,
   getSettingsSaveState: () => settingsSaveState,
   updateDesktopSettings: (changes: Partial<DesktopSettings>) => {
