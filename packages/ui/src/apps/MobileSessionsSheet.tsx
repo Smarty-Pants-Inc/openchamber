@@ -863,6 +863,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   ));
   const projects = useProjectsStore((state) => state.projects);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
+  // The live runtime catalog owns project membership: add/remove/reorder
+  // controls would silently no-op in the store, so hide them at the UI edge.
+  const runtimeProjectMembershipActive = useProjectsStore((state) => state.runtimeProjectMembershipActive);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
@@ -948,6 +951,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   React.useEffect(() => {
     if (!editingOrder) setReorderExpandedProjects(new Set());
   }, [editingOrder]);
+
+  React.useEffect(() => {
+    if (runtimeProjectMembershipActive) setEditingOrder(false);
+  }, [runtimeProjectMembershipActive]);
 
   React.useEffect(() => {
     if (!open || projects.length === 0) return;
@@ -1315,6 +1322,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   );
 
   const handleReorderDragEnd = (event: DragEndEvent) => {
+    if (runtimeProjectMembershipActive) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = projectsMeta.findIndex((p) => p.id === active.id);
@@ -1396,7 +1404,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
 
   const hasNoMatches =
     normalizedQuery && searchSessionMatches.length === 0 && searchProjectMatches.length === 0;
-  const canEditOrder = !normalizedQuery && projectsMeta.length > 1;
+  const canEditOrder = !normalizedQuery && projectsMeta.length > 1 && !runtimeProjectMembershipActive;
 
   const editToggle = canEditOrder ? (
     <Button
@@ -1427,7 +1435,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       </Button>
     ) : null;
 
-  const addProjectButton = !editingOrder ? (
+  const addProjectButton = !editingOrder && !runtimeProjectMembershipActive ? (
     <Button
       type="button"
       variant="chip"
@@ -1485,7 +1493,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             <MobileSessionsEmpty
               title={t('mobile.sessions.empty.noProjectsTitle')}
               description={t('mobile.sessions.empty.noProjectsDescription')}
-              action={
+              action={runtimeProjectMembershipActive ? undefined : (
                 <button
                   type="button"
                   className="flex items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 typography-ui-label text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -1494,7 +1502,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                   <RiFolderAddLine className="size-4" />
                   {t('sessions.sidebar.header.actions.addProject')}
                 </button>
-              }
+              )}
             />
           ) : hasNoMatches ? (
             <MobileSessionsEmpty
@@ -1635,6 +1643,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                           >
                             <RiEdit2Line className="size-[18px]" />
                           </button>
+                          {!runtimeProjectMembershipActive ? (
                           <button
                             type="button"
                             tabIndex={revealedRowId === `project:${node.project.id}` ? 0 : -1}
@@ -1661,6 +1670,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                           >
                             <RiDeleteBinLine className="size-[18px]" />
                           </button>
+                          ) : null}
                         </>
                       )}
                     >

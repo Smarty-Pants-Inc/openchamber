@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
 import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -62,6 +63,9 @@ export function SidebarHeader(props: Props): React.ReactNode {
     expandAllProjects,
   } = props;
 
+  // The live runtime catalog owns project membership: adding via the
+  // directory dialog would silently no-op in the store, so hide the control.
+  const runtimeProjectMembershipActive = useProjectsStore((state) => state.runtimeProjectMembershipActive);
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);
   const toggleSelectionMode = useSessionMultiSelectStore((state) => state.toggleMode);
 
@@ -90,19 +94,21 @@ export function SidebarHeader(props: Props): React.ReactNode {
               icon inset inside the 24px buttons so the first glyph lines up
               with the New-session icon above (16px from the sidebar edge). */}
           <div className="ml-[3px] flex items-center gap-1.5">
-            <Tooltip delayDuration={500}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleOpenDirectoryDialog}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.header.actions.addProject')}
-                >
-                  <Icon name="folder-add" className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
-            </Tooltip>
+            {!runtimeProjectMembershipActive ? (
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleOpenDirectoryDialog}
+                    className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                    aria-label={t('sessions.sidebar.header.actions.addProject')}
+                  >
+                    <Icon name="folder-add" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
+              </Tooltip>
+            ) : null}
 
             <Tooltip delayDuration={500}>
               <TooltipTrigger asChild>

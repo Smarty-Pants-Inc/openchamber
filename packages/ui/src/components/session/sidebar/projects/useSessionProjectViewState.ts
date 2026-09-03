@@ -68,8 +68,10 @@ export const useSessionProjectViewState = ({
     persistCollapsedProjectsTimer.current = null;
     if (!collapsed) return;
 
-    const { projects: storedProjects } = useProjectsStore.getState();
-    const updatedProjects = storedProjects.map((project) => ({
+    // Only presentation projects belong to the shared settings document; the
+    // live runtime catalog entries must never be written back from here.
+    const { presentationProjects } = useProjectsStore.getState();
+    const updatedProjects = presentationProjects.map((project) => ({
       ...project,
       sidebarCollapsed: collapsed.has(project.id),
     }));

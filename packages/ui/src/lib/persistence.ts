@@ -373,7 +373,24 @@ const normalizeIconBackground = (value: unknown): string | null => {
   return HEX_COLOR_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
 };
 
-const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefined => {
+const normalizeDefaultModel = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  const separatorIndex = trimmed.indexOf('/');
+  return separatorIndex > 0 && separatorIndex < trimmed.length - 1 ? trimmed : undefined;
+};
+
+const deriveProjectLabel = (path: string): string => {
+  const segments = path.split('/').filter(Boolean);
+  return segments[segments.length - 1] || 'Root';
+};
+
+const legacyAutoProjectLabel = (path: string): string => {
+  const derived = deriveProjectLabel(path);
+  return derived.replace(/[-_]/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+export const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -405,7 +422,10 @@ const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefin
     };
 
     if (typeof candidate.label === 'string' && candidate.label.trim().length > 0) {
-      project.label = candidate.label.trim();
+      const storedLabel = candidate.label.trim();
+      project.label = storedLabel === legacyAutoProjectLabel(normalizedPath)
+        ? deriveProjectLabel(normalizedPath)
+        : storedLabel;
     }
     if (typeof candidate.icon === 'string' && candidate.icon.trim().length > 0) {
       project.icon = candidate.icon.trim();
@@ -423,6 +443,13 @@ const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefin
         : null;
       if (mime && updatedAt > 0 && source) {
         project.iconImage = { mime, updatedAt, source };
+      }
+    }
+    const defaultModel = normalizeDefaultModel(candidate.defaultModel);
+    if (defaultModel) {
+      project.defaultModel = defaultModel;
+      if (typeof candidate.defaultVariant === 'string' && candidate.defaultVariant.trim().length > 0) {
+        project.defaultVariant = candidate.defaultVariant.trim();
       }
     }
     if (typeof candidate.color === 'string' && candidate.color.trim().length > 0) {
@@ -452,7 +479,7 @@ const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefin
     result.push(project);
   }
 
-  return result.length > 0 ? result : undefined;
+  return result.length > 0 || value.length === 0 ? result : undefined;
 };
 
 const sanitizeManagedRemoteTunnelPresets = (value: unknown): DesktopSettings['managedRemoteTunnelPresets'] | undefined => {
@@ -1068,7 +1095,7 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
 };
 
-const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
+export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
@@ -1115,9 +1142,8 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
     result.desktopMacMenuBarEnabled = candidate.desktopMacMenuBarEnabled;
   }
 
-  const projects = sanitizeProjects(candidate.projects);
-  if (projects) {
-    result.projects = projects;
+  if (Object.prototype.hasOwnProperty.call(candidate, 'projects')) {
+    result.projects = sanitizeProjects(candidate.projects);
   }
   if (typeof candidate.activeProjectId === 'string' && candidate.activeProjectId.length > 0) {
     result.activeProjectId = candidate.activeProjectId;
@@ -1925,11 +1951,18 @@ export const syncDesktopSettings = async (options?: { adoptWorkspace?: boolean }
     const shouldSeedSidebarSessionGroupingMode = settings.sidebarSessionGroupingMode === undefined;
     const shouldSeedSidebarProjectSortOrder = settings.sidebarProjectSortOrder === undefined;
     const shouldSeedSidebarShowRecentSection = settings.sidebarShowRecentSection === undefined;
-    const authoritativeSettings = materializeAuthoritativeUiSettings(settings);
-    try {
-      persistToLocalStorage(settings);
-    } catch (error) {
-      console.warn('persistToLocalStorage failed:', error);
+    const authoritativeSettings = materializeAuthoritativeUiSettings({
+      ...settings,
+      // A successful settings load is a complete bootstrap snapshot. Only
+      // truly omitted catalogs default to empty.
+      projects: Object.hasOwn(settings, 'projects') ? settings.projects : [],
+    });
+    if (!(Object.hasOwn(settings, 'projects') && settings.projects === undefined)) {
+      try {
+        persistToLocalStorage(settings);
+      } catch (error) {
+        console.warn('persistToLocalStorage failed:', error);
+      }
     }
     if (shouldSeedAutoSaveEnabled) {
       authoritativeSettings.autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
@@ -2021,7 +2054,7 @@ async function _flushSettingsUpdate(): Promise<void> {
       const runtimeSettings = getRuntimeSettingsAPI();
       if (runtimeSettings) {
         try {
-          const updated = await runtimeSettings.save(changes);
+          const updated = sanitizeWebSettings(await runtimeSettings.save(changes));
           if (!isSettingsRuntimeContextCurrent(context)) return;
           if (updated) {
             const reconciled = _settingsMutationTracker.reconcile(updated, operation);

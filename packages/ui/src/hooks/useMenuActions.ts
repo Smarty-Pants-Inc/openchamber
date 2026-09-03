@@ -8,6 +8,7 @@ import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUISto
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useI18n } from '@/lib/i18n';
+import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
@@ -108,6 +109,7 @@ export const useMenuActions = (
   const checkForUpdates = useUpdateStore((state) => state.checkForUpdates);
   const { setThemeMode } = useThemeSystem();
   const { t } = useI18n();
+  const runtimeProjectMembershipActive = useProjectsStore((state) => state.runtimeProjectMembershipActive);
   const checkUpdatesInFlightRef = React.useRef(false);
 
   const handleCheckForUpdates = React.useCallback(() => {
@@ -136,6 +138,7 @@ export const useMenuActions = (
   }, [checkForUpdates]);
 
   const handleChangeWorkspace = React.useCallback(() => {
+    if (useProjectsStore.getState().runtimeProjectMembershipActive) return;
     sessionEvents.requestDirectoryDialog();
   }, []);
 
@@ -349,6 +352,15 @@ export const useMenuActions = (
       toggleSidebar,
     ]
   );
+
+  React.useEffect(() => {
+    if (!canUseElectronDesktopIPC()) return;
+    void invokeDesktop('desktop_set_runtime_project_membership_active', {
+      active: runtimeProjectMembershipActive,
+    }).catch(() => {
+      // The bridge is optional outside the Electron shell.
+    });
+  }, [runtimeProjectMembershipActive]);
 
   React.useEffect(() => {
     const handleMenuAction = (event: Event) => {

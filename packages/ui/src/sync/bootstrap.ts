@@ -2,9 +2,34 @@ import type { OpencodeClient, PermissionRequest, Project, QuestionRequest } from
 import { retry } from "./retry"
 import type { GlobalState, State } from "./types"
 import { runtimeFetch } from "../lib/runtime-fetch"
+import { z } from "zod"
 import { emitSyncConfigChanged } from "./sync-refs"
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+export const LIVE_PROJECT_CATALOG_RUNTIME = "smarty-oc"
+
+const runtimeHealthSchema = z.object({
+  runtime: z.string().optional(),
+})
+
+type RuntimeHealthPayload = z.infer<typeof runtimeHealthSchema>
+
+export const hasLiveProjectCatalogCapability = (value: RuntimeHealthPayload): boolean => (
+  value.runtime === LIVE_PROJECT_CATALOG_RUNTIME
+)
+
+async function loadLiveProjectCatalogCapability(): Promise<boolean | null> {
+  try {
+    const response = await runtimeFetch("/health", { signal: AbortSignal.timeout(4_000) })
+    if (!response.ok) return null
+    const health = runtimeHealthSchema.safeParse(await response.json().catch(() => null))
+    if (!health.success || health.data.runtime === undefined || health.data.runtime.trim().length === 0) return null
+    return hasLiveProjectCatalogCapability(health.data)
+  } catch {
+    return null
+  }
+}
 
 /**
  * SDK returns `{ data, error, response }` without throwing on non-2xx.
@@ -60,6 +85,87 @@ function projectID(directory: string, projects: Project[]) {
   )?.id
 }
 
+async function loadRuntimeProjects(sdk: OpencodeClient): Promise<Project[]> {
+  const data = unwrap(await sdk.project.list(), "project.list")
+  const projects = data
+    .filter((project): project is Project => !!project?.id)
+    .filter((project) => !!project.worktree && !project.worktree.includes("opencode-test"))
+    .sort((a, b) => cmp(a.id, b.id))
+  if (data.length > 0 && projects.length === 0) {
+    throw new Error("project.list returned no valid worktrees")
+  }
+  return projects
+}
+
+export function createProjectCatalogRefresh(
+  sdk: OpencodeClient,
+  onProjects: (projects: Project[] | null, options: { liveCatalog: boolean | null }) => void,
+  options?: {
+    isCurrent?: () => boolean
+    getOwnerGeneration?: () => number
+    getLiveProjectCatalogCapability?: () => Promise<boolean | null>
+  },
+): () => Promise<void> {
+  let request: Promise<void> | null = null
+  let invalidationGeneration = 0
+  const getLiveProjectCatalogCapability = options?.getLiveProjectCatalogCapability ?? loadLiveProjectCatalogCapability
+
+  const isCurrent = (ownerGeneration: number | undefined, generation?: number): boolean => (
+    (generation === undefined || generation === invalidationGeneration)
+    && (!options?.isCurrent || options.isCurrent())
+    && (ownerGeneration === undefined || options?.getOwnerGeneration?.() === ownerGeneration)
+  )
+
+  return () => {
+    invalidationGeneration += 1
+    if (request) return request
+
+    const run = async () => {
+      while (true) {
+        const generation = invalidationGeneration
+        if (!isCurrent(undefined, generation)) return
+        const ownerGeneration = options?.getOwnerGeneration?.()
+
+        // Health and catalog have independent authority. A healthy ordinary
+        // runtime must release live membership immediately, even when its
+        // project list request is unavailable.
+        const liveCatalogPromise = getLiveProjectCatalogCapability()
+          .catch(() => null)
+          .then((liveCatalog) => {
+            if (liveCatalog === false && isCurrent(ownerGeneration, generation)) {
+              onProjects(null, { liveCatalog: false })
+            }
+            return liveCatalog
+          })
+
+        let projects: Project[]
+        try {
+          projects = await loadRuntimeProjects(sdk)
+        } catch (error) {
+          await liveCatalogPromise
+          if (generation !== invalidationGeneration) throw error
+          if (!isCurrent(ownerGeneration, generation)) return
+          // A failed list must not prevent a confirmed ordinary runtime from
+          // releasing live membership authority before this request rejects.
+          throw error
+        }
+
+        const liveCatalog = await liveCatalogPromise
+        if (generation !== invalidationGeneration) continue
+        if (!isCurrent(ownerGeneration, generation)) return
+        onProjects(projects, { liveCatalog })
+        if (generation === invalidationGeneration) return
+      }
+    }
+
+    const pending = run().finally(() => {
+      if (request === pending) request = null
+    })
+    request = pending
+    return pending
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap global state
 // ---------------------------------------------------------------------------
@@ -67,20 +173,17 @@ function projectID(directory: string, projects: Project[]) {
 export async function bootstrapGlobal(
   sdk: OpencodeClient,
   set: (patch: Partial<GlobalState>) => void,
+  onProjects?: (projects: Project[]) => void,
+  loadProjects?: () => Promise<void>,
 ) {
   const results = await Promise.allSettled([
     retry(() => sdk.path.get().then((x) => set({ path: unwrap(x, "path.get") }))),
     retry(() => sdk.global.config.get().then((x) => set({ config: unwrap(x, "global.config.get") }))),
-    retry(() =>
-      sdk.project.list().then((x) => {
-        const data = unwrap(x, "project.list")
-        const projects = data
-          .filter((p): p is Project => !!p?.id)
-          .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-          .sort((a, b) => cmp(a.id, b.id))
-        set({ projects })
-      }),
-    ),
+    retry(loadProjects ?? (async () => {
+      const projects = await loadRuntimeProjects(sdk)
+      set({ projects })
+      onProjects?.(projects)
+    })),
   ])
 
   const errors = results
