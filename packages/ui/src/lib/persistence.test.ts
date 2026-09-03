@@ -605,7 +605,7 @@ describe('updateDesktopSettings', () => {
       showRecentSection: false,
     });
     registerSettingsApi(async (changes) => {
-      saves.push(changes);
+      saves.push(structuredClone(changes));
       return changes;
     }, async () => ({
       settings: {
@@ -619,8 +619,6 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(saves).toEqual([{
-      draftStartersCraftGoalAdded: true,
-      draftStartersScheduleTaskAdded: true,
       sidebarProjectDisplayMode: 'single',
       sidebarSessionGroupingMode: 'flat',
       sidebarProjectSortOrder: 'a-z',
@@ -830,7 +828,7 @@ describe('updateDesktopSettings', () => {
     getWindow();
     const saveCalls: Array<Partial<SettingsPayload>> = [];
     registerSettingsSave(async (changes) => {
-      saveCalls.push(changes);
+      saveCalls.push(structuredClone(changes));
       return changes as SettingsPayload;
     });
     const stop = startModelPrefsAutoSave();
@@ -850,7 +848,6 @@ describe('updateDesktopSettings', () => {
 
       expect(saveCalls).toHaveLength(1);
       expect(saveCalls[0]).toEqual({
-        draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
         hiddenModels: [{ providerID: 'openai', modelID: 'gpt-5' }],
         collapsedModelProviders: ['openai'],
