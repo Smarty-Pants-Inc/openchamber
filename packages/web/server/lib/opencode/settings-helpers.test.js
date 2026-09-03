@@ -53,7 +53,7 @@ const createTestHelpersWithRealSanitizers = () => {
     normalizeStringArray: runtime.normalizeStringArray,
     sanitizeModelRefs: runtime.sanitizeModelRefs,
     sanitizeSkillCatalogs: () => undefined,
-    sanitizeProjects: () => undefined,
+    sanitizeProjects: runtime.sanitizeProjects,
   });
 };
 
@@ -339,6 +339,13 @@ describe('settings helpers', () => {
 
     const response = helpers.formatSettingsResponse({});
     expect(response.collapsibleThinkingBlocks).toBe(true);
+  });
+
+  it('signals malformed present projects without returning an empty authority', () => {
+    const helpers = createTestHelpersWithRealSanitizers();
+    const response = helpers.formatSettingsResponse({ projects: [{ path: '' }] });
+    expect(Object.prototype.hasOwnProperty.call(response, 'projects')).toBe(true);
+    expect(response.projects).toBeUndefined();
   });
 
   it('includes transient desktop LAN access runtime status in desktop settings response', () => {

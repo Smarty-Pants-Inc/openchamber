@@ -479,6 +479,26 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('does not synchronize an all-invalid runtime settings save response', async () => {
+    getWindow();
+    const syncedSettings: SettingsPayload[] = [];
+    const handleSettingsSynced = (event: Event) => {
+      syncedSettings.push((event as CustomEvent<{ settings: SettingsPayload }>).detail.settings);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+    registerSettingsSave(async () => ({
+      // SAFETY: this deliberately exercises the untyped runtime settings boundary.
+      projects: [{ path: '' }] as unknown as SettingsPayload['projects'],
+    }));
+
+    try {
+      await updateDesktopSettings({ showReasoningTraces: false });
+      expect(syncedSettings.at(-1)?.projects).toBe(undefined);
+    } finally {
+      getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    }
+  });
+
 
   test('resets in-memory preferences omitted by an authoritative runtime snapshot', async () => {
     getWindow();

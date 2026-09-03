@@ -6,7 +6,7 @@ import path from 'path';
 import { createProjectIdFromPath } from '../projects/project-id.js';
 import { createSettingsRuntime } from './settings-runtime.js';
 
-const createRuntime = async () => {
+const createRuntime = async (overrides = {}) => {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'oc-settings-runtime-'));
   const settingsFilePath = path.join(tempRoot, 'settings.json');
   const runtime = createSettingsRuntime({
@@ -26,6 +26,7 @@ const createRuntime = async () => {
     normalizeManagedRemoteTunnelPresetTokens: (value) => value,
     syncManagedRemoteTunnelConfigWithPresets: async () => {},
     upsertManagedRemoteTunnelToken: async () => {},
+    ...overrides,
   });
 
   return {
@@ -216,6 +217,35 @@ describe('settings runtime', () => {
       expect(files.some((f) => f.startsWith('settings.json.tmp-'))).toBe(false);
     } finally {
       await fsPromises.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not overwrite persisted projects with malformed nonempty updates', async () => {
+    const { runtime, settingsFilePath, cleanup } = await createRuntime({
+      sanitizeProjects: (projects) => Array.isArray(projects) && projects.length > 0 && projects.every((project) => !project?.path)
+        ? undefined
+        : (Array.isArray(projects) ? projects : []),
+      sanitizeSettingsUpdate: (settings) => {
+        const result = { ...settings };
+        if (Array.isArray(settings?.projects) && settings.projects.length > 0 && settings.projects.every((project) => !project?.path)) {
+          delete result.projects;
+        }
+        return result;
+      },
+      mergePersistedSettings: (current, changes) => ({ ...current, ...changes }),
+    });
+    const existing = { projects: [{ id: 'project-a', path: '/repo' }] };
+    const canonical = createProjectIdFromPath('/repo');
+    try {
+      await runtime.writeSettingsToDisk(existing);
+      await runtime.persistSettings({ projects: [{ path: '' }] });
+      await expect(runtime.readSettingsFromDisk()).resolves.toEqual({
+        projects: [{ id: canonical, path: '/repo' }],
+        activeProjectId: canonical,
+      });
+      await expect(fsPromises.readFile(settingsFilePath, 'utf8')).resolves.toContain(canonical);
+    } finally {
+      await cleanup();
     }
   });
 });

@@ -373,7 +373,7 @@ const normalizeIconBackground = (value: unknown): string | null => {
   return HEX_COLOR_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
 };
 
-const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefined => {
+export const sanitizeProjects = (value: unknown): DesktopSettings['projects'] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -1068,7 +1068,7 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
 };
 
-const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
+export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
@@ -2027,7 +2027,7 @@ async function _flushSettingsUpdate(): Promise<void> {
       const runtimeSettings = getRuntimeSettingsAPI();
       if (runtimeSettings) {
         try {
-          const updated = await runtimeSettings.save(changes);
+          const updated = sanitizeWebSettings(await runtimeSettings.save(changes));
           if (!isSettingsRuntimeContextCurrent(context)) return;
           if (updated) {
             const reconciled = _settingsMutationTracker.reconcile(updated, operation);

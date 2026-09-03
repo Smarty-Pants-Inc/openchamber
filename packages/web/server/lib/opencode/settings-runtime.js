@@ -289,16 +289,20 @@ export const createSettingsRuntime = (deps) => {
 
   const migrateSettingsToDeterministicProjectIds = async (current) => {
     const settings = current && typeof current === 'object' ? current : {};
-    const projects = sanitizeProjects(settings.projects) || [];
-    if (projects.length === 0) {
+    const projects = sanitizeProjects(settings.projects);
+    if (Object.prototype.hasOwnProperty.call(settings, 'projects') && projects === undefined) {
+      return { settings, changed: false };
+    }
+    const safeProjects = projects || [];
+    if (safeProjects.length === 0) {
       return { settings, changed: false };
     }
 
-    let changed = false;
     const projectIdMap = new Map();
     const nextProjects = [];
+    let changed = false;
 
-    for (const project of projects) {
+    for (const project of safeProjects) {
       const canonicalId = createProjectIdFromPath(project.path);
       const nextId = canonicalId || project.id;
       projectIdMap.set(project.id, nextId);
@@ -622,8 +626,11 @@ export const createSettingsRuntime = (deps) => {
     const settings = current && typeof current === 'object' ? current : {};
     const now = Date.now();
 
-    const sanitizedProjects = sanitizeProjects(settings.projects) || [];
-    let nextProjects = sanitizedProjects;
+    const sanitizedProjects = sanitizeProjects(settings.projects);
+    if (Object.prototype.hasOwnProperty.call(settings, 'projects') && sanitizedProjects === undefined) {
+      return { settings, changed: false };
+    }
+    let nextProjects = sanitizedProjects || [];
     let nextActiveProjectId =
       typeof settings.activeProjectId === 'string' ? settings.activeProjectId : undefined;
 
@@ -739,10 +746,14 @@ export const createSettingsRuntime = (deps) => {
     }
 
     const set = new Set(collapsed);
-    const projects = sanitizeProjects(settings.projects) || [];
-    let changed = false;
+    const projects = sanitizeProjects(settings.projects);
+    if (Object.prototype.hasOwnProperty.call(settings, 'projects') && projects === undefined) {
+      return { settings, changed: false };
+    }
+    const safeProjects = projects || [];
 
-    const nextProjects = projects.map((project) => {
+    let changed = false;
+    const nextProjects = safeProjects.map((project) => {
       const shouldCollapse = set.has(project.id);
       if (project.sidebarCollapsed !== shouldCollapse) {
         changed = true;

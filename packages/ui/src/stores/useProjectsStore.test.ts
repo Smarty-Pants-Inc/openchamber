@@ -29,6 +29,26 @@ describe("useProjectsStore settings synchronization", () => {
     expect(useProjectsStore.getState().manualProjectOrder).toEqual([])
   })
 
+  test("preserves projects when a nonempty settings list has no valid entries", () => {
+    const project = { id: "project-a", path: "/repo", label: "Repo" } as ProjectEntry
+    useProjectsStore.setState({ projects: [project], presentationProjects: [project], activeProjectId: project.id })
+
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ path: "" }, null],
+    } as DesktopSettings)
+
+    expect(useProjectsStore.getState().projects).toEqual([project])
+    expect(useProjectsStore.getState().presentationProjects).toEqual([project])
+  })
+
+
+  test("applies valid projects while dropping malformed entries", () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ path: "/valid" }, { path: "" }, null],
+    } as DesktopSettings)
+
+    expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(["/valid"])
+  })
   test("a reconcile sync never adopts another window's active project", () => {
     // Ids are path-derived inside the store's sanitizer, so seed real ones by
     // bootstrapping once and reading them back.

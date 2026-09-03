@@ -5,7 +5,7 @@ import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { ProjectEntry } from '@/lib/api/types';
 import type { Project } from '@opencode-ai/sdk/v2/client';
 import type { DesktopSettings } from '@/lib/desktop';
-import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
+import { type SettingsSyncedDetail, updateDesktopSettings, sanitizeProjects, sanitizeWebSettings } from '@/lib/persistence';
 import * as persistence from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { getDeferredSafeStorage } from './utils/safeStorage';
@@ -215,33 +215,6 @@ const deriveProjectLabel = (path: string): string => {
   return segments[segments.length - 1] || normalized;
 };
 
-// Labels auto-derived by older versions were title-cased and persisted. Drop
-// them back to the folder name; labels the user typed themselves are kept.
-const legacyAutoProjectLabel = (path: string): string => {
-  const derived = deriveProjectLabel(path);
-  return derived.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-};
-
-const sanitizeProjectIconImage = (value: unknown): ProjectEntry['iconImage'] | undefined => {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  const mime = typeof candidate.mime === 'string' ? candidate.mime.trim() : '';
-  const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
-    ? Math.max(0, Math.round(candidate.updatedAt))
-    : 0;
-  const source = candidate.source === 'custom' || candidate.source === 'auto'
-    ? candidate.source
-    : null;
-
-  if (!mime || !updatedAt || !source) {
-    return undefined;
-  }
-
-  return { mime, updatedAt, source };
-};
 
 const resolveUploadMime = (file: File): 'image/png' | 'image/jpeg' | 'image/svg+xml' | null => {
   const rawType = typeof file.type === 'string' ? file.type.trim().toLowerCase() : '';
@@ -275,87 +248,6 @@ const readFileAsDataUrl = async (file: File): Promise<string> => {
   });
 };
 
-const sanitizeProjects = (value: unknown): ProjectEntry[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const result: ProjectEntry[] = [];
-  const seenIds = new Set<string>();
-  const seenPaths = new Set<string>();
-
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') continue;
-    const candidate = entry as Record<string, unknown>;
-
-    const rawPath = typeof candidate.path === 'string' ? candidate.path.trim() : '';
-    if (!rawPath) continue;
-
-    const normalizedPath = normalizeProjectPath(rawPath);
-    if (!normalizedPath) continue;
-
-    const id = createProjectIdFromPath(normalizedPath);
-    if (!id) continue;
-
-    if (seenIds.has(id) || seenPaths.has(normalizedPath)) continue;
-    seenIds.add(id);
-    seenPaths.add(normalizedPath);
-
-    const project: ProjectEntry = {
-      id,
-      path: normalizedPath,
-    };
-
-    if (typeof candidate.label === 'string' && candidate.label.trim().length > 0) {
-      const storedLabel = candidate.label.trim();
-      project.label = storedLabel === legacyAutoProjectLabel(normalizedPath)
-        ? deriveProjectLabel(normalizedPath)
-        : storedLabel;
-    }
-    if (typeof candidate.icon === 'string' && candidate.icon.trim().length > 0) {
-      project.icon = candidate.icon.trim();
-    }
-    if (candidate.iconImage === null) {
-      project.iconImage = null;
-    } else {
-      const iconImage = sanitizeProjectIconImage(candidate.iconImage);
-      if (iconImage) {
-        project.iconImage = iconImage;
-      }
-    }
-    if (typeof candidate.color === 'string' && candidate.color.trim().length > 0) {
-      project.color = candidate.color.trim();
-    }
-    const defaultModel = normalizeDefaultModel(candidate.defaultModel);
-    if (defaultModel) {
-      project.defaultModel = defaultModel;
-      // A variant only means something next to the model it belongs to.
-      if (typeof candidate.defaultVariant === 'string' && candidate.defaultVariant.trim().length > 0) {
-        project.defaultVariant = candidate.defaultVariant.trim();
-      }
-    }
-    if (candidate.iconBackground === null) {
-      project.iconBackground = null;
-    } else {
-      const iconBackground = normalizeIconBackground(candidate.iconBackground);
-      if (iconBackground) {
-        project.iconBackground = iconBackground;
-      }
-    }
-    if (typeof candidate.addedAt === 'number' && Number.isFinite(candidate.addedAt) && candidate.addedAt >= 0) {
-      project.addedAt = candidate.addedAt;
-    }
-    if (typeof candidate.lastOpenedAt === 'number' && Number.isFinite(candidate.lastOpenedAt) && candidate.lastOpenedAt >= 0) {
-      project.lastOpenedAt = candidate.lastOpenedAt;
-    }
-    if (typeof candidate.sidebarCollapsed === 'boolean') {
-      project.sidebarCollapsed = candidate.sidebarCollapsed;
-    }
-    result.push(project);
-  }
-
-  return result;
-};
 
 const readPersistedProjects = (): ProjectEntry[] => {
   try {
@@ -364,7 +256,7 @@ const readPersistedProjects = (): ProjectEntry[] => {
     if (!raw) {
       return [];
     }
-    return sanitizeProjects(JSON.parse(raw));
+    return sanitizeProjects(JSON.parse(raw)) ?? [];
   } catch {
     return [];
   }
@@ -1141,8 +1033,9 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (!response.ok) {
           return { ok: false, error: payload?.error || 'Failed to upload project icon' };
         }
-        if (payload?.settings) {
-          get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
+        const settings = sanitizeWebSettings(payload?.settings);
+        if (settings) {
+          get().synchronizeFromSettings(settings, { adoptActiveProject: false });
         }
         return { ok: true };
       } catch (error) {
@@ -1180,8 +1073,9 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (!response.ok) {
           return { ok: false, error: payload?.error || 'Failed to remove project icon' };
         }
-        if (payload?.settings) {
-          get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
+        const settings = sanitizeWebSettings(payload?.settings);
+        if (settings) {
+          get().synchronizeFromSettings(settings, { adoptActiveProject: false });
         }
         return { ok: true };
       } catch (error) {
@@ -1237,8 +1131,9 @@ export const useProjectsStore = create<ProjectsStore>()(
           return { ok: false, error: payload?.error || 'Failed to discover project icon' };
         }
 
-        if (payload?.settings) {
-          get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
+        const settings = sanitizeWebSettings(payload?.settings);
+        if (settings) {
+          get().synchronizeFromSettings(settings, { adoptActiveProject: false });
         }
 
         return {
@@ -1364,9 +1259,9 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
       const adoptActiveProject = options?.adoptActiveProject !== false;
       const current = get();
-      const incomingProjects = Array.isArray(settings.projects)
-        ? sanitizeProjects(settings.projects)
-        : current.presentationProjects;
+      const sanitizedProjects = sanitizeProjects(settings.projects);
+      // Explicit [] clears. A malformed or absent list has no authority.
+      const incomingProjects: ProjectEntry[] = sanitizedProjects ?? current.presentationProjects;
       const incomingActive = typeof settings.activeProjectId === 'string' && settings.activeProjectId.trim()
         ? settings.activeProjectId.trim()
         : null;

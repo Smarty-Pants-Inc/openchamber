@@ -139,6 +139,17 @@ describe('settings normalization runtime - symlink resolution', () => {
     });
   });
 
+    it('preserves malformed nonempty project lists as non-authoritative', () => {
+      const runtime = createTestRuntime();
+
+      expect(runtime.sanitizeProjects([])).toEqual([]);
+      expect(runtime.sanitizeProjects([{ path: '' }])).toBeUndefined();
+      expect(runtime.normalizeSettingsPaths({ projects: [{ path: '' }] })).toEqual({
+        settings: { projects: [{ path: '' }] },
+        changed: false,
+      });
+    });
+
   describe('normalizeSettingsPaths', () => {
     it('resolves symlinks in lastDirectory', () => {
       const runtime = createTestRuntime({

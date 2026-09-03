@@ -87,10 +87,14 @@ function projectID(directory: string, projects: Project[]) {
 
 async function loadRuntimeProjects(sdk: OpencodeClient): Promise<Project[]> {
   const data = unwrap(await sdk.project.list(), "project.list")
-  return data
+  const projects = data
     .filter((project): project is Project => !!project?.id)
     .filter((project) => !!project.worktree && !project.worktree.includes("opencode-test"))
     .sort((a, b) => cmp(a.id, b.id))
+  if (data.length > 0 && projects.length === 0) {
+    throw new Error("project.list returned no valid worktrees")
+  }
+  return projects
 }
 
 export function createProjectCatalogRefresh(

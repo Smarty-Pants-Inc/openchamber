@@ -918,6 +918,9 @@ export const createSettingsHelpers = (dependencies) => {
 
   const formatSettingsResponse = (settings) => {
     const sanitized = sanitizeSettingsUpdate(settings);
+    if (Array.isArray(settings?.projects)) {
+      sanitized.projects = sanitizeProjects(settings.projects);
+    }
     delete sanitized.managedRemoteTunnelToken;
     const bookmarks = normalizeStringArray(settings.securityScopedBookmarks);
     const hasManagedRemoteTunnelToken = typeof settings?.managedRemoteTunnelToken === 'string' && settings.managedRemoteTunnelToken.trim().length > 0;

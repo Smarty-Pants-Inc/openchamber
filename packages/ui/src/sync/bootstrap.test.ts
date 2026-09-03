@@ -210,6 +210,17 @@ describe("runtime project catalog refresh", () => {
     expect(published).toEqual([[project]])
   })
 
+  test("rejects a nonempty catalog with no valid worktrees", async () => {
+    const failure = new Error("project.list returned no valid worktrees")
+    const refresh = createProjectCatalogRefresh(
+      createSdk({ projectList: async () => ({ data: [{ id: "invalid" } as Project] }) }),
+      () => undefined,
+      { getLiveProjectCatalogCapability: async () => true },
+    )
+
+    await expect(refresh()).rejects.toThrow(failure.message)
+  })
+
   test("marks a gateway catalog as authoritative when its capability is present", async () => {
     const runtimeProjects = [project]
     let liveCatalog: boolean | null = false
