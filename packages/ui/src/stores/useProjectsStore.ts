@@ -51,12 +51,33 @@ type RuntimeProject = Pick<Project, 'worktree'>;
 type ProjectIconRuntimeContext = {
   runtimeKey: string;
   transportEpoch: number;
+  membershipGeneration: number;
+  liveMembershipRequired: boolean;
 };
 
 const isProjectIconRuntimeCurrent = (context: ProjectIconRuntimeContext): boolean => (
   context.runtimeKey === getRuntimeKey()
   && context.transportEpoch === getRuntimeTransportEpoch()
 );
+
+const isProjectIconAuthorityCurrent = (
+  id: string,
+  context: ProjectIconRuntimeContext,
+  get: () => Pick<ProjectsStore, 'runtimeProjectMembershipActive' | 'projectMembershipGeneration' | 'projects'>,
+): boolean => {
+  if (!context.liveMembershipRequired) return true;
+  const current = get();
+  return current.runtimeProjectMembershipActive
+    && current.projectMembershipGeneration === context.membershipGeneration
+    && current.projects.some((project) => project.id === id);
+};
+
+const isProjectIconOperationCurrent = (
+  id: string,
+  context: ProjectIconRuntimeContext,
+  get: () => Pick<ProjectsStore, 'runtimeProjectMembershipActive' | 'projectMembershipGeneration' | 'projects'>,
+): boolean => isProjectIconRuntimeCurrent(context) && isProjectIconAuthorityCurrent(id, context, get);
+
 
 const PROJECT_ICON_RUNTIME_CHANGED_RESULT = {
   ok: false as const,
@@ -74,6 +95,7 @@ interface ProjectsStore {
   manualProjectOrder: string[];
   presentationProjects: ProjectEntry[];
   runtimeProjectMembershipActive: boolean;
+  projectMembershipGeneration: number;
 
   addProject: (path: string, options?: { label?: string; id?: string }) => ProjectEntry | null;
   removeProject: (id: string) => void;
@@ -756,6 +778,11 @@ const materializeLiveProjectPresentation = (
     }
 
     const current = get();
+    if (runtimeContext.liveMembershipRequired
+      && (!current.runtimeProjectMembershipActive
+        || current.projectMembershipGeneration !== runtimeContext.membershipGeneration)) {
+      return false;
+    }
     const project = current.projects.find((project) => project.id === id);
     if (!current.runtimeProjectMembershipActive || !project) {
       return true;
@@ -774,7 +801,7 @@ const materializeLiveProjectPresentation = (
     const settingsSaveState = typeof persistence.getSettingsSaveState === 'function'
       ? persistence.getSettingsSaveState()
       : 'idle';
-    if (!isProjectIconRuntimeCurrent(runtimeContext) || settingsSaveState === 'error') {
+    if (!isProjectIconOperationCurrent(id, runtimeContext, get) || settingsSaveState === 'error') {
       return false;
     }
 
@@ -782,7 +809,10 @@ const materializeLiveProjectPresentation = (
     if (latest.presentationProjects.some((presentation) => presentation.id === id)) {
       return true;
     }
-    const latestProject = latest.projects.find((entry) => entry.id === id) ?? project;
+    const latestProject = latest.projects.find((entry) => entry.id === id);
+    if (!latestProject) {
+      return false;
+    }
     const committedPresentationProjects = [...latest.presentationProjects, latestProject];
     set({ presentationProjects: committedPresentationProjects });
     cacheProjects(committedPresentationProjects, latest.activeProjectId);
@@ -807,6 +837,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     projects: effectiveInitialProjects,
     presentationProjects: effectiveInitialProjects,
     runtimeProjectMembershipActive: false,
+    projectMembershipGeneration: 0,
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
 
@@ -1074,18 +1105,20 @@ export const useProjectsStore = create<ProjectsStore>()(
       const runtimeContext = {
         runtimeKey: getRuntimeKey(),
         transportEpoch: getRuntimeTransportEpoch(),
+        membershipGeneration: get().projectMembershipGeneration,
+        liveMembershipRequired: get().runtimeProjectMembershipActive,
       };
       try {
         const materialized = await materializeLiveProjectPresentation(id, runtimeContext, get, set);
         if (!materialized) {
-          return isProjectIconRuntimeCurrent(runtimeContext)
+          return isProjectIconOperationCurrent(id, runtimeContext, get)
             ? PROJECT_SETTINGS_SAVE_FAILED_RESULT
             : PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
         const dataUrl = await readFileAsDataUrl(file);
         const normalizedDataUrl = dataUrl.replace(/^data:[^;]+;/i, `data:${mime};`);
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
@@ -1097,12 +1130,12 @@ export const useProjectsStore = create<ProjectsStore>()(
           },
           body: JSON.stringify({ dataUrl: normalizedDataUrl }),
         });
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
         const payload = (await response.json().catch(() => null)) as { error?: string; settings?: DesktopSettings } | null;
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
         if (!response.ok) {
@@ -1126,6 +1159,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       const runtimeContext = {
         runtimeKey: getRuntimeKey(),
         transportEpoch: getRuntimeTransportEpoch(),
+        membershipGeneration: get().projectMembershipGeneration,
+        liveMembershipRequired: false,
       };
       try {
         const response = await runtimeFetch(`/api/projects/${encodeURIComponent(id)}/icon`, {
@@ -1159,19 +1194,20 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (isVSCodeProjectsRuntime) {
         return { ok: false, error: 'Custom icons are not supported in this runtime' };
       }
-
       const runtimeContext = {
         runtimeKey: getRuntimeKey(),
         transportEpoch: getRuntimeTransportEpoch(),
+        membershipGeneration: get().projectMembershipGeneration,
+        liveMembershipRequired: get().runtimeProjectMembershipActive,
       };
       try {
         const materialized = await materializeLiveProjectPresentation(id, runtimeContext, get, set);
         if (!materialized) {
-          return isProjectIconRuntimeCurrent(runtimeContext)
+          return isProjectIconOperationCurrent(id, runtimeContext, get)
             ? PROJECT_SETTINGS_SAVE_FAILED_RESULT
             : PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
@@ -1183,7 +1219,7 @@ export const useProjectsStore = create<ProjectsStore>()(
           },
           body: JSON.stringify({ force: options?.force === true }),
         });
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
@@ -1193,7 +1229,7 @@ export const useProjectsStore = create<ProjectsStore>()(
           reason?: string;
           settings?: DesktopSettings;
         } | null;
-        if (!isProjectIconRuntimeCurrent(runtimeContext)) {
+        if (!isProjectIconOperationCurrent(id, runtimeContext, get)) {
           return PROJECT_ICON_RUNTIME_CHANGED_RESULT;
         }
 
@@ -1262,6 +1298,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         projects,
         presentationProjects: projects,
         runtimeProjectMembershipActive: false,
+        projectMembershipGeneration: get().projectMembershipGeneration + 1,
         activeProjectId: nextActiveProjectId,
         manualProjectOrder: [],
       });
@@ -1281,7 +1318,12 @@ export const useProjectsStore = create<ProjectsStore>()(
         const activeProjectId = current.activeProjectId && ids.has(current.activeProjectId)
           ? current.activeProjectId
           : projects[0]?.id ?? null;
-        set({ projects, activeProjectId, runtimeProjectMembershipActive: false });
+        set({
+          projects,
+          activeProjectId,
+          runtimeProjectMembershipActive: false,
+          projectMembershipGeneration: current.projectMembershipGeneration + 1,
+        });
         cacheProjects(projects, activeProjectId);
         applyActiveProjectSelection(projects, current.activeProjectId, activeProjectId);
         return;
@@ -1306,7 +1348,12 @@ export const useProjectsStore = create<ProjectsStore>()(
         || (current.activeProjectId && ids.has(current.activeProjectId)
           ? current.activeProjectId
           : projects[0]?.id ?? null);
-      set({ projects, activeProjectId, runtimeProjectMembershipActive: true });
+      set({
+        projects,
+        activeProjectId,
+        runtimeProjectMembershipActive: true,
+        projectMembershipGeneration: current.projectMembershipGeneration + 1,
+      });
       cacheActiveProjectId(cachedDesiredLiveOnlyActiveId ?? activeProjectId);
       applyActiveProjectSelection(projects, current.activeProjectId, activeProjectId);
     },

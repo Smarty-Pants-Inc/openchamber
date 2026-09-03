@@ -433,6 +433,34 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('does not treat a present all-invalid project catalog as authoritative empty', async () => {
+    getWindow();
+    const syncedSettings: SettingsPayload[] = [];
+    const handleSettingsSynced = (event: Event) => {
+      syncedSettings.push((event as CustomEvent<{ settings: SettingsPayload }>).detail.settings);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+    const previousProjects = JSON.stringify([{ id: 'existing', path: '/existing' }]);
+    localStorage.setItem('projects', previousProjects);
+    registerSettingsApi(async () => ({}), async () => ({
+      // SAFETY: this deliberately exercises the untyped server payload boundary.
+      settings: {
+        projects: [{ path: '' }, { path: 42 }],
+        draftStartersCraftGoalAdded: true,
+        draftStartersScheduleTaskAdded: true,
+      } as unknown as SettingsPayload,
+      source: 'web',
+    }));
+
+    try {
+      await syncDesktopSettings();
+      expect(Object.hasOwn(syncedSettings.at(-1) ?? {}, 'projects')).toBe(true);
+      expect(syncedSettings.at(-1)?.projects).toBe(undefined);
+    } finally {
+      getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    }
+  });
+
   test('preserves an omitted project catalog in a partial settings save response', async () => {
     getWindow();
     const syncedSettings: SettingsPayload[] = [];

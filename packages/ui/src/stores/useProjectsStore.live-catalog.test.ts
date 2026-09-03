@@ -31,6 +31,7 @@ let iconResponsePayload: Record<string, unknown> = { skipped: true }
 let settingsSaveState: 'idle' | 'saving' | 'error' = 'idle'
 let coalesceSettingsWrites = false
 let settingsSaveShouldFail = false
+let revokeMembershipDuringSave = false
 let runtimeFetchStarted: Promise<void> = Promise.resolve()
 let resolveRuntimeFetchStarted: (() => void) | null = null
 
@@ -60,6 +61,10 @@ mock.module('@/lib/persistence', () => ({
   getSettingsSaveState: () => settingsSaveState,
   updateDesktopSettings: (changes: Partial<DesktopSettings>) => {
     settingsWrites.push(changes)
+    if (revokeMembershipDuringSave) {
+      revokeMembershipDuringSave = false
+      useProjectsStore.getState().synchronizeFromRuntimeProjects([], { liveCatalog: false })
+    }
     if (settingsSaveShouldFail) {
       settingsSaveState = 'error'
       return Promise.reject(new Error('settings save failed'))
@@ -159,8 +164,9 @@ describe('live catalog selection and icon materialization', () => {
     iconResponseGate = null
     iconResponseStatus = 200
     iconResponsePayload = { skipped: true }
-    settingsSaveState = 'idle'
     coalesceSettingsWrites = false
+    revokeMembershipDuringSave = false
+    settingsSaveState = 'idle'
     settingsSaveShouldFail = false
     const started = createDeferred<void>()
     runtimeFetchStarted = started.promise
@@ -169,6 +175,7 @@ describe('live catalog selection and icon materialization', () => {
       projects: [],
       presentationProjects: [],
       runtimeProjectMembershipActive: false,
+      projectMembershipGeneration: 0,
       activeProjectId: null,
       manualProjectOrder: [],
     })
@@ -519,6 +526,23 @@ describe('live catalog selection and icon materialization', () => {
 
     expect(result).toEqual({ ok: false, error: 'Failed to save project settings' })
     expect(runtimeFetchCalls).toEqual([])
+    expect(useProjectsStore.getState().presentationProjects.map((entry) => entry.path)).toEqual(['/settings-project'])
+  })
+
+  test('does not commit or route a live-only project after membership authority is lost during save', async () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: 'settings-project', path: '/settings-project' }],
+    })
+    useProjectsStore.getState().synchronizeFromRuntimeProjects([{ worktree: '/live-project' }], { liveCatalog: true })
+    const project = useProjectsStore.getState().projects[0]
+    if (!project) throw new Error('live project was not created')
+    revokeMembershipDuringSave = true
+
+    const result = await useProjectsStore.getState().discoverProjectIcon(project.id)
+
+    expect(result).toEqual({ ok: false, error: 'Runtime changed' })
+    expect(runtimeFetchCalls).toEqual([])
+    expect(useProjectsStore.getState().runtimeProjectMembershipActive).toBe(false)
     expect(useProjectsStore.getState().presentationProjects.map((entry) => entry.path)).toEqual(['/settings-project'])
   })
 

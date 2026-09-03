@@ -1115,9 +1115,8 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
     result.desktopMacMenuBarEnabled = candidate.desktopMacMenuBarEnabled;
   }
 
-  const projects = sanitizeProjects(candidate.projects);
-  if (projects) {
-    result.projects = projects;
+  if (Array.isArray(candidate.projects)) {
+    result.projects = sanitizeProjects(candidate.projects);
   }
   if (typeof candidate.activeProjectId === 'string' && candidate.activeProjectId.length > 0) {
     result.activeProjectId = candidate.activeProjectId;
@@ -1927,14 +1926,16 @@ export const syncDesktopSettings = async (options?: { adoptWorkspace?: boolean }
     const shouldSeedSidebarShowRecentSection = settings.sidebarShowRecentSection === undefined;
     const authoritativeSettings = materializeAuthoritativeUiSettings({
       ...settings,
-      // A successful settings load is a complete bootstrap snapshot. The
-      // persisted catalog defaults to empty when older settings omit it.
-      projects: settings.projects ?? [],
+      // A successful settings load is a complete bootstrap snapshot. Only
+      // truly omitted catalogs default to empty.
+      projects: Object.hasOwn(settings, 'projects') ? settings.projects : [],
     });
-    try {
-      persistToLocalStorage(settings);
-    } catch (error) {
-      console.warn('persistToLocalStorage failed:', error);
+    if (!(Object.hasOwn(settings, 'projects') && settings.projects === undefined)) {
+      try {
+        persistToLocalStorage(settings);
+      } catch (error) {
+        console.warn('persistToLocalStorage failed:', error);
+      }
     }
     if (shouldSeedAutoSaveEnabled) {
       authoritativeSettings.autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
