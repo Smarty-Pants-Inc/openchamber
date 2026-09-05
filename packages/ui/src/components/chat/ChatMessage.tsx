@@ -14,6 +14,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { cn } from '@/lib/utils';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
 import { useChatSessionForkSupported } from './ChatSessionCapabilities';
+import { isCodexManagedSession } from '@/lib/sessionReviewMetadata';
 
 import MessageBody from './message/MessageBody';
 import type { AgentMentionInfo } from './message/types';
@@ -34,6 +35,7 @@ import { areOptionalRenderRelevantMessagesEqual, areRenderRelevantMessagesEqual,
 import type { ReviewTransferDirection } from '@/lib/reviewFlow';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
+import { useSession } from '@/sync/sync-context';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
 import { setContextObligatoryMessage } from '@/sync/session-actions';
@@ -205,6 +207,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const showStickyInlineHoverRow = isUser && !isMobile && stickyUserHeader && !useExternalUserActionsRow;
 
     const sessionId = message.info.sessionID;
+    const canRevertSession = !isCodexManagedSession(useSession(sessionId));
     const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
 
     // Keep non-active-turn rows detached from context-store churn.
@@ -923,7 +926,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
-                                                onRevert={handleRevert}
+                                                onRevert={canRevertSession ? handleRevert : undefined}
                                                 onFork={isUser && sessionForkSupported ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}
@@ -957,7 +960,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
-                                                onRevert={handleRevert}
+                                                onRevert={canRevertSession ? handleRevert : undefined}
                                                 onFork={isUser && sessionForkSupported ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}

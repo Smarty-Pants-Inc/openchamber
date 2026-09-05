@@ -1,4 +1,4 @@
-export type ManagedSessionBackend = 'pi' | 'omp';
+export type ManagedSessionBackend = 'pi' | 'omp' | 'codex';
 export type SessionBackendClass = 'native' | ManagedSessionBackend;
 
 export type SessionBackendPolicySession = {

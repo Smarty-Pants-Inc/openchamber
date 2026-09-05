@@ -1,10 +1,11 @@
 import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
-import { opencodeClient } from '@/lib/opencode/client';
-import { ensureGlobalSessionsLoaded, useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { ensureGlobalSessionsLoaded, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getAllSyncSessions } from '@/sync/sync-refs';
 import { useUIStore } from '@/stores/useUIStore';
+import { isReadOnlyCodexSubagent } from '@/lib/sessionReviewMetadata';
+import { archiveSessions, deleteSessions } from '@/sync/session-actions';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTO_DELETE_KEEP_RECENT = 5;
@@ -23,7 +24,7 @@ type BuildAutoDeleteCandidatesOptions = {
   now?: number;
 };
 
-const buildAutoDeleteCandidates = ({
+export const buildAutoDeleteCandidates = ({
   sessions,
   currentSessionId,
   cutoffDays,
@@ -33,11 +34,11 @@ const buildAutoDeleteCandidates = ({
   if (!Array.isArray(sessions) || cutoffDays <= 0) {
     return [];
   }
-
   const cutoffTime = now - cutoffDays * DAY_MS;
-  const sorted = [...sessions].sort(
-    (a, b) => getSessionLastActivity(b) - getSessionLastActivity(a)
-  );
+
+  const sorted = sessions
+    .filter((session) => !isReadOnlyCodexSubagent(session))
+    .sort((a, b) => getSessionLastActivity(b) - getSessionLastActivity(a));
   const protectedIds = new Set(sorted.slice(0, keepRecent).map((session) => session.id));
 
   return sorted
@@ -144,36 +145,12 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
       runningRef.current = true;
       setIsRunning(true);
       try {
-        const sessionMap = new Map(sessions.map((session) => [session.id, session]));
-        const completedIds: string[] = [];
-        const failedIds: string[] = [];
-
-        for (const id of candidateIds) {
-          const session = sessionMap.get(id);
-          const directory = session ? resolveGlobalSessionDirectory(session) : null;
-          if (!directory) {
-            failedIds.push(id);
-            continue;
-          }
-
-          try {
-            if (sessionRetentionAction === 'archive') {
-              await opencodeClient.updateSession(id, { time: { archived: Date.now() } }, directory);
-            } else {
-              await opencodeClient.deleteSession(id, directory);
-            }
-            completedIds.push(id);
-          } catch {
-            failedIds.push(id);
-          }
-        }
-
         if (sessionRetentionAction === 'archive') {
-          useGlobalSessionsStore.getState().archiveSessions(completedIds);
-        } else {
-          useGlobalSessionsStore.getState().removeSessions(completedIds);
+          const { archivedIds, failedIds } = await archiveSessions(candidateIds);
+          return { completedIds: archivedIds, failedIds, action: sessionRetentionAction };
         }
-        return { completedIds, failedIds, action: sessionRetentionAction };
+        const { deletedIds, failedIds } = await deleteSessions(candidateIds);
+        return { completedIds: deletedIds, failedIds, action: sessionRetentionAction };
       } finally {
         runningRef.current = false;
         setIsRunning(false);

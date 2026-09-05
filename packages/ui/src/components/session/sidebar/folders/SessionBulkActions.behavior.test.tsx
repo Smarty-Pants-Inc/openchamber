@@ -76,4 +76,68 @@ describe('SessionBulkActions public behavior', () => {
       dom.restore();
     }
   });
+
+  test('selects only manageable rows in the first manageable scope with Ctrl+A', async () => {
+    const dom = installHookTestDom();
+    const root = createRoot(dom.container);
+    const originalSelection = useSessionMultiSelectStore.getState();
+    useSessionMultiSelectStore.setState({
+      enabled: true,
+      selectedIds: new Set(),
+      scopeKey: null,
+      anchorId: null,
+    });
+    const originalCss = Object.getOwnPropertyDescriptor(globalThis, 'CSS');
+    Object.defineProperty(globalThis, 'CSS', {
+      configurable: true,
+      value: { escape: (value: string) => value },
+    });
+
+    try {
+      await act(async () => root.render(
+        <I18nProvider>
+          <SessionBulkActions
+            getFolderScopesForProject={() => []}
+            isInlineEditing={false}
+            startFolderRename={() => undefined}
+          />
+        </I18nProvider>,
+      ));
+
+      const row = (id: string, scope: string, manageable: boolean) => ({
+        getAttribute: (name: string) => ({
+          'data-session-row': id,
+          'data-session-scope': scope,
+          'data-session-manage-retention': manageable ? '1' : '0',
+        })[name] ?? null,
+      }) as Element;
+      Object.defineProperty(document, 'querySelectorAll', {
+        configurable: true,
+        value: () => [
+          row('read-only-b', 'project-b', false),
+          row('mutable-a', 'project-a', true),
+          row('mutable-b', 'project-b', true),
+        ],
+      });
+
+      const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent || '');
+      const keydown = new Event('keydown', { bubbles: true });
+      Object.defineProperties(keydown, {
+        key: { value: 'a' },
+        ctrlKey: { value: !isMac },
+        metaKey: { value: isMac },
+      });
+      await act(async () => window.dispatchEvent(keydown));
+
+      expect([...useSessionMultiSelectStore.getState().selectedIds]).toEqual(['mutable-a']);
+      expect(useSessionMultiSelectStore.getState().scopeKey).toBe('project-a');
+    } finally {
+      await act(async () => root.unmount());
+      useSessionMultiSelectStore.setState(originalSelection, true);
+      bulkActionCapture = null;
+      if (originalCss) Object.defineProperty(globalThis, 'CSS', originalCss);
+      else Reflect.deleteProperty(globalThis, 'CSS');
+      dom.restore();
+    }
+  });
 });

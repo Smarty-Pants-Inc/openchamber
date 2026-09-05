@@ -9,7 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessageRecords } from '@/sync/sync-context';
+import { useSession, useSessionMessageRecords } from '@/sync/sync-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
@@ -17,6 +17,7 @@ import { getFullText, getMessagePreview } from './lib/messagePreview';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useChatSessionForkSupported } from './ChatSessionCapabilities';
+import { isCodexManagedSession } from '@/lib/sessionReviewMetadata';
 
 interface TimelineDialogProps {
     open: boolean;
@@ -42,6 +43,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     const { t } = useI18n();
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const messages = useSessionMessageRecords(currentSessionId ?? '');
+    const canRevertSession = !isCodexManagedSession(useSession(currentSessionId));
     const revertToMessage = useSessionUIStore((state) => state.revertToMessage);
     const forkFromMessage = useSessionUIStore((state) => state.forkFromMessage);
     const { isMobile, isTablet } = useDeviceInfo();
@@ -357,22 +359,24 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
 
                                         <div className="flex-shrink-0 h-5 flex items-center mr-2">
                                             <div className={cn("gap-1", alwaysShowActions ? "flex" : "hidden group-hover:flex")}>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                await revertToMessage(currentSessionId, message.info.id);
-                                                                onOpenChange(false);
-                                                            }}
-                                                        >
-                                                            <Icon name="arrow-go-back" className="h-4 w-4" />
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
-                                                </Tooltip>
+                                                {canRevertSession ? (
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    await revertToMessage(currentSessionId, message.info.id);
+                                                                    onOpenChange(false);
+                                                                }}
+                                                            >
+                                                                <Icon name="arrow-go-back" className="h-4 w-4" />
+                                                            </button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
+                                                    </Tooltip>
+                                                ) : null}
 
                                                 {sessionForkSupported ? (
                                                     <Tooltip>
