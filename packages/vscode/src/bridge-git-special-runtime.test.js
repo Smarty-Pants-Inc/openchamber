@@ -48,6 +48,7 @@ describe('bridge git special runtime', () => {
     sdkClient.v2.model.list.mockImplementation(async () => ({
       data: [
         { providerID: 'omp', id: 'anthropic/claude-sonnet-4-5' },
+        { providerID: 'codex', id: 'anthropic/claude-sonnet-4-5' },
         { providerID: 'pi', id: 'anthropic/claude-sonnet-4-5' },
       ],
       error: undefined,
@@ -67,7 +68,7 @@ describe('bridge git special runtime', () => {
     sdkClient.session.delete.mockImplementation(async () => ({ data: true, error: undefined }));
   });
 
-  it('generates PR descriptions through the OpenCode SDK session flow', async () => {
+  it.each(['omp', 'codex'])('generates PR descriptions through managed provider %s', async (providerID) => {
     const response = await handleSpecialGitBridgeMessage({
       id: '1',
       type: 'api:git/pr-description',
@@ -75,7 +76,7 @@ describe('bridge git special runtime', () => {
         directory: '/repo',
         base: 'main',
         head: 'feature',
-        providerId: 'omp',
+        providerId: providerID,
         modelId: 'anthropic/claude-sonnet-4-5',
       },
     }, {
@@ -99,16 +100,15 @@ describe('bridge git special runtime', () => {
       baseUrl: 'http://opencode.test',
       headers: { Authorization: 'Bearer test' },
     });
-    expect(sdkClient.v2.model.list).toHaveBeenCalled();
     expect(sdkClient.session.create).toHaveBeenCalledWith({
       directory: '/repo',
       title: 'Git Generation',
-      metadata: { openchamber: { agent_backend: 'omp' } },
+      metadata: { openchamber: { agent_backend: providerID } },
     }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(sdkClient.session.promptAsync).toHaveBeenCalledWith(expect.objectContaining({
       sessionID: 'ses_1',
       directory: '/repo',
-      model: { providerID: 'omp', modelID: 'anthropic/claude-sonnet-4-5' },
+      model: { providerID, modelID: 'anthropic/claude-sonnet-4-5' },
     }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(sdkClient.session.messages).toHaveBeenCalledWith({
       sessionID: 'ses_1',

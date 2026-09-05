@@ -22,6 +22,7 @@ import { formatSessionWorktreeBadge } from '@/sync/session-worktree-contract';
 import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionMessagesResolved } from '@/sync/sync-context';
 import { useDirectoryStore as useAppDirectoryStore } from '@/stores/useDirectoryStore';
 import { isChatDirectoryForHome } from '@/lib/chatDirectories';
+import { isReadOnlyCodexSubagent, isSessionShareSupported } from '@/lib/sessionReviewMetadata';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
@@ -95,7 +96,7 @@ const HeaderIconActionButton = React.memo(function HeaderIconActionButton({
   className,
   Icon: iconName,
   iconClassName,
-  pressed = false,
+  pressed,
 }: HeaderIconActionButtonProps) {
   if (!visible) {
     return null;
@@ -428,7 +429,8 @@ type HeaderSessionSnapshot = {
   slug: string | null;
   shareUrl: string | null;
   parentId: string | null;
-  providerId: string | null;
+  canShare: boolean;
+  canManageRetention: boolean;
 };
 
 export const Header: React.FC = () => {
@@ -455,7 +457,7 @@ export const Header: React.FC = () => {
        const session = [...state.activeSessions, ...state.archivedSessions]
          .find((candidate) => candidate.id === currentSessionId);
       if (!session) return null;
-      const record = session as typeof session & { directory?: string | null; slug?: string | null; model?: { providerID?: string } };
+      const record = session as typeof session & { directory?: string | null; slug?: string | null };
       return {
         title: session.title ?? null,
         directory: record.directory ?? null,
@@ -463,7 +465,8 @@ export const Header: React.FC = () => {
         slug: record.slug ?? null,
         shareUrl: session.share?.url ?? null,
         parentId: session.parentID ?? null,
-        providerId: record.model?.providerID ?? null,
+        canShare: isSessionShareSupported(session),
+        canManageRetention: !isReadOnlyCodexSubagent(session),
       };
     },
     [currentSessionId],
@@ -937,10 +940,10 @@ export const Header: React.FC = () => {
 
 
   const beginHeaderSessionRename = React.useCallback(() => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || currentSession?.canManageRetention !== true) return;
     setHeaderSessionTitleDraft(currentSession?.title?.trim() || currentSessionTitle);
     setIsRenamingHeaderSession(true);
-  }, [currentSession?.title, currentSessionId, currentSessionTitle]);
+  }, [currentSession?.canManageRetention, currentSession?.title, currentSessionId, currentSessionTitle]);
 
   const beginHeaderSessionRenameRef = React.useRef(beginHeaderSessionRename);
   beginHeaderSessionRenameRef.current = beginHeaderSessionRename;
@@ -960,13 +963,16 @@ export const Header: React.FC = () => {
   }, [currentSessionId]);
 
   const saveHeaderSessionRename = React.useCallback(async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || currentSession?.canManageRetention !== true) {
+      setIsRenamingHeaderSession(false);
+      return;
+    }
     const title = headerSessionTitleDraft.trim();
-    if (title && title !== currentSession?.title?.trim()) {
+    if (title && title !== currentSession.title?.trim()) {
       await updateSessionTitle(currentSessionId, title);
     }
     setIsRenamingHeaderSession(false);
-  }, [currentSession?.title, currentSessionId, headerSessionTitleDraft, updateSessionTitle]);
+  }, [currentSession?.canManageRetention, currentSession?.title, currentSessionId, headerSessionTitleDraft, updateSessionTitle]);
 
   React.useEffect(() => {
     if (!isRenamingHeaderSession) return;
@@ -1439,7 +1445,7 @@ export const Header: React.FC = () => {
 
   useKeybinds({
     rename_current_session: () => {
-      if (!currentSessionId || isMobile) return false;
+      if (!currentSessionId || isMobile || currentSession?.canManageRetention !== true) return false;
       beginHeaderSessionRename();
     },
     toggle_services_menu: () => {
@@ -1491,13 +1497,16 @@ export const Header: React.FC = () => {
   const renderSessionTabMenu = React.useCallback(({ session, isActive, select, closeOtherTabs, components }: SessionTabMenuArgs) => {
     const { Item, Separator } = components;
     const shareUrl = session.share?.url ?? null;
-    const canShareSession = (session as typeof session & { model?: { providerID?: string } }).model?.providerID !== 'omp';
+    const canShareSession = isSessionShareSupported(session);
+    const canManageRetention = !isReadOnlyCodexSubagent(session);
     const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
     return (
       <>
-        <Item onClick={() => { if (!isActive) select(); pendingHeaderRenameRef.current = session.id; }}>
-          <Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}
-        </Item>
+        {canManageRetention ? (
+          <Item onClick={() => { if (!isActive) select(); pendingHeaderRenameRef.current = session.id; }}>
+            <Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}
+          </Item>
+        ) : null}
         <Item onClick={() => copySessionIdFor(session.id)}>
           <Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}
         </Item>
@@ -1548,13 +1557,17 @@ export const Header: React.FC = () => {
         <Item onClick={closeOtherTabs}>
           <Icon name="close-circle" className="mr-2 size-4" />{t('header.sessionTabs.closeOtherTabs')}
         </Item>
-        <Separator />
-        <Item onClick={() => setPendingHeaderRetentionAction({ action: 'archive', sessionId: session.id })}>
-          <Icon name="inbox-archive" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.archive')}
-        </Item>
-        <Item className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction({ action: 'delete', sessionId: session.id })}>
-          <Icon name="delete-bin" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.delete')}
-        </Item>
+        {canManageRetention ? (
+          <>
+            <Separator />
+            <Item onClick={() => setPendingHeaderRetentionAction({ action: 'archive', sessionId: session.id })}>
+              <Icon name="inbox-archive" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.archive')}
+            </Item>
+            <Item className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction({ action: 'delete', sessionId: session.id })}>
+              <Icon name="delete-bin" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.delete')}
+            </Item>
+          </>
+        ) : null}
       </>
     );
   }, [copySessionIdFor, copySessionShareUrl, currentSession, exportCurrentSession, isChatContext, isCurrentSessionActive, isCurrentSessionMovingToWorktree, isVSCode, moveCurrentSessionToWorktree, sessionDirectory, shareSessionFor, t, unshareSessionFor]);
@@ -1705,10 +1718,10 @@ export const Header: React.FC = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
-                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = currentSessionId; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem>
+                    {currentSession?.canManageRetention ? <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = currentSessionId; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem> : null}
                     <DropdownMenuItem onClick={() => currentSessionId && copySessionIdFor(currentSessionId)}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {currentSession?.providerId !== 'omp' ? (currentSession?.shareUrl ? (
+                    {currentSession?.canShare ? (currentSession.shareUrl ? (
                       <>
                         <DropdownMenuItem onClick={() => copySessionShareUrl(currentSession?.shareUrl)}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyLink')}</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { if (currentSessionId) void unshareSessionFor(currentSessionId); }}><Icon name="link-unlink-m" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.unshare')}</DropdownMenuItem>
@@ -1740,9 +1753,13 @@ export const Header: React.FC = () => {
                         </TooltipContent>
                       </Tooltip>
                     ) : null}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'archive', sessionId: currentSessionId }); }}><Icon name="inbox-archive" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.archive')}</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'delete', sessionId: currentSessionId }); }}><Icon name="delete-bin" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.delete')}</DropdownMenuItem>
+                    {currentSession?.canManageRetention ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'archive', sessionId: currentSessionId }); }}><Icon name="inbox-archive" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.archive')}</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'delete', sessionId: currentSessionId }); }}><Icon name="delete-bin" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.delete')}</DropdownMenuItem>
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}

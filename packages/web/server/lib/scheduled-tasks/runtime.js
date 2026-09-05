@@ -564,7 +564,7 @@ export const createScheduledTasksRuntime = (deps) => {
     const sessionResponse = await client.session.create({
       directory: projectPath,
       title,
-      metadata: task.execution.providerID === 'omp'
+      metadata: task.execution.providerID === 'omp' || task.execution.providerID === 'codex'
         ? { openchamber: { agent_backend: task.execution.providerID } }
         : undefined,
     });

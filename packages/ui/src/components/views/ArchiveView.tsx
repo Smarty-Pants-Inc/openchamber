@@ -13,6 +13,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { formatSessionDateLabel, normalizePath } from '@/components/session/sidebar/utils';
 import { useShallow } from 'zustand/react/shallow';
+import { isReadOnlyCodexSubagent } from '@/lib/sessionReviewMetadata';
 
 type DirectoryBucket = {
   directory: string;
@@ -156,15 +157,18 @@ export function ArchiveView(): React.ReactNode {
               selectedDirectory === null,
               () => selectDirectory(null),
             )}
-            {buckets.map((bucket) => renderDirectoryItem(
-              bucket.directory || '__none__',
-              bucket.label,
-              bucket.sessions.length,
-              selectedDirectory === bucket.directory,
-              () => selectDirectory(bucket.directory),
-              bucket.directory || undefined,
-              bucket.sessions,
-            ))}
+            {buckets.map((bucket) => {
+              const deletableSessions = bucket.sessions.filter((session) => !isReadOnlyCodexSubagent(session));
+              return renderDirectoryItem(
+                bucket.directory || '__none__',
+                bucket.label,
+                bucket.sessions.length,
+                selectedDirectory === bucket.directory,
+                () => selectDirectory(bucket.directory),
+                bucket.directory || undefined,
+                deletableSessions.length > 0 ? deletableSessions : undefined,
+              );
+            })}
           </div>
         </div>
 
@@ -201,6 +205,7 @@ export function ArchiveView(): React.ReactNode {
                 </div>
               ) : visibleSessions.map((session) => {
                 const sessionDirectory = normalizePath(resolveGlobalSessionDirectory(session)) ?? '';
+                const canManageRetention = !isReadOnlyCodexSubagent(session);
                 const directoryLabel = sessionDirectory
                   ? (formatDirectoryName(sessionDirectory, homeDirectory) || sessionDirectory)
                   : null;
@@ -229,28 +234,32 @@ export function ArchiveView(): React.ReactNode {
                     <span className="flex-shrink-0 text-[0.72rem] text-muted-foreground/75">
                       {formatSessionDateLabel(session.time?.archived ?? session.time?.updated ?? session.time?.created ?? Date.now())}
                     </span>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        restoreSession(session);
-                      }}
-                      className="absolute right-7 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={t('sessions.archivePage.restoreSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
-                    >
-                      <Icon name="inbox-unarchive" className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        sessionEvents.requestDelete({ sessions: [session], mode: 'session' });
-                      }}
-                      className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-destructive group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={t('sessions.archivePage.deleteSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
-                    >
-                      <Icon name="delete-bin" className="h-3.5 w-3.5" />
-                    </button>
+                    {canManageRetention ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            restoreSession(session);
+                          }}
+                          className="absolute right-7 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                          aria-label={t('sessions.archivePage.restoreSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
+                        >
+                          <Icon name="inbox-unarchive" className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            sessionEvents.requestDelete({ sessions: [session], mode: 'session' });
+                          }}
+                          className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-destructive group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                          aria-label={t('sessions.archivePage.deleteSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
+                        >
+                          <Icon name="delete-bin" className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 );
               })}

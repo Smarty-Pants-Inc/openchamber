@@ -45,6 +45,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { matchesRankQuery, rankByQuery } from '@/lib/search/fuzzySearch';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
+import { isReadOnlyCodexSubagent } from '@/lib/sessionReviewMetadata';
 import { cn } from '@/lib/utils';
 import {
   listProjectWorktrees,
@@ -435,6 +436,7 @@ const SessionRow: React.FC<{
   onToggleChildren?: () => void;
   onSelect: () => void;
   /** Swipe-left actions. When omitted, the row is a plain non-swipeable row. */
+  canManageRetention?: boolean;
   revealed?: boolean;
   onRevealedChange?: (revealed: boolean) => void;
   confirmingDelete?: boolean;
@@ -454,6 +456,7 @@ const SessionRow: React.FC<{
   expanded = false,
   onToggleChildren,
   onSelect,
+  canManageRetention = true,
   revealed = false,
   onRevealedChange,
   confirmingDelete = false,
@@ -468,7 +471,7 @@ const SessionRow: React.FC<{
   const { t } = useI18n();
   const time = formatRelativeShort(getSessionTimestamp(session));
   const title = session.title?.trim() || t('mobile.sessions.untitled');
-  const swipeEnabled = Boolean(onRevealedChange && onArchive);
+  const swipeEnabled = canManageRetention && Boolean(onRevealedChange && onArchive);
   // Live indicators, same conventions as the desktop sidebar: busy/retry →
   // spinner; unseen activity on a non-active row → attention dot.
   const liveStatus = useGlobalSessionStatus(session.id);
@@ -631,7 +634,7 @@ const SessionRow: React.FC<{
             )}
           </button>
         ) : null}
-        {renaming && onSubmitRename && onCancelRename ? (
+        {canManageRetention && renaming && onSubmitRename && onCancelRename ? (
           <SessionRenameForm
             initialTitle={title}
             indent={indent}
@@ -1190,6 +1193,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
           <SessionRow
             session={session}
             active={currentSessionId === session.id}
+            canManageRetention={!isReadOnlyCodexSubagent(session)}
             indent={rowIndent}
             hasChildren={hasChildren}
             expanded={expanded}
@@ -1202,8 +1206,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             onRequestDelete={() => setConfirmingDeleteSessionId(session.id)}
             onConfirmDelete={() => void handleConfirmDelete(session)}
             renaming={renamingSessionId === session.id}
-            onRequestRename={() => handleRequestRename(session.id)}
-            onSubmitRename={(nextTitle) => void handleSubmitRename(session.id, nextTitle)}
+            onRequestRename={() => handleRequestRename(session)}
+            onSubmitRename={(nextTitle) => void handleSubmitRename(session, nextTitle)}
             onCancelRename={() => setRenamingSessionId(null)}
           />
           {hasChildren && expanded
@@ -1275,6 +1279,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   };
 
   const handleArchive = async (session: Session) => {
+    if (isReadOnlyCodexSubagent(session)) return;
     setRevealedSessionId(null);
     setConfirmingDeleteSessionId(null);
     const ok = await archiveSession(session.id);
@@ -1283,6 +1288,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   };
 
   const handleConfirmDelete = async (session: Session) => {
+    if (isReadOnlyCodexSubagent(session)) return;
     setRevealedSessionId(null);
     setConfirmingDeleteSessionId(null);
     const ok = await deleteSession(session.id);
@@ -1290,16 +1296,18 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     else toast.error(t('sessions.sidebar.session.delete.error'));
   };
 
-  const handleRequestRename = (sessionId: string) => {
+  const handleRequestRename = (session: Session) => {
+    if (isReadOnlyCodexSubagent(session)) return;
     setRevealedSessionId(null);
     setConfirmingDeleteSessionId(null);
-    setRenamingSessionId(sessionId);
+    setRenamingSessionId(session.id);
   };
 
-  const handleSubmitRename = async (sessionId: string, title: string) => {
+  const handleSubmitRename = async (session: Session, title: string) => {
+    if (isReadOnlyCodexSubagent(session)) return;
     setRenamingSessionId(null);
     try {
-      await updateSessionTitle(sessionId, title);
+      await updateSessionTitle(session.id, title);
     } catch {
       toast.error(t('mobile.sessions.renameError'));
     }
