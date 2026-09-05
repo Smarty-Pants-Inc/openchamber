@@ -1825,17 +1825,35 @@ export async function archiveSessions(
  */
 const UNARCHIVED_TIMESTAMP = 0
 
-/**
- * Restore one archived session back to the active list.
- *
- * Same contract as `archiveSession`: waits for server confirmation before
- * reconciling stores, and rejects stale runtimes so a response produced by a
- * previous runtime cannot mutate the current runtime's state. The global
- * session cache is updated directly (the sidebar reads active/archived
- * buckets from it); the live directory store is re-populated by the
- * authoritative `session.updated` event the server publishes for the update.
- */
-export async function unarchiveSession(sessionId: string, expectedRuntimeKey = getRuntimeKey()): Promise<boolean> {
+function finalizeConfirmedOwnerRestore(
+  ownerId: string,
+  owner: Session,
+  ownerDirectory: string | undefined,
+  plan: SessionMutationPlan,
+  expectedRuntimeKey: string,
+): boolean {
+  if (isStaleRuntime(expectedRuntimeKey)) return false
+  const global = useGlobalSessionsStore.getState()
+  global.upsertSession(owner)
+  if (ownerDirectory) registerSessionDirectory(ownerId, ownerDirectory)
+  for (const coveredId of plan.coveredIdsByOwner.get(ownerId) ?? []) {
+    const covered = getGlobalSessionSnapshot(coveredId)
+    if (!covered) continue
+    global.upsertSession({
+      ...covered,
+      time: { ...(covered.time ?? {}), archived: UNARCHIVED_TIMESTAMP },
+    })
+    const coveredDirectory = getSessionDirectory(coveredId)
+    if (coveredDirectory) registerSessionDirectory(coveredId, coveredDirectory)
+  }
+  return true
+}
+
+async function unarchiveSessionWithPlan(
+  sessionId: string,
+  plan: SessionMutationPlan,
+  expectedRuntimeKey: string,
+): Promise<boolean> {
   if (isStaleRuntime(expectedRuntimeKey)) return false
   const sessionDirectory = getSessionDirectory(sessionId)
   try {
@@ -1847,13 +1865,27 @@ export async function unarchiveSession(sessionId: string, expectedRuntimeKey = g
     if (restored.time?.archived) {
       throw new Error("session.update failed: server kept the session archived")
     }
-    useGlobalSessionsStore.getState().upsertSession(restored)
-    if (sessionDirectory) registerSessionDirectory(sessionId, sessionDirectory)
-    return true
+    return finalizeConfirmedOwnerRestore(sessionId, restored, sessionDirectory, plan, expectedRuntimeKey)
   } catch (error) {
     console.error("[session-actions] unarchiveSession failed", error)
     return false
   }
+}
+
+/**
+ * Restore one archived session back to the active list.
+ *
+ * Same contract as `archiveSession`: waits for server confirmation before
+ * reconciling stores, and rejects stale runtimes so a response produced by a
+ * previous runtime cannot mutate the current runtime's state. The global
+ * session cache is updated directly (the sidebar reads active/archived
+ * buckets from it); the live directory store is re-populated by the
+ * authoritative `session.updated` event the server publishes for the update.
+ */
+export async function unarchiveSession(sessionId: string, expectedRuntimeKey = getRuntimeKey()): Promise<boolean> {
+  const plan = planSessionMutations([sessionId])
+  if (plan.blocked) return false
+  return unarchiveSessionWithPlan(sessionId, plan, expectedRuntimeKey)
 }
 
 export type UnarchiveSessionsOptions = {
@@ -1865,33 +1897,30 @@ export type UnarchiveSessionsOptions = {
 }
 
 /**
- * Restore several archived sessions sequentially, preserving partial results.
- *
- * One failed session never blocks or erases the others: it is reported in
- * `failedIds` while the remaining IDs are still attempted. When
- * `expectedRuntimeKey` is supplied and the runtime changes mid-batch, the
- * already-confirmed sessions stay in `restoredIds` and every ID that was not
- * confirmed on the captured runtime is reported in `failedIds`, so callers keep
- * showing truthful partial-failure feedback.
+ * Restore several archived sessions sequentially after an atomic read-only
+ * preflight. Selected mutable owners cover their known read-only Codex
+ * descendants while sending only owner PATCH requests.
  */
 export async function unarchiveSessions(
   ids: string[],
   options?: UnarchiveSessionsOptions,
 ): Promise<{ restoredIds: string[]; failedIds: string[] }> {
-  const restoredIds: string[] = []
-  const failedIds: string[] = []
-  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const plan = planSessionMutations(ids)
+  if (plan.blocked) return { restoredIds: [], failedIds: plan.requestedIds }
 
-  for (const [index, id] of ids.entries()) {
-    if (isStaleRuntime(expectedRuntimeKey)) {
-      failedIds.push(...ids.slice(index))
-      break
-    }
-    if (await unarchiveSession(id, expectedRuntimeKey)) restoredIds.push(id)
-    else failedIds.push(id)
+  const expectedRuntimeKey = options?.expectedRuntimeKey ?? getRuntimeKey()
+  const restored = new Set<string>()
+  for (const id of plan.directIds) {
+    if (isStaleRuntime(expectedRuntimeKey)) break
+    if (!await unarchiveSessionWithPlan(id, plan, expectedRuntimeKey)) continue
+    restored.add(id)
+    for (const coveredId of plan.coveredIdsByOwner.get(id) ?? []) restored.add(coveredId)
   }
 
-  return { restoredIds, failedIds }
+  return {
+    restoredIds: plan.requestedIds.filter((id) => restored.has(id)),
+    failedIds: plan.requestedIds.filter((id) => !restored.has(id)),
+  }
 }
 
 export async function updateSessionTitle(sessionId: string, title: string): Promise<void> {

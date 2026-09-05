@@ -1357,6 +1357,35 @@ describe("session restore (unarchive)", () => {
     expect(registeredSessionDirectories).toEqual([{ sessionID: "session-a", directory: "/test/project" }])
   })
 
+  test("restores owner-covered Codex descendants locally and sends only the owner request", async () => {
+    const rootSession = codexSession("session-a")
+    const childSession = codexSession("session-child", rootSession.id)
+    globalArchivedSessions = [rootSession, childSession]
+    sessionUpdateResult = {
+      data: { ...rootSession, time: { ...rootSession.time, archived: 0 } },
+    }
+    const source = createStore({}, { session: [] })
+    const { unarchiveSessions, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", source]]), () => "/test/project")
+
+    const result = await unarchiveSessions([rootSession.id])
+
+    expect(result).toEqual({ restoredIds: [rootSession.id, childSession.id], failedIds: [] })
+    expect(replyCalls.filter((call) => call.method === "session.update").map((call) => call.params.sessionID))
+      .toEqual([rootSession.id])
+    expect((globalUpsertedSessions as Session[]).map((session) => ({
+      id: session.id,
+      archived: session.time?.archived,
+    }))).toEqual([
+      { id: rootSession.id, archived: 0 },
+      { id: childSession.id, archived: 0 },
+    ])
+    expect(registeredSessionDirectories).toEqual([
+      { sessionID: rootSession.id, directory: "/test/project" },
+      { sessionID: childSession.id, directory: "/test/project" },
+    ])
+  })
+
   test("fails when the server keeps the session archived", async () => {
     sessionUpdateResult = {
       data: { id: "session-a", directory: "/test/project", time: { created: 1, archived: 2 } } as Session,
@@ -1588,14 +1617,15 @@ describe("updateSessionTitle live state", () => {
     expect(sessionStore.getState().session[0].title).toBe("New Title")
   })
 
-  test("rejects direct read-only Codex child rename, archive, and delete", async () => {
+  test("rejects direct read-only Codex child rename, archive, restore, and delete", async () => {
     const childSession = codexSession("session-child", "session-owner")
     globalActiveSessions = [childSession]
     const sessionStore = createStore({}, { session: [childSession] })
-    const { archiveSession, deleteSession, setActionRefs, updateSessionTitle } = await import("./session-actions")
+    const { archiveSession, deleteSession, setActionRefs, unarchiveSession, updateSessionTitle } = await import("./session-actions")
     setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/test/project", sessionStore]]), () => "/test/project")
 
     expect(await archiveSession(childSession.id)).toBe(false)
+    expect(await unarchiveSession(childSession.id)).toBe(false)
     expect(await deleteSession(childSession.id)).toBe(false)
     await expect(updateSessionTitle(childSession.id, "New Title")).rejects.toThrow("read-only")
     expect(replyCalls.filter((call) => call.method === "session.update" || call.method === "session.delete")).toEqual([])
