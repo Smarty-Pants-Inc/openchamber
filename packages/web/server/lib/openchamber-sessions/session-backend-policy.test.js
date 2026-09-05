@@ -132,7 +132,7 @@ describe('session backend policy conformance', () => {
     ['send', resolveSessionSend],
     ['fork', resolveSessionForkSource],
   ])('rejects managed metadata against native history for %s while allowing empty history', (_action, resolve) => {
-    for (const backend of ['pi', 'omp']) {
+    for (const backend of ['pi', 'omp', 'codex']) {
       expect(resolve({
         session: session(backend),
         historyBackendClass: null,
@@ -140,7 +140,7 @@ describe('session backend policy conformance', () => {
       expectPolicyError(
         () => resolve({ session: session(backend), historyBackendClass: 'native' }),
         'managed-backend-change',
-        'Managed Pi/OMP session backend cannot be changed',
+        'Managed agent session backend cannot be changed',
       );
     }
   });
