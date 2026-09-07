@@ -105,6 +105,8 @@
     "server",
     "bin",
     "public",
+    "brand.generated.js",
+    "brand.generated.d.ts",
     "package.json",
     "README.md"
   ]

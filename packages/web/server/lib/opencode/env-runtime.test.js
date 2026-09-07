@@ -173,7 +173,7 @@ describe('OpenCode env runtime', () => {
 
     await expect(runtime.applyOpencodeBinaryFromSettings({ strict: true })).rejects.toMatchObject({
       code: 'OPENCODE_BINARY_INVALID',
-      message: expect.stringContaining('Configured OpenCode binary not found: /missing/opencode'),
+      message: expect.stringContaining('Configured opencode binary not found: /missing/opencode'),
     });
   });
 
@@ -183,7 +183,7 @@ describe('OpenCode env runtime', () => {
 
     await expect(runtime.applyOpencodeBinaryFromSettings({ strict: true })).rejects.toMatchObject({
       code: 'OPENCODE_BINARY_INVALID',
-      message: expect.stringContaining('Configured OpenCode binary directory does not contain an executable'),
+      message: expect.stringContaining('Configured opencode binary directory does not contain an executable'),
     });
   });
 

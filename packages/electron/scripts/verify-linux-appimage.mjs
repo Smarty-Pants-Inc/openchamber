@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { PRODUCT_NAME } from '../brand.generated.mjs';
 import { normalizeTargetArchitecture } from './target-architecture.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,8 @@ export const linuxAppImageArchSuffix = (architecture) => (
 );
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
+const desktopEntryEscapes = { '\\': '\\', n: '\n', r: '\r', s: ' ', t: '\t' };
+export const decodeDesktopEntryValue = (value) => String(value).replace(/\\([\\nstr])/g, (match, escape) => desktopEntryEscapes[escape] ?? match);
 
 export const readElfArchitecture = (filePath) => {
   const header = Buffer.alloc(20);
@@ -81,10 +84,12 @@ export const verifyExtractedPayload = ({
   runCliVersion = defaultCliVersion,
 }) => {
   const desktopPath = path.join(root, 'openchamber.desktop');
-  if (!fs.existsSync(desktopPath)) throw new Error(`Missing desktop entry: ${desktopPath}`);
   const desktop = fs.readFileSync(desktopPath, 'utf8');
-  for (const entry of ['Name=OpenChamber', 'Icon=openchamber', 'StartupWMClass=openchamber']) {
-    if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
+  const desktopLines = desktop.split(/\r?\n/);
+  for (const [key, expected] of [['Name', PRODUCT_NAME], ['Icon', 'openchamber'], ['StartupWMClass', 'openchamber']]) {
+    const line = desktopLines.find((candidate) => candidate.startsWith(`${key}=`));
+    const actual = line?.slice(key.length + 1);
+    if (decodeDesktopEntryValue(actual) !== expected) throw new Error(`Desktop identity mismatch: missing ${key}=${expected}`);
   }
   if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
 

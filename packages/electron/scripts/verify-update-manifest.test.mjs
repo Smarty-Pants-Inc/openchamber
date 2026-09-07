@@ -7,6 +7,19 @@ import test from 'node:test';
 
 import { verifyUpdateManifest } from './verify-update-manifest.mjs';
 
+const electronPackage = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+test('keeps the legacy macOS updater artifact token', () => {
+  const template = electronPackage.build.mac.artifactName;
+  assert.equal(template, 'OpenChamber-${version}-mac-${arch}.${ext}');
+  const render = (extension) => template
+    .replace('${version}', '1.15.0')
+    .replace('${arch}', 'arm64')
+    .replace('${ext}', extension);
+  assert.equal(render('dmg'), 'OpenChamber-1.15.0-mac-arm64.dmg');
+  assert.equal(render('zip'), 'OpenChamber-1.15.0-mac-arm64.zip');
+});
+
 const fixture = (manifestName, artifactName, fields) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-manifest-test-'));
   const artifactPath = path.join(root, artifactName);

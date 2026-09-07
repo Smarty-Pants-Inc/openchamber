@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from './brand.generated';
+
 type UpgradeCapability = {
   supported: boolean;
   manager: 'opencode' | 'external' | 'openchamber' | null;
@@ -61,19 +63,19 @@ const fetchLatestVersion = async (): Promise<string> => {
   const results = await Promise.allSettled([
     fetch('https://registry.npmjs.org/opencode-ai/latest', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) })
       .then(async (response) => {
-        if (!response.ok) throw new Error(`OpenCode npm registry responded with ${response.status}`);
+        if (!response.ok) throw new Error(`The upstream npm registry responded with ${response.status}`);
         const payload = await response.json() as { version?: unknown };
         return typeof payload.version === 'string' ? payload.version.trim().replace(/^v/, '') : '';
       }),
     fetch('https://api.github.com/repos/anomalyco/opencode/releases/latest', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) })
       .then(async (response) => {
-        if (!response.ok) throw new Error(`OpenCode releases responded with ${response.status}`);
+        if (!response.ok) throw new Error(`The upstream releases API responded with ${response.status}`);
         const payload = await response.json() as { tag_name?: unknown };
         return typeof payload.tag_name === 'string' ? payload.tag_name.trim().replace(/^v/, '') : '';
       }),
   ]);
   const versions = results.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
-  if (versions.length === 0) throw new Error('Failed to resolve latest OpenCode version');
+  if (versions.length === 0) throw new Error('Failed to resolve the latest engine version');
   return versions.sort((left, right) => compareVersions(right, left))[0];
 };
 
@@ -87,7 +89,7 @@ const readUpgradeErrorMessage = (
   for (const candidate of [payload?.error, payload?.data?.message, payload?.message]) {
     if (typeof candidate === 'string' && candidate.trim().length > 0) return candidate.trim();
   }
-  return response.statusText || 'Failed to upgrade OpenCode';
+  return response.statusText || 'Failed to update engine';
 };
 
 export const getOpenCodeUpgradeStatus = async (manager?: OpenCodeUpgradeManager): Promise<Record<string, unknown>> => {
@@ -101,7 +103,7 @@ export const getOpenCodeUpgradeStatus = async (manager?: OpenCodeUpgradeManager)
     ]);
     const health = await healthResponse.json().catch(() => null) as { version?: unknown; error?: unknown } | null;
     if (!healthResponse.ok) {
-      const error = typeof health?.error === 'string' ? health.error : healthResponse.statusText || 'Failed to read OpenCode version';
+      const error = typeof health?.error === 'string' ? health.error : healthResponse.statusText || 'Failed to read engine version';
       return { available: null, error, upgrade };
     }
     const currentVersion = typeof health?.version === 'string' && health.version.trim() ? health.version.trim().replace(/^v/, '') : null;
@@ -115,10 +117,10 @@ export const upgradeManagedOpenCode = async (manager: OpenCodeUpgradeManager | u
   const upgrade = getCapability(manager);
   const apiUrl = getApiUrl(manager);
   if (!upgrade.supported || !apiUrl || !manager) {
-    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_UNSUPPORTED', error: 'This OpenCode runtime cannot be upgraded by OpenChamber.' } };
+    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_UNSUPPORTED', error: `This engine cannot be upgraded by ${PRODUCT_NAME}.` } };
   }
   if (openCodeUpgradePromise) {
-    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_IN_PROGRESS', error: 'An OpenCode upgrade is already in progress.' } };
+    return { status: 409, body: { success: false, code: 'OPENCODE_UPGRADE_IN_PROGRESS', error: 'An engine update is already in progress.' } };
   }
   const requestedTarget = typeof target === 'string' ? target.trim() : '';
   const operation = (async (): Promise<UpgradeResult> => {
@@ -150,11 +152,11 @@ export const upgradeManagedOpenCode = async (manager: OpenCodeUpgradeManager | u
       try {
         await manager.restart();
       } catch (error) {
-        return { status: 500, body: { success: false, upgraded: true, error: error instanceof Error ? `OpenCode upgraded, but restart failed: ${error.message}` : 'OpenCode upgraded, but restart failed' } };
+        return { status: 500, body: { success: false, upgraded: true, error: error instanceof Error ? `The engine was updated, but restart failed: ${error.message}` : 'The engine was updated, but restart failed' } };
       }
       return { status: 200, body: { ...(payload && typeof payload === 'object' ? payload : { success: true }), restarted: true } };
     } catch (error) {
-      return { status: 500, body: { success: false, error: error instanceof Error ? error.message : 'Failed to upgrade OpenCode' } };
+      return { status: 500, body: { success: false, error: error instanceof Error ? error.message : 'Failed to update engine' } };
     }
   })();
   openCodeUpgradePromise = operation;

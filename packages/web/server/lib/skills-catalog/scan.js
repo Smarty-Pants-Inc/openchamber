@@ -188,7 +188,7 @@ export async function scanSkillsRepository({
 
         const installable = validateSkillName(skillName);
         if (!installable) {
-          warnings.push('Skill directory name is not a valid OpenCode skill name');
+          warnings.push('Skill directory name is not a valid engine skill name');
         }
 
         items.push({

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { requestServerShutdown } from './cli-http.js';
 import { isPortAvailable } from './cli-ports.js';
@@ -49,7 +50,7 @@ async function stopCommand(options) {
     };
 
     if (showOutput) {
-      clackIntro('OpenChamber Stop');
+      clackIntro(`${PRODUCT_NAME} Stop`);
     }
 
     let runningInstances = await discoverLifecycleInstances(options);
@@ -67,7 +68,7 @@ async function stopCommand(options) {
           printJson({ stoppedCount: 0, results: jsonResults });
         }
         if (showOutput) {
-          logStatus('info', `no OpenChamber instance found on port ${options.port}`);
+          logStatus('info', `no ${PRODUCT_NAME} instance found on port ${options.port}`);
           finish('nothing to stop');
         }
         printQuietStopResults();
@@ -78,10 +79,10 @@ async function stopCommand(options) {
       if (explicitInstance.runtime === 'desktop') {
         jsonResults.push({ port: options.port, runtime: 'desktop', stopped: false, reason: 'desktop-managed' });
         if (isJsonMode(options)) {
-          printJson({ stoppedCount: 0, results: jsonResults, messages: [{ level: 'warning', code: 'DESKTOP_MANAGED_PORT', message: `Port ${options.port} is managed by OpenChamber Desktop and cannot be stopped with this command.` }] });
+          printJson({ stoppedCount: 0, results: jsonResults, messages: [{ level: 'warning', code: 'DESKTOP_MANAGED_PORT', message: `Port ${options.port} is managed by ${PRODUCT_NAME} Desktop and cannot be stopped with this command.` }] });
         }
         if (showOutput) {
-          logStatus('warning', `port ${options.port} is managed by OpenChamber Desktop`, 'cannot be stopped with this command');
+          logStatus('warning', `port ${options.port} is managed by ${PRODUCT_NAME} Desktop`, 'cannot be stopped with this command');
           finish('no changes applied');
         }
         printQuietStopResults();
@@ -91,9 +92,9 @@ async function stopCommand(options) {
       if (explicitInstance.source === 'probe') {
         const unmanagedStopSpin = showOutput ? createSpinner(options) : null;
         if (showOutput && !unmanagedStopSpin) {
-          logStatus('info', `found unmanaged OpenChamber instance on port ${options.port}`, 'attempting shutdown');
+          logStatus('info', `found unmanaged ${PRODUCT_NAME} instance on port ${options.port}`, 'attempting shutdown');
         }
-        unmanagedStopSpin?.start(`Stopping unmanaged OpenChamber on port ${options.port}...`);
+        unmanagedStopSpin?.start(`Stopping unmanaged ${PRODUCT_NAME} on port ${options.port}...`);
         const requested = await requestServerShutdown(options.port, options.host);
 
         if (Number.isFinite(explicitInstance.pid) && isProcessRunning(explicitInstance.pid)) {
@@ -106,13 +107,13 @@ async function stopCommand(options) {
 
         const stopped = await isPortAvailable(options.port, options.host);
         if (stopped) {
-          unmanagedStopSpin?.stop(`Stopped unmanaged OpenChamber on port ${options.port}`);
+          unmanagedStopSpin?.stop(`Stopped unmanaged ${PRODUCT_NAME} on port ${options.port}`);
           jsonResults.push({ port: options.port, runtime: 'unmanaged', stopped: true });
           if (isJsonMode(options)) {
             printJson({ stoppedCount: 1, results: jsonResults });
           }
           if (showOutput && !unmanagedStopSpin) {
-            logStatus('success', `stopped OpenChamber on port ${options.port}`);
+            logStatus('success', `stopped ${PRODUCT_NAME} on port ${options.port}`);
             finish('stop complete');
           }
           printQuietStopResults();
@@ -133,18 +134,18 @@ async function stopCommand(options) {
           }
           printQuietStopResults();
         } else {
-          unmanagedStopSpin?.error(`Could not stop OpenChamber on port ${options.port}`);
+          unmanagedStopSpin?.error(`Could not stop ${PRODUCT_NAME} on port ${options.port}`);
           jsonResults.push({ port: options.port, runtime: 'unmanaged', stopped: false, reason: 'stop-failed' });
           if (isJsonMode(options)) {
             printJson({
               status: 'error',
               stoppedCount: 0,
               results: jsonResults,
-              messages: [{ level: 'error', code: 'STOP_FAILED', message: `Could not stop OpenChamber on port ${options.port}.` }],
+              messages: [{ level: 'error', code: 'STOP_FAILED', message: `Could not stop ${PRODUCT_NAME} on port ${options.port}.` }],
             });
           }
           if (showOutput && !unmanagedStopSpin) {
-            logStatus('error', `could not stop OpenChamber on port ${options.port}`);
+            logStatus('error', `could not stop ${PRODUCT_NAME} on port ${options.port}`);
             finish('failed');
           }
           printQuietStopResults();
@@ -155,9 +156,9 @@ async function stopCommand(options) {
       if (explicitInstance.source === 'registry-unconfirmed') {
         const unconfirmedStopSpin = showOutput ? createSpinner(options) : null;
         if (showOutput && !unconfirmedStopSpin) {
-          logStatus('info', `found unconfirmed OpenChamber pid ${explicitInstance.pid} on port ${options.port}`, 'HTTP shutdown endpoint is unreachable; stopping by PID');
+          logStatus('info', `found unconfirmed ${PRODUCT_NAME} pid ${explicitInstance.pid} on port ${options.port}`, 'HTTP shutdown endpoint is unreachable; stopping by PID');
         }
-        unconfirmedStopSpin?.start(`Stopping unconfirmed OpenChamber on port ${options.port}...`);
+        unconfirmedStopSpin?.start(`Stopping unconfirmed ${PRODUCT_NAME} on port ${options.port}...`);
         const stopped = await stopInstanceProcess(explicitInstance.pid, {
           shutdownWaitMs: 0,
           gracefulTimeoutMs: 2500,
@@ -167,7 +168,7 @@ async function stopCommand(options) {
         if (stopped || !isProcessRunning(explicitInstance.pid)) {
           removePidFile(explicitInstance.pidFilePath);
           removeInstanceFile(explicitInstance.instanceFilePath);
-          unconfirmedStopSpin?.stop(`Stopped OpenChamber PID ${explicitInstance.pid}`);
+          unconfirmedStopSpin?.stop(`Stopped ${PRODUCT_NAME} PID ${explicitInstance.pid}`);
           jsonResults.push({ port: options.port, pid: explicitInstance.pid, runtime: 'unconfirmed', stopped: true });
           if (isJsonMode(options)) {
             printJson({ stoppedCount: 1, results: jsonResults });
@@ -180,14 +181,14 @@ async function stopCommand(options) {
           return;
         }
 
-        unconfirmedStopSpin?.error(`Could not stop OpenChamber PID ${explicitInstance.pid}`);
+        unconfirmedStopSpin?.error(`Could not stop ${PRODUCT_NAME} PID ${explicitInstance.pid}`);
         jsonResults.push({ port: options.port, pid: explicitInstance.pid, runtime: 'unconfirmed', stopped: false, reason: 'stop-failed' });
         if (isJsonMode(options)) {
           printJson({
             status: 'error',
             stoppedCount: 0,
             results: jsonResults,
-            messages: [{ level: 'error', code: 'STOP_FAILED', message: `Could not stop OpenChamber PID ${explicitInstance.pid}.` }],
+            messages: [{ level: 'error', code: 'STOP_FAILED', message: `Could not stop ${PRODUCT_NAME} PID ${explicitInstance.pid}.` }],
           });
         }
         if (showOutput && !unconfirmedStopSpin) {
@@ -202,7 +203,7 @@ async function stopCommand(options) {
         printJson({ stoppedCount: 0, results: jsonResults });
       }
       if (showOutput) {
-        logStatus('info', 'No running OpenChamber instances found');
+        logStatus('info', `No running ${PRODUCT_NAME} instances found`);
         finish('nothing to stop');
       }
       printQuietStopResults();
@@ -214,7 +215,7 @@ async function stopCommand(options) {
       if (showOutput && !stopSpin) {
         logStatus('info', `stopping port ${instance.port} (PID: ${instance.pid})`);
       }
-      stopSpin?.start(`Stopping OpenChamber on port ${instance.port}...`);
+      stopSpin?.start(`Stopping ${PRODUCT_NAME} on port ${instance.port}...`);
       try {
         const requested = await requestServerShutdown(instance.port, instance.host || options.host);
         const stopped = await stopInstanceProcess(instance.pid, {
@@ -227,13 +228,13 @@ async function stopCommand(options) {
         }
         removePidFile(instance.pidFilePath);
         removeInstanceFile(instance.instanceFilePath);
-        stopSpin?.stop(`Stopped OpenChamber on port ${instance.port}`);
+        stopSpin?.stop(`Stopped ${PRODUCT_NAME} on port ${instance.port}`);
         jsonResults.push({ port: instance.port, pid: instance.pid, stopped: true });
         if (showOutput && !stopSpin) {
           logStatus('success', `stopped port ${instance.port}`);
         }
       } catch (error) {
-        stopSpin?.error(`Failed to stop OpenChamber on port ${instance.port}`);
+        stopSpin?.error(`Failed to stop ${PRODUCT_NAME} on port ${instance.port}`);
         jsonResults.push({ port: instance.port, pid: instance.pid, stopped: false, reason: error instanceof Error ? error.message : String(error) });
         if (showOutput) {
           logStatus('error', `error stopping port ${instance.port}`, error.message);
@@ -270,7 +271,7 @@ async function restartCommand(options, serveCommand) {
     const restarted = [];
 
     if (showOutput) {
-      clackIntro('OpenChamber Restart');
+      clackIntro(`${PRODUCT_NAME} Restart`);
     }
 
     let runningInstances = await discoverLifecycleInstances(options);
@@ -279,7 +280,7 @@ async function restartCommand(options, serveCommand) {
         printJson({ restartedCount: 0, results: restarted });
       }
       if (showOutput) {
-        logStatus('info', 'No running OpenChamber instances to restart');
+        logStatus('info', `No running ${PRODUCT_NAME} instances to restart`);
         clackOutro('nothing to restart');
       } else if (isQuietMode(options)) {
         process.stdout.write('restarted 0\n');
@@ -289,7 +290,7 @@ async function restartCommand(options, serveCommand) {
 
     for (const instance of runningInstances) {
       if (instance.runtime === 'desktop') {
-        const message = `Port ${instance.port} is managed by OpenChamber Desktop and cannot be restarted with this command.`;
+        const message = `Port ${instance.port} is managed by ${PRODUCT_NAME} Desktop and cannot be restarted with this command.`;
         if (isJsonMode(options)) {
           printJson({
             status: 'warning',
@@ -300,7 +301,7 @@ async function restartCommand(options, serveCommand) {
           return;
         }
         if (showOutput) {
-          logStatus('warning', `port ${instance.port} is managed by OpenChamber Desktop`, 'cannot be restarted with this command');
+          logStatus('warning', `port ${instance.port} is managed by ${PRODUCT_NAME} Desktop`, 'cannot be restarted with this command');
           clackOutro('no changes applied');
         } else if (isQuietMode(options)) {
           process.stdout.write('restarted 0\n');
@@ -321,7 +322,7 @@ async function restartCommand(options, serveCommand) {
       if (showOutput && !restartSpin) {
         logStatus('info', `restarting port ${instance.port}`, `mode: ${launchMode}`);
       }
-      restartSpin?.start(`Restarting OpenChamber on port ${instance.port}...`);
+      restartSpin?.start(`Restarting ${PRODUCT_NAME} on port ${instance.port}...`);
       try {
         await runStop({
           explicitPort: true,
@@ -358,13 +359,13 @@ async function restartCommand(options, serveCommand) {
           suppressQuietOutput: true,
         });
         restarted.push({ fromPort: instance.port, toPort: restartedPort, launchMode, ok: true });
-        restartSpin?.stop(`Restarted OpenChamber on port ${restartedPort}`);
+        restartSpin?.stop(`Restarted ${PRODUCT_NAME} on port ${restartedPort}`);
         if (showOutput && !restartSpin) {
           logStatus('success', `port ${restartedPort} restarted`, `mode: ${launchMode}`);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        restartSpin?.error(`Failed to restart OpenChamber on port ${instance.port}`);
+        restartSpin?.error(`Failed to restart ${PRODUCT_NAME} on port ${instance.port}`);
         if (showOutput && !restartSpin) {
           logStatus('error', `failed to restart port ${instance.port}`, message);
         }

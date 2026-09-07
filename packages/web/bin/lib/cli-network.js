@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import dgram from 'dgram';
 import os from 'os';
 import { randomInt } from 'node:crypto';
@@ -108,7 +109,7 @@ async function detectLanIPv4Address() {
 
 
 function formatUnsafePortWarning(port) {
-  return `Port ${port} is browser-unsafe (ERR_UNSAFE_PORT) and is not supported for OpenChamber UI at ${buildLocalUrl(port, '/')}.`;
+  return `Port ${port} is browser-unsafe (ERR_UNSAFE_PORT) and is not supported for ${PRODUCT_NAME} UI at ${buildLocalUrl(port, '/')}.`;
 }
 
 function assertSafeBrowserPort(port, { context = 'This action' } = {}) {

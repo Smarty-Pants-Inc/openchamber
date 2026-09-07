@@ -1,4 +1,13 @@
+import { PRODUCT_MARK, PRODUCT_NAME } from '../../../brand.generated.js';
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
+
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[character] ?? character));
 
 export const createStaticRoutesRuntime = (dependencies) => {
   const {
@@ -69,7 +78,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenChamber API-only mode</title>
+  <title>${escapeHtml(PRODUCT_NAME)} API-only mode</title>
   <style>
     :root {
       color-scheme: dark;
@@ -110,6 +119,8 @@ export const createStaticRoutesRuntime = (dependencies) => {
     .logo {
       width: 86px;
       height: 86px;
+      font-size: 72px;
+      line-height: 1;
       margin: 0 auto 28px;
       display: block;
       color: var(--surface-foreground);
@@ -171,49 +182,9 @@ export const createStaticRoutesRuntime = (dependencies) => {
 </head>
 <body>
   <main>
-    <svg class="logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenChamber logo">
-      <path d="M50 50 L8.432 26 L8.432 74 L50 98 Z" fill="currentColor" fill-opacity=".15" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M8.432 26 L18.824 32 L18.824 44 L8.432 38 Z" fill="currentColor" fill-opacity=".2"/>
-      <path d="M18.824 32 L29.216 38 L29.216 50 L18.824 44 Z" fill="currentColor" fill-opacity=".45"/>
-      <path d="M29.216 38 L39.608 44 L39.608 56 L29.216 50 Z" fill="currentColor" fill-opacity=".15"/>
-      <path d="M39.608 44 L50 50 L50 62 L39.608 56 Z" fill="currentColor" fill-opacity=".55"/>
-      <path d="M8.432 38 L18.824 44 L18.824 56 L8.432 50 Z" fill="currentColor" fill-opacity=".35"/>
-      <path d="M18.824 44 L29.216 50 L29.216 62 L18.824 56 Z" fill="currentColor" fill-opacity=".1"/>
-      <path d="M29.216 50 L39.608 56 L39.608 68 L29.216 62 Z" fill="currentColor" fill-opacity=".5"/>
-      <path d="M39.608 56 L50 62 L50 74 L39.608 68 Z" fill="currentColor" fill-opacity=".25"/>
-      <path d="M8.432 50 L18.824 56 L18.824 68 L8.432 62 Z" fill="currentColor" fill-opacity=".4"/>
-      <path d="M18.824 56 L29.216 62 L29.216 74 L18.824 68 Z" fill="currentColor" fill-opacity=".3"/>
-      <path d="M29.216 62 L39.608 68 L39.608 80 L29.216 74 Z" fill="currentColor" fill-opacity=".45"/>
-      <path d="M39.608 68 L50 74 L50 86 L39.608 80 Z" fill="currentColor" fill-opacity=".15"/>
-      <path d="M8.432 62 L18.824 68 L18.824 80 L8.432 74 Z" fill="currentColor" fill-opacity=".55"/>
-      <path d="M18.824 68 L29.216 74 L29.216 86 L18.824 80 Z" fill="currentColor" fill-opacity=".2"/>
-      <path d="M29.216 74 L39.608 80 L39.608 92 L29.216 86 Z" fill="currentColor" fill-opacity=".35"/>
-      <path d="M39.608 80 L50 86 L50 98 L39.608 92 Z" fill="currentColor" fill-opacity=".1"/>
-      <path d="M50 50 L91.568 26 L91.568 74 L50 98 Z" fill="currentColor" fill-opacity=".15" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M50 50 L60.392 44 L60.392 56 L50 62 Z" fill="currentColor" fill-opacity=".3"/>
-      <path d="M60.392 44 L70.784 38 L70.784 50 L60.392 56 Z" fill="currentColor" fill-opacity=".15"/>
-      <path d="M70.784 38 L81.176 32 L81.176 44 L70.784 50 Z" fill="currentColor" fill-opacity=".45"/>
-      <path d="M81.176 32 L91.568 26 L91.568 38 L81.176 44 Z" fill="currentColor" fill-opacity=".25"/>
-      <path d="M50 62 L60.392 56 L60.392 68 L50 74 Z" fill="currentColor" fill-opacity=".5"/>
-      <path d="M60.392 56 L70.784 50 L70.784 62 L60.392 68 Z" fill="currentColor" fill-opacity=".35"/>
-      <path d="M70.784 50 L81.176 44 L81.176 56 L70.784 62 Z" fill="currentColor" fill-opacity=".1"/>
-      <path d="M81.176 44 L91.568 38 L91.568 50 L81.176 56 Z" fill="currentColor" fill-opacity=".4"/>
-      <path d="M50 74 L60.392 68 L60.392 80 L50 86 Z" fill="currentColor" fill-opacity=".2"/>
-      <path d="M60.392 68 L70.784 62 L70.784 74 L60.392 80 Z" fill="currentColor" fill-opacity=".55"/>
-      <path d="M70.784 62 L81.176 56 L81.176 68 L70.784 74 Z" fill="currentColor" fill-opacity=".3"/>
-      <path d="M81.176 56 L91.568 50 L91.568 62 L81.176 68 Z" fill="currentColor" fill-opacity=".15"/>
-      <path d="M50 86 L60.392 80 L60.392 92 L50 98 Z" fill="currentColor" fill-opacity=".45"/>
-      <path d="M60.392 80 L70.784 74 L70.784 86 L60.392 92 Z" fill="currentColor" fill-opacity=".25"/>
-      <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="currentColor" fill-opacity=".4"/>
-      <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="currentColor" fill-opacity=".2"/>
-      <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-      <g transform="matrix(.866 .5 -.866 .5 50 26) scale(.75)">
-        <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="currentColor"/>
-        <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="currentColor" fill-opacity=".4"/>
-      </g>
-    </svg>
-    <h1>OpenChamber is running in headless mode</h1>
-    <p>This server is ready. Open it from the OpenChamber desktop or mobile app to use it.</p>
+    <div class="logo" role="img" aria-label="${escapeHtml(PRODUCT_NAME)} logo">${escapeHtml(PRODUCT_MARK)}</div>
+    <h1>${escapeHtml(PRODUCT_NAME)} is running in headless mode</h1>
+    <p>This server is ready. Open it from the ${escapeHtml(PRODUCT_NAME)} desktop or mobile app to use it.</p>
     <div class="command">
       <code id="connect-command">${command}</code>
       <button type="button" id="copy-command" aria-label="Copy command" title="Copy command">
@@ -249,10 +220,10 @@ export const createStaticRoutesRuntime = (dependencies) => {
 </html>`);
         },
         json: () => {
-          res.json({ ok: true, mode: 'api-only', message: 'OpenChamber is running in API-only mode' });
+          res.json({ ok: true, mode: 'api-only', message: `${PRODUCT_NAME} is running in API-only mode` });
         },
         default: () => {
-          res.type('text/plain').send('OpenChamber is running in API-only mode');
+          res.type('text/plain').send(`${PRODUCT_NAME} is running in API-only mode`);
         },
       });
     });

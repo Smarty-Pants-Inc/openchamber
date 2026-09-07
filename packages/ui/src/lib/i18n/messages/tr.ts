@@ -2506,6 +2506,7 @@ export const dict = {
   'openCodeStatusDialog.toast.copiedTitle': 'Kopyalandı',
   'openCodeStatusDialog.toast.copiedDescription': 'Durum panoya kopyalandı',
   'openCodeStatusDialog.toast.copyFailed': 'Durum kopyalanamadı',
+  'openCodeStatusDialog.toast.collectFailed': 'OpenCode durumu toplanamadı',
   'saveProjectPlanDialog.title': 'Proje Planını Kaydet',
   'saveProjectPlanDialog.description': 'Bu planı projenize Markdown dosyası olarak kaydedin.',
   'saveProjectPlanDialog.field.title': 'Başlık',

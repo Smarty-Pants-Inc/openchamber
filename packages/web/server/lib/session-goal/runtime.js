@@ -334,7 +334,7 @@ export const createSessionGoalRuntime = ({
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
+      throw new Error(`Engine ${method} ${fetchPath} failed with ${response.status}`);
     }
     return response.json().catch(() => null);
   };
