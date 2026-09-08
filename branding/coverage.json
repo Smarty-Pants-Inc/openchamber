@@ -58,8 +58,12 @@
     "packages/vscode/l10n/bundle.l10n.tr.json",
     "packages/vscode/package.nls.tr.json",
     "packages/vscode/src/InlineCommentThreads.ts",
+    "scripts/brand-documentation.mjs",
+    "scripts/brand-widget-symbol.mjs",
+    "scripts/branding-docs.test.mjs",
     "scripts/branding-port.test.mjs",
-    "scripts/branding-stock-owners.test.mjs"
+    "scripts/branding-stock-owners.test.mjs",
+    "scripts/branding-widget.test.mjs"
   ],
   "files": [
     {
@@ -159,7 +163,7 @@
         }
       ],
       "disposition": "stock-adapted",
-      "outputSha256": "f48243cb7604244af66989e4dcd078e636ec8f1c5b0861a2df4a732b0e1eddcf",
+      "outputSha256": "261686009c0da4840d6e8d72b414ebcb993b48b90ced362c738b4c0aa38559f0",
       "note": "Full donor presentation coverage retained with current stock imports/APIs/behavior and compatibility identities."
     },
     {
@@ -380,7 +384,7 @@
         }
       ],
       "disposition": "stock-adapted",
-      "outputSha256": "162f978609d8988fb484275f758dd895fe6198d92564782b5f1bc1aeda0aa31c",
+      "outputSha256": "10703a004c8983a720eb3de993ee9ba0a0261f8352b4d8ecd2827309fcb9803b",
       "note": "Keep stock 1.22.2, author and dependencies; retain donor branding generation/check/build/documentation integration."
     },
     {
@@ -17370,8 +17374,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "a0cb9321940974c47b94a62f2b9a90e7dc4777eaf5d1917f5897b6745ea44e22",
+      "disposition": "stock-adapted",
+      "outputSha256": "4a6f7635ab6f79f77564b261dcfc3e00eb89298fc5045a0ff86d6d74ac4133b4",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -17458,8 +17462,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "ca1e9551d901693316c9f6407c7030ca35647f8fcae7291ef89acbbb0966121b",
+      "disposition": "stock-adapted",
+      "outputSha256": "9e892bf0c74ee6253ec98326e936ee2368771f2edd141138c1ef0a5fa9112a3d",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -17515,8 +17519,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "ca1e9551d901693316c9f6407c7030ca35647f8fcae7291ef89acbbb0966121b",
+      "disposition": "stock-adapted",
+      "outputSha256": "9e892bf0c74ee6253ec98326e936ee2368771f2edd141138c1ef0a5fa9112a3d",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18248,8 +18252,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "d1678edb1f7e515963eb8e784e136ac4ab31959ec344fd263d2f6dbee9e55cb2",
+      "disposition": "stock-adapted",
+      "outputSha256": "8dfc0f9aef7b8b00d2f4992615f588ffcc881fdfbcc6c8331307ba91965fdc08",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18274,8 +18278,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "329bd8728763678c072d10d99e095babe7a9907bef8f81f428dba67b8cf69838",
+      "disposition": "stock-adapted",
+      "outputSha256": "f0e237381c90e4f5dd673769a1f00524d16acd374d1c94dd1c65d2a8497072ae",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18287,8 +18291,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "e58eb6ec35fd009b46f669f544f5766e36a463869652beea19b6c5c4d0659795",
+      "disposition": "stock-adapted",
+      "outputSha256": "5abe89724f992c5d5d1546193c7928515a0256f66bc0f201fbacb25b963b7542",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18300,8 +18304,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "ad0ad331041f9c43920b8ab68a34f540694d63f888407413e89b2705466ca6e6",
+      "disposition": "stock-adapted",
+      "outputSha256": "c9f5aae42e0cc446bb8ae648e1dd7aba48257f2e9dc5167626d60699477b369c",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18313,8 +18317,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "e72b749ec3c6fd80872b706c2c30df4c58b2c7edc4496a37b009fee8c5f27abf",
+      "disposition": "stock-adapted",
+      "outputSha256": "64711549ce7a8faec1d46437f78ba7085c82993d89c213dad556d0dbb387bb35",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18339,8 +18343,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "7d4ee2b363327abe5c699b14c8eb0c05c60e6d29c6f67dbd401aa3bc39b96ecc",
+      "disposition": "stock-adapted",
+      "outputSha256": "fa1d30ac371f099435393eb88949ab146391465be4a0a50417013d21067a5c70",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18352,8 +18356,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "c903db52043a924809fafe20229d658c385ad5ece182d51dde073acb7c65af29",
+      "disposition": "stock-adapted",
+      "outputSha256": "6567368b1534df4845980c4d4f54efb87814c61e456ae002bc64d4ddd864b2bf",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18365,8 +18369,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "c031f9a7f36cbe074324cddf45d18715b9fec4e458adf69cd5222b4f9f35a6e7",
+      "disposition": "stock-adapted",
+      "outputSha256": "f7c1ecb4d330404d96343ba54009876f5f5ca267898f5c44f0f6cdaee02ae5a0",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18448,8 +18452,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "692dccff43039a5469e21094ec08e12c1224863a88cdb854a58486306466d309",
+      "disposition": "stock-adapted",
+      "outputSha256": "c98bc5a90bf34880fa1c22a9bedeeafb440bc766ec71263e6b4ed0cfc2eb1946",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18461,8 +18465,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "692dccff43039a5469e21094ec08e12c1224863a88cdb854a58486306466d309",
+      "disposition": "stock-adapted",
+      "outputSha256": "c98bc5a90bf34880fa1c22a9bedeeafb440bc766ec71263e6b4ed0cfc2eb1946",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18552,8 +18556,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "e58faf5a847a6b52b3696b3069610ee194f9e87edbc49a71bb3d80c5827359df",
+      "disposition": "stock-adapted",
+      "outputSha256": "e0fe5c6e50d4112101bc877911ccf7c95aa485c92297e6653a32b2364bc0c077",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18565,8 +18569,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "e58faf5a847a6b52b3696b3069610ee194f9e87edbc49a71bb3d80c5827359df",
+      "disposition": "stock-adapted",
+      "outputSha256": "e0fe5c6e50d4112101bc877911ccf7c95aa485c92297e6653a32b2364bc0c077",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18604,8 +18608,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "6daa7cb7ac2c11423c488e5393349c1d16e295ffc2324fd232677fcc812b4385",
+      "disposition": "stock-adapted",
+      "outputSha256": "91bf668273c6b26707509852622847393362d4b51d00862ee79e3bc299e36755",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18617,8 +18621,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "6daa7cb7ac2c11423c488e5393349c1d16e295ffc2324fd232677fcc812b4385",
+      "disposition": "stock-adapted",
+      "outputSha256": "91bf668273c6b26707509852622847393362d4b51d00862ee79e3bc299e36755",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18656,8 +18660,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "34f745399aad8fdc947bdba1eb7e08f28bffcedbeddbb6580d9ae2d8ed383edb",
+      "disposition": "stock-adapted",
+      "outputSha256": "543a2a47772f280a3ec7a38db5167084a17912831277a2b2e17cd0c086055d88",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18669,8 +18673,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "34f745399aad8fdc947bdba1eb7e08f28bffcedbeddbb6580d9ae2d8ed383edb",
+      "disposition": "stock-adapted",
+      "outputSha256": "543a2a47772f280a3ec7a38db5167084a17912831277a2b2e17cd0c086055d88",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18708,8 +18712,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "71ceb64bcb4c7edaf8fbc85031ae401b9626ab1c7edbf13ed2cd5cf97e3ae8b1",
+      "disposition": "stock-adapted",
+      "outputSha256": "9b1a053eb33d2829178bb9b794240de1adc6b65252c4d3c75c733c31390ea5fe",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18721,8 +18725,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "71ceb64bcb4c7edaf8fbc85031ae401b9626ab1c7edbf13ed2cd5cf97e3ae8b1",
+      "disposition": "stock-adapted",
+      "outputSha256": "9b1a053eb33d2829178bb9b794240de1adc6b65252c4d3c75c733c31390ea5fe",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18806,8 +18810,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "ca1e9551d901693316c9f6407c7030ca35647f8fcae7291ef89acbbb0966121b",
+      "disposition": "stock-adapted",
+      "outputSha256": "9e892bf0c74ee6253ec98326e936ee2368771f2edd141138c1ef0a5fa9112a3d",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18899,8 +18903,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "ca1e9551d901693316c9f6407c7030ca35647f8fcae7291ef89acbbb0966121b",
+      "disposition": "stock-adapted",
+      "outputSha256": "9e892bf0c74ee6253ec98326e936ee2368771f2edd141138c1ef0a5fa9112a3d",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18912,8 +18916,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "bdcec39d184c821c4a0e6af2c7ece1fda7b74bceaa88c80cd20306d9a4d599ab",
+      "disposition": "stock-adapted",
+      "outputSha256": "75e857e44e13f739c8c5d41501158119ea2e8d1bdb2095c9a97b0fa0b4e9d734",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18925,8 +18929,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "bdcec39d184c821c4a0e6af2c7ece1fda7b74bceaa88c80cd20306d9a4d599ab",
+      "disposition": "stock-adapted",
+      "outputSha256": "75e857e44e13f739c8c5d41501158119ea2e8d1bdb2095c9a97b0fa0b4e9d734",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18938,8 +18942,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "bdcec39d184c821c4a0e6af2c7ece1fda7b74bceaa88c80cd20306d9a4d599ab",
+      "disposition": "stock-adapted",
+      "outputSha256": "75e857e44e13f739c8c5d41501158119ea2e8d1bdb2095c9a97b0fa0b4e9d734",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -18987,14 +18991,14 @@
           "hunks": [
             {
               "header": "@@ -1,55 +1,13 @@",
-              "resolution": "Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy."
+              "resolution": "Retain stock Notes/Guides, SwiftDraw attribution and all three glyph identities; insert configured monochrome artwork. Linux structure/preview checks are not Apple compiler proof; exact stock/candidate actool remains required."
             }
           ]
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "990f0a8d589135eaa8a6c5396f90db0da1d2b2d1657c5fa66be18c0a6e6143a6",
-      "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
+      "disposition": "stock-adapted",
+      "outputSha256": "8d278828d5cdfc8cc9ec8bb1bbdcd19f8d28ca36b7dee0b96aadcccbc19d0c64",
+      "note": "Retain stock Notes/Guides, SwiftDraw attribution and all three glyph identities; insert configured monochrome artwork. Linux structure/preview checks are not Apple compiler proof; exact stock/candidate actool remains required."
     },
     {
       "path": "packages/mobile/ios/App/OpenChamberWidget/Info.plist",
@@ -20741,8 +20745,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "a0cb9321940974c47b94a62f2b9a90e7dc4777eaf5d1917f5897b6745ea44e22",
+      "disposition": "stock-adapted",
+      "outputSha256": "4a6f7635ab6f79f77564b261dcfc3e00eb89298fc5045a0ff86d6d74ac4133b4",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22639,8 +22643,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "a086d5d0a64593de8fd59f884c2c93532219b614225e5c55460dea510078ad0b",
+      "disposition": "stock-adapted",
+      "outputSha256": "f7f55a6b8e734f837a0f05c892168d13c4c4acde95b0f773980e242983460867",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22652,8 +22656,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "e29a51bc75070faf1746463db9c53c56faf29d01c8fb97c3ba8e3bd4ad29d5c7",
+      "disposition": "stock-adapted",
+      "outputSha256": "4f3264e021d1c383ae405f49455f9ff0d295646f1c689fc63ccdb65360b3d38e",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22678,8 +22682,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "77af5988edc39b1834abf899f91315ed0155553de943eec352e684eb9be09f00",
+      "disposition": "stock-adapted",
+      "outputSha256": "0a0acd69c913c00eeedbb08752e128b1ebba03e731a36e58562a4c36de259a38",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22691,8 +22695,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "77af5988edc39b1834abf899f91315ed0155553de943eec352e684eb9be09f00",
+      "disposition": "stock-adapted",
+      "outputSha256": "0a0acd69c913c00eeedbb08752e128b1ebba03e731a36e58562a4c36de259a38",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22859,8 +22863,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "71ceb64bcb4c7edaf8fbc85031ae401b9626ab1c7edbf13ed2cd5cf97e3ae8b1",
+      "disposition": "stock-adapted",
+      "outputSha256": "9b1a053eb33d2829178bb9b794240de1adc6b65252c4d3c75c733c31390ea5fe",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22872,8 +22876,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "a0cb9321940974c47b94a62f2b9a90e7dc4777eaf5d1917f5897b6745ea44e22",
+      "disposition": "stock-adapted",
+      "outputSha256": "4a6f7635ab6f79f77564b261dcfc3e00eb89298fc5045a0ff86d6d74ac4133b4",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22885,8 +22889,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "71ceb64bcb4c7edaf8fbc85031ae401b9626ab1c7edbf13ed2cd5cf97e3ae8b1",
+      "disposition": "stock-adapted",
+      "outputSha256": "9b1a053eb33d2829178bb9b794240de1adc6b65252c4d3c75c733c31390ea5fe",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -22898,8 +22902,8 @@
           "hunks": []
         }
       ],
-      "disposition": "donor-identical",
-      "outputSha256": "a0cb9321940974c47b94a62f2b9a90e7dc4777eaf5d1917f5897b6745ea44e22",
+      "disposition": "stock-adapted",
+      "outputSha256": "4a6f7635ab6f79f77564b261dcfc3e00eb89298fc5045a0ff86d6d74ac4133b4",
       "note": "Configured donor mark/art retained or regenerated; asset-parity.json and generated.json enumerate variants/dimensions/digests."
     },
     {
@@ -24623,35 +24627,35 @@
           "hunks": [
             {
               "header": "@@ -1,4 +1,4 @@",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -7,29 +7,27 @@",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -45,7 +43,7 @@ Open your app beside the conversation with **Preview**. Point at an element and",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -71,7 +69,7 @@ Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -90,7 +88,7 @@ Linux AppImages require FUSE (`libfuse.so.2`). Without FUSE, run with `APPIMAGE_",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -113,11 +111,11 @@ openchamber stop",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -136,11 +134,11 @@ For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md).",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -154,7 +152,7 @@ Special thanks to:",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             }
           ]
         },
@@ -24661,42 +24665,42 @@
           "hunks": [
             {
               "header": "@@ -1,4 +1,4 @@",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -7,27 +7,27 @@",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -43,7 +43,7 @@ Open your app beside the conversation with **Preview**. Point at an element and",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -69,7 +69,7 @@ Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -88,7 +88,7 @@ Linux AppImages require FUSE (`libfuse.so.2`). Without FUSE, run with `APPIMAGE_",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -111,11 +111,11 @@ openchamber stop",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -134,11 +134,11 @@ For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md).",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             },
             {
               "header": "@@ -152,7 +152,7 @@ Special thanks to:",
-              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+              "resolution": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
             }
           ]
         }
       ],
       "disposition": "stock-adapted",
-      "outputSha256": "c26f3f3e6cda2154d0671244690cb1ead1036434c115da6df2d2987f38c1860d",
-      "note": "Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork."
+      "outputSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
+      "note": "Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias."
     },
     {
       "path": "scripts/apply-brand.mjs",
@@ -24707,7 +24711,7 @@
           "hunks": [
             {
               "header": "@@ -0,0 +1,535 @@",
-              "resolution": "Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy."
+              "resolution": "Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest."
             }
           ]
         },
@@ -24717,22 +24721,22 @@
           "hunks": [
             {
               "header": "@@ -72,9 +72,16 @@ const escapeMarkdown = (value) => {",
-              "resolution": "Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy."
+              "resolution": "Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest."
             },
             {
               "header": "@@ -85,7 +92,8 @@ const brandYamlDocumentation = (value) => {",
-              "resolution": "Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy."
+              "resolution": "Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest."
             },
             {
               "header": "@@ -228,7 +236,7 @@ const escapeShellSingleQuoted = (value) => String(value).replace(/'/g, () => \"'\\",
-              "resolution": "Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy."
+              "resolution": "Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest."
             }
           ]
         }
       ],
       "disposition": "stock-adapted",
-      "outputSha256": "97f79ec2678fbfb82793c6e520d5ebfc13030cf998692b80cddbb927b7df7973",
-      "note": "Full donor presentation coverage retained with current stock imports/APIs/behavior and compatibility identities."
+      "outputSha256": "9a3b7b68129a1546b0d028f1e5ddbdf75f3a00367510ef758df1db19445f897f",
+      "note": "Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest."
     },
     {
       "path": "scripts/apply-brand.test.mjs",
@@ -24795,7 +24799,7 @@
         }
       ],
       "disposition": "stock-adapted",
-      "outputSha256": "05b9a0062a84ebc33a258993b3dbfd50eda1b58e30ba60c0c92189508cbcaff9",
+      "outputSha256": "cf130ef80aaec64bd02f07749ce4e0bb8460ff9fd4dc59806d239526c891e0d5",
       "note": "Full donor presentation coverage retained with current stock imports/APIs/behavior and compatibility identities."
     },
     {

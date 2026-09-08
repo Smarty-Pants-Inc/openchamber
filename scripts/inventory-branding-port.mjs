@@ -16,7 +16,9 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const notes = {
   '.github/workflows/oc-review.yml': 'Keep stock workflow/job identities; extend genuine source checks with brand:check/test:brand. No protected-branch/default/Mergify policy is changed.',
   '.github/workflows/docs-source.yml': 'Retain branded docs artifact coverage; install the existing YAML parser dependency before checking the copied docs. Release/archive/dispatch identities remain unchanged.',
-  'README.md': 'Preserve upstream gratitude, credits, links and technical installation examples; accurately distinguish upstream releases and this fork.',
+  'README.md': 'Preserve upstream gratitude, credits, links and technical installation examples; repair the integration URL and protect destinations from the committed smarty-code alias.',
+  'scripts/apply-brand.mjs': 'Build-time branding only. Existing Markdown parser preserves technical link ranges; stock SF Symbols template contains configured artwork. Helper/template inputs participate in the generated source digest.',
+  'packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg': 'Retain stock Notes/Guides, SwiftDraw attribution and all three glyph identities; insert configured monochrome artwork. Linux structure/preview checks are not Apple compiler proof; exact stock/candidate actool remains required.',
   'package.json': 'Keep stock 1.22.2, author and dependencies; retain donor branding generation/check/build/documentation integration.',
   'packages/electron/package.json': 'Brand product/package presentation only; preserve upstream author, app ID, executable IDs and update/release identities.',
   'packages/electron/resources/icons/AppIcon.icon/Assets/app-icon-glyph-dark 4.png': 'Donor retirement retained: replaced by generated light/dark/tray/app PNG variants from the configured SVG; see generated.json.',
@@ -58,7 +60,9 @@ const files = new Map();
 for (const commit of merges) {
   for (const file of git('diff', '--name-only', `${commit}^1`, commit).trim().split('\n')) {
     const entry = files.get(file) ?? { path: file, sources: [] };
-    const patch = git('diff', '--no-ext-diff', '--unified=3', `${commit}^1`, commit, '--', file);
+    // ponytail: Keep reviewed eight-digit headers instead of Git's object-count default.
+    // Revisit the ledger format if prefix collisions require longer object IDs.
+    const patch = git('diff', '--no-ext-diff', '--unified=3', '--abbrev=8', `${commit}^1`, commit, '--', file);
     entry.sources.push({ commit, patchSha256: sha256(patch), hunks: [...patch.matchAll(/^@@.*$/gm)].map(([header]) => ({
       header, resolution: specialized(file, header) ?? 'Preserved presentation edit; adapted to current stock owner where source drift exists. See file disposition and surface policy.',
     })) });

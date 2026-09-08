@@ -1,4 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg height="600" width="800" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <g id="Notes" font-family="LucidaGrande, 'Lucida Grande', sans-serif" font-size="13">
+        <rect fill="white" height="600.0" width="800.0" x="0.0" y="0.0" />
+        <g font-size="13">
+            <text x="18.0" y="176.0">Small</text>
+            <text x="18.0" y="376.0">Medium</text>
+            <text x="18.0" y="576.0">Large</text>
+        </g>
+        <g font-size="9">
+            <text x="250.0" y="30.0">Ultralight</text>
+            <text x="450.0" y="30.0">Regular</text>
+            <text x="650.0" y="30.0">Black</text>
+            <text id="template-version" fill="#505050" text-anchor="end" x="785.0" y="575.0">Template v.3.0</text>
+            <a href="https://github.com/swhitty/SwiftDraw">
+                <text fill="#505050" text-anchor="end" x="785.0" y="590.0">https://github.com/swhitty/SwiftDraw</text>
+            </a>
+        </g>
+    </g>
+    <g id="Guides" stroke="rgb(39, 170, 225)" stroke-width="0.5">
+        <path id="Capline-S" d="M18,76 l800,0" />
+        <path id="H-reference" d="M85,145.755 L87.685,145.755 L113.369,79.287 L114.052,79.287 L114.052,76 L112.148,76 L85,145.755 Z M95.693,121.536 L130.996,121.536 L130.263,119.313 L96.474,119.313 L95.693,121.536 Z M139.15,145.755 L141.787,145.755 L114.638,76 L113.466,76 L113.466,79.287 L139.15,145.755 Z" stroke="none" transform="translate(0,0)" />
+        <path id="Baseline-S" d="M18,146 l800,0" />
+        <path id="left-margin-Ultralight-S" d="M232.661,56 l0,110" />
+        <path id="right-margin-Ultralight-S" d="M297.339,56 l0,110" />
+        <path id="left-margin-Regular-S" d="M432.661,56 l0,110" />
+        <path id="right-margin-Regular-S" d="M497.339,56 l0,110" />
+        <path id="left-margin-Black-S" d="M632.661,56 l0,110" />
+        <path id="right-margin-Black-S" d="M697.339,56 l0,110" />
+        <path id="Capline-M" d="M18,276 l800,0" />
+        <path id="Baseline-M" d="M18,346 l800,0" />
+        <path id="Capline-L" d="M18,476 l800,0" />
+        <path id="Baseline-L" d="M18,546 l800,0" />
+    </g>
+    <g id="Symbols">
+        <g id="Ultralight-S" transform="translate(230,76) scale(0.13671875)">
   <circle cx="256" cy="256" r="222" fill="none" stroke="#000" stroke-width="12"/>
   <circle cx="188" cy="222" r="18" fill="#000"/>
   <circle cx="324" cy="222" r="18" fill="#000"/>
@@ -10,4 +45,32 @@
   <path d="M154 330c23 58 74 88 102 88s79-30 102-88c-57 34-147 34-204 0Z" fill="#000"/>
   <path d="M210 363h92v38c-27 13-65 13-92 0Z" fill="#000"/>
   <path d="M256 363v47" fill="none" stroke="#000" stroke-width="6"/>
+        </g>
+        <g id="Regular-S" transform="translate(430,76) scale(0.13671875)">
+  <circle cx="256" cy="256" r="222" fill="none" stroke="#000" stroke-width="12"/>
+  <circle cx="188" cy="222" r="18" fill="#000"/>
+  <circle cx="324" cy="222" r="18" fill="#000"/>
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="25">
+    <rect x="76" y="154" width="162" height="134" rx="54"/>
+    <rect x="274" y="154" width="162" height="134" rx="54"/>
+    <path d="M238 210h36M58 180l22 8M454 180l-22 8"/>
+  </g>
+  <path d="M154 330c23 58 74 88 102 88s79-30 102-88c-57 34-147 34-204 0Z" fill="#000"/>
+  <path d="M210 363h92v38c-27 13-65 13-92 0Z" fill="#000"/>
+  <path d="M256 363v47" fill="none" stroke="#000" stroke-width="6"/>
+        </g>
+        <g id="Black-S" transform="translate(630,76) scale(0.13671875)">
+  <circle cx="256" cy="256" r="222" fill="none" stroke="#000" stroke-width="12"/>
+  <circle cx="188" cy="222" r="18" fill="#000"/>
+  <circle cx="324" cy="222" r="18" fill="#000"/>
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="25">
+    <rect x="76" y="154" width="162" height="134" rx="54"/>
+    <rect x="274" y="154" width="162" height="134" rx="54"/>
+    <path d="M238 210h36M58 180l22 8M454 180l-22 8"/>
+  </g>
+  <path d="M154 330c23 58 74 88 102 88s79-30 102-88c-57 34-147 34-204 0Z" fill="#000"/>
+  <path d="M210 363h92v38c-27 13-65 13-92 0Z" fill="#000"/>
+  <path d="M256 363v47" fill="none" stroke="#000" stroke-width="6"/>
+        </g>
+    </g>
 </svg>

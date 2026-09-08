@@ -150,7 +150,7 @@ For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). 
 
 ## Why OpenCode?
 
-This fork preserves the upstream [OpenCode](https://opencode.ai) API and native application behavior. The [Smarty Code integration](https://github.com/Smarty-Pants-Inc/Smarty Code) connects that API to unpatched Pi for native agent execution.
+This fork preserves the upstream [OpenCode](https://opencode.ai) API and native application behavior. The [Smarty Code integration](https://github.com/Smarty-Pants-Inc/smarty-code) connects that API to unpatched Pi for native agent execution.
 
 The UI handles the rest of the workflow. You can decide what to try, keep the agent on track, review the result, connect from another device, and ship the change.
 

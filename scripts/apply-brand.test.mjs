@@ -29,7 +29,7 @@ const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest(
 
 const copyFixture = () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), 'openchamber-brand-'));
-  for (const relative of ['branding/brand.json', 'branding/logo.svg', 'branding/generated.json', ...controlledFiles]) {
+  for (const relative of ['branding/brand.json', 'branding/logo.svg', 'branding/symbol-template.svg', 'branding/generated.json', ...controlledFiles]) {
     const destination = path.join(fixture, relative);
     mkdirSync(path.dirname(destination), { recursive: true });
     copyFileSync(path.join(root, relative), destination);
@@ -199,6 +199,10 @@ test('alternate name, mark, aliases, and logo regenerate every controlled varian
     const titlebarIcon = readFileSync(path.join(fixture, 'packages/vscode/assets/icon-titlebar.svg'), 'utf8');
     assert.match(titlebarIcon, /(?:fill|stroke)="#fff"/);
     assert.doesNotMatch(titlebarIcon, /currentColor|#123456|#abcdef/);
+    const widget = readFileSync(path.join(fixture, 'packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg'), 'utf8');
+    assert.equal((widget.match(/cx="41"/g) ?? []).length, 3);
+    assert.equal((widget.match(/id="(?:Ultralight|Regular|Black)-S"/g) ?? []).length, 3);
+    assert.match(widget, /id="Guides"/);
     assert.notEqual(sha256(pwaIconPath), originalPwaHash);
     const pbxproj = readFileSync(path.join(fixture, 'packages/mobile/ios/App/App.xcodeproj/project.pbxproj'), 'utf8');
     assert.equal((pbxproj.match(/INFOPLIST_KEY_CFBundleDisplayName = "Fixture Brand";/g) ?? []).length, 2);

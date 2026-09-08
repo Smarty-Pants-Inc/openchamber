@@ -28,8 +28,8 @@ changes do not replace OpenChamber's backend or native platform behavior.
 
 ## Small identity/assets boundary
 
-`brand.json` and `logo.svg` are the inputs. `scripts/apply-brand.mjs` is a
-hardened **build-time generator**, not an upstream plugin or universal
+`brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
+`scripts/apply-brand.mjs` is a hardened **build-time generator**, not an upstream plugin or universal
 white-label framework. Its five small generated modules expose shared product
 identity/owned-template formatting to UI, server/CLI, Electron, VS Code and
 mobile. Build-time HTML/JSON/XML/plist/Swift/Markdown/shell edits and platform
@@ -50,6 +50,12 @@ localizations. `asset-parity.json` enumerates the original 98 raster paths and
 dimensions. Native icon catalogs, Android density variants, iOS app icons,
 widget assets, PWA maskable icons and light/dark logos are not collapsed into
 one generic favicon.
+
+The widget SVG keeps the stock SF Symbols Notes, Guides, SwiftDraw attribution
+and Ultralight-S, Regular-S and Black-S glyph identities. The generator places
+the configured monochrome artwork inside each glyph at the stock 70-unit cap
+height. It does not write a generic SVG at the symbolset root. Changing this
+artwork requires Apple asset compiler proof, not just an SVG or raster check.
 
 The donor intentionally retired ten old artwork/build-helper paths: Electron's
 Icon Composer glyphs/metadata, `Assets.car`, stock ICNS/ICO and their two helper
@@ -81,10 +87,13 @@ TypeScript/Capacitor, shell percent/backslash and placeholder escaping.
   serialization remain untouched; the donor test expecting different Error
   normalization is adapted to the actual stock behavior, not used to justify
   a behavior patch.
-- Markdown branding preserves explicit upstream-attribution blocks, links,
-  technical inline examples and executable code. Its documentation alias
-  boundary deliberately excludes actual OpenCode identity; French product
-  elisions and current upstream docs/frontmatter are retained.
+- Markdown branding uses the existing editor parser to preserve link destinations,
+  reference IDs, explicit upstream-attribution blocks and code. Owned link labels
+  and titles still change. Collapsed and shortcut links retain their original
+  reference through an explicit ID when the displayed label changes. HTML URL
+  attributes and URLs in JSON/YAML documentation remain data. The documentation
+  alias boundary excludes actual OpenCode identity. French product elisions and
+  current upstream docs/frontmatter remain present.
 - Four owned magic-prompt product references use `PRODUCT_NAME`. A whole-file
   normalized SHA-256 test proves the remaining prompt text is exact stock:
   no tool names, engine instructions, role semantics or provider/user prompts
@@ -121,6 +130,33 @@ verification is distinguished there from native-shell unit tests, bundle
 compilation and static/generated icon/manifest checks. Those checks **do not**
 claim a launched Electron, VS Code extension host, installed mobile app, widget,
 OS installer or PWA installation.
+
+## Review corrections and Apple compiler gate
+
+Independent review of `fa6942b2db97940b4a5801512491fb50de8e1c4b` found an invalid
+widget symbol catalog and a rewritten integration repository URL. The generator
+now keeps the native symbol template and protects technical documentation links.
+The owning README again points to `https://github.com/Smarty-Pants-Inc/smarty-code`.
+Focused regressions use the committed alias set, including `smarty-code`.
+
+Regeneration on Linux also changes 35 PNGs from the Mac-generated candidate.
+Decoded dimensions match, but pixels are not identical. Across those files,
+279 of 154,229,568 channel values differ by one, with no larger difference.
+The SVG input and raster algorithm are unchanged. This is measured renderer
+variation, not a compression-only claim or an intentional artwork change.
+Per-file raw hashes and renderer versions accompany the private review handoff.
+
+Run `node --test scripts/branding-widget.test.mjs` on a Mac with Xcode. The test
+exports the exact stock catalog from Git, copies both catalogs into temporary
+paths and runs `xcrun actool` separately for stock and candidate. It checks for
+`Assets.car` and reports toolchain versions and symbol digests. For a source
+archive without Git objects, set `SMARTY_STOCK_WIDGET_CATALOG` to a separate
+catalog exported from `2dfd1190eba8853c766c29ae27f09aeacc86bdb9`.
+
+The Apple compiler test explicitly skips on Linux. Passing Linux branding tests
+does not close the native build finding. A new exact-candidate Mac result and
+independent review are still required. These checks do not launch an app or
+change the maintained Mac product or its state.
 
 Protected landing/CI and adoption of the **landed exact fork SHA** are separate
 from this source candidate. Shared-fork metadata authorization is pending; no

@@ -3,6 +3,8 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, stringify, visit } from 'yaml';
+import { brandMarkdown, preserveUrls } from './brand-documentation.mjs';
+import { widgetSymbol } from './brand-widget-symbol.mjs';
 
 const args = process.argv.slice(2);
 const rootIndex = args.indexOf('--root');
@@ -52,13 +54,13 @@ const documentationAliasPattern = `(?:${documentationBrandNames.map(escapeRegex)
 const documentationBrandRegex = new RegExp(documentationAliasPattern, 'g');
 const documentationElisionRegex = brandNames.includes('OpenChamber') ? /([qQ]u|[dDlL])([’'])(OpenChamber|OpenChambers)\b/g : /(?!)/g;
 const documentationProductRegex = new RegExp(`${documentationElisionRegex.source}|${documentationAliasPattern}`, 'g');
-const documentationProductText = (value, productName) => value.replace(documentationProductRegex, (match, prefix, _apostrophe, _elisionAlias, offset, input) => {
+const documentationProductText = (value, productName) => preserveUrls(value, (text) => text.replace(documentationProductRegex, (match, prefix, _apostrophe, _elisionAlias, offset, input) => {
   if (prefix) {
     if (isWordCharacter(input[offset - 1])) return match;
     return prefix === 'Qu' ? `Que ${productName}` : prefix === 'D' ? `De ${productName}` : prefix === 'L' ? `Le ${productName}` : prefix.toLowerCase() === 'qu' ? `que ${productName}` : prefix.toLowerCase() === 'd' ? `de ${productName}` : `le ${productName}`;
   }
   return isWordCharacter(input[offset - 1]) || isWordCharacter(input[offset + match.length]) ? match : productName;
-});
+}));
 const documentationBrandText = (value) => documentationProductText(value, PRODUCT_NAME);
 const markdownPunctuation = /\\|`|\*|_|\[|\]|\(|\)|!|\||#/g;
 const escapeMarkdown = (value) => {
@@ -119,16 +121,7 @@ const brandDocs = (value, format = 'markdown') => {
     return `${frontmatter[1]}${brandYamlDocumentation(frontmatter[2])}${frontmatter[3]}${brandDocs(body, format)}`;
   }
   const renderedBrandText = format === 'html' ? documentationBrandTextForHtml : documentationBrandTextForMarkdown;
-  // Attribution belongs to its original authors, not to the selected product.
-  const code = /<!-- upstream-attribution:start -->[\s\S]*?<!-- upstream-attribution:end -->|```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g;
-  let branded = '';
-  let cursor = 0;
-  for (const match of value.matchAll(code)) {
-    branded += renderedBrandText(value.slice(cursor, match.index));
-    branded += brandFencedDocumentation(match[0], format);
-    cursor = match.index + match[0].length;
-  }
-  return branded + renderedBrandText(value.slice(cursor));
+  return brandMarkdown(value, renderedBrandText, (token) => brandFencedDocumentation(token, format));
 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -361,6 +354,7 @@ await patchText('packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidgets.sw
 });
 
 const logoSvg = await readFile(sourcePath, 'utf8');
+const symbolTemplate = await readFile(path.join(root, 'branding/symbol-template.svg'), 'utf8');
 const monochromeLogoSvg = (color) => {
   let svg = logoSvg.replace(/\s*<defs>[\s\S]*?<\/defs>/, '');
   svg = svg.replace(/(<(?:circle|ellipse|rect|path|polygon)\b[^>]*\bfill=")(?!none)[^"]*"/, '$1none"');
@@ -380,7 +374,7 @@ for (const file of [
 generatedText.set('packages/web/public/mask-icon.svg', monochromeLogoSvg('#000'));
 generatedText.set('packages/vscode/assets/icon.svg', monochromeLogoSvg('currentColor'));
 generatedText.set('packages/vscode/assets/icon-titlebar.svg', monochromeLogoSvg('#fff'));
-generatedText.set('packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg', monochromeLogoSvg('#000'));
+generatedText.set('packages/mobile/ios/App/OpenChamberWidget/Assets.xcassets/OCLogoSymbol.symbolset/oclogo-symbol.svg', widgetSymbol(symbolTemplate, monochromeLogoSvg('#000')));
 
 const pngTargets = [
   { file: 'docs/references/badges/openchamber-logo-dark.png', width: 512, height: 512 },
@@ -495,6 +489,9 @@ const sourceDigest = hash(Buffer.concat([
   await readFile(configPath),
   await readFile(sourcePath),
   await readFile(fileURLToPath(import.meta.url)),
+  await readFile(new URL('./brand-documentation.mjs', import.meta.url)),
+  await readFile(new URL('./brand-widget-symbol.mjs', import.meta.url)),
+  Buffer.from(symbolTemplate),
 ]));
 const expectedFiles = [...generatedText.keys(), ...patchedText.keys(), ...pngTargets.map(({ file }) => file)].sort();
 const EXPECTED_CONTROLLED_FILE_COUNT = 142;
