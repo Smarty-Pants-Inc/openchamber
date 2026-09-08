@@ -62,7 +62,7 @@ const isKnownActiveSessionDirectory = (
   isVSCode: boolean,
 ): boolean => {
   if (session.time?.archived) return true;
-  const directory = normalizePath(resolveGlobalSessionDirectory(session))?.toLowerCase();
+  const directory = normalizePath(resolveGlobalSessionDirectory(session));
   if (!directory) return !isVSCode;
   if (knownDirectories.size === 0) return !isVSCode;
   return knownDirectories.has(directory);
