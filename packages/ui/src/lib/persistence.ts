@@ -2099,7 +2099,9 @@ export const syncDesktopSettings = async (options?: { bootstrap?: boolean; adopt
       if (!isSettingsRuntimeContextCurrent(context)) return;
     }
 
-    dispatchSettingsSynced(authoritativeSettings, bootstrap, adoptTheme);
+    // Migration saves can yield to navigation or preference changes. Reconcile
+    // again before publishing so bootstrap cannot restore that older snapshot.
+    dispatchSettingsSynced(overlayPendingChanges(_settingsMutationTracker.reconcile(authoritativeSettings, operation)), bootstrap, adoptTheme);
   };
 
   try {

@@ -700,6 +700,43 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  for (const saved of [false, true]) {
+    test(`preserves navigation during bootstrap migration, newer save completed: ${saved}`, async () => {
+      const migrationStarted = deferred<void>();
+      const releaseMigration = deferred<void>();
+      registerSettingsApi(async (changes) => {
+        if (changes.autoSaveEnabled !== undefined) {
+          migrationStarted.resolve();
+          await releaseMigration.promise;
+        }
+        return changes;
+      }, async () => ({ settings: { activeProjectId: 'project-a' }, source: 'web' }));
+      invalidateSettingsCache();
+      const synced: SettingsSyncedDetail[] = [];
+      const handleSettingsSynced = (event: Event) => {
+        // SAFETY: the settings-synced emitter sends SettingsSyncedDetail.
+        synced.push((event as CustomEvent<SettingsSyncedDetail>).detail);
+      };
+      getWindow().addEventListener('openchamber:settings-synced', handleSettingsSynced);
+
+      const sync = syncDesktopSettings();
+      await migrationStarted.promise;
+      const navigation = updateDesktopSettings({ activeProjectId: 'project-b', showReasoningTraces: false });
+      try {
+        if (saved) await navigation;
+        releaseMigration.resolve();
+        await sync;
+        const bootstrap = synced.filter((detail) => detail.bootstrap).at(-1);
+        expect(bootstrap?.settings.activeProjectId).toBe('project-b');
+        expect(bootstrap?.settings.showReasoningTraces).toBe(false);
+      } finally {
+        releaseMigration.resolve();
+        await navigation;
+        getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+      }
+    });
+  }
+
   test('preserves only the latest settings values across repeated pending updates', async () => {
     const loadedSettings = deferred<{ settings: SettingsPayload; source: 'web' | 'vscode' }>();
     registerSettingsApi(async (changes) => changes as SettingsPayload, () => loadedSettings.promise);
