@@ -171,23 +171,6 @@ function readSettingsFile() {
   return {};
 }
 
-function writeSettingsFile(settings) {
-  ensureStorageDir();
-  const tmpFile = `${SETTINGS_FILE}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(settings, null, 2), 'utf8');
-  try {
-    fs.chmodSync(tmpFile, 0o600);
-  } catch {
-    // best-effort
-  }
-  fs.renameSync(tmpFile, SETTINGS_FILE);
-  try {
-    fs.chmodSync(SETTINGS_FILE, 0o600);
-  } catch {
-    // best-effort
-  }
-}
-
 export function getGitHubAuth() {
   const list = readAuthList();
   if (!list.length) {
@@ -257,7 +240,7 @@ export function setGitHubAuth({ accessToken, scope, tokenType, user, accountId }
   return nextEntry;
 }
 
-export function activateGitHubAuth(accountId) {
+export async function activateGitHubAuth(accountId, writeSettingsToDisk) {
   if (typeof accountId !== 'string' || !accountId.trim()) {
     return false;
   }
@@ -266,7 +249,7 @@ export function activateGitHubAuth(accountId) {
   if (index === -1) {
     return false;
   }
-  setGhCliActive(false);
+  await setGhCliActive(false, writeSettingsToDisk);
   list.forEach((entry, idx) => {
     entry.current = idx === index;
   });
@@ -340,13 +323,14 @@ export function isGhCliDisabled() {
   return Boolean(readSettingsFile()?.ghCliDisabled);
 }
 
-export function setGhCliDisabled(disabled) {
-  const settings = readSettingsFile();
-  settings.ghCliDisabled = Boolean(disabled);
-  if (settings.ghCliDisabled) {
-    settings.ghCliActive = false;
-  }
-  writeSettingsFile(settings);
+export async function setGhCliDisabled(disabled, writeSettingsToDisk) {
+  const next = Boolean(disabled);
+  await writeSettingsToDisk((settings) => {
+    const updated = { ...settings, ghCliDisabled: next };
+    if (next) updated.ghCliActive = false;
+    return updated;
+  });
+  return next;
 }
 
 export function isGhCliActive() {
@@ -354,8 +338,11 @@ export function isGhCliActive() {
   return !settings?.ghCliDisabled && Boolean(settings?.ghCliActive);
 }
 
-export function setGhCliActive(active) {
-  const settings = readSettingsFile();
-  settings.ghCliActive = Boolean(active) && !settings.ghCliDisabled;
-  writeSettingsFile(settings);
+export async function setGhCliActive(active, writeSettingsToDisk) {
+  let next = false;
+  await writeSettingsToDisk((settings) => {
+    next = Boolean(active) && !settings.ghCliDisabled;
+    return { ...settings, ghCliActive: next };
+  });
+  return next;
 }

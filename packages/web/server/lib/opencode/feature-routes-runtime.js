@@ -111,6 +111,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       readSettingsFromDisk,
       readSettingsFromDiskMigrated,
       persistSettings,
+      writeSettingsToDisk,
       sanitizeProjects,
       sanitizeSkillCatalogs,
       isUnsafeSkillRelativePath,
@@ -304,8 +305,8 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     registerSmallModelRoutes(app, { getSmallModelService });
     registerWalkthroughRoutes(app, { getWalkthroughService });
     registerSessionGoalRoutes(app);
-    registerGitHubRoutes(app);
-    registerLinearRoutes(app);
+    registerGitHubRoutes(app, { writeSettingsToDisk });
+    registerLinearRoutes(app, { writeSettingsToDisk });
     registerGitRoutes(app);
     registerDevServerRoutes(app, { scanner: devServerScanner, getOwnPorts });
     registerMagicPromptRoutes(app, {

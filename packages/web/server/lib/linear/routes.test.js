@@ -9,9 +9,24 @@ import { setLinearAuth, setLinearSessionCommentsEnabled } from './auth.js';
 
 const makeTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-linear-routes-'));
 
+function createTestSettingsWriter(dataDir) {
+  return async (mutation) => {
+    const filePath = path.join(dataDir, 'settings.json');
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    fs.writeFileSync(filePath, JSON.stringify(await mutation(settings)), 'utf8');
+  };
+}
+
+let writeSettingsToDisk;
+
 const createApp = () => {
   const app = express();
-  registerLinearRoutes(app);
+  registerLinearRoutes(app, { writeSettingsToDisk });
   return app;
 };
 
@@ -31,6 +46,7 @@ describe('Linear auth routes', () => {
     process.env.OPENCHAMBER_PORT = '3001';
     process.env.OPENCHAMBER_LINEAR_REDIRECT_URI = 'http://127.0.0.1:3001/linear/oauth/callback';
     delete process.env.OPENCHAMBER_LINEAR_CLIENT_ID;
+    writeSettingsToDisk = createTestSettingsWriter(dataDir);
   });
 
   afterEach(() => {
@@ -578,7 +594,7 @@ describe('Linear auth routes', () => {
   });
 
   it('posts a session status comment and never leaks the token', async () => {
-    setLinearSessionCommentsEnabled(true);
+    await setLinearSessionCommentsEnabled(true, writeSettingsToDisk);
     setLinearAuth({
       accessToken: 'access-1',
       refreshToken: 'refresh-1',

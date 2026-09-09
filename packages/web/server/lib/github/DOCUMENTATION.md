@@ -51,6 +51,7 @@
 - Client ID resolution order: `OPENCHAMBER_GITHUB_CLIENT_ID` -> `settings.json` -> default.
 - Scope resolution order: `OPENCHAMBER_GITHUB_SCOPES` -> `settings.json` -> default.
 - Account id resolution order: explicit `accountId` -> user login -> user id -> token prefix.
+- GitHub CLI preferences (`ghCliDisabled`, `ghCliActive`) receive the server settings writer through route registration. Their routes respond only after the queued write finishes.
 
 ## PR integration overview
 
