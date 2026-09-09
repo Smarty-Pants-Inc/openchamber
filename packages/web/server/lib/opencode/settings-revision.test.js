@@ -16,6 +16,25 @@ describe('settings If-Match parsing', () => {
     expect(() => assertSettingsPrecondition(precondition, '"first,second"')).not.toThrow();
   });
 
+  it('ignores empty elements around real entity tags', () => {
+    const precondition = parseIfMatch(', \t"current",, W/"other", ');
+    expect(precondition).toEqual({ any: false, etags: ['"current"', 'W/"other"'] });
+    expect(() => assertSettingsPrecondition(precondition, '"current"')).not.toThrow();
+  });
+
+  it.each(['', ' \t ', ', , '])('treats the present empty list %j as matching nothing', (header) => {
+    expect(parseIfMatch(header)).toEqual({ any: false, etags: [] });
+    expect(() => assertSettingsPrecondition(parseIfMatch(header), '"current"'))
+      .toThrow(expect.objectContaining({ statusCode: 412 }));
+  });
+
+  it('still rejects mixed wildcards and excessive lists', () => {
+    for (const header of [', *', '*, "tag"', ','.repeat(8193), Array(65).fill('"tag"').join(',')]) {
+      expect(() => parseIfMatch(header)).toThrow(expect.objectContaining({ statusCode: 400 }));
+    }
+    expect(parseIfMatch(undefined)).toBeNull();
+  });
+
   it('keeps the wildcard precondition', () => {
     expect(parseIfMatch(' * ')).toEqual({ any: true, etags: [] });
   });

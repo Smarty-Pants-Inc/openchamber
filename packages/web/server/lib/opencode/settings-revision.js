@@ -25,7 +25,8 @@ export const parseIfMatch = (header) => {
   if (header === undefined) {
     return null;
   }
-  if (Object.prototype.toString.call(header) !== '[object String]' || header.length > MAX_IF_MATCH_LENGTH) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parse the untrusted HTTP header at its boundary.
+  if (typeof header !== 'string' || header.length > MAX_IF_MATCH_LENGTH) {
     throw new SettingsPreconditionError('If-Match must be a valid entity-tag list.', 400);
   }
 
@@ -49,6 +50,12 @@ export const parseIfMatch = (header) => {
 
   const etags = [];
   while (position < header.length) {
+    // Ignore empty list elements; the header-length limit bounds this scan.
+    if (header[position] === ',') {
+      position += 1;
+      skipOptionalWhitespace();
+      continue;
+    }
     const weak = header.startsWith('W/', position);
     if (weak) position += 2;
     if (header[position] !== '"') malformed();
@@ -70,10 +77,8 @@ export const parseIfMatch = (header) => {
     if (header[position] !== ',') malformed();
     position += 1;
     skipOptionalWhitespace();
-    if (position === header.length) malformed();
   }
 
-  if (etags.length === 0) malformed();
   return { any: false, etags };
 };
 

@@ -44,8 +44,7 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
     res.set('Access-Control-Expose-Headers', exposed.join(', '));
   };
 
-  const sendSettingsResponse = (res, settings) => {
-    const response = formatSettingsResponse(settings);
+  const sendSettingsResponse = (res, response) => {
     exposeSettingsResponseHeaders(res);
     res.set({
       ETag: createSettingsRevision(crypto, response),
@@ -236,7 +235,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
   app.get('/api/config/settings', async (_req, res) => {
     try {
       const settings = await readSettingsFromDiskMigrated();
-      return sendSettingsResponse(res, settings);
+      return sendSettingsResponse(res, formatSettingsResponse(settings));
     } catch (error) {
       console.error('Failed to read settings:', error);
       res.status(500).json({ error: 'Failed to read settings' });

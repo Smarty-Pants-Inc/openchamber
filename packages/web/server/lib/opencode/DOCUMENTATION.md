@@ -88,7 +88,7 @@ This module provides OpenCode server integration utilities for the web server ru
 ## Public exports (routes.js)
 - `registerOpenCodeRoutes(app, dependencies)`: Registers OpenCode-owned HTTP routes and internal module runtime:
   - `GET /api/config/settings`: returns a strong ETag for the formatted snapshot and `X-OpenChamber-Settings-CAS: 1`.
-  - `PUT /api/config/settings`: checks `If-Match` inside the settings queue before effects; stale valid conditions return 412, malformed syntax returns 400. No-header callers retain legacy partial-update behavior.
+  - `PUT /api/config/settings`: checks `If-Match` inside the settings queue before effects; stale valid conditions return 412, malformed syntax returns 400. Empty list elements are ignored; a present list with no tags matches nothing. No-header callers retain legacy partial-update behavior. GET formats raw settings once; PUT sends the already formatted persistence result unchanged. Its returned ETag can guard the next write, and private-token presence flags survive without exposing the token.
   - `GET /api/config/opencode-resolution`
   - `POST /api/opencode/upgrade` (enforces the active runtime's upgrade capability, serializes supported OpenCode upgrades, then restarts managed OpenCode so the new binary is active)
   - `GET /api/opencode/upgrade-status` (returns version availability plus the authoritative `upgrade.supported`, `upgrade.manager`, and `upgrade.reason` capability)
