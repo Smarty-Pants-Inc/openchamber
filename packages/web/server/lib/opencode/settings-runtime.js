@@ -496,7 +496,7 @@ export const createSettingsRuntime = (deps) => {
       if (error && typeof error === 'object' && error.code === 'ENOENT') {
         return {};
       }
-      console.warn('Failed to read settings file:', error);
+      console.warn('Failed to read settings file.');
       return {};
     }
   };
@@ -518,7 +518,13 @@ export const createSettingsRuntime = (deps) => {
       }
       throw error;
     }
-    const parsed = JSON.parse(raw);
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Parser errors can contain private input fragments. Do not retain their cause.
+      throw new Error('Settings file is malformed (invalid JSON)');
+    }
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This is the persisted JSON document boundary.
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Settings file is malformed (non-object payload)');

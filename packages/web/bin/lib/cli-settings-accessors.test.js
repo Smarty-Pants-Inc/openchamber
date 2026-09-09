@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { inspect } from 'node:util';
 import { createSettingsAccessors } from './cli-settings-accessors.js';
 
 const withTempDir = async (fn) => {
@@ -142,6 +143,18 @@ describe('cli settings accessors', () => {
       const accessors = makeAccessors(dir);
       fs.writeFileSync(path.join(dir, 'settings.json'), payload);
       await expect(accessors.readSettingsStrict()).rejects.toThrow(/corrupt or unreadable/);
+    });
+  });
+
+  it('does not attach private parser input to strict read errors', async () => {
+    await withTempDir(async (dir) => {
+      const accessors = makeAccessors(dir);
+      const invalid = '{"managedRemoteTunnelToken": SYNTHETIC_PRIVATE_VALUE}';
+      fs.writeFileSync(path.join(dir, 'settings.json'), invalid);
+      const error = await accessors.readSettingsStrict().then(() => null, (failure) => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect(inspect(error, { depth: null }).includes('SYNTHETIC')).toBe(false);
+      expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe(invalid);
     });
   });
 

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { inspect } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createSettingsRuntime } from '../opencode/settings-runtime.js';
@@ -122,6 +123,31 @@ describe('GitHub and Linear settings preferences', () => {
     releasePause();
 
     await expect(response).resolves.toMatchObject({ status: 200, body: { disabled: true } });
+  });
+
+  it('keeps malformed private settings out of preference responses and logs', async () => {
+    const { settingsFilePath, runtime, registerGitHubRoutes, registerLinearRoutes } = await createRuntime();
+    const invalid = '{"managedRemoteTunnelToken": SYNTHETIC_PRIVATE_VALUE}';
+    await fsPromises.writeFile(settingsFilePath, invalid);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const app = express(); app.use(express.json());
+      registerGitHubRoutes(app, { writeSettingsToDisk: runtime.writeSettingsToDisk });
+      registerLinearRoutes(app, { writeSettingsToDisk: runtime.writeSettingsToDisk });
+      const responses = [
+        await request(app).post('/api/github/auth/gh-cli').send({ disabled: true }),
+        await request(app).put('/api/linear/preferences').send({ sessionComments: true }),
+      ];
+      expect(responses.map((response) => response.status)).toEqual([500, 500]);
+      expect(await fsPromises.readFile(settingsFilePath, 'utf8')).toBe(invalid);
+      await runtime.readSettingsFromDisk();
+      await runtime.writeSettingsToDisk({ projects: [] });
+      expect({ responseLeaks: responses.map((response) => response.text.includes('SYNTHETIC')),
+        logLeaks: inspect([errors.mock.calls, warnings.mock.calls], { depth: null }).includes('SYNTHETIC') })
+        .toEqual({ responseLeaks: [false, false], logLeaks: false });
+      expect(await runtime.readSettingsFromDiskStrict()).toEqual({ projects: [] });
+    } finally { errors.mockRestore(); warnings.mockRestore(); }
   });
 
   it.each(['{not-json', '[]', 'null'])('rejects invalid settings %s without replacing them, then recovers', async (invalid) => {

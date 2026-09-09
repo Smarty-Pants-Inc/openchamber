@@ -47,8 +47,9 @@ export const createSettingsAccessors = ({ fsPromises, path, dataDir, settingsFil
     let parsed;
     try {
       parsed = JSON.parse(raw);
-    } catch (error) {
-      throw corruptSettingsError(error);
+    } catch {
+      // Keep a content-free cause; native parser errors can contain private input.
+      throw corruptSettingsError(new Error('Invalid JSON payload'));
     }
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This is the persisted JSON document boundary.
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {

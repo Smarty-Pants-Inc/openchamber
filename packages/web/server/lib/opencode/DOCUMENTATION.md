@@ -207,7 +207,7 @@ Managed health failures are classified as `timeout`, `connection_refused`, `conn
 - `createSettingsRuntime(dependencies)`: creates settings lifecycle runtime for read/migrate/persist concerns.
 - Returned API:
   - `readSettingsFromDisk()`: legacy lenient read; not a safe basis for a replacement write.
-  - `readSettingsFromDiskStrict()`: only a missing file means empty settings; malformed, non-object or unreadable content throws.
+  - `readSettingsFromDiskStrict()`: only a missing file means empty settings; malformed, non-object or unreadable content throws. Malformed JSON raises a fixed error without the native parser cause, which can contain private input. Lenient-read warnings also omit input and raw error details.
   - `readSettingsFromDiskMigrated()`: queued strict read and migrations. Invalid current data is preserved, including possible recovery files.
   - `writeSettingsToDisk(settingsOrMutation)`: an object remains an explicit full replacement. An internal callback reads current settings strictly inside the queue and returns a new document, or the same unmodified object for no write. Raw identity fields do not pass through the public sanitizer.
   - `persistSettings(changesOrMutation, precondition?)`: queued strict read, conditional check and sanitized partial update. Internal callbacks derive their partial update from that current document.
