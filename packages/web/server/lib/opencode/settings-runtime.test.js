@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import fsPromises from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { createProjectIdFromPath } from '../projects/project-id.js';
 import { createSettingsRuntime } from './settings-runtime.js';
+import { createSettingsRevision, parseIfMatch } from './settings-revision.js';
 
-const createRuntime = async () => {
+const createRuntime = async (overrides = {}) => {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'oc-settings-runtime-'));
   const settingsFilePath = path.join(tempRoot, 'settings.json');
   const runtime = createSettingsRuntime({
@@ -26,6 +27,7 @@ const createRuntime = async () => {
     normalizeManagedRemoteTunnelPresetTokens: (value) => value,
     syncManagedRemoteTunnelConfigWithPresets: async () => {},
     upsertManagedRemoteTunnelToken: async () => {},
+    ...overrides,
   });
 
   return {
@@ -245,6 +247,136 @@ describe('settings runtime', () => {
       expect(files.some((f) => f.startsWith('settings.json.tmp-'))).toBe(false);
     } finally {
       await fsPromises.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('allows only one competing conditional update for the same revision', async () => {
+    const { runtime, cleanup } = await createRuntime();
+    try {
+      await runtime.persistSettings({ value: 'base' });
+      const revision = createSettingsRevision(crypto, await runtime.readSettingsFromDisk());
+      const results = await Promise.allSettled([
+        runtime.persistSettings({ value: 'first' }, parseIfMatch(revision)),
+        runtime.persistSettings({ value: 'second' }, parseIfMatch(revision)),
+      ]);
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected');
+      expect(rejected?.reason).toMatchObject({ statusCode: 412 });
+      await expect(runtime.readSettingsFromDisk()).resolves.toEqual({ value: 'first' });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('invalidates a guarded update after an ordinary writer commits', async () => {
+    const { runtime, cleanup } = await createRuntime();
+    try {
+      await runtime.persistSettings({ value: 'base' });
+      const revision = createSettingsRevision(crypto, await runtime.readSettingsFromDisk());
+      await runtime.persistSettings({ value: 'ordinary' });
+
+      await expect(runtime.persistSettings({ value: 'guarded' }, parseIfMatch(revision)))
+        .rejects.toMatchObject({ statusCode: 412 });
+      await expect(runtime.readSettingsFromDisk()).resolves.toEqual({ value: 'ordinary' });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects stale preconditions before tunnel side effects or a disk write', async () => {
+    const syncManagedRemoteTunnelConfigWithPresets = vi.fn(async () => {});
+    const onSettingsChanged = vi.fn(async () => {});
+    const { runtime, settingsFilePath, cleanup } = await createRuntime({
+      syncManagedRemoteTunnelConfigWithPresets,
+      onSettingsChanged,
+    });
+    try {
+      await runtime.persistSettings({ value: 'base' });
+      const revision = createSettingsRevision(crypto, await runtime.readSettingsFromDisk());
+      await runtime.persistSettings({ value: 'ordinary' });
+      syncManagedRemoteTunnelConfigWithPresets.mockClear();
+      onSettingsChanged.mockClear();
+      const before = await fsPromises.readFile(settingsFilePath, 'utf8');
+
+      await expect(runtime.persistSettings({ managedRemoteTunnelPresets: [{ id: 'stale' }] }, parseIfMatch(revision)))
+        .rejects.toMatchObject({ statusCode: 412 });
+
+      await expect(fsPromises.readFile(settingsFilePath, 'utf8')).resolves.toBe(before);
+      expect(syncManagedRemoteTunnelConfigWithPresets).not.toHaveBeenCalled();
+      expect(onSettingsChanged).not.toHaveBeenCalled();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('continues processing settings writes after a failed operation', async () => {
+    let writeAttempts = 0;
+    const wrappedFs = {
+      ...fsPromises,
+      writeFile: async (...args) => {
+        writeAttempts += 1;
+        if (writeAttempts === 1) {
+          throw new Error('simulated disk failure');
+        }
+        return fsPromises.writeFile(...args);
+      },
+    };
+    const { runtime, cleanup } = await createRuntime({ fsPromises: wrappedFs });
+    try {
+      await expect(runtime.persistSettings({ value: 'failed' })).rejects.toThrow('simulated disk failure');
+      await expect(runtime.persistSettings({ value: 'saved' })).resolves.toEqual({ value: 'saved' });
+      await expect(runtime.readSettingsFromDisk()).resolves.toEqual({ value: 'saved' });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('serializes a read migration before a guarded update', async () => {
+    const { runtime, settingsFilePath, cleanup } = await createRuntime();
+    try {
+      await fsPromises.writeFile(settingsFilePath, JSON.stringify({ collapsedProjects: ['legacy'] }), 'utf8');
+      const staleRevision = createSettingsRevision(crypto, { collapsedProjects: ['legacy'] });
+
+      const migration = runtime.readSettingsFromDiskMigrated();
+      const guardedUpdate = runtime.persistSettings({ value: 'guarded' }, parseIfMatch(staleRevision));
+
+      await expect(migration).resolves.not.toHaveProperty('collapsedProjects');
+      await expect(guardedUpdate).rejects.toMatchObject({ statusCode: 412 });
+      await expect(runtime.readSettingsFromDisk()).resolves.not.toHaveProperty('collapsedProjects');
+      await expect(runtime.readSettingsFromDisk()).resolves.not.toHaveProperty('value');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('notifies only after durable formatted settings changes', async () => {
+    const onSettingsChanged = vi.fn(async () => {});
+    const { runtime, cleanup } = await createRuntime({ onSettingsChanged });
+    try {
+      await runtime.persistSettings({ value: 'one' });
+      await runtime.persistSettings({ value: 'one' });
+      await expect(runtime.writeSettingsToDisk({ value: 'two' })).resolves.toBeUndefined();
+
+      expect(onSettingsChanged).toHaveBeenCalledTimes(2);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('keeps a durable write successful when its notification callback fails', async () => {
+    const onSettingsChanged = vi.fn(async () => {
+      throw new Error('notification unavailable');
+    });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { runtime, cleanup } = await createRuntime({ onSettingsChanged });
+    try {
+      await expect(runtime.persistSettings({ value: 'saved' })).resolves.toEqual({ value: 'saved' });
+      await expect(runtime.readSettingsFromDisk()).resolves.toEqual({ value: 'saved' });
+      expect(warning).toHaveBeenCalledWith('Settings changed notification failed.');
+    } finally {
+      warning.mockRestore();
+      await cleanup();
     }
   });
 });

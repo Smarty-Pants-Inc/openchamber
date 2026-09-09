@@ -7,6 +7,7 @@ import {
 } from './config-mutation-response.js';
 import { getClaudeCliAuthStatus } from './claude-cli-auth.js';
 import { OPENCODE_CONFIG_DIR } from './shared.js';
+import { createSettingsRevision, parseIfMatch, SettingsPreconditionError } from './settings-revision.js';
 
 export const registerOpenCodeRoutes = (app, dependencies) => {
   const {
@@ -28,6 +29,31 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
     getOpenCodeAuthHeaders,
     fsPromises = fs.promises,
   } = dependencies;
+
+  const exposeSettingsResponseHeaders = (res) => {
+    const current = res.getHeader('Access-Control-Expose-Headers');
+    const exposed = (Array.isArray(current) ? current : [current])
+      .flatMap((value) => String(value ?? '').split(','))
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const names = new Set(exposed.map((value) => value.toLowerCase()));
+    for (const header of ['ETag', 'X-OpenChamber-Settings-CAS']) {
+      if (!names.has(header.toLowerCase())) {
+        exposed.push(header);
+      }
+    }
+    res.set('Access-Control-Expose-Headers', exposed.join(', '));
+  };
+
+  const sendSettingsResponse = (res, settings) => {
+    const response = formatSettingsResponse(settings);
+    exposeSettingsResponseHeaders(res);
+    res.set({
+      ETag: createSettingsRevision(crypto, response),
+      'X-OpenChamber-Settings-CAS': '1',
+    });
+    return res.json(response);
+  };
 
   let authLibrary = null;
   const pendingMcpAuthContextByState = new Map();
@@ -211,7 +237,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
   app.get('/api/config/settings', async (_req, res) => {
     try {
       const settings = await readSettingsFromDiskMigrated();
-      res.json(formatSettingsResponse(settings));
+      return sendSettingsResponse(res, settings);
     } catch (error) {
       console.error('Failed to read settings:', error);
       res.status(500).json({ error: 'Failed to read settings' });
@@ -422,12 +448,16 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
 
   app.put('/api/config/settings', async (req, res) => {
     try {
-      const updated = await persistSettings(req.body ?? {});
-      res.json(updated);
+      const precondition = parseIfMatch(req.get('If-Match'));
+      const updated = await persistSettings(req.body ?? {}, precondition);
+      return sendSettingsResponse(res, updated);
     } catch (error) {
+      if (error instanceof SettingsPreconditionError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
       console.error('[API:PUT /api/config/settings] Failed to save settings:', error);
       console.error('[API:PUT /api/config/settings] Error stack:', error.stack);
-      res.status(500).json({ error: 'Failed to save settings' });
+      return res.status(500).json({ error: 'Failed to save settings' });
     }
   });
 

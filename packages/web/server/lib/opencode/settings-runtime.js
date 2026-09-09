@@ -1,4 +1,5 @@
 import { createProjectIdFromPath } from '../projects/project-id.js';
+import { assertSettingsPrecondition, createSettingsRevision } from './settings-revision.js';
 
 const DEFAULT_NOTIFICATION_TEMPLATES = {
   completion: { title: '{agent_name} is ready', message: '{model_name} completed the task' },
@@ -44,9 +45,20 @@ export const createSettingsRuntime = (deps) => {
     normalizeManagedRemoteTunnelPresetTokens,
     syncManagedRemoteTunnelConfigWithPresets,
     upsertManagedRemoteTunnelToken,
+    onSettingsChanged = null,
   } = deps;
 
+  // This queue serializes this process's settings owner. It does not provide
+  // filesystem compare-and-swap across processes; callers that need that must
+  // use an actual inter-process lock rather than relying on this runtime.
   let persistSettingsLock = Promise.resolve();
+  const enqueueSettingsOperation = (operation) => {
+    const result = persistSettingsLock.then(operation);
+    // Keep the queue usable after a failed operation while preserving that
+    // operation's rejection for its caller.
+    persistSettingsLock = result.catch(() => {});
+    return result;
+  };
 
   // Orphan recovery is a one-shot best-effort scan: when orphans can't be
   // matched on first pass they stay on disk and every subsequent settings
@@ -566,7 +578,7 @@ export const createSettingsRuntime = (deps) => {
     }
   };
 
-  const writeSettingsToDisk = async (settings) => {
+  const writeSettingsToDiskRaw = async (settings) => {
     const settingsDirectory = path.dirname(SETTINGS_FILE_PATH);
     await fsPromises.mkdir(settingsDirectory, { recursive: true, mode: 0o700 });
     if (process.platform !== 'win32') await fsPromises.chmod(settingsDirectory, 0o700);
@@ -870,9 +882,36 @@ export const createSettingsRuntime = (deps) => {
     return { settings: next, changed: true };
   };
 
+  const notifySettingsChanged = async () => {
+    if (!(onSettingsChanged instanceof Function)) {
+      return;
+    }
+    try {
+      await onSettingsChanged();
+    } catch {
+      // The durable write succeeded. A notification failure must not turn it
+      // into a failed settings update or disclose callback details in logs.
+      console.warn('Settings changed notification failed.');
+    }
+  };
+
+  const writeSettingsAndNotify = async (settings, previousSettings) => {
+    const previousResponse = formatSettingsResponse(previousSettings);
+    const nextResponse = formatSettingsResponse(settings);
+    await writeSettingsToDiskRaw(settings);
+    if (createSettingsRevision(crypto, previousResponse) !== createSettingsRevision(crypto, nextResponse)) {
+      await notifySettingsChanged();
+    }
+  };
+
+  const writeSettingsToDisk = (settings) => enqueueSettingsOperation(async () => {
+    const current = await readSettingsFromDisk();
+    await writeSettingsAndNotify(settings, current);
+  });
+
   let hasCleanedOrphanedTempFiles = false;
 
-  const readSettingsFromDiskMigrated = async () => {
+  const readSettingsFromDiskMigratedUnlocked = async () => {
     if (!hasCleanedOrphanedTempFiles) {
       hasCleanedOrphanedTempFiles = true;
       await cleanupOrphanedSettingsTempFiles(path.dirname(SETTINGS_FILE_PATH));
@@ -887,19 +926,22 @@ export const createSettingsRuntime = (deps) => {
     const migration7 = await migrateSettingsToDeterministicProjectIds(migration6.settings);
     const migration8 = migrateSettingsRemoveApprovedDirectories(migration7.settings);
     if (migration1.changed || migration2.changed || migration3.changed || migration4.changed || migration5.changed || migration6.changed || migration7.changed || migration8.changed) {
-      await writeSettingsToDisk(migration8.settings);
+      await writeSettingsAndNotify(migration8.settings, current);
     }
     return migration8.settings;
   };
 
-  const persistSettings = async (changes) => {
-    persistSettingsLock = persistSettingsLock.then(async () => {
-      // Log field names only — changes can carry credentials (UI password,
-      // client tokens, tunnel tokens) that must never reach the log file.
-      console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
-      const current = await readSettingsFromDisk();
-      const sanitized = sanitizeSettingsUpdate(changes);
-      let next = mergePersistedSettings(current, sanitized);
+  const readSettingsFromDiskMigrated = () => enqueueSettingsOperation(readSettingsFromDiskMigratedUnlocked);
+
+  const persistSettings = (changes, precondition = null) => enqueueSettingsOperation(async () => {
+    // Log field names only — changes can carry credentials (UI password,
+    // client tokens, tunnel tokens) that must never reach the log file.
+    console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
+    const current = await readSettingsFromDisk();
+    const currentResponse = formatSettingsResponse(current);
+    assertSettingsPrecondition(precondition, createSettingsRevision(crypto, currentResponse));
+    const sanitized = sanitizeSettingsUpdate(changes);
+    let next = mergePersistedSettings(current, sanitized);
 
       const normalizedState = normalizeSettingsPaths(next);
       if (normalizedState.changed) {
@@ -962,12 +1004,9 @@ export const createSettingsRuntime = (deps) => {
         }
       }
 
-      await writeSettingsToDisk(next);
-      return formatSettingsResponse(next);
-    });
-
-    return persistSettingsLock;
-  };
+    await writeSettingsAndNotify(next, current);
+    return formatSettingsResponse(next);
+  });
 
   return {
     readSettingsFromDisk,
