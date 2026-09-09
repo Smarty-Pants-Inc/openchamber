@@ -890,7 +890,8 @@ export const createSettingsRuntime = (deps) => {
   };
 
   const notifySettingsChanged = async () => {
-    if (!(onSettingsChanged instanceof Function)) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional injected callbacks can come from another realm.
+    if (typeof onSettingsChanged !== 'function') {
       return;
     }
     try {

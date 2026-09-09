@@ -38,7 +38,8 @@ const makeDeps = (overrides = {}) => {
     APNS_TOKENS_FILE_PATH: '/tmp/apns-tokens.json',
     readSettingsFromDiskMigrated: vi.fn(async () => settings),
     writeSettingsToDisk: vi.fn(async (nextOrMutation) => {
-      settings = nextOrMutation instanceof Function ? await nextOrMutation(settings) : nextOrMutation;
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+      settings = typeof nextOrMutation === 'function' ? await nextOrMutation(settings) : nextOrMutation;
     }),
     ...overrides,
   };

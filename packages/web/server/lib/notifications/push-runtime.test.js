@@ -82,7 +82,8 @@ describe('push runtime visibility tracking', () => {
     let settingsWriteLock = Promise.resolve();
     const writeSettingsToDisk = (nextOrMutation) => {
       const write = settingsWriteLock.then(async () => {
-        settings = nextOrMutation instanceof Function ? await nextOrMutation(settings) : nextOrMutation;
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+        settings = typeof nextOrMutation === 'function' ? await nextOrMutation(settings) : nextOrMutation;
       });
       settingsWriteLock = write.catch(() => {});
       return write;

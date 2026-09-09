@@ -26,7 +26,8 @@ const makeService = (options = {}) => {
     crypto,
     readSettingsFromDiskMigrated: async () => settings,
     writeSettingsToDisk: async (nextOrMutation) => {
-      settings = nextOrMutation instanceof Function ? await nextOrMutation(settings) : nextOrMutation;
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+      settings = typeof nextOrMutation === 'function' ? await nextOrMutation(settings) : nextOrMutation;
     },
     readSettingsStrict: async () => settings,
     getLocalPort: () => 0,

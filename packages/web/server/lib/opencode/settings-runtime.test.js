@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fsPromises from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { runInNewContext } from 'node:vm';
 import { createProjectIdFromPath } from '../projects/project-id.js';
 import { createSettingsRuntime } from './settings-runtime.js';
 import { createSettingsRevision, parseIfMatch } from './settings-revision.js';
@@ -359,6 +360,18 @@ describe('settings runtime', () => {
       await expect(runtime.writeSettingsToDisk({ value: 'two' })).resolves.toBeUndefined();
 
       expect(onSettingsChanged).toHaveBeenCalledTimes(2);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('accepts a settings notification callback from another realm', async () => {
+    const notified = vi.fn();
+    const onSettingsChanged = runInNewContext('() => notified()', { notified });
+    const { runtime, cleanup } = await createRuntime({ onSettingsChanged });
+    try {
+      await runtime.persistSettings({ value: 'saved' });
+      expect(notified).toHaveBeenCalledOnce();
     } finally {
       await cleanup();
     }

@@ -11,7 +11,8 @@ const makeSettingsStore = (initial = {}) => {
     readSettingsFromDiskMigrated: async () => ({ ...settings }),
     readSettingsStrict: async () => ({ ...settings }),
     writeSettingsToDisk: async (nextOrMutation) => {
-      const next = nextOrMutation instanceof Function
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+      const next = typeof nextOrMutation === 'function'
         ? await nextOrMutation({ ...settings })
         : nextOrMutation;
       settings = { ...next };
