@@ -2,6 +2,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 
 // JSON object key order is not part of a project snapshot; keep array order and every field.
 const snapshot = (value: ProjectEntry | string[] | undefined) => JSON.stringify(value,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- JSON replacers visit containers and scalars; only object keys are sorted.
   (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
 

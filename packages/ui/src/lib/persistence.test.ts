@@ -367,10 +367,10 @@ describe('updateDesktopSettings', () => {
     const previousFetch = globalThis.fetch;
     const requests: string[] = [];
     try {
-      globalThis.fetch = (async (input) => {
+      globalThis.fetch = async (input) => {
         requests.push(String(input));
         return Response.json({});
-      }) as typeof fetch;
+      };
       registerSettingsApi(async () => { throw new Error('Settings changed; stale revision'); },
         async () => ({ settings: { projects: [] }, source: 'web', revision: '"old"' }));
       await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: [] });

@@ -98,6 +98,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
       try {
         let initialized = false;
         await writeSettingsToDisk((currentSettings) => {
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Reuse a raw persisted publicOrigin only when it is a nonempty string.
           if (typeof currentSettings?.publicOrigin === 'string' && currentSettings.publicOrigin.trim().length > 0) {
             return currentSettings;
           }

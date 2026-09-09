@@ -1580,6 +1580,7 @@ describe("shareSession live state", () => {
 
 describe("updateSessionTitle live state", () => {
   beforeEach(() => {
+    sessionUpdateResultsById.clear()
     replyCalls.length = 0
     globalUpsertedSessions.length = 0
     globalActiveSessions = []
@@ -1588,24 +1589,26 @@ describe("updateSessionTitle live state", () => {
   })
 
   test("uses canonical ownership before another child's incidental status", async () => {
-    const session = { id: "session-a", directory: "/test/project", title: "Title" } as Session
+    const session: Session = { id: "session-a", directory: "/test/project", title: "Title",
+      slug: "session-a", projectID: "project-a", version: "1", time: { created: 1, updated: 1 } }
     const wrong = createStore({}, { session_status: { "session-a": { type: "idle" } } })
     const owner = createStore({}, { session: [session] })
     globalActiveSessions = [session]
-    sessionUpdateResult = { data: session }
+    sessionUpdateResultsById.set(session.id, session)
     const { setActionRefs, updateSessionTitle } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient,
+    setActionRefs(actionSdk,
       createChildStores([["/wrong/project", wrong], ["/test/project", owner]]), () => "/wrong/project")
     await updateSessionTitle("session-a", "Renamed")
     expect(replyCalls.find(call => call.method === "session.update")?.params.directory).toBe("/test/project")
   })
 
   test("retains message-only lookup when no ownership record is indexed", async () => {
-    const session = { id: "legacy-only", title: "Title" } as Session
-    sessionUpdateResult = { data: session }
+    const session: Session = { id: "legacy-only", title: "Title", directory: "/legacy/project",
+      slug: "legacy-only", projectID: "legacy-project", version: "1", time: { created: 1, updated: 1 } }
+    sessionUpdateResultsById.set(session.id, session)
     const { setActionRefs, updateSessionTitle } = await import("./session-actions")
     const owner = createStore({}, { message: { "legacy-only": [] } })
-    setActionRefs(mockSdk as unknown as OpencodeClient, createChildStores([["/legacy/project", owner]]), () => "/current/project")
+    setActionRefs(actionSdk, createChildStores([["/legacy/project", owner]]), () => "/current/project")
     await updateSessionTitle("legacy-only", "Renamed")
     expect(replyCalls.find(call => call.method === "session.update")?.params.directory).toBe("/legacy/project")
   })

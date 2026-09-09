@@ -33,13 +33,11 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
   },
 
   async save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string }): Promise<SettingsPayload> {
+    const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'application/json' });
+    if (options?.ifMatch) headers.set('If-Match', options.ifMatch);
     const response = await runtimeFetch(SETTINGS_ENDPOINT, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...(options?.ifMatch ? { 'If-Match': options.ifMatch } : {}),
-      },
+      headers,
       body: JSON.stringify(changes),
     });
 
