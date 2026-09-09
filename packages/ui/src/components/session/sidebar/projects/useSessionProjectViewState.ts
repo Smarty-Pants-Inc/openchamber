@@ -73,7 +73,7 @@ export const useSessionProjectViewState = ({
       ...project,
       sidebarCollapsed: collapsed.has(project.id),
     }));
-    void updateDesktopSettings({ projects: updatedProjects }).catch(() => {});
+    void updateDesktopSettings({ projects: updatedProjects }, { expectedProjects: storedProjects }).catch(() => {});
   }, [isVSCode]);
 
   const scheduleCollapsedProjectsPersist = React.useCallback((collapsed: Set<string>) => {

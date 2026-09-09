@@ -43,6 +43,7 @@ type AgentMemoryChangedEvent = {
 };
 
 type OpenChamberEvent =
+  | { type: 'settings-changed' }
   | ScheduledTaskRanEvent
   | SessionCreatedEvent
   | BrowserControlRequestEvent
@@ -124,8 +125,9 @@ const getEventProperties = (properties: unknown): Record<string, unknown> | null
 };
 
 const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) => {
-  if (envelope.type === 'openchamber:event-stream-ready') {
-    reconnectAttempt = 0;
+  if (envelope.type === 'openchamber:event-stream-ready' || envelope.type === 'openchamber:settings-changed') {
+    if (envelope.type === 'openchamber:event-stream-ready') reconnectAttempt = 0;
+    for (const listener of listeners) listener({ type: 'settings-changed' });
     return;
   }
 

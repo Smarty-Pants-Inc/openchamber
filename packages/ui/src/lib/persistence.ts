@@ -27,6 +27,8 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isCapacitorApp } from '@/lib/platform';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
+import { mergeProjectSettings } from '@/lib/projectSettingsMerge';
+import { toast } from 'sonner';
 import { DEFAULT_OPEN_IN_APP_ID } from '@/lib/openInApps';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 
@@ -1823,6 +1825,7 @@ let _settingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _settingsFlushWaiters: Array<() => void> = [];
 let _settingsLifecycleInitialized = false;
 let _pendingSettingsRevision = 0;
+let _pendingProjectsBase: DesktopSettings['projects'];
 const _settingsMutationTracker = new SettingsMutationTracker();
 const SETTINGS_CACHE_TTL = 2_000; // 2 seconds — covers the startup burst
 const SETTINGS_DEBOUNCE_MS = 200;
@@ -1968,7 +1971,9 @@ export const invalidateSettingsCache = (): void => {
   _settingsCache = null;
 };
 
-export const syncDesktopSettings = async (options?: { bootstrap?: boolean; adoptTheme?: boolean }): Promise<void> => {
+const activeSettingsOperations = new Map<Promise<void>, SettingsRuntimeContext>();
+
+const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptTheme?: boolean }): Promise<void> => {
   const bootstrap = options?.bootstrap !== false;
   const adoptTheme = options?.adoptTheme ?? bootstrap;
   if (typeof window === 'undefined') {
@@ -2116,17 +2121,46 @@ export const syncDesktopSettings = async (options?: { bootstrap?: boolean; adopt
   }
 };
 
+const trackSettingsOperation = (pending: Promise<void>, context: SettingsRuntimeContext): Promise<void> => {
+  activeSettingsOperations.set(pending, context);
+  const finished = () => { activeSettingsOperations.delete(pending); };
+  void pending.then(finished, finished);
+  return pending;
+};
+
+export const syncDesktopSettings: typeof syncDesktopSettingsNow = (options) => {
+  const context = captureSettingsRuntimeContext();
+  return trackSettingsOperation(syncDesktopSettingsNow(options), context);
+};
+
+/** Re-read external changes after older snapshots finish, without adopting navigation or theme. */
+export const refreshDesktopSettings = async (): Promise<void> => {
+  ensureSettingsRuntimeLifecycle();
+  const context = captureSettingsRuntimeContext();
+  while (isSettingsRuntimeContextCurrent(context)) {
+    const pending = [...activeSettingsOperations]
+      .filter(([, active]) => isSameSettingsRuntimeContext(active, context)).map(([operation]) => operation);
+    if (pending.length === 0) break;
+    await Promise.allSettled(pending);
+  }
+  if (!isSettingsRuntimeContextCurrent(context)) return;
+  invalidateSettingsCache();
+  await syncDesktopSettings({ bootstrap: false });
+};
+
 // Coalesce rapid updateDesktopSettings calls into a single PUT
 // `keepalive` is set only on the lifecycle-suspend path, where the document may
 // be torn down mid-request; the ordinary debounced write uses a plain fetch.
 async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean } = {}): Promise<void> {
-  const changes = _pendingSettingsChanges;
+  let changes = _pendingSettingsChanges;
   const context = _pendingSettingsContext;
   const revision = _pendingSettingsRevision;
+  const projectsBase = _pendingProjectsBase;
   const waiters = _settingsFlushWaiters;
   _pendingSettingsChanges = null;
   _pendingSettingsContext = null;
   _pendingSettingsRevision = 0;
+  _pendingProjectsBase = undefined;
   _settingsFlushTimer = null;
   _settingsFlushWaiters = [];
   try {
@@ -2141,7 +2175,17 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
       const runtimeSettings = getRuntimeSettingsAPI();
       if (runtimeSettings) {
         try {
-          const updated = await runtimeSettings.save(changes);
+          let ifMatch: string | undefined;
+          if (changes.projects !== undefined) {
+            const current = await runtimeSettings.load();
+            if (!isSettingsRuntimeContextCurrent(context)) return;
+            if (current.revision) {
+              if (projectsBase === undefined) throw new Error('Project update has no original snapshot');
+              changes = { ...changes, projects: mergeProjectSettings(projectsBase, current.settings.projects ?? [], changes.projects) };
+              ifMatch = current.revision;
+            }
+          }
+          const updated = await runtimeSettings.save(changes, ifMatch ? { ifMatch } : undefined);
           if (!isSettingsRuntimeContextCurrent(context)) return;
           if (updated) {
             const reconciled = _settingsMutationTracker.reconcile(updated, operation);
@@ -2154,11 +2198,14 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
         } catch (error) {
           if (!isSettingsRuntimeContextCurrent(context)) return;
           console.warn('Failed to update settings via runtime settings API:', error);
+          dispatchSettingsSaveState('error');
+          return; // An uncertain or rejected mutation must not be replayed through HTTP.
         }
       }
 
       if (!isSettingsRuntimeContextCurrent(context)) return;
       try {
+        if (changes.projects !== undefined) throw new Error('Project updates require the runtime settings API');
         const response = await runtimeFetch('/api/config/settings', {
           method: 'PUT',
           headers: {
@@ -2198,11 +2245,15 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
       _settingsMutationTracker.finish(operation);
     }
   } finally {
+    if (changes?.projects && context && isSettingsRuntimeContextCurrent(context) && getSettingsSaveState() === 'error') {
+      toast.error('Project changes were not saved', { description: 'Refresh to load the latest settings, then try again.' });
+    }
     waiters.forEach((resolve) => resolve());
   }
 }
 
-export const updateDesktopSettings = async (changes: Partial<DesktopSettings>): Promise<void> => {
+export const updateDesktopSettings = async (changes: Partial<DesktopSettings>,
+  options?: { expectedProjects?: DesktopSettings['projects'] }): Promise<void> => {
   if (typeof window === 'undefined') {
     return;
   }
@@ -2214,6 +2265,9 @@ export const updateDesktopSettings = async (changes: Partial<DesktopSettings>): 
     void _flushSettingsUpdate();
   }
 
+  if (changes.projects !== undefined && _pendingSettingsChanges?.projects === undefined) {
+    _pendingProjectsBase = structuredClone(options?.expectedProjects);
+  }
   _pendingSettingsChanges = { ...(_pendingSettingsChanges ?? {}), ...changes };
   _pendingSettingsContext = context;
   _pendingSettingsRevision = _settingsMutationTracker.record(changes);
@@ -2226,7 +2280,7 @@ export const updateDesktopSettings = async (changes: Partial<DesktopSettings>): 
     _settingsFlushWaiters.push(resolve);
   });
   _settingsFlushTimer = setTimeout(() => void _flushSettingsUpdate(), SETTINGS_DEBOUNCE_MS);
-  return flushed;
+  return trackSettingsOperation(flushed, context);
 };
 
 export const initializeAppearancePreferences = async (): Promise<void> => {

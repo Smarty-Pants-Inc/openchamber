@@ -1,6 +1,7 @@
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { toast } from 'sonner';
 
-import type { RuntimeAPIs, SettingsPayload } from '@/lib/api/types';
+import type { RuntimeAPIs, SettingsAPI, SettingsPayload } from '@/lib/api/types';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
@@ -17,6 +18,7 @@ import {
   getRuntimeSettingsMirrorStorageKey,
   getSettingsSaveState,
   invalidateSettingsCache,
+  refreshDesktopSettings,
   subscribeToSettingsSaveState,
   syncDesktopSettings,
   updateDesktopSettings,
@@ -98,8 +100,8 @@ const deferred = <T>() => {
 };
 
 const registerSettingsApi = (
-  save: (changes: Partial<SettingsPayload>) => Promise<SettingsPayload>,
-  load: () => Promise<{ settings: SettingsPayload; source: 'web' | 'vscode' }> = async () => ({ settings: {}, source: 'web' }),
+  save: SettingsAPI['save'],
+  load: () => Promise<{ settings: SettingsPayload; source: 'web' | 'vscode'; revision?: string }> = async () => ({ settings: {}, source: 'web' }),
 ): void => {
   registerRuntimeAPIs({
     runtime: { platform: 'web', isDesktop: false, isVSCode: false },
@@ -309,6 +311,89 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('retains the first project baseline while using a fresh revision after unrelated preference changes', async () => {
+    const conditions: Array<string | undefined> = [];
+    const savedProjects: string[][] = [];
+    const baseline: NonNullable<SettingsPayload['projects']> = [];
+    registerSettingsApi(async (changes, options) => {
+      conditions.push(options?.ifMatch);
+      savedProjects.push(changes.projects?.map(project => project.path) ?? []);
+      return changes;
+    }, async () => ({ settings: { projects: [{ id: 'home', path: '/home' }], terminalShell: 'fish' }, source: 'web', revision: '"new-preferences"' }));
+    const first = updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: baseline });
+    baseline.push({ id: 'a', path: '/a' });
+    const second = updateDesktopSettings({ projects: [{ id: 'a', path: '/a', label: 'Renamed' }] }, { expectedProjects: baseline });
+    await Promise.all([first, second]);
+    expect(conditions).toEqual(['"new-preferences"']);
+    expect(savedProjects).toEqual([['/home', '/a']]);
+  });
+
+  test('compares project values rather than JSON object key order', async () => {
+    let saves = 0;
+    registerSettingsApi(async (changes) => { saves += 1; return changes; }, async () => ({
+      settings: { projects: [{ path: '/a', id: 'a' }] }, source: 'web', revision: '"current"',
+    }));
+    await updateDesktopSettings({ projects: [] }, { expectedProjects: [{ id: 'a', path: '/a' }] });
+    expect(saves).toBe(1);
+  });
+
+  test('does not overwrite externally changed projects', async () => {
+    let saves = 0;
+    registerSettingsApi(async (changes) => { saves += 1; return changes; }, async () => ({
+      settings: { projects: [{ id: 'a', path: '/a', label: 'Server' }] }, source: 'web', revision: '"new-projects"',
+    }));
+    await updateDesktopSettings({ projects: [{ id: 'a', path: '/a', label: 'Client' }] }, { expectedProjects: [{ id: 'a', path: '/a' }] });
+    expect(saves).toBe(0);
+    expect(getSettingsSaveState()).toBe('error');
+  });
+
+  test('does not mutate after its preflight crosses an A to B to A runtime switch', async () => {
+    const loading = deferred<void>();
+    const loaded = deferred<{ settings: SettingsPayload; source: 'web'; revision: string }>();
+    let saves = 0;
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://preflight-a.example', runtimeKey: 'preflight-a' });
+    registerSettingsApi(async (changes) => { saves += 1; return changes; }, () => { loading.resolve(); return loaded.promise; });
+    const write = updateDesktopSettings({ projects: [] }, { expectedProjects: [] });
+    await loading.promise;
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://preflight-b.example', runtimeKey: 'preflight-b' });
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://preflight-a.example', runtimeKey: 'preflight-a' });
+    loaded.resolve({ settings: { projects: [] }, source: 'web', revision: '"a"' });
+    await write;
+    expect(saves).toBe(0);
+  });
+
+  test('does not replay a rejected current-runtime settings mutation through HTTP', async () => {
+    const errorToast = spyOn(toast, 'error');
+    const previousFetch = globalThis.fetch;
+    const requests: string[] = [];
+    try {
+      globalThis.fetch = (async (input) => {
+        requests.push(String(input));
+        return Response.json({});
+      }) as typeof fetch;
+      registerSettingsApi(async () => { throw new Error('Settings changed; stale revision'); },
+        async () => ({ settings: { projects: [] }, source: 'web', revision: '"old"' }));
+      await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: [] });
+      expect(requests).toEqual([]);
+      expect(getSettingsSaveState()).toBe('error');
+      expect(errorToast.mock.calls).toEqual([['Project changes were not saved', {
+        description: 'Refresh to load the latest settings, then try again.',
+      }]]);
+    } finally {
+      errorToast.mockRestore();
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('does not send a conditional project mutation without its original baseline', async () => {
+    let saves = 0;
+    registerSettingsApi(async (changes) => { saves += 1; return changes; },
+      async () => ({ settings: { projects: [] }, source: 'web', revision: '"current"' }));
+    await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] });
+    expect(saves).toBe(0);
+    expect(getSettingsSaveState()).toBe('error');
+  });
+
   test('drains a pending save to the previous runtime and ignores its stale response', async () => {
     switchRuntimeEndpoint({ apiBaseUrl: 'https://settings-a.example', runtimeKey: 'settings-a' });
     const saveResult = deferred<SettingsPayload>();
@@ -353,6 +438,74 @@ describe('updateDesktopSettings', () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+
+  test('external invalidation waits for older bootstrap publication then loads fresh settings', async () => {
+    const firstLoad = deferred<{ settings: SettingsPayload; source: 'web' | 'vscode' }>();
+    let loads = 0;
+    registerSettingsApi(async (changes) => changes, async () => {
+      loads += 1;
+      return loads === 1 ? firstLoad.promise : { settings: { terminalShell: 'fish' }, source: 'web' };
+    });
+    invalidateSettingsCache();
+    const bootstrap = syncDesktopSettings();
+    const refresh = refreshDesktopSettings();
+    expect(loads).toBe(1);
+    firstLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    await Promise.all([bootstrap, refresh]);
+    expect(loads).toBe(2);
+    expect(useUIStore.getState().terminalShell).toBe('fish');
+  });
+
+  test('external invalidation waits for a pending save echo before loading the newer snapshot', async () => {
+    const saving = deferred<void>();
+    const saved = deferred<SettingsPayload>();
+    let saves = 0;
+    let loads = 0;
+    registerSettingsApi(async (changes) => {
+      saves += 1;
+      if (saves !== 1) return changes;
+      saving.resolve();
+      return saved.promise;
+    }, async () => { loads += 1; return { settings: { terminalShell: 'fish' }, source: 'web' }; });
+    const write = updateDesktopSettings({ gitChangesViewMode: 'tree' });
+    const refresh = refreshDesktopSettings();
+    await saving.promise;
+    expect(loads).toBe(0);
+    saved.resolve({ terminalShell: 'bash' });
+    await Promise.all([write, refresh]);
+    expect(loads).toBe(1);
+    expect(useUIStore.getState().terminalShell).toBe('fish');
+  });
+
+  test('external invalidation does not wait for requests belonging to a disconnected runtime', async () => {
+    const oldLoad = deferred<{ settings: SettingsPayload; source: 'web' | 'vscode' }>();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://waiting-old.example', runtimeKey: 'waiting-old' });
+    registerSettingsApi(async (changes) => changes, () => oldLoad.promise);
+    const oldSync = syncDesktopSettings();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://waiting-new.example', runtimeKey: 'waiting-new' });
+    registerSettingsApi(async (changes) => changes, async () => ({ settings: { terminalShell: 'fish' }, source: 'web' }));
+    await refreshDesktopSettings();
+    oldLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    await oldSync;
+    expect(useUIStore.getState().terminalShell).toBe('fish');
+  });
+
+  test('external invalidation does not follow an old runtime into the next runtime', async () => {
+    const oldLoad = deferred<{ settings: SettingsPayload; source: 'web' | 'vscode' }>();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://refresh-old.example', runtimeKey: 'refresh-old' });
+    registerSettingsApi(async (changes) => changes, () => oldLoad.promise);
+    const bootstrap = syncDesktopSettings();
+    const refresh = refreshDesktopSettings();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://refresh-new.example', runtimeKey: 'refresh-new' });
+    let newLoads = 0;
+    registerSettingsApi(async (changes) => changes, async () => {
+      newLoads += 1;
+      return { settings: {}, source: 'web' };
+    });
+    oldLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    await Promise.all([bootstrap, refresh]);
+    expect(newLoads).toBe(0);
   });
 
   test('rejects stale loads by generation across an A to B to A switch', async () => {

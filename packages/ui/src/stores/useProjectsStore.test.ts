@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import * as settings from "@/lib/persistence"
 import type { ProjectEntry } from "@/lib/api/types"
 import type { DesktopSettings } from "@/lib/desktop"
 import { useProjectsStore } from "./useProjectsStore"
@@ -129,6 +130,22 @@ describe("useProjectsStore.addProjects", () => {
       manualProjectOrder: [],
     })
   }
+
+  test("adding and selecting captures the project list before the addition", async () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      resetProjects()
+      await useProjectsStore.getState().addProject("/one")
+      const first = save.mock.calls.find(([changes]) => changes.projects)
+      expect(first?.[1]?.expectedProjects).toEqual([])
+      const callsBefore = save.mock.calls.length
+      await useProjectsStore.getState().addProjects(["/two", "/three"])
+      const second = save.mock.calls.slice(callsBefore).find(([changes]) => changes.projects)
+      expect(second?.[1]?.expectedProjects?.map((project: ProjectEntry) => project.path)).toEqual(["/one"])
+    } finally {
+      save.mockRestore()
+    }
+  })
 
   test("adds multiple new projects in one update and activates the first", async () => {
     resetProjects()

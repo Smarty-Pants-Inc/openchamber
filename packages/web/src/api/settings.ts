@@ -19,20 +19,26 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
     if (!response.ok) {
       throw new Error(`Failed to load settings: ${response.statusText}`);
     }
+    let revision: string | undefined;
+    if (response.headers.get('X-OpenChamber-Settings-CAS') === '1') {
+      const tag = response.headers.get('ETag');
+      if (tag === null || !/^"[!#-~\x80-\xff]*"$/.test(tag)) {
+        throw new Error('Settings server did not provide a strong revision');
+      }
+      revision = tag;
+    }
 
     const payload = sanitizePayload(await response.json());
-    return {
-      settings: payload,
-      source: 'web',
-    };
+    return { settings: payload, source: 'web', revision };
   },
 
-  async save(changes: Partial<SettingsPayload>): Promise<SettingsPayload> {
+  async save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string }): Promise<SettingsPayload> {
     const response = await runtimeFetch(SETTINGS_ENDPOINT, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        ...(options?.ifMatch ? { 'If-Match': options.ifMatch } : {}),
       },
       body: JSON.stringify(changes),
     });
