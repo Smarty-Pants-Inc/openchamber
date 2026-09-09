@@ -9,7 +9,7 @@
  * @param {{
  *   crypto: typeof import('node:crypto'),
  *   readSettingsFromDiskMigrated: () => Promise<object>,
- *   writeSettingsToDisk: (settings: object) => Promise<void>,
+ *   writeSettingsToDisk: (mutation: (current: object) => object | Promise<object>) => Promise<void>,
  *   readSettingsStrict?: () => Promise<object>,
  * }} deps
  * @returns {Promise<{ privateKey: import('node:crypto').KeyObject, publicJwk: JsonWebKey }>}

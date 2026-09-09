@@ -16,8 +16,9 @@
 //   - A STRICT read that THROWS on corrupt/unreadable payloads, gating relay
 //     identity regeneration. Only a genuinely missing file means "no
 //     settings"; any other failure (corrupt JSON, EACCES, transient I/O,
-//     non-object payload) must propagate so callers never confuse a broken
-//     read with first run and mint a replacement signing/encryption keypair.
+//     null, arrays, or another non-object payload) must propagate so callers
+//     never confuse a broken read with first run and mint a replacement
+//     signing/encryption keypair.
 
 export const createSettingsAccessors = ({ fsPromises, path, dataDir, settingsFileName }) => {
   const settingsPath = path.join(dataDir, settingsFileName);
@@ -49,7 +50,8 @@ export const createSettingsAccessors = ({ fsPromises, path, dataDir, settingsFil
     } catch (error) {
       throw corruptSettingsError(error);
     }
-    if (!parsed || typeof parsed !== 'object') {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This is the persisted JSON document boundary.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw corruptSettingsError(new Error('non-object payload'));
     }
     return parsed;
@@ -94,18 +96,43 @@ export const createSettingsAccessors = ({ fsPromises, path, dataDir, settingsFil
     await fsPromises.rm(tmp, { force: true });
   };
 
-  const writeSettingsToDisk = async (settings) => {
+  const writeSettingsToDiskRaw = async (settings) => {
     await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true });
     const tmp = `${settingsPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await fsPromises.writeFile(tmp, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 });
-    if (process.platform !== 'win32') {
-      await fsPromises.chmod(tmp, 0o600);
-    }
-    await replaceFile(tmp, settingsPath);
-    if (process.platform !== 'win32') {
-      await fsPromises.chmod(settingsPath, 0o600);
+    try {
+      await fsPromises.writeFile(tmp, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 });
+      if (process.platform !== 'win32') {
+        await fsPromises.chmod(tmp, 0o600);
+      }
+      await replaceFile(tmp, settingsPath);
+      if (process.platform !== 'win32') {
+        await fsPromises.chmod(settingsPath, 0o600);
+      }
+    } finally {
+      await fsPromises.rm(tmp, { force: true }).catch(() => {});
     }
   };
+
+  let writeQueue = Promise.resolve();
+  const enqueueWrite = (operation) => {
+    const result = writeQueue.then(operation);
+    writeQueue = result.catch(() => {});
+    return result;
+  };
+
+  const writeSettingsToDisk = (settingsOrMutation) => enqueueWrite(async () => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This API accepts either a document or a mutation callback.
+    if (typeof settingsOrMutation !== 'function') {
+      await writeSettingsToDiskRaw(settingsOrMutation);
+      return;
+    }
+
+    const current = await readSettingsStrict();
+    const next = await settingsOrMutation(current);
+    if (next !== current) {
+      await writeSettingsToDiskRaw(next);
+    }
+  });
 
   return { readSettingsFromDiskMigrated, readSettingsStrict, writeSettingsToDisk };
 };

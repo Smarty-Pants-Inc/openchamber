@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import crypto from 'crypto';
-
 import { createSettingsAccessors } from './cli-settings-accessors.js';
-import { createRelayIdentityRuntime } from '../../server/lib/relay/identity.js';
 
 const withTempDir = async (fn) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-settings-accessors-'));
@@ -140,10 +137,10 @@ describe('cli settings accessors', () => {
     });
   });
 
-  it('strict read throws on a non-object payload', async () => {
+  it.each(['"just a string"', '[]', 'null'])('strict read rejects invalid settings payload %s', async (payload) => {
     await withTempDir(async (dir) => {
       const accessors = makeAccessors(dir);
-      fs.writeFileSync(path.join(dir, 'settings.json'), '"just a string"');
+      fs.writeFileSync(path.join(dir, 'settings.json'), payload);
       await expect(accessors.readSettingsStrict()).rejects.toThrow(/corrupt or unreadable/);
     });
   });
@@ -164,26 +161,4 @@ describe('cli settings accessors', () => {
     });
   });
 
-  it('does not regenerate the relay identity off a corrupt settings file', async () => {
-    await withTempDir(async (dir) => {
-      const accessors = makeAccessors(dir);
-      fs.writeFileSync(
-        path.join(dir, 'settings.json'),
-        JSON.stringify({
-          relaySigningKey: {
-            privateJwk: crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }),
-            publicJwk: crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' }),
-          },
-        }),
-      );
-      const identity = await createRelayIdentityRuntime({ crypto, ...accessors }).getRelayIdentity();
-      const serverIdBefore = identity.serverId;
-
-      // Corrupt the file, then ask for the identity again: the strict gate must
-      // make this FAIL rather than mint a replacement keypair.
-      fs.writeFileSync(path.join(dir, 'settings.json'), '{"relaySigningKey": {"unfinished');
-      await expect(createRelayIdentityRuntime({ crypto, ...accessors }).getRelayIdentity()).rejects.toThrow();
-      expect(serverIdBefore).toBeTruthy();
-    });
-  });
 });

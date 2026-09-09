@@ -49,7 +49,7 @@ const envRelayUrlOverride = () => {
  * @param {{
  *   crypto: typeof import('node:crypto'),
  *   readSettingsFromDiskMigrated: () => Promise<object>,
- *   writeSettingsToDisk: (settings: object) => Promise<void>,
+ *   writeSettingsToDisk: (mutation: (current: object) => object | Promise<object>) => Promise<void>,
  *   getLocalPort: () => number,
  *   logger?: Pick<Console, 'warn'>,
  * }} deps

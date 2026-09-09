@@ -83,6 +83,7 @@ export const createPushRuntime = (deps) => {
     let winner = null;
     await writeSettingsToDisk((currentSettings) => {
       const existing = currentSettings?.vapidKeys;
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the persisted VAPID pair before retaining it.
       if (typeof existing?.publicKey === 'string' && typeof existing?.privateKey === 'string') {
         winner = { publicKey: existing.publicKey, privateKey: existing.privateKey };
         return currentSettings;

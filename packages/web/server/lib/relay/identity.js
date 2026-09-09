@@ -19,7 +19,7 @@ const isJwkPair = (value) => Boolean(value && typeof value === 'object' && value
  * @param {{
  *   crypto: typeof import('node:crypto'),
  *   readSettingsFromDiskMigrated: () => Promise<object>,
- *   writeSettingsToDisk: (settings: object) => Promise<void>,
+ *   writeSettingsToDisk: (mutation: (current: object) => object | Promise<object>) => Promise<void>,
  *   readSettingsStrict?: () => Promise<object>,
  * }} deps
  */

@@ -519,6 +519,7 @@ export const createSettingsRuntime = (deps) => {
       throw error;
     }
     const parsed = JSON.parse(raw);
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This is the persisted JSON document boundary.
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Settings file is malformed (non-object payload)');
     }
@@ -905,6 +906,7 @@ export const createSettingsRuntime = (deps) => {
   };
 
   const writeSettingsToDisk = (settingsOrMutation) => enqueueSettingsOperation(async () => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Raw writes accept a document or a queued mutation callback.
     if (typeof settingsOrMutation === 'function') {
       // Raw identity/config writers must not turn corruption or an unreadable
       // file into an empty replacement. The strict reader also makes the
@@ -951,6 +953,7 @@ export const createSettingsRuntime = (deps) => {
     // Internal project metadata writers use this callback to derive a partial
     // update from the current queued state, rather than replacing a snapshot
     // captured before a browser mutation committed.
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Internal updates accept a partial document or a queued callback.
     const changes = typeof changesOrMutation === 'function'
       ? await changesOrMutation(current)
       : changesOrMutation;
