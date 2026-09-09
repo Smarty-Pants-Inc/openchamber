@@ -244,12 +244,16 @@ export async function activateGitHubAuth(accountId, writeSettingsToDisk) {
   if (typeof accountId !== 'string' || !accountId.trim()) {
     return false;
   }
-  const list = readAuthList();
-  const index = list.findIndex((entry) => entry.accountId === accountId.trim());
-  if (index === -1) {
+  const targetAccountId = accountId.trim();
+  if (!readAuthList().some((entry) => entry.accountId === targetAccountId)) {
     return false;
   }
   await setGhCliActive(false, writeSettingsToDisk);
+  const list = readAuthList();
+  const index = list.findIndex((entry) => entry.accountId === targetAccountId);
+  if (index === -1) {
+    return false;
+  }
   list.forEach((entry, idx) => {
     entry.current = idx === index;
   });
