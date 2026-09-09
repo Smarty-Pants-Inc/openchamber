@@ -134,7 +134,7 @@ describe('DirectoryExplorerDialog behavior', () => {
       const input = dom.container.querySelector<HTMLInputElement>('input');
       const child = [...dom.container.querySelectorAll('button')].find((button) => button.textContent === 'child');
       if (!input || !child) throw new Error('Expected focused input and browse row');
-      expect(dialogInitialFocus).toHaveProperty('current', input);
+      expect(dialogInitialFocus).toEqual({ current: input });
       expect(document.activeElement).toBe(input);
       await act(async () => child.dispatchEvent(new MouseEvent('click', { bubbles: true })));
       expect(input.value).toBe('~/child/');
