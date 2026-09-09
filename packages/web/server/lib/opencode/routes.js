@@ -15,7 +15,6 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
     getOpenCodeResolutionSnapshot,
     getOpenCodeUpgradeCapability,
     formatSettingsResponse,
-    readSettingsFromDisk,
     readSettingsFromDiskMigrated,
     persistSettings,
     sanitizeProjects,
@@ -800,28 +799,26 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
       }
 
       const resolvedPath = validated.directory;
-      const currentSettings = await readSettingsFromDisk();
-      const existingProjects = sanitizeProjects(currentSettings.projects) || [];
-      const existing = existingProjects.find((project) => project.path === resolvedPath) || null;
+      const updated = await persistSettings((currentSettings) => {
+        const existingProjects = sanitizeProjects(currentSettings.projects) || [];
+        const existing = existingProjects.find((project) => project.path === resolvedPath) || null;
+        const nextProjects = existing
+          ? existingProjects
+          : [
+              ...existingProjects,
+              {
+                id: createProjectIdFromPath(resolvedPath),
+                path: resolvedPath,
+                addedAt: Date.now(),
+                lastOpenedAt: Date.now(),
+              },
+            ];
 
-      const nextProjects = existing
-        ? existingProjects
-        : [
-            ...existingProjects,
-            {
-              id: createProjectIdFromPath(resolvedPath),
-              path: resolvedPath,
-              addedAt: Date.now(),
-              lastOpenedAt: Date.now(),
-            },
-          ];
-
-      const activeProjectId = existing ? existing.id : nextProjects[nextProjects.length - 1].id;
-
-      const updated = await persistSettings({
-        projects: nextProjects,
-        activeProjectId,
-        lastDirectory: resolvedPath,
+        return {
+          projects: nextProjects,
+          activeProjectId: existing ? existing.id : nextProjects[nextProjects.length - 1].id,
+          lastDirectory: resolvedPath,
+        };
       });
 
       return res.json({

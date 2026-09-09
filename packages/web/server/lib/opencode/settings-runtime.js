@@ -933,13 +933,19 @@ export const createSettingsRuntime = (deps) => {
 
   const readSettingsFromDiskMigrated = () => enqueueSettingsOperation(readSettingsFromDiskMigratedUnlocked);
 
-  const persistSettings = (changes, precondition = null) => enqueueSettingsOperation(async () => {
-    // Log field names only — changes can carry credentials (UI password,
-    // client tokens, tunnel tokens) that must never reach the log file.
-    console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
+  const persistSettings = (changesOrMutation, precondition = null) => enqueueSettingsOperation(async () => {
     const current = await readSettingsFromDisk();
     const currentResponse = formatSettingsResponse(current);
     assertSettingsPrecondition(precondition, createSettingsRevision(crypto, currentResponse));
+    // Internal project metadata writers use this callback to derive a partial
+    // update from the current queued state, rather than replacing a snapshot
+    // captured before a browser mutation committed.
+    const changes = typeof changesOrMutation === 'function'
+      ? await changesOrMutation(current)
+      : changesOrMutation;
+    // Log field names only — changes can carry credentials (UI password,
+    // client tokens, tunnel tokens) that must never reach the log file.
+    console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
     const sanitized = sanitizeSettingsUpdate(changes);
     let next = mergePersistedSettings(current, sanitized);
 

@@ -169,6 +169,29 @@ export const registerProjectIconRoutes = (app, dependencies) => {
     return { projects, index, project: projects[index] };
   };
 
+  const createProjectNotFoundError = () => {
+    const error = new Error('Project not found');
+    error.statusCode = 404;
+    return error;
+  };
+
+  const persistProjectIconMetadata = async (projectId, iconImage) => {
+    const updatedSettings = await persistSettings((currentSettings) => {
+      const { projects, project } = findProjectById(currentSettings, projectId);
+      if (!project) {
+        throw createProjectNotFoundError();
+      }
+      return {
+        projects: projects.map((entry) => entry.id === projectId ? { ...entry, iconImage } : entry),
+      };
+    });
+    const updatedProject = (updatedSettings.projects || []).find((entry) => entry.id === projectId) || null;
+    if (!updatedProject) {
+      throw createProjectNotFoundError();
+    }
+    return { updatedSettings, updatedProject };
+  };
+
   const fsSearchRuntime = createFsSearchRuntime({
     fsPromises,
     path,
@@ -256,7 +279,7 @@ export const registerProjectIconRoutes = (app, dependencies) => {
 
     try {
       const settings = await readSettingsFromDiskMigrated();
-      const { projects, project } = findProjectById(settings, projectId);
+      const { project } = findProjectById(settings, projectId);
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
@@ -271,16 +294,14 @@ export const registerProjectIconRoutes = (app, dependencies) => {
       await removeProjectIconFiles(projectId, iconPath);
 
       const updatedAt = Date.now();
-      const nextProjects = projects.map((entry) => (
-        entry.id === projectId
-          ? { ...entry, iconImage: { mime: parsed.mime, updatedAt, source: 'custom' } }
-          : entry
-      ));
-      const updatedSettings = await persistSettings({ projects: nextProjects });
-      const updatedProject = (updatedSettings.projects || []).find((entry) => entry.id === projectId) || null;
+      const { updatedSettings, updatedProject } = await persistProjectIconMetadata(projectId,
+        { mime: parsed.mime, updatedAt, source: 'custom' });
 
       return res.json({ project: updatedProject, settings: updatedSettings });
     } catch (error) {
+      if (error?.statusCode === 404) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
       console.warn('Failed to upload project icon:', error);
       return res.status(500).json({ error: 'Failed to upload project icon' });
     }
@@ -294,23 +315,20 @@ export const registerProjectIconRoutes = (app, dependencies) => {
 
     try {
       const settings = await readSettingsFromDiskMigrated();
-      const { projects, project } = findProjectById(settings, projectId);
+      const { project } = findProjectById(settings, projectId);
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
       await removeProjectIconFiles(projectId);
 
-      const nextProjects = projects.map((entry) => (
-        entry.id === projectId
-          ? { ...entry, iconImage: null }
-          : entry
-      ));
-      const updatedSettings = await persistSettings({ projects: nextProjects });
-      const updatedProject = (updatedSettings.projects || []).find((entry) => entry.id === projectId) || null;
+      const { updatedSettings, updatedProject } = await persistProjectIconMetadata(projectId, null);
 
       return res.json({ project: updatedProject, settings: updatedSettings });
     } catch (error) {
+      if (error?.statusCode === 404) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
       console.warn('Failed to remove project icon:', error);
       return res.status(500).json({ error: 'Failed to remove project icon' });
     }
@@ -324,7 +342,7 @@ export const registerProjectIconRoutes = (app, dependencies) => {
 
     try {
       const settings = await readSettingsFromDiskMigrated();
-      const { projects, project } = findProjectById(settings, projectId);
+      const { project } = findProjectById(settings, projectId);
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
@@ -378,13 +396,8 @@ export const registerProjectIconRoutes = (app, dependencies) => {
       await removeProjectIconFiles(projectId, iconPath);
 
       const updatedAt = Date.now();
-      const nextProjects = projects.map((entry) => (
-        entry.id === projectId
-          ? { ...entry, iconImage: { mime, updatedAt, source: 'auto' } }
-          : entry
-      ));
-      const updatedSettings = await persistSettings({ projects: nextProjects });
-      const updatedProject = (updatedSettings.projects || []).find((entry) => entry.id === projectId) || null;
+      const { updatedSettings, updatedProject } = await persistProjectIconMetadata(projectId,
+        { mime, updatedAt, source: 'auto' });
 
       return res.json({
         project: updatedProject,
@@ -392,6 +405,9 @@ export const registerProjectIconRoutes = (app, dependencies) => {
         discoveredPath: selected.path,
       });
     } catch (error) {
+      if (error?.statusCode === 404) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
       console.warn('Failed to discover project icon:', error);
       return res.status(500).json({ error: 'Failed to discover project icon' });
     }
