@@ -14,6 +14,7 @@ const sessionUiState = { openNewSessionDraft: () => {} };
 const selectSessionUi = <T,>(selector: (state: typeof sessionUiState) => T): T => selector(sessionUiState);
 let homeResolvers: Array<(response: Response) => void> = [];
 let browseEntries: Array<{ name: string; path: string; isDirectory: boolean }> = [];
+let dialogInitialFocus: boolean | React.RefObject<HTMLElement | null> | undefined;
 
 const passthrough = ({ children }: React.PropsWithChildren) => <div>{children}</div>;
 const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>((props, ref) => <input ref={ref} {...props} />);
@@ -21,7 +22,11 @@ const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
 
 mock.module('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: React.PropsWithChildren<{ open: boolean }>) => open ? <>{children}</> : null,
-  DialogContent: passthrough, DialogDescription: passthrough, DialogFooter: passthrough, DialogHeader: passthrough, DialogTitle: passthrough,
+  DialogContent: ({ children, initialFocus }: React.PropsWithChildren<{ initialFocus: typeof dialogInitialFocus }>) => {
+    dialogInitialFocus = initialFocus;
+    return <div>{children}</div>;
+  },
+  DialogDescription: passthrough, DialogFooter: passthrough, DialogHeader: passthrough, DialogTitle: passthrough,
 }));
 mock.module('@/components/ui/input', () => ({ Input }));
 mock.module('@/components/ui/button', () => ({ Button }));
@@ -129,6 +134,7 @@ describe('DirectoryExplorerDialog behavior', () => {
       const input = dom.container.querySelector<HTMLInputElement>('input');
       const child = [...dom.container.querySelectorAll('button')].find((button) => button.textContent === 'child');
       if (!input || !child) throw new Error('Expected focused input and browse row');
+      expect(dialogInitialFocus).toHaveProperty('current', input);
       expect(document.activeElement).toBe(input);
       await act(async () => child.dispatchEvent(new MouseEvent('click', { bubbles: true })));
       expect(input.value).toBe('~/child/');
