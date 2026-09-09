@@ -579,9 +579,9 @@ function getGlobalSessionSnapshot(sessionId: string): Session | null {
 
 function getSessionDirectory(sessionId: string): string | undefined {
   const globalSession = getGlobalSessionSnapshot(sessionId)
-  return findSessionDirectoryInChildStores(sessionId)
-    || useSessionUIStore.getState().getDirectoryForSession(sessionId)
+  return useSessionUIStore.getState().getDirectoryForSession(sessionId)
     || (globalSession ? resolveGlobalSessionDirectory(globalSession) ?? undefined : undefined)
+    || findSessionDirectoryInChildStores(sessionId)
     || dir()
 }
 
