@@ -26,6 +26,24 @@ changes do not replace OpenChamber's backend or native platform behavior.
   paginated-history hunk has its own row. Applicable neighboring hunks remain
   ported. Existing neutral stock UI deletion/pagination errors stay unchanged.
 
+## Explicit reviewed behavior overlay
+
+This combined candidate also contains separately reviewed settings, privacy,
+identity, session-ownership and dialog fixes from
+`1ab7ae3799ee4e633785451ef28cf52f49e53797`. It is not branding-only or byte-identical
+stock behavior. `behavior-overlay.json` records the exact branding, behavior and
+combined source identities for four paths covered by the original branding ledger.
+Their original stock/donor hashes and hunk dispositions are unchanged. The tests
+check both that original baseline and each explicit combined output; all other
+ledger paths still require their original hashes. The session-action test overlay
+must also match the reviewed behavior source exactly.
+
+The generator does not own these runtime files. Technical headers and events,
+including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and
+`openchamber:settings-changed`, remain unchanged. No generic branding substitution
+may process protocol identifiers. Combined runtime review/CI and protected owning
+landing remain separate from either earlier lane's proof.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
