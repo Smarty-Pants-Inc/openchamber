@@ -101,7 +101,7 @@ export class InlineCommentThreads implements vscode.Disposable {
         this.options = options;
         this.controller = vscode.comments.createCommentController(
             INLINE_COMMENT_CONTROLLER_ID,
-            'OpenChamber',
+            options.strings.author,
         );
         // Any line of a workspace file can take a comment; the gutter `+`
         // follows from this.

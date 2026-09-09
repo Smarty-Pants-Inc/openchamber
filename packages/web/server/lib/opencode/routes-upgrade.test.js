@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { registerOpenCodeRoutes } from './routes.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -45,7 +46,7 @@ describe('OpenCode upgrade routes', () => {
       .expect(409, {
         success: false,
         code: 'OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER',
-        error: 'OpenCode is bundled with OpenChamber Desktop and updates with the app.',
+        error: `The engine is bundled with ${PRODUCT_NAME} Desktop and updates with the app.`,
       });
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -187,7 +188,7 @@ describe('OpenCode upgrade routes', () => {
       .expect(409, {
         success: false,
         code: 'OPENCODE_UPGRADE_IN_PROGRESS',
-        error: 'An OpenCode upgrade is already in progress.',
+        error: 'An engine update is already in progress.',
       });
 
     releaseUpgrade();

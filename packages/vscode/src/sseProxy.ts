@@ -92,7 +92,7 @@ const fetchSseResponse = async (
 ): Promise<Response> => {
   const baseUrl = await waitForApiUrl(manager);
   if (!baseUrl) {
-    throw new Error('OpenCode API URL not available');
+    throw new Error('Engine API URL not available');
   }
 
   const { pathname, searchParams, directory } = normalizeSsePath(path);
@@ -107,13 +107,13 @@ const fetchSseResponse = async (
 
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
-    const error = new Error(`OpenCode SSE request failed (${response.status})`);
+    const error = new Error(`Engine SSE request failed (${response.status})`);
     (error as Error & { status?: number }).status = response.status;
     throw error;
   }
 
   if (!response.body) {
-    throw new Error('OpenCode SSE response missing body');
+    throw new Error('Engine SSE response missing body');
   }
 
   return response;
@@ -130,7 +130,7 @@ const pipeSseResponse = async (
   stallTimeoutMs?: number,
 ): Promise<void> => {
   if (!response.body) {
-    throw new Error('OpenCode SSE response missing body');
+    throw new Error('Engine SSE response missing body');
   }
 
   const reader = response.body.getReader();

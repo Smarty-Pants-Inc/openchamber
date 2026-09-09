@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { printJson } from './cli-output.js';
 
 async function withInteractiveTty(fn) {
   const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
@@ -32,5 +33,17 @@ describe('cli output', () => {
       expect(output.createSpinner({})).toBeTruthy();
       await expect(output.createProgress({}, { max: 2 })).resolves.toBeTruthy();
     });
+  });
+
+  it('preserves opaque JSON messages byte-for-byte', () => {
+    const message = 'OpenCode failed at /tmp/OpenChamber/config via https://provider.example/OpenCode';
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      printJson({ messages: [{ level: 'error', message }] });
+      const payload = JSON.parse(write.mock.calls.map(([chunk]) => String(chunk)).join(''));
+      expect(payload.messages[0].message).toBe(message);
+    } finally {
+      write.mockRestore();
+    }
   });
 });

@@ -745,7 +745,7 @@ export async function callSmallModel({ auth, catalog, workingDirectory, sessionI
     : entry.type === 'wellknown' ? entry.token
       : entry.access;
   if (!apiKey) {
-    throw new Error(`OpenCode login for "${providerID}" has no usable credential`);
+    throw new Error(`Engine login for "${providerID}" has no usable credential`);
   }
 
   if (providerID === 'anthropic') {

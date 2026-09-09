@@ -264,6 +264,23 @@ mock.module('@/lib/runtime-fetch', () => ({
     });
   }),
 }));
+const authSessionStoreState = {
+  state: 'ok' as const,
+  markExpired: () => undefined,
+  markReauthenticating: () => undefined,
+  markAuthenticated: () => undefined,
+};
+
+const useAuthSessionStore = Object.assign(
+  (selector: (state: typeof authSessionStoreState) => unknown) => selector(authSessionStoreState),
+  { getState: () => authSessionStoreState },
+);
+
+mock.module('@/lib/runtime-auth-expiry', () => ({
+  installAuthSessionFocusWatch: mock(() => undefined),
+  useAuthSessionStore,
+}));
+
 
 mock.module('@/lib/runtime-auth', () => ({
   getRuntimeExtraHeadersSync: mock(() => ({})),

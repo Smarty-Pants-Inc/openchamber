@@ -21,7 +21,7 @@ const readAuthFile = (): AuthFile => {
     return JSON.parse(trimmed) as AuthFile;
   } catch (error) {
     console.error('Failed to read auth file:', error);
-    throw new Error('Failed to read OpenCode auth configuration');
+    throw new Error('Failed to read engine authentication configuration');
   }
 };
 
@@ -42,7 +42,7 @@ const writeAuthFile = (auth: AuthFile): void => {
     if (process.platform !== 'win32') fs.chmodSync(AUTH_FILE, 0o600);
   } catch (error) {
     console.error('Failed to write auth file:', error);
-    throw new Error('Failed to write OpenCode auth configuration');
+    throw new Error('Failed to write engine authentication configuration');
   }
 };
 

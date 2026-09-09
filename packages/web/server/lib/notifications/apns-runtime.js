@@ -13,6 +13,7 @@ import {
   getOrCreateRelaySigningKeypair,
   signRelayMessage as signRelayMessageShared,
 } from '../relay/signing-key.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const APNS_TOKENS_VERSION = 1;
 const APNS_HOST_PRODUCTION = 'https://api.push.apple.com';
@@ -393,7 +394,7 @@ export const createApnsRuntime = (deps) => {
 
   const sendViaRelay = async (deviceTokens, payload, relay, environment) => {
     const tokens = deviceTokens.slice(0, 100);
-    const title = typeof payload?.title === 'string' && payload.title.length > 0 ? payload.title : 'OpenChamber';
+    const title = typeof payload?.title === 'string' && payload.title.length > 0 ? payload.title : PRODUCT_NAME;
     const { privateKey, publicJwk } = await getOrCreateRelayKeypair();
     const ts = Date.now();
     // Sign over the same canonical form the relay verifies: ts.sortedTokens.title.

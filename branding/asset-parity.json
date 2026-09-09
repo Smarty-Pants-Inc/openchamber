@@ -1,0 +1,397 @@
+{
+  "donor": "d6ef11b464bd33ea892419df5f7fbf668fa41896",
+  "pngDimensions": {
+    "docs/references/badges/openchamber-logo-dark.png": [
+      512,
+      512
+    ],
+    "packages/electron/resources/icons/app-icon.png": [
+      512,
+      512
+    ],
+    "packages/electron/resources/icons/dev-icon.png": [
+      1024,
+      1024
+    ],
+    "packages/electron/resources/icons/icon.png": [
+      1024,
+      1024
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-00.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-00@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-01.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-01@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-02.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-02@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-03.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-03@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-04.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-04@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-05.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-05@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-06.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-06@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-07.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-07@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-08.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-08@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-09.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-09@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-10.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-10@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-11.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-11@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-12.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-12@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-13.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-13@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-14.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-14@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-15.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-breath-15@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-idle.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-idle@2x.png": [
+      36,
+      36
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-unseen.png": [
+      18,
+      18
+    ],
+    "packages/electron/resources/icons/tray/trayTemplate-unseen@2x.png": [
+      36,
+      36
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-land-hdpi/splash.png": [
+      800,
+      480
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-land-mdpi/splash.png": [
+      480,
+      320
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-land-xhdpi/splash.png": [
+      1280,
+      720
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-land-xxhdpi/splash.png": [
+      1600,
+      960
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-land-xxxhdpi/splash.png": [
+      1920,
+      1280
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-port-hdpi/splash.png": [
+      480,
+      800
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-port-mdpi/splash.png": [
+      320,
+      480
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-port-xhdpi/splash.png": [
+      720,
+      1280
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-port-xxhdpi/splash.png": [
+      960,
+      1600
+    ],
+    "packages/mobile/android/app/src/main/res/drawable-port-xxxhdpi/splash.png": [
+      1280,
+      1920
+    ],
+    "packages/mobile/android/app/src/main/res/drawable/ic_stat_notify.png": [
+      96,
+      96
+    ],
+    "packages/mobile/android/app/src/main/res/drawable/splash.png": [
+      480,
+      320
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher.png": [
+      72,
+      72
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher_background.png": [
+      72,
+      72
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png": [
+      72,
+      72
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png": [
+      72,
+      72
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-ldpi/ic_launcher.png": [
+      36,
+      36
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-ldpi/ic_launcher_background.png": [
+      36,
+      36
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-ldpi/ic_launcher_foreground.png": [
+      36,
+      36
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-ldpi/ic_launcher_round.png": [
+      36,
+      36
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher.png": [
+      48,
+      48
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_background.png": [
+      48,
+      48
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png": [
+      48,
+      48
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png": [
+      48,
+      48
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png": [
+      96,
+      96
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher_background.png": [
+      96,
+      96
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png": [
+      96,
+      96
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png": [
+      96,
+      96
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png": [
+      144,
+      144
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_background.png": [
+      144,
+      144
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png": [
+      144,
+      144
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png": [
+      144,
+      144
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": [
+      192,
+      192
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_background.png": [
+      192,
+      192
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png": [
+      192,
+      192
+    ],
+    "packages/mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png": [
+      192,
+      192
+    ],
+    "packages/mobile/assets/icon-background.png": [
+      1024,
+      1024
+    ],
+    "packages/mobile/assets/icon-foreground.png": [
+      1024,
+      1024
+    ],
+    "packages/mobile/assets/icon-only.png": [
+      1024,
+      1024
+    ],
+    "packages/mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png": [
+      1024,
+      1024
+    ],
+    "packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-1.png": [
+      2732,
+      2732
+    ],
+    "packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-2.png": [
+      2732,
+      2732
+    ],
+    "packages/mobile/ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png": [
+      2732,
+      2732
+    ],
+    "packages/vscode/assets/app-icon.png": [
+      512,
+      512
+    ],
+    "packages/web/public/apple-touch-icon-120x120.png": [
+      120,
+      120
+    ],
+    "packages/web/public/apple-touch-icon-152x152.png": [
+      152,
+      152
+    ],
+    "packages/web/public/apple-touch-icon-167x167.png": [
+      167,
+      167
+    ],
+    "packages/web/public/apple-touch-icon-180x180.png": [
+      180,
+      180
+    ],
+    "packages/web/public/apple-touch-icon.png": [
+      180,
+      180
+    ],
+    "packages/web/public/favicon-16.png": [
+      16,
+      16
+    ],
+    "packages/web/public/favicon-32.png": [
+      32,
+      32
+    ],
+    "packages/web/public/favicon.png": [
+      64,
+      64
+    ],
+    "packages/web/public/logo-dark-192x192.png": [
+      192,
+      192
+    ],
+    "packages/web/public/logo-light-192x192.png": [
+      192,
+      192
+    ],
+    "packages/web/public/pwa-192.png": [
+      192,
+      192
+    ],
+    "packages/web/public/pwa-512.png": [
+      512,
+      512
+    ],
+    "packages/web/public/pwa-maskable-192.png": [
+      192,
+      192
+    ],
+    "packages/web/public/pwa-maskable-512.png": [
+      512,
+      512
+    ]
+  }
+}

@@ -327,13 +327,13 @@ describe('message stream websocket runtime', () => {
     expect(socket.sent).toEqual([
       {
         type: 'error',
-        message: 'OpenCode event stream unavailable (503)',
+        message: 'Engine event stream unavailable (503)',
       },
     ]);
     expect(socket.closeCalls).toEqual([
       {
         code: 1011,
-        reason: 'OpenCode event stream unavailable',
+        reason: 'Engine event stream unavailable',
       },
     ]);
     expect(triggerHealthCheckCalls).toBe(1);
@@ -379,13 +379,13 @@ describe('message stream websocket runtime', () => {
     expect(socket.sent).toEqual([
       {
         type: 'error',
-        message: 'OpenCode service unavailable',
+        message: 'Engine service unavailable',
       },
     ]);
     expect(socket.closeCalls).toEqual([
       {
         code: 1011,
-        reason: 'OpenCode service unavailable',
+        reason: 'Engine service unavailable',
       },
     ]);
     expect(fetchCalls).toBe(0);

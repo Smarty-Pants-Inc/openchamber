@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { getDesktopAppVersion } from '@/lib/desktopNative';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
@@ -147,7 +148,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
           <OpenChamberLogo width={64} height={64} />
 
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold">OpenChamber</h2>
+            <h2 className="text-lg font-semibold">{PRODUCT_NAME}</h2>
             <div className="space-y-0.5 typography-meta text-muted-foreground">
               {displayVersion && (
                 <p>{t('aboutDialog.openChamberVersionLabel', { version: displayVersion })}</p>

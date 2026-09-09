@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { assertUpdaterCapability } from './updater-capability.mjs';
+import { PRODUCT_NAME } from './brand.generated.mjs';
 
 test('preserves updater behavior outside packaged Linux', () => {
   assert.doesNotThrow(() => assertUpdaterCapability({ platform: 'darwin', packaged: true }));
@@ -12,7 +13,7 @@ test('preserves updater behavior outside packaged Linux', () => {
 test('rejects packaged Linux execution outside an AppImage', () => {
   assert.throws(
     () => assertUpdaterCapability({ platform: 'linux', packaged: true, appImagePath: '' }),
-    /Start OpenChamber from its \.AppImage file/,
+    { message: `Updates require the packaged Linux AppImage. Start ${PRODUCT_NAME} from its .AppImage file, not an extracted or repackaged copy.` },
   );
 });
 
