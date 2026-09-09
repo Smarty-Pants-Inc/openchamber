@@ -200,14 +200,18 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setSelectedGitIdentityId(null);
     setShowHidden(false);
     setSelectedPaths([]);
-    requestAnimationFrame(() => focusPathInput(inputRef.current));
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement !== inputRef.current) focusPathInput(inputRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
+  React.useEffect(() => {
+    if (!open) return;
     let cancelled = false;
     const resolveHome = async () => {
       const resolved = await resolveFreshFilesystemHome();
-      if (cancelled) return;
-      setDialogHomeDirectory(resolved || homeDirectory || '');
-      requestAnimationFrame(() => focusPathInput(inputRef.current));
+      if (!cancelled) setDialogHomeDirectory(resolved || homeDirectory || '');
     };
     void resolveHome();
     return () => {
