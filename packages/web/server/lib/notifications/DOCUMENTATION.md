@@ -64,6 +64,12 @@ This module provides notification message preparation utilities for the web serv
   - `isAnyUiVisible()`
   - `isUiVisible(token)`
 
+VAPID and public-origin initialization use the server's process-local queued
+raw settings transform. Concurrent first VAPID calls reuse the first durable
+keypair. A queued public-origin initializer keeps a value another operation set
+first. Both preserve unrelated settings. This does not coordinate separate
+processes that write the same settings file.
+
 ### APNs runtime API (apns-runtime.js)
 - `createApnsRuntime(dependencies)`: creates runtime for native iOS APNs push and device-token state. Dependencies: `fsPromises`, `path`, `crypto`, `http2`, `APNS_TOKENS_FILE_PATH`, `readSettingsFromDiskMigrated`, `writeSettingsToDisk` (persists the auto-generated relay signing keypair).
 - Returned API:

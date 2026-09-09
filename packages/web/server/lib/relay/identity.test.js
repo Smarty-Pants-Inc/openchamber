@@ -9,7 +9,11 @@ const makeSettingsStore = (initial = {}) => {
   let settings = { ...initial };
   return {
     readSettingsFromDiskMigrated: async () => ({ ...settings }),
-    writeSettingsToDisk: async (next) => {
+    readSettingsStrict: async () => ({ ...settings }),
+    writeSettingsToDisk: async (nextOrMutation) => {
+      const next = nextOrMutation instanceof Function
+        ? await nextOrMutation({ ...settings })
+        : nextOrMutation;
       settings = { ...next };
     },
     peek: () => settings,

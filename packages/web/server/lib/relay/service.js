@@ -107,11 +107,10 @@ export const createRelayService = ({
   };
 
   const writeConfig = async (config) => {
-    const settings = await readSettingsFromDiskMigrated();
-    await writeSettingsToDisk({
-      ...settings,
+    await writeSettingsToDisk((currentSettings) => ({
+      ...currentSettings,
       privateRelay: { enabled: config.enabled === true, relayUrl: normalizeRelayUrl(config.relayUrl) },
-    });
+    }));
   };
 
   const stopHostClient = () => {

@@ -379,4 +379,57 @@ describe('settings runtime', () => {
       await cleanup();
     }
   });
+
+  it.each(['{not-json', '[]', 'null'])('does not migrate or update invalid settings %s', async (invalid) => {
+    const { runtime, settingsFilePath, cleanup } = await createRuntime();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mutation = vi.fn(current => ({ ...current, value: 'must-not-write' }));
+    const recoveryFile = `${settingsFilePath}.tmp-recovery`;
+    try {
+      await fsPromises.writeFile(settingsFilePath, invalid, 'utf8');
+      await fsPromises.writeFile(recoveryFile, 'recoverable', 'utf8');
+      await expect(runtime.readSettingsFromDiskMigrated()).rejects.toThrow();
+      await expect(runtime.persistSettings({ value: 'must-not-write' })).rejects.toThrow();
+      await expect(runtime.writeSettingsToDisk(mutation)).rejects.toThrow();
+      expect(mutation).not.toHaveBeenCalled();
+      await expect(fsPromises.readFile(settingsFilePath, 'utf8')).resolves.toBe(invalid);
+      await expect(fsPromises.readFile(recoveryFile, 'utf8')).resolves.toBe('recoverable');
+      // An explicit full replacement still permits deliberate recovery.
+      await runtime.writeSettingsToDisk({ value: 'recovered' });
+      await expect(runtime.persistSettings({ value: 'queue-recovered' })).resolves.toEqual({ value: 'queue-recovered' });
+    } finally {
+      warning.mockRestore();
+      await cleanup();
+    }
+  });
+
+  it('derives a raw update from current settings after a guarded project write', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime({
+      mergePersistedSettings: (current, changes) => ({ ...current, ...changes }),
+    });
+    try {
+      await runtime.writeSettingsToDisk({
+        projects: [{ id: 'project', path: tempRoot, label: 'Original' }],
+        sidebarProjectDisplayMode: 'single',
+      });
+      const current = await runtime.readSettingsFromDisk();
+      const revision = createSettingsRevision(crypto, current);
+      await runtime.persistSettings({
+        projects: current.projects.map((project) => ({ ...project, label: 'Browser' })),
+      }, parseIfMatch(revision));
+
+      await runtime.writeSettingsToDisk((queuedCurrent) => ({
+        ...queuedCurrent,
+        privateRelay: { enabled: true, relayUrl: 'wss://relay.example.test/ws' },
+      }));
+
+      await expect(runtime.readSettingsFromDisk()).resolves.toMatchObject({
+        projects: [expect.objectContaining({ label: 'Browser' })],
+        sidebarProjectDisplayMode: 'single',
+        privateRelay: { enabled: true, relayUrl: 'wss://relay.example.test/ws' },
+      });
+    } finally {
+      await cleanup();
+    }
+  });
 });

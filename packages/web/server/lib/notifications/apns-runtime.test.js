@@ -37,7 +37,9 @@ const makeDeps = (overrides = {}) => {
     http2: { connect: vi.fn(() => { throw new Error('http2 must not be used in relay mode'); }) },
     APNS_TOKENS_FILE_PATH: '/tmp/apns-tokens.json',
     readSettingsFromDiskMigrated: vi.fn(async () => settings),
-    writeSettingsToDisk: vi.fn(async (next) => { settings = next; }),
+    writeSettingsToDisk: vi.fn(async (nextOrMutation) => {
+      settings = nextOrMutation instanceof Function ? await nextOrMutation(settings) : nextOrMutation;
+    }),
     ...overrides,
   };
 };

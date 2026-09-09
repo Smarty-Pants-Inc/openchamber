@@ -76,4 +76,32 @@ describe('push runtime visibility tracking', () => {
     runtime.updateUiVisibility('phone', true); // heartbeat without platform
     expect(runtime.isAnyInteractiveClientVisible()).toBe(false);
   });
+
+  it('returns one persisted VAPID identity to concurrent callers', async () => {
+    let settings = { projects: [{ id: 'project-1', path: '/project' }] };
+    let settingsWriteLock = Promise.resolve();
+    const writeSettingsToDisk = (nextOrMutation) => {
+      const write = settingsWriteLock.then(async () => {
+        settings = nextOrMutation instanceof Function ? await nextOrMutation(settings) : nextOrMutation;
+      });
+      settingsWriteLock = write.catch(() => {});
+      return write;
+    };
+    const generateVAPIDKeys = vi.fn(() => ({ publicKey: 'public', privateKey: 'private' }));
+    const runtime = createPushRuntime({
+      fsPromises: { mkdir: vi.fn(async () => {}), readFile: vi.fn(), writeFile: vi.fn() },
+      path: { dirname: () => '/tmp' },
+      webPush: { generateVAPIDKeys, sendNotification: vi.fn(), setVapidDetails: vi.fn() },
+      PUSH_SUBSCRIPTIONS_FILE_PATH: '/tmp/push-subscriptions.json',
+      readSettingsFromDiskMigrated: async () => ({ ...settings }),
+      writeSettingsToDisk,
+    });
+
+    const [first, second] = await Promise.all([runtime.getOrCreateVapidKeys(), runtime.getOrCreateVapidKeys()]);
+
+    expect(generateVAPIDKeys).toHaveBeenCalledTimes(1);
+    expect(first).toEqual({ publicKey: 'public', privateKey: 'private' });
+    expect(second).toEqual(first);
+    expect(settings.projects).toEqual([{ id: 'project-1', path: '/project' }]);
+  });
 });

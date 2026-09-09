@@ -501,8 +501,8 @@ export const createSettingsRuntime = (deps) => {
     }
   };
 
-  // Strict variant for callers that REGENERATE persisted identity when a key is
-  // absent (relay signing/encryption keys). The lenient reader above maps every
+  // Strict variant for write-capable operations and persisted-identity readers.
+  // The lenient reader above maps every
   // failure — corrupt JSON, EACCES, transient I/O — to `{}`, which such callers
   // cannot distinguish from "first run": they would mint a NEW identity, orphan
   // every paired device and push binding, and overwrite the settings file with
@@ -519,7 +519,7 @@ export const createSettingsRuntime = (deps) => {
       throw error;
     }
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Settings file is malformed (non-object payload)');
     }
     return parsed;
@@ -904,19 +904,30 @@ export const createSettingsRuntime = (deps) => {
     }
   };
 
-  const writeSettingsToDisk = (settings) => enqueueSettingsOperation(async () => {
+  const writeSettingsToDisk = (settingsOrMutation) => enqueueSettingsOperation(async () => {
+    if (typeof settingsOrMutation === 'function') {
+      // Raw identity/config writers must not turn corruption or an unreadable
+      // file into an empty replacement. The strict reader also makes the
+      // callback observe the current queued document.
+      const current = await readSettingsFromDiskStrict();
+      const next = await settingsOrMutation(current);
+      if (next !== current) {
+        await writeSettingsAndNotify(next, current);
+      }
+      return;
+    }
     const current = await readSettingsFromDisk();
-    await writeSettingsAndNotify(settings, current);
+    await writeSettingsAndNotify(settingsOrMutation, current);
   });
 
   let hasCleanedOrphanedTempFiles = false;
 
   const readSettingsFromDiskMigratedUnlocked = async () => {
+    const current = await readSettingsFromDiskStrict();
     if (!hasCleanedOrphanedTempFiles) {
       hasCleanedOrphanedTempFiles = true;
       await cleanupOrphanedSettingsTempFiles(path.dirname(SETTINGS_FILE_PATH));
     }
-    const current = await readSettingsFromDisk();
     const migration1 = await migrateSettingsFromLegacyLastDirectory(current);
     const migration2 = await migrateSettingsFromLegacyThemePreferences(migration1.settings);
     const migration3 = await migrateSettingsFromLegacyCollapsedProjects(migration2.settings);
@@ -934,7 +945,7 @@ export const createSettingsRuntime = (deps) => {
   const readSettingsFromDiskMigrated = () => enqueueSettingsOperation(readSettingsFromDiskMigratedUnlocked);
 
   const persistSettings = (changesOrMutation, precondition = null) => enqueueSettingsOperation(async () => {
-    const current = await readSettingsFromDisk();
+    const current = await readSettingsFromDiskStrict();
     const currentResponse = formatSettingsResponse(current);
     assertSettingsPrecondition(precondition, createSettingsRevision(crypto, currentResponse));
     // Internal project metadata writers use this callback to derive a partial

@@ -80,23 +80,24 @@ export const createPushRuntime = (deps) => {
   };
 
   const getOrCreateVapidKeys = async () => {
-    const settings = await readSettingsFromDiskMigrated();
-    const existing = settings?.vapidKeys;
-    if (existing && typeof existing.publicKey === 'string' && typeof existing.privateKey === 'string') {
-      return { publicKey: existing.publicKey, privateKey: existing.privateKey };
-    }
+    let winner = null;
+    await writeSettingsToDisk((currentSettings) => {
+      const existing = currentSettings?.vapidKeys;
+      if (typeof existing?.publicKey === 'string' && typeof existing?.privateKey === 'string') {
+        winner = { publicKey: existing.publicKey, privateKey: existing.privateKey };
+        return currentSettings;
+      }
 
-    const generated = webPush.generateVAPIDKeys();
-    const next = {
-      ...settings,
-      vapidKeys: {
-        publicKey: generated.publicKey,
-        privateKey: generated.privateKey,
-      },
-    };
-
-    await writeSettingsToDisk(next);
-    return { publicKey: generated.publicKey, privateKey: generated.privateKey };
+      winner = webPush.generateVAPIDKeys();
+      return {
+        ...currentSettings,
+        vapidKeys: {
+          publicKey: winner.publicKey,
+          privateKey: winner.privateKey,
+        },
+      };
+    });
+    return winner;
   };
 
   const normalizePushSubscriptions = (record) => {
