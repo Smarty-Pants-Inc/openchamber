@@ -2179,11 +2179,10 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
           if (changes.projects !== undefined) {
             const current = await runtimeSettings.load();
             if (!isSettingsRuntimeContextCurrent(context)) return;
-            if (current.revision) {
-              if (projectsBase === undefined) throw new Error('Project update has no original snapshot');
-              changes = { ...changes, projects: mergeProjectSettings(projectsBase, current.settings.projects ?? [], changes.projects) };
-              ifMatch = current.revision;
-            }
+            if (!current.revision) throw new Error('Project updates require conditional settings support');
+            if (projectsBase === undefined) throw new Error('Project update has no original snapshot');
+            changes = { ...changes, projects: mergeProjectSettings(projectsBase, current.settings.projects ?? [], changes.projects) };
+            ifMatch = current.revision;
           }
           const updated = await runtimeSettings.save(changes, ifMatch ? { ifMatch } : undefined);
           if (!isSettingsRuntimeContextCurrent(context)) return;

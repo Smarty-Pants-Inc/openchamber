@@ -385,6 +385,19 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('refuses project writes without revision support but retains legacy preference saves', async () => {
+    const saved: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(async (changes) => { saved.push(changes); return changes; },
+      async () => ({ settings: { projects: [] }, source: 'web' }));
+    await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: [] });
+    expect(saved).toEqual([]);
+    expect(getSettingsSaveState()).toBe('error');
+    await updateDesktopSettings({ terminalShell: 'fish' });
+    expect(saved.length).toBe(1);
+    expect(saved[0]?.terminalShell).toBe('fish');
+    expect(saved[0]?.projects).toBe(undefined);
+  });
+
   test('does not send a conditional project mutation without its original baseline', async () => {
     let saves = 0;
     registerSettingsApi(async (changes) => { saves += 1; return changes; },

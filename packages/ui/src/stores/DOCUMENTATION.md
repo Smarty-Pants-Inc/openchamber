@@ -108,9 +108,11 @@ then sends the fresh revision in `If-Match`. Unrelated preference writes do not
 create a project conflict, but a competing update between that read and the
 serialized write returns 412 without writing. Project save failures show an error
 toast, not only a console warning. A failed runtime mutation is not replayed
-through the direct HTTP fallback. Legacy settings APIs remain compatible. The
-settings queue protects one backend process; separate processes must not write the
-same settings file.
+through the direct HTTP fallback. Runtimes without revision support can still save
+ordinary preferences, but project writes fail before any mutation. VS Code workspace
+folders remain host-managed; its legacy settings bridge does not advertise project
+CAS. The settings queue protects one backend process; separate processes must not
+write the same settings file.
 
 A bootstrap sync can wait for a settings migration save before it publishes its
 snapshot. Reconcile newer local mutations and pending writes again after that
