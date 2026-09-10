@@ -1971,7 +1971,7 @@ export const invalidateSettingsCache = (): void => {
   _settingsCache = null;
 };
 
-const activeSettingsOperations = new Map<Promise<void>, SettingsRuntimeContext>();
+const activeSettingsOperations = new Map<Promise<void>, SettingsRuntimeContext & { write: boolean }>();
 
 const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptTheme?: boolean }): Promise<void> => {
   const bootstrap = options?.bootstrap !== false;
@@ -1981,6 +1981,16 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
   }
   ensureSettingsRuntimeLifecycle();
   const context = captureSettingsRuntimeContext();
+  // A read started after a local edit can still return the pre-save project list.
+  // Wait for that runtime's writes before taking the load's mutation baseline.
+  while (isSettingsRuntimeContextCurrent(context)) {
+    const writes = [...activeSettingsOperations]
+      .filter(([, active]) => active.write && isSameSettingsRuntimeContext(active, context))
+      .map(([pending]) => pending);
+    if (writes.length === 0) break;
+    await Promise.allSettled(writes);
+  }
+  if (!isSettingsRuntimeContextCurrent(context)) return;
   const operation = _settingsMutationTracker.begin();
 
   const persistApis = [getPersistApi(), useSessionDisplayStore.persist];
@@ -2121,8 +2131,8 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
   }
 };
 
-const trackSettingsOperation = (pending: Promise<void>, context: SettingsRuntimeContext): Promise<void> => {
-  activeSettingsOperations.set(pending, context);
+const trackSettingsOperation = (pending: Promise<void>, context: SettingsRuntimeContext, write = false): Promise<void> => {
+  activeSettingsOperations.set(pending, { ...context, write });
   const finished = () => { activeSettingsOperations.delete(pending); };
   void pending.then(finished, finished);
   return pending;
@@ -2279,7 +2289,7 @@ export const updateDesktopSettings = async (changes: Partial<DesktopSettings>,
     _settingsFlushWaiters.push(resolve);
   });
   _settingsFlushTimer = setTimeout(() => void _flushSettingsUpdate(), SETTINGS_DEBOUNCE_MS);
-  return trackSettingsOperation(flushed, context);
+  return trackSettingsOperation(flushed, context, true);
 };
 
 export const initializeAppearancePreferences = async (): Promise<void> => {

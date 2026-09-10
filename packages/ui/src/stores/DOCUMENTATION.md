@@ -114,6 +114,14 @@ folders remain host-managed; its legacy settings bridge does not advertise proje
 CAS. The settings queue protects one backend process; separate processes must not
 write the same settings file.
 
+Settings sync waits for outstanding debounced and in-flight writes to the same
+runtime before starting its read and taking a mutation baseline. A read started
+after a local edit can otherwise return the server's older project list and undo
+the selection before that edit is saved. Writes for a disconnected runtime do not
+block the new runtime. A failed write is not replayed; the subsequent read remains
+authoritative. Sync does not wait on other reads, so a bootstrap's own migration
+save cannot create a read-to-read wait cycle.
+
 A bootstrap sync can wait for a settings migration save before it publishes its
 snapshot. Reconcile newer local mutations and pending writes again after that
 wait. Otherwise the old active-project pointer can undo a session selected while
