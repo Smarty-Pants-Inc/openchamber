@@ -1,0 +1,36 @@
+{
+  "brandingSource": "961cabb1e08b7c20ae7cd17cd8788ce8af0d469a",
+  "behaviorSource": "1ab7ae3799ee4e633785451ef28cf52f49e53797",
+  "combinedSource": "75bbb3480780ed692ae0a640daa5b602d78e6152",
+  "note": "Narrow reviewed behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval.",
+  "files": [
+    {
+      "path": "packages/ui/src/sync/session-actions.test.ts",
+      "brandingSha256": "eaf5f79db56d8bb78836455c96da90c0ba2eba230db59081833873e3872d0fdf",
+      "behaviorSha256": "6ba028cf688b7851431cc85cf4342ed7900248cf13e773ccd2416988a0046fd9",
+      "combinedSha256": "6ba028cf688b7851431cc85cf4342ed7900248cf13e773ccd2416988a0046fd9",
+      "reason": "Reviewed canonical session ownership regressions and complete typed fixtures."
+    },
+    {
+      "path": "packages/web/server/index.js",
+      "brandingSha256": "f351fdc99db9db078e34f994b6f5e15aa1f905e10f990f1c765476c04fea17ca",
+      "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
+      "combinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
+      "reason": "Reviewed settings event/CORS and explicit transactional writer injection; branding labels retained."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/routes.js",
+      "brandingSha256": "55199561f14b34c5dec4b4072ee65e56a80a1a9de0d81664f253ae9fd65c7797",
+      "behaviorSha256": "40db94bcaad4265af3d9f519eff66a460835778f82af133734aa790006ca8067",
+      "combinedSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
+      "reason": "Reviewed conditional settings and queued directory mutations; both revision and product-name imports retained."
+    },
+    {
+      "path": "packages/web/src/api/settings.ts",
+      "brandingSha256": "d341f929be9c53ff06d06e63ba044b1d687ecd53c4b4c6392d9e50178516804f",
+      "behaviorSha256": "9edd38aef35eb91cd8863b290b7da96d6dbc3f688afa78040f218fe01c9d89d0",
+      "combinedSha256": "b6f2bf9e190223647231caca389d29d365a061c26fdbea22b87a797861f961e1",
+      "reason": "Reviewed revision/If-Match client with native Headers; branding reload-error label retained."
+    }
+  ]
+}

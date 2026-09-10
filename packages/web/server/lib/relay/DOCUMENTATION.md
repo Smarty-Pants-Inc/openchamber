@@ -85,6 +85,16 @@ belong to a different machine.
 
 The E2EE and framing logic exists twice: TypeScript in `packages/ui/src/lib/relay/` (shared by the client and the normative reference) and a JavaScript mirror in this module (the host, which is plain JS ESM). They **must stay byte-compatible** — a client encrypted by one must decrypt on the other. A cross-compatibility test (`cross-compat.test.js`) imports the TS modules directly and exercises a full TS-client ↔ JS-host exchange. Any change to the wire format, frame codec, handshake, or batching must update both sides and keep that test green.
 
+## Settings persistence
+
+Relay config and relay identity fields update settings through the server's
+process-local queued raw transform. Each transform reads the current document
+inside that queue and changes only its relay field. Identity creation uses the
+strict settings reader before generation, so a corrupt or unreadable settings
+file cannot be treated as a first-run identity. This protects one server
+process only. It does not coordinate separate processes that write the same
+settings file.
+
 ## Runtime integration (client)
 
 Relay mode plugs into the existing client transport layer rather than a parallel path: `runtime-switch` activates the tunnel singleton, `runtime-fetch` routes runtime requests through it, `runtime-url`/`runtime-socket` yield tunnel-backed URLs and sockets, and `runtime-auth` mints the URL-scoped token through the tunnel. Direct-URL connections and the Electron realtime-proxy path are unaffected.

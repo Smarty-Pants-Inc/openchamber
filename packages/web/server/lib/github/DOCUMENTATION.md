@@ -24,7 +24,7 @@
 - `getGitHubAuth()`: current auth entry.
 - `getGitHubAuthAccounts()`: all configured accounts.
 - `setGitHubAuth({ accessToken, scope, tokenType, user, accountId })`: save or update account.
-- `activateGitHubAuth(accountId)`: switch active account.
+- `activateGitHubAuth(accountId, writeSettingsToDisk)`: switch active account after the queued GitHub CLI preference update.
 - `clearGitHubAuth()`: clear current account.
 - `getGitHubClientId()`: resolve client id.
 - `getGitHubScopes()`: resolve scopes.
@@ -51,6 +51,7 @@
 - Client ID resolution order: `OPENCHAMBER_GITHUB_CLIENT_ID` -> `settings.json` -> default.
 - Scope resolution order: `OPENCHAMBER_GITHUB_SCOPES` -> `settings.json` -> default.
 - Account id resolution order: explicit `accountId` -> user login -> user id -> token prefix.
+- GitHub CLI preferences (`ghCliDisabled`, `ghCliActive`) receive the server settings writer through route registration. Their routes respond only after the queued write finishes. Account activation reloads the auth list after that wait, so it cannot restore an account removed or replace an account added during the write.
 
 ## PR integration overview
 

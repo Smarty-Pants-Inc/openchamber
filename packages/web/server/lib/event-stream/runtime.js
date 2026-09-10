@@ -183,7 +183,7 @@ export function createMessageStreamWsRuntime({
       globalHub.start();
       for (const socket of Array.from(directorySockets)) {
         try {
-          socket.close(1012, 'OpenCode upstream restarted');
+          socket.close(1012, 'Engine upstream restarted');
         } catch {
         }
       }

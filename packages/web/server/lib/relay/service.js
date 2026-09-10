@@ -49,7 +49,7 @@ const envRelayUrlOverride = () => {
  * @param {{
  *   crypto: typeof import('node:crypto'),
  *   readSettingsFromDiskMigrated: () => Promise<object>,
- *   writeSettingsToDisk: (settings: object) => Promise<void>,
+ *   writeSettingsToDisk: (mutation: (current: object) => object | Promise<object>) => Promise<void>,
  *   getLocalPort: () => number,
  *   logger?: Pick<Console, 'warn'>,
  * }} deps
@@ -107,11 +107,10 @@ export const createRelayService = ({
   };
 
   const writeConfig = async (config) => {
-    const settings = await readSettingsFromDiskMigrated();
-    await writeSettingsToDisk({
-      ...settings,
+    await writeSettingsToDisk((currentSettings) => ({
+      ...currentSettings,
       privateRelay: { enabled: config.enabled === true, relayUrl: normalizeRelayUrl(config.relayUrl) },
-    });
+    }));
   };
 
   const stopHostClient = () => {

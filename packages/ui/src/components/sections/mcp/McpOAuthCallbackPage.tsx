@@ -6,6 +6,7 @@ import { MCP_OAUTH_ORIGIN_DESKTOP } from '@/components/sections/mcp/startMcpAuth
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { SETTINGS_PAGE_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { cn } from '@/lib/utils';
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 /**
  * Handing control back after the browser finished the authorization.
@@ -38,7 +39,7 @@ const parseQueryParam = (params: URLSearchParams, key: string): string | null =>
 const normalizeMcpAuthErrorMessage = (error: unknown, fallback: string): string => {
   const message = error instanceof Error ? error.message : fallback;
   if (/oauth state required/i.test(message)) {
-    return 'Authorization session expired or was cleared during reload. Return to OpenChamber and click Authorize again.';
+    return `Authorization session expired or was cleared during reload. Return to ${PRODUCT_NAME} and click Authorize again.`;
   }
   return message;
 };
@@ -75,7 +76,7 @@ export const McpOAuthCallbackPage: React.FC = () => {
     void (async () => {
       try {
         if (!code) {
-          throw new Error('Missing OAuth authorization code. Start authorization again from MCP Settings or paste the returned code into OpenChamber manually.');
+          throw new Error(`Missing OAuth authorization code. Start authorization again from MCP Settings or paste the returned code into ${PRODUCT_NAME} manually.`);
         }
 
         let pendingContext = callbackContext;
@@ -103,7 +104,7 @@ export const McpOAuthCallbackPage: React.FC = () => {
         }
 
         if (!pendingContext?.name) {
-          throw new Error('Authorization session details were not available. Start authorization again from MCP Settings or paste the returned code into OpenChamber manually.');
+          throw new Error(`Authorization session details were not available. Start authorization again from MCP Settings or paste the returned code into ${PRODUCT_NAME} manually.`);
         }
 
         await completeAuth(pendingContext.name, code, pendingContext.directory);
@@ -117,7 +118,7 @@ export const McpOAuthCallbackPage: React.FC = () => {
         if (startedFromDesktop) {
           returnToApp(true);
         }
-        setMessage('Authorization completed. You can close this tab and return to OpenChamber.');
+        setMessage(`Authorization completed. You can close this tab and return to ${PRODUCT_NAME}.`);
       } catch (authError) {
         if (callbackStateKey) {
           await runtimeFetch(`/api/mcp/auth/pending?state=${encodeURIComponent(callbackStateKey)}`, { method: 'DELETE' }).catch(() => undefined);
@@ -155,7 +156,7 @@ export const McpOAuthCallbackPage: React.FC = () => {
               type="button"
               onClick={() => returnToApp(returnToDesktop)}
             >
-              Return to OpenChamber
+              Return to {PRODUCT_NAME}
             </Button>
           </div>
         )}

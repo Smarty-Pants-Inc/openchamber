@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import os from 'os';
 import crypto from 'crypto';
 import http2 from 'node:http2';
+import { PRODUCT_NAME } from '../brand.generated.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
@@ -372,6 +373,15 @@ const resolveProjectDirectory = (...args) => projectDirectoryRuntime.resolveProj
 const resolveOptionalProjectDirectory = (...args) => projectDirectoryRuntime.resolveOptionalProjectDirectory(...args);
 
 const settingsRuntime = createSettingsRuntime({
+  onSettingsChanged: () => {
+    for (const client of uiOpenChamberEventClients) {
+      try {
+        writeSseEvent(client, { type: 'openchamber:settings-changed', properties: {} });
+      } catch {
+        uiOpenChamberEventClients.delete(client);
+      }
+    }
+  },
   fsPromises,
   path,
   crypto,
@@ -683,8 +693,8 @@ const ENV_CONFIGURED_API_PREFIX = normalizeApiPrefix(
   process.env.OPENCODE_API_PREFIX || process.env.OPENCHAMBER_API_PREFIX || ''
 );
 
-  if (ENV_CONFIGURED_API_PREFIX && ENV_CONFIGURED_API_PREFIX !== '') {
-  console.warn('Ignoring configured OpenCode API prefix; API runs at root.');
+if (ENV_CONFIGURED_API_PREFIX && ENV_CONFIGURED_API_PREFIX !== '') {
+  console.warn('Ignoring configured engine API prefix; API runs at root.');
 }
 
 let cachedLoginShellEnvSnapshot;
@@ -854,7 +864,7 @@ const sessionKnowledgeRuntime = createSessionKnowledgeRuntime({
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) throw new Error(`OpenCode ${method} ${fetchPath} failed with ${response.status}`);
+    if (!response.ok) throw new Error(`Engine ${method} ${fetchPath} failed with ${response.status}`);
     return response.json().catch(() => null);
   },
 });
@@ -1199,7 +1209,7 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
     try {
       messageStreamRuntime?.rebindUpstream();
     } catch (error) {
-      console.warn('Failed to rebind message stream after OpenCode restart:', error?.message ?? error);
+      console.warn('Failed to rebind message stream after engine restart:', error?.message ?? error);
     }
     try {
       const { sessionIds } = sessionRuntime.interruptBusySessionsAfterRestart();
@@ -1208,15 +1218,15 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
         broadcastUiNotification({
           title: multiple ? 'Chats interrupted' : 'Chat interrupted',
           body: multiple
-            ? 'OpenCode restarted during running responses. Send a message in each chat to continue.'
-            : 'OpenCode restarted during a running response. Send a message to continue.',
+            ? 'The engine restarted during running responses. Send a message in each chat to continue.'
+            : 'The engine restarted during a running response. Send a message to continue.',
           tag: 'opencode-restart-interrupted',
           kind: 'opencode-restart-interrupted',
           sessionId: sessionIds[0],
         });
       }
     } catch (error) {
-      console.warn('Failed to reconcile sessions after OpenCode restart:', error?.message ?? error);
+      console.warn('Failed to reconcile sessions after engine restart:', error?.message ?? error);
     }
   },
   getManagedOpenCodeEnv: async () => {
@@ -1643,7 +1653,7 @@ async function main(options = {}) {
     ? options.getDesktopRuntimeConfig
     : null;
 
-  console.log(`Starting OpenChamber on port ${port === 0 ? 'auto' : port}`);
+  console.log(`Starting ${PRODUCT_NAME} on port ${port === 0 ? 'auto' : port}`);
 
   // Voice enumeration is independent from route registration. Start it now,
   // but do not hold server listen or managed OpenCode startup on `say -v "?"`.
@@ -1676,7 +1686,7 @@ async function main(options = {}) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,Ngrok-Skip-Browser-Warning');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,If-Match,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,Ngrok-Skip-Browser-Warning');
       res.setHeader('Access-Control-Expose-Headers', 'x-next-cursor');
       res.setHeader('Vary', 'Origin');
       if (req.method === 'OPTIONS') {
@@ -1781,9 +1791,9 @@ async function main(options = {}) {
     getServerLabel: () => {
       try {
         const name = os.hostname();
-        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'OpenChamber';
+        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : PRODUCT_NAME;
       } catch {
-        return 'OpenChamber';
+        return PRODUCT_NAME;
       }
     },
     readSettingsFromDiskMigrated,
@@ -1921,6 +1931,7 @@ async function main(options = {}) {
     readSettingsFromDisk,
     readSettingsFromDiskMigrated,
     persistSettings,
+    writeSettingsToDisk,
     sanitizeProjects,
     sanitizeSkillCatalogs,
     isUnsafeSkillRelativePath,

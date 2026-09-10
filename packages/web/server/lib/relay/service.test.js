@@ -25,7 +25,10 @@ const makeService = (options = {}) => {
   const service = createRelayService({
     crypto,
     readSettingsFromDiskMigrated: async () => settings,
-    writeSettingsToDisk: async (next) => { settings = next; },
+    writeSettingsToDisk: async (nextOrMutation) => {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+      settings = typeof nextOrMutation === 'function' ? await nextOrMutation(settings) : nextOrMutation;
+    },
     readSettingsStrict: async () => settings,
     getLocalPort: () => 0,
     hasRelayDemand: options.hasRelayDemand ?? (async () => true),

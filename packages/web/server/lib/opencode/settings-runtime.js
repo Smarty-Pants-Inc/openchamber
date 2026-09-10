@@ -1,4 +1,5 @@
 import { createProjectIdFromPath } from '../projects/project-id.js';
+import { assertSettingsPrecondition, createSettingsRevision } from './settings-revision.js';
 
 const DEFAULT_NOTIFICATION_TEMPLATES = {
   completion: { title: '{agent_name} is ready', message: '{model_name} completed the task' },
@@ -44,9 +45,20 @@ export const createSettingsRuntime = (deps) => {
     normalizeManagedRemoteTunnelPresetTokens,
     syncManagedRemoteTunnelConfigWithPresets,
     upsertManagedRemoteTunnelToken,
+    onSettingsChanged = null,
   } = deps;
 
+  // This queue serializes this process's settings owner. It does not provide
+  // filesystem compare-and-swap across processes; callers that need that must
+  // use an actual inter-process lock rather than relying on this runtime.
   let persistSettingsLock = Promise.resolve();
+  const enqueueSettingsOperation = (operation) => {
+    const result = persistSettingsLock.then(operation);
+    // Keep the queue usable after a failed operation while preserving that
+    // operation's rejection for its caller.
+    persistSettingsLock = result.catch(() => {});
+    return result;
+  };
 
   // Orphan recovery is a one-shot best-effort scan: when orphans can't be
   // matched on first pass they stay on disk and every subsequent settings
@@ -484,13 +496,13 @@ export const createSettingsRuntime = (deps) => {
       if (error && typeof error === 'object' && error.code === 'ENOENT') {
         return {};
       }
-      console.warn('Failed to read settings file:', error);
+      console.warn('Failed to read settings file.');
       return {};
     }
   };
 
-  // Strict variant for callers that REGENERATE persisted identity when a key is
-  // absent (relay signing/encryption keys). The lenient reader above maps every
+  // Strict variant for write-capable operations and persisted-identity readers.
+  // The lenient reader above maps every
   // failure — corrupt JSON, EACCES, transient I/O — to `{}`, which such callers
   // cannot distinguish from "first run": they would mint a NEW identity, orphan
   // every paired device and push binding, and overwrite the settings file with
@@ -506,8 +518,15 @@ export const createSettingsRuntime = (deps) => {
       }
       throw error;
     }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Parser errors can contain private input fragments. Do not retain their cause.
+      throw new Error('Settings file is malformed (invalid JSON)');
+    }
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This is the persisted JSON document boundary.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Settings file is malformed (non-object payload)');
     }
     return parsed;
@@ -566,7 +585,7 @@ export const createSettingsRuntime = (deps) => {
     }
   };
 
-  const writeSettingsToDisk = async (settings) => {
+  const writeSettingsToDiskRaw = async (settings) => {
     const settingsDirectory = path.dirname(SETTINGS_FILE_PATH);
     await fsPromises.mkdir(settingsDirectory, { recursive: true, mode: 0o700 });
     if (process.platform !== 'win32') await fsPromises.chmod(settingsDirectory, 0o700);
@@ -870,14 +889,54 @@ export const createSettingsRuntime = (deps) => {
     return { settings: next, changed: true };
   };
 
+  const notifySettingsChanged = async () => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional injected callbacks can come from another realm.
+    if (typeof onSettingsChanged !== 'function') {
+      return;
+    }
+    try {
+      await onSettingsChanged();
+    } catch {
+      // The durable write succeeded. A notification failure must not turn it
+      // into a failed settings update or disclose callback details in logs.
+      console.warn('Settings changed notification failed.');
+    }
+  };
+
+  const writeSettingsAndNotify = async (settings, previousSettings) => {
+    const previousResponse = formatSettingsResponse(previousSettings);
+    const nextResponse = formatSettingsResponse(settings);
+    await writeSettingsToDiskRaw(settings);
+    if (createSettingsRevision(crypto, previousResponse) !== createSettingsRevision(crypto, nextResponse)) {
+      await notifySettingsChanged();
+    }
+  };
+
+  const writeSettingsToDisk = (settingsOrMutation) => enqueueSettingsOperation(async () => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Raw writes accept a document or a queued mutation callback.
+    if (typeof settingsOrMutation === 'function') {
+      // Raw identity/config writers must not turn corruption or an unreadable
+      // file into an empty replacement. The strict reader also makes the
+      // callback observe the current queued document.
+      const current = await readSettingsFromDiskStrict();
+      const next = await settingsOrMutation(current);
+      if (next !== current) {
+        await writeSettingsAndNotify(next, current);
+      }
+      return;
+    }
+    const current = await readSettingsFromDisk();
+    await writeSettingsAndNotify(settingsOrMutation, current);
+  });
+
   let hasCleanedOrphanedTempFiles = false;
 
-  const readSettingsFromDiskMigrated = async () => {
+  const readSettingsFromDiskMigratedUnlocked = async () => {
+    const current = await readSettingsFromDiskStrict();
     if (!hasCleanedOrphanedTempFiles) {
       hasCleanedOrphanedTempFiles = true;
       await cleanupOrphanedSettingsTempFiles(path.dirname(SETTINGS_FILE_PATH));
     }
-    const current = await readSettingsFromDisk();
     const migration1 = await migrateSettingsFromLegacyLastDirectory(current);
     const migration2 = await migrateSettingsFromLegacyThemePreferences(migration1.settings);
     const migration3 = await migrateSettingsFromLegacyCollapsedProjects(migration2.settings);
@@ -887,19 +946,29 @@ export const createSettingsRuntime = (deps) => {
     const migration7 = await migrateSettingsToDeterministicProjectIds(migration6.settings);
     const migration8 = migrateSettingsRemoveApprovedDirectories(migration7.settings);
     if (migration1.changed || migration2.changed || migration3.changed || migration4.changed || migration5.changed || migration6.changed || migration7.changed || migration8.changed) {
-      await writeSettingsToDisk(migration8.settings);
+      await writeSettingsAndNotify(migration8.settings, current);
     }
     return migration8.settings;
   };
 
-  const persistSettings = async (changes) => {
-    persistSettingsLock = persistSettingsLock.then(async () => {
-      // Log field names only — changes can carry credentials (UI password,
-      // client tokens, tunnel tokens) that must never reach the log file.
-      console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
-      const current = await readSettingsFromDisk();
-      const sanitized = sanitizeSettingsUpdate(changes);
-      let next = mergePersistedSettings(current, sanitized);
+  const readSettingsFromDiskMigrated = () => enqueueSettingsOperation(readSettingsFromDiskMigratedUnlocked);
+
+  const persistSettings = (changesOrMutation, precondition = null) => enqueueSettingsOperation(async () => {
+    const current = await readSettingsFromDiskStrict();
+    const currentResponse = formatSettingsResponse(current);
+    assertSettingsPrecondition(precondition, createSettingsRevision(crypto, currentResponse));
+    // Internal project metadata writers use this callback to derive a partial
+    // update from the current queued state, rather than replacing a snapshot
+    // captured before a browser mutation committed.
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Internal updates accept a partial document or a queued callback.
+    const changes = typeof changesOrMutation === 'function'
+      ? await changesOrMutation(current)
+      : changesOrMutation;
+    // Log field names only — changes can carry credentials (UI password,
+    // client tokens, tunnel tokens) that must never reach the log file.
+    console.log('[persistSettings] Updating fields:', Object.keys(changes || {}).join(', ') || '(none)');
+    const sanitized = sanitizeSettingsUpdate(changes);
+    let next = mergePersistedSettings(current, sanitized);
 
       const normalizedState = normalizeSettingsPaths(next);
       if (normalizedState.changed) {
@@ -962,12 +1031,9 @@ export const createSettingsRuntime = (deps) => {
         }
       }
 
-      await writeSettingsToDisk(next);
-      return formatSettingsResponse(next);
-    });
-
-    return persistSettingsLock;
-  };
+    await writeSettingsAndNotify(next, current);
+    return formatSettingsResponse(next);
+  });
 
   return {
     readSettingsFromDisk,

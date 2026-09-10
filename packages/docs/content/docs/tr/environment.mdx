@@ -1,17 +1,17 @@
 ---
 title: Environment Değişkenleri
-description: Environment değişkenleriyle OpenChamber ve OpenCode entegrasyonunu yapılandırın.
+description: Environment değişkenleriyle Smarty Code ve OpenCode entegrasyonunu yapılandırın.
 ---
 
 # Environment Değişkenleri
 
-OpenChamber bu environment değişkenlerini başlangıçta okur. Başlangıç servisleri için `openchamber startup enable` varsayılan olarak mevcut environment'ı anlık görüntü olarak kaydeder. Servisin kullanmasını istediğiniz değişkenleri değiştirdikten sonra bunu yeniden çalıştırın.
+Smarty Code bu environment değişkenlerini başlangıçta okur. Başlangıç servisleri için `openchamber startup enable` varsayılan olarak mevcut environment'ı anlık görüntü olarak kaydeder. Servisin kullanmasını istediğiniz değişkenleri değiştirdikten sonra bunu yeniden çalıştırın.
 
-## OpenChamber sunucusu
+## Smarty Code sunucusu
 
 ### `OPENCHAMBER_HOST`
 
-OpenChamber web sunucusu için bind adresi. Diğer makinelerden erişime izin vermek için `0.0.0.0` kullanın.
+Smarty Code web sunucusu için bind adresi. Diğer makinelerden erişime izin vermek için `0.0.0.0` kullanın.
 
 ### `OPENCHAMBER_UI_PASSWORD`
 
@@ -19,15 +19,15 @@ Tarayıcı arayüzü için parola. Bunu localhost dışına bind ederken, tünel
 
 ### `OPENCHAMBER_API_ONLY`
 
-`true` ya da `1` olarak ayarlandığında OpenChamber'ı headless modda başlatır. API rotaları masaüstü ve mobil istemciler için açık kalır, ama tarayıcı arayüzü sunulmaz.
+`true` ya da `1` olarak ayarlandığında Smarty Code'ı headless modda başlatır. API rotaları masaüstü ve mobil istemciler için açık kalır, ama tarayıcı arayüzü sunulmaz.
 
 ### `OPENCHAMBER_DATA_DIR`
 
-OpenChamber veri dizinini geçersiz kılar. Varsayılan `~/.config/openchamber`.
+Smarty Code veri dizinini geçersiz kılar. Varsayılan `~/.config/openchamber`.
 
 ### `OPENCHAMBER_CHATS_DIR`
 
-OpenChamber'ın projesiz sohbetler için oluşturduğu yönetilen sohbet dizinlerinin yerini değiştirir. Varsayılan `~/.config/openchamber/chats`. OpenChamber ve OpenCode farklı kullanıcılarla çalışıyorsa OpenCode sunucusunun okuyabileceği bir dizin belirtin. Mevcut sohbetler taşınmaz.
+Smarty Code'ın projesiz sohbetler için oluşturduğu yönetilen sohbet dizinlerinin yerini değiştirir. Varsayılan `~/.config/openchamber/chats`. Smarty Code ve OpenCode farklı kullanıcılarla çalışıyorsa OpenCode sunucusunun okuyabileceği bir dizin belirtin. Mevcut sohbetler taşınmaz.
 
 ### `OPENCHAMBER_COMPRESS_API`
 
@@ -53,7 +53,7 @@ Otomatik algılama yanlışsa, güncelleme işlemlerinin kullandığı package m
 
 ### `OPENCODE_HOST`
 
-OpenChamber'ı mevcut bir OpenCode sunucusuna bağlar. Değer, açık bir port içeren ve path, query ya da hash içermeyen bir `http` ya da `https` origin'i olmalıdır. `OPENCODE_HOST`, `OPENCODE_PORT`'a göre önceliklidir.
+Smarty Code'ı mevcut bir OpenCode sunucusuna bağlar. Değer, açık bir port içeren ve path, query ya da hash içermeyen bir `http` ya da `https` origin'i olmalıdır. `OPENCODE_HOST`, `OPENCODE_PORT`'a göre önceliklidir.
 
 ### `OPENCODE_PORT`
 
@@ -61,15 +61,15 @@ OpenCode sunucu portunu ayarlar. Yönetilen OpenCode ile bu, yönetilen portu is
 
 ### `OPENCODE_SKIP_START`
 
-`true` olarak ayarlandığında OpenChamber'ın kendi OpenCode sunucusunu başlatmasını engeller.
+`true` olarak ayarlandığında Smarty Code'ın kendi OpenCode sunucusunu başlatmasını engeller.
 
 ### `OPENCHAMBER_OPENCODE_HOSTNAME`
 
-OpenChamber'ın yönettiği OpenCode sunucusu için bind hostname'i. Varsayılan `127.0.0.1`.
+Smarty Code'ın yönettiği OpenCode sunucusu için bind hostname'i. Varsayılan `127.0.0.1`.
 
 ### `OPENCODE_BINARY`
 
-OpenChamber'ın çalıştırması gereken `opencode` yürütülebilir dosyasının yolu.
+Smarty Code'ın çalıştırması gereken `opencode` yürütülebilir dosyasının yolu.
 
 ### `OPENCODE_CONFIG`
 
@@ -89,7 +89,7 @@ Windows'ta OpenCode entegrasyonu için kullanılan WSL dağıtımını seçer.
 
 ### `OPENCHAMBER_OPENCODE_WSL_DISTRO`
 
-WSL dağıtımını seçmek için OpenChamber'a özel takma ad. İkisi de ayarlıysa `OPENCODE_WSL_DISTRO` önceliklidir.
+WSL dağıtımını seçmek için Smarty Code'a özel takma ad. İkisi de ayarlıysa `OPENCODE_WSL_DISTRO` önceliklidir.
 
 ### `OPENCODE_JWT_SECRET`
 
@@ -99,15 +99,15 @@ UI kimlik doğrulama token'larını imzalamak için kullanılan gizli değer. Ka
 
 ### `OPENCHAMBER_TERMINAL_SHELL`
 
-OpenChamber terminal oturumları için kullanılan shell yürütülebilir dosyası.
+Smarty Code terminal oturumları için kullanılan shell yürütülebilir dosyası.
 
 ### `OPENCHAMBER_GIT_BINARY`
 
-OpenChamber Git özelliklerinin kullandığı Git yürütülebilir dosyası.
+Smarty Code Git özelliklerinin kullandığı Git yürütülebilir dosyası.
 
 ### `GIT_BINARY`
 
-Alternatif Git yürütülebilir dosyası geçersiz kılma değeri. OpenChamber'a özel yapılandırma için `OPENCHAMBER_GIT_BINARY` tercih edin.
+Alternatif Git yürütülebilir dosyası geçersiz kılma değeri. Smarty Code'a özel yapılandırma için `OPENCHAMBER_GIT_BINARY` tercih edin.
 
 ### `OPENCHAMBER_GIT_READ_CACHE_TTL_MS`
 
@@ -117,7 +117,7 @@ Git destekli dosya okumaları için önbelleğin milisaniye cinsinden yaşam sü
 
 ### `OPENAI_API_KEY`
 
-OpenAI uyumlu servisleri çağıran OpenChamber voice özellikleri tarafından kullanılan API anahtarı.
+OpenAI uyumlu servisleri çağıran Smarty Code voice özellikleri tarafından kullanılan API anahtarı.
 
 ### `OPENCHAMBER_ALLOW_REMOTE_OPENAI_COMPAT_URLS`
 
@@ -125,17 +125,17 @@ OpenAI uyumlu servisleri çağıran OpenChamber voice özellikleri tarafından k
 
 ### `NGROK_AUTHTOKEN`
 
-OpenChamber tunnel komutlarının kullandığı ngrok auth token. `ngrok config add-authtoken <token>` ile de yapılandırabilirsiniz.
+Smarty Code tunnel komutlarının kullandığı ngrok auth token. `ngrok config add-authtoken <token>` ile de yapılandırabilirsiniz.
 
 ## Runtime yardımcıları
 
 ### `BUN_BINARY`
 
-Daemon süreçleri başlatılırken OpenChamber'ın kullanması gereken Bun yürütülebilir dosyası.
+Daemon süreçleri başlatılırken Smarty Code'ın kullanması gereken Bun yürütülebilir dosyası.
 
 ### `BUN_INSTALL`
 
-Bun kurulum kökü. OpenChamber bunu daemon başlangıcı ve güncellemeleri için `bin/bun` bulmakta kullanır.
+Bun kurulum kökü. Smarty Code bunu daemon başlangıcı ve güncellemeleri için `bin/bun` bulmakta kullanır.
 
 ### `VITE_OPENCODE_URL`
 

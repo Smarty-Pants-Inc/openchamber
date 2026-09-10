@@ -1,0 +1,42 @@
+{
+  "stock": "2dfd1190eba8853c766c29ae27f09aeacc86bdb9",
+  "files": [
+    {
+      "path": "packages/vscode/src/bridge-localfs-proxy-runtime.ts",
+      "stockSha256": "94b32b529c209148ea08e31ba37acae7a99c79ad23b90136192b778d19504a22",
+      "normalize": [
+        "Engine API unavailable",
+        "OpenCode API unavailable"
+      ]
+    },
+    {
+      "path": "packages/vscode/src/bridge-git-special-runtime.ts",
+      "stockSha256": "56e7ac8da8401f40010efd069db997df0f708882c55f81546698021411680078",
+      "normalize": [
+        "Engine API unavailable",
+        "OpenCode API unavailable"
+      ]
+    },
+    {
+      "path": "packages/web/server/lib/openchamber-sessions/routes.js",
+      "stockSha256": "854df4a5c8a6b0d072fd64ea1315e402ed9cb51a3f339366099ca442b96d1a04",
+      "normalize": [
+        "The engine accepted the prompt but it never appeared in the session",
+        "OpenCode accepted the prompt but it never appeared in the session"
+      ]
+    },
+    {
+      "path": "packages/web/server/lib/session-goal/runtime.js",
+      "stockSha256": "b9de881a0fdc295d1cd1bb93b6d386f4980fd053ead7f5e4e17e138de8efd5b4",
+      "normalize": [
+        "Engine ${method} ${fetchPath} failed with ${response.status}",
+        "OpenCode ${method} ${fetchPath} failed with ${response.status}"
+      ]
+    },
+    {
+      "path": "packages/ui/src/sync/session-actions.test.ts",
+      "stockSha256": "eaf5f79db56d8bb78836455c96da90c0ba2eba230db59081833873e3872d0fdf",
+      "normalize": []
+    }
+  ]
+}

@@ -20,8 +20,8 @@ describe('managed OpenCode restart session recovery', () => {
         broadcastUiNotification({
           title: multiple ? 'Chats interrupted' : 'Chat interrupted',
           body: multiple
-            ? 'OpenCode restarted during running responses. Send a message in each chat to continue.'
-            : 'OpenCode restarted during a running response. Send a message to continue.',
+            ? 'The engine restarted during running responses. Send a message in each chat to continue.'
+            : 'The engine restarted during a running response. Send a message to continue.',
           tag: 'opencode-restart-interrupted',
           kind: 'opencode-restart-interrupted',
           sessionId: sessionIds[0],

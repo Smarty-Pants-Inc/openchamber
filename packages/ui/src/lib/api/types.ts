@@ -776,12 +776,14 @@ export interface SettingsPayload {
 
 export interface SettingsLoadResult {
   settings: SettingsPayload;
+  /** Strong revision of this exact snapshot, only when conditional writes are supported. */
+  revision?: string;
   source: 'desktop' | 'web';
 }
 
 export interface SettingsAPI {
   load(): Promise<SettingsLoadResult>;
-  save(changes: Partial<SettingsPayload>): Promise<SettingsPayload>;
+  save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string }): Promise<SettingsPayload>;
 
   restartOpenCode?: () => Promise<{ restarted: boolean }>;
 }

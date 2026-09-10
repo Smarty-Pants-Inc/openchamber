@@ -9,7 +9,12 @@ const makeSettingsStore = (initial = {}) => {
   let settings = { ...initial };
   return {
     readSettingsFromDiskMigrated: async () => ({ ...settings }),
-    writeSettingsToDisk: async (next) => {
+    readSettingsStrict: async () => ({ ...settings }),
+    writeSettingsToDisk: async (nextOrMutation) => {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The writer accepts an object or a callback.
+      const next = typeof nextOrMutation === 'function'
+        ? await nextOrMutation({ ...settings })
+        : nextOrMutation;
       settings = { ...next };
     },
     peek: () => settings,

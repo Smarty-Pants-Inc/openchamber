@@ -2,10 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { setLinearAuth, clearLinearAuth, setLinearSessionCommentsEnabled } from './auth.js';
+import { clearLinearAuth, setLinearAuth, setLinearSessionCommentsEnabled } from './auth.js';
 import { createLinearSessionStatusRuntime } from './status-runtime.js';
 
 const makeTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-linear-status-runtime-'));
+
+function createTestSettingsWriter(dataDir) {
+  return async (mutation) => {
+    const filePath = path.join(dataDir, 'settings.json');
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    fs.writeFileSync(filePath, JSON.stringify(await mutation(settings)), 'utf8');
+  };
+}
 
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
   status,
@@ -48,13 +61,15 @@ describe('Linear session status runtime', () => {
   let dataDir;
   let previousDataDir;
   let previousPort;
+  let writeSettingsToDisk;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     previousDataDir = process.env.OPENCHAMBER_DATA_DIR;
     previousPort = process.env.OPENCHAMBER_PORT;
     dataDir = makeTempDir();
     process.env.OPENCHAMBER_DATA_DIR = dataDir;
     process.env.OPENCHAMBER_PORT = '3001';
+    writeSettingsToDisk = createTestSettingsWriter(dataDir);
     setLinearAuth({
       accessToken: 'access-1',
       refreshToken: 'refresh-1',
@@ -62,7 +77,7 @@ describe('Linear session status runtime', () => {
       expiresAt: Date.now() + 86_400_000,
       scope: 'read,write,comments:create',
     });
-    setLinearSessionCommentsEnabled(true);
+    await setLinearSessionCommentsEnabled(true, writeSettingsToDisk);
   });
 
   afterEach(() => {

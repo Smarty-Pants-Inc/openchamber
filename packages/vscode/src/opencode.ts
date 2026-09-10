@@ -11,8 +11,9 @@ import { normalizeWindowsDriveLetter } from './pathUtils';
 import { resolveWorkingDirectoryChange } from './workingDirectoryChange';
 import { registerManagedProcess, unregisterManagedProcess, reapOrphanedProcesses } from './opencodeProcessRegistry';
 import { applyProviderEnvAliases } from './provider-env-aliases';
+import { brandText, PRODUCT_NAME } from './brand.generated';
 
-const t = vscode.l10n.t;
+const t = (message: string, ...args: Array<string | number | boolean>) => vscode.l10n.t(brandText(message), ...args);
 
 const READY_CHECK_TIMEOUT_MS = 30000;
 
@@ -22,7 +23,7 @@ let managerOutputChannel: vscode.OutputChannel | null = null;
 
 function getManagerOutputChannel(): vscode.OutputChannel {
   if (!managerOutputChannel) {
-    managerOutputChannel = vscode.window.createOutputChannel('OpenChamberManager');
+    managerOutputChannel = vscode.window.createOutputChannel(`${PRODUCT_NAME} Manager`);
   }
   return managerOutputChannel;
 }
@@ -267,16 +268,16 @@ function isKnownOpenCodeDesktopAppPath(candidate: string): boolean {
 }
 
 function createConfiguredOpencodeBinaryError(raw: string, normalized: string): Error {
-  const messageSuffix = 'OpenChamber needs the standalone opencode CLI. Install it and set openchamber.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.';
+  const messageSuffix = `${PRODUCT_NAME} needs the standalone opencode CLI. Install it and set openchamber.opencodeBinary to the CLI path, for example ~/.opencode/bin/opencode, or leave the setting empty to use PATH lookup.`;
   if (isKnownOpenCodeDesktopAppPath(raw) || isKnownOpenCodeDesktopAppPath(normalized)) {
     const platformName = process.platform === 'win32' ? 'Windows desktop app install' : 'macOS desktop app bundle';
-    return new Error(`Configured OpenCode binary points at the ${platformName}, not the CLI: ${normalized}. ${messageSuffix}`);
+    return new Error(`Configured opencode binary points at the ${platformName}, not the CLI: ${normalized}. ${messageSuffix}`);
   }
 
   try {
     const rawStat = fs.statSync(raw);
     if (rawStat.isDirectory()) {
-      return new Error(`Configured OpenCode binary directory does not contain an executable ${process.platform === 'win32' ? 'opencode.exe' : 'opencode'}: ${raw}. ${messageSuffix}`);
+      return new Error(`Configured opencode binary directory does not contain an executable ${process.platform === 'win32' ? 'opencode.exe' : 'opencode'}: ${raw}. ${messageSuffix}`);
     }
   } catch {
     // The normalized path check below produces the missing-path error.
@@ -285,11 +286,11 @@ function createConfiguredOpencodeBinaryError(raw: string, normalized: string): E
   try {
     const stat = fs.statSync(normalized);
     if (!stat.isFile()) {
-      return new Error(`Configured OpenCode binary is not a file: ${normalized}. ${messageSuffix}`);
+      return new Error(`Configured opencode binary is not a file: ${normalized}. ${messageSuffix}`);
     }
-    return new Error(`Configured OpenCode binary is not executable: ${normalized}. ${messageSuffix}`);
+    return new Error(`Configured opencode binary is not executable: ${normalized}. ${messageSuffix}`);
   } catch {
-    return new Error(`Configured OpenCode binary not found: ${normalized}. ${messageSuffix}`);
+    return new Error(`Configured opencode binary not found: ${normalized}. ${messageSuffix}`);
   }
 }
 
@@ -734,9 +735,9 @@ async function spawnManagedOpenCodeServer(
     const onExit = (code: number | null) => {
       cleanup();
       const appBundleHint = isMacOpenCodeAppBundlePath(binary)
-        ? ' The configured binary appears to point at the macOS desktop app bundle; OpenChamber needs the standalone opencode CLI.'
+        ? ` The configured binary appears to point at the macOS desktop app bundle; ${PRODUCT_NAME} needs the standalone opencode CLI.`
         : '';
-      reject(new Error(`OpenCode process exited before serving with code ${code}. Binary used: ${binary}.${appBundleHint} Output: ${output}`));
+      reject(new Error(`opencode process exited before serving with code ${code}. Binary used: ${binary}.${appBundleHint} Output: ${output}`));
     };
 
     const onError = (error: Error) => {
@@ -803,7 +804,7 @@ async function allocateManagedOpenCodePort(): Promise<number> {
           resolve(port);
           return;
         }
-        reject(new Error('Failed to allocate OpenCode port'));
+        reject(new Error('Failed to allocate opencode port'));
       });
     });
 
@@ -1047,9 +1048,9 @@ export function createOpenCodeManager(context: vscode.ExtensionContext): OpenCod
           cliPath = resolveOpencodeCliPath();
         }
         const moreInfoLabel = t('More Info');
-        setStatus('error', t('OpenCode CLI not found. Install it and ensure it\'s in PATH.'));
+        setStatus('error', t('The opencode executable was not found. Install the opencode CLI first.'));
         vscode.window.showErrorMessage(
-          t('OpenCode CLI not found. Please install it and ensure it\'s in PATH.'),
+          t('The opencode executable was not found. Install the opencode CLI and ensure it\'s in PATH.'),
           moreInfoLabel
         ).then(selection => {
           if (selection === moreInfoLabel) {
@@ -1057,7 +1058,7 @@ export function createOpenCodeManager(context: vscode.ExtensionContext): OpenCod
           }
         });
       } else {
-        setStatus('error', t('Failed to start OpenCode: {0}', message));
+        setStatus('error', t('Failed to start {0}: {1}', PRODUCT_NAME, message));
       }
     }
   }

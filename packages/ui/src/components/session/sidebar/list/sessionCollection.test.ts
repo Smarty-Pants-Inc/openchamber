@@ -72,6 +72,15 @@ describe('projectSidebarActiveSessions', () => {
     }).map((entry) => entry.id)).toEqual(['global-b', 'global-a', 'live-c']);
   });
 
+  test('keeps sessions in the exact case-preserved directory without admitting a case-distinct project', () => {
+    expect(projectSidebarActiveSessions({
+      globalActiveSessions: [session('matching', '/Workspace/Repo'), session('other', '/workspace/repo')],
+      liveSessions: [],
+      knownDirectories: new Set(['/Workspace/Repo']),
+      isVSCode: true,
+    }).map((entry) => entry.id)).toEqual(['matching']);
+  });
+
   test('filters unknown VS Code directories', () => {
     const sessions = [session('known', '/workspace/known'), session('unknown', '/workspace/unknown')];
 

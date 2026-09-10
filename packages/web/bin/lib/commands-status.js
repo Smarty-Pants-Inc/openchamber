@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import { readInstanceOptions } from './cli-process.js';
 import { discoverLifecycleInstances, discoverDesktopInstance } from './cli-lifecycle.js';
 import {
@@ -88,7 +89,7 @@ async function statusCommand(options = {}) {
     return;
   }
 
-  clackIntro('OpenChamber Status');
+  clackIntro(`${PRODUCT_NAME} Status`);
 
   if (runningCount === 0) {
     logStatus('warning', 'stopped');

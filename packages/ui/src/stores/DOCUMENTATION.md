@@ -90,6 +90,35 @@ Shared safe storage treats durable failures per key. A quota or access failure c
 
 Project and UI settings use successful settings synchronization as authority. Omitted fields in a complete snapshot reset to canonical client defaults, including an omitted project list becoming empty. Theme fields are the exception: only bootstrap-grade theme adoption applies fields supplied by the server, while omitted fields preserve this window's current runtime-scoped theme and settings save echoes never adopt a theme. VS Code settings broadcasts may still adopt shared workspace pointers without replacing each webview's editor-derived theme. Transport or settings-load failure dispatches no synchronization event and preserves current state. Settings save responses are partial patches and must not clear unrelated in-memory preferences or local mirrors. Debounced settings writes flush best-effort on page hide, document hidden, app freeze, and unload — canceling the pending timer so the write happens exactly once — because a write lost inside the debounce window lets the stale server snapshot override the change on next startup; a hard process kill can still lose the in-flight request. The unload flush uses `keepalive: true` on the HTTP write, because a plain fetch started from `pagehide`/`beforeunload` is cancelled with the document; `navigator.sendBeacon` is not used, as it cannot carry the runtime bearer header. On Capacitor neither `pagehide` nor `beforeunload` fires when the OS suspends the app, so the flush also runs on `App.appStateChange` going inactive.
 
+External settings updates use the existing OpenChamber event stream. The server
+sends a content-free invalidation after a durable settings change. Stream readiness
+also invalidates settings, so reconnect recovers changes missed while offline. The
+layout-level session-list hook coalesces these hints; it does not depend on the
+sidebar being visible. A fresh read waits for earlier reads and save echoes for
+the same runtime, then applies shared settings without adopting this window's
+navigation or theme. Requests from disconnected runtimes do not delay that read.
+
+The web Settings API returns the strong revision of each loaded snapshot when
+conditional writes are advertised. A project mutation captures the project list
+before its local edit; adding and selecting a project share that pre-add baseline.
+Before saving, it reads current settings and merges independent project additions,
+changes and removals against that baseline, independent of JSON object key order.
+Conflicting edits to one entry or to project order require user resolution. It
+then sends the fresh revision in `If-Match`. Unrelated preference writes do not
+create a project conflict, but a competing update between that read and the
+serialized write returns 412 without writing. Project save failures show an error
+toast, not only a console warning. A failed runtime mutation is not replayed
+through the direct HTTP fallback. Runtimes without revision support can still save
+ordinary preferences, but project writes fail before any mutation. VS Code workspace
+folders remain host-managed; its legacy settings bridge does not advertise project
+CAS. The settings queue protects one backend process; separate processes must not
+write the same settings file.
+
+A bootstrap sync can wait for a settings migration save before it publishes its
+snapshot. Reconcile newer local mutations and pending writes again after that
+wait. Otherwise the old active-project pointer can undo a session selected while
+the migration was saving, even when the navigation save already succeeded.
+
 Project ordering defaults to manual. Session display persistence v3 migrates the previously shipped `recent` project order to `manual` while preserving every other explicit sort mode.
 
 Session display persistence keeps a hydrated local cache for the independent all-projects/single-project mode, session grouping, project sort, and Recent preference; successful server settings snapshots are authoritative and the UI seeds missing server fields once from that cache for upgrades. The last confirmed or manually selected project and sticky-header preference stay local to the device. Draft target changes do not write the picker selection; materialized session navigation updates it from the resolved project directory.
