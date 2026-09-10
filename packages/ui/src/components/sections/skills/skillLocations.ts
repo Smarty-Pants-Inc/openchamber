@@ -6,36 +6,26 @@ export const SKILL_LOCATION_OPTIONS: Array<{
   value: SkillLocationValue;
   scope: SkillScope;
   source: SkillSource;
-  label: string;
-  description: string;
 }> = [
   {
     value: 'user-opencode',
     scope: 'user',
     source: 'opencode',
-    label: 'User / OpenCode',
-    description: 'Global OpenCode config location',
   },
   {
     value: 'project-opencode',
     scope: 'project',
     source: 'opencode',
-    label: 'Project / OpenCode',
-    description: 'Current project .opencode location',
   },
   {
     value: 'user-agents',
     scope: 'user',
     source: 'agents',
-    label: 'User / Agents',
-    description: 'Global .agents compatibility location',
   },
   {
     value: 'project-agents',
     scope: 'project',
     source: 'agents',
-    label: 'Project / Agents',
-    description: 'Current project .agents compatibility location',
   },
 ];
 

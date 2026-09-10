@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { redactSensitiveUrl } from '@/lib/desktopHosts';
 
 export type RecoveryVariant =
@@ -42,7 +43,7 @@ export function getDesktopRecoveryConfig(
   switch (variant) {
     case 'local-unavailable':
       return {
-        title: 'Local OpenCode Unavailable',
+        title: `Local ${PRODUCT_NAME} Unavailable`,
         description: 'OpenCode CLI could not be started or is not installed. Install OpenCode or connect to a remote server instead.',
         titleKey: 'onboarding.desktopRecovery.localUnavailable.title',
         descriptionKey: 'onboarding.desktopRecovery.localUnavailable.description',

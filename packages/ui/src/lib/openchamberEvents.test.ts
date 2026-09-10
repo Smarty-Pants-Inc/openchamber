@@ -38,6 +38,18 @@ describe('openchamber events', () => {
     delete (globalThis as { EventSource?: unknown }).EventSource;
   });
 
+  test('invalidates settings on stream readiness and changes without forwarding their contents', async () => {
+    const { subscribeOpenchamberEvents } = await import('./openchamberEvents');
+    const events: Array<{ type: string }> = [];
+    const unsubscribe = subscribeOpenchamberEvents((event) => events.push(event));
+    const source = MockEventSource.instances[0];
+    for (const type of ['openchamber:event-stream-ready', 'openchamber:settings-changed']) {
+      source.onmessage?.({ data: JSON.stringify({ type, properties: { settings: 'must-not-forward' } }) });
+    }
+    expect(events).toEqual([{ type: 'settings-changed' }, { type: 'settings-changed' }]);
+    unsubscribe();
+  });
+
   test('dispatches externally created session events', async () => {
     const { subscribeOpenchamberEvents } = await import('./openchamberEvents');
     const events: unknown[] = [];

@@ -9,7 +9,7 @@
  * @param {{
  *   crypto: typeof import('node:crypto'),
  *   readSettingsFromDiskMigrated: () => Promise<object>,
- *   writeSettingsToDisk: (settings: object) => Promise<void>,
+ *   writeSettingsToDisk: (mutation: (current: object) => object | Promise<object>) => Promise<void>,
  *   readSettingsStrict?: () => Promise<object>,
  * }} deps
  * @returns {Promise<{ privateKey: import('node:crypto').KeyObject, publicJwk: JsonWebKey }>}
@@ -19,33 +19,35 @@ export const getOrCreateRelaySigningKeypair = async ({ crypto, readSettingsFromD
     privateKey: crypto.createPrivateKey({ key: stored.privateJwk, format: 'jwk' }),
     publicJwk: stored.publicJwk,
   });
-  const settings = await readSettingsFromDiskMigrated();
+  const settings = readSettingsStrict
+    ? await readSettingsStrict()
+    : await readSettingsFromDiskMigrated();
   const existing = settings?.relaySigningKey;
   if (existing && existing.privateJwk && existing.publicJwk) {
     return toKeypair(existing);
   }
-  // Regeneration gate: the lenient settings reader maps read failures to `{}`,
-  // indistinguishable from "first run". Minting a new keypair changes serverId,
-  // which orphans every paired device and push binding AND the write below would
-  // clobber the settings file with the empty spread. Re-verify with the strict
-  // reader (throws on corrupt/unreadable) before generating; if it finds the
-  // key the lenient read lost, use it and generate nothing.
-  let verifiedSettings = settings;
-  if (readSettingsStrict) {
-    verifiedSettings = await readSettingsStrict();
-    const verified = verifiedSettings?.relaySigningKey;
-    if (verified && verified.privateJwk && verified.publicJwk) {
-      return toKeypair(verified);
+  // Regeneration gate: a lenient reader maps corruption and unreadable files
+  // to `{}`. When available, the strict reader above distinguishes that failure
+  // from first run before any key generation or raw transform can occur.
+
+  let winner = null;
+  await writeSettingsToDisk((currentSettings) => {
+    const existingWinner = currentSettings?.relaySigningKey;
+    if (existingWinner && existingWinner.privateJwk && existingWinner.publicJwk) {
+      winner = existingWinner;
+      return currentSettings;
     }
-  }
-  // Loud on purpose: a new signing key means a new serverId — every previously
-  // paired device and push binding is orphaned. Expected exactly once, on first run.
-  console.warn('[relay-identity] Generating NEW relay signing keypair (serverId changes; previously paired devices must re-pair)');
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
-  const privateJwk = privateKey.export({ format: 'jwk' });
-  const publicJwk = publicKey.export({ format: 'jwk' });
-  await writeSettingsToDisk({ ...settings, ...(verifiedSettings || {}), relaySigningKey: { privateJwk, publicJwk } });
-  return { privateKey, publicJwk };
+    // Loud on purpose: a new signing key means a new serverId — every previously
+    // paired device and push binding is orphaned. Expected exactly once, on first run.
+    console.warn('[relay-identity] Generating NEW relay signing keypair (serverId changes; previously paired devices must re-pair)');
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    winner = {
+      privateJwk: privateKey.export({ format: 'jwk' }),
+      publicJwk: publicKey.export({ format: 'jwk' }),
+    };
+    return { ...currentSettings, relaySigningKey: winner };
+  });
+  return toKeypair(winner);
 };
 
 // Fixed key order so the hash is stable regardless of stored JSON field order.

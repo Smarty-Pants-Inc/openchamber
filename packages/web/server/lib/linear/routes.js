@@ -75,7 +75,7 @@ async function storeAuthorizationResult(libraries, result) {
   });
 }
 
-export function registerLinearRoutes(app) {
+export function registerLinearRoutes(app, { writeSettingsToDisk }) {
   let linearLibraries = null;
   const getLinearLibraries = async () => {
     if (!linearLibraries) {
@@ -379,7 +379,7 @@ export function registerLinearRoutes(app) {
         return res.status(400).json({ error: 'sessionComments must be a boolean' });
       }
       const { setLinearSessionCommentsEnabled } = await getLinearLibraries();
-      return res.json({ sessionComments: setLinearSessionCommentsEnabled(sessionComments) });
+      return res.json({ sessionComments: await setLinearSessionCommentsEnabled(sessionComments, writeSettingsToDisk) });
     } catch (error) {
       console.error('Failed to save Linear preferences:', error);
       return res.status(500).json({ error: error.message || 'Failed to save Linear preferences' });

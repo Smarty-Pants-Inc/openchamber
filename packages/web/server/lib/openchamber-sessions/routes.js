@@ -605,7 +605,7 @@ export const createOpenChamberSessionService = (dependencies) => {
           variant,
           promptDispatched: false,
           dispatchedAsCommand: false,
-          promptError: 'OpenCode accepted the prompt but it never appeared in the session',
+          promptError: 'The engine accepted the prompt but it never appeared in the session',
         };
       }
     }

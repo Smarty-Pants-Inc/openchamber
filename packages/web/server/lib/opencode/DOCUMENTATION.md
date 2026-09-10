@@ -87,8 +87,8 @@ This module provides OpenCode server integration utilities for the web server ru
 
 ## Public exports (routes.js)
 - `registerOpenCodeRoutes(app, dependencies)`: Registers OpenCode-owned HTTP routes and internal module runtime:
-  - `GET /api/config/settings`
-  - `PUT /api/config/settings`
+  - `GET /api/config/settings`: returns a strong ETag for the formatted snapshot and `X-OpenChamber-Settings-CAS: 1`.
+  - `PUT /api/config/settings`: checks `If-Match` inside the settings queue before effects; stale valid conditions return 412, malformed syntax returns 400. Empty list elements are ignored; a present list with no tags matches nothing. No-header callers retain legacy partial-update behavior. GET formats raw settings once; PUT sends the already formatted persistence result unchanged. Its returned ETag can guard the next write, and private-token presence flags survive without exposing the token.
   - `GET /api/config/opencode-resolution`
   - `POST /api/opencode/upgrade` (enforces the active runtime's upgrade capability, serializes supported OpenCode upgrades, then restarts managed OpenCode so the new binary is active)
   - `GET /api/opencode/upgrade-status` (returns version availability plus the authoritative `upgrade.supported`, `upgrade.manager`, and `upgrade.reason` capability)
@@ -206,10 +206,13 @@ Managed health failures are classified as `timeout`, `connection_refused`, `conn
 ## Public exports (settings-runtime.js)
 - `createSettingsRuntime(dependencies)`: creates settings lifecycle runtime for read/migrate/persist concerns.
 - Returned API:
-  - `readSettingsFromDisk()`
-  - `readSettingsFromDiskMigrated()`
-  - `writeSettingsToDisk(settings)`
-  - `persistSettings(changes)`
+  - `readSettingsFromDisk()`: legacy lenient read; not a safe basis for a replacement write.
+  - `readSettingsFromDiskStrict()`: only a missing file means empty settings; malformed, non-object or unreadable content throws. Malformed JSON raises a fixed error without the native parser cause, which can contain private input. Lenient-read warnings also omit input and raw error details.
+  - `readSettingsFromDiskMigrated()`: queued strict read and migrations. Invalid current data is preserved, including possible recovery files.
+  - `writeSettingsToDisk(settingsOrMutation)`: an object remains an explicit full replacement. An internal callback reads current settings strictly inside the queue and returns a new document, or the same unmodified object for no write. Raw identity fields do not pass through the public sanitizer.
+  - `persistSettings(changesOrMutation, precondition?)`: queued strict read, conditional check and sanitized partial update. Internal callbacks derive their partial update from that current document.
+- One process owns this queue. Separate processes must not write the same settings file. Maintained directory, icon, relay, VAPID and public-origin writers use queued transforms instead of stale read-and-replace snapshots.
+- Durable changes to the formatted response emit a content-free `openchamber:settings-changed` hint on the existing OpenChamber event stream. Identical responses do not emit a hint; failed writes do not emit success.
 - Persistent permission auto-accept policy is stored under `permissionAutoAccept`; execution ownership lives in `lib/permission-auto-accept/`.
 - Queued follow-up messages live in `<data-dir>/message-queue.json`, not in settings; execution ownership lives in `lib/message-queue/`.
 - Shared sidebar preferences are stored as validated top-level fields: `sidebarProjectDisplayMode`, `sidebarSessionGroupingMode`, `sidebarProjectSortOrder`, and `sidebarShowRecentSection`. Device-local picker selection and sticky-header state do not enter `settings.json`.
@@ -382,6 +385,7 @@ an authoritative loopback callback URL even when OpenChamber binds port `0`.
   - `PUT /api/projects/:projectId/icon`
   - `DELETE /api/projects/:projectId/icon`
   - `POST /api/projects/:projectId/icon/discover`
+- Icon file work stays outside the settings queue. Metadata changes only the current target's `iconImage`, preserving independent edits. A target removed during file work returns 404 rather than being restored. An unreferenced file can remain in that case; automatic removal could delete a newer same-ID project's icon.
 
 ## Public exports (skill-routes.js)
 - `registerSkillRoutes(app, dependencies)`: registers skills-related routes:

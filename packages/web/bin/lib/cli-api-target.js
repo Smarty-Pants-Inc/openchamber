@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../../brand.generated.js';
 import { DEFAULT_PORT } from './cli-args.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { discoverDesktopInstance, discoverLifecycleInstances } from './cli-lifecycle.js';
@@ -56,7 +57,7 @@ async function resolveTargetPort(options = {}, deps = {}) {
       return DEFAULT_PORT;
     }
     throw new TunnelCliError(
-      `Multiple OpenChamber instances are running (ports: ${ports.join(', ')}). Choose one with --port <port>.`,
+      `Multiple ${PRODUCT_NAME} instances are running (ports: ${ports.join(', ')}). Choose one with --port <port>.`,
       EXIT_CODE.USAGE_ERROR,
     );
   }
@@ -66,7 +67,7 @@ async function resolveTargetPort(options = {}, deps = {}) {
   }
 
   throw new TunnelCliError(
-    'No running OpenChamber server found. Start one with `openchamber serve`, or pass --port <port>.',
+    `No running ${PRODUCT_NAME} server found. Start one with \`openchamber serve\`, or pass --port <port>.`,
     EXIT_CODE.GENERAL_ERROR,
   );
 }

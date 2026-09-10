@@ -1580,9 +1580,37 @@ describe("shareSession live state", () => {
 
 describe("updateSessionTitle live state", () => {
   beforeEach(() => {
+    sessionUpdateResultsById.clear()
     replyCalls.length = 0
     globalUpsertedSessions.length = 0
+    globalActiveSessions = []
+    globalArchivedSessions.length = 0
     sessionUpdateResult = {}
+  })
+
+  test("uses canonical ownership before another child's incidental status", async () => {
+    const session: Session = { id: "session-a", directory: "/test/project", title: "Title",
+      slug: "session-a", projectID: "project-a", version: "1", time: { created: 1, updated: 1 } }
+    const wrong = createStore({}, { session_status: { "session-a": { type: "idle" } } })
+    const owner = createStore({}, { session: [session] })
+    globalActiveSessions = [session]
+    sessionUpdateResultsById.set(session.id, session)
+    const { setActionRefs, updateSessionTitle } = await import("./session-actions")
+    setActionRefs(actionSdk,
+      createChildStores([["/wrong/project", wrong], ["/test/project", owner]]), () => "/wrong/project")
+    await updateSessionTitle("session-a", "Renamed")
+    expect(replyCalls.find(call => call.method === "session.update")?.params.directory).toBe("/test/project")
+  })
+
+  test("retains message-only lookup when no ownership record is indexed", async () => {
+    const session: Session = { id: "legacy-only", title: "Title", directory: "/legacy/project",
+      slug: "legacy-only", projectID: "legacy-project", version: "1", time: { created: 1, updated: 1 } }
+    sessionUpdateResultsById.set(session.id, session)
+    const { setActionRefs, updateSessionTitle } = await import("./session-actions")
+    const owner = createStore({}, { message: { "legacy-only": [] } })
+    setActionRefs(actionSdk, createChildStores([["/legacy/project", owner]]), () => "/current/project")
+    await updateSessionTitle("legacy-only", "Renamed")
+    expect(replyCalls.find(call => call.method === "session.update")?.params.directory).toBe("/legacy/project")
   })
 
   test("updates the live directory store after renaming", async () => {

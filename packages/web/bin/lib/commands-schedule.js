@@ -10,6 +10,7 @@ import {
   printJson,
   logStatus,
 } from '../cli-output.js';
+import { brandText } from '../../brand.generated.js';
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
@@ -70,7 +71,30 @@ const outputTasks = (options, tasks) => {
 
 async function scheduleCommand(options = {}, action = 'help') {
   if (action === 'help') {
-    process.stdout.write(`OpenChamber Schedule Commands\n\nUSAGE:\n  openchamber schedule status [OPTIONS]\n  openchamber schedule list (--project <projectId> | --dir <path>) [OPTIONS]\n  openchamber schedule create (--project <projectId> | --dir <path>) --name <name> --prompt <prompt> --model <provider/model> (--daily <HH:mm> | --weekly <0,1,2> --time <HH:mm> | --once <YYYY-MM-DD> --time <HH:mm> | --cron <expr>) [OPTIONS]\n  openchamber schedule run (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule delete (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule enable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule disable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n\nOPTIONS:\n  --project <projectId>   Project id from openchamber projects\n  --dir <path>            Resolve project by directory\n  -p, --port <port>       OpenChamber server port\n  --timezone <zone>       IANA timezone for created tasks\n  --agent <id>            Agent to use when running task\n  --variant <id>          Model variant to use when running task\n  --goal                  Continue the scheduled session toward a goal\n  --goal-token-budget <n> Goal token budget (1000-100000000; requires --goal)\n  --disabled              Create task disabled\n  --json                  Output machine-readable JSON\n  -q, --quiet             Print concise output\n`);
+    process.stdout.write(brandText(`OpenChamber Schedule Commands
+
+USAGE:
+  openchamber schedule status [OPTIONS]
+  openchamber schedule list (--project <projectId> | --dir <path>) [OPTIONS]
+  openchamber schedule create (--project <projectId> | --dir <path>) --name <name> --prompt <prompt> --model <provider/model> (--daily <HH:mm> | --weekly <0,1,2> --time <HH:mm> | --once <YYYY-MM-DD> --time <HH:mm> | --cron <expr>) [OPTIONS]
+  openchamber schedule run (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]
+  openchamber schedule delete (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]
+  openchamber schedule enable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]
+  openchamber schedule disable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]
+
+OPTIONS:
+  --project <projectId>   Project id from openchamber projects
+  --dir <path>            Resolve project by directory
+  -p, --port <port>       OpenChamber server port
+  --timezone <zone>       IANA timezone for created tasks
+  --agent <id>            Agent to use when running task
+  --variant <id>          Model variant to use when running task
+  --goal                  Continue the scheduled session toward a goal
+  --goal-token-budget <n> Goal token budget (1000-100000000; requires --goal)
+  --disabled              Create task disabled
+  --json                  Output machine-readable JSON
+  -q, --quiet             Print concise output
+`));
     return;
   }
 

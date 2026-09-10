@@ -70,7 +70,7 @@ export function createGlobalMessageStreamHub({
           return new URL(buildOpenCodeUrl('/global/event', ''));
         } catch {
           buildUrlFailed = true;
-          throw new Error('OpenCode service unavailable');
+          throw new Error('Engine service unavailable');
         }
       },
       getHeaders: getOpenCodeAuthHeaders,

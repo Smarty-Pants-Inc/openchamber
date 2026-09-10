@@ -11,6 +11,7 @@ import {
 import { createRealpathCache } from '../path-realpath-cache.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
 import { recordStartupPerformance } from './startup-performance.js';
+import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const DEFAULT_SSE_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -294,9 +295,9 @@ export const registerOpenCodeProxy = (app, deps) => {
 
   const runtime = getRuntime();
   if (runtime.openCodePort) {
-    console.log(`Setting up proxy to OpenCode on port ${runtime.openCodePort}`);
+    console.log(`Setting up proxy to ${PRODUCT_NAME} on port ${runtime.openCodePort}`);
   } else {
-    console.log('Setting up OpenCode API gate (OpenCode not started yet)');
+    console.log(`Setting up ${PRODUCT_NAME} API gate (${PRODUCT_NAME} not started yet)`);
   }
   app.set('opencodeProxyConfigured', true);
 
@@ -432,7 +433,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     if (!res || res.headersSent || res.writableEnded || typeof res.status !== 'function') {
       return false;
     }
-    res.status(statusCode).json({ error: statusCode === 504 ? 'OpenCode upstream timed out' : 'OpenCode service unavailable' });
+    res.status(statusCode).json({ error: statusCode === 504 ? `${PRODUCT_NAME} upstream timed out` : `${PRODUCT_NAME} service unavailable` });
     return true;
   };
 
@@ -585,9 +586,9 @@ export const registerOpenCodeProxy = (app, deps) => {
         }
         return;
       }
-      console.error('[proxy] OpenCode SSE proxy error:', error?.message ?? error);
+      console.error(`[proxy] ${PRODUCT_NAME} SSE proxy error:`, error?.message ?? error);
       if (!res.headersSent) {
-        res.status(503).json({ error: 'OpenCode service unavailable' });
+        res.status(503).json({ error: `${PRODUCT_NAME} service unavailable` });
       } else {
         res.end();
       }
@@ -680,9 +681,9 @@ export const registerOpenCodeProxy = (app, deps) => {
       if (isAbortError(error)) {
         return;
       }
-      console.error(`[proxy] OpenCode ${logLabel} proxy error:`, error?.message ?? error);
+      console.error(`[proxy] ${PRODUCT_NAME} ${logLabel} proxy error:`, error?.message ?? error);
       if (!res.headersSent) {
-        res.status(503).json({ error: 'OpenCode service unavailable' });
+        res.status(503).json({ error: `${PRODUCT_NAME} service unavailable` });
         return;
       }
       next(error);
@@ -769,7 +770,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     });
     if (!res.headersSent) {
       res.status(503).json({
-        error: 'OpenCode is restarting',
+        error: `${PRODUCT_NAME} is restarting`,
         restarting: true,
       });
     }
@@ -837,7 +838,7 @@ export const registerOpenCodeProxy = (app, deps) => {
         }
 
         if (!globalSessions && successfulProjectReads === 0) {
-          return res.status(504).json({ error: 'OpenCode session list timed out' });
+          return res.status(504).json({ error: `${PRODUCT_NAME} session list timed out` });
         }
 
         const merged = [...(globalSessions || []), ...extraSessions];
@@ -919,7 +920,7 @@ export const registerOpenCodeProxy = (app, deps) => {
         }
       },
       error: (err, req, res) => {
-        console.error('[proxy] OpenCode proxy error:', err.message);
+        console.error(`[proxy] ${PRODUCT_NAME} proxy error:`, err.message);
         if (req?.[PROXY_TIMEOUT_MARKER]) {
           return;
         }

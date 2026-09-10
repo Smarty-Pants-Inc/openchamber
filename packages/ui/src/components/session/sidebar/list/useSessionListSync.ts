@@ -1,5 +1,6 @@
 import React from 'react';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
+import { refreshDesktopSettings } from '@/lib/persistence';
 import { refreshGlobalSessions, refreshGlobalSessionsForDirectories, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useChildStoreManager } from '@/sync/sync-context';
 import { getAllSyncSessions } from '@/sync/sync-refs';
@@ -60,14 +61,20 @@ export const useSessionListSync = ({
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let refreshAll = false;
+    let refreshSettings = false;
     const directories = new Set<string>();
     const unsubscribe = subscribeOpenchamberEvents((event) => {
       if (event.type === 'scheduled-task-ran') refreshAll = true;
       else if (event.type === 'session-created') directories.add(event.directory);
+      else if (event.type === 'settings-changed' && !isVSCode) refreshSettings = true;
       else return;
       if (timeout) clearTimeout(timeout);
       timeout = setTimeout(() => {
         timeout = null;
+        if (refreshSettings) {
+          refreshSettings = false;
+          void refreshDesktopSettings();
+        }
         if (refreshAll) {
           refreshAll = false;
           directories.clear();
@@ -83,7 +90,7 @@ export const useSessionListSync = ({
       if (timeout) clearTimeout(timeout);
       unsubscribe();
     };
-  }, []);
+  }, [isVSCode]);
 
   const cleanupSessions = React.useMemo(
     () => [...globalActiveSessions, ...archivedSessions],

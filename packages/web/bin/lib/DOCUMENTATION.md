@@ -85,10 +85,12 @@ These modules hold reusable, non-presentational logic for commands.
     never corrupt shared state: atomic tmp+rename writes (no concurrent reader
     in the running app can observe a torn file), a strict read that throws on
     corrupt/unreadable payloads, and the same `0600` file mode.
-  - The strict read gates relay identity regeneration exactly like the server
-    runtime: a swallowed read failure can never mint a replacement signing or
-    encryption keypair, which would change `serverId` and orphan every paired
-    device and push binding.
+  - Parse errors retain only a fixed, content-free cause, not private input fragments.
+    The strict read rejects corrupt data, null, and arrays before relay
+    identity regeneration. A callback write is serialized per accessor, reads
+    that current strict document, and writes its returned replacement; returning
+    the unchanged object skips the write. Explicit object replacement remains
+    available for deliberate recovery from invalid data.
 
 - `cli-process.js`
   - PID files, instance registry files, process identity checks, runtime metadata checks, and process termination helpers.

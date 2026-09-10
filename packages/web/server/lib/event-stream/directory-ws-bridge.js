@@ -109,7 +109,7 @@ export function acceptDirectoryMessageStreamWsConnection({
             targetUrl = new URL(buildOpenCodeUrl('/event', ''));
           } catch {
             buildUrlFailed = true;
-            throw new Error('OpenCode service unavailable');
+            throw new Error('Engine service unavailable');
           }
 
           if (requestedDirectory) {
@@ -142,16 +142,16 @@ export function acceptDirectoryMessageStreamWsConnection({
           if (!streamReady) {
             if (error?.type === 'upstream_unavailable') {
               closeWithInitialError({
-                message: `OpenCode event stream unavailable (${error.status})`,
-                closeReason: 'OpenCode event stream unavailable',
+                message: `Engine event stream unavailable (${error.status})`,
+                closeReason: 'Engine event stream unavailable',
                 triggerHealthCheckFor: error.response,
               });
               return;
             }
 
             closeWithInitialError({
-              message: buildUrlFailed ? 'OpenCode service unavailable' : 'Failed to connect to OpenCode event stream',
-              closeReason: buildUrlFailed ? 'OpenCode service unavailable' : 'Failed to connect to OpenCode event stream',
+              message: buildUrlFailed ? 'Engine service unavailable' : 'Failed to connect to engine event stream',
+              closeReason: buildUrlFailed ? 'Engine service unavailable' : 'Failed to connect to engine event stream',
               triggerHealthCheckFor: !buildUrlFailed,
             });
             return;

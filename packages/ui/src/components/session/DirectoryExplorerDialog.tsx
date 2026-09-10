@@ -200,14 +200,18 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setSelectedGitIdentityId(null);
     setShowHidden(false);
     setSelectedPaths([]);
-    requestAnimationFrame(() => focusPathInput(inputRef.current));
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement !== inputRef.current) focusPathInput(inputRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
+  React.useEffect(() => {
+    if (!open) return;
     let cancelled = false;
     const resolveHome = async () => {
       const resolved = await resolveFreshFilesystemHome();
-      if (cancelled) return;
-      setDialogHomeDirectory(resolved || homeDirectory || '');
-      requestAnimationFrame(() => focusPathInput(inputRef.current));
+      if (!cancelled) setDialogHomeDirectory(resolved || homeDirectory || '');
     };
     void resolveHome();
     return () => {
@@ -864,7 +868,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="flex w-full max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[80vh]"
-        initialFocus={false}
+        initialFocus={inputRef}
       >
         <DialogHeader className="px-5 pb-2 pt-5">
           <div className="flex items-start justify-between gap-4">

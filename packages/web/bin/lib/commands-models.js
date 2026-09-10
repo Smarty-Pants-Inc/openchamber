@@ -2,6 +2,7 @@ import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
 import { resolveTargetPort } from './cli-api-target.js';
 import { requestControlAction } from './cli-control.js';
 import { isJsonMode, printJson } from '../cli-output.js';
+import { brandText } from '../../brand.generated.js';
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
@@ -43,7 +44,15 @@ const formatModelsOutput = (settings = {}) => {
 
 async function modelsCommand(options = {}, action = 'show') {
   if (action === 'help') {
-    process.stdout.write(`OpenChamber Models Commands\n\nUSAGE:\n  openchamber models [OPTIONS]\n\nOUTPUT OPTIONS:\n  -p, --port <port>       OpenChamber server port\n  --json                  Output machine-readable JSON\n`);
+    process.stdout.write(brandText(`OpenChamber Models Commands
+
+USAGE:
+  openchamber models [OPTIONS]
+
+OUTPUT OPTIONS:
+  -p, --port <port>       OpenChamber server port
+  --json                  Output machine-readable JSON
+`));
     return;
   }
   if (action !== 'show') {

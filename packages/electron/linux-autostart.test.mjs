@@ -11,6 +11,7 @@ import {
   resolveLinuxLaunchExecutable,
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
+import { PRODUCT_NAME } from './brand.generated.mjs';
 
 test('prefers APPIMAGE path for Linux autostart Exec', () => {
   assert.equal(
@@ -28,8 +29,13 @@ test('builds a background autostart desktop entry', () => {
     backgroundArg: '--background',
   });
   assert.match(entry, /Type=Application/);
+  assert.ok(entry.includes(`Name=${PRODUCT_NAME}`));
   assert.match(entry, /Exec="\/home\/user\/Open Chamber\.AppImage" --background/);
   assert.match(entry, /X-GNOME-Autostart-enabled=true/);
+});
+test('escapes desktop-entry Name backslashes', () => {
+  const entry = buildLinuxAutostartDesktopEntry({ appName: String.raw`Fixture\Brand`, executable: '/tmp/openchamber' });
+  assert.match(entry, /^Name=Fixture\\\\Brand$/m);
 });
 
 test('writes and removes the XDG autostart file', async () => {

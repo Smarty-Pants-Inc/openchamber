@@ -49,7 +49,7 @@ Disconnected list/get/states/update/mapping/session-status return `{ connected: 
 - Client ID: `OPENCHAMBER_LINEAR_CLIENT_ID` -> `settings.json` `linearClientId` -> baked-in public default.
 - Client secret: `OPENCHAMBER_LINEAR_CLIENT_SECRET` -> `settings.json` `linearClientSecret`. Optional with PKCE. Do not commit a secret.
 - Scopes: `OPENCHAMBER_LINEAR_SCOPES` -> `settings.json` `linearScopes` -> `read,write,comments:create`.
-- Session comments: `settings.json` `linearSessionComments`, boolean, absent means off. Written only through `PUT /api/linear/preferences`.
+- Session comments: `settings.json` `linearSessionComments`, boolean, absent means off. `PUT /api/linear/preferences` receives the server settings writer through route registration and responds only after the queued write finishes.
 - Broker URL: `OPENCHAMBER_LINEAR_BROKER_URL` -> `settings.json` `linearBrokerUrl` -> `https://api.openchamber.dev/v1/oauth/linear`.
 - Redirect URI: `OPENCHAMBER_LINEAR_REDIRECT_URI` -> `settings.json` `linearRedirectUri` -> `<broker-url>/callback`. Setting an explicit redirect URI bypasses the broker for custom/self-hosted OAuth applications.
 

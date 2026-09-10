@@ -210,10 +210,6 @@ function readSettings() {
   return readJsonFile(settingsFile()) || {};
 }
 
-function writeSettings(settings) {
-  writeJsonFile(settingsFile(), settings);
-}
-
 function readSettingString(key) {
   const stored = readSettings()[key];
   return readTrimmedString(stored);
@@ -422,11 +418,12 @@ export function getLinearSessionCommentsEnabled() {
   return readSettings()[SESSION_COMMENTS_SETTING_KEY] === true;
 }
 
-export function setLinearSessionCommentsEnabled(enabled) {
+export async function setLinearSessionCommentsEnabled(enabled, writeSettingsToDisk) {
   const next = enabled === true;
-  const settings = readSettings();
-  settings[SESSION_COMMENTS_SETTING_KEY] = next;
-  writeSettings(settings);
+  await writeSettingsToDisk((settings) => ({
+    ...settings,
+    [SESSION_COMMENTS_SETTING_KEY]: next,
+  }));
   return next;
 }
 
