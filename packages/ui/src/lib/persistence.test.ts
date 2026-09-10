@@ -13,6 +13,10 @@ import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { opencodeClient } from '@/lib/opencode/client';
+import { createProjectIdFromPath } from '@/lib/projectId';
 import {
   applyPersistedHomeDirectoryToWindow,
   getRuntimeSettingsMirrorStorageKey,
@@ -801,6 +805,141 @@ describe('updateDesktopSettings', () => {
     } finally {
       getWindow().removeEventListener('openchamber:settings-synced', handleSettingsSynced);
     }
+  });
+
+  test('bootstrap started during a project save preserves the added project and directory', async () => {
+    const home = { id: createProjectIdFromPath('/fixture/home'), path: '/fixture/home', label: 'Home', addedAt: 1, lastOpenedAt: 1 };
+    const projectPath = '/fixture/project';
+    const display = useSessionDisplayStore.getState();
+    let server: SettingsPayload = {
+      projects: [home], activeProjectId: home.id, lastDirectory: home.path,
+      autoSaveEnabled: true, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
+      sidebarProjectDisplayMode: display.projectDisplayMode, sidebarSessionGroupingMode: display.sessionGroupingMode,
+      sidebarProjectSortOrder: display.projectSortOrder, sidebarShowRecentSection: display.showRecentSection,
+    };
+    const saving = deferred<void>();
+    const releaseSave = deferred<void>();
+    const saved = deferred<void>();
+    let writeInFlight = false;
+    let readsDuringWrite = 0;
+    registerSettingsApi(async (changes, options) => {
+      expect(options?.ifMatch).toBe('"before"');
+      writeInFlight = true;
+      saving.resolve();
+      await releaseSave.promise;
+      server = { ...server, ...changes };
+      writeInFlight = false;
+      saved.resolve();
+      return server;
+    }, async () => {
+      if (writeInFlight) readsDuringWrite += 1;
+      return { settings: structuredClone(server), source: 'web', revision: '"before"' };
+    });
+    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [] });
+    useDirectoryStore.setState({ currentDirectory: home.path, homeDirectory: home.path });
+    opencodeClient.setDirectory(home.path);
+    const transitions: string[] = [];
+    const unsubscribe = useDirectoryStore.subscribe((state) => transitions.push(state.currentDirectory));
+    const syncs: SettingsSyncedDetail[] = [];
+    const listener = (event: Event) => {
+      // SAFETY: the owning dispatcher emits SettingsSyncedDetail on this event.
+      const detail = (event as CustomEvent<SettingsSyncedDetail>).detail;
+      syncs.push(detail);
+      // Same consumer as useProjectsStore's browser event listener.
+      useProjectsStore.getState().synchronizeFromSettings(detail.settings, { adoptActiveProject: detail.bootstrap });
+    };
+    getWindow().addEventListener('openchamber:settings-synced', listener);
+    // The disposable project has no icon. No HTTP server or provider runs here.
+    const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+    let bootstrap: Promise<void> | undefined;
+    try {
+      const project = await useProjectsStore.getState().addProject(projectPath);
+      expect(project?.path).toBe(projectPath);
+      await saving.promise;
+      bootstrap = syncDesktopSettings();
+      // Release at the next task: a read already started sees the old server snapshot.
+      await delay(0);
+      releaseSave.resolve();
+      await Promise.all([saved.promise, bootstrap]);
+      const published = syncs.filter((detail) => detail.bootstrap).at(-1)?.settings;
+      expect(published?.projects?.map((entry) => entry.path)).toEqual([home.path, projectPath]);
+      expect(published?.activeProjectId).toBe(project?.id);
+      expect(readsDuringWrite).toBe(0);
+      expect(useProjectsStore.getState().projects.map((entry) => entry.path)).toEqual([home.path, projectPath]);
+      expect(useDirectoryStore.getState().currentDirectory).toBe(projectPath);
+      expect(opencodeClient.getDirectory()).toBe(projectPath);
+      expect(transitions).not.toContain(home.path);
+    } finally {
+      releaseSave.resolve();
+      await bootstrap;
+      unsubscribe();
+      getWindow().removeEventListener('openchamber:settings-synced', listener);
+      fetch.mockRestore();
+    }
+  });
+
+  test('bootstrap does not replay a rejected outstanding write', async () => {
+    const saving = deferred<void>();
+    const releaseSave = deferred<void>();
+    let saves = 0;
+    let loads = 0;
+    registerSettingsApi(async () => {
+      saves += 1;
+      saving.resolve();
+      await releaseSave.promise;
+      throw new Error('conditional write rejected');
+    }, async () => {
+      loads += 1;
+      return { settings: { terminalShell: 'bash', autoSaveEnabled: true,
+        draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
+        sidebarProjectDisplayMode: useSessionDisplayStore.getState().projectDisplayMode,
+        sidebarSessionGroupingMode: useSessionDisplayStore.getState().sessionGroupingMode,
+        sidebarProjectSortOrder: useSessionDisplayStore.getState().projectSortOrder,
+        sidebarShowRecentSection: useSessionDisplayStore.getState().showRecentSection }, source: 'web' };
+    });
+    const write = updateDesktopSettings({ terminalShell: 'fish' });
+    await saving.promise;
+    const bootstrap = syncDesktopSettings();
+    try {
+      await delay(0);
+      expect(loads).toBe(0);
+    } finally {
+      releaseSave.resolve();
+      await Promise.all([write, bootstrap]);
+    }
+    expect(saves).toBe(1);
+    expect(loads).toBe(1);
+    expect(useUIStore.getState().terminalShell).toBe('bash');
+  });
+
+  test('bootstrap waiting on a write cannot follow a runtime switch', async () => {
+    const saving = deferred<void>();
+    const releaseSave = deferred<void>();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://pending-write-a.example', runtimeKey: 'pending-write-a' });
+    registerSettingsApi(async (changes) => {
+      saving.resolve();
+      await releaseSave.promise;
+      return changes;
+    });
+    const write = updateDesktopSettings({ terminalShell: 'fish' });
+    await saving.promise;
+    const oldBootstrap = syncDesktopSettings();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://pending-write-b.example', runtimeKey: 'pending-write-b' });
+    let loads = 0;
+    registerSettingsApi(async (changes) => changes, async () => {
+      loads += 1;
+      return { settings: { terminalShell: 'bash', autoSaveEnabled: true,
+        draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true }, source: 'web' };
+    });
+    try {
+      await syncDesktopSettings();
+      expect(loads).toBe(1); // Disconnected runtime's write does not delay this runtime.
+    } finally {
+      releaseSave.resolve();
+      await Promise.all([write, oldBootstrap]);
+    }
+    expect(loads).toBe(1); // Old waiter never loads the new runtime.
+    expect(useUIStore.getState().terminalShell).toBe('bash');
   });
 
   test('does not broadcast a stale loaded project selection over a newer pending update', async () => {
