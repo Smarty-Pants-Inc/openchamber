@@ -16,3 +16,14 @@ queue_rules:
       - check-success = smarty-ci
     merge_conditions:
       - check-success = smarty-ci
+
+  - name: smarty-code
+    batch_size: 1
+    checks_timeout: 180 min
+    merge_method: merge
+    queue_conditions:
+      - base = smarty-code
+      - -draft
+      - check-success = checks
+    merge_conditions:
+      - check-success = checks
