@@ -53,6 +53,9 @@ if (!arm) {
     const requests: string[] = [];
     const denied: string[] = [];
     const samples: string[] = [];
+    const settings: SettingsSyncedDetail['settings'] = { projects: [HOME, PROJECT].map((path) =>
+      ({ path, id: createProjectIdFromPath(path) })), activeProjectId: createProjectIdFromPath(PROJECT) };
+    let revision = 0;
     const agent = { name: 'build', mode: 'primary', permission: {}, options: {} };
     const model = {
       id: 'smarty-e2e', name: 'Smarty E2E', providerID: 'fixture', status: 'active',
@@ -69,22 +72,37 @@ if (!arm) {
       const path = url.pathname.replace(/^\/api(?=\/)/, '');
       const directory = url.searchParams.get('directory') ?? request.headers.get('x-opencode-directory') ?? PROJECT;
       requests.push(`${request.method} ${url.pathname} ${directory}`);
-      if (url.origin !== win.location.origin || request.method !== 'GET') {
+      if (url.origin !== win.location.origin || (request.method !== 'GET' && !(path === '/config/settings' && request.method === 'PUT'))) {
         denied.push(`${request.method} ${url.origin}${url.pathname}`);
         throw new Error(`Unexpected fixture request: ${denied.at(-1)}`);
+      }
+      if (path === '/config/settings') {
+        if (request.method === 'PUT') {
+          const changes = await request.json();
+          if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+            denied.push('invalid settings body'); throw new Error('Invalid settings fixture body');
+          }
+          const condition = request.headers.get('if-match');
+          if (condition && condition !== `"fixture-${revision}"`) {
+            denied.push('settings revision precondition'); return Response.json({ error: 'Stale fixture revision' }, { status: 412 });
+          }
+          Object.assign(settings, changes); revision++;
+        }
+        return Response.json(settings, { headers: { ETag: `"fixture-${revision}"`, 'X-OpenChamber-Settings-CAS': '1' } });
       }
       if (path === '/global/event') return new Response(new ReadableStream({
         start(controller) { request.signal.addEventListener('abort', () => controller.close(), { once: true }); },
       }), { headers: { 'content-type': 'text/event-stream' } });
       const bodies = new Map<string, string>([
         ['/global/health', { healthy: true, version: 'fixture' }], ['/health', { status: 'ok', openCodeReady: true }],
+        ['/opencode/health', { healthy: true }], ['/session-folders', { version: 1, exists: false }],
         ['/path', { state: '', config: '', worktree: directory, directory, home: HOME }],
         ['/fs/home', { home: HOME, homeDirectory: HOME, chatsRoot: `${HOME}/.config/openchamber/chats` }],
         ['/config/providers', { providers: directory === PROJECT ? [provider] : [], default: {} }],
         ['/agent', [agent]], ['/app/agents', [agent]], ['/project/current', { id: 'fixture-project', worktree: directory }],
         ['/project', []], ['/session', []], ['/command', []], ['/lsp', []], ['/question', []], ['/permission', []],
         ['/session/status', {}], ['/config', {}], ['/global/config', {}], ['/mcp', {}], ['/vcs', { branch: 'fixture' }],
-        ['/openchamber/models-metadata', {}], ['/config/settings', {}],
+        ['/openchamber/models-metadata', {}],
         ['/permission-auto-accept', { sessions: {}, revision: 0 }], ['/message-queue', { sessions: [], revision: 0 }],
       ].map(([key, body]) => [String(key), JSON.stringify(body)]));
       if (!bodies.has(path)) { denied.push(path); throw new Error(`Unspecified fixture endpoint: ${path}`); }
@@ -146,8 +164,10 @@ if (!arm) {
       expect([...controls?.importedModules ?? []].some((module) => module.file === join(uiRoot, 'src/stores/useConfigStore.ts'))).toBe(true);
       console.log('PICKER_LOADER_QUALIFIED ' + JSON.stringify({ ssr: probe.ssr, sharedRealm: true,
         sharedReact: true, sharedConfigStore: true, eagerSvgCount: svgs.length, consumer: environment.config.consumer }));
+      const { refreshDesktopSettings } = await load<typeof import('@/lib/persistence')>('/src/lib/persistence.ts');
       const apis = createWebAPIs();
       registerRuntimeAPIs(apis);
+      cleanup = async () => { await refreshDesktopSettings(); registerRuntimeAPIs(null); };
       useConfigStore.setState({ settingsMessageStreamTransport: 'sse' });
       useProjectsStore.getState().synchronizeFromSettings({ projects:
         [HOME, PROJECT].map((path) => ({ path, id: createProjectIdFromPath(path) })) });
@@ -188,7 +208,8 @@ if (!arm) {
       };
       cleanup = async () => {
         observer.disconnect(); unsubscribers.forEach((unsubscribe) => unsubscribe());
-        await React.act(async () => root.unmount()); registerRuntimeAPIs(null);
+        await React.act(async () => root.unmount());
+        await refreshDesktopSettings(); registerRuntimeAPIs(null);
       };
       await React.act(async () => root.render(React.createElement(RuntimeAPIProvider, { apis,
         children: React.createElement(I18nProvider, { children: React.createElement(Harness) }) })));
@@ -225,14 +246,15 @@ if (!arm) {
       outcome = fillable ? 'search-remains-fillable' : 'search-not-fillable';
     } finally {
       try { await cleanup(); } finally {
-        await closeLoader(); rmSync(transient, { recursive: true, force: true });
-      }
-      console.log(MARKER + JSON.stringify({ arm, outcome, requests, denied, samples: samples.map((item) => JSON.parse(item)) }));
-      fetch.mockRestore();
-      await win.happyDOM.close();
-      for (const [key, descriptor] of previous) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
+        await closeLoader(); await win.happyDOM.close(); rmSync(transient, { recursive: true, force: true });
+        if (denied.length) outcome = 'assembly-failure';
+        console.log(MARKER + JSON.stringify({ arm, outcome, requests, denied, samples: samples.map((item) => JSON.parse(item)) }));
+        fetch.mockRestore();
+        for (const [key, descriptor] of previous) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
+        }
       }
     }
+    expect(denied).toEqual([]);
   }, 90_000);
 }
