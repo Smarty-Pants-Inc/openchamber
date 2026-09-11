@@ -100,7 +100,7 @@ if (!arm) {
         ['/fs/home', { home: HOME, homeDirectory: HOME, chatsRoot: `${HOME}/.config/openchamber/chats` }],
         ['/config/providers', { providers: directory === PROJECT ? [provider] : [], default: {} }],
         ['/agent', [agent]], ['/app/agents', [agent]], ['/project/current', { id: 'fixture-project', worktree: directory }],
-        ['/project', []], ['/session', []], ['/command', []], ['/lsp', []], ['/question', []], ['/permission', []],
+        ['/project', []], ['/session', []], ['/experimental/session', []], ['/command', []], ['/lsp', []], ['/question', []], ['/permission', []],
         ['/session/status', {}], ['/config', {}], ['/global/config', {}], ['/mcp', {}], ['/vcs', { branch: 'fixture' }],
         ['/openchamber/models-metadata', {}],
         ['/permission-auto-accept', { sessions: {}, revision: 0 }], ['/message-queue', { sessions: [], revision: 0 }],
@@ -226,6 +226,8 @@ if (!arm) {
         trigger.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
         trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
         trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+        // Base UI useClick opens non-typeable triggers on the next animation frame.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
       sample('opened');
       expect(useUIStore.getState().isModelSelectorOpen).toBe(true);
