@@ -43,6 +43,7 @@ if (!arm) {
       HTMLInputElement: win.HTMLInputElement, HTMLIFrameElement: win.HTMLIFrameElement, SVGElement: win.SVGElement,
       Event: win.Event, CustomEvent: win.CustomEvent, MouseEvent: win.MouseEvent, PointerEvent: win.PointerEvent,
       KeyboardEvent: win.KeyboardEvent, MutationObserver: win.MutationObserver, ResizeObserver: win.ResizeObserver,
+      IntersectionObserver: win.IntersectionObserver,
       getComputedStyle: win.getComputedStyle.bind(win), requestAnimationFrame: win.requestAnimationFrame.bind(win),
       cancelAnimationFrame: win.cancelAnimationFrame.bind(win), IS_REACT_ACT_ENVIRONMENT: true,
     };
