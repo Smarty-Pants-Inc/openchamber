@@ -1,6 +1,8 @@
 import { expect, spyOn, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { Window } from 'happy-dom';
@@ -28,14 +30,16 @@ if (!arm) {
       expect(child.status).toBe(0);
       expect(trace).toBeDefined();
     }
-  });
+  }, 180_000);
 } else {
   test('stock picker reconciliation arm', async () => {
     expect(['PROJECT', 'HOME']).toContain(arm);
     const win = new Window({ url: 'https://picker.test' });
     const values = {
       window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage,
-      sessionStorage: win.sessionStorage, Node: win.Node, Element: win.Element, HTMLElement: win.HTMLElement,
+      sessionStorage: win.sessionStorage, location: win.location,
+      WebSocket: class { constructor() { denied.push('WebSocket'); throw new Error('Unexpected WebSocket outside SSE fixture'); } },
+      Node: win.Node, Element: win.Element, HTMLElement: win.HTMLElement,
       HTMLInputElement: win.HTMLInputElement, HTMLIFrameElement: win.HTMLIFrameElement, SVGElement: win.SVGElement,
       Event: win.Event, CustomEvent: win.CustomEvent, MouseEvent: win.MouseEvent, PointerEvent: win.PointerEvent,
       KeyboardEvent: win.KeyboardEvent, MutationObserver: win.MutationObserver, ResizeObserver: win.ResizeObserver,
@@ -87,23 +91,57 @@ if (!arm) {
       return new Response(bodies.get(path), { headers: { 'content-type': 'application/json' } });
     });
     let cleanup = async () => {};
+    let closeLoader = async () => {};
     let outcome = 'assembly-failure';
+    const transient = mkdtempSync(join(tmpdir(), 'picker-vite-'));
     try {
-      const React = await import('react');
-      const { createRoot } = await import('react-dom/client');
-      const { createWebAPIs } = await import('../../../../web/src/api');
-      const { RuntimeAPIProvider } = await import('@/contexts/RuntimeAPIProvider');
-      const { registerRuntimeAPIs } = await import('@/contexts/runtimeAPIRegistry');
-      const { SyncProvider } = await import('@/sync/sync-context');
-      const { createOpencodeClient } = await import('@opencode-ai/sdk/v2');
-      const { I18nProvider } = await import('@/lib/i18n');
-      const { ModelControls } = await import('./ModelControls');
-      const { useOpenCodeReadiness } = await import('@/hooks/useOpenCodeReadiness');
-      const { useProjectsStore } = await import('@/stores/useProjectsStore');
-      const { useDirectoryStore } = await import('@/stores/useDirectoryStore');
-      const { useConfigStore } = await import('@/stores/useConfigStore');
-      const { useUIStore } = await import('@/stores/useUIStore');
-      const { opencodeClient } = await import('@/lib/opencode/client');
+      const { createServer, createRunnableDevEnvironment, isRunnableDevEnvironment } = await import('vite');
+      const uiRoot = fileURLToPath(new URL('../../../', import.meta.url));
+      // ponytail: One isolated diagnostic owns this loader; extract only if shared coverage is admitted.
+      const server = await createServer({ configFile: false, root: uiRoot, envDir: transient,
+        cacheDir: join(transient, 'cache'), appType: 'custom',
+        resolve: { alias: { '@': join(uiRoot, 'src') }, dedupe: ['react', 'react-dom'] },
+        server: { middlewareMode: true, ws: false, hmr: false, watch: null,
+          fs: { allow: [join(uiRoot, '../..'), transient] } },
+        optimizeDeps: { entries: ['src/components/chat/ModelControls.tsx', 'src/sync/sync-context.tsx'],
+          include: ['react', 'react-dom/client', 'react/jsx-runtime'] },
+        environments: { client: { consumer: 'client', dev: { moduleRunnerTransform: true,
+          createEnvironment: (name, config) => createRunnableDevEnvironment(name, config,
+            { hot: false, runnerOptions: { hmr: false } }) } } } });
+      closeLoader = () => server.close();
+      expect(server.httpServer).toBe(null);
+      const environment = server.environments.client;
+      if (!isRunnableDevEnvironment(environment)) throw new Error('Vite client runner unavailable');
+      const load = environment.runner.import.bind(environment.runner);
+      const React = await load<typeof import('react')>('react');
+      const { createRoot } = await load<typeof import('react-dom/client')>('react-dom/client');
+      const { createWebAPIs } = await load<typeof import('../../../../web/src/api')>(join(uiRoot, '../web/src/api/index.ts'));
+      const { RuntimeAPIProvider } = await load<typeof import('@/contexts/RuntimeAPIProvider')>('/src/contexts/RuntimeAPIProvider.tsx');
+      const { registerRuntimeAPIs } = await load<typeof import('@/contexts/runtimeAPIRegistry')>('/src/contexts/runtimeAPIRegistry.ts');
+      const { SyncProvider } = await load<typeof import('@/sync/sync-context')>('/src/sync/sync-context.tsx');
+      const { createOpencodeClient } = await load<typeof import('@opencode-ai/sdk/v2')>('@opencode-ai/sdk/v2');
+      const { I18nProvider } = await load<typeof import('@/lib/i18n')>('/src/lib/i18n/index.ts');
+      const { ModelControls } = await load<typeof import('./ModelControls')>('/src/components/chat/ModelControls.tsx');
+      const { useOpenCodeReadiness } = await load<typeof import('@/hooks/useOpenCodeReadiness')>('/src/hooks/useOpenCodeReadiness.ts');
+      const { useProjectsStore } = await load<typeof import('@/stores/useProjectsStore')>('/src/stores/useProjectsStore.ts');
+      const { useDirectoryStore } = await load<typeof import('@/stores/useDirectoryStore')>('/src/stores/useDirectoryStore.ts');
+      const { useConfigStore } = await load<typeof import('@/stores/useConfigStore')>('/src/stores/useConfigStore.ts');
+      const { useUIStore } = await load<typeof import('@/stores/useUIStore')>('/src/stores/useUIStore.ts');
+      const { opencodeClient } = await load<typeof import('@/lib/opencode/client')>('/src/lib/opencode/client.ts');
+      const probePath = join(transient, 'probe.ts');
+      writeFileSync(probePath, `export const ssr = import.meta.env.SSR; export const realm = window;
+        export { useState } from 'react'; export { useConfigStore } from '@/stores/useConfigStore';`);
+      const probe = await load<{ ssr: boolean; realm: Window; useState: typeof React.useState;
+        useConfigStore: typeof useConfigStore }>(probePath);
+      expect(probe.ssr).toBe(false); expect(probe.realm).toBe(win);
+      expect(probe.useState).toBe(React.useState); expect(probe.useConfigStore).toBe(useConfigStore);
+      const logo = environment.moduleGraph.getModuleById(join(uiRoot, 'src/hooks/useProviderLogo.ts'));
+      const svgs = [...(logo?.importedModules ?? [])].filter((module) => module.file?.endsWith('.svg'));
+      expect(svgs.length).toBeGreaterThan(0);
+      const controls = environment.moduleGraph.getModuleById(join(uiRoot, 'src/components/chat/ModelControls.tsx'));
+      expect([...controls?.importedModules ?? []].some((module) => module.file === join(uiRoot, 'src/stores/useConfigStore.ts'))).toBe(true);
+      console.log('PICKER_LOADER_QUALIFIED ' + JSON.stringify({ ssr: probe.ssr, sharedRealm: true,
+        sharedReact: true, sharedConfigStore: true, eagerSvgCount: svgs.length, consumer: environment.config.consumer }));
       const apis = createWebAPIs();
       registerRuntimeAPIs(apis);
       useConfigStore.setState({ settingsMessageStreamTransport: 'sse' });
@@ -142,13 +180,14 @@ if (!arm) {
         ready = useOpenCodeReadiness().isReady;
         const directory = useDirectoryStore((state) => state.currentDirectory);
         React.useLayoutEffect(() => sample('commit'));
-        return <SyncProvider sdk={sdk} directory={directory}><ModelControls /></SyncProvider>;
+        return React.createElement(SyncProvider, { sdk, directory, children: React.createElement(ModelControls) });
       };
       cleanup = async () => {
         observer.disconnect(); unsubscribers.forEach((unsubscribe) => unsubscribe());
         await React.act(async () => root.unmount()); registerRuntimeAPIs(null);
       };
-      await React.act(async () => root.render(<RuntimeAPIProvider apis={apis}><I18nProvider><Harness /></I18nProvider></RuntimeAPIProvider>));
+      await React.act(async () => root.render(React.createElement(RuntimeAPIProvider, { apis,
+        children: React.createElement(I18nProvider, { children: React.createElement(Harness) }) })));
       sample('baseline');
       expect(ready).toBe(true);
       expect(useConfigStore.getState().providers[0]?.models[0]?.name).toBe('Smarty E2E');
@@ -181,7 +220,9 @@ if (!arm) {
       if (arm === 'PROJECT') expect(fillable).toBe(true);
       outcome = fillable ? 'search-remains-fillable' : 'search-not-fillable';
     } finally {
-      await cleanup();
+      try { await cleanup(); } finally {
+        await closeLoader(); rmSync(transient, { recursive: true, force: true });
+      }
       console.log(MARKER + JSON.stringify({ arm, outcome, requests, denied, samples: samples.map((item) => JSON.parse(item)) }));
       fetch.mockRestore();
       await win.happyDOM.close();
@@ -189,5 +230,5 @@ if (!arm) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
       }
     }
-  });
+  }, 90_000);
 }
