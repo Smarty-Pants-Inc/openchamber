@@ -1,6 +1,8 @@
 import { expect, spyOn, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { createProjectIdFromPath } from '@/lib/projectId';
 import { Window } from 'happy-dom';
 import type { SettingsSyncedDetail } from '@/lib/persistence';
 
@@ -13,7 +15,7 @@ if (!arm) {
   test('paired stock picker reconciliation at OC612', () => {
     // Each arm needs fresh module singletons AND a window installed before imports.
     for (const choice of ['PROJECT', 'HOME']) {
-      const child = spawnSync(process.execPath, ['test', import.meta.path], {
+      const child = spawnSync(process.execPath, ['test', fileURLToPath(import.meta.url)], {
         env: { ...process.env, OC_PICKER_DIAGNOSTIC_ARM: choice }, encoding: 'utf8',
       });
       const output = `${child.stdout ?? ''}\n${child.stderr ?? ''}`;
@@ -22,7 +24,7 @@ if (!arm) {
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
         `\n### Picker reconciliation ${choice}\n\n\`\`\`json\n${trace?.slice(MARKER.length) ?? 'null'}\n\`\`\`\n`);
       console.log(output);
-      expect(child.error).toBeUndefined();
+      expect(child.error).toBe(undefined);
       expect(child.status).toBe(0);
       expect(trace).toBeDefined();
     }
@@ -105,7 +107,8 @@ if (!arm) {
       const apis = createWebAPIs();
       registerRuntimeAPIs(apis);
       useConfigStore.setState({ settingsMessageStreamTransport: 'sse' });
-      useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: HOME }, { path: PROJECT }] });
+      useProjectsStore.getState().synchronizeFromSettings({ projects:
+        [HOME, PROJECT].map((path) => ({ path, id: createProjectIdFromPath(path) })) });
       const projects = useProjectsStore.getState().projects;
       const project = projects.find((entry) => entry.path === PROJECT);
       const home = projects.find((entry) => entry.path === HOME);
