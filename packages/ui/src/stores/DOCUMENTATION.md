@@ -122,6 +122,13 @@ block the new runtime. A failed write is not replayed; the subsequent read remai
 authoritative. Sync does not wait on other reads, so a bootstrap's own migration
 save cannot create a read-to-read wait cycle.
 
+Successful saves invalidate both cached settings and the pending read before
+publishing the save echo. An invalidated read still completes for its original
+callers under their existing mutation baselines, but cannot refill the cache or
+serve a later sync with a newer baseline. Otherwise a pre-save project list can
+undo an already saved addition. Only reads from the current read generation can
+populate the cache; completion of an older read cannot clear a newer pending read.
+
 A bootstrap sync can wait for a settings migration save before it publishes its
 snapshot. Reconcile newer local mutations and pending writes again after that
 wait. Otherwise the old active-project pointer can undo a session selected while
