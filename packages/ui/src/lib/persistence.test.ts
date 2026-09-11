@@ -878,6 +878,144 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  for (const completion of ['before', 'after']) test(`bootstrap after a project save does not reuse a pre-save read resolved ${completion} it starts`, async () => {
+    const home = { id: createProjectIdFromPath('/fixture/home'), path: '/fixture/home', label: 'Home', addedAt: 1, lastOpenedAt: 1 };
+    const projectPath = '/fixture/project';
+    const display = useSessionDisplayStore.getState();
+    let server: SettingsPayload = {
+      projects: [home], activeProjectId: home.id, lastDirectory: home.path,
+      autoSaveEnabled: true, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
+      sidebarProjectDisplayMode: display.projectDisplayMode, sidebarSessionGroupingMode: display.sessionGroupingMode,
+      sidebarProjectSortOrder: display.projectSortOrder, sidebarShowRecentSection: display.showRecentSection,
+    };
+    const reading = deferred<void>();
+    const releaseRead = deferred<void>();
+    const saved = deferred<void>();
+    let loads = 0;
+    registerSettingsApi(async (changes, options) => {
+      if (changes.projects) expect(options?.ifMatch).toBe('"before"');
+      server = { ...server, ...changes };
+      return server;
+    }, async () => {
+      const settings = structuredClone(server);
+      loads += 1;
+      if (loads === 1) {
+        reading.resolve();
+        await releaseRead.promise;
+      }
+      return { settings, source: 'web', revision: '"before"' };
+    });
+    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [] });
+    useDirectoryStore.setState({ currentDirectory: home.path, homeDirectory: home.path });
+    opencodeClient.setDirectory(home.path);
+    const transitions: string[] = [];
+    const unsubscribe = useDirectoryStore.subscribe((state) => transitions.push(state.currentDirectory));
+    const unsubscribeSave = subscribeToSettingsSaveState(() => { if (getSettingsSaveState() === 'idle') saved.resolve(); });
+    const listener = (event: Event) => {
+      // SAFETY: the owning dispatcher emits SettingsSyncedDetail on this event.
+      const detail = (event as CustomEvent<SettingsSyncedDetail>).detail;
+      useProjectsStore.getState().synchronizeFromSettings(detail.settings, { adoptActiveProject: detail.bootstrap });
+    };
+    getWindow().addEventListener('openchamber:settings-synced', listener);
+    const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+    const first = syncDesktopSettings();
+    let second: Promise<void> | undefined;
+    try {
+      await reading.promise;
+      const project = await useProjectsStore.getState().addProject(projectPath);
+      expect(project?.path).toBe(projectPath);
+      await saved.promise;
+      if (completion === 'before') {
+        releaseRead.resolve();
+        await first;
+      }
+      second = syncDesktopSettings();
+      await delay(0);
+      releaseRead.resolve();
+      await Promise.all([first, second]);
+      expect(useProjectsStore.getState().projects.map((entry) => entry.path)).toEqual([home.path, projectPath]);
+      expect(useProjectsStore.getState().activeProjectId).toBe(project?.id);
+      expect(useDirectoryStore.getState().currentDirectory).toBe(projectPath);
+      expect(opencodeClient.getDirectory()).toBe(projectPath);
+      expect(transitions).not.toContain(home.path);
+      expect(loads).toBe(3); // Pre-save bootstrap, conditional-write baseline, post-save bootstrap.
+      await syncDesktopSettings();
+      expect(loads).toBe(3); // The valid post-save snapshot remains cached.
+      expect(useDirectoryStore.getState().currentDirectory).toBe(projectPath);
+      expect(transitions).not.toContain(home.path);
+    } finally {
+      releaseRead.resolve();
+      await Promise.all([first, second]);
+      // Drain navigation persistence triggered by the consumer, including failed assertions.
+      await updateDesktopSettings({});
+      unsubscribe();
+      unsubscribeSave();
+      getWindow().removeEventListener('openchamber:settings-synced', listener);
+      fetch.mockRestore();
+    }
+  });
+
+  for (const transport of ['runtime', 'http']) test(`settings invalidation preserves newer in-flight dedup and cache via ${transport}`, async () => {
+    const display = useSessionDisplayStore.getState();
+    const settings: SettingsPayload = {
+      autoSaveEnabled: true, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
+      sidebarProjectDisplayMode: display.projectDisplayMode, sidebarSessionGroupingMode: display.sessionGroupingMode,
+      sidebarProjectSortOrder: display.projectSortOrder, sidebarShowRecentSection: display.showRecentSection,
+    };
+    const reading = deferred<void>();
+    const releaseOld = deferred<void>();
+    const releaseNew = deferred<void>();
+    let loads = 0;
+    const startRead = () => {
+      const old = ++loads === 1;
+      reading.resolve();
+      const snapshot: SettingsPayload = { ...settings, terminalShell: old ? 'bash' : 'fish' };
+      return { snapshot, ready: old ? releaseOld.promise : releaseNew.promise };
+    };
+    if (transport === 'runtime') registerSettingsApi(async (changes) => changes, async () => {
+      const { snapshot, ready } = startRead();
+      await ready;
+      return { settings: snapshot, source: 'web' };
+    });
+    // Headers settle before the body, beyond runtimeFetch's transport-level dedup.
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const { snapshot, ready } = startRead();
+      return new Response(new ReadableStream({ async start(controller) {
+        await ready;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(snapshot)));
+        controller.close();
+      } }));
+    });
+    const first = syncDesktopSettings();
+    let second: Promise<void> | undefined;
+    let third: Promise<void> | undefined;
+    try {
+      await reading.promise;
+      await delay(0); // Let response headers settle before invalidating the pending body read.
+      invalidateSettingsCache();
+      second = syncDesktopSettings();
+      await delay(0);
+      releaseOld.resolve();
+      await first;
+      let thirdFinished = false;
+      third = syncDesktopSettings().then(() => { thirdFinished = true; });
+      await delay(0);
+      expect(thirdFinished).toBe(false); // The detached old response is not a cache hit.
+      expect(loads).toBe(2); // Its cleanup did not detach the newer pending read.
+      releaseNew.resolve();
+      await Promise.all([second, third]);
+      expect(useUIStore.getState().terminalShell).toBe('fish');
+      await syncDesktopSettings();
+      expect(loads).toBe(2);
+      expect(useUIStore.getState().terminalShell).toBe('fish');
+    } finally {
+      releaseOld.resolve();
+      releaseNew.resolve();
+      await Promise.all([first, second, third]);
+      fetch.mockRestore();
+    }
+  });
+
   test('bootstrap does not replay a rejected outstanding write', async () => {
     const saving = deferred<void>();
     const releaseSave = deferred<void>();
