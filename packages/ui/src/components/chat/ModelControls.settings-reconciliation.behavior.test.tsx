@@ -100,7 +100,10 @@ if (!arm) {
       // ponytail: One isolated diagnostic owns this loader; extract only if shared coverage is admitted.
       const server = await createServer({ configFile: false, root: uiRoot, envDir: transient,
         cacheDir: join(transient, 'cache'), appType: 'custom',
-        resolve: { alias: { '@': join(uiRoot, 'src') }, dedupe: ['react', 'react-dom'] },
+        resolve: { alias: { '@': join(uiRoot, 'src'), '@openchamber/ui': join(uiRoot, 'src'),
+          '@web': join(uiRoot, '../web/src'),
+          '@opencode-ai/sdk/v2': join(uiRoot, '../../node_modules/@opencode-ai/sdk/dist/v2/client.js') },
+          dedupe: ['react', 'react-dom'] },
         server: { middlewareMode: true, ws: false, hmr: false, watch: null,
           fs: { allow: [join(uiRoot, '../..'), transient] } },
         optimizeDeps: { entries: ['src/components/chat/ModelControls.tsx', 'src/sync/sync-context.tsx'],
