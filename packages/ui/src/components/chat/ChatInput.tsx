@@ -1,4 +1,6 @@
 import React from 'react';
+import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
+import { readDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -1048,6 +1050,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Add message to queue instead of sending
     const handleQueueMessage = React.useCallback(async () => {
+        try {
+            if (readDisplayName(window.sessionStorage)) { toast.error(t('chat.displayName.plainOnly')); return; }
+        } catch { toast.error(t('chat.displayName.error')); return; }
         const inputSnapshot = getCurrentInputSnapshot();
         if (!inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget) return;
 
@@ -1260,6 +1265,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const queuedMessageId = options?.queuedMessageId;
         const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
         const capturedTarget = messageQueueTarget;
+        let displayName: string | undefined;
+        try { displayName = readDisplayName(window.sessionStorage); }
+        catch { toast.error(t('chat.displayName.error')); return; }
+        if (displayName && (queuedOnly || hasQueuedMessages || delivery || inputMode === 'shell')) {
+            toast.error(t('chat.displayName.plainOnly')); return;
+        }
         // An expired session cannot deliver anything: keep the prompt in the
         // composer and point at the login banner instead of burning the send
         // on a guaranteed 401.
@@ -1277,6 +1288,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 hasContent: options.presetText.trim().length > 0 || attachedFiles.length > 0 || hasDrafts,
             }
             : getCurrentInputSnapshot();
+        if (displayName && inputSnapshot.message.startsWith('/')) {
+            toast.error(t('chat.displayName.plainOnly')); return;
+        }
         if (queuedOnly && autoReviewRunning) {
             return;
         }
@@ -1367,7 +1381,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // btw mode: the child fork's blocking prompts are answered inside the
         // panel; the composer send goes straight to the fork (routeMessage
         // queues if the fork's own turn is busy).
-        if (currentSessionId && !queuedOnly && !isBtwActive && !commandPlan) {
+        // Named prompts leave dialogs to native admission; this queue cannot carry their attribution.
+        if (currentSessionId && !queuedOnly && !isBtwActive && !commandPlan && displayName === undefined) {
             // Sending is authoritative for blocking prompts: deny pending
             // permissions and dismiss open questions for the session subtree,
             // then queue the message once if either was open. The deny/clear
@@ -1429,6 +1444,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             draftSnapshot?: NonNullable<typeof capturedDraftSnapshot>;
             historySubmissions?: InputHistorySubmission[];
             delivery?: 'steer';
+            displayName?: string;
         } | undefined;
         if (isBtwActive && btwSessionId && btwDirectory) {
             sendMessageOptions = {
@@ -1441,6 +1457,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             if (capturedDraftSnapshot) sendMessageOptions.draftSnapshot = capturedDraftSnapshot;
         }
         if (delivery && sendMessageOptions) sendMessageOptions.delivery = delivery;
+        if (displayName) sendMessageOptions = { ...sendMessageOptions, displayName };
 
         // Queued messages resolved their mentions when they were queued; only
         // the composer's own text can still name a document.
@@ -3050,6 +3067,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 </div>
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
+                <DisplayNameChoice />
                 <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                 <QueuedMessageChips
                     onEditMessage={handleQueuedMessageEdit}

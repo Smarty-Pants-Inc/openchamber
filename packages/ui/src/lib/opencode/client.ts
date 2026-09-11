@@ -2,6 +2,7 @@ import type { ContextPartMetadata } from '@/lib/messages/contextParts';
 import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
+import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -860,6 +861,8 @@ class OpencodeService {
     providerID: string;
     modelID: string;
     text: string;
+    /** Captured by the submitting browser, never a shared server setting. */
+    displayName?: string;
     prefaceText?: string;
     prefaceTextSynthetic?: boolean;
     agent?: string;
@@ -884,6 +887,9 @@ class OpencodeService {
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey);
 
+    const displayName = params.displayName === undefined ? undefined : displayNameSchema.parse(params.displayName);
+    const displayNameRuntimeKey = params.runtimeKey ?? getRuntimeKey();
+
     // Use the optimistic/client-generated ID as the real user message ID so SSE
     // can reconcile the echoed server message in-place.
     const messageId = params.messageId ?? ascendingId("msg");
@@ -903,7 +909,8 @@ class OpencodeService {
     if (params.text && params.text.trim()) {
       const textPart: TextPartInput = {
         type: 'text',
-        text: params.text
+        text: params.text,
+        ...(displayName === undefined ? {} : { metadata: { smartyCodeDisplayName: displayName } }),
       };
       parts.push(textPart);
     }
@@ -965,6 +972,20 @@ class OpencodeService {
       });
     }
 
+    if (displayName !== undefined) {
+      // Other backends may retain metadata without attributing native input. Refuse before dispatch.
+      this.assertRuntimeUnchanged(displayNameRuntimeKey);
+      const health = await this.client.global.health();
+      this.assertRuntimeUnchanged(displayNameRuntimeKey);
+      if (!displayAttributionHealthSchema.safeParse(health.data).success) {
+        const { formatMessage, useI18nStore } = await import('@/lib/i18n');
+        throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.backendUnsupported'));
+      }
+      if (!params.text?.trim()) {
+        const { formatMessage, useI18nStore } = await import('@/lib/i18n');
+        throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.plainOnly'));
+      }
+    }
     assertProviderCircuitClosed(params.providerID);
     this.assertRuntimeUnchanged(params.runtimeKey);
 

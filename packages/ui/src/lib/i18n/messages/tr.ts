@@ -1,3 +1,4 @@
+import { displayNameI18n } from './display-name.i18n';
 import { settingsDict } from './tr.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -5,6 +6,7 @@ import { linearPanelI18n } from './linear-panel.i18n';
 export const dict = {
   'sessions.sidebar.projectAction.active': 'Proje eylemi çalışıyor',
   ...settingsDict,
+  ...displayNameI18n.tr,
   ...linearIssuePickerI18n.tr,
   ...linearPanelI18n.tr,
   'terminalView.actions.attachSelection': 'Seçili çıktıyı ekle',

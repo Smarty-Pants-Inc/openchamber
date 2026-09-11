@@ -192,6 +192,33 @@ and the send path reading the same grammar.
   state and registers its application shortcuts locally. The selectors only
   consume their shared prefix while the draft target UI is mounted.
 
+## Optional display attribution
+
+`ui/DisplayNameChoice.tsx` applies an optional per-tab name through
+`lib/messages/displayName.ts`. It uses sessionStorage, never shared settings,
+and is not a sign-in, permission or native-session owner. Applying an empty name
+restores legacy unnamed sends. A copied browser tab can inherit the source tab's
+storage; each person must choose their own label.
+
+`ChatInput.handleSubmit` snapshots the applied name before asynchronous work.
+`session-ui-store.routeMessage` carries that string into `client.sendMessage`,
+which uses the SDK's text-part metadata key `smartyCodeDisplayName`. Prompt text
+is unchanged on this wire. The existing SDK `global.health` call must advertise
+`capabilities.displayAttribution: 1` before a named prompt is dispatched. A backend
+that merely retains unknown metadata does not qualify. This is the same shared
+path for web, desktop, VS Code and mobile; unsupported backends fail explicitly.
+
+The owning Pi gateway labels its one native input and projects that native text
+back into shared history. The name proves no authenticated identity or authority.
+The UI does not write a second transcript or rewrite earlier labels. Programmatic
+callers that omit `displayName` retain their legacy behavior. Named queue, shell,
+slash-command and steering operations are refused before composer consumption,
+rather than silently losing names through transports that lack this contract.
+
+Source tests cover tab storage, validation and per-request SDK isolation. They do
+not prove rendered behavior, focus, mobile layout, actual browser transport or
+native persistence. The owning Code integration supplies those acceptance gates.
+
 ## Input recall ownership
 
 Prompt recall has two owners on purpose.
