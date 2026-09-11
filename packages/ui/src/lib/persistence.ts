@@ -1817,6 +1817,7 @@ class SettingsMutationTracker {
 
 // Short-lived cache + in-flight dedup for settings fetches to avoid repeated GET calls during startup
 let _settingsRuntimeGeneration = 0;
+let _settingsReadGeneration = 0;
 let _settingsCache: { value: DesktopSettings | null; at: number; context: SettingsRuntimeContext } | null = null;
 let _settingsInflight: { promise: Promise<DesktopSettings | null>; context: SettingsRuntimeContext } | null = null;
 let _pendingSettingsChanges: Partial<DesktopSettings> | null = null;
@@ -1919,6 +1920,7 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
   // Dedup concurrent calls
   if (_settingsInflight && isSameSettingsRuntimeContext(_settingsInflight.context, context)) return _settingsInflight.promise;
 
+  const generation = _settingsReadGeneration;
   const inflight = {
     context,
     promise: (async (): Promise<DesktopSettings | null> => {
@@ -1928,7 +1930,7 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
           const result = await runtimeSettings.load();
           if (!isSettingsRuntimeContextCurrent(context)) return null;
           const settings = sanitizeWebSettings(result.settings);
-          _settingsCache = { value: settings, at: Date.now(), context };
+          if (generation === _settingsReadGeneration) _settingsCache = { value: settings, at: Date.now(), context };
           return settings;
         } catch (error) {
           if (!isSettingsRuntimeContextCurrent(context)) return null;
@@ -1949,7 +1951,7 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
         const data = await response.json().catch(() => null);
         if (!isSettingsRuntimeContextCurrent(context)) return null;
         const settings = sanitizeWebSettings(data);
-        _settingsCache = { value: settings, at: Date.now(), context };
+        if (generation === _settingsReadGeneration) _settingsCache = { value: settings, at: Date.now(), context };
         return settings;
       } catch (error) {
         if (!isSettingsRuntimeContextCurrent(context)) return null;
@@ -1966,9 +1968,11 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
   return inflight.promise;
 };
 
-/** Invalidate cached settings (call after a successful PUT) */
+/** Detach cached and pending reads after a successful write or external invalidation. */
 export const invalidateSettingsCache = (): void => {
+  _settingsReadGeneration += 1;
   _settingsCache = null;
+  _settingsInflight = null;
 };
 
 const activeSettingsOperations = new Map<Promise<void>, SettingsRuntimeContext & { write: boolean }>();
@@ -2197,10 +2201,10 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
           const updated = await runtimeSettings.save(changes, ifMatch ? { ifMatch } : undefined);
           if (!isSettingsRuntimeContextCurrent(context)) return;
           if (updated) {
+            invalidateSettingsCache();
             const reconciled = _settingsMutationTracker.reconcile(updated, operation);
             applyDesktopUiPreferences(reconciled);
             dispatchSettingsSynced(reconciled, false);
-            _settingsCache = null;
           }
           dispatchSettingsSaveState(updated ? 'saved' : 'error');
           return;
@@ -2235,12 +2239,11 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
         const updated = sanitizeWebSettings(await response.json().catch(() => null));
         if (!isSettingsRuntimeContextCurrent(context)) return;
         if (updated) {
+          invalidateSettingsCache();
           const reconciled = _settingsMutationTracker.reconcile(updated, operation);
           applyDesktopUiPreferences(reconciled);
           dispatchSettingsSynced(reconciled, false);
           dispatchSettingsSaveState('saved');
-          // Invalidate GET cache so next read sees the fresh data
-          _settingsCache = null;
         } else {
           dispatchSettingsSaveState('error');
         }
