@@ -116,8 +116,9 @@ if (!arm) {
       const environment = server.environments.client;
       if (!isRunnableDevEnvironment(environment)) throw new Error('Vite client runner unavailable');
       const load = environment.runner.import.bind(environment.runner);
-      const React = await load<typeof import('react')>('react');
-      const { createRoot } = await load<typeof import('react-dom/client')>('react-dom/client');
+      const { default: React } = await load<{ default: typeof import('react') }>('react');
+      const { default: { createRoot } } = await load<{ default: typeof import('react-dom/client') }>('react-dom/client');
+      expect(typeof React.useState).toBe('function'); expect(typeof createRoot).toBe('function');
       const { createWebAPIs } = await load<typeof import('../../../../web/src/api')>(join(uiRoot, '../web/src/api/index.ts'));
       const { RuntimeAPIProvider } = await load<typeof import('@/contexts/RuntimeAPIProvider')>('/src/contexts/RuntimeAPIProvider.tsx');
       const { registerRuntimeAPIs } = await load<typeof import('@/contexts/runtimeAPIRegistry')>('/src/contexts/runtimeAPIRegistry.ts');
