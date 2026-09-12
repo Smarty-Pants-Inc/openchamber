@@ -1,6 +1,6 @@
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
-import { readDisplayName } from '@/lib/messages/displayName';
+import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -1051,7 +1051,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Add message to queue instead of sending
     const handleQueueMessage = React.useCallback(async () => {
         try {
-            if (readDisplayName(window.sessionStorage)) { toast.error(t('chat.displayName.plainOnly')); return; }
+            if (browserDisplayName.read()) { toast.error(t('chat.displayName.plainOnly')); return; }
         } catch { toast.error(t('chat.displayName.error')); return; }
         const inputSnapshot = getCurrentInputSnapshot();
         if (!inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget) return;
@@ -1266,7 +1266,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
         const capturedTarget = messageQueueTarget;
         let displayName: string | undefined;
-        try { displayName = readDisplayName(window.sessionStorage); }
+        try { displayName = browserDisplayName.read(); }
         catch { toast.error(t('chat.displayName.error')); return; }
         if (displayName && (queuedOnly || hasQueuedMessages || delivery || inputMode === 'shell')) {
             toast.error(t('chat.displayName.plainOnly')); return;
@@ -1288,7 +1288,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 hasContent: options.presetText.trim().length > 0 || attachedFiles.length > 0 || hasDrafts,
             }
             : getCurrentInputSnapshot();
-        if (displayName && inputSnapshot.message.startsWith('/')) {
+        if (displayName && inputSnapshot.message.trimStart().startsWith('/')) {
             toast.error(t('chat.displayName.plainOnly')); return;
         }
         if (queuedOnly && autoReviewRunning) {

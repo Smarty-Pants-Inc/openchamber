@@ -7,6 +7,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Use 1–64 letters, numbers, spaces, periods, apostrophes or hyphens, up to 128 UTF-8 bytes. Tab storage must be available.',
     'chat.displayName.active': 'New prompts use the display name {name}.',
     'chat.displayName.unnamed': 'New prompts have no sender label.',
+    'chat.displayName.useUnnamedForTab': 'Use unnamed until reload',
+    'chat.displayName.unnamedForTab': 'Sending unnamed until reload. Any saved name is unchanged.',
     'chat.displayName.plainOnly': 'Named messages support plain prompts only. Queues, commands and steering are not supported; your draft is unchanged.',
   },
   de: {
@@ -17,6 +19,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '1–64 Buchstaben, Ziffern, Leerzeichen, Punkte, Apostrophe oder Bindestriche, höchstens 128 UTF-8-Bytes. Der Tab-Speicher muss verfügbar sein.',
     'chat.displayName.active': 'Neue Prompts verwenden den Anzeigenamen {name}.',
     'chat.displayName.unnamed': 'Neue Prompts haben kein Absenderlabel.',
+    'chat.displayName.useUnnamedForTab': 'Bis zum Neuladen ohne Namen senden',
+    'chat.displayName.unnamedForTab': 'Bis zum Neuladen wird ohne Namen gesendet. Ein gespeicherter Name bleibt unverändert.',
     'chat.displayName.plainOnly': 'Benannte Nachrichten unterstützen nur normale Prompts. Warteschlangen, Befehle und Steuerung werden nicht unterstützt. Dein Entwurf bleibt unverändert.',
   },
   es: {
@@ -27,6 +31,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Usa entre 1 y 64 letras, números, espacios, puntos, apóstrofos o guiones, hasta 128 bytes UTF-8. El almacenamiento de la pestaña debe estar disponible.',
     'chat.displayName.active': 'Los nuevos mensajes usan el nombre visible {name}.',
     'chat.displayName.unnamed': 'Los nuevos mensajes no tienen etiqueta de remitente.',
+    'chat.displayName.useUnnamedForTab': 'Enviar sin nombre hasta recargar',
+    'chat.displayName.unnamedForTab': 'Se enviará sin nombre hasta recargar. El nombre guardado no cambia.',
     'chat.displayName.plainOnly': 'Los mensajes con nombre solo admiten texto normal. No se admiten colas, comandos ni instrucciones durante la ejecución. Tu borrador no cambia.',
   },
   fr: {
@@ -37,6 +43,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Utilisez 1 à 64 lettres, chiffres, espaces, points, apostrophes ou traits d’union, au plus 128 octets UTF-8. Le stockage de l’onglet doit être disponible.',
     'chat.displayName.active': 'Les nouveaux messages utilisent le nom affiché {name}.',
     'chat.displayName.unnamed': 'Les nouveaux messages ne portent aucun nom d’expéditeur.',
+    'chat.displayName.useUnnamedForTab': 'Envoyer sans nom jusqu’au rechargement',
+    'chat.displayName.unnamedForTab': 'Envoi sans nom jusqu’au rechargement. Le nom enregistré reste inchangé.',
     'chat.displayName.plainOnly': 'Les messages nommés acceptent uniquement les requêtes ordinaires. Files, commandes et consignes en cours d’exécution ne sont pas prises en charge. Votre brouillon reste intact.',
   },
   ja: {
@@ -47,6 +55,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '文字、数字、空白、ピリオド、アポストロフィ、ハイフンを1～64文字、UTF-8で128バイト以内で入力してください。タブのストレージが必要です。',
     'chat.displayName.active': '新しいプロンプトの表示名は {name} です。',
     'chat.displayName.unnamed': '新しいプロンプトに送信者ラベルは付きません。',
+    'chat.displayName.useUnnamedForTab': '再読み込みまで名前なしで送信',
+    'chat.displayName.unnamedForTab': '再読み込みまで名前なしで送信します。保存済みの名前は変更されません。',
     'chat.displayName.plainOnly': '名前付きメッセージは通常のプロンプトのみ対応しています。キュー、コマンド、実行中の指示変更には対応していません。下書きは変更されません。',
   },
   ko: {
@@ -57,6 +67,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '문자, 숫자, 공백, 마침표, 아포스트로피 또는 하이픈을 1~64자, UTF-8 기준 128바이트 이내로 입력하세요. 탭 저장소를 사용할 수 있어야 합니다.',
     'chat.displayName.active': '새 프롬프트는 표시 이름 {name}을 사용합니다.',
     'chat.displayName.unnamed': '새 프롬프트에는 발신자 라벨이 없습니다.',
+    'chat.displayName.useUnnamedForTab': '새로고침할 때까지 이름 없이 보내기',
+    'chat.displayName.unnamedForTab': '새로고침할 때까지 이름 없이 보냅니다. 저장된 이름은 바뀌지 않습니다.',
     'chat.displayName.plainOnly': '이름이 있는 메시지는 일반 프롬프트만 지원합니다. 대기열, 명령 및 실행 중 지시 변경은 지원하지 않습니다. 초안은 그대로 유지됩니다.',
   },
   pl: {
@@ -67,6 +79,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Użyj 1–64 liter, cyfr, spacji, kropek, apostrofów lub łączników, do 128 bajtów UTF-8. Pamięć karty musi być dostępna.',
     'chat.displayName.active': 'Nowe wiadomości używają nazwy {name}.',
     'chat.displayName.unnamed': 'Nowe wiadomości nie mają etykiety nadawcy.',
+    'chat.displayName.useUnnamedForTab': 'Wysyłaj bez nazwy do odświeżenia',
+    'chat.displayName.unnamedForTab': 'Wysyłanie bez nazwy do odświeżenia strony. Zapisana nazwa pozostaje bez zmian.',
     'chat.displayName.plainOnly': 'Nazwane wiadomości obsługują tylko zwykłe polecenia tekstowe. Kolejki, komendy i sterowanie podczas wykonania nie są obsługiwane. Szkic pozostaje bez zmian.',
   },
   'pt-BR': {
@@ -77,6 +91,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Use de 1 a 64 letras, números, espaços, pontos, apóstrofos ou hífens, até 128 bytes UTF-8. O armazenamento da aba deve estar disponível.',
     'chat.displayName.active': 'Novas mensagens usam o nome de exibição {name}.',
     'chat.displayName.unnamed': 'Novas mensagens não têm rótulo de remetente.',
+    'chat.displayName.useUnnamedForTab': 'Enviar sem nome até recarregar',
+    'chat.displayName.unnamedForTab': 'Enviando sem nome até recarregar. O nome salvo permanece inalterado.',
     'chat.displayName.plainOnly': 'Mensagens com nome aceitam apenas prompts comuns. Filas, comandos e instruções durante a execução não são compatíveis. Seu rascunho não muda.',
   },
   tr: {
@@ -87,6 +103,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '1–64 harf, rakam, boşluk, nokta, kesme işareti veya kısa çizgi kullanın. UTF-8 sınırı 128 bayttır. Sekme depolaması kullanılabilir olmalıdır.',
     'chat.displayName.active': 'Yeni istemlerde görünen ad {name} olur.',
     'chat.displayName.unnamed': 'Yeni istemlerde gönderen etiketi yoktur.',
+    'chat.displayName.useUnnamedForTab': 'Yeniden yükleyene kadar adsız gönder',
+    'chat.displayName.unnamedForTab': 'Yeniden yükleyene kadar adsız gönderilir. Kayıtlı ad değişmez.',
     'chat.displayName.plainOnly': 'Adlı mesajlar yalnızca düz istemleri destekler. Kuyruklar, komutlar ve çalışma sırasında yönlendirme desteklenmez. Taslağınız değişmez.',
   },
   uk: {
@@ -97,6 +115,8 @@ export const displayNameI18n = {
     'chat.displayName.error': 'Використайте 1–64 літери, цифри, пробіли, крапки, апострофи або дефіси, до 128 байтів UTF-8. Сховище вкладки має бути доступним.',
     'chat.displayName.active': 'Нові запити використовують відображуване ім’я {name}.',
     'chat.displayName.unnamed': 'Нові запити не мають мітки відправника.',
+    'chat.displayName.useUnnamedForTab': 'Надсилати без імені до перезавантаження',
+    'chat.displayName.unnamedForTab': 'Надсилання без імені до перезавантаження сторінки. Збережене ім’я не змінюється.',
     'chat.displayName.plainOnly': 'Іменовані повідомлення підтримують лише звичайні запити. Черги, команди й керування під час виконання не підтримуються. Чернетка не змінюється.',
   },
   'zh-CN': {
@@ -107,6 +127,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '请输入1至64个字母、数字、空格、句点、撇号或连字符，UTF-8编码最多128字节。标签页存储必须可用。',
     'chat.displayName.active': '新提示将使用显示名称 {name}。',
     'chat.displayName.unnamed': '新提示不带发送者标签。',
+    'chat.displayName.useUnnamedForTab': '重新加载前不带名称发送',
+    'chat.displayName.unnamedForTab': '重新加载前不带名称发送。已保存的名称保持不变。',
     'chat.displayName.plainOnly': '带名称的消息仅支持普通提示，不支持队列、命令或执行中的引导。草稿保持不变。',
   },
   'zh-TW': {
@@ -117,6 +139,8 @@ export const displayNameI18n = {
     'chat.displayName.error': '請輸入1至64個字母、數字、空格、句點、撇號或連字號，UTF-8編碼最多128位元組。分頁儲存空間必須可用。',
     'chat.displayName.active': '新提示將使用顯示名稱 {name}。',
     'chat.displayName.unnamed': '新提示不帶傳送者標籤。',
+    'chat.displayName.useUnnamedForTab': '重新載入前不帶名稱傳送',
+    'chat.displayName.unnamedForTab': '重新載入前不帶名稱傳送。已儲存的名稱保持不變。',
     'chat.displayName.plainOnly': '具名訊息僅支援一般提示，不支援佇列、命令或執行中的引導。草稿保持不變。',
   },
 };

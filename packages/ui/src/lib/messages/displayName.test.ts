@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { DISPLAY_NAME_KEY, displayNameSchema, readDisplayName, saveDisplayName } from './displayName';
+import { createDisplayNameChoice, DISPLAY_NAME_KEY, displayNameSchema, readDisplayName, saveDisplayName } from './displayName';
 import { displayNameI18n } from '../i18n/messages/display-name.i18n';
 
 function tabStorage() {
@@ -49,6 +49,44 @@ test('storage failure is reported, not an apparent successful name change', () =
   expect(() => readDisplayName(storage)).toThrow('Storage unavailable');
   expect(() => saveDisplayName(storage, 'Paul')).toThrow('Storage full');
   expect(() => saveDisplayName(storage, '')).toThrow('Storage unavailable');
+});
+
+test('explicit unnamed choice works despite storage getter, read, write or removal failures', () => {
+  const denied = () => { throw new Error('Storage denied'); };
+  for (const getStorage of [
+    denied,
+    () => ({ getItem: denied, setItem: denied, removeItem: denied }),
+    () => ({ getItem: () => 'Paul', setItem: denied, removeItem: denied }),
+  ]) {
+    const choice = createDisplayNameChoice(getStorage);
+    expect(() => choice.apply('Kate')).toThrow('Storage denied');
+    expect(() => choice.apply('')).toThrow('Storage denied');
+    expect(choice.unnamedForTab).toBe(false);
+    choice.useUnnamedForTab();
+    expect(choice.read()).toBeUndefined();
+    expect(choice.unnamedForTab).toBe(true);
+    expect(() => choice.apply('Kate')).toThrow('Storage denied');
+    expect(choice.unnamedForTab).toBe(true);
+    expect(choice.read()).toBeUndefined();
+  }
+});
+
+test('unnamed recovery is deliberate, tab-local and never erases a saved name', () => {
+  const storage = tabStorage();
+  const choice = createDisplayNameChoice(() => storage);
+  choice.apply('Paul');
+  const captured = choice.read();
+  choice.useUnnamedForTab();
+  expect(choice.read()).toBeUndefined();
+  expect(captured).toBe('Paul');
+  expect(readDisplayName(storage)).toBe('Paul');
+  expect(createDisplayNameChoice(() => storage).read()).toBe('Paul'); // Reload has no in-memory override.
+  choice.apply('Kate');
+  expect(choice.unnamedForTab).toBe(false);
+  expect(choice.read()).toBe('Kate');
+  storage.setItem(DISPLAY_NAME_KEY, 'invalid\nname');
+  expect(() => choice.read()).toThrow(); // Never silently drop an unreadable name.
+  expect(choice.unnamedForTab).toBe(false);
 });
 
 test('each shipped locale has translated display-name labels', () => {

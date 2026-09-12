@@ -194,11 +194,20 @@ and the send path reading the same grammar.
 
 ## Optional display attribution
 
-`ui/DisplayNameChoice.tsx` applies an optional per-tab name through
-`lib/messages/displayName.ts`. It uses sessionStorage, never shared settings,
-and is not a sign-in, permission or native-session owner. Applying an empty name
-restores legacy unnamed sends. A copied browser tab can inherit the source tab's
-storage; each person must choose their own label.
+`ui/DisplayNameChoice.tsx`, Send and Queue share `browserDisplayName` in
+`lib/messages/displayName.ts` as their applied-choice authority. Persisted names
+use sessionStorage, never shared settings, and imply no sign-in, permission or
+native-session ownership. Applying an empty name removes the saved choice.
+Storage failure stays visible and never silently drops a name. The explicit
+"Use unnamed until reload" action works without reading or writing storage. It
+overrides naming only in the current tab until reload or a successful Apply;
+any saved name remains unchanged. A failed Apply preserves the last accepted
+choice and reports an error. A copied tab can inherit saved storage, not this
+in-memory override; each person must choose their own label.
+
+Name-input Enter reuses `isIMECompositionEvent`: native composition confirmation
+and WebKit keyCode229 do not Apply. A later ordinary Enter or Apply click saves
+the final input.
 
 `ChatInput.handleSubmit` snapshots the applied name before asynchronous work.
 `session-ui-store.routeMessage` carries that string into `client.sendMessage`,
@@ -214,10 +223,14 @@ The UI does not write a second transcript or rewrite earlier labels. Programmati
 callers that omit `displayName` retain their legacy behavior. Named queue, shell,
 slash-command and steering operations are refused before composer consumption,
 rather than silently losing names through transports that lack this contract.
+The early slash guard checks a nonmutating `trimStart()` view, matching local
+command recognition without trimming the submitted draft.
 
-Source tests cover tab storage, validation and per-request SDK isolation. They do
-not prove rendered behavior, focus, mobile layout, actual browser transport or
-native persistence. The owning Code integration supplies those acceptance gates.
+Source tests cover tab storage, explicit storage-denial recovery, validation,
+per-request SDK isolation and the actual inline command/IME decision guards.
+Source-position checks bind those guards before command planning or side effects.
+These tests do not mount React or prove rendered behavior, focus, mobile layout,
+actual browser transport or native persistence. The owning Code integration supplies those acceptance gates.
 
 ## Input recall ownership
 

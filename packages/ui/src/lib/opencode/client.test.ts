@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { createDisplayNameChoice } from '../messages/displayName';
 
 type ConfigResponse = { data: Record<string, unknown> };
 
@@ -323,6 +324,18 @@ describe('display attribution transport', () => {
 
   test('unnamed clients keep their original payload and need no capability lookup', async () => {
     await opencodeClient.sendMessage(request());
+    expect(healthResolvers).toHaveLength(0);
+    expect(promptAsyncCalls[0][0]).toMatchObject({ parts: [{ type: 'text', text: request().text }] });
+    expect(JSON.stringify(promptAsyncCalls[0])).not.toContain('smartyCodeDisplayName');
+  });
+
+  test('explicit storage-denial recovery sends the original unnamed payload', async () => {
+    const denied = () => { throw new Error('Storage denied'); };
+    const choice = createDisplayNameChoice(denied);
+    expect(() => choice.read()).toThrow('Storage denied');
+    expect(promptAsyncCalls).toHaveLength(0);
+    choice.useUnnamedForTab();
+    await opencodeClient.sendMessage(request(choice.read()));
     expect(healthResolvers).toHaveLength(0);
     expect(promptAsyncCalls[0][0]).toMatchObject({ parts: [{ type: 'text', text: request().text }] });
     expect(JSON.stringify(promptAsyncCalls[0])).not.toContain('smartyCodeDisplayName');

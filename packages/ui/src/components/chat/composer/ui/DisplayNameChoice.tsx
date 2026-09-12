@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
-import { displayNameSchema, readDisplayName, saveDisplayName } from '@/lib/messages/displayName';
+import { browserDisplayName, displayNameSchema } from '@/lib/messages/displayName';
+import { isIMECompositionEvent } from '@/lib/ime';
 
 export function DisplayNameChoice() {
   const { t } = useI18n();
@@ -10,9 +11,10 @@ export function DisplayNameChoice() {
   const [name, setName] = React.useState('');
   const [saved, setSaved] = React.useState<string>();
   const [error, setError] = React.useState(false);
+  const [unnamedForTab, setUnnamedForTab] = React.useState(browserDisplayName.unnamedForTab);
   React.useEffect(() => {
     try {
-      const current = readDisplayName(window.sessionStorage);
+      const current = browserDisplayName.read();
       setName(current ?? '');
       setSaved(current);
     } catch { setError(true); }
@@ -20,12 +22,20 @@ export function DisplayNameChoice() {
   const apply = () => {
     if (name !== '' && !displayNameSchema.safeParse(name).success) { setError(true); return; }
     try {
-      saveDisplayName(window.sessionStorage, name);
+      browserDisplayName.apply(name);
       setSaved(name || undefined);
+      setUnnamedForTab(false);
       setError(false);
     } catch { setError(true); }
   };
-  let status = t('chat.displayName.unnamed');
+  const useUnnamedForTab = () => {
+    browserDisplayName.useUnnamedForTab();
+    setName('');
+    setSaved(undefined);
+    setUnnamedForTab(true);
+    setError(false);
+  };
+  let status = t(unnamedForTab ? 'chat.displayName.unnamedForTab' : 'chat.displayName.unnamed');
   if (saved) status = t('chat.displayName.active', { name: saved });
   if (error) status = t('chat.displayName.error');
   return (
@@ -36,10 +46,14 @@ export function DisplayNameChoice() {
           aria-describedby={`${id}-help ${id}-status`}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
+            if (isIMECompositionEvent(event)) return;
             if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); apply(); }
           }} />
         <Button type="button" size="sm" variant="outline" onClick={apply}>{t('chat.displayName.apply')}</Button>
       </div>
+      <Button type="button" size="sm" variant="ghost" onClick={useUnnamedForTab}>
+        {t('chat.displayName.useUnnamedForTab')}
+      </Button>
       <p id={`${id}-help`} className="typography-ui-meta text-muted-foreground">{t('chat.displayName.help')}</p>
       <p id={`${id}-status`} role="status" className="typography-ui-meta text-muted-foreground">
         {status}

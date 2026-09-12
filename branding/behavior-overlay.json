@@ -2,6 +2,7 @@
   "brandingSource": "961cabb1e08b7c20ae7cd17cd8788ce8af0d469a",
   "behaviorSource": "1ab7ae3799ee4e633785451ef28cf52f49e53797",
   "combinedSource": "75bbb3480780ed692ae0a640daa5b602d78e6152",
+  "attributionSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
   "note": "Narrow reviewed behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval.",
   "files": [
     {
@@ -31,6 +32,102 @@
       "behaviorSha256": "9edd38aef35eb91cd8863b290b7da96d6dbc3f688afa78040f218fe01c9d89d0",
       "combinedSha256": "b6f2bf9e190223647231caca389d29d365a061c26fdbea22b87a797861f961e1",
       "reason": "Reviewed revision/If-Match client with native Headers; branding reload-error label retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/de.ts",
+      "brandingSha256": "f24b358ffa67700abc96b687682a30aa9298f77af43bb9ca4a5c2fa50d6673b2",
+      "behaviorSha256": "c9a16f5ebe7a11aa345b0ddd64391c83e726a1b3025c59343ced92632b1b969a",
+      "combinedSha256": "c9a16f5ebe7a11aa345b0ddd64391c83e726a1b3025c59343ced92632b1b969a",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/en.ts",
+      "brandingSha256": "17c9771516e54f2b832631823f986e5da195944d1d08e0b0b07a19e336dcfda5",
+      "behaviorSha256": "8741de7c0513f1593a645928c34ee0c862ad25748430ce15405087b220f1be89",
+      "combinedSha256": "8741de7c0513f1593a645928c34ee0c862ad25748430ce15405087b220f1be89",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/es.ts",
+      "brandingSha256": "0606091c226d60ffb4a999037f432c41ab42ee2e7a3c5acaec6aa5682488f6be",
+      "behaviorSha256": "4632e6c634b5cdb107c8b11d49385155de02d000e994e086d04874294190669d",
+      "combinedSha256": "4632e6c634b5cdb107c8b11d49385155de02d000e994e086d04874294190669d",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/fr.ts",
+      "brandingSha256": "205cde414f524e654423f6fbb2a8cb6aad1d3bee0d6509ca66afdcc20c9c5599",
+      "behaviorSha256": "daa8f2f1379d3982502522eea575825614603fec8554a210f95fc2b55c44f7a1",
+      "combinedSha256": "daa8f2f1379d3982502522eea575825614603fec8554a210f95fc2b55c44f7a1",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ja.ts",
+      "brandingSha256": "07739efd656730d7f72f3c3c51b2a19412577fcc6e8acf1e20fd9fb8c2309b16",
+      "behaviorSha256": "e286c7415a535c839a633e1f24c2fb73dac9187fd1c7d6a6cfc06c1d027ab1b3",
+      "combinedSha256": "e286c7415a535c839a633e1f24c2fb73dac9187fd1c7d6a6cfc06c1d027ab1b3",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ko.ts",
+      "brandingSha256": "c2cd7b668ba1f67d78d015bcd2c89fc36517ed678997258ce221082fc707301d",
+      "behaviorSha256": "2b6727053aa7135958fd87d1e420327772bed38eff009b1db313377cd51594da",
+      "combinedSha256": "2b6727053aa7135958fd87d1e420327772bed38eff009b1db313377cd51594da",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pl.ts",
+      "brandingSha256": "5fdd40b1b19216c305d3d85a01880fe3f19afa88d59e4e279270765a14b04590",
+      "behaviorSha256": "3e5dca1d51e428e5ab6f838bfcf3abd863899bf2395b2e5108c2718e2907fbf6",
+      "combinedSha256": "3e5dca1d51e428e5ab6f838bfcf3abd863899bf2395b2e5108c2718e2907fbf6",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pt-BR.ts",
+      "brandingSha256": "cbdfad3514dcf1e82cb487da88108d27027d6436f775e5ac4ecf6e0009970ba0",
+      "behaviorSha256": "91c380be5f9e821a5798c5b2a04709d9a14c8f0bf147886c9606a43e79156c0f",
+      "combinedSha256": "91c380be5f9e821a5798c5b2a04709d9a14c8f0bf147886c9606a43e79156c0f",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/uk.ts",
+      "brandingSha256": "0a8fce805ddcbff7234f2fafcb38401ac05e748ef6ad3ff8a6546161aa5a4944",
+      "behaviorSha256": "a2c6f1ee0a882ff442bdc7f4836fc1382b9bdc90e8878d2e92107ee133575722",
+      "combinedSha256": "a2c6f1ee0a882ff442bdc7f4836fc1382b9bdc90e8878d2e92107ee133575722",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-CN.ts",
+      "brandingSha256": "471034a8f6cfab71f307693d0ba8ad5583ccb621177fad40a2c353d190a7b54b",
+      "behaviorSha256": "ca1c20d8ef3c9590a6ba4a5d1cc0fc86565ebd72e12809c34253f0fdece2762a",
+      "combinedSha256": "ca1c20d8ef3c9590a6ba4a5d1cc0fc86565ebd72e12809c34253f0fdece2762a",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-TW.ts",
+      "brandingSha256": "3af37b26f4055b3dd1264aa4ae6dc251fac6f9398b0f349f6c478c338191de5b",
+      "behaviorSha256": "4af4bfd2dc1c985f45c4f5f88df6368a5ffad0a15756c7b3720798fc4ddbf199",
+      "combinedSha256": "4af4bfd2dc1c985f45c4f5f88df6368a5ffad0a15756c7b3720798fc4ddbf199",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained."
+    },
+    {
+      "path": "packages/ui/src/sync/session-ui-store.ts",
+      "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
+      "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
+      "combinedSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
+      "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
+      "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged."
     }
   ]
 }

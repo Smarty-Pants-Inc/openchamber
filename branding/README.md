@@ -32,11 +32,20 @@ This combined candidate also contains separately reviewed settings, privacy,
 identity, session-ownership and dialog fixes from
 `1ab7ae3799ee4e633785451ef28cf52f49e53797`. It is not branding-only or byte-identical
 stock behavior. `behavior-overlay.json` records the exact branding, behavior and
-combined source identities for four paths covered by the original branding ledger.
-Their original stock/donor hashes and hunk dispositions are unchanged. The tests
-check both that original baseline and each explicit combined output; all other
-ledger paths still require their original hashes. The session-action test overlay
-must also match the reviewed behavior source exactly.
+combined source identities for those four paths covered by the original branding
+ledger. Their original stock/donor hashes and hunk dispositions are unchanged.
+The session-action test overlay must match the reviewed behavior source exactly.
+
+The display-attribution candidate adds twelve explicit entries from
+`3c71ed6017b1f30ba9bbb6be1ab259a98075279b`: eleven existing locale dictionaries
+and `session-ui-store.ts`. The dictionaries add only an attribution import and
+spread; the store snapshots the request name and refuses unsupported named
+paths. Turkish and new attribution modules are outside the original donor ledger.
+Each new entry retains the original branding hash and records its exact source,
+output hash and reason. Original `coverage.json`, stock parity and the four earlier
+entries stay unchanged. The ownership test keeps an exact path allowlist and
+checks every original or explicitly overlaid output. This is behavioral source,
+not branding. Corrected-child review and candidate execution remain required.
 
 The generator does not own these runtime files. Technical headers and events,
 including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and

@@ -11,6 +11,11 @@ const json = (file) => JSON.parse(read(file).toString());
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const overlay = json('branding/behavior-overlay.json');
 const overlays = new Map(overlay.files.map(entry => [entry.path, entry]));
+const attributionPaths = [
+  ...['de', 'en', 'es', 'fr', 'ja', 'ko', 'pl', 'pt-BR', 'uk', 'zh-CN', 'zh-TW']
+    .map(locale => `packages/ui/src/lib/i18n/messages/${locale}.ts`),
+  'packages/ui/src/sync/session-ui-store.ts',
+];
 
 test('behavior overlay is explicit and preserves the original branding ledger', () => {
   assert.equal(overlay.brandingSource, '961cabb1e08b7c20ae7cd17cd8788ce8af0d469a');
@@ -19,13 +24,23 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.deepEqual([...overlays.keys()].sort(), [
     'packages/ui/src/sync/session-actions.test.ts', 'packages/web/server/index.js',
     'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
-  ]);
+    ...attributionPaths,
+  ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
     assert.ok(entry.reason, entry.path);
     assert.equal(entry.brandingSha256, original.get(entry.path)?.outputSha256, entry.path);
     assert.match(entry.behaviorSha256, /^[a-f0-9]{64}$/, entry.path);
     assert.equal(sha256(read(entry.path)), entry.combinedSha256, entry.path);
+  }
+});
+
+test('attribution overlay binds only its exact reviewed source without replacing donor evidence', () => {
+  assert.equal(overlay.attributionSource, '3c71ed6017b1f30ba9bbb6be1ab259a98075279b');
+  for (const file of attributionPaths) {
+    const entry = overlays.get(file);
+    assert.equal(entry.behaviorSource, overlay.attributionSource, file);
+    assert.equal(entry.behaviorSha256, entry.combinedSha256, file);
   }
 });
 
