@@ -1,5 +1,6 @@
 import type { SettingsAPI, SettingsLoadResult, SettingsPayload } from '@openchamber/ui/lib/api/types';
 import { runtimeFetch } from '@openchamber/ui/lib/runtime-fetch';
+import { SettingsConflictError } from '@openchamber/ui/lib/projectSettingsMerge';
 
 const SETTINGS_ENDPOINT = '/api/config/settings';
 const RELOAD_ENDPOINT = '/api/config/reload';
@@ -43,6 +44,9 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
+      if (response.status === 412 && options?.ifMatch) {
+        throw new SettingsConflictError(error.error || 'Settings precondition rejected (412)');
+      }
       throw new Error(error.error || 'Failed to save settings');
     }
 

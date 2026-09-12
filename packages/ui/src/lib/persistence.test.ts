@@ -29,6 +29,7 @@ import {
   type SettingsSyncedDetail,
 } from './persistence';
 import { switchRuntimeEndpoint } from './runtime-switch';
+import { SettingsConflictError } from './projectSettingsMerge';
 
 type TestWindow = {
   __OPENCHAMBER_HOME__?: string;
@@ -364,6 +365,36 @@ describe('updateDesktopSettings', () => {
     loaded.resolve({ settings: { projects: [] }, source: 'web', revision: '"a"' });
     await write;
     expect(saves).toBe(0);
+  });
+
+  for (const interruption of ['runtime', 'newer-edit']) test(`project conflict recovery stops for ${interruption}`, async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://conflict-a.example', runtimeKey: 'conflict-a' });
+    let loads = 0;
+    let projectSaves = 0;
+    let newerEdit: Promise<void> | undefined;
+    registerSettingsApi(async (changes) => {
+      if (!changes.projects) return changes;
+      projectSaves += 1;
+      throw new SettingsConflictError('Definite rejection');
+    }, async () => {
+      loads += 1;
+      if (loads === 2) {
+        if (interruption === 'runtime') {
+          switchRuntimeEndpoint({ apiBaseUrl: 'https://conflict-b.example', runtimeKey: 'conflict-b' });
+          switchRuntimeEndpoint({ apiBaseUrl: 'https://conflict-a.example', runtimeKey: 'conflict-a' });
+        } else {
+          newerEdit = updateDesktopSettings({ terminalShell: 'fish' });
+        }
+      }
+      return { settings: { projects: [] }, source: 'web', revision: loads === 1 ? '"before"' : '"after"' };
+    });
+    try {
+      await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: [] });
+      expect(projectSaves).toBe(1);
+      expect(loads).toBe(2);
+    } finally {
+      await newerEdit;
+    }
   });
 
   test('does not replay a rejected current-runtime settings mutation through HTTP', async () => {
@@ -807,33 +838,39 @@ describe('updateDesktopSettings', () => {
     }
   });
 
-  test('bootstrap started during a project save preserves the added project and directory', async () => {
+  for (const conflict of [false, true]) test(`bootstrap during project save preserves selection with unrelated conflict=${conflict}`, async () => {
     const home = { id: createProjectIdFromPath('/fixture/home'), path: '/fixture/home', label: 'Home', addedAt: 1, lastOpenedAt: 1 };
     const projectPath = '/fixture/project';
     const display = useSessionDisplayStore.getState();
     let server: SettingsPayload = {
-      projects: [home], activeProjectId: home.id, lastDirectory: home.path,
+      projects: [home], activeProjectId: home.id, lastDirectory: home.path, pwaAppName: 'Baseline',
       autoSaveEnabled: true, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
       sidebarProjectDisplayMode: display.projectDisplayMode, sidebarSessionGroupingMode: display.sessionGroupingMode,
       sidebarProjectSortOrder: display.projectSortOrder, sidebarShowRecentSection: display.showRecentSection,
     };
     const saving = deferred<void>();
     const releaseSave = deferred<void>();
-    const saved = deferred<void>();
+    let revision = '"before"';
+    const conditions: Array<string | undefined> = [];
     let writeInFlight = false;
     let readsDuringWrite = 0;
     registerSettingsApi(async (changes, options) => {
-      expect(options?.ifMatch).toBe('"before"');
+      conditions.push(options?.ifMatch);
+      expect(options?.ifMatch).toBe(revision);
       writeInFlight = true;
       saving.resolve();
       await releaseSave.promise;
-      server = { ...server, ...changes };
       writeInFlight = false;
-      saved.resolve();
+      if (conflict && conditions.length === 1) {
+        server = { ...server, pwaAppName: 'Concurrent preference' };
+        revision = '"after-unrelated"';
+        throw new SettingsConflictError('Settings changed');
+      }
+      server = { ...server, ...changes };
       return server;
     }, async () => {
       if (writeInFlight) readsDuringWrite += 1;
-      return { settings: structuredClone(server), source: 'web', revision: '"before"' };
+      return { settings: structuredClone(server), source: 'web', revision };
     });
     useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [] });
     useDirectoryStore.setState({ currentDirectory: home.path, homeDirectory: home.path });
@@ -860,11 +897,14 @@ describe('updateDesktopSettings', () => {
       // Release at the next task: a read already started sees the old server snapshot.
       await delay(0);
       releaseSave.resolve();
-      await Promise.all([saved.promise, bootstrap]);
+      await bootstrap;
       const published = syncs.filter((detail) => detail.bootstrap).at(-1)?.settings;
       expect(published?.projects?.map((entry) => entry.path)).toEqual([home.path, projectPath]);
       expect(published?.activeProjectId).toBe(project?.id);
       expect(readsDuringWrite).toBe(0);
+      expect(conditions).toEqual(conflict ? ['"before"', '"after-unrelated"'] : ['"before"']);
+      expect(server.pwaAppName).toBe(conflict ? 'Concurrent preference' : 'Baseline');
+      expect(server.projects?.map((entry) => entry.path)).toEqual([home.path, projectPath]);
       expect(useProjectsStore.getState().projects.map((entry) => entry.path)).toEqual([home.path, projectPath]);
       expect(useDirectoryStore.getState().currentDirectory).toBe(projectPath);
       expect(opencodeClient.getDirectory()).toBe(projectPath);
