@@ -13,7 +13,7 @@ function tabStorage() {
 
 test('independent tabs retain distinct names across rereads; a captured submission cannot change', () => {
   const paul = tabStorage(), kate = tabStorage();
-  expect(readDisplayName(paul)).toBeUndefined();
+  expect(readDisplayName(paul)).toBe(undefined);
   saveDisplayName(paul, 'Paul');
   saveDisplayName(kate, 'Kate');
   const submitted = readDisplayName(paul);
@@ -22,7 +22,7 @@ test('independent tabs retain distinct names across rereads; a captured submissi
   expect(readDisplayName(kate)).toBe('Kate');
   expect(readDisplayName(paul)).toBe('Someone else');
   saveDisplayName(paul, '');
-  expect(readDisplayName(paul)).toBeUndefined();
+  expect(readDisplayName(paul)).toBe(undefined);
   expect(readDisplayName(kate)).toBe('Kate');
 });
 
@@ -63,11 +63,11 @@ test('explicit unnamed choice works despite storage getter, read, write or remov
     expect(() => choice.apply('')).toThrow('Storage denied');
     expect(choice.unnamedForTab).toBe(false);
     choice.useUnnamedForTab();
-    expect(choice.read()).toBeUndefined();
+    expect(choice.read()).toBe(undefined);
     expect(choice.unnamedForTab).toBe(true);
     expect(() => choice.apply('Kate')).toThrow('Storage denied');
     expect(choice.unnamedForTab).toBe(true);
-    expect(choice.read()).toBeUndefined();
+    expect(choice.read()).toBe(undefined);
   }
 });
 
@@ -77,7 +77,7 @@ test('unnamed recovery is deliberate, tab-local and never erases a saved name', 
   choice.apply('Paul');
   const captured = choice.read();
   choice.useUnnamedForTab();
-  expect(choice.read()).toBeUndefined();
+  expect(choice.read()).toBe(undefined);
   expect(captured).toBe('Paul');
   expect(readDisplayName(storage)).toBe('Paul');
   expect(createDisplayNameChoice(() => storage).read()).toBe('Paul'); // Reload has no in-memory override.
