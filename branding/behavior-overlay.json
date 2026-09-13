@@ -8,8 +8,8 @@
     {
       "path": ".github/workflows/oc-review.yml",
       "brandingSha256": "ab8b9437a6b2bbd47d0ff931586444780ae61779c380b0cf0c2884b43e87fb91",
-      "behaviorSha256": "2ea9aac017ed68d4d7d74f55c35de3cefd9d0f4ede73e5145f75d9237fa98314",
-      "combinedSha256": "2ea9aac017ed68d4d7d74f55c35de3cefd9d0f4ede73e5145f75d9237fa98314",
+      "behaviorSha256": "1b1400f21cccdd75e77e4b6af9d3eff0a0dfc59883efd91ef0f86f3ecfe09b67",
+      "combinedSha256": "1b1400f21cccdd75e77e4b6af9d3eff0a0dfc59883efd91ef0f86f3ecfe09b67",
       "reason": "Full-PR Knip/Oxlint reporting with independent exact-head disposition; original required checks, runner and protected queue unchanged."
     },
     {

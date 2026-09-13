@@ -11,7 +11,10 @@ The Knip and Oxlint steps produce reports. A completed report is **not** a
 lint-clean result, product acceptance, or permission to queue a pull request.
 Knip's owning command deliberately uses `--no-exit-code`.
 
-Oxlint uses the installed package through `scripts/anti-slop.mjs`. It runs once
+Oxlint uses the installed package's Node CLI through `scripts/anti-slop.mjs`.
+Both the workflow and helper invoke Node directly: Bun 1.3.14 script dispatch
+splits tab-containing arguments. The pinned package's exported manifest supplies
+its CLI entrypoint; no shell command or alternate package is used. It runs once
 over the complete tested PR merge's changed JS/TS files, not merely the last
 contributor commit. Checkout depth two supplies the actual merge parents.
 NUL-delimited paths and explicit argument terminators preserve file boundaries.
@@ -41,6 +44,7 @@ checker. It follows AGENTS: fix authored findings without mass-fixing inherited
 backlog, disabling rules, reducing severity or laundering types. The maintenance
 `next-batch`/`check-batch` commands and claims are not used for PR admission.
 
-The report-path tests use isolated process fixtures; they do not prove a real
-Oxlint invocation, compiler, browser or native runtime. Real changed-head hosted
+The report-path tests use an isolated package/Node-entrypoint fixture and retain
+tab-containing arguments. They do not prove a real Oxlint invocation, compiler,
+browser or native runtime. Real changed-head hosted
 execution and the independent disposition remain required after source changes.
