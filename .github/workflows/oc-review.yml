@@ -28,7 +28,7 @@ jobs:
       - name: Dead-code report (requires inspection)
         run: bun run dead-code
 
-      - name: Oxlint for the complete PR change
+      - name: Oxlint report (requires authored-finding review)
         shell: bash
         run: |
           # Checkout is the PR merge: its first parent is the tested base.
@@ -38,7 +38,7 @@ jobs:
             '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx' '*.mts' '*.cts' > "$RUNNER_TEMP/oxlint-paths"
           mapfile -d '' -t files < "$RUNNER_TEMP/oxlint-paths"
           if ((${#files[@]})); then
-            bun run lint:anti-slop "${files[@]}"
+            bun run deslop -- file --include-noisy -- "${files[@]}"
           else
             echo 'No changed JavaScript or TypeScript files.'
           fi
