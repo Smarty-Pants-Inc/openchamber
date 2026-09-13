@@ -69,6 +69,7 @@ mock.module('@/lib/runtime-url', () => ({
 mock.module('@/lib/runtime-switch', () => ({
   getRuntimeApiBaseUrl: mock(() => ''),
   getRuntimeKey: mock(() => runtimeKey),
+  subscribeRuntimeEndpointWillChange: mock(() => () => undefined),
 }));
 
 type DirectoryProbeQuery = { path?: string };

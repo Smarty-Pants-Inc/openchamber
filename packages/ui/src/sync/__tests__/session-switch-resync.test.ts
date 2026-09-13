@@ -426,9 +426,8 @@ describe("resyncBlockingRequestsForDirectory", () => {
         ordinaryResponse = page(target.sessionID, ["tail"], newView, "fresh-cursor")
         const recovered = settled()
         dispatch()
-        await Promise.resolve()
-        // Fails against e059 before waiting: its dead caller starts no load.
-        expect(loader.getSnapshot(target).status).toBe("loading")
+        // A preceding failed load can still be unwinding. Await the real loader
+        // completion, not a fixed number of microtasks or a direct refresh call.
         await recovered
         expect(loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(newView)
         expect(loader.getSnapshot(target).resolved).toBe(true)
