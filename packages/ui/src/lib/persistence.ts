@@ -27,7 +27,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isCapacitorApp } from '@/lib/platform';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
-import { mergeProjectSettings } from '@/lib/projectSettingsMerge';
+import { saveProjectSettings } from '@/lib/projectSettingsMerge';
 import { toast } from 'sonner';
 import { DEFAULT_OPEN_IN_APP_ID } from '@/lib/openInApps';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
@@ -1784,6 +1784,10 @@ class SettingsMutationTracker {
     return this.revision;
   }
 
+  isLatestMutation(revision: number): boolean {
+    return revision === this.revision;
+  }
+
   begin(revision = this.revision): SettingsOperation {
     const operation = { revision };
     this.operations.add(operation);
@@ -2166,7 +2170,7 @@ export const refreshDesktopSettings = async (): Promise<void> => {
 // `keepalive` is set only on the lifecycle-suspend path, where the document may
 // be torn down mid-request; the ordinary debounced write uses a plain fetch.
 async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean } = {}): Promise<void> {
-  let changes = _pendingSettingsChanges;
+  const changes = _pendingSettingsChanges;
   const context = _pendingSettingsContext;
   const revision = _pendingSettingsRevision;
   const projectsBase = _pendingProjectsBase;
@@ -2189,16 +2193,11 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
       const runtimeSettings = getRuntimeSettingsAPI();
       if (runtimeSettings) {
         try {
-          let ifMatch: string | undefined;
-          if (changes.projects !== undefined) {
-            const current = await runtimeSettings.load();
-            if (!isSettingsRuntimeContextCurrent(context)) return;
-            if (!current.revision) throw new Error('Project updates require conditional settings support');
-            if (projectsBase === undefined) throw new Error('Project update has no original snapshot');
-            changes = { ...changes, projects: mergeProjectSettings(projectsBase, current.settings.projects ?? [], changes.projects) };
-            ifMatch = current.revision;
-          }
-          const updated = await runtimeSettings.save(changes, ifMatch ? { ifMatch } : undefined);
+          const updated = changes.projects !== undefined
+            ? await saveProjectSettings(runtimeSettings, changes, projectsBase,
+              () => isSettingsRuntimeContextCurrent(context),
+              () => _settingsMutationTracker.isLatestMutation(revision))
+            : await runtimeSettings.save(changes);
           if (!isSettingsRuntimeContextCurrent(context)) return;
           if (updated) {
             invalidateSettingsCache();
