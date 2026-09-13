@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { createDisplayNameChoice } from '../messages/displayName';
 
 type ConfigResponse = { data: Record<string, unknown> };
 
 (mock as unknown as { restore?: () => void }).restore?.();
 
 const configResolvers: Array<(response: ConfigResponse) => void> = [];
+const healthResolvers: Array<(response: { data: { capabilities?: { displayAttribution: number } } }) => void> = [];
 let configCalls = 0;
 let runtimeKey = 'test-runtime';
 const promptAsyncCalls: unknown[][] = [];
@@ -28,6 +30,7 @@ const pathGetMock = mock(async () => {
 
 mock.module('@opencode-ai/sdk/v2', () => ({
   createOpencodeClient: mock(() => ({
+    global: { health: () => new Promise((resolve) => { healthResolvers.push(resolve); }) },
     config: {
       get: mock(() => {
         configCalls += 1;
@@ -91,6 +94,7 @@ beforeEach(() => {
   runtimeKey = 'test-runtime';
   promptAsyncCalls.length = 0;
   promptAsyncResults.length = 0;
+  healthResolvers.length = 0;
   pathGetResults.length = 0;
   pathGetCalls = 0;
   runtimeFetchCalls.length = 0;
@@ -293,6 +297,65 @@ describe('opencodeClient prompt retry behavior', () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error instanceof Error ? error.message : String(error)).toContain('runtime changed');
+    expect(promptAsyncCalls).toHaveLength(0);
+  });
+});
+
+describe('display attribution transport', () => {
+  const request = (displayName?: string) => ({ id: 'shared-session', providerID: 'attribution-fixture',
+    modelID: 'fixture', text: '  same prompt\r\nunchanged  ', displayName, runtimeKey: 'test-runtime' });
+  const capable = { data: { capabilities: { displayAttribution: 1 } } };
+
+  test('snapshots distinct concurrent names before capability requests settle', async () => {
+    const params = request('Paul');
+    const paul = opencodeClient.sendMessage(params);
+    params.displayName = 'Changed after submission';
+    const kate = opencodeClient.sendMessage(request('Kate'));
+    expect(healthResolvers).toHaveLength(2);
+    healthResolvers[1](capable);
+    await kate;
+    healthResolvers[0](capable);
+    await paul;
+    expect(promptAsyncCalls.map(call => call[0])).toMatchObject([
+      { parts: [{ type: 'text', text: request().text, metadata: { smartyCodeDisplayName: 'Kate' } }] },
+      { parts: [{ type: 'text', text: request().text, metadata: { smartyCodeDisplayName: 'Paul' } }] },
+    ]);
+  });
+
+  test('unnamed clients keep their original payload and need no capability lookup', async () => {
+    await opencodeClient.sendMessage(request());
+    expect(healthResolvers).toHaveLength(0);
+    expect(promptAsyncCalls[0][0]).toMatchObject({ parts: [{ type: 'text', text: request().text }] });
+    expect(JSON.stringify(promptAsyncCalls[0])).not.toContain('smartyCodeDisplayName');
+  });
+
+  test('explicit storage-denial recovery sends the original unnamed payload', async () => {
+    const denied = () => { throw new Error('Storage denied'); };
+    const choice = createDisplayNameChoice(denied);
+    expect(() => choice.read()).toThrow('Storage denied');
+    expect(promptAsyncCalls).toHaveLength(0);
+    choice.useUnnamedForTab();
+    await opencodeClient.sendMessage(request(choice.read()));
+    expect(healthResolvers).toHaveLength(0);
+    expect(promptAsyncCalls[0][0]).toMatchObject({ parts: [{ type: 'text', text: request().text }] });
+    expect(JSON.stringify(promptAsyncCalls[0])).not.toContain('smartyCodeDisplayName');
+  });
+
+  test('unsupported backends and invalid names fail before prompt dispatch', async () => {
+    const pending = opencodeClient.sendMessage(request('Kate'));
+    healthResolvers[0]({ data: {} });
+    await expect(pending).rejects.toThrow('does not support display attribution');
+    for (const name of ['Paul\nKate', 'x'.repeat(65)]) {
+      await expect(opencodeClient.sendMessage(request(name))).rejects.toThrow();
+    }
+    expect(promptAsyncCalls).toHaveLength(0);
+  });
+
+  test('a runtime switch during capability lookup cannot send to the new backend', async () => {
+    const pending = opencodeClient.sendMessage(request('Paul'));
+    runtimeKey = 'different-runtime';
+    healthResolvers[0](capable);
+    await expect(pending).rejects.toThrow('runtime changed');
     expect(promptAsyncCalls).toHaveLength(0);
   });
 });

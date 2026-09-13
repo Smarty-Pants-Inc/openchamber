@@ -149,9 +149,14 @@ export async function routeMessage(params: {
   files?: Array<{ type: "file"; mime: string; url: string; filename: string }>
   additionalParts?: Array<{ text: string; synthetic?: boolean; metadata?: ContextPartMetadata; files?: Array<{ type: "file"; mime: string; url: string; filename: string }>; systemContext?: 'session-knowledge' }>
   appendSubmissions?: () => void
+  displayName?: string
   delivery?: 'steer'
 }): Promise<'command' | 'prompt' | 'shell'> {
   const requestDirectory = params.directory ?? undefined
+  if (params.displayName !== undefined && (params.inputMode === 'shell' || params.content.startsWith('/') || params.delivery)) {
+    const { formatMessage, useI18nStore } = await import('@/lib/i18n')
+    throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.plainOnly'))
+  }
   let promptContent = params.content
   let promptAdditionalParts = params.additionalParts
   if (params.inputMode === "shell") {
@@ -253,6 +258,7 @@ export async function routeMessage(params: {
       providerID: params.providerID,
       modelID: params.modelID,
       text: promptContent,
+      displayName: params.displayName,
       agent: params.agent,
       agentMentions: params.agentMentionName ? [{ name: params.agentMentionName }] : undefined,
       variant: params.variant,
@@ -284,6 +290,7 @@ type SendMessageOptions = {
   historySubmissions?: InputHistorySubmission[]
   /** Immutable copy of the new-session draft at submit time; used instead of the live draft. */
   draftSnapshot?: NewSessionDraftState
+  displayName?: string
   delivery?: 'steer'
 }
 
@@ -1707,6 +1714,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     options?: SendMessageOptions,
   ) => {
     const capturedTarget = options?.target
+    const displayName = options?.displayName
     const capturedRuntimeKey = capturedTarget?.runtimeKey ?? getRuntimeKey()
     if (capturedTarget && capturedTarget.runtimeKey !== getRuntimeKey()) {
       throw new Error("Message was not sent because the runtime changed.")
@@ -1832,6 +1840,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         files,
         appendSubmissions,
         delivery: options?.delivery,
+        displayName,
         additionalParts: mergedAdditionalParts?.map((p) => ({
           text: p.text,
           synthetic: p.synthetic,
@@ -1953,6 +1962,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       files,
       appendSubmissions,
       delivery: options?.delivery,
+      displayName,
       additionalParts: partsWithPinnedContext?.map((p) => ({
         text: p.text,
         synthetic: p.synthetic,

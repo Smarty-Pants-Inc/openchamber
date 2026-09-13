@@ -1,4 +1,5 @@
 import type { I18nKey } from './en';
+import { displayNameI18n } from './display-name.i18n';
 import { settingsDict } from './zh-CN.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -6,6 +7,7 @@ import { linearPanelI18n } from './linear-panel.i18n';
 export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': '项目操作正在运行',
   ...settingsDict,
+  ...displayNameI18n['zh-CN'],
   ...linearIssuePickerI18n['zh-CN'],
   ...linearPanelI18n['zh-CN'],
   'terminalView.actions.attachSelection': '附加所选输出',
