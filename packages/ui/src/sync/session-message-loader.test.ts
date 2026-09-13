@@ -180,6 +180,79 @@ describe("SessionMessageLoader", () => {
     childStores.disposeAll()
   })
 
+  test("fetches initial coverage after SSE materialization and reuses the accepted cursor", async () => {
+    const pending = deferred<ReturnType<typeof response>>()
+    const calls: Array<{ before?: string }> = []
+    const { childStores, loader } = createLoader(async ({ sessionID, before }) => {
+      calls.push({ before })
+      return before ? response([createRecord(sessionID, "older", 1)]) : pending.promise
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const live = createRecord(target.sessionID, "live", 2)
+    const store = childStores.ensureChild(target.directory, { bootstrap: false })
+    store.setState({ message: { [target.sessionID]: [live.info] }, part: { [live.info.id]: live.parts } })
+
+    try {
+      const navigation = loader.ensure(target, { reason: "navigation" })
+      const reactive = loader.ensure(target, { reason: "reactive" })
+      expect(calls).toEqual([{ before: undefined }])
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).status).toBe("loading")
+      pending.resolve(response([live], "older-cursor"))
+      await Promise.all([navigation, reactive])
+      expect(loader.getSnapshot(target).resolved).toBe(true)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+      expect(loader.getSnapshot(target).cursor).toBe("older-cursor")
+
+      await loader.ensure(target)
+      expect(calls).toHaveLength(1)
+      await loader.loadOlder(target)
+      expect(calls).toEqual([{ before: undefined }, { before: "older-cursor" }])
+      expect(store.getState().message[target.sessionID]?.map((message) => message.id)).toEqual(["older", "live"])
+      expect(loader.getSnapshot(target).complete).toBe(true)
+    } finally {
+      loader.dispose()
+      childStores.disposeAll()
+    }
+  })
+
+  test("keeps SSE-first coverage unresolved on failure and rejects an invalidated older response", async () => {
+    const stale = deferred<ReturnType<typeof response>>()
+    let rejectInitial = true
+    const { childStores, loader } = createLoader(async ({ sessionID, before }) => {
+      if (rejectInitial) return { error: { message: "view rejected" }, response: { status: 409 } }
+      return before ? stale.promise : response([createRecord(sessionID, "current", 2)], "current-cursor")
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const live = createRecord(target.sessionID, "live", 3)
+    const store = childStores.ensureChild(target.directory, { bootstrap: false })
+    store.setState({ message: { [target.sessionID]: [live.info] }, part: { [live.info.id]: live.parts } })
+
+    try {
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).status).toBe("error")
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+      expect(store.getState().message[target.sessionID]).toEqual([live.info])
+      rejectInitial = false
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).cursor).toBe("current-cursor")
+      const older = loader.loadOlder(target)
+      loader.invalidateSession(target)
+      stale.resolve(response([createRecord(target.sessionID, "off-branch", 1)]))
+      await older
+      expect(store.getState().message[target.sessionID]?.map((message) => message.id)).toEqual(["current", "live"])
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).cursor).toBe(undefined)
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).cursor).toBe("current-cursor")
+      expect(loader.getSnapshot(target).complete).toBe(false)
+    } finally {
+      loader.dispose()
+      childStores.disposeAll()
+    }
+  })
+
   test("rejects repeated pagination cursors instead of looping forever", async () => {
     let calls = 0
     const { childStores, loader } = createLoader(async ({ sessionID, before }) => {
