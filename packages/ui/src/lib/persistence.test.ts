@@ -407,7 +407,7 @@ describe('updateDesktopSettings', () => {
         expect(conditions).toEqual([undefined, '"1"', '"2"']);
         expect(server).toEqual({ ...preference, ...latestProject });
         expect(syncs).toEqual([b.id, b.id, b.id]);
-        expect(getSettingsSaveState()).toBe('saved');
+        expect(getSettingsSaveState()).toBe('idle');
       }
     } finally {
       release.resolve();
