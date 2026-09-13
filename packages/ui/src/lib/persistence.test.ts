@@ -1266,8 +1266,8 @@ describe('updateDesktopSettings', () => {
     }
   });
 
-  for (const saved of [false, true]) {
-    test(`preserves navigation during bootstrap migration, newer save completed: ${saved}`, async () => {
+  for (const flushed of [false, true]) {
+    test(`preserves navigation during bootstrap migration, newer batch flushed: ${flushed}`, async () => {
       const migrationStarted = deferred<void>();
       const releaseMigration = deferred<void>();
       registerSettingsApi(async (changes) => {
@@ -1289,7 +1289,8 @@ describe('updateDesktopSettings', () => {
       await migrationStarted.promise;
       const navigation = updateDesktopSettings({ activeProjectId: 'project-b', showReasoningTraces: false });
       try {
-        if (saved) await navigation;
+        // Later writes cannot finish before the held predecessor. Cover both buffer and queued batch.
+        if (flushed) getWindow().dispatchEvent(new Event('pagehide'));
         releaseMigration.resolve();
         await sync;
         const bootstrap = synced.filter((detail) => detail.bootstrap).at(-1);
