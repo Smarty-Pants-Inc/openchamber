@@ -333,6 +333,93 @@ describe('updateDesktopSettings', () => {
     expect(savedProjects).toEqual([['/home', '/a']]);
   });
 
+  for (const switched of [false, true]) test(`orders complete settings batches without self/future waits, runtime switch=${switched}`, async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://write-order-a.example', runtimeKey: 'write-order-a' });
+    const saving = deferred<void>();
+    const release = deferred<void>();
+    const preference = { pwaAppName: 'Ordered' };
+    const a = { id: 'a', path: '/a' }, b = { id: 'b', path: '/b' };
+    const firstProject = { projects: [a], activeProjectId: a.id };
+    const latestProject = { projects: [a, b], activeProjectId: b.id };
+    let server: SettingsPayload = { projects: [] };
+    let revision = '"0"';
+    const reads: string[] = [];
+    const patches: Array<Partial<SettingsPayload>> = [];
+    const conditions: Array<string | undefined> = [];
+    registerSettingsApi(async (changes, options) => {
+      patches.push(structuredClone(changes));
+      conditions.push(options?.ifMatch);
+      if (patches.length === 1) {
+        saving.resolve();
+        await release.promise;
+      }
+      if (changes.projects !== undefined && options?.ifMatch !== revision) {
+        throw new SettingsConflictError('Stale baseline');
+      }
+      server = { ...server, ...changes };
+      revision = `"${patches.length}"`;
+      return structuredClone(server);
+    }, async () => {
+      reads.push(revision);
+      return { settings: structuredClone(server), source: 'web', revision };
+    });
+    const syncs: Array<string | null | undefined> = [];
+    const listener = (event: Event) => {
+      // SAFETY: the owning dispatcher emits SettingsSyncedDetail on this event.
+      syncs.push((event as CustomEvent<SettingsSyncedDetail>).detail.settings.activeProjectId);
+    };
+    getWindow().addEventListener('openchamber:settings-synced', listener);
+    const updates: Promise<void>[] = [];
+    try {
+      updates.push(updateDesktopSettings(preference));
+      getWindow().dispatchEvent(new Event('pagehide'));
+      await saving.promise;
+      updates.push(updateDesktopSettings(firstProject, { expectedProjects: [] }));
+      getWindow().dispatchEvent(new Event('pagehide'));
+      updates.push(updateDesktopSettings(latestProject, { expectedProjects: [a] }));
+      getWindow().dispatchEvent(new Event('pagehide'));
+      expect(reads).toEqual([]); // Serializing PUT alone would already have read a stale revision.
+      expect(patches).toEqual([preference]);
+      if (switched) {
+        switchRuntimeEndpoint({ apiBaseUrl: 'https://write-order-b.example', runtimeKey: 'write-order-b' });
+        const otherPatches: Array<Partial<SettingsPayload>> = [];
+        let otherReads = 0;
+        registerSettingsApi(async (changes) => {
+          // Save-echo migration may mutate the response, not the recorded sent patch.
+          otherPatches.push(structuredClone(changes));
+          return structuredClone(changes);
+        }, async () => {
+          otherReads += 1;
+          return { settings: {}, source: 'web', revision: '"other"' };
+        });
+        const other = updateDesktopSettings({ pwaAppName: 'Other runtime' });
+        updates.push(other);
+        getWindow().dispatchEvent(new Event('pagehide'));
+        await other; // The disconnected runtime's held write must not block this one.
+        release.resolve();
+        await Promise.all(updates);
+        expect(otherPatches).toEqual([{ pwaAppName: 'Other runtime' }]);
+        expect(otherReads).toBe(0); // Old queued batches never read or mutate the new runtime.
+        expect(reads).toEqual([]);
+        expect(patches).toEqual([preference]);
+        expect(conditions).toEqual([undefined]);
+      } else {
+        release.resolve();
+        await Promise.all(updates); // Includes later batches: a self/future wait would deadlock.
+        expect(reads).toEqual(['"1"', '"2"']);
+        expect(patches).toEqual([preference, firstProject, latestProject]);
+        expect(conditions).toEqual([undefined, '"1"', '"2"']);
+        expect(server).toEqual({ ...preference, ...latestProject });
+        expect(syncs).toEqual([b.id, b.id, b.id]);
+        expect(getSettingsSaveState()).toBe('idle');
+      }
+    } finally {
+      release.resolve();
+      await Promise.all(updates);
+      getWindow().removeEventListener('openchamber:settings-synced', listener);
+    }
+  });
+
   test('compares project values rather than JSON object key order', async () => {
     let saves = 0;
     registerSettingsApi(async (changes) => { saves += 1; return changes; }, async () => ({
@@ -1183,8 +1270,8 @@ describe('updateDesktopSettings', () => {
     }
   });
 
-  for (const saved of [false, true]) {
-    test(`preserves navigation during bootstrap migration, newer save completed: ${saved}`, async () => {
+  for (const flushed of [false, true]) {
+    test(`preserves navigation during bootstrap migration, newer batch flushed: ${flushed}`, async () => {
       const migrationStarted = deferred<void>();
       const releaseMigration = deferred<void>();
       registerSettingsApi(async (changes) => {
@@ -1206,7 +1293,8 @@ describe('updateDesktopSettings', () => {
       await migrationStarted.promise;
       const navigation = updateDesktopSettings({ activeProjectId: 'project-b', showReasoningTraces: false });
       try {
-        if (saved) await navigation;
+        // Later writes cannot finish before the held predecessor. Cover both buffer and queued batch.
+        if (flushed) getWindow().dispatchEvent(new Event('pagehide'));
         releaseMigration.resolve();
         await sync;
         const bootstrap = synced.filter((detail) => detail.bootstrap).at(-1);
