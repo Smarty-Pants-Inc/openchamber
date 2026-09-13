@@ -104,12 +104,20 @@ before its local edit; adding and selecting a project share that pre-add baselin
 Before saving, it reads current settings and merges independent project additions,
 changes and removals against that baseline, independent of JSON object key order.
 Conflicting edits to one entry or to project order require user resolution. It
-then sends the fresh revision in `If-Match`. Unrelated preference writes do not
-create a project conflict, but a competing update between that read and the
-serialized write returns 412 without writing. Project save failures show an error
-toast, not only a console warning. A failed runtime mutation is not replayed
-through the direct HTTP fallback. Runtimes without revision support can still save
-ordinary preferences, but project writes fail before any mutation. VS Code workspace
+then sends the fresh revision in `If-Match`. A competing update between that read
+and the serialized write returns 412 without writing. The web adapter marks only
+a definite conditional 412 as `SettingsConflictError`. `saveProjectSettings` may
+read again and submit the same patch once with the new strong revision, but only
+when every field touched by the patch is unchanged from the first read. It stops
+on changed project membership, metadata, order, navigation, or another touched
+preference, including authoritative deletion. Unrelated server fields are never
+copied into the patch. A runtime generation change or newer local settings edit
+also prevents recovery. Missing or unchanged revisions, failed reads, uncertain
+errors, and a second rejection remain terminal. Successful recovery uses the
+normal durable save echo and bootstrap barrier; it does not force selection or
+hide the original HTTP 412. Terminal project save failures show the existing error
+toast. A failed runtime mutation is never replayed through the direct HTTP fallback.
+Runtimes without revision support can still save ordinary preferences, but project writes fail before any mutation. VS Code workspace
 folders remain host-managed; its legacy settings bridge does not advertise project
 CAS. The settings queue protects one backend process; separate processes must not
 write the same settings file.
@@ -118,9 +126,10 @@ Settings sync waits for outstanding debounced and in-flight writes to the same
 runtime before starting its read and taking a mutation baseline. A read started
 after a local edit can otherwise return the server's older project list and undo
 the selection before that edit is saved. Writes for a disconnected runtime do not
-block the new runtime. A failed write is not replayed; the subsequent read remains
-authoritative. Sync does not wait on other reads, so a bootstrap's own migration
-save cannot create a read-to-read wait cycle.
+block the new runtime. Once the bounded save operation fails, synchronization does
+not replay it; the subsequent successful read remains authoritative. Sync does not
+wait on other reads, so a bootstrap's own migration save cannot create a read-to-read
+wait cycle.
 
 Successful saves invalidate both cached settings and the pending read before
 publishing the save echo. An invalidated read still completes for its original

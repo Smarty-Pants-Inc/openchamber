@@ -37,8 +37,8 @@
       "path": "packages/web/src/api/settings.ts",
       "brandingSha256": "d341f929be9c53ff06d06e63ba044b1d687ecd53c4b4c6392d9e50178516804f",
       "behaviorSha256": "9edd38aef35eb91cd8863b290b7da96d6dbc3f688afa78040f218fe01c9d89d0",
-      "combinedSha256": "b6f2bf9e190223647231caca389d29d365a061c26fdbea22b87a797861f961e1",
-      "reason": "Reviewed revision/If-Match client with native Headers; branding reload-error label retained."
+      "combinedSha256": "213ac5500a98c685d54d8e26863897f58ac5ca50b2fa8802abc5bd6c652476d6",
+      "reason": "Reviewed revision/If-Match client with native Headers plus d43d0207 definite conditional-412 classification; branding reload-error label retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/de.ts",
