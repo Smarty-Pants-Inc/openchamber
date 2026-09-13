@@ -17,6 +17,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.equal(overlay.behaviorSource, '1ab7ae3799ee4e633785451ef28cf52f49e53797');
   assert.equal(overlays.size, overlay.files.length);
   assert.deepEqual([...overlays.keys()].sort(), [
+    '.github/workflows/oc-review.yml',
     'packages/ui/src/sync/session-actions.test.ts', 'packages/web/server/index.js',
     'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
   ]);

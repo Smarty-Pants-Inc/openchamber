@@ -5,6 +5,13 @@
   "note": "Narrow reviewed behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval.",
   "files": [
     {
+      "path": ".github/workflows/oc-review.yml",
+      "brandingSha256": "ab8b9437a6b2bbd47d0ff931586444780ae61779c380b0cf0c2884b43e87fb91",
+      "behaviorSha256": "2ea9aac017ed68d4d7d74f55c35de3cefd9d0f4ede73e5145f75d9237fa98314",
+      "combinedSha256": "2ea9aac017ed68d4d7d74f55c35de3cefd9d0f4ede73e5145f75d9237fa98314",
+      "reason": "Full-PR Knip/Oxlint reporting with independent exact-head disposition; original required checks, runner and protected queue unchanged."
+    },
+    {
       "path": "packages/ui/src/sync/session-actions.test.ts",
       "brandingSha256": "eaf5f79db56d8bb78836455c96da90c0ba2eba230db59081833873e3872d0fdf",
       "behaviorSha256": "6ba028cf688b7851431cc85cf4342ed7900248cf13e773ccd2416988a0046fd9",
