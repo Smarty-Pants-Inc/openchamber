@@ -375,8 +375,8 @@ describe("resyncBlockingRequestsForDirectory", () => {
       const loader = new SessionMessageLoader(childStores, { sdk, runtimeKey })
       setImperativeSessionMessageLoader(loader)
       const event = (sessionID: string): Event => mode === "idle"
-        ? { type: "session.idle", properties: { sessionID } }
-        : { type: "session.error", properties: { sessionID, error: { name: "APIError", data: {
+        ? { id: "evt_idle", type: "session.idle", properties: { sessionID } }
+        : { id: "evt_error", type: "session.error", properties: { sessionID, error: { name: "APIError", data: {
           message: "Ordinary selected history changed; reload authoritative pages, do not replay input", isRetryable: false,
         } } } }
       const settled = () => new Promise<void>((resolve) => {
