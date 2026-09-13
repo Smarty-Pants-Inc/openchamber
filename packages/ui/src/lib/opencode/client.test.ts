@@ -169,8 +169,15 @@ describe('ordinary accepted browser view forwarding', () => {
     try {
       messageView = nextView;
       promptAsyncResults.push({ response: new Response('stale view', { status: 409 }) });
+      const refreshed = new Promise<void>((resolve) => {
+        const unsubscribe = f.loader.subscribe(target, () => {
+          if (f.loader.getAcceptedOrdinaryView(target, runtimeKey) !== nextView) return;
+          unsubscribe();
+          resolve();
+        });
+      });
       await expect(opencodeClient.sendMessage(params)).rejects.toThrow('(409)');
-      await f.loader.ensure(target);
+      await refreshed;
       expect(promptAsyncCalls).toHaveLength(1);
       expect(messagePageCalls).toBe(2);
       expect(f.loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(nextView);
