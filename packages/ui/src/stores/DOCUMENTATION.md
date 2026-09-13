@@ -122,6 +122,13 @@ folders remain host-managed; its legacy settings bridge does not advertise proje
 CAS. The settings queue protects one backend process; separate processes must not
 write the same settings file.
 
+Each consumed settings batch waits for older write batches in the same runtime
+generation before its baseline read or mutation, not only before the final PUT.
+The wait excludes its own callers and later batches. Mutation tracking stays active
+while queued, so an older completion cannot discard newer local intent. A runtime
+switch fences the queued work after the wait; disconnected writes do not delay the
+new runtime. External contention still follows the existing CAS and refusal rules.
+
 Settings sync waits for outstanding debounced and in-flight writes to the same
 runtime before starting its read and taking a mutation baseline. A read started
 after a local edit can otherwise return the server's older project list and undo
