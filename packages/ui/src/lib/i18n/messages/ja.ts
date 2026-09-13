@@ -1,4 +1,5 @@
 import type { I18nKey } from './en';
+import { displayNameI18n } from './display-name.i18n';
 import { settingsDict } from './ja.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -6,6 +7,7 @@ import { linearPanelI18n } from './linear-panel.i18n';
 export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'プロジェクトアクション実行中',
   ...settingsDict,
+  ...displayNameI18n.ja,
   ...linearIssuePickerI18n.ja,
   ...linearPanelI18n.ja,
   'terminalView.actions.attachSelection': '選択した出力を添付',

@@ -2,7 +2,9 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
+import { z } from "zod";
 
 import {
   claimedFilePaths,
@@ -53,7 +55,7 @@ function usage(exitCode = 0) {
 
 Every command accepts --claims-dir <path> to isolate a working copy.
   bun run deslop -- release --run <run-id>
-  bun run deslop -- file <path> [--include-noisy]
+  bun run deslop -- file [--include-noisy] -- <path> [<path> ...]
   bun run deslop -- top [--limit 10] [--include-noisy]
 
 Files selected by an active batch are excluded from later batches, so concurrent
@@ -73,6 +75,10 @@ function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === "--") {
+      args._.push(...argv.slice(i + 1));
+      break;
+    }
     if (!arg.startsWith("--")) {
       args._.push(arg);
       continue;
@@ -98,25 +104,50 @@ function asPositiveInt(value, fallback, name) {
   return parsed;
 }
 
-function runOxlint() {
-  // Oxlint exits non-zero whenever it reports findings, so the report has to be
-  // read from stdout of the failed invocation rather than treated as an error.
+function runOxlint(filePaths = []) {
+  const require = createRequire(join(process.cwd(), "package.json"));
+  const manifest = require.resolve("oxlint/package.json");
+  const executable = join(dirname(manifest), require(manifest).bin.oxlint);
   let output;
+  let exitCode = 0;
   try {
-    output = execFileSync("bunx", ["oxlint", "--format", "json"], {
+    // ponytail: Bun 1.3.14 script dispatch splits tabs in argv; use the installed Node CLI directly.
+    output = execFileSync(process.execPath, [executable, "--format", "json", "--", ...filePaths], {
       cwd: process.cwd(),
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    // The utf8 encoding above makes stdout a string whenever the run produced
-    // a report; an empty stdout means the run itself failed.
-    if (!error.stdout) throw error;
+    // Findings exit 1; spawn failures, signals and abnormal exits are not reports.
+    if (error.status !== 1 || error.signal || !error.stdout) {
+      if (filePaths.length) {
+        console.error(`Raw Oxlint exit code: ${error.status}; signal: ${error.signal ?? "none"}`);
+        console.log(error.stdout ?? "");
+      }
+      throw error;
+    }
+    exitCode = error.status;
     output = error.stdout;
   }
-  const report = JSON.parse(output);
-  return { diagnostics: normalizeDiagnostics(report.diagnostics ?? []) };
+  if (filePaths.length) {
+    console.log(`Raw Oxlint exit code: ${exitCode}`);
+    console.log("Raw Oxlint diagnostic report:");
+    console.log(output);
+  }
+  const report = z.object({
+    diagnostics: z.array(z.object({
+      filename: z.string().min(1), code: z.string().min(1), message: z.string().min(1),
+      severity: z.enum(["error", "warning"]),
+      labels: z.array(z.object({ span: z.object({
+        line: z.number().int().positive(), column: z.number().int().positive(),
+      }) })).min(1),
+    })),
+  }).parse(JSON.parse(output));
+  if (report.diagnostics.some(diagnostic => diagnostic.severity === "error") !== (exitCode === 1)) {
+    throw new Error("Oxlint exit status does not match its diagnostic report.");
+  }
+  return { diagnostics: normalizeDiagnostics(report.diagnostics), exitCode };
 }
 
 function ruleOf(code) {
@@ -437,12 +468,14 @@ function commandTop(args) {
 }
 
 function commandFile(args) {
-  const filePath = args._[1];
-  if (!filePath) throw new Error("Missing file path. Usage: bun run deslop -- file <path>");
+  const filePaths = args._.slice(1);
+  if (!filePaths.length) throw new Error("Missing file path. Usage: bun run deslop -- file -- <path> [<path> ...]");
   const includeNoisy = args["include-noisy"] === true;
-  const report = runOxlint();
-  const diagnostics = groupByFile(selectableDiagnostics(report, includeNoisy)).get(filePath) ?? [];
-  console.log(filePath);
+  const report = runOxlint(filePaths);
+  const diagnostics = selectableDiagnostics(report, includeNoisy);
+  console.log(`Selected paths: ${JSON.stringify(filePaths)}`);
+  console.log(`Noisy rules included: ${includeNoisy ? "yes" : "no"}`);
+  console.log("Report completion is not lint-clean or authored-finding acceptance.");
   console.log(`${diagnostics.length} findings`);
   console.log("");
   if (diagnostics.length === 0) return;
@@ -453,7 +486,7 @@ function commandFile(args) {
   console.log("");
   console.log("Findings:");
   for (const diagnostic of diagnostics) {
-    console.log(`line ${diagnostic.line ?? "?"}:${diagnostic.column ?? "?"}  ${diagnostic.severity}  ${diagnostic.rule}`);
+    console.log(`${JSON.stringify(diagnostic.filePath)}:${diagnostic.line}:${diagnostic.column}  ${diagnostic.severity}  ${diagnostic.rule}`);
     console.log(`  ${diagnostic.message}`);
   }
 }

@@ -192,6 +192,46 @@ and the send path reading the same grammar.
   state and registers its application shortcuts locally. The selectors only
   consume their shared prefix while the draft target UI is mounted.
 
+## Optional display attribution
+
+`ui/DisplayNameChoice.tsx`, Send and Queue share `browserDisplayName` in
+`lib/messages/displayName.ts` as their applied-choice authority. Persisted names
+use sessionStorage, never shared settings, and imply no sign-in, permission or
+native-session ownership. Applying an empty name removes the saved choice.
+Storage failure stays visible and never silently drops a name. The explicit
+"Use unnamed until reload" action works without reading or writing storage. It
+overrides naming only in the current tab until reload or a successful Apply;
+any saved name remains unchanged. A failed Apply preserves the last accepted
+choice and reports an error. A copied tab can inherit saved storage, not this
+in-memory override; each person must choose their own label.
+
+Name-input Enter reuses `isIMECompositionEvent`: native composition confirmation
+and WebKit keyCode229 do not Apply. A later ordinary Enter or Apply click saves
+the final input.
+
+`ChatInput.handleSubmit` snapshots the applied name before asynchronous work.
+`session-ui-store.routeMessage` carries that string into `client.sendMessage`,
+which uses the SDK's text-part metadata key `smartyCodeDisplayName`. Prompt text
+is unchanged on this wire. The existing SDK `global.health` call must advertise
+`capabilities.displayAttribution: 1` before a named prompt is dispatched. A backend
+that merely retains unknown metadata does not qualify. This is the same shared
+path for web, desktop, VS Code and mobile; unsupported backends fail explicitly.
+
+The owning Pi gateway labels its one native input and projects that native text
+back into shared history. The name proves no authenticated identity or authority.
+The UI does not write a second transcript or rewrite earlier labels. Programmatic
+callers that omit `displayName` retain their legacy behavior. Named queue, shell,
+slash-command and steering operations are refused before composer consumption,
+rather than silently losing names through transports that lack this contract.
+The early slash guard checks a nonmutating `trimStart()` view, matching local
+command recognition without trimming the submitted draft.
+
+Source tests cover tab storage, explicit storage-denial recovery, validation,
+per-request SDK isolation and the actual inline command/IME decision guards.
+Source-position checks bind those guards before command planning or side effects.
+These tests do not mount React or prove rendered behavior, focus, mobile layout,
+actual browser transport or native persistence. The owning Code integration supplies those acceptance gates.
+
 ## Input recall ownership
 
 Prompt recall has two owners on purpose.
