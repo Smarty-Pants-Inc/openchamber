@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test"
 import { create, type StoreApi } from "zustand"
 import type { Event, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2/client"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 
 const listPendingQuestionsCalls: Array<{ directories?: Array<string | null | undefined> }> = []
 const listPendingPermissionsCalls: Array<{ directories?: Array<string | null | undefined> }> = []
@@ -68,6 +69,7 @@ import { INITIAL_STATE, type State } from "../types"
 import { ChildStoreManager, type DirectoryStore } from "../child-store"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { sessionEvents } from "@/lib/sessionEvents"
+import { SessionMessageLoader, setImperativeSessionMessageLoader } from "../session-message-loader"
 const {
   createEventRoutingIndex,
   handleEvent,
@@ -341,6 +343,109 @@ describe("resyncBlockingRequestsForDirectory", () => {
     unsubscribe()
     childStores.disposeAll()
   })
+
+  for (const mode of ["idle", "error-complete", "error-paged"] as const) {
+    test(`ordinary ${mode} events reach the loader without replaying input or refreshing Chord`, async () => {
+      const runtimeKey = getRuntimeKey()
+      const target = { directory: "/repo", sessionID: "ses_a" }
+      const chord = { ...target, sessionID: "ses_chord" }
+      const oldView = `ov2_${"a".repeat(64)}`
+      const newView = `ov2_${"b".repeat(64)}`
+      const childStores = new ChildStoreManager()
+      const routingIndex = createEventRoutingIndex()
+      const requests: Array<{ method: string; path: string; directory: string | null; before: string | null }> = []
+      const page = (sessionID: string, ids: string[], view?: string, cursor?: string) => new Response(JSON.stringify(
+        ids.map((id, index) => ({
+          info: { id, sessionID, role: "user", time: { created: index + 1 }, agent: "build",
+            model: { providerID: "fixture", modelID: "test" } },
+          parts: [{ id: `part_${id}`, messageID: id, sessionID, type: "text", text: id }],
+        })),
+      ), { headers: { "content-type": "application/json",
+        ...(view ? { "x-smarty-ordinary-view": view } : {}), ...(cursor ? { "x-next-cursor": cursor } : {}) } })
+      let ordinaryResponse = page(target.sessionID, ["root", "tail"], oldView, mode === "error-paged" ? "stale-cursor" : undefined)
+      const sdk = createOpencodeClient({ baseUrl: "https://sync.test", fetch: async (input) => {
+        const request = input instanceof Request ? input : new Request(input)
+        const url = new URL(request.url)
+        requests.push({ method: request.method, path: url.pathname,
+          directory: url.searchParams.get("directory"), before: url.searchParams.get("before") })
+        return url.pathname === `/session/${chord.sessionID}/message`
+          ? page(chord.sessionID, ["chord"])
+          : ordinaryResponse
+      } })
+      const loader = new SessionMessageLoader(childStores, { sdk, runtimeKey })
+      setImperativeSessionMessageLoader(loader)
+      const event = (sessionID: string): Event => mode === "idle"
+        ? { type: "session.idle", properties: { sessionID } }
+        : { type: "session.error", properties: { sessionID, error: { name: "APIError", data: {
+          message: "Ordinary selected history changed; reload authoritative pages, do not replay input", isRetryable: false,
+        } } } }
+      const settled = () => new Promise<void>((resolve) => {
+        const unsubscribe = loader.subscribe(target, () => {
+          const status = loader.getSnapshot(target).status
+          if (status !== "ready" && status !== "error") return
+          unsubscribe()
+          resolve()
+        })
+      })
+      const dispatch = () => {
+        // Use the actual event caller twice in one batch, never a direct loader refresh.
+        handleEvent("/repo", event(target.sessionID), childStores, routingIndex, runtimeKey)
+        handleEvent("/repo", event(target.sessionID), childStores, routingIndex, runtimeKey)
+        handleEvent("/repo", event(chord.sessionID), childStores, routingIndex, runtimeKey)
+      }
+      try {
+        await loader.ensure(target)
+        await loader.ensure(chord)
+        const store = childStores.getChild(target.directory)!
+        const oldRecords = store.getState().message[target.sessionID]
+        const chordSnapshot = loader.getSnapshot(chord)
+        expect(loader.getSnapshot(target).complete).toBe(mode !== "error-paged")
+        expect(loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(oldView)
+        requests.length = 0
+
+        if (mode !== "idle") {
+          ordinaryResponse = new Response(JSON.stringify({ message: "history changed" }), {
+            status: 409, headers: { "content-type": "application/json" },
+          })
+          const failed = settled()
+          dispatch()
+          // No message.removed event: even same-ID/new-generation history invalidates coverage.
+          expect(loader.getSnapshot(target).resolved).toBe(false)
+          expect(loader.getSnapshot(target).complete).toBe(false)
+          expect(loader.getSnapshot(target).cursor).toBe(undefined)
+          expect(loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(undefined)
+          await failed
+          expect(loader.getSnapshot(target).status).toBe("error")
+          expect(store.getState().message[target.sessionID]).toBe(oldRecords)
+          expect(store.getState().part.root?.[0]?.id).toBe("part_root")
+          expect(requests).toHaveLength(1)
+        }
+
+        ordinaryResponse = page(target.sessionID, ["tail"], newView, "fresh-cursor")
+        const recovered = settled()
+        dispatch()
+        await Promise.resolve()
+        // Fails against e059 before waiting: its dead caller starts no load.
+        expect(loader.getSnapshot(target).status).toBe("loading")
+        await recovered
+        expect(loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(newView)
+        expect(loader.getSnapshot(target).resolved).toBe(true)
+        expect(loader.getSnapshot(target).complete).toBe(mode === "idle")
+        expect(loader.getSnapshot(target).cursor).toBe(mode === "idle" ? undefined : "fresh-cursor")
+        expect(store.getState().message[target.sessionID]?.map(message => message.id))
+          .toEqual(mode === "idle" ? ["root", "tail"] : ["tail"])
+        if (mode !== "idle") expect(store.getState().part.root).toBe(undefined)
+        expect(loader.getSnapshot(chord)).toBe(chordSnapshot)
+        expect(requests).toEqual(Array.from({ length: mode === "idle" ? 1 : 2 }, () => ({
+          method: "GET", path: `/session/${target.sessionID}/message`, directory: target.directory, before: null,
+        })))
+      } finally {
+        setImperativeSessionMessageLoader(null)
+        loader.dispose()
+        childStores.disposeAll()
+      }
+    })
+  }
 
   test("refreshes Git once when a live mutating tool completes between renders", () => {
     const childStores = new ChildStoreManager()
