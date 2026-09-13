@@ -39,6 +39,19 @@ describe('OpenCode proxy header handling', () => {
     expect(headers.accept).toBe('application/json');
   });
 
+  it('preserves the accepted ordinary view in requests and view/cursor response headers', () => {
+    const view = `ov2_${'a'.repeat(64)}`;
+    expect(collectForwardProxyHeaders({ 'x-smarty-ordinary-view': view }))
+      .toEqual({ 'x-smarty-ordinary-view': view });
+    const applied = new Map();
+    applyForwardProxyResponseHeaders(new Headers({
+      'x-smarty-ordinary-view': view,
+      'x-next-cursor': 'older-page',
+    }), { setHeader: (key, value) => applied.set(key, value) });
+    expect(applied.get('x-smarty-ordinary-view')).toBe(view);
+    expect(applied.get('x-next-cursor')).toBe('older-page');
+  });
+
   it('drops content-encoding from forwarded response headers', () => {
     expect(shouldForwardProxyResponseHeader('content-encoding')).toBe(false);
     expect(shouldForwardProxyResponseHeader('Content-Encoding')).toBe(false);

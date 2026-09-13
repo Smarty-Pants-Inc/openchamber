@@ -12,6 +12,8 @@ let runtimeKey = 'test-runtime';
 const promptAsyncCalls: unknown[][] = [];
 const promptAsyncResults: Array<unknown> = [];
 const pathGetResults: Array<unknown> = [];
+let messageView: string | undefined;
+let messagePageCalls = 0;
 
 const promptAsyncMock = mock(async (...args: unknown[]) => {
   promptAsyncCalls.push(args);
@@ -41,6 +43,12 @@ mock.module('@opencode-ai/sdk/v2', () => ({
     },
     session: {
       promptAsync: promptAsyncMock,
+      messages: async () => {
+        messagePageCalls += 1;
+        return { data: [], response: new Response(null, {
+          headers: messageView ? { 'x-smarty-ordinary-view': messageView } : {},
+        }) };
+      },
     },
     path: {
       get: pathGetMock,
@@ -61,6 +69,7 @@ mock.module('@/lib/runtime-url', () => ({
 mock.module('@/lib/runtime-switch', () => ({
   getRuntimeApiBaseUrl: mock(() => ''),
   getRuntimeKey: mock(() => runtimeKey),
+  subscribeRuntimeEndpointWillChange: mock(() => () => undefined),
 }));
 
 type DirectoryProbeQuery = { path?: string };
@@ -89,9 +98,14 @@ mock.module('@/lib/startupTrace', () => ({
 }));
 
 const { opencodeClient } = await import(`./client?cache-test=${Date.now()}`);
+const { SessionMessageLoader, setImperativeSessionMessageLoader } = await import('@/sync/session-message-loader');
+const { ChildStoreManager } = await import('@/sync/child-store');
 
 beforeEach(() => {
   runtimeKey = 'test-runtime';
+  messageView = undefined;
+  messagePageCalls = 0;
+  setImperativeSessionMessageLoader(null);
   promptAsyncCalls.length = 0;
   promptAsyncResults.length = 0;
   healthResolvers.length = 0;
@@ -100,6 +114,75 @@ beforeEach(() => {
   runtimeFetchCalls.length = 0;
   runtimeFetchResults.length = 0;
   fsHomeResponses.length = 0;
+});
+
+describe('ordinary accepted browser view forwarding', () => {
+  const view = `ov2_${'a'.repeat(64)}`;
+  const nextView = `ov2_${'b'.repeat(64)}`;
+  const target = { directory: '/repo', sessionID: 'ordinary-a' };
+  const params = { id: target.sessionID, directory: target.directory, runtimeKey: 'test-runtime',
+    providerID: 'ordinary-fixture', modelID: 'test', text: 'hello' };
+
+  const fixture = async () => {
+    const childStores = new ChildStoreManager();
+    const loader = new SessionMessageLoader(childStores, { sdk: opencodeClient.getSdkClient(), runtimeKey });
+    setImperativeSessionMessageLoader(loader);
+    messageView = view;
+    await loader.ensure(target);
+    return { loader, close() { setImperativeSessionMessageLoader(null); loader.dispose(); childStores.disposeAll(); } };
+  };
+
+  test('forwards the materialized session view through SDK options and revokes it after submission', async () => {
+    const f = await fixture();
+    try {
+      await opencodeClient.sendMessage(params);
+      expect(promptAsyncCalls).toHaveLength(1);
+      expect(promptAsyncCalls[0][1]).toEqual({ headers: { 'x-smarty-ordinary-view': view } });
+      expect(f.loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(undefined);
+    } finally { f.close(); }
+  });
+
+  test('does not borrow another session view and never retries a rejected mutation', async () => {
+    const f = await fixture();
+    try {
+      promptAsyncResults.push({ response: new Response('missing view', { status: 409 }) });
+      await expect(opencodeClient.sendMessage({ ...params, id: 'ordinary-b' })).rejects.toThrow('(409)');
+      expect(promptAsyncCalls).toHaveLength(1);
+      expect(promptAsyncCalls[0][1]).toBe(undefined);
+      expect(f.loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(view);
+    } finally { f.close(); }
+  });
+
+  test('rejects view invalidation during asynchronous preparation before dispatch', async () => {
+    const f = await fixture();
+    try {
+      const sending = opencodeClient.sendMessage({ ...params, displayName: 'Paul' });
+      f.loader.invalidateOrdinaryViews();
+      healthResolvers.shift()?.({ data: { capabilities: { displayAttribution: 1 } } });
+      await expect(sending).rejects.toThrow('view changed before submission');
+      expect(promptAsyncCalls).toHaveLength(0);
+    } finally { f.close(); }
+  });
+
+  test('refreshes a rejected stale view by GET without replaying the prompt', async () => {
+    const f = await fixture();
+    try {
+      messageView = nextView;
+      promptAsyncResults.push({ response: new Response('stale view', { status: 409 }) });
+      const refreshed = new Promise<void>((resolve) => {
+        const unsubscribe = f.loader.subscribe(target, () => {
+          if (f.loader.getAcceptedOrdinaryView(target, runtimeKey) !== nextView) return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      await expect(opencodeClient.sendMessage(params)).rejects.toThrow('(409)');
+      await refreshed;
+      expect(promptAsyncCalls).toHaveLength(1);
+      expect(messagePageCalls).toBe(2);
+      expect(f.loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(nextView);
+    } finally { f.close(); }
+  });
 });
 
 describe('opencodeClient directory availability', () => {

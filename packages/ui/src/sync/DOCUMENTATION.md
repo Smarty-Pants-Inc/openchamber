@@ -204,6 +204,12 @@ Rules:
 
 Initial loads use smaller pages on constrained VS Code/mobile surfaces. Prefetch resolves only the initial renderable page; it does not eagerly download older history. The mounted chat timeline requests older pages when its viewport is underfilled or the user scrolls toward history, while mobile uses its explicit load-older action. Timeline caches, pending work, prepend snapshots, and stale checks use runtime + directory + session identity so equal session IDs in different worktrees cannot share lifecycle state. Older pages are fetched through the same loader and merged with optimistic records before publication. The same chronology contract applies in the VS Code webview because it consumes this shared loader and sync store; the extension bridge must transport OpenCode records without introducing its own ID-based ordering.
 
+### Ordinary Pi accepted views
+
+For an ordinary Pi backend, the loader retains `x-smarty-ordinary-view` only after a successful, still-current initial or tail page is materialized. Older pages, SSE records and legacy prefetch coverage cannot grant or advance this token. Tokens remain in the runtime/directory/session loader entry, never persisted or borrowed from another target. The imperative OpenCode client captures that accepted token before asynchronous prompt preparation, checks it again before dispatch, and forwards it through the SDK request-header option.
+
+Disconnect, transport switch, native branch removal and failed ordinary page loads revoke accepted views. A `session.error` for a known ordinary session also resets coverage, since generation or branch changes need not remove a renderable row. Idle refresh retains valid coverage. A branch reset preserves visible records on failure; a successful replacement tail drops the old cached branch and reports incomplete coverage until older pages reach root. Completion and reconnect use the existing loader GET path. Stale prompt responses can refresh history but never replay the mutation; missing tokens remain backend refusals. Backends without this header retain their normal prompt and event behavior.
+
 ## Failed-turn diagnostics
 
 A `session.error` event is the only account of a turn OpenCode stopped, and
