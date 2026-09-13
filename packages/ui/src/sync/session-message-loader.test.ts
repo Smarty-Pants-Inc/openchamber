@@ -20,9 +20,10 @@ const deferred = <T>() => {
   return { promise, resolve }
 }
 
-const response = (data: ReturnType<typeof createRecord>[], cursor?: string) => ({
+const response = (data: ReturnType<typeof createRecord>[], cursor?: string, view?: string) => ({
   data,
-  response: { headers: { get: (name: string) => name === "x-next-cursor" ? cursor ?? null : null } },
+  response: { headers: { get: (name: string) => name === "x-next-cursor" ? cursor ?? null
+    : name === "x-smarty-ordinary-view" ? view ?? null : null } },
 })
 
 const createLoader = (messages: (input: {
@@ -178,6 +179,231 @@ describe("SessionMessageLoader", () => {
     expect(loader.getSnapshot(target).complete).toBe(true)
     loader.dispose()
     childStores.disposeAll()
+  })
+
+  test("fetches initial coverage after SSE materialization and reuses the accepted cursor", async () => {
+    const pending = deferred<ReturnType<typeof response>>()
+    const calls: Array<{ before?: string }> = []
+    const { childStores, loader } = createLoader(async ({ sessionID, before }) => {
+      calls.push({ before })
+      return before ? response([createRecord(sessionID, "older", 1)]) : pending.promise
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const live = createRecord(target.sessionID, "live", 2)
+    const store = childStores.ensureChild(target.directory, { bootstrap: false })
+    store.setState({ message: { [target.sessionID]: [live.info] }, part: { [live.info.id]: live.parts } })
+
+    try {
+      const navigation = loader.ensure(target, { reason: "navigation" })
+      const reactive = loader.ensure(target, { reason: "reactive" })
+      expect(calls).toEqual([{ before: undefined }])
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).status).toBe("loading")
+      pending.resolve(response([live], "older-cursor"))
+      await Promise.all([navigation, reactive])
+      expect(loader.getSnapshot(target).resolved).toBe(true)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+      expect(loader.getSnapshot(target).cursor).toBe("older-cursor")
+
+      await loader.ensure(target)
+      expect(calls).toHaveLength(1)
+      await loader.loadOlder(target)
+      expect(calls).toEqual([{ before: undefined }, { before: "older-cursor" }])
+      expect(store.getState().message[target.sessionID]?.map((message) => message.id)).toEqual(["older", "live"])
+      expect(loader.getSnapshot(target).complete).toBe(true)
+    } finally {
+      loader.dispose()
+      childStores.disposeAll()
+    }
+  })
+
+  test("keeps SSE-first coverage unresolved on failure and rejects an invalidated older response", async () => {
+    const stale = deferred<ReturnType<typeof response>>()
+    let rejectInitial = true
+    const { childStores, loader } = createLoader(async ({ sessionID, before }) => {
+      if (rejectInitial) return { error: { message: "view rejected" }, response: { status: 409 } }
+      return before ? stale.promise : response([createRecord(sessionID, "current", 2)], "current-cursor")
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const live = createRecord(target.sessionID, "live", 3)
+    const store = childStores.ensureChild(target.directory, { bootstrap: false })
+    store.setState({ message: { [target.sessionID]: [live.info] }, part: { [live.info.id]: live.parts } })
+
+    try {
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).status).toBe("error")
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+      expect(store.getState().message[target.sessionID]).toEqual([live.info])
+      rejectInitial = false
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).cursor).toBe("current-cursor")
+      const older = loader.loadOlder(target)
+      loader.invalidateSession(target)
+      stale.resolve(response([createRecord(target.sessionID, "off-branch", 1)]))
+      await older
+      expect(store.getState().message[target.sessionID]?.map((message) => message.id)).toEqual(["current", "live"])
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getSnapshot(target).cursor).toBe(undefined)
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).cursor).toBe("current-cursor")
+      expect(loader.getSnapshot(target).complete).toBe(false)
+    } finally {
+      loader.dispose()
+      childStores.disposeAll()
+    }
+  })
+
+  test("accepts only materialized tail views and never advances them from older pages", async () => {
+    const first = `ov2_${"a".repeat(64)}`
+    const other = `ov2_${"b".repeat(64)}`
+    const pending = deferred<ReturnType<typeof response>>()
+    const { childStores, loader } = createLoader(async ({ sessionID, before }) => before
+      ? response([createRecord(sessionID, "older", 1)], undefined, other) : pending.promise)
+    const target = { directory: "/repo", sessionID: "session-a" }
+    try {
+      const loading = loader.ensure(target)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      pending.resolve(response([createRecord(target.sessionID, "tail", 2)], "older", first))
+      await loading
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(first)
+      expect(loader.getAcceptedOrdinaryView({ ...target, sessionID: "session-b" }, "runtime-a")).toBe(undefined)
+      expect(loader.getAcceptedOrdinaryView({ ...target, directory: "/other" }, "runtime-a")).toBe(undefined)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-b")).toBe(undefined)
+      await loader.loadOlder(target)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(first)
+      loader.invalidateOrdinaryViews()
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+      await loader.ensure(target)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(first)
+      expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.map(m => m.id)).toEqual(["tail"])
+    } finally { loader.dispose(); childStores.disposeAll() }
+  })
+
+  test("rejects first-page views received across disconnect and views invalidated during materialization", async () => {
+    const view = `ov2_${"c".repeat(64)}`
+    const pending = deferred<ReturnType<typeof response>>()
+    const { childStores, loader } = createLoader(async () => pending.promise)
+    const target = { directory: "/repo", sessionID: "session-a" }
+    try {
+      const loading = loader.ensure(target)
+      loader.invalidateOrdinaryViews()
+      pending.resolve(response([createRecord(target.sessionID)], undefined, view))
+      await loading
+      expect(loader.getSnapshot(target).status).toBe("error")
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      const store = childStores.getChild(target.directory)!
+      const unsubscribe = store.subscribe(() => loader.invalidateSession(target))
+      await loader.ensure(target)
+      unsubscribe()
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+    } finally { loader.dispose(); childStores.disposeAll() }
+  })
+
+  test("coalesces completion refreshes and resets stale branch coverage without clearing records on failure", async () => {
+    const view = `ov2_${"d".repeat(64)}`
+    let calls = 0
+    let failure = false
+    let omitView = false
+    const { childStores, loader } = createLoader(async ({ sessionID }) => {
+      calls += 1
+      return failure ? { error: { message: "stale branch" }, response: { status: 409 } }
+        : response([createRecord(sessionID, `branch-${calls}`, calls)], "older", omitView ? undefined : view)
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    try {
+      await loader.ensure(target)
+      const refresh = loader.refreshOrdinaryView(target)
+      expect(loader.refreshOrdinaryView(target)).toBe(refresh)
+      await refresh
+      expect(calls).toBe(2)
+      failure = true
+      await loader.refreshOrdinaryView(target)
+      expect(loader.getSnapshot(target).status).toBe("error")
+      expect(loader.getSnapshot(target).resolved).toBe(false)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]).toHaveLength(2)
+      failure = false
+      omitView = true
+      await loader.ensure(target)
+      expect(loader.getSnapshot(target).status).toBe("error")
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      omitView = false
+      await loader.ensure(target)
+      expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.map(m => m.id)).toEqual(["branch-5"])
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(view)
+      expect(loader.getSnapshot(target).complete).toBe(false)
+    } finally { loader.dispose(); childStores.disposeAll() }
+  })
+
+  test("replaces an invalidated in-flight tail with one coalesced fresh branch request", async () => {
+    const oldView = `ov2_${"1".repeat(64)}`
+    const newView = `ov2_${"2".repeat(64)}`
+    const stale = deferred<ReturnType<typeof response>>()
+    let calls = 0
+    const { childStores, loader } = createLoader(async ({ sessionID }) => {
+      calls += 1
+      if (calls === 2) return stale.promise
+      return response([createRecord(sessionID, calls === 1 ? "old" : "new")], "older", calls === 1 ? oldView : newView)
+    })
+    const target = { directory: "/repo", sessionID: "session-a" }
+    try {
+      await loader.ensure(target)
+      const refreshing = loader.refreshOrdinaryView(target)
+      await Promise.resolve()
+      expect(calls).toBe(2)
+      expect(loader.refreshOrdinaryView(target, true)).toBe(refreshing)
+      expect(loader.refreshOrdinaryView(target, true)).toBe(refreshing)
+      stale.resolve(response([createRecord(target.sessionID, "stale")], undefined, oldView))
+      await refreshing
+      expect(calls).toBe(3)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(newView)
+      expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.map(m => m.id)).toEqual(["new"])
+      expect(loader.getSnapshot(target).complete).toBe(false)
+    } finally { loader.dispose(); childStores.disposeAll() }
+  })
+
+  test("does not restore an ordinary token from prefetch coverage or refresh a Chord-only entry", async () => {
+    const view = `ov2_${"f".repeat(64)}`
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const first = createLoader(async ({ sessionID }) => response([createRecord(sessionID)], undefined, view))
+    const second = createLoader(async ({ sessionID }) => response([createRecord(sessionID)]))
+    try {
+      await first.loader.prefetch(target)
+      expect(first.loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(view)
+      expect(second.loader.getSnapshot(target).resolved).toBe(false)
+      expect(second.loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      await second.loader.ensure(target)
+      const ready = second.loader.getSnapshot(target)
+      second.loader.invalidateOrdinaryViews()
+      await second.loader.refreshOrdinaryView(target, true)
+      expect(second.loader.getSnapshot(target)).toBe(ready)
+    } finally {
+      first.loader.dispose(); first.childStores.disposeAll()
+      second.loader.dispose(); second.childStores.disposeAll()
+    }
+  })
+
+  test("materializes the accepted page when initial boundary expansion has no larger limit", async () => {
+    const view = `ov2_${"e".repeat(64)}`
+    const { childStores, loader } = createLoader(async ({ sessionID }) => response([{
+      info: { id: "assistant", sessionID, role: "assistant", time: { created: 200 },
+        parentID: "live-149", modelID: "test", providerID: "fixture", mode: "build", agent: "build",
+        path: { cwd: "/repo", root: "/repo" }, cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } },
+      parts: createRecord(sessionID, "assistant", 200).parts,
+    }], "older", view))
+    const target = { directory: "/repo", sessionID: "session-a" }
+    const store = childStores.ensureChild(target.directory, { bootstrap: false })
+    store.setState({ message: { [target.sessionID]: Array.from({ length: 150 }, (_, i) => createRecord(target.sessionID, `live-${i}`, i).info) } })
+    try {
+      await loader.ensure(target)
+      expect(store.getState().message[target.sessionID]?.some(m => m.id === "assistant")).toBe(true)
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(view)
+      expect(loader.getSnapshot(target).cursor).toBe("older")
+    } finally { loader.dispose(); childStores.disposeAll() }
   })
 
   test("rejects repeated pagination cursors instead of looping forever", async () => {
