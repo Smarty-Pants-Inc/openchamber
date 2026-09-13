@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
+import { rejects } from 'node:assert/strict';
 import { SettingsConflictError } from '@openchamber/ui/lib/projectSettingsMerge';
 
 let request: (path: string, init?: RequestInit) => Promise<Response>;
@@ -40,20 +41,20 @@ test('reports a rejected precondition without replaying the mutation', async () 
     return Response.json({ error: 'Settings changed' }, { status: 412 });
   };
   const result = api.save({ projects: [] }, { ifMatch: '"old"' });
-  await expect(result).rejects.toBeInstanceOf(SettingsConflictError);
+  await rejects(result, SettingsConflictError);
   await expect(result).rejects.toThrow('Settings changed');
   expect(requests).toBe(1);
 });
 
 for (const status of [401, 403, 409, 500, 503]) test(`status ${status} does not certify a precondition rejection`, async () => {
   request = async () => Response.json({ error: 'Settings changed (412)' }, { status });
-  await expect(createWebSettingsAPI().save({ projects: [] }, { ifMatch: '"old"' })).rejects.not.toBeInstanceOf(SettingsConflictError);
+  await rejects(createWebSettingsAPI().save({ projects: [] }, { ifMatch: '"old"' }), error => !(error instanceof SettingsConflictError));
 });
 
 test('an unconditional 412 or transport error does not certify safe conditional recovery', async () => {
   request = async () => Response.json({ error: 'Settings changed' }, { status: 412 });
-  await expect(createWebSettingsAPI().save({ pwaAppName: 'Preference' })).rejects.not.toBeInstanceOf(SettingsConflictError);
+  await rejects(createWebSettingsAPI().save({ pwaAppName: 'Preference' }), error => !(error instanceof SettingsConflictError));
   const error = new Error('Disconnected');
   request = async () => { throw error; };
-  await expect(createWebSettingsAPI().save({ projects: [] }, { ifMatch: '"old"' })).rejects.toBe(error);
+  await rejects(createWebSettingsAPI().save({ projects: [] }, { ifMatch: '"old"' }), received => received === error);
 });
