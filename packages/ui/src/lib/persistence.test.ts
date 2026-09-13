@@ -384,7 +384,11 @@ describe('updateDesktopSettings', () => {
         switchRuntimeEndpoint({ apiBaseUrl: 'https://write-order-b.example', runtimeKey: 'write-order-b' });
         const otherPatches: Array<Partial<SettingsPayload>> = [];
         let otherReads = 0;
-        registerSettingsApi(async (changes) => { otherPatches.push(changes); return changes; }, async () => {
+        registerSettingsApi(async (changes) => {
+          // Save-echo migration may mutate the response, not the recorded sent patch.
+          otherPatches.push(structuredClone(changes));
+          return structuredClone(changes);
+        }, async () => {
           otherReads += 1;
           return { settings: {}, source: 'web', revision: '"other"' };
         });
