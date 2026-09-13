@@ -910,8 +910,8 @@ class OpencodeService {
       const textPart: TextPartInput = {
         type: 'text',
         text: params.text,
-        ...(displayName === undefined ? {} : { metadata: { smartyCodeDisplayName: displayName } }),
       };
+      if (displayName !== undefined) textPart.metadata = { smartyCodeDisplayName: displayName };
       parts.push(textPart);
     }
 

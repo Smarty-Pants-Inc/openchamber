@@ -6,7 +6,7 @@ declare module "bun:test" {
   export function test(name: string, fn: () => void | Promise<void>, timeoutMs?: number): void;
   export interface ExpectResult {
     toEqual(expected: unknown): void;
-    toMatchObject(expected: unknown): void;
+    toMatchObject: ExpectResult['toEqual'];
     toBe(expected: unknown): void;
     toBeTruthy(): void;
     toBeFalsy(): void;
