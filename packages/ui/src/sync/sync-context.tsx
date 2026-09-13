@@ -1983,6 +1983,15 @@ export function handleEvent(
 
   }
 
+  const ordinarySessionID = getSessionIdFromPayload(payload)
+  if (ordinarySessionID && (payload.type === "message.removed"
+    || payload.type === "session.idle" || payload.type === "session.error")) {
+    // The loader coalesces this GET until after the current event batch commits.
+    void getImperativeSessionMessageLoader()?.refreshOrdinaryView(
+      { directory: resolvedDirectory, sessionID: ordinarySessionID }, payload.type === "message.removed",
+    )
+  }
+
   // Snapshot materialization is driven by typed reducer outcomes, not by
   // inferring meaning from a generic false/no-change result.
   if (materializationResult) {
@@ -2478,6 +2487,7 @@ export function SyncProvider(props: {
         }
       },
       onDisconnect: (reason) => {
+        messageLoader.invalidateOrdinaryViews()
         if (!pipelineHasConnectedRef.current) {
           pipelineDisconnectedBeforeFirstConnectRef.current = true
         }
@@ -2489,6 +2499,7 @@ export function SyncProvider(props: {
         })
       },
       onTransportSwitch: () => {
+        messageLoader.invalidateOrdinaryViews()
         // Transport changes are gap-prone in real networks. Treat them like a
         // reconnect and refresh active session snapshots from HTTP.
         useConfigStore.setState({

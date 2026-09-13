@@ -33,6 +33,7 @@ export type FetchPermissionResult =
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch } from "@/lib/runtime-fetch";
 import { getRuntimeKey } from "@/lib/runtime-switch";
+import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
 import {
@@ -887,6 +888,11 @@ class OpencodeService {
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey);
 
+    const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
+    const viewRuntimeKey = params.runtimeKey ?? getRuntimeKey();
+    const viewLoader = getImperativeSessionMessageLoader();
+    const viewTarget = { directory: requestDirectory ?? '', sessionID: params.id };
+    const ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
     const displayName = params.displayName === undefined ? undefined : displayNameSchema.parse(params.displayName);
     const displayNameRuntimeKey = params.runtimeKey ?? getRuntimeKey();
 
@@ -957,8 +963,6 @@ class OpencodeService {
       throw new Error('Message must have at least one part (text or file)');
     }
 
-    const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
-
     if (params.format) {
       console.info('[git-generation][browser] send structured message', {
         sessionId: params.id,
@@ -989,6 +993,11 @@ class OpencodeService {
     assertProviderCircuitClosed(params.providerID);
     this.assertRuntimeUnchanged(params.runtimeKey);
 
+    if (ordinaryView && (viewLoader !== getImperativeSessionMessageLoader()
+      || getRuntimeKey() !== viewRuntimeKey
+      || viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey) !== ordinaryView)) {
+      throw new Error('Ordinary history view changed before submission');
+    }
     let response: Response;
 
     try {
@@ -1005,7 +1014,7 @@ class OpencodeService {
         ...(params.delivery ? { delivery: params.delivery } : {}),
         ...(params.format ? { format: params.format } : {}),
         parts,
-      });
+      }, ordinaryView ? { headers: { 'x-smarty-ordinary-view': ordinaryView } } : undefined);
       if (result.response instanceof Response) {
         response = result.response;
       } else if (result.error) {
@@ -1031,10 +1040,15 @@ class OpencodeService {
       // Do not retry prompt_async after a transport failure: through a remote
       // tunnel the POST may already be running server-side even though the
       // client lost the response.
+      if (ordinaryView && getRuntimeKey() === viewRuntimeKey) viewLoader?.invalidateOrdinaryView(viewTarget);
       recordProviderError(params.providerID);
       throw error;
     }
 
+    if (ordinaryView && getRuntimeKey() === viewRuntimeKey) {
+      viewLoader?.invalidateOrdinaryView(viewTarget, response.status === 409);
+      if (response.status === 409) void viewLoader?.refreshOrdinaryView(viewTarget);
+    }
     if (response.ok) {
       recordProviderSuccess(params.providerID);
       return messageId;

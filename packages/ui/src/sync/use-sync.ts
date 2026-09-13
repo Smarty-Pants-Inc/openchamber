@@ -244,7 +244,9 @@ export function useSync() {
       const materialization = getSessionMaterializationStatus(current, sessionID)
       const cachedReady = materialization.hasMessages && materialization.renderable
       const hasSession = Binary.search(current.session, sessionID, (s) => s.id).found
-      if (cachedReady && hasSession && !force) return
+      if (cachedReady && hasSession && !force) {
+        return messageLoader.ensure({ directory: targetDirectory, sessionID }, { reason: "reactive" })
+      }
       const shouldLoadMessages = Boolean(!cachedReady || force)
       const shouldFetchSession = shouldFetchSessionForRenderableSync({ hasSession, shouldLoadMessages, force: Boolean(force) })
       const promise = (async () => {
@@ -270,12 +272,10 @@ export function useSync() {
                 }
               })()
             : Promise.resolve(),
-          shouldLoadMessages
-            ? messageLoader.ensure(
-                { directory: targetDirectory, sessionID },
-                { force, reason: "reactive" },
-              )
-            : Promise.resolve(),
+          messageLoader.ensure(
+            { directory: targetDirectory, sessionID },
+            { force, reason: "reactive" },
+          ),
         ])
       })()
 

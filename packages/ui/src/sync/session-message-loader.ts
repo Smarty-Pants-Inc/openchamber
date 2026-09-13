@@ -42,15 +42,21 @@ export type SessionMessageLoadState = {
   complete: boolean
   generation: number
   updatedAt: number | undefined
+  ordinaryView?: string
 }
 
 type LoaderEntry = {
+  target: SessionMessageTarget
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
   queuedRefresh: Promise<void> | null
   queuedRefreshLimit: number
   optimistic: Map<string, OptimisticItem>
+  ordinary: boolean
+  resetHistory: boolean
+  ordinaryRefresh: Promise<void> | null
+  ordinaryDemand: number
 }
 
 type FetchedPage = {
@@ -58,6 +64,8 @@ type FetchedPage = {
   partsByMessageID: Map<string, Part[]>
   cursor: string | undefined
   complete: boolean
+  ordinaryView?: string
+  viewEpoch: number
 }
 
 type LoadPerformanceDetails = {
@@ -129,6 +137,7 @@ export class SessionMessageLoader {
   private sdk: OpencodeClient
   private runtimeKey: string
   private sdkEpoch = 0
+  private ordinaryEpoch = 0
   private disposed = false
   private readonly entries = new Map<string, LoaderEntry>()
 
@@ -153,9 +162,11 @@ export class SessionMessageLoader {
         status: entry.snapshot.resolved ? "ready" : "idle",
         loadingKind: null,
         error: null,
+        ordinaryView: undefined,
         generation: entry.snapshot.generation + 1,
       }
       entry.inflight = null
+      if (entry.ordinary) this.invalidateOrdinaryView(entry.target, true)
       this.notify(entry)
     }
     if (runtimeChanged) {
@@ -185,7 +196,8 @@ export class SessionMessageLoader {
     const entry = this.getEntry(normalized)
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const materialization = getSessionMaterializationStatus(store.getState(), normalized.sessionID)
-    if (!options?.force && materialization.renderable && entry.snapshot.resolved) {
+    if (!options?.force && materialization.renderable && entry.snapshot.resolved
+      && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
     }
     if (entry.inflight) {
@@ -193,6 +205,9 @@ export class SessionMessageLoader {
         this.patchEntry(entry, { loadingKind: "initial" })
       }
       return entry.inflight
+    }
+    if (entry.ordinary && entry.snapshot.resolved && !options?.force) {
+      return this.refreshTail(normalized, getInitialPageSize())
     }
     if (options?.force) this.bumpGeneration(entry)
     const kind: SessionMessageLoadKind = options?.reason === "prefetch" ? "prefetch" : "initial"
@@ -314,6 +329,56 @@ export class SessionMessageLoader {
     })
   }
 
+  getAcceptedOrdinaryView(target: SessionMessageTarget, runtimeKey: string): string | undefined {
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return undefined
+    const entry = this.entries.get(this.keyFor(normalized))
+    return entry?.snapshot.status === "ready" ? entry.snapshot.ordinaryView : undefined
+  }
+
+  invalidateOrdinaryView(target: SessionMessageTarget, resetHistory = false): boolean {
+    const normalized = this.normalizeTarget(target)
+    const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    if (!entry?.ordinary || this.disposed) return false
+    this.bumpGeneration(entry)
+    entry.inflight = null
+    entry.resetHistory ||= resetHistory
+    this.patchEntry(entry, {
+      ordinaryView: undefined,
+      loadingKind: null,
+      status: entry.snapshot.resolved ? "ready" : "idle",
+      ...(resetHistory ? { status: "idle", resolved: false, cursor: undefined, complete: false } : {}),
+    })
+    if (normalized) clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
+    return true
+  }
+
+  invalidateOrdinaryViews(): void {
+    this.ordinaryEpoch += 1
+    for (const entry of this.entries.values()) this.invalidateOrdinaryView(entry.target, true)
+  }
+
+  refreshOrdinaryView(target: SessionMessageTarget, resetHistory = false): Promise<void> {
+    const normalized = this.normalizeTarget(target)
+    const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    if (!normalized || !entry?.ordinary || this.disposed) return Promise.resolve()
+    if (resetHistory) this.invalidateOrdinaryView(normalized, true)
+    entry.ordinaryDemand += 1
+    if (entry.ordinaryRefresh) return entry.ordinaryRefresh
+    const sdkEpoch = this.sdkEpoch
+    const refresh = Promise.resolve().then(async () => {
+      while (!this.disposed && this.sdkEpoch === sdkEpoch && this.entries.get(this.keyFor(normalized)) === entry) {
+        const demand = entry.ordinaryDemand
+        await this.refreshTail(normalized, getInitialPageSize())
+        if (entry.ordinaryDemand === demand) return
+      }
+    }).finally(() => {
+      if (entry.ordinaryRefresh === refresh) entry.ordinaryRefresh = null
+    })
+    entry.ordinaryRefresh = refresh
+    return refresh
+  }
+
   getSnapshot(target: SessionMessageTarget): SessionMessageLoadState {
     const normalized = this.normalizeTarget(target)
     return normalized ? this.getEntry(normalized).snapshot : EMPTY_SESSION_MESSAGE_LOAD_STATE
@@ -376,6 +441,7 @@ export class SessionMessageLoader {
     entry.inflight = null
     entry.optimistic.clear()
     entry.snapshot = createDefaultState(entry.snapshot.generation)
+    entry.resetHistory = entry.ordinary
     clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     this.notify(entry)
   }
@@ -424,6 +490,7 @@ export class SessionMessageLoader {
     if (existing) return existing
     const prefetched = getSessionPrefetch(target.directory, target.sessionID, this.runtimeKey)
     const entry: LoaderEntry = {
+      target,
       snapshot: prefetched
         ? {
             ...createDefaultState(),
@@ -440,6 +507,10 @@ export class SessionMessageLoader {
       queuedRefresh: null,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
+      ordinary: false,
+      resetHistory: false,
+      ordinaryRefresh: null,
+      ordinaryDemand: 0,
     }
     this.entries.set(key, entry)
     return entry
@@ -480,7 +551,10 @@ export class SessionMessageLoader {
       && this.childStores.getChild(target.directory) === store
     )
     const performance = { retryCount: 0, recordCount: 0 }
-    this.patchEntry(entry, { status: "loading", loadingKind: kind, error: null })
+    this.patchEntry(entry, {
+      status: "loading", loadingKind: kind, error: null,
+      ...(kind === "older" ? {} : { ordinaryView: undefined }),
+    })
     let loadPromise: Promise<void>
     try {
       loadPromise = run(isCurrent, performance)
@@ -495,6 +569,7 @@ export class SessionMessageLoader {
           return
         }
         finishPerformanceEvent("error", performance)
+        if (entry.ordinary) this.invalidateOrdinaryView(target, true)
         this.patchEntry(entry, {
           status: "error",
           loadingKind: null,
@@ -516,12 +591,13 @@ export class SessionMessageLoader {
     performance?: LoadPerformanceDetails,
   ): Promise<void> {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
-    const firstLimit = Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
+    const firstLimit = entry.ordinary ? getInitialPageSize()
+      : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
     const firstPage = await this.fetchPage(target, firstLimit, undefined, "initial-page", performance)
     if (!isCurrent()) return
     const deferFirstCommit = !firstPage.complete && !hasUserMessage(firstPage.session)
     let committed = deferFirstCommit
-      ? { messages: firstPage.session }
+      ? null
       : this.commitPage(target, entry, store, firstPage, "merge", isCurrent)
     let acceptedPage = firstPage
 
@@ -535,13 +611,14 @@ export class SessionMessageLoader {
         const isLast = limit === getInitialExpansionLimits()[getInitialExpansionLimits().length - 1]
         if (expandedPage.complete || boundaryFound || isLast) {
           committed = this.commitPage(target, entry, store, expandedPage, "merge", isCurrent)
-        } else {
-          committed = { messages: expandedPage.session }
         }
         if (expandedPage.complete || boundaryFound) break
       }
     }
 
+    if (deferFirstCommit && !committed && isCurrent()) {
+      committed = this.commitPage(target, entry, store, acceptedPage, "merge", isCurrent)
+    }
     if (!committed || !isCurrent()) return
     this.patchEntry(entry, {
       status: "ready",
@@ -563,6 +640,7 @@ export class SessionMessageLoader {
     caller: "initial-page" | "older" | "refresh" = "initial-page",
     performance?: LoadPerformanceDetails,
   ): Promise<FetchedPage> {
+    const viewEpoch = this.ordinaryEpoch
     const finishPagePerformance = startSessionLoadPerformanceEvent({
       operation: "session-messages.page",
       caller,
@@ -600,8 +678,13 @@ export class SessionMessageLoader {
         partsByMessageID.set(record.info.id, filterIdentifiedParts(record.parts ?? []))
       }
       const cursor = result.response?.headers?.get?.("x-next-cursor") ?? undefined
+      const ordinaryView = before === undefined
+        ? result.response?.headers?.get?.("x-smarty-ordinary-view") ?? undefined : undefined
+      if (ordinaryView !== undefined && !/^ov2_[a-f0-9]{64}$/.test(ordinaryView)) {
+        throw new Error("Invalid ordinary history view")
+      }
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
-      return { session, partsByMessageID, cursor, complete: !cursor }
+      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, viewEpoch }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -619,6 +702,13 @@ export class SessionMessageLoader {
     isCurrent: () => boolean,
   ): { messages: Message[] } | null {
     if (!isCurrent()) return null
+    if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
+      throw new Error("Ordinary history view was disconnected before materialization")
+    }
+    entry.ordinary ||= page.ordinaryView !== undefined
+    if (mode !== "prepend" && entry.ordinary && !page.ordinaryView) {
+      throw new Error("Ordinary history response has no accepted view")
+    }
     const merged = mergeOptimisticPage({
       session: page.session,
       part: [...page.partsByMessageID].map(([id, part]) => ({ id, part })),
@@ -627,8 +717,16 @@ export class SessionMessageLoader {
     }, [...entry.optimistic.values()])
     for (const messageID of merged.confirmed) entry.optimistic.delete(messageID)
     const mergedPartsByMessageID = new Map(merged.part.map((candidate) => [candidate.id, candidate.part] as const))
+    const current = store.getState()
+    const reset = mode !== "prepend" && entry.resetHistory
+    const part = reset ? { ...current.part } : current.part
+    if (reset) {
+      for (const message of current.message[target.sessionID] ?? []) {
+        if (!entry.optimistic.has(message.id)) delete part[message.id]
+      }
+    }
     const materialized = materializeSessionSnapshots(
-      store.getState(),
+      reset ? { ...current, message: { ...current.message, [target.sessionID]: [] }, part } : current,
       target.sessionID,
       merged.session.map((info) => ({
         info,
@@ -639,16 +737,26 @@ export class SessionMessageLoader {
       { skipPartTypes: SKIP_PARTS, mode },
     )
     if (!isCurrent()) return null
-    if (materialized.messagesChanged || materialized.partsChanged) {
+    if (reset || materialized.messagesChanged || materialized.partsChanged) {
       store.setState({
-        ...(materialized.messagesChanged ? { message: materialized.message } : {}),
-        ...(materialized.partsChanged ? { part: materialized.part } : {}),
+        ...(reset || materialized.messagesChanged ? { message: materialized.message } : {}),
+        ...(reset || materialized.partsChanged ? { part: materialized.part } : {}),
       })
+    }
+    if (!isCurrent()) return null
+    if (mode !== "prepend") {
+      entry.ordinary ||= page.ordinaryView !== undefined
+      entry.resetHistory = false
+      this.patchEntry(entry, { ordinaryView: page.ordinaryView })
     }
     return { messages: materialized.messages }
   }
 
   private persistCoverage(target: SessionMessageTarget, state: SessionMessageLoadState): void {
+    if (this.entries.get(this.keyFor(target))?.ordinary) {
+      clearSessionPrefetch(target.directory, [target.sessionID], this.runtimeKey)
+      return
+    }
     setSessionPrefetch({
       directory: target.directory,
       sessionID: target.sessionID,
