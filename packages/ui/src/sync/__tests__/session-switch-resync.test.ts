@@ -354,14 +354,16 @@ describe("resyncBlockingRequestsForDirectory", () => {
       const childStores = new ChildStoreManager()
       const routingIndex = createEventRoutingIndex()
       const requests: Array<{ method: string; path: string; directory: string | null; before: string | null }> = []
-      const page = (sessionID: string, ids: string[], view?: string, cursor?: string) => new Response(JSON.stringify(
-        ids.map((id, index) => ({
+      const page = (sessionID: string, ids: string[], view?: string, cursor?: string) => {
+        const headers = new Headers({ "content-type": "application/json" })
+        if (view) headers.set("x-smarty-ordinary-view", view)
+        if (cursor) headers.set("x-next-cursor", cursor)
+        return new Response(JSON.stringify(ids.map((id, index) => ({
           info: { id, sessionID, role: "user", time: { created: index + 1 }, agent: "build",
             model: { providerID: "fixture", modelID: "test" } },
           parts: [{ id: `part_${id}`, messageID: id, sessionID, type: "text", text: id }],
-        })),
-      ), { headers: { "content-type": "application/json",
-        ...(view ? { "x-smarty-ordinary-view": view } : {}), ...(cursor ? { "x-next-cursor": cursor } : {}) } })
+        }))), { headers })
+      }
       let ordinaryResponse = page(target.sessionID, ["root", "tail"], oldView, mode === "error-paged" ? "stale-cursor" : undefined)
       const sdk = createOpencodeClient({ baseUrl: "https://sync.test", fetch: async (input) => {
         const request = input instanceof Request ? input : new Request(input)

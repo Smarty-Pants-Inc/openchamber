@@ -343,12 +343,18 @@ export class SessionMessageLoader {
     this.bumpGeneration(entry)
     entry.inflight = null
     entry.resetHistory ||= resetHistory
-    this.patchEntry(entry, {
+    const patch: Partial<SessionMessageLoadState> = {
       ordinaryView: undefined,
       loadingKind: null,
       status: entry.snapshot.resolved ? "ready" : "idle",
-      ...(resetHistory ? { status: "idle", resolved: false, cursor: undefined, complete: false } : {}),
-    })
+    }
+    if (resetHistory) {
+      patch.status = "idle"
+      patch.resolved = false
+      patch.cursor = undefined
+      patch.complete = false
+    }
+    this.patchEntry(entry, patch)
     if (normalized) clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     return true
   }
@@ -551,10 +557,9 @@ export class SessionMessageLoader {
       && this.childStores.getChild(target.directory) === store
     )
     const performance = { retryCount: 0, recordCount: 0 }
-    this.patchEntry(entry, {
-      status: "loading", loadingKind: kind, error: null,
-      ...(kind === "older" ? {} : { ordinaryView: undefined }),
-    })
+    const loading: Partial<SessionMessageLoadState> = { status: "loading", loadingKind: kind, error: null }
+    if (kind !== "older") loading.ordinaryView = undefined
+    this.patchEntry(entry, loading)
     let loadPromise: Promise<void>
     try {
       loadPromise = run(isCurrent, performance)
@@ -738,10 +743,10 @@ export class SessionMessageLoader {
     )
     if (!isCurrent()) return null
     if (reset || materialized.messagesChanged || materialized.partsChanged) {
-      store.setState({
-        ...(reset || materialized.messagesChanged ? { message: materialized.message } : {}),
-        ...(reset || materialized.partsChanged ? { part: materialized.part } : {}),
-      })
+      const update: Partial<DirectoryStore> = {}
+      if (reset || materialized.messagesChanged) update.message = materialized.message
+      if (reset || materialized.partsChanged) update.part = materialized.part
+      store.setState(update)
     }
     if (!isCurrent()) return null
     if (mode !== "prepend") {
