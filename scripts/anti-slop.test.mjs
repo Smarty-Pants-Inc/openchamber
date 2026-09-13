@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,9 +19,12 @@ function runReport({ output = '{"diagnostics":[]}', status = 0, signal = false,
   const directory = mkdtempSync(join(tmpdir(), 'oc-anti-slop-report-'));
   try {
     writeFileSync(join(directory, 'fixture.json'), JSON.stringify({ output, status, signal }));
-    // Real Bun dispatches an isolated package script, not Oxlint or a mocked module.
-    writeFileSync(join(directory, 'package.json'), JSON.stringify({ scripts: { 'lint:anti-slop': 'node fixture.cjs' } }));
-    writeFileSync(join(directory, 'fixture.cjs'), `
+    // An isolated package's declared Node CLI, not a shell script or module mock.
+    writeFileSync(join(directory, 'package.json'), JSON.stringify({ private: true }));
+    const packageDirectory = join(directory, 'node_modules', 'oxlint');
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(join(packageDirectory, 'package.json'), JSON.stringify({ bin: { oxlint: 'fixture.cjs' } }));
+    if (!missingTool) writeFileSync(join(packageDirectory, 'fixture.cjs'), `
 const fs = require('node:fs');
 const fixture = JSON.parse(fs.readFileSync('fixture.json', 'utf8'));
 fs.writeFileSync('arguments.json', JSON.stringify(process.argv.slice(2)));
@@ -31,7 +34,7 @@ else process.exit(fixture.status);
 `);
     const child = spawnSync(process.execPath, [script, 'file', '--include-noisy', '--', ...paths], {
       cwd: directory, encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
-      env: { PATH: missingTool ? directory : process.env.PATH, HOME: directory, CI: 'true' },
+      env: { PATH: process.env.PATH, HOME: directory, CI: 'true' },
     });
     assert.equal(child.error, undefined);
     const argumentsFile = join(directory, 'arguments.json');
@@ -80,7 +83,7 @@ test('missing, malformed, incomplete and contradictory reports fail closed', () 
   }
 });
 
-test('spawn failures, abnormal exits and signals remain failures with a valid findings report', () => {
+test('missing CLI, abnormal exits and direct child signals remain failures with a valid findings report', () => {
   for (const fixture of [{ missingTool: true }, { status: 2 }, { status: 7 }, { signal: true }]) {
     const result = runReport({ output: JSON.stringify({ diagnostics: [diagnostic] }), ...fixture });
     assert.equal(result.status, 1);

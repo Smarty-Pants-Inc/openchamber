@@ -38,7 +38,7 @@ jobs:
             '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx' '*.mts' '*.cts' > "$RUNNER_TEMP/oxlint-paths"
           mapfile -d '' -t files < "$RUNNER_TEMP/oxlint-paths"
           if ((${#files[@]})); then
-            bun run deslop -- file --include-noisy -- "${files[@]}"
+            node scripts/anti-slop.mjs file --include-noisy -- "${files[@]}"
           else
             echo 'No changed JavaScript or TypeScript files.'
           fi

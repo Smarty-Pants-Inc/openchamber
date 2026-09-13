@@ -2,7 +2,8 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { z } from "zod";
 
 import {
@@ -104,10 +105,14 @@ function asPositiveInt(value, fallback, name) {
 }
 
 function runOxlint(filePaths = []) {
+  const require = createRequire(join(process.cwd(), "package.json"));
+  const manifest = require.resolve("oxlint/package.json");
+  const executable = join(dirname(manifest), require(manifest).bin.oxlint);
   let output;
   let exitCode = 0;
   try {
-    output = execFileSync("bun", ["run", "lint:anti-slop", "--format", "json", "--", ...filePaths], {
+    // ponytail: Bun 1.3.14 script dispatch splits tabs in argv; use the installed Node CLI directly.
+    output = execFileSync(process.execPath, [executable, "--format", "json", "--", ...filePaths], {
       cwd: process.cwd(),
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
