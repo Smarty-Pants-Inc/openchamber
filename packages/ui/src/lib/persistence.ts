@@ -1828,6 +1828,7 @@ let _pendingSettingsChanges: Partial<DesktopSettings> | null = null;
 let _pendingSettingsContext: SettingsRuntimeContext | null = null;
 let _settingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _settingsFlushWaiters: Array<() => void> = [];
+let _settingsFlushPromises = new Set<Promise<void>>();
 let _settingsLifecycleInitialized = false;
 let _pendingSettingsRevision = 0;
 let _pendingProjectsBase: DesktopSettings['projects'];
@@ -2175,6 +2176,8 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
   const revision = _pendingSettingsRevision;
   const projectsBase = _pendingProjectsBase;
   const waiters = _settingsFlushWaiters;
+  const batchPromises = _settingsFlushPromises;
+  _settingsFlushPromises = new Set();
   _pendingSettingsChanges = null;
   _pendingSettingsContext = null;
   _pendingSettingsRevision = 0;
@@ -2187,9 +2190,17 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
       dispatchSettingsSaveState('saved');
       return;
     }
+    const predecessors = [...activeSettingsOperations]
+      .filter(([pending, active]) => active.write && !batchPromises.has(pending)
+        && isSameSettingsRuntimeContext(active, context))
+      .map(([pending]) => pending);
+    // ponytail: Capture only older batches, never this batch or future waiters.
+    // Track while waiting so a predecessor's completion cannot discard newer intent.
     const operation = _settingsMutationTracker.begin(revision);
 
     try {
+      if (predecessors.length > 0) await Promise.allSettled(predecessors);
+      if (!isSettingsRuntimeContextCurrent(context)) return;
       const runtimeSettings = getRuntimeSettingsAPI();
       if (runtimeSettings) {
         try {
@@ -2290,6 +2301,7 @@ export const updateDesktopSettings = async (changes: Partial<DesktopSettings>,
   const flushed = new Promise<void>((resolve) => {
     _settingsFlushWaiters.push(resolve);
   });
+  _settingsFlushPromises.add(flushed);
   _settingsFlushTimer = setTimeout(() => void _flushSettingsUpdate(), SETTINGS_DEBOUNCE_MS);
   return trackSettingsOperation(flushed, context, true);
 };
