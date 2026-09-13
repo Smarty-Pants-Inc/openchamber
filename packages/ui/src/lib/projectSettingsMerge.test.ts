@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { ok, rejects } from 'node:assert/strict';
 import type { SettingsAPI, SettingsLoadResult, SettingsPayload } from './api/types';
 import { mergeProjectSettings, saveProjectSettings, SettingsConflictError } from './projectSettingsMerge';
 
@@ -59,7 +60,7 @@ test('recovers only the same patch after a fresh unrelated change, independent o
   const f = conflictFixture({ ...fresh, settings: { ...fresh.settings, projects: [{ label: 'A', path: '/a', id: 'a' }] } });
   const result = await saveProjectSettings(f.api, desired, [a], () => true, () => true);
   expect(result).toEqual(desired);
-  expect(result).not.toHaveProperty('pwaAppName');
+  ok(result && !('pwaAppName' in result));
   expect(f.conditions).toEqual(['"initial"', '"fresh"']);
   expect(f.loads).toBe(2);
 });
@@ -74,15 +75,15 @@ const conflicts: Array<{ name: string; snapshot: SettingsLoadResult }> = [
 ];
 for (const { name, snapshot } of conflicts) test(`does not recover over ${name}`, async () => {
   const f = conflictFixture(snapshot);
-  await expect(saveProjectSettings(f.api, desired, [a], () => true, () => true)).rejects.toBe(f.error);
+  await rejects(saveProjectSettings(f.api, desired, [a], () => true, () => true), error => error === f.error);
   expect(f.conditions).toEqual(['"initial"']);
   expect(f.loads).toBe(2);
 });
 
 test('a coalesced preference in the project patch is also protected from overwrite', async () => {
   const f = conflictFixture({ ...fresh, settings: { ...fresh.settings, terminalShell: 'fish' } });
-  await expect(saveProjectSettings(f.api, { ...desired, terminalShell: 'bash' }, [a],
-    () => true, () => true)).rejects.toBe(f.error);
+  await rejects(saveProjectSettings(f.api, { ...desired, terminalShell: 'bash' }, [a],
+    () => true, () => true), error => error === f.error);
   expect(f.conditions).toEqual(['"initial"']);
 });
 
@@ -91,14 +92,14 @@ test('a second definite conflict is terminal', async () => {
   const second = new SettingsConflictError('Second rejection (412)');
   const save = f.api.save;
   f.api.save = async (changes, options) => { await save(changes, options); throw second; };
-  await expect(saveProjectSettings(f.api, desired, [a], () => true, () => true)).rejects.toBe(second);
+  await rejects(saveProjectSettings(f.api, desired, [a], () => true, () => true), error => error === second);
   expect(f.conditions).toEqual(['"initial"', '"fresh"']);
   expect(f.loads).toBe(2);
 });
 
 test('an uncertain failure cannot use recovery, even with conflict-like text', async () => {
   const f = conflictFixture(fresh, new Error('Rejected (412)'));
-  await expect(saveProjectSettings(f.api, desired, [a], () => true, () => true)).rejects.toBe(f.error);
+  await rejects(saveProjectSettings(f.api, desired, [a], () => true, () => true), error => error === f.error);
   expect(f.conditions).toEqual(['"initial"']);
   expect(f.loads).toBe(1);
 });
@@ -108,14 +109,14 @@ test('a failed recovery read cannot become a save or empty success', async () =>
   const failure = new Error('Read failed');
   const load = f.api.load;
   f.api.load = async () => { if (f.conditions.length) throw failure; return load(); };
-  await expect(saveProjectSettings(f.api, desired, [a], () => true, () => true)).rejects.toBe(failure);
+  await rejects(saveProjectSettings(f.api, desired, [a], () => true, () => true), error => error === failure);
   expect(f.conditions).toEqual(['"initial"']);
 });
 
 for (const afterRead of [false, true]) test(`newer local intent stops recovery afterRead=${afterRead}`, async () => {
   const f = conflictFixture();
-  await expect(saveProjectSettings(f.api, desired, [a], () => true,
-    () => afterRead && f.loads < 2)).rejects.toBe(f.error);
+  await rejects(saveProjectSettings(f.api, desired, [a], () => true,
+    () => afterRead && f.loads < 2), error => error === f.error);
   expect(f.conditions).toEqual(['"initial"']);
   expect(f.loads).toBe(afterRead ? 2 : 1);
 });
