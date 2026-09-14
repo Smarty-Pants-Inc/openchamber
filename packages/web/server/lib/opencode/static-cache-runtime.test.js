@@ -18,8 +18,10 @@ let currentApp;
 
 beforeEach(async () => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'static-cache-'));
-  for (const version of ['old', 'new']) {
-    const dist = path.join(directory, version);
+  // Installed releases have a hidden ancestor; it is not a requested dotfile.
+  oldDist = path.join(directory, '.local', 'old');
+  currentDist = path.join(directory, '.local', 'new');
+  for (const [version, dist] of [['old', oldDist], ['new', currentDist]]) {
     fs.mkdirSync(path.join(dist, 'assets'), { recursive: true });
     for (const file of ['index.html', 'mobile.html', 'mini-chat.html', 'sw.js']) {
       fs.writeFileSync(path.join(dist, file), file === 'sw.js' ? `/* ${version} worker */` : html(version));
@@ -27,9 +29,8 @@ beforeEach(async () => {
     }
     fs.writeFileSync(path.join(dist, 'assets', `index-${version}.js`), `/* ${version} script */`);
     fs.writeFileSync(path.join(dist, 'assets', `index-${version}.css`), `/* ${version} style */`);
+    fs.writeFileSync(path.join(dist, '.private.js'), 'must not be served');
   }
-  oldDist = path.join(directory, 'old');
-  currentDist = path.join(directory, 'new');
   currentApp = express();
   currentApp.use(compression());
   createStaticRoutesRuntime({
@@ -89,6 +90,7 @@ describe('release HTML cache revalidation over HTTP', () => {
 
   it('serves all entrypoints and SPA deep links without stale validators, including wildcard conditions', async () => {
     for (const route of ['/', '/index.html', '/mobile.html', '/mini-chat.html', '/sessions/abc']) {
+      expectCurrentHtml(await request(server).get(route));
       for (const condition of [{ 'If-None-Match': '*' }, { 'If-Modified-Since': 'Sun, 13 Sep 2026 00:00:00 GMT' }]) {
         expectCurrentHtml(await request(server).get(`${route}?returning=1`).set(condition));
       }
@@ -135,8 +137,8 @@ describe('release HTML cache revalidation over HTTP', () => {
       .set('If-Match', '"api-revision"').set('If-None-Match', response.headers.etag)).status).toBe(304);
   });
 
-  it('returns non-cacheable non-HTML 404s for missing assets instead of the SPA', async () => {
-    for (const url of ['/assets/index-old.js', '/assets/index-old.css', '/assets/missing.wasm', '/assets/missing', '/missing.js', '/missing.css']) {
+  it('returns non-cacheable non-HTML 404s for missing or hidden assets instead of the SPA', async () => {
+    for (const url of ['/assets/index-old.js', '/assets/index-old.css', '/assets/missing.wasm', '/assets/missing', '/missing.js', '/missing.css', '/.private.js']) {
       const response = await request(server).get(url);
       expect(response.status).toBe(404);
       expect(response.headers['cache-control']).toContain('no-store');
