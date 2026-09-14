@@ -139,10 +139,10 @@
     {
       "path": "packages/web/server/lib/opencode/static-routes-runtime.js",
       "brandingSha256": "2bf4d904b5ed83c1a9173e0a23474a454394f87790ce55d3c04acdb51ee599d4",
-      "behaviorSha256": "7781aae4c45828559d04715c4c489ec0b38c7a53fd6911ca622a33a008cee5a2",
-      "combinedSha256": "7781aae4c45828559d04715c4c489ec0b38c7a53fd6911ca622a33a008cee5a2",
-      "behaviorSource": "e6e12bbca5aea2e6cabdb28ef6185e6ec4e85293",
-      "reason": "Current no-store HTML and worker delivery without archive-stat 304s; uncached plain-text missing-asset responses. Original branding and API/native ownership retained."
+      "behaviorSha256": "1189b5293412390d29863a240570a23ea88046044b2bc77ab345cec9ecb270aa",
+      "combinedSha256": "1189b5293412390d29863a240570a23ea88046044b2bc77ab345cec9ecb270aa",
+      "behaviorSource": "1d523f4766b6fd75a1298a0159599d35f3483e73",
+      "reason": "Current no-store HTML and worker delivery without archive-stat 304s, relative to the explicit dist root beneath hidden install ancestors; requested dotfiles stay blocked. Uncached plain-text missing-asset responses, original branding and API/native ownership retained."
     }
   ]
 }
