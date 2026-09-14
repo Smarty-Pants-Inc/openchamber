@@ -48,7 +48,7 @@ test('attribution overlay binds only its exact reviewed source without replacing
 
 test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {
   const entry = overlays.get('packages/web/server/lib/opencode/static-routes-runtime.js');
-  assert.equal(entry.behaviorSource, 'e6e12bbca5aea2e6cabdb28ef6185e6ec4e85293');
+  assert.equal(entry.behaviorSource, '1d523f4766b6fd75a1298a0159599d35f3483e73');
   assert.equal(entry.behaviorSha256, entry.combinedSha256);
 });
 
