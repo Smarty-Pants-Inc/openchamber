@@ -25,6 +25,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     '.github/workflows/oc-review.yml',
     'packages/ui/src/sync/session-actions.test.ts', 'packages/web/server/index.js',
     'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
+    'packages/web/server/lib/opencode/static-routes-runtime.js',
     ...attributionPaths,
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
@@ -43,6 +44,12 @@ test('attribution overlay binds only its exact reviewed source without replacing
     assert.equal(entry.behaviorSource, overlay.attributionSource, file);
     assert.equal(entry.behaviorSha256, entry.combinedSha256, file);
   }
+});
+
+test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {
+  const entry = overlays.get('packages/web/server/lib/opencode/static-routes-runtime.js');
+  assert.equal(entry.behaviorSource, 'e6e12bbca5aea2e6cabdb28ef6185e6ec4e85293');
+  assert.equal(entry.behaviorSha256, entry.combinedSha256);
 });
 
 test('stock owners retain behavior except explicitly reviewed overlay and owned labels', () => {

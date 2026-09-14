@@ -37,16 +37,34 @@ export const createStaticRoutesRuntime = (dependencies) => {
 
     if (fs.existsSync(distPath)) {
       console.log(`Serving static files from ${distPath}`);
-      app.use(express.static(distPath, {
-        setHeaders(res, filePath) {
-          // Service workers should never be long-cached; iOS is especially sensitive.
-          if (typeof filePath === 'string' && filePath.endsWith(`${path.sep}sw.js`)) {
-            res.setHeader('Cache-Control', 'no-store');
-          }
-        },
-      }));
+      // Express sendFile overrides its etag option; scope the setting to static routes.
+      // express.static keeps its own validators for successful asset responses.
+      const staticApp = express();
+      staticApp.disable('etag');
+      app.use(staticApp);
+      const sendCurrentFile = (filename) => (req, res) => {
+        // ponytail: archive mtimes and equal file sizes can collide across releases.
+        // Even without validators, If-None-Match: * can produce a bodyless 304.
+        delete req.headers['if-modified-since'];
+        delete req.headers['if-none-match'];
+        res.sendFile(path.join(distPath, filename), {
+          lastModified: false,
+          acceptRanges: false,
+          headers: { 'Cache-Control': 'no-store' },
+        });
+      };
+      const sendCurrentHtml = sendCurrentFile('index.html');
+      staticApp.get(['/', '/index.html'], sendCurrentHtml);
+      for (const filename of ['mobile.html', 'mini-chat.html', 'sw.js']) {
+        staticApp.get(`/${filename}`, sendCurrentFile(filename));
+      }
+      staticApp.use(express.static(distPath, { index: false }));
+      staticApp.get(/^(?!\/api|\/linear)(?:\/assets(?:\/.*)?|.*\.(?:js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map|wasm))$/, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(404).type('text/plain').send('Not found');
+      });
 
-      registerPwaManifestRoute(app, {
+      registerPwaManifestRoute(staticApp, {
         process,
         resolveProjectDirectory,
         buildOpenCodeUrl,
@@ -56,9 +74,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
         normalizePwaOrientation,
       });
 
-      app.get(/^(?!\/api|\/linear|.*\.(js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map)).*$/, (_req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
-      });
+      staticApp.get(/^(?!\/api|\/linear|.*\.(js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map)).*$/, sendCurrentHtml);
       return;
     }
 
