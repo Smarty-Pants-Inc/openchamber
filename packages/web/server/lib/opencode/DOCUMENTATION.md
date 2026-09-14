@@ -341,6 +341,23 @@ Managed health failures are classified as `timeout`, `connection_refused`, `conn
 - Returned API:
   - `registerStaticRoutes(app)`
 
+The root, `index.html`, `mobile.html`, `mini-chat.html`, SPA fallback and `sw.js`
+return current complete files with `Cache-Control: no-store`. They ignore GET/HEAD
+cache validators and omit ETag and Last-Modified. Archive-normalized mtimes and
+equal file sizes cannot identify a release. Express overrides the per-file ETag
+option, so a static sub-application disables automatic ETags without changing API
+settings. The dynamic manifest retains its no-store policy and also omits ETag.
+Successful assets keep Express static MIME handling and conditional caching.
+Missing `/assets/*` and recognized asset-file requests return no-store plain-text
+404s, never the SPA or bytes from another release.
+
+`static-cache-runtime.test.js` checks a same-origin HTTP promotion with a retained
+old response, date-only and colliding ETag revalidation, current asset closure,
+entrypoints, deep links, HEAD, compression, worker updates and missing assets.
+This protocol regression does not replace returning-browser and public CDN proof
+against the promoted artifact. Already open old documents are not automatically
+reloaded, and historical bundles are not retained by this module.
+
 ## Public exports (feature-routes-runtime.js)
 - `createFeatureRoutesRuntime(dependencies)`: creates runtime for main feature route registration orchestration.
 - Returned API:
