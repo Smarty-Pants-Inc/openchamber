@@ -47,7 +47,8 @@ export const createStaticRoutesRuntime = (dependencies) => {
         // Even without validators, If-None-Match: * can produce a bodyless 304.
         delete req.headers['if-modified-since'];
         delete req.headers['if-none-match'];
-        res.sendFile(path.join(distPath, filename), {
+        res.sendFile(filename, {
+          root: distPath,
           lastModified: false,
           acceptRanges: false,
           headers: { 'Cache-Control': 'no-store' },
