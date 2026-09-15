@@ -93,6 +93,7 @@ import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
+import { assertNativeDraftCurrent, assertNativeDraftReady, beginNativeDraftSend, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -153,7 +154,9 @@ export async function routeMessage(params: {
   appendSubmissions?: () => void
   displayName?: string
   delivery?: 'steer'
+  beforeDispatch?: () => void
 }): Promise<'command' | 'prompt' | 'shell'> {
+  params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
   if (params.displayName !== undefined && (params.inputMode === 'shell' || params.content.startsWith('/') || params.delivery)) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
@@ -246,6 +249,7 @@ export async function routeMessage(params: {
   // Normal prompt — optimistic insert so message appears instantly
   await optimisticSend({
     runtimeKey: params.runtimeKey,
+    beforeOptimisticInsert: params.beforeDispatch,
     sessionId: params.sessionId,
     content: params.content,
     providerID: params.providerID,
@@ -256,6 +260,7 @@ export async function routeMessage(params: {
     appendSubmissions: params.appendSubmissions,
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
+      beforeDispatch: params.beforeDispatch,
       id: params.sessionId,
       providerID: params.providerID,
       modelID: params.modelID,
@@ -292,6 +297,7 @@ type SendMessageOptions = {
   historySubmissions?: InputHistorySubmission[]
   /** Immutable copy of the new-session draft at submit time; used instead of the live draft. */
   draftSnapshot?: NewSessionDraftState
+  onNativeAccepted?: () => void
   displayName?: string
   delivery?: 'steer'
 }
@@ -361,7 +367,7 @@ export type SessionUIState = {
   currentSessionDirectory: string | null
   materializedDraftSessionId: string | null
   newSessionDraft: NewSessionDraftState
-  nativeDraftCreation: NativeDraftCreation | null
+  nativeDraftCreations: ReadonlyMap<string, NativeDraftCreation>
   abortPromptSessionId: string | null
   abortPromptExpiresAt: number | null
   error: string | null
@@ -689,6 +695,7 @@ type MaterializedDraftSession = {
   directory: string | null
   agent?: string
   syntheticParts?: SyntheticContextPart[]
+  nativeDraft?: NativeDraftSend
 }
 
 const resolveProjectRefForWorktreeDirectory = (directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
@@ -907,9 +914,8 @@ export async function materializeOpenDraftSession(selection: {
     if (selection.providerID !== model.providerID || selection.modelID !== model.modelID) {
       throw new NativeCreationError('model')
     }
-    useSelectionStore.getState().saveSessionModelSelection(native.id, model.providerID, model.modelID)
-    store.setCurrentSession(native.id, native.directory, 'submitted-draft')
-    return { sessionId: native.id, directory: native.directory, syntheticParts: draft.syntheticParts }
+    const nativeDraft = await prepareNativeDraftSend(draft, native)
+    return { sessionId: native.id, directory: native.directory, syntheticParts: draft.syntheticParts, nativeDraft }
   }
   const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
 
@@ -1033,7 +1039,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionDirectory: null,
   materializedDraftSessionId: null,
   newSessionDraft: { ...DEFAULT_DRAFT },
-  nativeDraftCreation: null,
+  nativeDraftCreations: new Map(),
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
@@ -1803,7 +1809,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         variant,
       }, options?.draftSnapshot)
       if (!createdDraftSession) throw new Error("Failed to create session")
-
+      const nativeDraft = createdDraftSession.nativeDraft
+      const releaseNativeSend = nativeDraft ? beginNativeDraftSend(nativeDraft) : undefined
+      try {
       const draftParts: Array<{ text: string; attachments?: AttachedFile[]; synthetic?: boolean; metadata?: ContextPartMetadata; systemContext?: 'session-knowledge' }> | undefined = createdDraftSession.syntheticParts?.length
         ? [...(additionalParts || []), ...createdDraftSession.syntheticParts]
         : additionalParts
@@ -1843,6 +1851,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
       await applyArmedGoal(createdDraftSession.sessionId, createdDraftSession.directory)
       const messageRoute = await routeMessage({
+        runtimeKey: capturedRuntimeKey,
+        beforeDispatch: nativeDraft ? () => assertNativeDraftReady(nativeDraft) : undefined,
         sessionId: createdDraftSession.sessionId,
         directory: createdDraftSession.directory,
         content,
@@ -1878,7 +1888,15 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
           draftKnowledge.signature,
         )
       }
+      if (nativeDraft) {
+        // Commit the UI transition only after admission succeeds, never on history/read/input refusal.
+        assertNativeDraftCurrent(nativeDraft)
+        useSelectionStore.getState().saveSessionModelSelection(nativeDraft.session.id, providerID, modelID)
+        options?.onNativeAccepted?.()
+        get().setCurrentSession(nativeDraft.session.id, nativeDraft.session.directory, 'submitted-draft')
+      }
       return
+      } finally { releaseNativeSend?.() }
     }
 
     // ---- Existing session ----

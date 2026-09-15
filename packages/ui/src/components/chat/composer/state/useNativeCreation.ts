@@ -5,14 +5,17 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
-import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft } from '@/sync/native-draft-creation';
+import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
+import { prepareNativeDraftSend } from '@/sync/native-draft-send';
 
 type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable' };
 
 export function useNativeCreation(draft: NewSessionDraftState, sessionId: string | null,
   currentDirectory: string | undefined, runtimeKey: string) {
   const { t } = useI18n();
-  const creation = useSessionUIStore(s => s.nativeDraftCreation);
+  const scoped = useSessionUIStore(s => nativeCreationForDraft(s.nativeDraftCreations, draft, runtimeKey));
+  const selected = useSessionUIStore(s => [...s.nativeDraftCreations.values()].find(entry =>
+    entry.status === 'created' && entry.runtimeKey === runtimeKey && entry.session.id === sessionId));
   const [capability, setCapability] = React.useState<Capability | null>(null);
   const [revision, recheck] = React.useReducer(value => value + 1, 0);
   const directory = draft.directoryOverride ?? currentDirectory;
@@ -30,9 +33,8 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
 
   const mode = capability?.runtimeKey === runtimeKey && capability.directory === directory
     ? capability.mode : 'loading';
-  const scoped = nativeCreationForDraft(creation, draft, runtimeKey);
-  const session = creation?.status === 'created' && creation.runtimeKey === runtimeKey
-    && (scoped === creation || sessionId === creation.session.id) ? creation.session : null;
+  const creation = scoped ?? selected;
+  const session = creation?.status === 'created' ? creation.session : null;
   const describeError = (cause: unknown) => {
     const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
     const message = error.detail ?? t(`chat.nativeCreation.${error.code}`);
@@ -40,7 +42,14 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   };
   return {
     mode, session, creation: scoped,
-    refresh: () => { setCapability(null); recheck(); },
+    refresh: async () => {
+      if (scoped) {
+        try {
+          const supported = await recheckNativeDraft();
+          if (getRuntimeKey() === runtimeKey && directory) setCapability({ runtimeKey, directory, mode: supported ? 'ordinary' : 'legacy' });
+        } catch (error) { toast.error(describeError(error)); }
+      } else { setCapability(null); recheck(); }
+    },
     canCreate: mode === 'ordinary' && !scoped && isNativeDraftTarget(draft),
     describeError,
     create: async () => {
@@ -48,7 +57,10 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     },
     beforeSend: async () => {
       if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
-      if (draft.open) await preparedNativeDraft(draft);
+      if (draft.open) {
+        const native = await preparedNativeDraft(draft);
+        if (native) await prepareNativeDraftSend(draft, native);
+      }
     },
   };
 }

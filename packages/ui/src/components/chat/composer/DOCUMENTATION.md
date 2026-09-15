@@ -205,8 +205,11 @@ pending worktree setup. `sync/native-draft-creation.ts` binds the one request an
 its result to the runtime, draft ID, project ID and directory. The canonical
 `session-actions.createNativeSession` indexes the returned owner but does not
 select it, close the draft, consume input/context, or send a prompt. Duplicate
-clicks and uncertain completion never submit another creation request. This is
-in-memory draft state, not a persisted operation journal or restart guarantee.
+clicks and uncertain completion never submit another creation request. Records
+are keyed by runtime, draft, project and directory in the UI store. Project and
+runtime returns restore each result; late completion updates only its original
+record. Records survive consumer remounts for this browser lifetime, with no
+persistence, background replay, automatic eviction or restart guarantee.
 SDK1.18.29 sends `session.create({ directory })` with no body or Content-Type;
 the capability-advertising gateway must accept that empty creation request. It
 must still validate supplied bodies and must not relax other mutation routes.
@@ -218,17 +221,30 @@ session's provider listing. Model and readiness are creation-time observations;
 they do not change the native model or grant durable input permission. Finish
 original-TUI dialogs and run `/code-ready` there. The UI never arms the session.
 
-A later explicit Send uses `materializeOpenDraftSession` to select and reuse that
-owner, with its exact model, without another POST. Both the composer and store
-materialization/send boundaries refuse ordinary Send before creation. Existing
-native admission and accepted-view rules still govern the prompt; a stale model
-or readiness observation is not permission to bypass them.
+A later explicit Send uses `materializeOpenDraftSession` to prepare that owner
+with its exact model, without another create POST. `native-draft-send.ts` waits
+for the existing loader and checks its actually accepted ready history view.
+A resolved loader promise with stored error, missing view or changed loader is
+not acceptance. A later explicit Send can request a fresh read; it cannot replay
+an earlier prompt. Runtime and draft target are checked after history loading,
+after asynchronous SDK preparation and before dispatch. Concurrent sends of the
+same prepared owner are refused.
+
+The native branch leaves text, confirmed mentions, files, inline and synthetic
+context in place until input admission succeeds. Only then does the acceptance
+callback consume the submitted input and select the session. History and native
+input refusals leave the draft and exact owner together for another explicit
+Send. Native `/code-ready`, model checks and accepted-view validation remain
+authoritative; the UI does not manufacture a view or arm input.
 
 Failures keep the draft. Validated non-retryable API errors retain the backend's
 safe operation/pane/path details in the visible alert. Malformed success and
 runtime/directory mismatch retain a validated returned ID/directory when known.
-Arbitrary transport diagnostics stay private causes. Inspect Herdr before an
-explicit new creation after an unknown result, including after a page reload.
+Arbitrary transport diagnostics stay private causes. A failure known to precede
+`session.create` offers **Check connection**, which performs only a health read.
+Success clears that failure and requires a separate explicit Create action.
+Post-submission uncertainty has no such recovery control. Inspect Herdr before
+an explicit new creation after an unknown result, including after a page reload.
 
 Focused SDK, draft-state and static React-render tests cover these boundaries.
 They do not prove actual browser interactions, layout, native attachment or input

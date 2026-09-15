@@ -1,5 +1,7 @@
 export const nativeCreationI18n = {
   en: {
+    'chat.nativeCreation.history': 'Native history is not ready. Your draft is unchanged. Check the connection and use Send again explicitly.',
+    'chat.nativeCreation.sending': 'This draft is already being sent. Wait for its result before using Send again.',
     'chat.nativeCreation.action': 'Create native Pi session',
     'chat.nativeCreation.created': 'Native session {id} was created with {model}.',
     'chat.nativeCreation.readiness': 'Finish any dialogs and run /code-ready in the original Pi terminal before using Send. Creation does not send your draft.',
@@ -13,6 +15,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Check connection',
   },
   de: {
+    'chat.nativeCreation.history': 'Der native Verlauf ist nicht bereit. Dein Entwurf bleibt unverändert. Prüfe die Verbindung und klicke erneut auf Senden.',
+    'chat.nativeCreation.sending': 'Dieser Entwurf wird bereits gesendet. Warte auf das Ergebnis, bevor du erneut sendest.',
     'chat.nativeCreation.action': 'Native Pi-Sitzung erstellen',
     'chat.nativeCreation.created': 'Die native Sitzung {id} wurde mit {model} erstellt.',
     'chat.nativeCreation.readiness': 'Schließe alle Dialoge ab und führe /code-ready im ursprünglichen Pi-Terminal aus, bevor du sendest. Das Erstellen sendet deinen Entwurf nicht.',
@@ -26,6 +30,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verbindung prüfen',
   },
   es: {
+    'chat.nativeCreation.history': 'El historial nativo no está listo. Tu borrador sigue intacto. Comprueba la conexión y pulsa Enviar de nuevo.',
+    'chat.nativeCreation.sending': 'Este borrador ya se está enviando. Espera el resultado antes de volver a enviar.',
     'chat.nativeCreation.action': 'Crear sesión nativa de Pi',
     'chat.nativeCreation.created': 'La sesión nativa {id} se creó con {model}.',
     'chat.nativeCreation.readiness': 'Cierra los diálogos y ejecuta /code-ready en la terminal original de Pi antes de pulsar Enviar. Crear la sesión no envía tu borrador.',
@@ -39,6 +45,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Comprobar conexión',
   },
   fr: {
+    'chat.nativeCreation.history': 'L’historique natif n’est pas prêt. Votre brouillon reste intact. Vérifiez la connexion, puis cliquez à nouveau sur Envoyer.',
+    'chat.nativeCreation.sending': 'Ce brouillon est déjà en cours d’envoi. Attendez le résultat avant de le renvoyer.',
     'chat.nativeCreation.action': 'Créer une session Pi native',
     'chat.nativeCreation.created': 'La session native {id} a été créée avec {model}.',
     'chat.nativeCreation.readiness': 'Terminez les dialogues et lancez /code-ready dans le terminal Pi original avant d’envoyer. La création n’envoie pas votre brouillon.',
@@ -52,6 +60,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Vérifier la connexion',
   },
   ja: {
+    'chat.nativeCreation.history': 'ネイティブ履歴の準備ができていません。下書きは変更されていません。接続を確認し、もう一度送信を押してください。',
+    'chat.nativeCreation.sending': 'この下書きは送信中です。結果を待ってから、もう一度送信してください。',
     'chat.nativeCreation.action': 'ネイティブPiセッションを作成',
     'chat.nativeCreation.created': 'ネイティブセッション {id} を {model} で作成しました。',
     'chat.nativeCreation.readiness': '送信する前にダイアログを完了し、元のPiターミナルで /code-ready を実行してください。作成だけでは下書きは送信されません。',
@@ -65,6 +75,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '接続を確認',
   },
   ko: {
+    'chat.nativeCreation.history': '네이티브 기록이 준비되지 않았습니다. 초안은 그대로입니다. 연결을 확인한 뒤 보내기를 다시 누르세요.',
+    'chat.nativeCreation.sending': '이 초안은 이미 전송 중입니다. 결과를 기다린 뒤 다시 보내세요.',
     'chat.nativeCreation.action': '네이티브 Pi 세션 만들기',
     'chat.nativeCreation.created': '네이티브 세션 {id}을(를) {model} 모델로 만들었습니다.',
     'chat.nativeCreation.readiness': '보내기 전에 대화 상자를 마치고 원래 Pi 터미널에서 /code-ready를 실행하세요. 세션을 만들어도 초안은 전송되지 않습니다.',
@@ -78,6 +90,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '연결 확인',
   },
   pl: {
+    'chat.nativeCreation.history': 'Historia natywna nie jest gotowa. Szkic pozostaje bez zmian. Sprawdź połączenie i ponownie naciśnij Wyślij.',
+    'chat.nativeCreation.sending': 'Ten szkic jest już wysyłany. Poczekaj na wynik, zanim wyślesz ponownie.',
     'chat.nativeCreation.action': 'Utwórz natywną sesję Pi',
     'chat.nativeCreation.created': 'Natywną sesję {id} utworzono z modelem {model}.',
     'chat.nativeCreation.readiness': 'Zakończ okna dialogowe i uruchom /code-ready w oryginalnym terminalu Pi przed wysłaniem. Utworzenie sesji nie wysyła szkicu.',
@@ -91,6 +105,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Sprawdź połączenie',
   },
   'pt-BR': {
+    'chat.nativeCreation.history': 'O histórico nativo não está pronto. Seu rascunho permanece intacto. Verifique a conexão e clique em Enviar novamente.',
+    'chat.nativeCreation.sending': 'Este rascunho já está sendo enviado. Aguarde o resultado antes de enviar novamente.',
     'chat.nativeCreation.action': 'Criar sessão nativa do Pi',
     'chat.nativeCreation.created': 'A sessão nativa {id} foi criada com {model}.',
     'chat.nativeCreation.readiness': 'Conclua os diálogos e execute /code-ready no terminal original do Pi antes de enviar. A criação não envia seu rascunho.',
@@ -104,6 +120,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verificar conexão',
   },
   tr: {
+    'chat.nativeCreation.history': 'Yerel geçmiş hazır değil. Taslağınız değişmedi. Bağlantıyı kontrol edip Gönder düğmesine yeniden basın.',
+    'chat.nativeCreation.sending': 'Bu taslak zaten gönderiliyor. Yeniden göndermeden önce sonucu bekleyin.',
     'chat.nativeCreation.action': 'Yerel Pi oturumu oluştur',
     'chat.nativeCreation.created': 'Yerel {id} oturumu {model} ile oluşturuldu.',
     'chat.nativeCreation.readiness': 'Göndermeden önce iletişim kutularını tamamlayıp asıl Pi terminalinde /code-ready çalıştırın. Oluşturma işlemi taslağınızı göndermez.',
@@ -117,6 +135,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Bağlantıyı kontrol et',
   },
   uk: {
+    'chat.nativeCreation.history': 'Нативна історія ще не готова. Чернетка не змінилася. Перевірте з’єднання та знову натисніть Надіслати.',
+    'chat.nativeCreation.sending': 'Ця чернетка вже надсилається. Дочекайтеся результату, перш ніж надсилати знову.',
     'chat.nativeCreation.action': 'Створити нативну сесію Pi',
     'chat.nativeCreation.created': 'Нативну сесію {id} створено з моделлю {model}.',
     'chat.nativeCreation.readiness': 'Завершіть діалоги та виконайте /code-ready у початковому терміналі Pi перед надсиланням. Створення не надсилає чернетку.',
@@ -130,6 +150,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Перевірити з’єднання',
   },
   'zh-CN': {
+    'chat.nativeCreation.history': '原生历史尚未就绪。草稿保持不变。请检查连接，然后再次点击发送。',
+    'chat.nativeCreation.sending': '此草稿正在发送。请等待结果后再发送。',
     'chat.nativeCreation.action': '创建原生 Pi 会话',
     'chat.nativeCreation.created': '原生会话 {id} 已使用 {model} 创建。',
     'chat.nativeCreation.readiness': '发送前，请完成所有对话框，并在原来的 Pi 终端运行 /code-ready。创建会话不会发送草稿。',
@@ -143,6 +165,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '检查连接',
   },
   'zh-TW': {
+    'chat.nativeCreation.history': '原生歷史尚未就緒。草稿保持不變。請檢查連線，然後再次點擊傳送。',
+    'chat.nativeCreation.sending': '此草稿正在傳送。請等待結果後再傳送。',
     'chat.nativeCreation.action': '建立原生 Pi 工作階段',
     'chat.nativeCreation.created': '原生工作階段 {id} 已使用 {model} 建立。',
     'chat.nativeCreation.readiness': '傳送前，請完成所有對話方塊，並在原來的 Pi 終端機執行 /code-ready。建立工作階段不會傳送草稿。',

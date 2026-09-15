@@ -302,12 +302,19 @@ Rules:
 12. OpenCode commands and skills keep the authoritative `session.command` route when their only additional part is explicitly tagged session knowledge. Every other additional part, including unstructured synthetic conflict instructions, requires the prompt route; primary file attachments remain supported by `session.command`. Because session knowledge cannot be forwarded through the command route, it remains pending for the session's next prompt instead of being marked as delivered.
 
 Native create-only is an explicit capability-gated exception to regular draft
-materialization. `native-draft-creation.ts` retains one in-memory result without
-consuming the draft. `session-actions.createNativeSession` uses the scoped SDK,
-checks runtime and exact admitted directory before indexing, and leaves selection
-alone. A mismatched directory is an uncertain result, not worktree canonicalization
-or permission to create again. A later explicit Send selects the same owner only
-with its native model. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
+materialization. `native-draft-creation.ts` retains each runtime/draft/project/
+directory result in browser memory. Runtime restoration and consumer remounts do
+not replace those records. Late completion updates its originating record, but
+`session-actions.createNativeSession` indexes it only in the active matching
+runtime. A mismatched directory is an uncertain result, not worktree
+canonicalization or permission to create again. Only known pre-create failures
+permit an explicit read-only recheck.
+
+`native-draft-send.ts` requires the exact owner's accepted ready loader view
+before dispatch. Materialization leaves the draft open. Selection and input
+consumption occur only after successful admission, with runtime/target checks
+across the asynchronous steps. A refusal retains all prepared context and the
+owner for a later explicit Send, without another create or automatic replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
 for capability, recovery and original-TUI readiness rules.
 
 Examples of global-store updates performed in `session-actions.ts`:

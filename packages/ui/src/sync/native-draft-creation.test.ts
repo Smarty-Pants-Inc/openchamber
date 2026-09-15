@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, type NativeCreatedSession } from '@/lib/opencode/nativeCreation';
-import { initializeRuntimeEndpoint } from '@/lib/runtime-switch';
+import { getRuntimeKey, initializeRuntimeEndpoint } from '@/lib/runtime-switch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useInputStore } from './input-store';
@@ -29,7 +29,7 @@ beforeEach(() => {
   legacy.mockImplementation(async () => { throw new Error('Unexpected legacy creation'); });
   prompt.mockImplementation(async () => { throw new Error('No prompt allowed'); });
   useProjectsStore.setState({ projects: [{ id: 'p', path: directory }], activeProjectId: 'p' });
-  useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, newSessionDraft: { ...draft }, nativeDraftCreation: null });
+  useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, newSessionDraft: { ...draft }, nativeDraftCreations: new Map() });
   useInputStore.setState({ pendingInputText: 'Retain typed text', pendingSyntheticParts: draft.syntheticParts ?? null });
 });
 afterEach(() => {
@@ -51,15 +51,15 @@ test('create-only needs no selected model, leaves the draft intact and indexes t
   await prepareNativeDraft(); expect(create).toHaveBeenCalledTimes(1);
 });
 
-test('ordinary Send refuses before creation or prompt; later explicit materialization reuses the created owner', async () => {
+test('ordinary Send refuses before creation; model/history refusal retains the created owner', async () => {
   await expect(useSessionUIStore.getState().sendMessage('unsent', 'unused', 'unused')).rejects.toBeInstanceOf(NativeCreationError);
   expect(create).not.toHaveBeenCalled(); expect(prompt).not.toHaveBeenCalled();
   await prepareNativeDraft();
   await expect(materializeOpenDraftSession({ providerID: 'other', modelID: 'other' })).rejects.toBeInstanceOf(NativeCreationError);
   expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
-  const result = await materializeOpenDraftSession(session.nativeCreation.model);
-  expect(result).toEqual({ sessionId: session.id, directory, syntheticParts: draft.syntheticParts });
-  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  await expect(materializeOpenDraftSession(session.nativeCreation.model)).rejects.toBeInstanceOf(NativeCreationError);
+  expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+  expect(useSessionUIStore.getState().newSessionDraft).toEqual(draft);
   expect(create).toHaveBeenCalledTimes(1); expect(legacy).not.toHaveBeenCalled(); expect(prompt).not.toHaveBeenCalled();
 });
 
@@ -79,7 +79,7 @@ test('unknown outcome stays actionable with the same draft and cannot be silentl
   create.mockRejectedValue(error);
   await expect(prepareNativeDraft()).rejects.toBe(error);
   expect(useSessionUIStore.getState().newSessionDraft).toEqual(draft);
-  const state = useSessionUIStore.getState().nativeDraftCreation;
+  const state = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, getRuntimeKey());
   expect(state?.status).toBe('failed');
   if (state?.status === 'failed') expect(state.error.detail).toBe(error.detail);
   await prepareNativeDraft(); expect(create).toHaveBeenCalledTimes(1);
@@ -91,14 +91,14 @@ test('missing capability and changed project target refuse before effects', asyn
   health.mockResolvedValue(false);
   await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
   expect(create).not.toHaveBeenCalled();
-  useSessionUIStore.setState({ nativeDraftCreation: null });
+  useSessionUIStore.setState({ nativeDraftCreations: new Map() });
   health.mockImplementation(async () => {
     useSessionUIStore.setState({ newSessionDraft: { ...draft, directoryOverride: '/other-project' } });
     return true;
   });
   await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
   expect(create).not.toHaveBeenCalled();
-  expect(nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreation, draft, 'another-runtime')).toBeNull();
+  expect(nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, 'another-runtime')).toBeNull();
 });
 
 test('invalid targets and failed capability reads cannot create or fall back to legacy', async () => {
@@ -119,7 +119,7 @@ test('a mismatched returned directory remains an unknown outcome without publica
   const before = useGlobalSessionsStore.getState().activeSessions;
   create.mockResolvedValue({ ...session, directory: '/other-project' });
   await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
-  const state = useSessionUIStore.getState().nativeDraftCreation;
+  const state = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, getRuntimeKey());
   if (state?.status !== 'failed') throw new Error('Expected retained failure');
   expect(state.error.reference).toEqual({ id: session.id, directory: '/other-project' });
   expect(useGlobalSessionsStore.getState().activeSessions).toBe(before);
@@ -139,14 +139,18 @@ test('legacy backend keeps the existing draft materialization path', async () =>
   expect(create).not.toHaveBeenCalled();
 });
 
-test('runtime change after submission cannot publish the returned session into another runtime', async () => {
+test('runtime change retains the late owner with its original target without publishing into another runtime', async () => {
+  const originalRuntime = getRuntimeKey();
   const before = useGlobalSessionsStore.getState().activeSessions;
   create.mockImplementation(async () => {
     // Module-local test identity only. No endpoint switch, transport or native session is started.
     initializeRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: 'different-test-runtime' });
     return session;
   });
-  await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
+  await prepareNativeDraft();
+  const retained = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, originalRuntime);
+  expect(retained?.status).toBe('created');
+  if (retained?.status === 'created') expect(retained.session).toBe(session);
   expect(useGlobalSessionsStore.getState().activeSessions).toBe(before);
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
   expect(create).toHaveBeenCalledTimes(1); expect(prompt).not.toHaveBeenCalled();

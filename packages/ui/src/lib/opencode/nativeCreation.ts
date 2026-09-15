@@ -18,7 +18,7 @@ const recoveryErrorSchema = z.object({
 });
 
 export type NativeCreatedSession = Session & z.infer<typeof nativeSessionSchema>;
-type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model';
+type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model' | 'history' | 'sending';
 
 export class NativeCreationError extends Error {
   constructor(readonly code: NativeCreationFailureCode, cause?: unknown, readonly detail?: string,

@@ -2,6 +2,7 @@ import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
+import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -1287,6 +1288,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Snapshot the draft and current-session identity before the first
         // async gap so a later sidebar selection cannot reroute the send.
         const capturedDraftSnapshot = newSessionDraftOpen ? { ...newSessionDraft } : null;
+        const retainNativeDraft = Boolean(capturedDraftSnapshot && nativeModel);
         const inputSnapshot = options?.presetText != null
             ? {
                 message: options.presetText,
@@ -1451,6 +1453,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             sessionId?: string;
             directory?: string;
             draftSnapshot?: NonNullable<typeof capturedDraftSnapshot>;
+            onNativeAccepted?: () => void;
             historySubmissions?: InputHistorySubmission[];
             delivery?: 'steer';
             displayName?: string;
@@ -1515,22 +1518,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             sendMessageOptions = { ...sendMessageOptions, historySubmissions };
         }
 
-        // Inline review comments and synthetic context are consumed before
-        // assembly so a failed send can restore exactly what it took. What is
-        // here belongs to this send: queueing took its own context with it.
-        const syntheticParts = consumePendingSyntheticParts();
+        // Native first Send only reads this context until admission. Other
+        // sends consume it now and restore it on failure; queued context was
+        // already taken by its own send.
+        const syntheticParts = retainNativeDraft ? useInputStore.getState().pendingSyntheticParts : consumePendingSyntheticParts();
         const consumedDraftTarget = inlineDraftTarget;
         const drafts: InlineCommentDraft[] = consumedDraftTarget
-            ? consumeDrafts(consumedDraftTarget)
+            ? retainNativeDraft ? useInlineCommentDraftStore.getState().getDrafts(consumedDraftTarget) : consumeDrafts(consumedDraftTarget)
             : [];
         const restoreConsumedDrafts = () => {
-            if (consumedDraftTarget && drafts.length > 0) {
+            if (!retainNativeDraft && consumedDraftTarget && drafts.length > 0) {
                 useInlineCommentDraftStore.getState().restoreDrafts(consumedDraftTarget, drafts);
             }
         };
         // Everything a prompt command consumed comes back if it fails: the
         // attached context, the typed text, and the files.
         const restoreConsumedInput = () => {
+            if (retainNativeDraft) return;
             restoreConsumedDrafts();
             if (syntheticParts?.length) {
                 const inputState = useInputStore.getState();
@@ -1586,19 +1590,28 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         if (outgoing.isEmpty) return;
 
-        // Clear input (the queue was taken above)
-        if (!queuedOnly) {
-            setMessage('');
-            confirmedMentionsRef.current.clear();
-            // Clear per-session draft on submit
-            persistDraftImmediately(chatDraftIdentity, '');
-            messageHistory.reset();
-            if (attachedFiles.length > 0) {
-                clearAttachedFiles();
+        const clearSubmittedInput = () => {
+            if (queuedOnly) return;
+            if (!retainNativeDraft || (composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) {
+                setMessage('');
+                confirmedMentionsRef.current.clear();
+                persistDraftImmediately(chatDraftIdentity, '');
+                messageHistory.reset();
             }
-            // Close expanded input overlay when submitting
+            if (retainNativeDraft) {
+                const input = useInputStore.getState();
+                input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
+                input.setPendingSyntheticParts(input.pendingSyntheticParts?.filter(part => !syntheticParts?.includes(part)) ?? null);
+                if (consumedDraftTarget) for (const sent of drafts) {
+                    const live = useInlineCommentDraftStore.getState();
+                    if (live.getDrafts(consumedDraftTarget).includes(sent)) live.removeDraft(consumedDraftTarget, sent.id);
+                }
+            } else if (attachedFiles.length > 0) clearAttachedFiles();
             setExpandedInput(false);
-        }
+        };
+        // Native first Send keeps the original input until admission succeeds, before the draft transition.
+        if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
+        else clearSubmittedInput();
 
         if (isMobile) {
             composerRef.current?.blur();
@@ -1757,6 +1770,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const normalized = rawMessage.toLowerCase();
 
             console.error('Message send failed:', rawMessage || error);
+            if (retainNativeDraft) {
+                toast.error(error instanceof NativeCreationError ? nativeCreation.describeError(error) : rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+                return;
+            }
             restoreConsumedDrafts();
             restoreComposerText();
 

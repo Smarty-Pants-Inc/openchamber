@@ -889,11 +889,13 @@ export async function createNativeSession(directory: string, runtimeKey: string)
   if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
   const session = await opencodeClient.createNativeSession(directory);
   const reference = { id: session.id, directory: session.directory };
-  if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale', undefined, undefined, reference);
   if (session.directory !== directory) throw new NativeCreationError('unknown', undefined, undefined, reference);
-  registerSessionDirectory(session.id, session.directory);
-  useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id);
-  useGlobalSessionsStore.getState().upsertSession(session);
+  if (getRuntimeKey() === runtimeKey) {
+    registerSessionDirectory(session.id, session.directory);
+    useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id);
+    useGlobalSessionsStore.getState().upsertSession(session);
+  }
+  // Keep the exact late result with its originating draft, but never index it into another runtime.
   return session;
 }
 

@@ -55,6 +55,10 @@ workflow entries stay intact. Turkish, new native-creation modules and other
 files outside the original donor ledger remain ordinary tracked source changes.
 This is a behavioral patch, not branding; implementation authorization does not
 replace independent exact-child review, CI or current browser/native evidence.
+The coupled draft-lifecycle correction extends only `session-ui-store.ts` among
+those donor-ledger paths. `nativeLifecycleSource` and `nativeLifecycleSha256`
+record that successor while retaining the original native-creation hash and all
+attribution/branding evidence.
 
 The generator does not own these runtime files. Technical headers and events,
 including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and

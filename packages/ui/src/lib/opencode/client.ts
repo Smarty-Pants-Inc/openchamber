@@ -883,6 +883,8 @@ class OpencodeService {
     text: string;
     /** Captured by the submitting browser, never a shared server setting. */
     displayName?: string;
+    /** Recheck a prepared draft after SDK-side attachment/attribution preparation, before dispatch. */
+    beforeDispatch?: () => void;
     prefaceText?: string;
     prefaceTextSynthetic?: boolean;
     agent?: string;
@@ -1017,6 +1019,7 @@ class OpencodeService {
       || viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey) !== ordinaryView)) {
       throw new Error('Ordinary history view changed before submission');
     }
+    params.beforeDispatch?.();
     let response: Response;
 
     try {

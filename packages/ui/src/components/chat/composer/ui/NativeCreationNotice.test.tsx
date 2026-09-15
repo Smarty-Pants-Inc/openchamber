@@ -13,7 +13,7 @@ mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: keyof typeof nativ
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null,
-  canCreate: true, refresh: () => {}, describeError: () => 'Inspect w1:p2 /native-one/session.jsonl. Do not retry automatically.',
+  canCreate: true, refresh: async () => {}, describeError: () => 'Inspect w1:p2 /native-one/session.jsonl. Do not retry automatically.',
   create: async () => {}, beforeSend: async () => {} };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);
 
@@ -35,9 +35,19 @@ test('native attachment shows the returned model and original-terminal readiness
   expect(html).not.toContain('<button');
 });
 
+test('known pre-create failure exposes read-only connection recovery, while checking hides Create', () => {
+  const failure: ReturnType<typeof useNativeCreation> = { ...native, creation: { status: 'failed', runtimeKey: 'test', draftId: 1,
+    directory: '/project', projectId: 'p', submitted: false, error: new NativeCreationError('unavailable') } };
+  const html = render(failure);
+  expect(html).toContain('Check connection');
+  expect(html).not.toContain('Create native Pi session');
+  expect(html).toContain('type="button"');
+  expect(render({ ...failure, creation: { status: 'checking', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p' } })).not.toContain('<button');
+});
+
 test('unknown recovery details reach an alert with no retry control', () => {
   const html = render({ ...native, creation: { status: 'failed', runtimeKey: 'test', draftId: 1,
-    directory: '/project', projectId: 'p', error: new NativeCreationError('unknown') } });
+    directory: '/project', projectId: 'p', submitted: true, error: new NativeCreationError('unknown') } });
   expect(html).toContain('role="alert"');
   expect(html).toContain('w1:p2 /native-one/session.jsonl');
   expect(html).toContain('Do not retry automatically');
