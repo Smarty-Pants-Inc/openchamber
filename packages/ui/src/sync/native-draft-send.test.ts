@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { useInputStore } from './input-store';
 import { materializeOpenDraftSession, useSessionUIStore } from './session-ui-store';
 import { nativeCreationForDraft, prepareNativeDraft } from './native-draft-creation';
@@ -27,7 +28,7 @@ test('actual store Send waits for first accepted loader history, then sends once
   const history = deferred<Response>(); fixture.handlers.history = async () => history.promise;
   const input = useInputStore.getState(); let accepted = 0;
   const pending = send(() => { accepted++; });
-  await Bun.sleep(0);
+  await sleep(0);
   expect(fixture.loader.getSnapshot({ directory, sessionID: session.id }).status).toBe('loading');
   expect(fixture.prompts()).toHaveLength(0); expect(accepted).toBe(0); retained(input);
   history.resolve(Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
@@ -58,7 +59,7 @@ for (const failure of ['history-error', 'missing-view', 'input-refusal'] as cons
     if (failure === 'history-error') expect(fixture.loader.getSnapshot({ directory, sessionID: session.id }).status).toBe('error');
     fixture.handlers.history = async () => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } });
     fixture.handlers.prompt = async () => new Response(null, { status: 204 });
-    await Bun.sleep(0); expect(fixture.prompts()).toHaveLength(count);
+    await sleep(0); expect(fixture.prompts()).toHaveLength(count);
     await send(() => { accepted++; });
     expect(fixture.prompts()).toHaveLength(count + 1); expect(accepted).toBe(1); expect(fixture.creates()).toHaveLength(1);
     const body = await fixture.prompts().at(-1)!.json();
@@ -72,7 +73,7 @@ test('materialization itself awaits accepted history and never selects or consum
   fixture = nativeDraftFixture(); await prepareNativeDraft();
   const history = deferred<Response>(); fixture.handlers.history = async () => history.promise;
   const pending = materializeOpenDraftSession(session.nativeCreation.model);
-  await Bun.sleep(0); expect(useSessionUIStore.getState().newSessionDraft).toEqual(draft);
+  await sleep(0); expect(useSessionUIStore.getState().newSessionDraft).toEqual(draft);
   history.resolve(Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
   expect((await pending)?.sessionId).toBe(session.id);
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
@@ -83,7 +84,7 @@ test('materialization itself awaits accepted history and never selects or consum
 test('target changes during history and SDK attribution preparation refuse before prompt dispatch', async () => {
   fixture = nativeDraftFixture(); await prepareNativeDraft();
   const history = deferred<Response>(); fixture.handlers.history = async () => history.promise;
-  const pending = send(); await Bun.sleep(0);
+  const pending = send(); await sleep(0);
   fixture.target('b', '/native-project-b');
   history.resolve(Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
   await expect(pending).rejects.toThrow(); expect(fixture.prompts()).toHaveLength(0);
@@ -97,7 +98,7 @@ test('runtime change while history loads refuses without input mutation; restori
   fixture = nativeDraftFixture(); await prepareNativeDraft();
   const input = useInputStore.getState();
   const history = deferred<Response>(); fixture.handlers.history = async () => history.promise;
-  const pending = send(); await Bun.sleep(0);
+  const pending = send(); await sleep(0);
   fixture.switchRuntime('send-runtime-b');
   history.resolve(Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
   await expect(pending).rejects.toThrow(); expect(fixture.prompts()).toHaveLength(0);
@@ -122,7 +123,7 @@ test('revoked accepted history during knowledge preparation refuses before the S
 test('another explicit Send cannot dispatch while the same native draft prompt is pending', async () => {
   fixture = nativeDraftFixture(); await prepareNativeDraft();
   const response = deferred<Response>(); fixture.handlers.prompt = async () => response.promise;
-  const first = send(); await Bun.sleep(0);
+  const first = send(); await sleep(0);
   expect(fixture.prompts()).toHaveLength(1);
   await expect(send()).rejects.toThrow(); expect(fixture.prompts()).toHaveLength(1);
   response.resolve(new Response(null, { status: 204 })); await first;

@@ -1,5 +1,6 @@
 import React, { act } from 'react';
 import { mock, spyOn } from 'bun:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import theme from '@/lib/theme/themes/openchamber-dark.json';
 import { nativeComposerDom } from './nativeComposer-dom';
 
@@ -57,7 +58,7 @@ const { useSessionUIStore } = await import('@/sync/session-ui-store');
 const { browserDisplayName } = await import('@/lib/messages/displayName');
 const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDraftStore');
 spyOn(sync, 'useSessionDirectory').mockImplementation(id => useSessionUIStore(s => id ? s.getDirectoryForSession(id) ?? undefined : undefined));
-await Bun.sleep(0); await bootstrap.restore(); bootstrapFetch.mockRestore();
+await sleep(0); await bootstrap.restore(); bootstrapFetch.mockRestore();
 
 export async function mountedNativeComposer(persistChatDraft: boolean) {
   const dom = nativeComposerDom(), fixture = nativeDraftFixture();
@@ -66,7 +67,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
   useUIStore.setState({ persistChatDraft, isMobile: false });
   useDirectoryStore.setState({ currentDirectory: directory });
   useInputStore.setState({ pendingInputText: null });
-  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, initialPrompt: null } }));
+  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, initialPrompt: undefined } }));
   await prepareNativeDraft();
   const root = createRoot(dom.container);
   let epoch = 0;
@@ -98,7 +99,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
       const form = dom.container.querySelector('form');
       if (!form) throw new Error('Actual composer form missing');
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      await Bun.sleep(0);
+      await sleep(0);
     }),
     dispose: async () => {
       await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true);

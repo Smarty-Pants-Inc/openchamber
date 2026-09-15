@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, type NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey, initializeRuntimeEndpoint } from '@/lib/runtime-switch';
@@ -67,7 +68,7 @@ test('in-flight duplicate actions do not submit again', async () => {
   let release!: () => void;
   const wait = new Promise<void>(resolve => { release = resolve; });
   create.mockImplementation(async () => { await wait; return session; });
-  const first = prepareNativeDraft(); await Bun.sleep(0);
+  const first = prepareNativeDraft(); await sleep(0);
   await prepareNativeDraft(); expect(create).toHaveBeenCalledTimes(1);
   health.mockResolvedValue(false);
   await expect(preparedNativeDraft(draft)).rejects.toBeInstanceOf(NativeCreationError);
@@ -102,7 +103,7 @@ test('missing capability and changed project target refuse before effects', asyn
 });
 
 test('invalid targets and failed capability reads cannot create or fall back to legacy', async () => {
-  for (const change of [{ target: 'worktree' as const }, { title: 'title' }, { parentID: 'parent' },
+  for (const change of [{ target: 'chat' as const }, { title: 'title' }, { parentID: 'parent' },
     { selectedProjectId: null }, { pendingWorktreeRequestId: 'pending' }, { bootstrapPendingDirectory: directory }]) {
     useSessionUIStore.setState({ newSessionDraft: { ...draft, ...change } });
     await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { act } from 'react';
 import { mountedNativeComposer, errors } from './nativeComposer.fixture';
 import { deferred, directory, draft, session } from '@/sync/native-draft-fixture';
@@ -10,7 +11,7 @@ import { readChatDraft } from '@/lib/chatDraftPersistence';
 
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 afterEach(async () => { await mounted?.dispose(); mounted = undefined; });
-const settle = () => Bun.sleep(0);
+const settle = () => sleep(0);
 const addInline = (path: string, text: string) => useInlineCommentDraftStore.getState().addDraft({ directory: path, sessionKey: 'draft' }, {
   source: 'file', fileLabel: 'context.ts', startLine: 1, endLine: 1, code: text, language: 'ts', text,
 });

@@ -11,7 +11,7 @@ const session = { id: '01234567-1234-4234-9234-012345678901', slug: 'native', pr
 const fetchMock = spyOn(globalThis, 'fetch');
 configureRuntimeUrlResolver({ apiBaseUrl: 'http://synthetic.invalid' });
 opencodeClient.reconnectToRuntimeBaseUrl();
-afterEach(() => fetchMock.mockReset());
+afterEach(() => { fetchMock.mockReset(); });
 afterAll(() => { fetchMock.mockRestore(); configureRuntimeUrlResolver({}); opencodeClient.reconnectToRuntimeBaseUrl(); });
 
 describe('native create-only SDK boundary', () => {

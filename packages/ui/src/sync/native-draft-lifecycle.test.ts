@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useInputStore } from './input-store';
@@ -23,7 +24,7 @@ for (const result of ['created', 'unknown', 'pending'] as const) {
     fixture.handlers.create = async request => new URL(request.url).searchParams.get('directory') === directory
       ? waitA.promise : Response.json({ ...session, id: '01234567-1234-4234-9234-012345678902', directory: '/native-project-b' });
     const a = prepareNativeDraft().catch(error => error);
-    await Bun.sleep(0);
+    await sleep(0);
     if (result !== 'pending') { waitA.resolve(result === 'created' ? Response.json(session) : unknown()); await a; }
     const retainedA = current();
     fixture.target('b', '/native-project-b'); await prepareNativeDraft();
@@ -47,7 +48,7 @@ for (const result of ['created', 'unknown', 'pending'] as const) {
     const waitA = deferred<Response>();
     let calls = 0;
     fixture.handlers.create = async () => ++calls === 1 ? waitA.promise : Response.json(session);
-    const a = prepareNativeDraft().catch(error => error); await Bun.sleep(0);
+    const a = prepareNativeDraft().catch(error => error); await sleep(0);
     if (result !== 'pending') { waitA.resolve(result === 'created' ? Response.json(session) : unknown()); await a; }
     fixture.switchRuntime('runtime-b');
     useSessionUIStore.setState({ newSessionDraft: { ...draft } });

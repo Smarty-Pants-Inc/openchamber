@@ -13,21 +13,28 @@ declare module "bun:test" {
     toBeNull(): void;
     toThrow(expected?: string | RegExp | (new (...args: never[]) => unknown)): void;
     toContain(expected: unknown): void;
+    toContainEqual(expected: unknown): void;
     toBeDefined(): void;
+    toBeUndefined(): void;
     rejects: {
       toThrow(expected?: string | RegExp | (new (...args: never[]) => unknown)): Promise<void>;
+      toBe(expected: unknown): Promise<void>;
+      toBeInstanceOf(expected: unknown): Promise<void>;
     };
     toBeGreaterThan(expected: number): void;
     toBeGreaterThanOrEqual(expected: number): void;
     toBeLessThan(expected: number): void;
     toBeLessThanOrEqual(expected: number): void;
     toHaveLength(expected: number): void;
+    toHaveBeenCalledTimes(expected: number): void;
+    toHaveBeenCalledWith(...expected: unknown[]): void;
     toBeInstanceOf(expected: unknown): void;
     not: {
       toEqual(expected: unknown): void;
       toBe(expected: unknown): void;
       toContain(expected: unknown): void;
       toBeNull(): void;
+      toHaveBeenCalled(): void;
     };
   }
   export function expect(value: unknown): ExpectResult;
