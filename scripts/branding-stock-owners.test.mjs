@@ -42,7 +42,22 @@ test('attribution overlay binds only its exact reviewed source without replacing
   for (const file of attributionPaths) {
     const entry = overlays.get(file);
     assert.equal(entry.behaviorSource, overlay.attributionSource, file);
-    assert.equal(entry.behaviorSha256, entry.combinedSha256, file);
+    assert.equal(entry.nativeCreationSha256, entry.combinedSha256, file);
+  }
+  const original = attributionPaths.map(file => {
+    const entry = overlays.get(file);
+    return [entry.path, entry.brandingSha256, entry.behaviorSha256, entry.behaviorSource];
+  });
+  assert.equal(sha256(JSON.stringify(original)), '7723f2af9ddbc50ba70b65b627bd9f6ef6114488525e2f8ad521beefa70d68c5');
+});
+
+test('native creation overlay binds its exact source and only the twelve attribution overlaps', () => {
+  assert.equal(overlay.nativeCreationSource, '49db04d3938126afe57689dfbd224abf6e3c1328');
+  assert.deepEqual(overlay.files.filter(entry => entry.nativeCreationSha256).map(entry => entry.path), attributionPaths);
+  for (const file of attributionPaths) {
+    const entry = overlays.get(file);
+    assert.match(entry.nativeCreationSha256, /^[a-f0-9]{64}$/, file);
+    assert.equal(entry.nativeCreationSha256, sha256(read(file)), file);
   }
 });
 
@@ -64,7 +79,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);
