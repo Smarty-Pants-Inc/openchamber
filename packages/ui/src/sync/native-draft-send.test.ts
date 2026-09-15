@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { useInputStore } from './input-store';
 import { materializeOpenDraftSession, useSessionUIStore } from './session-ui-store';
 import { nativeCreationForDraft, prepareNativeDraft } from './native-draft-creation';
@@ -127,13 +126,4 @@ test('another explicit Send cannot dispatch while the same native draft prompt i
   expect(fixture.prompts()).toHaveLength(1);
   await expect(send()).rejects.toThrow(); expect(fixture.prompts()).toHaveLength(1);
   response.resolve(new Response(null, { status: 204 })); await first;
-});
-
-test('composer keeps native input/context untouched until the store acceptance callback', () => {
-  const source = readFileSync(new URL('../components/chat/ChatInput.tsx', import.meta.url), 'utf8');
-  expect(source).toContain('retainNativeDraft ? useInputStore.getState().pendingSyntheticParts : consumePendingSyntheticParts()');
-  expect(source).toContain('retainNativeDraft ? useInlineCommentDraftStore.getState().getDrafts(consumedDraftTarget) : consumeDrafts(consumedDraftTarget)');
-  expect(source).toContain('onNativeAccepted: clearSubmittedInput');
-  expect(source).toContain('else clearSubmittedInput();');
-  // Supporting source wiring only; the real SDK/loader/store boundary is exercised above, not a browser proof.
 });

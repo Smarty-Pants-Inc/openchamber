@@ -6,7 +6,7 @@ import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
-import { prepareNativeDraftSend } from '@/sync/native-draft-send';
+import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
 
 type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable' };
 
@@ -16,6 +16,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const scoped = useSessionUIStore(s => nativeCreationForDraft(s.nativeDraftCreations, draft, runtimeKey));
   const selected = useSessionUIStore(s => [...s.nativeDraftCreations.values()].find(entry =>
     entry.status === 'created' && entry.runtimeKey === runtimeKey && entry.session.id === sessionId));
+  React.useEffect(() => { resumeAcceptedNativeDraft(); }, [scoped]);
   const [capability, setCapability] = React.useState<Capability | null>(null);
   const [revision, recheck] = React.useReducer(value => value + 1, 0);
   const directory = draft.directoryOverride ?? currentDirectory;
@@ -59,7 +60,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
       if (draft.open) {
         const native = await preparedNativeDraft(draft);
-        if (native) await prepareNativeDraftSend(draft, native);
+        if (native) return prepareNativeDraftSend(draft, native);
       }
     },
   };

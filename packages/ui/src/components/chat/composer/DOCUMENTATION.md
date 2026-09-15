@@ -227,15 +227,27 @@ for the existing loader and checks its actually accepted ready history view.
 A resolved loader promise with stored error, missing view or changed loader is
 not acceptance. A later explicit Send can request a fresh read; it cannot replay
 an earlier prompt. Runtime and draft target are checked after history loading,
-after asynchronous SDK preparation and before dispatch. Concurrent sends of the
-same prepared owner are refused.
+after asynchronous SDK preparation and before dispatch. The composer carries the
+prepared native intent through settings, snippet and prompt-command awaits into
+the store. The store checks that intent before any materialization or mutation;
+it cannot recapture another runtime and enter legacy creation. Concurrent sends
+of the same prepared owner are refused.
 
 The native branch leaves text, confirmed mentions, files, inline and synthetic
 context in place until input admission succeeds. Only then does the acceptance
-callback consume the submitted input and select the session. History and native
-input refusals leave the draft and exact owner together for another explicit
-Send. Native `/code-ready`, model checks and accepted-view validation remain
-authoritative; the UI does not manufacture a view or arm input.
+callback consume the submitted input. A successful response records acceptance
+on the originating creation record even after navigation. It is not a stale
+pre-dispatch refusal. Cleanup consumes only captured input and scoped inline
+context; unrelated current input stays intact. The active original draft selects
+its owner now, or on return to that accepted draft, without another prompt.
+
+`useComposerDraft` treats this accepted materialization as an identity transfer.
+It keeps newer unsent text and confirmed mentions with the native owner, with
+stored drafts either on or off. Only the old draft slot is cleared; new inline
+context transfers to the owner and newer files/synthetic parts remain attached.
+History and native input refusals retain the original prepared input for another
+explicit Send. Native `/code-ready`, model checks and accepted-view validation
+remain authoritative; the UI does not manufacture a view or arm input.
 
 Failures keep the draft. Validated non-retryable API errors retain the backend's
 safe operation/pane/path details in the visible alert. Malformed success and
@@ -246,9 +258,10 @@ Success clears that failure and requires a separate explicit Create action.
 Post-submission uncertainty has no such recovery control. Inspect Herdr before
 an explicit new creation after an unknown result, including after a page reload.
 
-Focused SDK, draft-state and static React-render tests cover these boundaries.
-They do not prove actual browser interactions, layout, native attachment or input
-admission. Current desktop/mobile and light/dark evidence, shared-runtime checks,
+Focused SDK/state tests and Happy DOM tests mount the actual composer, CodeMirror
+and draft effects for these boundaries. The mounted tests retain the real store,
+SDK and history loader, with synthetic HTTP and isolated unrelated widgets.
+They do not prove real browser layout, native attachment or input admission. Current desktop/mobile and light/dark evidence, shared-runtime checks,
 and browser-to-original-TUI proof remain integration/review gates.
 
 ## Optional display attribution
@@ -330,14 +343,15 @@ hardware.
 
 ## Testing
 
-The package has no DOM test environment, so coverage stops at the state and
-logic layers: the language, the submit assembly, path and drop handling, text
-splicing, large-paste detection, paste-offer invalidation, input-history
-traversal, and the CodeMirror language extension at the `EditorState` level.
-
-Rendering, focus, keyboard behavior, IME and WKWebView are **not covered by
-tests** and are verified by hand. That includes ArrowUp and ArrowDown recall,
-caret placement after recall, restored drafts, and any edited-entry overlay.
+State/logic tests cover the language, submit assembly, paths, text splicing,
+large-paste handling, input-history traversal and editor language extensions.
+`submit/__tests__/nativeComposer.test.tsx` also uses the UI package's Happy DOM
+dependency to mount real composer submission and draft-persistence effects. It
+covers settings/snippet/command preparation races, accepted responses after
+navigation and newer input through native materialization. It does not replace
+browser subscriptions, layout, physical focus/keyboard, IME or WKWebView proof.
+ArrowUp/ArrowDown recall and edited-entry overlay behavior still need manual
+verification.
 Do not report a change to them as validated on the strength of type-check and
 unit tests.
 

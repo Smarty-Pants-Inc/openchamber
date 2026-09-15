@@ -3,6 +3,7 @@ import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
+import { assertNativeDraftReady, isNativeDraftCurrent, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -31,6 +32,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
+    getChatDraftIdentityKey,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -462,6 +464,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
     const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
     const nativeModel = nativeCreation.session?.nativeCreation.model;
+    const materializedSessionId = useSessionUIStore(s => s.materializedDraftSessionId);
     const nativeModelControls = (newSessionDraftOpen && nativeCreation.mode === 'ordinary') || Boolean(nativeModel);
     const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
         s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
@@ -954,6 +957,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         confirmedMentionsRef,
         identity: chatDraftIdentity,
         persistEnabled: persistChatDraft,
+        materializedSessionId: nativeModel ? materializedSessionId : null,
         initialDraft: {
             text: initialDraftRef.current ?? '',
             identity: initialDraftIdentityRef.current,
@@ -1288,7 +1292,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Snapshot the draft and current-session identity before the first
         // async gap so a later sidebar selection cannot reroute the send.
         const capturedDraftSnapshot = newSessionDraftOpen ? { ...newSessionDraft } : null;
-        const retainNativeDraft = Boolean(capturedDraftSnapshot && nativeModel);
         const inputSnapshot = options?.presetText != null
             ? {
                 message: options.presetText,
@@ -1298,10 +1301,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (displayName && inputSnapshot.message.trimStart().startsWith('/')) {
             toast.error(t('chat.displayName.plainOnly')); return;
         }
+        let nativeIntent: NativeDraftSend | undefined;
         if (newSessionDraftOpen) {
-            try { await nativeCreation.beforeSend(); }
+            try { nativeIntent = await nativeCreation.beforeSend(); }
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }
         }
+        const retainNativeDraft = Boolean(nativeIntent);
+        const nativeModelToSend = nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
             return;
         }
@@ -1364,10 +1370,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? queuedMessages.filter((message) => message.id === queuedMessageId)
             : queuedMessages;
         const capturedSendConfig = queuedOnly ? queuedProjection[0]?.sendConfig : undefined;
-        const providerIdToSend = nativeModel?.providerID ?? capturedSendConfig?.providerID ?? currentProviderId;
-        const modelIdToSend = nativeModel?.modelID ?? capturedSendConfig?.modelID ?? currentModelId;
-        const agentNameToSend = nativeModel ? undefined : capturedSendConfig?.agent ?? currentAgentName;
-        const variantToSend = nativeModel ? undefined : capturedSendConfig?.variant ?? currentVariant;
+        const providerIdToSend = nativeModelToSend?.providerID ?? capturedSendConfig?.providerID ?? currentProviderId;
+        const modelIdToSend = nativeModelToSend?.modelID ?? capturedSendConfig?.modelID ?? currentModelId;
+        const agentNameToSend = nativeModelToSend ? undefined : capturedSendConfig?.agent ?? currentAgentName;
+        const variantToSend = nativeModelToSend ? undefined : capturedSendConfig?.variant ?? currentVariant;
 
         if (!providerIdToSend || !modelIdToSend) {
             console.warn('Cannot send message: provider or model not selected');
@@ -1454,6 +1460,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             directory?: string;
             draftSnapshot?: NonNullable<typeof capturedDraftSnapshot>;
             onNativeAccepted?: () => void;
+            nativeIntent?: NativeDraftSend;
             historySubmissions?: InputHistorySubmission[];
             delivery?: 'steer';
             displayName?: string;
@@ -1470,6 +1477,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
         if (delivery && sendMessageOptions) sendMessageOptions.delivery = delivery;
         if (displayName) sendMessageOptions = { ...sendMessageOptions, displayName };
+        if (nativeIntent) sendMessageOptions = { ...sendMessageOptions, nativeIntent };
 
         // Queued messages resolved their mentions when they were queued; only
         // the composer's own text can still name a document.
@@ -1522,7 +1530,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // sends consume it now and restore it on failure; queued context was
         // already taken by its own send.
         const syntheticParts = retainNativeDraft ? useInputStore.getState().pendingSyntheticParts : consumePendingSyntheticParts();
-        const consumedDraftTarget = inlineDraftTarget;
+        const consumedDraftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: submitRuntimeKey } : null;
         const drafts: InlineCommentDraft[] = consumedDraftTarget
             ? retainNativeDraft ? useInlineCommentDraftStore.getState().getDrafts(consumedDraftTarget) : consumeDrafts(consumedDraftTarget)
             : [];
@@ -1592,22 +1600,45 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         const clearSubmittedInput = () => {
             if (queuedOnly) return;
-            if (!retainNativeDraft || (composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) {
+            const currentIdentity = currentChatDraftIdentityRef.current;
+            const visibleOrigin = currentIdentity && chatDraftIdentity
+                && getChatDraftIdentityKey(currentIdentity) === getChatDraftIdentityKey(chatDraftIdentity);
+            if (!retainNativeDraft || (visibleOrigin && (composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message)) {
+                messageRef.current = '';
                 setMessage('');
                 confirmedMentionsRef.current.clear();
                 persistDraftImmediately(chatDraftIdentity, '');
                 messageHistory.reset();
             }
-            if (retainNativeDraft) {
+            const origin = nativeIntent;
+            if (origin) {
+                if (!visibleOrigin) {
+                    const saved = readChatDraft(chatDraftIdentity);
+                    if (saved.text === inputSnapshot.message) writeChatDraft(chatDraftIdentity, '', []);
+                }
                 const input = useInputStore.getState();
-                input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
-                input.setPendingSyntheticParts(input.pendingSyntheticParts?.filter(part => !syntheticParts?.includes(part)) ?? null);
-                if (consumedDraftTarget) for (const sent of drafts) {
+                const remainingFiles = input.attachedFiles.filter(file => !attachedFiles.includes(file));
+                if (remainingFiles.length !== input.attachedFiles.length) input.setAttachedFiles(remainingFiles);
+                const remainingParts = input.pendingSyntheticParts?.filter(part => !syntheticParts?.includes(part)) ?? [];
+                if (isNativeDraftCurrent(origin)) {
+                    const liveParts = useSessionUIStore.getState().newSessionDraft.syntheticParts ?? [];
+                    remainingParts.push(...liveParts.filter(part => !origin.draft.syntheticParts?.includes(part) && !remainingParts.includes(part)));
+                }
+                if (remainingParts.length !== (input.pendingSyntheticParts?.length ?? 0)
+                    || remainingParts.some((part, index) => part !== input.pendingSyntheticParts?.[index])) input.setPendingSyntheticParts(remainingParts);
+                setLinkedIssue(current => current === linkedIssue ? null : current);
+                setLinkedPr(current => current === linkedPr ? null : current);
+                setLinkedLinearIssue(current => current === linkedLinearIssue ? null : current);
+                if (consumedDraftTarget) {
                     const live = useInlineCommentDraftStore.getState();
-                    if (live.getDrafts(consumedDraftTarget).includes(sent)) live.removeDraft(consumedDraftTarget, sent.id);
+                    for (const sent of drafts) if (live.getDrafts(consumedDraftTarget).includes(sent)) live.removeDraft(consumedDraftTarget, sent.id);
+                    const destination = { ...consumedDraftTarget, sessionKey: origin.session.id };
+                    const remaining = live.getDrafts(consumedDraftTarget);
+                    live.restoreDrafts(destination, remaining.map(draft => ({ ...draft, sessionKey: destination.sessionKey })));
+                    for (const draft of remaining) if (live.getDrafts(destination).some(item => item.id === draft.id)) live.removeDraft(consumedDraftTarget, draft.id);
                 }
             } else if (attachedFiles.length > 0) clearAttachedFiles();
-            setExpandedInput(false);
+            if (!retainNativeDraft || visibleOrigin) setExpandedInput(false);
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
@@ -1669,7 +1700,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 const variables = buildCommandVariables(command, argument);
                 try {
                     await sessionActions.waitForConnectionOrThrow();
+                    if (nativeIntent) assertNativeDraftReady(nativeIntent);
                     const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
+                    if (nativeIntent) assertNativeDraftReady(nativeIntent);
                     const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
                     await sendMessage(
                         visibleText,
@@ -1686,7 +1719,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     scrollToBottom?.();
                 } catch (error) {
                     restoreConsumedInput();
-                    toast.error(getSubmitErrorMessage(error, t(command.errorToastKey)));
+                    toast.error(nativeIntent ? nativeCreation.describeError(error) : getSubmitErrorMessage(error, t(command.errorToastKey)));
                 }
                 return;
             }
@@ -1696,23 +1729,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // btw mode: the fork already carries the question plus full history,
         // so the response-style instruction never applies there.
         const shouldAddResponseStyle = !isBtwActive && (newSessionDraftOpen || (currentSessionId ? !hasUserMessages(currentSessionId, currentSessionDirectory) : false));
-        if (shouldAddResponseStyle) {
-            const responseStyleInstruction = await fetchResponseStyleInstruction().catch(() => null);
-            if (responseStyleInstruction) {
-                additionalParts.push({
-                    text: wrapSystemReminder(responseStyleInstruction),
-                    synthetic: true,
-                });
-            }
-        }
-
         try {
+            if (nativeIntent) assertNativeDraftReady(nativeIntent);
+            if (shouldAddResponseStyle) {
+                const responseStyleInstruction = await fetchResponseStyleInstruction().catch(() => null);
+                if (responseStyleInstruction) additionalParts.push({ text: wrapSystemReminder(responseStyleInstruction), synthetic: true });
+            }
+            if (nativeIntent) assertNativeDraftReady(nativeIntent);
             const expandText = useSnippetsStore.getState().expandText;
             primaryText = await expandText(primaryText);
             for (const part of additionalParts) {
+                if (nativeIntent) assertNativeDraftReady(nativeIntent);
                 if (!part.synthetic) part.text = await expandText(part.text);
             }
         } catch (error) {
+            if (nativeIntent) { toast.error(nativeCreation.describeError(error)); return; }
             console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
         }
 
@@ -1745,21 +1776,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // read from the store. The fallback is used only when the closure
             // had no session at all, so a mid-send session switch cannot
             // redirect the write to an unrelated session.
+            const sameRuntime = !nativeIntent || getRuntimeKey() === nativeIntent.runtimeKey;
             const sessionState = useSessionUIStore.getState();
-            const linkTargetSessionId = currentSessionId ?? sessionState.currentSessionId;
-            const linkTargetDirectory = currentSessionId
+            const linkTargetSessionId = nativeIntent?.session.id ?? currentSessionId ?? sessionState.currentSessionId;
+            const linkTargetDirectory = nativeIntent?.session.directory ?? (currentSessionId
                 ? currentSessionDirectoryForSync ?? currentDirectory
                 : sessionState.currentSessionDirectory
                     ?? (linkTargetSessionId ? sessionState.getDirectoryForSession(linkTargetSessionId) : null)
-                    ?? currentDirectory;
-            if (linkTargetSessionId) {
+                    ?? currentDirectory);
+            if (linkTargetSessionId && sameRuntime) {
                 recordLinkedReferences(linkTargetSessionId, linkTargetDirectory, { issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue });
             }
 
             // Linked references were sent; clear them from the composer.
-            setLinkedIssue(null);
-            setLinkedPr(null);
-            setLinkedLinearIssue(null);
+            setLinkedIssue(current => current === linkedIssue ? null : current);
+            setLinkedPr(current => current === linkedPr ? null : current);
+            setLinkedLinearIssue(current => current === linkedLinearIssue ? null : current);
         }).catch((error: unknown) => {
             const rawMessage =
                 error instanceof Error

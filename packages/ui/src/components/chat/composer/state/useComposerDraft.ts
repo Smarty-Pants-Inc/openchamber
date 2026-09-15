@@ -48,6 +48,8 @@ export interface ComposerDraftOptions {
     identity: ChatDraftIdentity | null;
     /** User setting: when off, drafts are discarded rather than stored. */
     persistEnabled: boolean;
+    /** A successful native first Send transfers the live draft to this session. */
+    materializedSessionId?: string | null;
     /** The draft restored on mount, if any. */
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
@@ -72,6 +74,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         confirmedMentionsRef,
         identity,
         persistEnabled,
+        materializedSessionId,
         initialDraft,
         onIdentityChange,
         onDraftRestored,
@@ -149,6 +152,14 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         // debounced effect must not immediately write it back out.
         skipNextPersistRef.current = true;
 
+        if (previous && identity && !previous.sessionId && identity.sessionId === materializedSessionId
+            && previous.runtimeKey === identity.runtimeKey && previous.directory === identity.directory) {
+            // This is an identity transfer, not navigation to another input. Keep newer text and mentions.
+            writeChatDraft(previous, '', []);
+            lastPersistedRef.current.set(getChatDraftIdentityKey(previous), draftSignature('', []));
+            if (persistEnabled) persistNow(identity, messageRef.current);
+            return;
+        }
         if (!persistEnabled) {
             setMessage('');
             confirmedMentionsRef.current = new Set();
@@ -162,7 +173,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         if (restored.text) {
             requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.());
         }
-    }, [clearPending, confirmedMentionsRef, identity, messageRef, persistEnabled, persistNow, setMessage]);
+    }, [clearPending, confirmedMentionsRef, identity, materializedSessionId, messageRef, persistEnabled, persistNow, setMessage]);
 
     // A draft deleted elsewhere (session deleted, drafts cleared) clears the
     // composer if it is the one on screen.
@@ -185,7 +196,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     React.useEffect(() => {
         if (!persistEnabled) {
             clearPending();
-            persistNow(identity, '');
+            // Disabling durable storage must not clear live confirmed mentions.
+            writeChatDraft(identity, '', []);
             return;
         }
 

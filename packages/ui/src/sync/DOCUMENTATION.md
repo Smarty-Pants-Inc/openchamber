@@ -311,10 +311,14 @@ canonicalization or permission to create again. Only known pre-create failures
 permit an explicit read-only recheck.
 
 `native-draft-send.ts` requires the exact owner's accepted ready loader view
-before dispatch. Materialization leaves the draft open. Selection and input
-consumption occur only after successful admission, with runtime/target checks
-across the asynchronous steps. A refusal retains all prepared context and the
-owner for a later explicit Send, without another create or automatic replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
+before dispatch. The prepared native intent crosses the complete composer/store
+boundary and cannot fall through to another runtime's legacy materialization.
+Materialization leaves the draft open. Successful admission marks the original
+creation record accepted even if navigation has changed the active target. It
+consumes only originating submitted input; selection happens only for that active
+draft or when it is restored. New unsent text/context transfers to the same owner
+through the composer identity boundary. Pre-dispatch and input refusals retain
+prepared context for a later explicit Send, without another create or replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
 for capability, recovery and original-TUI readiness rules.
 
 Examples of global-store updates performed in `session-actions.ts`:

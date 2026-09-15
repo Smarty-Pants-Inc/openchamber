@@ -38,6 +38,9 @@ export function nativeDraftFixture() {
   const handlers = {
     health: async (): Promise<Response> => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1, displayAttribution: 1 } }),
     create: async (_request: Request): Promise<Response> => Response.json(session),
+    settings: async (): Promise<Response> => Response.json({}),
+    snippet: async (): Promise<Response> => Response.json({ text: 'expanded X' }),
+    magic: async (): Promise<Response> => Response.json({ version: 1, overrides: {} }),
     knowledge: async (): Promise<Response> => new Response(null, { status: 404 }),
     history: async (): Promise<Response> => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }),
     prompt: async (_request: Request): Promise<Response> => new Response(null, { status: 204 }),
@@ -51,6 +54,9 @@ export function nativeDraftFixture() {
     if (url.pathname.endsWith('/message') && request.method === 'GET') return handlers.history();
     if (url.pathname.endsWith('/prompt_async')) return handlers.prompt(request);
     if (url.pathname.endsWith('/session-knowledge')) return handlers.knowledge();
+    if (url.pathname.endsWith('/config/settings')) return handlers.settings();
+    if (url.pathname.endsWith('/snippets/expand')) return handlers.snippet();
+    if (url.pathname.endsWith('/magic-prompts')) return handlers.magic();
     // Incidental project knowledge/configuration is unavailable, not another test authority.
     return new Response(null, { status: 404 });
   });

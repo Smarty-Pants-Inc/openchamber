@@ -14,7 +14,7 @@ mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false 
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null,
   canCreate: true, refresh: async () => {}, describeError: () => 'Inspect w1:p2 /native-one/session.jsonl. Do not retry automatically.',
-  create: async () => {}, beforeSend: async () => {} };
+  create: async () => {}, beforeSend: async () => undefined };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);
 
 test('create-only action is a separate non-submit button without a model requirement', () => {

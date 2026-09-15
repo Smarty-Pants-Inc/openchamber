@@ -9,7 +9,7 @@ type DraftTarget = { runtimeKey: string; draftId: number; directory: string; pro
 export type NativeDraftCreation = DraftTarget & (
   | { status: 'creating' | 'checking' }
   | { status: 'failed'; error: NativeCreationError; submitted: boolean }
-  | { status: 'created'; session: NativeCreatedSession }
+  | { status: 'created'; session: NativeCreatedSession; inputAccepted?: true }
 );
 
 export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
