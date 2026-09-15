@@ -5,7 +5,8 @@
   "attributionSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
   "nativeCreationSource": "49db04d3938126afe57689dfbd224abf6e3c1328",
   "nativeLifecycleSource": "24170f63647a3acc20a819ef5139d300713157c0",
-  "note": "Narrow reviewed behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval. Native create-only extends twelve attribution-overlap outputs. Its coupled draft-lifecycle correction extends only session-ui-store.ts among those paths, retaining the earlier native-creation hashes. Both authorized sources still need exact-child review, CI and browser/native evidence.",
+  "nativeCompletionSource": "b2a6461fc9734a165be44ee0afd64d97f87421cb",
+  "note": "Narrow behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval. Native create-only extends twelve attribution-overlap outputs. Its lifecycle and completion corrections extend only session-ui-store.ts among those paths, retaining each earlier hash. Exact-successor review, owning CI and browser/native evidence remain separate gates.",
   "files": [
     {
       "path": ".github/workflows/oc-review.yml",
@@ -146,11 +147,12 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "ad4850a64d50b0ce06107888171ed01a36fee3a69758e4c3153e787249e5d0fe",
+      "combinedSha256": "8c06820d14b78e8028c8e5c8f49d5eac6d9f643e9a845e9ff21c60956f95c807",
+      "nativeCompletionSha256": "8c06820d14b78e8028c8e5c8f49d5eac6d9f643e9a845e9ff21c60956f95c807",
       "nativeLifecycleSha256": "ad4850a64d50b0ce06107888171ed01a36fee3a69758e4c3153e787249e5d0fe",
       "nativeCreationSha256": "32dcfc9c63468cb32be5d92612455bbc7cf076e82ee626c9f34dc0ee5c258305",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
-      "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission."
+      "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission. Native intent crosses composer preparation; accepted completion remains with its origin after navigation and transfers newer unsent input to that owner."
     },
     {
       "path": "packages/web/server/lib/opencode/static-routes-runtime.js",
