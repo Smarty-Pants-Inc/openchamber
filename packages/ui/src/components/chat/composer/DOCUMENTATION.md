@@ -192,6 +192,49 @@ and the send path reading the same grammar.
   state and registers its application shortcuts locally. The selectors only
   consume their shared prefix while the draft target UI is mounted.
 
+## Native create-only drafts
+
+`state/useNativeCreation.ts` reads the selected directory's SDK `global.health`.
+Only `capabilities.ordinaryCreateOnly: 1` enables the separate **Create native Pi
+session** button in `ui/NativeCreationNotice.tsx`. A valid missing capability keeps
+the existing OpenCode/Chord path. A failed or malformed read is not absence; it
+shows a connection check, not permission to fall back to another runtime.
+
+Creation requires a selected project draft with no title, parent session, or
+pending worktree setup. `sync/native-draft-creation.ts` binds the one request and
+its result to the runtime, draft ID, project ID and directory. The canonical
+`session-actions.createNativeSession` indexes the returned owner but does not
+select it, close the draft, consume input/context, or send a prompt. Duplicate
+clicks and uncertain completion never submit another creation request. This is
+in-memory draft state, not a persisted operation journal or restart guarantee.
+SDK1.18.29 sends `session.create({ directory })` with no body or Content-Type;
+the capability-advertising gateway must accept that empty creation request. It
+must still validate supplied bodies and must not relax other mutation routes.
+
+The successful attached session must include
+`nativeCreation: { model: { providerID, modelID }, inputReady: boolean }` from the
+just-created native snapshot. The UI displays that model, not the first connected
+session's provider listing. Model and readiness are creation-time observations;
+they do not change the native model or grant durable input permission. Finish
+original-TUI dialogs and run `/code-ready` there. The UI never arms the session.
+
+A later explicit Send uses `materializeOpenDraftSession` to select and reuse that
+owner, with its exact model, without another POST. Both the composer and store
+materialization/send boundaries refuse ordinary Send before creation. Existing
+native admission and accepted-view rules still govern the prompt; a stale model
+or readiness observation is not permission to bypass them.
+
+Failures keep the draft. Validated non-retryable API errors retain the backend's
+safe operation/pane/path details in the visible alert. Malformed success and
+runtime/directory mismatch retain a validated returned ID/directory when known.
+Arbitrary transport diagnostics stay private causes. Inspect Herdr before an
+explicit new creation after an unknown result, including after a page reload.
+
+Focused SDK, draft-state and static React-render tests cover these boundaries.
+They do not prove actual browser interactions, layout, native attachment or input
+admission. Current desktop/mobile and light/dark evidence, shared-runtime checks,
+and browser-to-original-TUI proof remain integration/review gates.
+
 ## Optional display attribution
 
 `ui/DisplayNameChoice.tsx`, Send and Queue share `browserDisplayName` in

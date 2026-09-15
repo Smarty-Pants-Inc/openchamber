@@ -3,6 +3,7 @@ import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
+import { nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure } from './nativeCreation';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -631,6 +632,24 @@ class OpencodeService {
       this.currentDirectory ? { directory: this.currentDirectory } : undefined
     );
     return Array.isArray(response.data) ? response.data : [];
+  }
+
+  async supportsNativeCreation(directory: string): Promise<boolean> {
+    const runtimeKey = getRuntimeKey();
+    const response = await this.getScopedSdkClient(directory).global.health();
+    this.assertRuntimeUnchanged(runtimeKey);
+    const health = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health'));
+    return health.capabilities?.ordinaryCreateOnly === 1;
+  }
+
+  /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
+  async createNativeSession(directory: string) {
+    try {
+      const response = await this.getScopedSdkClient(directory).session.create({ directory });
+      if (response.error) throw response.error;
+      if (!response.data) throw new Error('Empty native creation response');
+      return nativeCreatedSession(response.data);
+    } catch (error) { throw nativeCreationFailure(error); }
   }
 
   async createSession(params?: { parentID?: string; title?: string; metadata?: Record<string, unknown> }, directory?: string | null): Promise<Session> {

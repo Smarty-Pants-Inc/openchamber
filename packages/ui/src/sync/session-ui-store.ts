@@ -91,6 +91,8 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { NativeCreationError } from '@/lib/opencode/nativeCreation'
+import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -359,6 +361,7 @@ export type SessionUIState = {
   currentSessionDirectory: string | null
   materializedDraftSessionId: string | null
   newSessionDraft: NewSessionDraftState
+  nativeDraftCreation: NativeDraftCreation | null
   abortPromptSessionId: string | null
   abortPromptExpiresAt: number | null
   error: string | null
@@ -898,6 +901,16 @@ export async function materializeOpenDraftSession(selection: {
   const store = useSessionUIStore.getState()
   const draft = draftOverride ?? store.newSessionDraft
   if (!draft?.open) return null
+  const native = await preparedNativeDraft(draft)
+  if (native) {
+    const model = native.nativeCreation.model
+    if (selection.providerID !== model.providerID || selection.modelID !== model.modelID) {
+      throw new NativeCreationError('model')
+    }
+    useSelectionStore.getState().saveSessionModelSelection(native.id, model.providerID, model.modelID)
+    store.setCurrentSession(native.id, native.directory, 'submitted-draft')
+    return { sessionId: native.id, directory: native.directory, syntheticParts: draft.syntheticParts }
+  }
   const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
 
   const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
@@ -1020,6 +1033,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionDirectory: null,
   materializedDraftSessionId: null,
   newSessionDraft: { ...DEFAULT_DRAFT },
+  nativeDraftCreation: null,
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
@@ -1729,6 +1743,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
 
     const draft = options?.draftSnapshot ?? get().newSessionDraft
+    if (!capturedTarget && !options?.sessionId && draft.open) await preparedNativeDraft(draft)
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
     const goalArm = inputMode !== "shell" && content.trim().length > 0

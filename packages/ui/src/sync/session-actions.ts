@@ -10,6 +10,7 @@ import { useInputStore } from "./input-store"
 import type { ChildStoreManager } from "./child-store"
 import { computeSubtreeIds } from "./scoped-blocking-requests"
 import { opencodeClient } from "@/lib/opencode/client"
+import { NativeCreationError } from "@/lib/opencode/nativeCreation"
 import { mergeSessionDirectoryMetadata, resolveGlobalSessionDirectory, useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { registerSessionDirectory } from "./sync-refs"
@@ -882,6 +883,19 @@ function getRequestReplyClient(
 // ---------------------------------------------------------------------------
 // Session CRUD
 // ---------------------------------------------------------------------------
+
+/** Create and index the attached native owner, leaving the user's draft and selection alone. */
+export async function createNativeSession(directory: string, runtimeKey: string) {
+  if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
+  const session = await opencodeClient.createNativeSession(directory);
+  const reference = { id: session.id, directory: session.directory };
+  if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale', undefined, undefined, reference);
+  if (session.directory !== directory) throw new NativeCreationError('unknown', undefined, undefined, reference);
+  registerSessionDirectory(session.id, session.directory);
+  useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id);
+  useGlobalSessionsStore.getState().upsertSession(session);
+  return session;
+}
 
 export async function createSession(
   title?: string,

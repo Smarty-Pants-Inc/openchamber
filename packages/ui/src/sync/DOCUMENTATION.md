@@ -301,9 +301,18 @@ Rules:
 11. Starting a session from an assistant answer carries the source session ID, rendered directory, and answer text into the action. It must not rediscover that context from the globally active child store or the OpenCode client's fallback directory: the visible session may belong to an existing worktree while the active provider directory points elsewhere. New isolated worktrees resolve their registered parent project from that captured directory, preferring recorded worktree metadata when available. The dialog offers creation only after the project root is confirmed as a Git repository, and the creation boundary repeats that check so stale or bypassed UI state cannot run Git commands against a non-repository directory; failures leave the dialog open and visible.
 12. OpenCode commands and skills keep the authoritative `session.command` route when their only additional part is explicitly tagged session knowledge. Every other additional part, including unstructured synthetic conflict instructions, requires the prompt route; primary file attachments remain supported by `session.command`. Because session knowledge cannot be forwarded through the command route, it remains pending for the session's next prompt instead of being marked as delivered.
 
+Native create-only is an explicit capability-gated exception to regular draft
+materialization. `native-draft-creation.ts` retains one in-memory result without
+consuming the draft. `session-actions.createNativeSession` uses the scoped SDK,
+checks runtime and exact admitted directory before indexing, and leaves selection
+alone. A mismatched directory is an uncertain result, not worktree canonicalization
+or permission to create again. A later explicit Send selects the same owner only
+with its native model. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
+for capability, recovery and original-TUI readiness rules.
+
 Examples of global-store updates performed in `session-actions.ts`:
 
-- `createSession()` -> `upsertSession(session)`
+- `createSession()` / `createNativeSession()` -> `upsertSession(session)`
 - `updateSessionTitle()` -> `upsertSession(result.data)`
 - `shareSession()` / `unshareSession()` -> `upsertSession(result.data)`
 - `archiveSession()` / `archiveSessions()` -> wait for server confirmation, then upsert each archived session

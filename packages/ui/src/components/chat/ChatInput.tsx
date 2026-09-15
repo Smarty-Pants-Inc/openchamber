@@ -1,5 +1,7 @@
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
+import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
+import { useNativeCreation } from './composer/state/useNativeCreation';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -457,6 +459,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     );
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
+    const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
+    const nativeModel = nativeCreation.session?.nativeCreation.model;
+    const nativeModelControls = (newSessionDraftOpen && nativeCreation.mode === 'ordinary') || Boolean(nativeModel);
     const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
         s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
     ));
@@ -1291,6 +1296,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (displayName && inputSnapshot.message.trimStart().startsWith('/')) {
             toast.error(t('chat.displayName.plainOnly')); return;
         }
+        if (newSessionDraftOpen) {
+            try { await nativeCreation.beforeSend(); }
+            catch (error) { toast.error(nativeCreation.describeError(error)); return; }
+        }
         if (queuedOnly && autoReviewRunning) {
             return;
         }
@@ -1353,10 +1362,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? queuedMessages.filter((message) => message.id === queuedMessageId)
             : queuedMessages;
         const capturedSendConfig = queuedOnly ? queuedProjection[0]?.sendConfig : undefined;
-        const providerIdToSend = capturedSendConfig?.providerID ?? currentProviderId;
-        const modelIdToSend = capturedSendConfig?.modelID ?? currentModelId;
-        const agentNameToSend = capturedSendConfig?.agent ?? currentAgentName;
-        const variantToSend = capturedSendConfig?.variant ?? currentVariant;
+        const providerIdToSend = nativeModel?.providerID ?? capturedSendConfig?.providerID ?? currentProviderId;
+        const modelIdToSend = nativeModel?.modelID ?? capturedSendConfig?.modelID ?? currentModelId;
+        const agentNameToSend = nativeModel ? undefined : capturedSendConfig?.agent ?? currentAgentName;
+        const variantToSend = nativeModel ? undefined : capturedSendConfig?.variant ?? currentVariant;
 
         if (!providerIdToSend || !modelIdToSend) {
             console.warn('Cannot send message: provider or model not selected');
@@ -3068,6 +3077,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
+                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} />
                 <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                 <QueuedMessageChips
                     onEditMessage={handleQueuedMessageEdit}
@@ -3272,7 +3282,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         text area + footer exactly. */}
                     <div className={cn('relative flex flex-col', isComposerExpanded && 'flex-1 min-h-0')}>
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                        {isMobile ? (
+                        {isMobile && !nativeModelControls ? (
                             <div className="scrollbar-none relative z-10 flex items-center gap-x-2 overflow-x-auto px-3 pb-0.5 pt-1.5">
                                 <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="flex-shrink-0" />
                                 <MemoMobileAgentButton
@@ -3352,6 +3362,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sessionId={currentSessionId}
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
                         newSessionDraftOpen={newSessionDraftOpen}
+                        nativeModelControls={nativeModelControls}
                         messageLength={message.length}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
@@ -3412,7 +3423,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 {/* Hidden host for the model/agent/variant bottom sheets. Kept
                     outside the pill conditional so an open panel survives (and
                     stays visible over) the collapsed composer. */}
-                {isMobile ? (
+                {isMobile && !nativeModelControls ? (
                     <MemoModelControls
                         className="hidden"
                         mobilePanel={mobileControlsPanel}

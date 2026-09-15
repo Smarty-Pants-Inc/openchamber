@@ -1,4 +1,5 @@
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './en.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -7,6 +8,7 @@ export const dict = {
   'sessions.sidebar.projectAction.active': 'Project action active',
   ...settingsDict,
   ...displayNameI18n.en,
+  ...nativeCreationI18n.en,
   ...linearIssuePickerI18n.en,
   ...linearPanelI18n.en,
   'terminalView.actions.attachSelection': 'Attach selected output',
