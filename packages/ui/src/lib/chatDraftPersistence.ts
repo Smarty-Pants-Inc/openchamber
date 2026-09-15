@@ -6,6 +6,8 @@ export type ChatDraftIdentity = {
   runtimeKey: string;
   directory: string;
   sessionId: string | null;
+  /** Live new-draft generation only; never part of the durable key/envelope. */
+  draftId?: number;
 };
 
 export type ChatDraftSnapshot = {
@@ -28,6 +30,8 @@ const STORAGE_KEY = 'openchamber.chatDrafts.v2';
 const MAX_DRAFTS = 50;
 const storage = getDeferredSafeStorage();
 const deletionListeners = new Set<(identity: ChatDraftIdentity) => void>();
+const consumptionListeners = new Set<(identity: ChatDraftIdentity, submitted: string) => void>();
+const draftOwners = new Map<string, number>();
 let cachedRawEnvelope: string | null | undefined;
 let cachedEnvelope: PersistedChatDraftEnvelope | undefined;
 
@@ -35,14 +39,27 @@ export const createChatDraftIdentity = (
   runtimeKey: string,
   directory: string | null | undefined,
   sessionId: string | null,
+  draftId?: number,
 ): ChatDraftIdentity | null => {
   const normalizedDirectory = normalizePath(directory);
   if (!runtimeKey || !normalizedDirectory) return null;
-  return { runtimeKey, directory: normalizedDirectory, sessionId };
+  const identity: ChatDraftIdentity = { runtimeKey, directory: normalizedDirectory, sessionId };
+  if (draftId !== undefined) identity.draftId = draftId;
+  return identity;
 };
 
 export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string =>
   JSON.stringify([identity.runtimeKey, identity.directory, identity.sessionId]);
+
+/** The draft lifecycle claims a shared slot before a new generation can edit it. */
+export const claimChatDraftOwnership = (identity: ChatDraftIdentity | null): void => {
+  if (identity?.draftId !== undefined && identity.sessionId === null) {
+    draftOwners.set(getChatDraftIdentityKey(identity), identity.draftId);
+  }
+};
+
+const ownsChatDraft = (identity: ChatDraftIdentity): boolean => identity.draftId === undefined
+  || draftOwners.get(getChatDraftIdentityKey(identity)) === identity.draftId;
 
 const readEnvelope = (): PersistedChatDraftEnvelope => {
   const raw = storage.getItem(STORAGE_KEY);
@@ -97,7 +114,7 @@ export const writeChatDraft = (
   text: string,
   confirmedMentions: Iterable<string>,
 ): void => {
-  if (!identity) return;
+  if (!identity || !ownsChatDraft(identity)) return;
   const envelope = readEnvelope();
   const key = getChatDraftIdentityKey(identity);
   const mentions = Array.from(new Set(confirmedMentions));
@@ -114,7 +131,22 @@ export const writeChatDraft = (
   writeEnvelope({ version: 2, drafts: Object.fromEntries(retained) });
 };
 
+/** Current mounted consumers settle live edits first; unmounted inputs use their flushed snapshot. */
+export const consumeChatDraft = (identity: ChatDraftIdentity | null, submitted: string): boolean => {
+  if (!identity || !ownsChatDraft(identity)) return false;
+  consumptionListeners.forEach(listener => listener(identity, submitted));
+  if (!ownsChatDraft(identity)) return false;
+  if (readChatDraft(identity).text === submitted) writeChatDraft(identity, '', []);
+  return true;
+};
+
+export const subscribeChatDraftConsumption = (listener: (identity: ChatDraftIdentity, submitted: string) => void): (() => void) => {
+  consumptionListeners.add(listener);
+  return () => consumptionListeners.delete(listener);
+};
+
 export const clearChatDraft = (identity: ChatDraftIdentity, notify = false): void => {
+  if (!ownsChatDraft(identity)) return;
   writeChatDraft(identity, '', []);
   if (notify) deletionListeners.forEach((listener) => listener(identity));
 };

@@ -301,9 +301,32 @@ Rules:
 11. Starting a session from an assistant answer carries the source session ID, rendered directory, and answer text into the action. It must not rediscover that context from the globally active child store or the OpenCode client's fallback directory: the visible session may belong to an existing worktree while the active provider directory points elsewhere. New isolated worktrees resolve their registered parent project from that captured directory, preferring recorded worktree metadata when available. The dialog offers creation only after the project root is confirmed as a Git repository, and the creation boundary repeats that check so stale or bypassed UI state cannot run Git commands against a non-repository directory; failures leave the dialog open and visible.
 12. OpenCode commands and skills keep the authoritative `session.command` route when their only additional part is explicitly tagged session knowledge. Every other additional part, including unstructured synthetic conflict instructions, requires the prompt route; primary file attachments remain supported by `session.command`. Because session knowledge cannot be forwarded through the command route, it remains pending for the session's next prompt instead of being marked as delivered.
 
+Native create-only is an explicit capability-gated exception to regular draft
+materialization. `native-draft-creation.ts` retains each runtime/draft/project/
+directory result in browser memory. Runtime restoration and consumer remounts do
+not replace those records. Late completion updates its originating record, but
+`session-actions.createNativeSession` indexes it only in the active matching
+runtime. A mismatched directory is an uncertain result, not worktree
+canonicalization or permission to create again. Only known pre-create failures
+permit an explicit read-only recheck.
+
+`native-draft-send.ts` requires the exact owner's accepted ready loader view
+before dispatch. The prepared native intent crosses the complete composer/store
+boundary and cannot fall through to another runtime's legacy materialization.
+Materialization leaves the draft open. Successful admission marks the original
+creation record accepted even if navigation has changed the active target. It
+consumes only originating submitted input; selection happens only for that active
+draft or when it is restored. Draft open/target actions claim the live generation
+of their shared composer slot through `chatDraftPersistence`. This ownership
+survives the App/Mobile epoch remount and fences saved cleanup, remaining inline
+transfer and old delayed writes from a replacement generation. New unsent text/context transfers to the same owner
+through the composer identity boundary. Pre-dispatch and input refusals retain
+prepared context for a later explicit Send, without another create or replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
+for capability, recovery and original-TUI readiness rules.
+
 Examples of global-store updates performed in `session-actions.ts`:
 
-- `createSession()` -> `upsertSession(session)`
+- `createSession()` / `createNativeSession()` -> `upsertSession(session)`
 - `updateSessionTitle()` -> `upsertSession(result.data)`
 - `shareSession()` / `unshareSession()` -> `upsertSession(result.data)`
 - `archiveSession()` / `archiveSessions()` -> wait for server confirmation, then upsert each archived session

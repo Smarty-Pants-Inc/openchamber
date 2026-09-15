@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './pt-BR.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'Ação do projeto em execução',
   ...settingsDict,
   ...displayNameI18n['pt-BR'],
+  ...nativeCreationI18n['pt-BR'],
   ...linearIssuePickerI18n['pt-BR'],
   ...linearPanelI18n['pt-BR'],
   'terminalView.actions.attachSelection': 'Anexar saída selecionada',
