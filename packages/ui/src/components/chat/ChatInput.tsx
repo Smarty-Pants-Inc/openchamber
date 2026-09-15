@@ -1601,8 +1601,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const clearSubmittedInput = () => {
             if (queuedOnly) return;
             const currentIdentity = currentChatDraftIdentityRef.current;
-            const visibleOrigin = currentIdentity && chatDraftIdentity
+            const sameIdentity = currentIdentity && chatDraftIdentity
                 && getChatDraftIdentityKey(currentIdentity) === getChatDraftIdentityKey(chatDraftIdentity);
+            const visibleOrigin = sameIdentity && (!nativeIntent || isNativeDraftCurrent(nativeIntent));
             if (!retainNativeDraft || (visibleOrigin && (composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message)) {
                 messageRef.current = '';
                 setMessage('');
@@ -1612,7 +1613,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
             const origin = nativeIntent;
             if (origin) {
-                if (!visibleOrigin) {
+                if (!sameIdentity) {
                     const saved = readChatDraft(chatDraftIdentity);
                     if (saved.text === inputSnapshot.message) writeChatDraft(chatDraftIdentity, '', []);
                 }
@@ -1620,7 +1621,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 const remainingFiles = input.attachedFiles.filter(file => !attachedFiles.includes(file));
                 if (remainingFiles.length !== input.attachedFiles.length) input.setAttachedFiles(remainingFiles);
                 const remainingParts = input.pendingSyntheticParts?.filter(part => !syntheticParts?.includes(part)) ?? [];
-                if (isNativeDraftCurrent(origin)) {
+                if (visibleOrigin) {
                     const liveParts = useSessionUIStore.getState().newSessionDraft.syntheticParts ?? [];
                     remainingParts.push(...liveParts.filter(part => !origin.draft.syntheticParts?.includes(part) && !remainingParts.includes(part)));
                 }
@@ -1632,10 +1633,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (consumedDraftTarget) {
                     const live = useInlineCommentDraftStore.getState();
                     for (const sent of drafts) if (live.getDrafts(consumedDraftTarget).includes(sent)) live.removeDraft(consumedDraftTarget, sent.id);
-                    const destination = { ...consumedDraftTarget, sessionKey: origin.session.id };
-                    const remaining = live.getDrafts(consumedDraftTarget);
-                    live.restoreDrafts(destination, remaining.map(draft => ({ ...draft, sessionKey: destination.sessionKey })));
-                    for (const draft of remaining) if (live.getDrafts(destination).some(item => item.id === draft.id)) live.removeDraft(consumedDraftTarget, draft.id);
+                    if (!sameIdentity || visibleOrigin) {
+                        const destination = { ...consumedDraftTarget, sessionKey: origin.session.id };
+                        const remaining = live.getDrafts(consumedDraftTarget);
+                        live.restoreDrafts(destination, remaining.map(draft => ({ ...draft, sessionKey: destination.sessionKey })));
+                        for (const draft of remaining) if (live.getDrafts(destination).some(item => item.id === draft.id)) live.removeDraft(consumedDraftTarget, draft.id);
+                    }
                 }
             } else if (attachedFiles.length > 0) clearAttachedFiles();
             if (!retainNativeDraft || visibleOrigin) setExpandedInput(false);

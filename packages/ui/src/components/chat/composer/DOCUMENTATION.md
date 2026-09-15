@@ -238,7 +238,8 @@ context in place until input admission succeeds. Only then does the acceptance
 callback consume the submitted input. A successful response records acceptance
 on the originating creation record even after navigation. It is not a stale
 pre-dispatch refusal. Cleanup consumes only captured input and scoped inline
-context; unrelated current input stays intact. The active original draft selects
+context; unrelated current input stays intact. A shared same-path storage key
+does not replace the native draft-ID check. The active original draft selects
 its owner now, or on return to that accepted draft, without another prompt.
 
 `useComposerDraft` treats this accepted materialization as an identity transfer.

@@ -87,6 +87,25 @@ for (const navigation of ['target', 'runtime'] as const) test(`successful dispat
   expect(c.text()).not.toContain('accepted A'); expect(c.prompts()).toHaveLength(1); expect(c.creates()).toHaveLength(1);
 });
 
+test('accepted A completion cannot consume a newer same-path draft with equal text', async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  const response = deferred<Response>(); c.handlers.prompt = async () => response.promise;
+  await c.replace('same text'); await c.submit(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => {
+    useSessionUIStore.setState({ newSessionDraft: { ...draft, draftId: draft.draftId + 1 } });
+    useInputStore.setState({ attachedFiles: [], pendingSyntheticParts: [{ text: 'new draft context' }] });
+    addInline('new draft inline');
+  });
+  const newerDraft = useSessionUIStore.getState().newSessionDraft, input = useInputStore.getState();
+  const inline = useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: 'draft' });
+  await act(async () => { response.resolve(new Response(null, { status: 204 })); await settle(); });
+  expect(errors).toEqual([]); expect(c.text()).toBe('same text');
+  expect(useSessionUIStore.getState().newSessionDraft).toBe(newerDraft);
+  expect(useInputStore.getState()).toBe(input);
+  expect(useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: 'draft' })).toBe(inline);
+  expect(c.prompts()).toHaveLength(1); expect(c.creates()).toHaveLength(1);
+});
+
 test('mounted named whitespace command refuses before native history or composer consumption', async () => {
   const c = mounted = await mountedNativeComposer(false);
   browserDisplayName.apply('Test label');
