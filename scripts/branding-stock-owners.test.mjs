@@ -73,7 +73,7 @@ test('native draft lifecycle overlay preserves prior source evidence and extends
 });
 
 test('native completion overlay binds its exact source without replacing earlier lifecycle evidence', () => {
-  assert.equal(overlay.nativeCompletionSource, 'b2a6461fc9734a165be44ee0afd64d97f87421cb');
+  assert.equal(overlay.nativeCompletionSource, '17c5ce2b8ed0d5331d5b46a3337bb75a3474ce67');
   assert.deepEqual(overlay.files.filter(entry => entry.nativeCompletionSha256).map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   const entry = overlays.get('packages/ui/src/sync/session-ui-store.ts');
   assert.equal(entry.nativeCompletionSha256, sha256(read(entry.path)));

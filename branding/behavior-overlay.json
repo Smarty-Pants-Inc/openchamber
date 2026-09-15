@@ -5,7 +5,7 @@
   "attributionSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
   "nativeCreationSource": "49db04d3938126afe57689dfbd224abf6e3c1328",
   "nativeLifecycleSource": "24170f63647a3acc20a819ef5139d300713157c0",
-  "nativeCompletionSource": "b2a6461fc9734a165be44ee0afd64d97f87421cb",
+  "nativeCompletionSource": "17c5ce2b8ed0d5331d5b46a3337bb75a3474ce67",
   "note": "Narrow behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval. Native create-only extends twelve attribution-overlap outputs. Its lifecycle and completion corrections extend only session-ui-store.ts among those paths, retaining each earlier hash. Exact-successor review, owning CI and browser/native evidence remain separate gates.",
   "files": [
     {
