@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 
 import {
   clearChatDraft,
+  claimChatDraftOwnership,
+  consumeChatDraft,
   createChatDraftIdentity,
   getChatDraftIdentityKey,
   readChatDraft,
   subscribeChatDraftDeletion,
+  subscribeChatDraftConsumption,
   writeChatDraft,
 } from './chatDraftPersistence';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
@@ -55,6 +58,34 @@ describe('chatDraftPersistence', () => {
     expect(readChatDraft(deleted).text).toBe('');
     expect(readChatDraft(retained).text).toBe('retain');
     expect(notifications).toEqual(['/repo-a']);
+  });
+
+  test('a replacement generation owns shared storage, including equal text and delayed old writes', () => {
+    const original = createChatDraftIdentity('generation-test', '/repo', null, 1)!;
+    const replacement = createChatDraftIdentity('generation-test', '/repo', null, 2)!;
+    claimChatDraftOwnership(original); writeChatDraft(original, 'X', ['old.md']);
+    claimChatDraftOwnership(replacement); writeChatDraft(replacement, 'X', ['new.md']);
+    const notifications: string[] = [];
+    const stop = subscribeChatDraftConsumption((_identity, text) => { notifications.push(text); });
+    expect(consumeChatDraft(original, 'X')).toBe(false);
+    writeChatDraft(original, 'delayed old flush', []);
+    clearChatDraft(original, true);
+    expect(readChatDraft(replacement)).toEqual({ text: 'X', confirmedMentions: new Set(['new.md']) });
+    expect(notifications).toEqual([]);
+    expect(getChatDraftIdentityKey(original)).toBe(getChatDraftIdentityKey(replacement));
+    expect(storage.getItem('openchamber.chatDrafts.v2')).not.toContain('draftId');
+    expect(consumeChatDraft(replacement, 'X')).toBe(true);
+    expect(readChatDraft(replacement).text).toBe(''); expect(notifications).toEqual(['X']);
+    stop();
+  });
+
+  test('a mounted consumer settles newer live edits before accepted saved-input cleanup', () => {
+    const identity = createChatDraftIdentity('generation-live', '/repo', null, 1)!;
+    claimChatDraftOwnership(identity); writeChatDraft(identity, 'X', []);
+    const stop = subscribeChatDraftConsumption(target => { writeChatDraft(target, 'Y @new.md', ['new.md']); });
+    expect(consumeChatDraft(identity, 'X')).toBe(true);
+    expect(readChatDraft(identity)).toEqual({ text: 'Y @new.md', confirmedMentions: new Set(['new.md']) });
+    stop();
   });
 
   test('bounds persisted drafts by recency', () => {

@@ -238,9 +238,19 @@ context in place until input admission succeeds. Only then does the acceptance
 callback consume the submitted input. A successful response records acceptance
 on the originating creation record even after navigation. It is not a stale
 pre-dispatch refusal. Cleanup consumes only captured input and scoped inline
-context; unrelated current input stays intact. A shared same-path storage key
-does not replace the native draft-ID check. The active original draft selects
-its owner now, or on return to that accepted draft, without another prompt.
+context; unrelated current input stays intact. `chatDraftPersistence` tracks the
+live draft generation owning each shared storage slot. Draft open/target actions
+claim that slot, and delayed writes or accepted cleanup must still own it. The
+draft ID stays out of the durable key and envelope. This is page-lifetime ownership,
+not a creation journal or cross-reload guarantee.
+
+Accepted cleanup asks this owner to consume the submitted snapshot. A matching
+mounted draft settles its live editor text and mentions before saved cleanup;
+an unmounted draft uses the snapshot flushed by `useComposerDraft`. The old
+submission component's refs do not grant ownership. The same generation check
+governs remaining inline-context transfer, including off-screen replacement
+drafts. The active original draft selects its owner now, or on return to that
+accepted draft, without another prompt.
 
 `useComposerDraft` treats this accepted materialization as an identity transfer.
 It keeps newer unsent text and confirmed mentions with the native owner, with
@@ -262,6 +272,10 @@ an explicit new creation after an unknown result, including after a page reload.
 Focused SDK/state tests and Happy DOM tests mount the actual composer, CodeMirror
 and draft effects for these boundaries. The mounted tests retain the real store,
 SDK and history loader, with synthetic HTTP and isolated unrelated widgets.
+Lifetime regressions replace the composer at an epoch key while preserving
+runtime stores, storage and the in-flight request, matching the App/Mobile
+teardown boundary without mounting their full SyncProvider. They also cover
+replacement draft N at P navigating to Q before original O completes.
 They do not prove real browser layout, native attachment or input admission. Current desktop/mobile and light/dark evidence, shared-runtime checks,
 and browser-to-original-TUI proof remain integration/review gates.
 

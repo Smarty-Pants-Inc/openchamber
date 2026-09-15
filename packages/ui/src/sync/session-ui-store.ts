@@ -91,6 +91,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { claimChatDraftOwnership, createChatDraftIdentity } from '@/lib/chatDraftPersistence'
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
 import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
@@ -1385,6 +1386,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       projectContextPins: options?.projectContextPins,
     }
 
+    claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), directory, null, nextDraft.draftId))
     set({
       newSessionDraft: nextDraft,
       currentSessionId: null,
@@ -1522,6 +1524,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // session" reopens on, so it is recorded here too — not only when a draft
     // is opened or a session is created from one.
     const chosenDraft = get().newSessionDraft
+    claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), chosenDraft.directoryOverride, null, chosenDraft.draftId))
     persistDraftTarget({
       projectId: chosenDraft.target === "chat" ? null : chosenDraft.selectedProjectId ?? null,
       directory: chosenDraft.directoryOverride ?? null,

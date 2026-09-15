@@ -316,7 +316,10 @@ boundary and cannot fall through to another runtime's legacy materialization.
 Materialization leaves the draft open. Successful admission marks the original
 creation record accepted even if navigation has changed the active target. It
 consumes only originating submitted input; selection happens only for that active
-draft or when it is restored. New unsent text/context transfers to the same owner
+draft or when it is restored. Draft open/target actions claim the live generation
+of their shared composer slot through `chatDraftPersistence`. This ownership
+survives the App/Mobile epoch remount and fences saved cleanup, remaining inline
+transfer and old delayed writes from a replacement generation. New unsent text/context transfers to the same owner
 through the composer identity boundary. Pre-dispatch and input refusals retain
 prepared context for a later explicit Send, without another create or replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
 for capability, recovery and original-TUI readiness rules.

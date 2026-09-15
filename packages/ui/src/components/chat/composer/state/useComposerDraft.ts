@@ -15,7 +15,9 @@ import React from 'react';
 
 import {
     getChatDraftIdentityKey,
+    claimChatDraftOwnership,
     readChatDraft,
+    subscribeChatDraftConsumption,
     subscribeChatDraftDeletion,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -56,6 +58,8 @@ export interface ComposerDraftOptions {
     onIdentityChange?: () => void;
     /** Called after a non-empty draft is restored, to select its text. */
     onDraftRestored?: () => void;
+    readMessage?: () => string;
+    onDraftConsumed?: () => void;
 }
 
 export interface ComposerDraftControls {
@@ -78,6 +82,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         initialDraft,
         onIdentityChange,
         onDraftRestored,
+        readMessage,
+        onDraftConsumed,
     } = options;
 
     const persistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,8 +93,10 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
-    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored });
-    callbacksRef.current = { onIdentityChange, onDraftRestored };
+    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed });
+    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed };
+
+    React.useLayoutEffect(() => { claimChatDraftOwnership(identity); }, [identity]);
 
     React.useEffect(() => {
         currentIdentityRef.current = identity;
@@ -143,9 +151,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const previous = previousIdentityRef.current;
         const previousKey = previous ? getChatDraftIdentityKey(previous) : null;
         const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
-        if (previousKey === currentKey) return;
-
         previousIdentityRef.current = identity;
+        if (previousKey === currentKey) return;
         callbacksRef.current.onIdentityChange?.();
         clearPending();
         // The incoming draft is being written into state right now; the
@@ -174,6 +181,22 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.());
         }
     }, [clearPending, confirmedMentionsRef, identity, materializedSessionId, messageRef, persistEnabled, persistNow, setMessage]);
+
+    React.useEffect(() => subscribeChatDraftConsumption((target, submitted) => {
+        const current = currentIdentityRef.current;
+        if (!current || current.draftId !== target.draftId
+            || getChatDraftIdentityKey(current) !== getChatDraftIdentityKey(target)) return;
+        clearPending();
+        const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
+        messageRef.current = live;
+        if (live === submitted) {
+            messageRef.current = '';
+            confirmedMentionsRef.current = new Set();
+            setMessage('');
+            persistNow(current, '');
+            callbacksRef.current.onDraftConsumed?.();
+        } else if (persistEnabled) persistNow(current, live);
+    }), [clearPending, confirmedMentionsRef, messageRef, persistEnabled, persistNow, setMessage]);
 
     // A draft deleted elsewhere (session deleted, drafts cleared) clears the
     // composer if it is the one on screen.

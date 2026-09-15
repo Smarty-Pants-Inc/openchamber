@@ -32,7 +32,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
-    getChatDraftIdentityKey,
+    consumeChatDraft,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -343,7 +343,8 @@ const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity |
     const directory = sessionId
         ? sessionState.getDirectoryForSession(sessionId) ?? sessionState.currentSessionDirectory
         : newSessionDirectory ?? useDirectoryStore.getState().currentDirectory;
-    return createChatDraftIdentity(getRuntimeKey(), directory, sessionId);
+    return createChatDraftIdentity(getRuntimeKey(), directory, sessionId,
+        !sessionId && sessionState.newSessionDraft.open ? sessionState.newSessionDraft.draftId : undefined);
 };
 
 const ChatInputComponent: React.FC<ChatInputProps> = ({
@@ -452,15 +453,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // they no longer apply.
     const isPromotedBtwSession = wasPromotedBtwSession(btwPanel.parentSession);
     const activeRuntimeKey = getRuntimeKey();
+    const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
+    const draftId = !currentSessionId && newSessionDraft.open ? newSessionDraft.draftId : undefined;
     const chatDraftIdentity = React.useMemo(
         () => createChatDraftIdentity(
             activeRuntimeKey,
             currentSessionDirectoryForSync ?? currentDirectory,
             currentSessionId,
+            draftId,
         ),
-        [activeRuntimeKey, currentDirectory, currentSessionDirectoryForSync, currentSessionId],
+        [activeRuntimeKey, currentDirectory, currentSessionDirectoryForSync, currentSessionId, draftId],
     );
-    const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
     const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
     const nativeModel = nativeCreation.session?.nativeCreation.model;
@@ -964,6 +967,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         },
         onIdentityChange: () => setInputMode('normal'),
         onDraftRestored: () => composerRef.current?.selectAll(),
+        readMessage: () => composerRef.current?.getValue() ?? messageRef.current,
+        onDraftConsumed: () => messageHistory.reset(),
     });
 
     // Focus textarea when new session draft is opened
@@ -1600,28 +1605,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         const clearSubmittedInput = () => {
             if (queuedOnly) return;
-            const currentIdentity = currentChatDraftIdentityRef.current;
-            const sameIdentity = currentIdentity && chatDraftIdentity
-                && getChatDraftIdentityKey(currentIdentity) === getChatDraftIdentityKey(chatDraftIdentity);
-            const visibleOrigin = sameIdentity && (!nativeIntent || isNativeDraftCurrent(nativeIntent));
-            if (!retainNativeDraft || (visibleOrigin && (composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message)) {
+            const origin = nativeIntent;
+            const ownsInput = origin ? consumeChatDraft(createChatDraftIdentity(origin.runtimeKey,
+                origin.session.directory, null, origin.draft.draftId), inputSnapshot.message) : false;
+            if (!origin) {
                 messageRef.current = '';
                 setMessage('');
                 confirmedMentionsRef.current.clear();
                 persistDraftImmediately(chatDraftIdentity, '');
                 messageHistory.reset();
             }
-            const origin = nativeIntent;
             if (origin) {
-                if (!sameIdentity) {
-                    const saved = readChatDraft(chatDraftIdentity);
-                    if (saved.text === inputSnapshot.message) writeChatDraft(chatDraftIdentity, '', []);
-                }
                 const input = useInputStore.getState();
                 const remainingFiles = input.attachedFiles.filter(file => !attachedFiles.includes(file));
                 if (remainingFiles.length !== input.attachedFiles.length) input.setAttachedFiles(remainingFiles);
                 const remainingParts = input.pendingSyntheticParts?.filter(part => !syntheticParts?.includes(part)) ?? [];
-                if (visibleOrigin) {
+                if (ownsInput && isNativeDraftCurrent(origin)) {
                     const liveParts = useSessionUIStore.getState().newSessionDraft.syntheticParts ?? [];
                     remainingParts.push(...liveParts.filter(part => !origin.draft.syntheticParts?.includes(part) && !remainingParts.includes(part)));
                 }
@@ -1633,7 +1632,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (consumedDraftTarget) {
                     const live = useInlineCommentDraftStore.getState();
                     for (const sent of drafts) if (live.getDrafts(consumedDraftTarget).includes(sent)) live.removeDraft(consumedDraftTarget, sent.id);
-                    if (!sameIdentity || visibleOrigin) {
+                    if (ownsInput) {
                         const destination = { ...consumedDraftTarget, sessionKey: origin.session.id };
                         const remaining = live.getDrafts(consumedDraftTarget);
                         live.restoreDrafts(destination, remaining.map(draft => ({ ...draft, sessionKey: destination.sessionKey })));
@@ -1641,7 +1640,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     }
                 }
             } else if (attachedFiles.length > 0) clearAttachedFiles();
-            if (!retainNativeDraft || visibleOrigin) setExpandedInput(false);
+            if (!origin || isNativeDraftCurrent(origin)) setExpandedInput(false);
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };

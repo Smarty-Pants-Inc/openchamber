@@ -69,7 +69,9 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
   useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, initialPrompt: null } }));
   await prepareNativeDraft();
   const root = createRoot(dom.container);
-  try { await act(async () => root.render(<I18nProvider><ChatInput /></I18nProvider>)); }
+  let epoch = 0;
+  const render = () => root.render(<I18nProvider key={epoch}><ChatInput /></I18nProvider>);
+  try { await act(async () => render()); }
   catch (error) {
     await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true); await dom.restore(); throw error;
   }
@@ -80,6 +82,8 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
     return view;
   };
   return { ...fixture, dom, editor,
+    // Same lifetime boundary as App's epoch-keyed SyncProvider; runtime stores/storage/request stay alive.
+    remount: () => { epoch++; render(); },
     text: () => editor().state.doc.toString(),
     replace: (text: string) => act(async () => editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text }, selection: { anchor: text.length } })),
     mention: (path: string) => act(async () => {
