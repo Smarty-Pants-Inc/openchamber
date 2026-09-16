@@ -16,13 +16,15 @@ const item = (overrides = {}) => ({
 });
 
 const tempDirs = [];
+const runtimes = [];
 const makeDataDir = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-message-queue-'));
   tempDirs.push(dir);
   return dir;
 };
 
-afterEach(() => {
+afterEach(async () => {
+  for (const runtime of runtimes.splice(0)) { runtime.stop(); await runtime.flush(); }
   vi.useRealTimers();
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -46,6 +48,7 @@ const createOpenCode = () => {
       state.failNext = null;
       return new Response('boom', { status: 500 });
     }
+    if (pathname === '/global/health') return Response.json({ healthy: true, version: '1.18.29' });
     if (pathname === '/session/status') return Response.json(state.statuses);
     if (pathname.endsWith('/message')) return Response.json(state.tail);
     if (pathname === '/command') return Response.json(state.commands);
@@ -80,6 +83,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   };
   if (retryDelayMs) options.retryDelayMs = retryDelayMs;
   const runtime = createMessageQueueRuntime(options);
+  runtimes.push(runtime);
   return {
     runtime,
     openCode,
@@ -204,7 +208,7 @@ describe('message queue runtime', () => {
     expect(openCode.state.sent).toHaveLength(1);
   });
 
-  it('keeps a failed item and retries with backoff', async () => {
+  it('keeps a POST failure unknown without retrying', async () => {
     const { runtime, openCode, emit, broadcasts } = createRuntime({ retryDelayMs: () => 20 });
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item());
@@ -216,8 +220,8 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).sendingId).toBeNull();
     expect(broadcasts.at(-1).properties.session.sendingId).toBeNull();
     await settle(40);
-    expect(openCode.state.sent).toHaveLength(1);
-    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
+    expect(openCode.state.sent).toHaveLength(0);
+    expect(runtime.sessionSnapshot(SESSION).items[0].state).toBe('unknown');
   });
 
   it('holds delivery briefly after a user abort', async () => {
@@ -278,10 +282,10 @@ describe('message queue runtime', () => {
     const { runtime, openCode, emit } = createRuntime();
     runtime.start();
     let release;
-    // status map, message tail, then the prompt itself (held open until released)
-    openCode.fetchImpl.mockImplementationOnce(async () => Response.json({}))
-      .mockImplementationOnce(async () => Response.json([]))
-      .mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve(new Response(null, { status: 204 })); }));
+    const original = openCode.fetchImpl.getMockImplementation();
+    openCode.fetchImpl.mockImplementation((url, init) => init.method === 'POST'
+      ? new Promise((resolve) => { release = () => resolve(new Response(null, { status: 204 })); })
+      : original(url, init));
     const { itemId } = await runtime.enqueue(SESSION, DIRECTORY, item());
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
     await settle();
@@ -298,7 +302,7 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
   });
 
-  it('take hands back the full payload and leaves the rest queued', async () => {
+  it('take hands back the full payload and retains a non-sendable recovery copy', async () => {
     const { runtime } = createRuntime();
     runtime.start();
     const attachment = { id: 'a1', filename: 'shot.png', mimeType: 'image/png', size: 3, source: 'local', dataUrl: 'data:image/png;base64,AAA=' };
@@ -308,11 +312,13 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).items[0].attachments[0]).not.toHaveProperty('dataUrl');
     const taken = await runtime.take(SESSION, first.itemId);
     expect(taken.item.attachments[0].dataUrl).toBe(attachment.dataUrl);
-    expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['plain']);
+    expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.state)).toEqual(['taken', 'pending']);
 
     const all = await runtime.takeAll(SESSION);
     expect(all.items.map((entry) => entry.content)).toEqual(['plain']);
-    expect(runtime.snapshot().sessions).toEqual([]);
+    expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.state)).toEqual(['taken', 'taken']);
+    await expect(runtime.take(SESSION, first.itemId)).rejects.toMatchObject({ status: 409 });
+    expect((await runtime.recover(SESSION, first.itemId)).item.attachments[0].dataUrl).toBe(attachment.dataUrl);
   });
 
   it('names the directory in the broadcast that empties a queue', async () => {
@@ -340,13 +346,14 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['b', 'a']);
   });
 
-  it('drops the queue of a deleted session', async () => {
+  it('retains a deleted session queue for recovery instead of discarding accepted work', async () => {
     const { runtime, emit, broadcasts } = createRuntime();
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item());
     emit({ type: 'session.deleted', properties: { info: { id: SESSION } } });
-    expect(runtime.snapshot().sessions).toEqual([]);
-    expect(broadcasts.at(-1).properties.session).toMatchObject({ sessionId: SESSION, items: [] });
+    await runtime.flush();
+    expect(runtime.sessionSnapshot(SESSION).items[0].state).toBe('blocked');
+    expect(broadcasts.at(-1).properties.session.items[0].state).toBe('blocked');
   });
 
   it('dispatches a queued slash command through the command endpoint', async () => {

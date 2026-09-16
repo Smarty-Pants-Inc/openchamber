@@ -11,6 +11,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { normalizePath } from '@/lib/pathNormalization';
+import { opencodeClient } from '@/lib/opencode/client';
 
 export type FollowUpBehavior = 'steer' | 'queue';
 
@@ -89,6 +90,7 @@ export type QueuedContextPart =
 
 export interface QueuedMessage {
     id: string;
+    state?: 'pending' | 'attempting' | 'unknown' | 'blocked' | 'taken' | 'unconfirmed';
     /** What the user typed, for display and editing. */
     content: string;
     /** What is delivered: `content` without its leading agent mention, file mentions already resolved. */
@@ -183,6 +185,7 @@ const serverItemSchema = z.object({
     /** Present only on a taken item; broadcasts and snapshots omit it like attachment payloads. */
     context: z.array(serverContextPartSchema).optional(),
     sendConfig: serverSendConfigSchema,
+    state: z.enum(['pending', 'attempting', 'unknown', 'blocked', 'taken']),
 });
 
 const serverSessionSchema = z.object({
@@ -251,6 +254,7 @@ const toAttachedFile = (attachment: ServerQueueAttachment): AttachedFile => {
 const toQueuedMessage = (item: ServerQueueItem): QueuedMessage => {
     const message: QueuedMessage = {
         id: item.id,
+        state: item.state,
         content: item.content,
         text: item.text,
         createdAt: item.createdAt,
@@ -274,7 +278,7 @@ type ServerQueueItemInput = {
 };
 
 type ServerQueueRequestBody =
-    | { directory: string; item: ServerQueueItemInput }
+    | { directory: string; item: ServerQueueItemInput; requestId: string }
     | { itemIds: string[] }
     | { held: boolean };
 
@@ -303,12 +307,48 @@ const toServerItemInput = (message: QueuedMessageInput, sendConfig: QueuedMessag
     return item;
 };
 
+export class QueueRequestError extends Error {
+    constructor(readonly status: number) { super(`Message queue request failed (${status})`); }
+}
+
+const queueHealthSchema = z.object({
+    healthy: z.literal(true),
+    capabilities: z.object({
+        messageQueue: z.union([z.literal(0), z.literal(1)]).optional(),
+        displayAttribution: z.number().optional(),
+        ordinaryCreateOnly: z.number().optional(),
+    }).optional(),
+});
+
+const requireCurrentTarget = (target: MessageQueueTarget) => {
+    if (target.runtimeKey !== getRuntimeKey()) throw new Error('Queue runtime changed');
+};
+
+export const checkQueueAdmission = async (target: MessageQueueTarget): Promise<void> => {
+    requireCurrentTarget(target);
+    const store = useMessageQueueStore.getState();
+    const key = getMessageQueueKey(target);
+    if (store.recoveryMessages[key]?.some((item) => item.state === 'unconfirmed')) throw new QueueRequestError(409);
+    if (!isServerOwnedMessageQueue()) {
+        const queues = store.queuedMessages;
+        if ((queues[key]?.length ?? 0) >= MAX_MESSAGES_PER_QUEUE || (!queues[key] && Object.keys(queues).length >= MAX_QUEUE_TARGETS)) {
+            throw new QueueRequestError(409);
+        }
+        const response = await opencodeClient.getScopedSdkClient(target.directory).global.health();
+        const health = queueHealthSchema.parse(response.data);
+        const capability = health.capabilities;
+        if (capability?.messageQueue === 0 || (capability?.messageQueue !== 1
+            && (capability?.displayAttribution === 1 || capability?.ordinaryCreateOnly === 1))) throw new QueueRequestError(501);
+    } else {
+        await requestJson(z.object({ supported: z.literal(true) }), `${sessionPath(target.sessionId)}/admission?directory=${encodeURIComponent(target.directory)}`);
+    }
+    requireCurrentTarget(target);
+};
+
 const requestJson = async <T,>(schema: z.ZodType<T>, path: string, init?: RequestInit): Promise<T> => {
     const response = await runtimeFetch(path, init);
     if (!response.ok) {
-        const error: Error & { status?: number } = new Error(`Message queue request failed (${response.status})`);
-        error.status = response.status;
-        throw error;
+        throw new QueueRequestError(response.status);
     }
     const parsed = schema.safeParse(await response.json());
     if (!parsed.success) throw new Error('Invalid message queue response');
@@ -336,6 +376,7 @@ let hydrationGeneration = 0;
 interface MessageQueueState {
     queuedMessages: Record<string, QueuedMessage[]>; // runtime + directory + session → queue
     quarantinedLegacyMessages: Record<string, QueuedMessage[]>;
+    recoveryMessages: Record<string, QueuedMessage[]>;
     followUpBehavior: FollowUpBehavior;
     /**
      * Queued messages whose send is currently awaiting the server, per target.
@@ -355,6 +396,8 @@ interface MessageQueueState {
 
 interface MessageQueueActions {
     addToQueue: (target: MessageQueueTarget, message: QueuedMessageInput) => Promise<void>;
+    recoverMessage: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage>;
+    forgetRecovery: (target: MessageQueueTarget, messageId: string) => Promise<void>;
     removeFromQueue: (target: MessageQueueTarget, messageId: string) => void;
     reorderQueue: (target: MessageQueueTarget, fromId: string, toId: string) => void;
     /** Removes the message and returns it in full, attachments included. */
@@ -390,6 +433,7 @@ type PersistedQueuedMessage = Omit<QueuedMessage, 'text'> & { text?: string };
 type PersistedMessageQueueState = {
     queuedMessages?: Record<string, PersistedQueuedMessage[]>;
     quarantinedLegacyMessages?: Record<string, PersistedQueuedMessage[]>;
+    recoveryMessages?: Record<string, PersistedQueuedMessage[]>;
     followUpBehavior?: FollowUpBehavior;
     queueModeEnabled?: boolean;
 };
@@ -404,12 +448,19 @@ const withDeliveryText = (queues: Record<string, PersistedQueuedMessage[]>): Rec
 export const migrateMessageQueueState = (persistedState: unknown, version: number): Partial<MessageQueueStore> => {
     const state = (persistedState ?? {}) as PersistedMessageQueueState;
     const legacyQueues = version < 2 ? (state.queuedMessages ?? {}) : {};
+    const recoveryMessages = withDeliveryText(state.recoveryMessages ?? {});
+    if (version >= 2) {
+        for (const [key, items] of Object.entries(withDeliveryText(state.queuedMessages ?? {}))) {
+            recoveryMessages[key] = [...(recoveryMessages[key] ?? []), ...items.map((item): QueuedMessage => ({ ...item, state: 'unconfirmed' }))];
+        }
+    }
     return {
-        queuedMessages: version < 2 ? {} : withDeliveryText(state.queuedMessages ?? {}),
+        queuedMessages: {},
         quarantinedLegacyMessages: withDeliveryText({
             ...(state.quarantinedLegacyMessages ?? {}),
             ...legacyQueues,
         }),
+        recoveryMessages,
         followUpBehavior: normalizeFollowUpBehavior(state.followUpBehavior, state.queueModeEnabled ?? null),
     };
 };
@@ -456,6 +507,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
             (set, get) => {
                 const applyServerSession = (session: ServerQueueSession, revision: number, expectedRuntimeKey: string) => {
                     if (expectedRuntimeKey !== getRuntimeKey()) return;
+                    serverOwnedRuntimeKeys.add(expectedRuntimeKey);
                     const target = createMessageQueueTarget(session.sessionId, session.directory, expectedRuntimeKey);
                     if (!target) {
                         // Servers before 1.22.2 drop a session's directory once its
@@ -469,26 +521,32 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     if ((appliedRevisions.get(key) ?? -1) > revision) return;
                     appliedRevisions.set(key, revision);
                     set((state) => {
-                        const queue = session.items.map(toQueuedMessage);
+                        const items = session.items.map(toQueuedMessage);
+                        const queue = items.filter((item) => item.state === 'pending' || item.state === 'attempting');
+                        const recovery = items.filter((item) => item.state !== 'pending' && item.state !== 'attempting');
+                        const unresolved = (state.recoveryMessages[key] ?? []).filter((item) => item.state === 'unconfirmed' && !items.some((serverItem) => serverItem.id === item.id));
+                        const recoveryMessages = { ...state.recoveryMessages, [key]: [...unresolved, ...recovery] };
                         const queuedMessages = queue.length > 0
                             ? { ...state.queuedMessages, [key]: queue }
                             : withoutKey(state.queuedMessages, key);
                         const sendingIds = session.sendingId
                             ? { ...state.sendingIds, [key]: [session.sendingId] }
                             : withoutKey(state.sendingIds, key);
-                        return { queuedMessages, sendingIds };
+                        return { queuedMessages, sendingIds, recoveryMessages };
                     });
                 };
 
                 /** Server state wins; a failed round-trip re-reads it instead of guessing. */
                 const refreshSession = async (target: MessageQueueTarget) => {
                     try {
+                        requireCurrentTarget(target);
                         const snapshot = await requestJson(serverSnapshotSchema, '/api/message-queue');
                         const session = snapshot.sessions.find((entry) => entry.sessionId === target.sessionId)
                             ?? { sessionId: target.sessionId, directory: target.directory, items: [], sendingId: null };
                         applyServerSession(session, snapshot.revision, target.runtimeKey);
+                        return session;
                     } catch {
-                        // Offline: keep the optimistic projection; the next broadcast or hydration corrects it.
+                        return null;
                     }
                 };
 
@@ -498,10 +556,11 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     init: RequestInit,
                 ) => {
                     try {
+                        requireCurrentTarget(target);
                         const result = await requestJson(serverSessionResponseSchema, path, init);
                         applyServerSession(result.session, result.revision, target.runtimeKey);
-                    } catch (error) {
-                        console.warn('[queue] server update failed:', error);
+                    } catch {
+                        console.warn('[queue] server update failed');
                         await refreshSession(target);
                     }
                 };
@@ -509,14 +568,18 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                 return {
                     queuedMessages: {},
                     quarantinedLegacyMessages: {},
+                    recoveryMessages: {},
                     followUpBehavior: DEFAULT_FOLLOW_UP_BEHAVIOR,
                     sendingIds: {},
 
                     addToQueue: async (target, message) => {
                         const key = getMessageQueueKey(target);
-                        const id = `queued-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                        if (isServerOwnedMessageQueue()) requireCurrentTarget(target);
+                        else await checkQueueAdmission(target);
+                        const id = `queued-${crypto.randomUUID()}`;
                         const queuedMessage: QueuedMessage = {
                             id,
+                            state: 'pending',
                             content: message.content,
                             text: message.text ?? message.content,
                             createdAt: Date.now(),
@@ -526,46 +589,63 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (message.attachments && message.attachments.length > 0) queuedMessage.attachments = message.attachments;
                         if (message.context && message.context.length > 0) queuedMessage.context = message.context;
 
-                        set((state) => {
-                            const currentQueue = state.queuedMessages[key] ?? [];
-                            const queuedMessages = {
-                                ...state.queuedMessages,
-                                [key]: [...currentQueue, queuedMessage].slice(-MAX_MESSAGES_PER_QUEUE),
-                            };
-                            const keys = Object.keys(queuedMessages);
-                            if (keys.length > MAX_QUEUE_TARGETS) {
-                                keys.sort((left, right) => (
-                                    (queuedMessages[left]?.[0]?.createdAt ?? 0) - (queuedMessages[right]?.[0]?.createdAt ?? 0)
-                                ));
-                                for (const staleKey of keys.slice(0, keys.length - MAX_QUEUE_TARGETS)) delete queuedMessages[staleKey];
-                            }
-                            return {
-                                queuedMessages,
-                            };
-                        });
-
-                        if (!isServerOwnedMessageQueue()) return;
-                        if (!message.sendConfig) {
-                            set((state) => removeMessageLocally(state, key, id));
-                            throw new Error('A queued message needs a provider and model to be delivered later.');
+                        if (!isServerOwnedMessageQueue()) {
+                            // Recheck after health. Capacity never discards accepted work.
+                            set((state) => {
+                                const current = state.queuedMessages[key] ?? [];
+                                if (current.length >= MAX_MESSAGES_PER_QUEUE || (!state.queuedMessages[key] && Object.keys(state.queuedMessages).length >= MAX_QUEUE_TARGETS)) throw new QueueRequestError(409);
+                                return { queuedMessages: { ...state.queuedMessages, [key]: [...current, queuedMessage] } };
+                            });
+                            return;
                         }
+                        if (!message.sendConfig) throw new Error('A queued message needs a provider and model to be delivered later.');
+                        if (get().recoveryMessages[key]?.some((item) => item.state === 'unconfirmed')) throw new QueueRequestError(409);
                         const historyIdentity = createInputHistoryIdentity(target.runtimeKey, target.directory, target.sessionId);
                         const historySubmission = createInputHistorySubmission(message.content, message.attachments ?? []);
                         try {
                             const result = await requestJson(serverSessionResponseSchema, `${sessionPath(target.sessionId)}/items`, jsonInit('POST', {
                                 directory: target.directory,
                                 item: toServerItemInput(message, message.sendConfig),
+                                requestId: id,
                             }));
-                            // The optimistic entry is replaced by the server's copy of the queue.
-                            set((state) => removeMessageLocally(state, key, id));
                             applyServerSession(result.session, result.revision, target.runtimeKey);
+                            serverOwnedRuntimeKeys.add(target.runtimeKey);
                             if (historyIdentity) {
                                 useInputHistoryStore.getState().appendSubmissions(historyIdentity, [historySubmission]);
                             }
                         } catch (error) {
-                            set((state) => removeMessageLocally(state, key, id));
+                            // Only an explicit pre-admission refusal proves no intake.
+                            if (!(error instanceof QueueRequestError && [400, 401, 403, 409, 501].includes(error.status))) {
+                                set((state) => ({ recoveryMessages: { ...state.recoveryMessages,
+                                    [key]: [...(state.recoveryMessages[key] ?? []), { ...queuedMessage, state: 'unconfirmed' }],
+                                } }));
+                                const reconciled = target.runtimeKey === getRuntimeKey() ? await refreshSession(target) : null;
+                                if (reconciled?.items.some((item) => item.id === id)) {
+                                    if (historyIdentity) useInputHistoryStore.getState().appendSubmissions(historyIdentity, [historySubmission]);
+                                    return;
+                                }
+                            }
                             throw error;
                         }
+                    },
+
+                    recoverMessage: async (target, messageId) => {
+                        const local = get().recoveryMessages[getMessageQueueKey(target)]?.find((item) => item.id === messageId);
+                        if (local?.state === 'unconfirmed' || !isServerOwnedMessageQueue()) {
+                            if (!local) throw new Error('Queue recovery record is missing');
+                            return local;
+                        }
+                        requireCurrentTarget(target);
+                        const result = await requestJson(serverTakeResponseSchema, `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`);
+                        return toQueuedMessage(result.item);
+                    },
+
+                    forgetRecovery: async (target, messageId) => {
+                        requireCurrentTarget(target);
+                        const result = isServerOwnedMessageQueue() ? await requestJson(serverSessionResponseSchema, `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`, jsonInit('DELETE')) : null;
+                        const key = getMessageQueueKey(target);
+                        set((state) => ({ recoveryMessages: { ...state.recoveryMessages, [key]: (state.recoveryMessages[key] ?? []).filter((item) => item.id !== messageId) } }));
+                        if (result) applyServerSession(result.session, result.revision, target.runtimeKey);
                     },
 
                     removeFromQueue: (target, messageId) => {
@@ -608,6 +688,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                     takeForSend: async (target, messageId) => {
                         const key = getMessageQueueKey(target);
+                        requireCurrentTarget(target);
                         if (isServerOwnedMessageQueue()) {
                             if (messageId) {
                                 const result = await requestJson(
@@ -626,7 +707,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const state = get();
                         const sending = state.sendingIds[key] ?? [];
                         const taken = (state.queuedMessages[key] ?? []).filter((message) => (
-                            (messageId ? message.id === messageId : true) && !sending.includes(message.id)
+                            (messageId ? message.id === messageId : true) && (!message.state || message.state === 'pending') && !sending.includes(message.id)
                         ));
                         if (taken.length === 0) return [];
                         const takenIds = new Set(taken.map((message) => message.id));
@@ -674,7 +755,10 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         set((state) => {
                             const current = state.sendingIds[key] ?? [];
                             if (current.includes(messageId)) return state;
-                            return { sendingIds: { ...state.sendingIds, [key]: [...current, messageId] } };
+                            return {
+                                queuedMessages: { ...state.queuedMessages, [key]: (state.queuedMessages[key] ?? []).map(item => item.id === messageId ? { ...item, state: 'attempting' } : item) },
+                                sendingIds: { ...state.sendingIds, [key]: [...current, messageId] },
+                            };
                         });
                     },
 
@@ -684,8 +768,15 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                             const current = state.sendingIds[key];
                             if (!current || !current.includes(messageId)) return state;
                             const next = current.filter((id) => id !== messageId);
-                            if (next.length === 0) return { sendingIds: withoutKey(state.sendingIds, key) };
-                            return { sendingIds: { ...state.sendingIds, [key]: next } };
+                            const unsettled = (state.queuedMessages[key] ?? []).find(item => item.id === messageId && item.state === 'attempting');
+                            const update: Partial<MessageQueueState> = {
+                                sendingIds: next.length ? { ...state.sendingIds, [key]: next } : withoutKey(state.sendingIds, key),
+                            };
+                            if (unsettled) {
+                                update.queuedMessages = removeMessageLocally(state, key, messageId).queuedMessages;
+                                update.recoveryMessages = { ...state.recoveryMessages, [key]: [...(state.recoveryMessages[key] ?? []), { ...unsettled, state: 'unknown' }] };
+                            }
+                            return update;
                         });
                     },
 
@@ -693,9 +784,8 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const key = getMessageQueueKey(target);
                         const state = get();
                         const queue = state.queuedMessages[key] ?? [];
-                        const sending = state.sendingIds[key];
-                        if (!sending || sending.length === 0) return queue;
-                        return queue.filter((message) => !sending.includes(message.id));
+                        const sending = state.sendingIds[key] ?? [];
+                        return queue.filter((message) => (!message.state || message.state === 'pending') && !sending.includes(message.id));
                     },
 
                     setFollowUpBehavior: (behavior) => {
@@ -713,27 +803,21 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const generation = ++hydrationGeneration;
                         const isCurrent = () => generation === hydrationGeneration && runtimeKey === getRuntimeKey();
 
-                        // Messages queued by an older build live in this browser only.
-                        // Hand them to the server once so they are still delivered;
-                        // whatever cannot be uploaded is superseded by the server's queue.
+                        // A legacy browser item may already have been attempted.
+                        // Retain it for review; reconnect never creates new intake.
                         const legacyEntries = Object.entries(get().queuedMessages)
                             .map(([key, queue]) => ({ target: parseMessageQueueKey(key), queue }))
                             .filter((entry): entry is { target: MessageQueueTarget; queue: QueuedMessage[] } => (
                                 entry.target !== null && entry.target.runtimeKey === runtimeKey && !serverOwnedRuntimeKeys.has(runtimeKey)
                             ));
                         for (const { target, queue } of legacyEntries) {
-                            for (const message of queue) {
-                                if (!message.sendConfig) continue;
-                                try {
-                                    await requestJson(serverSessionResponseSchema, `${sessionPath(target.sessionId)}/items`, jsonInit('POST', {
-                                        directory: target.directory,
-                                        item: toServerItemInput(message, message.sendConfig),
-                                    }));
-                                } catch (error) {
-                                    console.warn('[queue] failed to migrate a locally queued message to the server:', error);
-                                }
-                                if (!isCurrent()) return;
-                            }
+                            const key = getMessageQueueKey(target);
+                            set((state) => {
+                                const retained = state.recoveryMessages[key] ?? [];
+                                return { recoveryMessages: { ...state.recoveryMessages, [key]: [...retained,
+                                    ...queue.filter((item) => !retained.some((saved) => saved.id === item.id)).map((item): QueuedMessage => ({ ...item, state: 'unconfirmed' })),
+                                ] } };
+                            });
                         }
 
                         const snapshot = await requestJson(serverSnapshotSchema, '/api/message-queue');
@@ -742,6 +826,9 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         set((state) => {
                             const queuedMessages: Record<string, QueuedMessage[]> = {};
                             const sendingIds: Record<string, string[]> = {};
+                            const recoveryMessages = Object.fromEntries(Object.entries(state.recoveryMessages).map(([key, items]) => [key,
+                                parseMessageQueueKey(key)?.runtimeKey === runtimeKey ? items.filter(item => item.state === 'unconfirmed') : items,
+                            ]));
                             for (const [key, queue] of Object.entries(state.queuedMessages)) {
                                 if (parseMessageQueueKey(key)?.runtimeKey !== runtimeKey) queuedMessages[key] = queue;
                             }
@@ -759,10 +846,16 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                                     continue;
                                 }
                                 appliedRevisions.set(key, snapshot.revision);
-                                if (session.items.length > 0) queuedMessages[key] = session.items.map(toQueuedMessage);
+                                const items = session.items.map(toQueuedMessage);
+                                const pending = items.filter((item) => item.state === 'pending' || item.state === 'attempting');
+                                if (pending.length > 0) queuedMessages[key] = pending;
+                                recoveryMessages[key] = [
+                                    ...(state.recoveryMessages[key] ?? []).filter((item) => item.state === 'unconfirmed' && !items.some((saved) => saved.id === item.id)),
+                                    ...items.filter((item) => item.state !== 'pending' && item.state !== 'attempting'),
+                                ];
                                 if (session.sendingId) sendingIds[key] = [session.sendingId];
                             }
-                            return { queuedMessages, sendingIds };
+                            return { queuedMessages, sendingIds, recoveryMessages };
                         });
                     },
 
@@ -796,16 +889,22 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
             },
             {
                 name: 'message-queue-store',
-                version: 3,
+                version: 4,
                 storage: createDeferredSafeJSONStorage(),
                 partialize: (state) => ({
-                    queuedMessages: Object.fromEntries(
-                        Object.entries(state.queuedMessages).filter(([key]) => {
-                            const runtimeKey = parseMessageQueueKey(key)?.runtimeKey;
-                            return !runtimeKey || !serverOwnedRuntimeKeys.has(runtimeKey);
-                        }),
-                    ),
+                    // Foreground-only queues cannot prove crash-time attempt
+                    // ordering. Reload retains payloads for review, never replay.
+                    queuedMessages: {},
                     quarantinedLegacyMessages: state.quarantinedLegacyMessages,
+                    recoveryMessages: {
+                        ...state.recoveryMessages,
+                        ...Object.fromEntries(Object.entries(state.queuedMessages)
+                            .filter(([key]) => !serverOwnedRuntimeKeys.has(parseMessageQueueKey(key)?.runtimeKey ?? ''))
+                            .map(([key, items]) => [key, [
+                                ...(state.recoveryMessages[key] ?? []),
+                                ...items.map(item => ({ ...item, state: 'unconfirmed' })),
+                            ]])),
+                    },
                     followUpBehavior: state.followUpBehavior,
                 }),
                 migrate: migrateMessageQueueState,
