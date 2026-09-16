@@ -192,6 +192,30 @@ and the send path reading the same grammar.
   state and registers its application shortcuts locally. The selectors only
   consume their shared prefix while the draft target UI is mounted.
 
+## Draft backing-storage failures
+
+Chat drafts use synchronous safe backing storage beneath the existing 500 ms
+typing debounce. Lifecycle saves return after the browser accepts the write or
+the adapter retains a memory-only fallback. The hook exposes `ephemeralOnly` for
+the localized composer alert without clearing live text or confirmed mentions.
+This status covers the shared v2 envelope, including writes by another consumer.
+Failed writes do not satisfy the unchanged-text cache, so a later lifecycle edge
+can retry the same text or a failed deletion. A successful write clears the alert.
+The durable v2 schema and page-lifetime generation ownership are unchanged.
+
+Tabs still share one whole-envelope key without a transaction. Page-local draft
+ownership does not resolve concurrent writes from another tab. A page killed
+without a lifecycle callback can lose edits inside the debounce window. Browser
+backing-storage acceptance is not an OS power-loss guarantee. If storage access
+is denied when the adapter is created, its memory-only fallback lasts for that
+adapter's lifetime. The alert tells the user to copy input before leaving.
+
+Run isolated native composer and draft tests with
+`bun test --preload ./src/sync/native-test-network.ts <test-file>` from
+`packages/ui`. The process-lifetime guard prevents pending work from reaching
+real fetch after a synthetic handler restores its mock. A passing fixture does
+not replace real browser shutdown, layout or platform acceptance.
+
 ## Native create-only drafts
 
 `state/useNativeCreation.ts` reads the selected directory's SDK `global.health`.

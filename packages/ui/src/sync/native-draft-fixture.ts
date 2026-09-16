@@ -37,13 +37,19 @@ export function nativeDraftFixture() {
   const requests: Request[] = [];
   const handlers = {
     health: async (): Promise<Response> => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1, displayAttribution: 1 } }),
-    create: async (_request: Request): Promise<Response> => Response.json(session),
+    create: async (request: Request): Promise<Response> => {
+      if (request.method !== 'POST') throw new Error('Expected native creation POST');
+      return Response.json(session);
+    }
     settings: async (): Promise<Response> => Response.json({}),
     snippet: async (): Promise<Response> => Response.json({ text: 'expanded X' }),
     magic: async (): Promise<Response> => Response.json({ version: 1, overrides: {} }),
     knowledge: async (): Promise<Response> => new Response(null, { status: 404 }),
     history: async (): Promise<Response> => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }),
-    prompt: async (_request: Request): Promise<Response> => new Response(null, { status: 204 }),
+    prompt: async (request: Request): Promise<Response> => {
+      if (request.method !== 'POST') throw new Error('Expected native prompt POST');
+      return new Response(null, { status: 204 });
+    }
   };
   const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new Request(input, init); requests.push(request.clone());
@@ -88,7 +94,11 @@ export function nativeDraftFixture() {
     switchRuntime: (runtimeKey: string) => {
       useSessionUIStore.getState().prepareForRuntimeSwitch();
       switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey });
-      loader.configure({ sdk, runtimeKey });
+      opencodeClient.reconnectToRuntimeBaseUrl();
+      const nextSdk = opencodeClient.getSdkClient();
+      loader.configure({ sdk: nextSdk, runtimeKey });
+      setSyncRefs(nextSdk, children, directory);
+      setActionRefs(nextSdk, children, () => directory);
       useSessionUIStore.getState().restoreForRuntimeSwitch();
     },
     dispose: () => {
