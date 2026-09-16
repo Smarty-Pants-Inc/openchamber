@@ -23,6 +23,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.equal(overlays.size, overlay.files.length);
   assert.deepEqual([...overlays.keys()].sort(), [
     '.github/workflows/oc-review.yml',
+    'packages/ui/src/components/auth/SessionAuthGate.tsx',
     'packages/ui/src/sync/session-actions.test.ts', 'packages/web/server/index.js',
     'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
     'packages/web/server/lib/opencode/static-routes-runtime.js',
@@ -96,6 +97,18 @@ test('native input lifetime overlay preserves earlier completion evidence', () =
   assert.deepEqual(overlay.files.filter(entry => entry.nativeLifetimeSha256).map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   const entry = overlays.get('packages/ui/src/sync/session-ui-store.ts');
   assert.equal(entry.nativeLifetimeSha256, sha256(read(entry.path)));
+});
+
+test('runtime recovery binds only the reviewed auth gate donor overlap', () => {
+  const source = '3a3200ddae1611a079a76601ceba2b7ca1e43840';
+  const file = 'packages/ui/src/components/auth/SessionAuthGate.tsx';
+  assert.equal(overlay.runtimeRecoverySource, source);
+  assert.deepEqual(overlay.files.filter(entry => entry.behaviorSource === source).map(entry => entry.path), [file]);
+  const entry = overlays.get(file);
+  assert.equal(entry.brandingSha256, '34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586');
+  assert.equal(entry.behaviorSha256, '9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b');
+  assert.equal(entry.combinedSha256, entry.behaviorSha256);
+  assert.equal(sha256(read(file)), entry.behaviorSha256);
 });
 
 test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {

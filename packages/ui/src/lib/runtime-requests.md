@@ -11,7 +11,9 @@ before its first await. It checks the scope before dispatch. GET and HEAD result
 must still belong to the current scope when headers arrive and when a buffered
 body reader finishes. This includes cloned responses and the SDK's text reader.
 Raw streaming consumers still own their event-pipeline generation checks.
-External requests do not receive runtime credentials or runtime expiry handling.
+Same-origin absolute SDK URLs use the same guards when the runtime resolver
+returns relative URLs. External requests do not receive runtime credentials or
+runtime expiry handling.
 The installed browser fetch bridge uses this same path and retains its captured
 native fetch implementation to avoid recursion.
 
@@ -48,6 +50,21 @@ injected values. The existing app reset paths reset the auth-session classifier.
 A confirming `/auth/session` probe has a ten-second abort signal; its in-flight
 slot, cooldown and result belong to its captured scope. A stale 401 cannot expire
 a newer runtime, and an old probe cannot clear a newer probe's slot.
+
+Verified cookie recovery completes at the gate's successful status/password/
+passkey operation, even if its local state was already authenticated. It retires
+request authority before publishing the auth store's recovery generation.
+`RuntimeSyncProvider`, used by App and MobileApp, observes that generation and
+supplies the current SDK to the existing SyncProvider. The loader, child stores
+and workspace remain mounted; SDK-dependent bootstrap, action references and
+stream effects rebind through their existing lifecycle. Recovery never changes
+the endpoint key or replays mutations.
+
+Native expiry acknowledgement moves to `reauthenticating` without renewing
+authority. `apps/nativeAuthRecovery.ts` completes recovery only after MobileApp's
+probe confirms the unchanged transport, and only for the captured request scope.
+A transport switch uses the existing endpoint reset instead. Failed or pending
+probes do not release the mint rejection latch.
 
 These contracts apply to shared web, desktop, hosted mobile and Capacitor HTTP.
 VS Code keeps its extension-host fetch bridge and unsupported-operation contracts.

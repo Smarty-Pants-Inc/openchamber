@@ -446,6 +446,11 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
 
   React.useEffect(() => clearTransientRetry, [clearTransientRetry]);
 
+  const completeAuthentication = React.useCallback(() => {
+    useAuthSessionStore.getState().markAuthenticated();
+    setState('authenticated');
+  }, []);
+
   const checkStatus = React.useCallback(async () => {
     if (skipAuth) {
       setState('authenticated');
@@ -467,7 +472,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
 
         if (response.ok) {
           resetTransientRetry();
-          setState('authenticated');
+          completeAuthentication();
           setIsTunnelLocked(false);
           setErrorMessage('');
           setRetryAfter(undefined);
@@ -522,7 +527,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
       setState('error');
       setIsTunnelLocked(false);
     }
-  }, [refreshPasskeyStatus, resetTransientRetry, scheduleTransientRetry, skipAuth]);
+  }, [completeAuthentication, refreshPasskeyStatus, resetTransientRetry, scheduleTransientRetry, skipAuth]);
 
   React.useEffect(() => {
     checkStatusRef.current = checkStatus;
@@ -575,12 +580,6 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
       void checkStatusRef.current?.();
     }
   }, [authSessionState, skipAuth]);
-  React.useEffect(() => {
-    if (skipAuth) return;
-    if (state === 'authenticated' && useAuthSessionStore.getState().state !== 'ok') {
-      useAuthSessionStore.getState().markAuthenticated();
-    }
-  }, [skipAuth, state]);
 
   React.useEffect(() => {
     if (state === 'locked' && passwordInputRef.current) {
@@ -663,7 +662,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           setPassword('');
           setIsTunnelLocked(false);
           if (!await applyDesktopClientToken(shellLogin.token, runtime, requestHeaders)) return;
-          setState('authenticated');
+          completeAuthentication();
           return;
         }
         if (shellLogin?.status === 401) {
@@ -708,7 +707,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
             await registerPasskeyForCurrentSession();
             if (!isRuntimeIdentityActive(runtime)) return;
             toast.success(t('sessionAuth.toast.passkeyAdded'));
-            setState('authenticated');
+            completeAuthentication();
             return;
           } catch (error) {
             if (isPasskeyCeremonyAbort(error)) {
@@ -717,11 +716,12 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
               const message = error instanceof Error ? error.message : t('sessionAuth.error.passkeySetupFailed');
               toast.error(message);
             }
-            setState('authenticated');
+            if (!isRuntimeIdentityActive(runtime)) return;
+            completeAuthentication();
             return;
           }
         }
-        setState('authenticated');
+        completeAuthentication();
         return;
       }
 
@@ -754,7 +754,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setPassword('');
         setIsTunnelLocked(false);
         if (!await applyDesktopClientToken(shellLogin.token, runtime, requestHeaders)) return;
-        setState('authenticated');
+        completeAuthentication();
         return;
       }
       if (shellLogin?.status === 401) {
@@ -777,7 +777,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setIsSubmitting(false);
       }
     }
-  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, supportsPasskeys, t, trustDevice]);
+  }, [cancelActivePasskey, completeAuthentication, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, supportsPasskeys, t, trustDevice]);
 
   const handlePasskeyUnlock = React.useCallback(async () => {
     if (isSubmitting || !supportsPasskeys) {
@@ -810,7 +810,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
       }
 
       setPassword('');
-      setState('authenticated');
+      completeAuthentication();
     } catch (error) {
       if (!isRuntimeIdentityActive(runtime)) return;
       if (isPasskeyCeremonyAbort(error)) {
@@ -825,7 +825,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setIsPasskeyBusy(false);
       }
     }
-  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, supportsPasskeys, t, trustDevice]);
+  }, [cancelActivePasskey, completeAuthentication, isPasskeyBusy, isSubmitting, supportsPasskeys, t, trustDevice]);
 
   const handlePasskeySetupOnly = React.useCallback(async () => {
     if (isSubmitting || isTunnelLocked || !supportsPasskeys) {

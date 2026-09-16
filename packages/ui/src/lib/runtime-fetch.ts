@@ -57,8 +57,7 @@ const appendRuntimeQuery = (url: URL, query?: RuntimeUrlQuery): void => {
 const isActiveRuntimeServiceUrl = (url: URL): boolean => {
   try {
     const apiBase = getRuntimeUrlResolver().api('/api');
-    if (!/^[a-z][a-z\d+.-]*:\/\//i.test(apiBase)) return false;
-    const base = new URL(apiBase);
+    const base = new URL(apiBase, getCurrentOrigin() || undefined);
     if (url.origin !== base.origin) return false;
     return shouldResolveApiPath(url.pathname);
   } catch {
