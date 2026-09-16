@@ -1,6 +1,9 @@
 import { afterAll, expect, test } from 'bun:test';
 import { Window } from 'happy-dom';
 import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { plugin } from 'bun';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -68,15 +71,15 @@ install('fetch', fakeFetch);
 Object.defineProperty(browser, 'fetch', { configurable: true, value: fakeFetch });
 // Bun does not implement Vite's worker-URL asset transform. This empty-draft
 // scenario never starts the markdown worker; fail if it attempts to do so.
-await Bun.plugin({ name: 'mini-chat-worker-url', setup(build) {
+await plugin({ name: 'mini-chat-worker-url', setup(build) {
   build.onLoad({ filter: /markdown-shiki\.worker\.ts\?worker&url$/ }, () => ({
     contents: "export default 'data:text/javascript,throw new Error(\"Unexpected markdown worker\")'",
     loader: 'js',
   }));
   build.onLoad({ filter: /useProviderLogo\.ts$/ }, async ({ path }) => {
-    const logos = Object.fromEntries(Array.from(new Bun.Glob('*.svg').scanSync(fileURLToPath(new URL('../assets/provider-logos/', import.meta.url))))
+    const logos = Object.fromEntries(readdirSync(fileURLToPath(new URL('../assets/provider-logos/', import.meta.url))).filter((name) => name.endsWith('.svg'))
       .map((name) => [`../assets/provider-logos/${name}`, `/assets/provider-logos/${name}`]));
-    const source = await Bun.file(path).text();
+    const source = await readFile(path, 'utf8');
     return { contents: source.replace(/import\.meta\.glob<string>\([\s\S]*?\);/, `${JSON.stringify(logos)};`), loader: 'ts' };
   });
 } });
