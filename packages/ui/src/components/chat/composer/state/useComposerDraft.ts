@@ -16,7 +16,9 @@ import React from 'react';
 import {
     getChatDraftIdentityKey,
     claimChatDraftOwnership,
+    isChatDraftEphemeral,
     readChatDraft,
+    subscribeChatDraftPersistence,
     subscribeChatDraftConsumption,
     subscribeChatDraftDeletion,
     writeChatDraft,
@@ -63,6 +65,8 @@ export interface ComposerDraftOptions {
 }
 
 export interface ComposerDraftControls {
+    /** The last snapshot write failed. Live text remains available but is not saved across reload. */
+    ephemeralOnly: boolean;
     /**
      * Write a draft now, bypassing the debounce. Used on submit, where the
      * cleared composer must be stored before the send resolves.
@@ -86,6 +90,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         onDraftConsumed,
     } = options;
 
+    const ephemeralOnly = React.useSyncExternalStore(subscribeChatDraftPersistence, isChatDraftEphemeral, isChatDraftEphemeral);
     const persistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const skipNextPersistRef = React.useRef(false);
     const lastPersistedRef = React.useRef<Map<string, string>>(new Map());
@@ -115,10 +120,12 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         confirmedMentionsRef.current = activeMentions;
 
         const signature = draftSignature(draft, activeMentions);
-        if (lastPersistedRef.current.get(key) === signature) return;
+        if (lastPersistedRef.current.get(key) === signature && !isChatDraftEphemeral()) return;
 
-        writeChatDraft(target, draft, activeMentions);
-        lastPersistedRef.current.set(key, signature);
+        const stored = writeChatDraft(target, draft, activeMentions);
+        if (stored === undefined) return;
+        if (stored) lastPersistedRef.current.set(key, signature);
+        else lastPersistedRef.current.delete(key);
     }, [confirmedMentionsRef]);
 
     const clearPending = React.useCallback(() => {
@@ -215,12 +222,15 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         setMessage('');
     }), [clearPending, confirmedMentionsRef, messageRef, setMessage]);
 
+    // Disabling storage clears the saved draft once, not on every keystroke after a storage failure.
+    React.useEffect(() => {
+        if (!persistEnabled) writeChatDraft(identity, '', []);
+    }, [identity, persistEnabled]);
+
     // Debounced write while typing.
     React.useEffect(() => {
         if (!persistEnabled) {
             clearPending();
-            // Disabling durable storage must not clear live confirmed mentions.
-            writeChatDraft(identity, '', []);
             return;
         }
 
@@ -261,5 +271,5 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         };
     }, [clearPending, messageRef, persistEnabled, persistNow]);
 
-    return { persistNow };
+    return { persistNow, ephemeralOnly: persistEnabled && ephemeralOnly };
 }

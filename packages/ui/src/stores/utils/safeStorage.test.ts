@@ -50,7 +50,7 @@ describe('safeStorage', () => {
             const storage = getSafeStorage();
             const sessionStorage = getSafeSessionStorage();
 
-            storage.setItem('local-key', 'local-value');
+            expect(storage.setItem('local-key', 'local-value')).toBe(false);
             sessionStorage.setItem('session-key', 'session-value');
 
             expect(storage.getItem('local-key')).toBe('local-value');
@@ -177,17 +177,19 @@ describe('safeStorage', () => {
         try {
             const { getSafeStorage } = await importSafeStorage();
             const storage = getSafeStorage();
-            storage.setItem('large', 'ephemeral-new');
-            storage.setItem('unrelated', 'durable');
+            expect(storage.setItem('large', 'ephemeral-new')).toBe(false);
+            expect(storage.setItem('unrelated', 'durable')).toBe(true);
 
             expect(storage.getItem('large')).toBe('ephemeral-new');
             expect(backingStorage.getItem('large')).toBeNull();
             expect(backingStorage.getItem('unrelated')).toBe('durable');
 
             rejectLarge = false;
-            storage.setItem('large', 'durable-new');
+            expect(storage.setItem('large', 'durable-new')).toBe(true);
             expect(backingStorage.getItem('large')).toBe('durable-new');
             expect(storage.getItem('large')).toBe('durable-new');
+            storage.removeItem('large');
+            expect(backingStorage.getItem('large')).toBeNull();
         } finally {
             if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
             else delete (globalThis as { window?: unknown }).window;
