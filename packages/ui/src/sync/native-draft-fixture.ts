@@ -1,3 +1,4 @@
+import './native-test-network';
 import { spyOn } from 'bun:test';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';

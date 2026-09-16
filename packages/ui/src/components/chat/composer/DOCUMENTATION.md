@@ -210,10 +210,12 @@ backing-storage acceptance is not an OS power-loss guarantee. If storage access
 is denied when the adapter is created, its memory-only fallback lasts for that
 adapter's lifetime. The alert tells the user to copy input before leaving.
 
-Run isolated native composer and draft tests with
-`bun test --preload ./src/sync/native-test-network.ts <test-file>` from
-`packages/ui`. The process-lifetime guard prevents pending work from reaching
-real fetch after a synthetic handler restores its mock. A passing fixture does
+The isolated native composer and draft fixtures import
+`sync/native-test-network.ts` before their application modules. Their normal
+`bun test <test-file>` command therefore retains a process-lifetime deny-fetch
+guard. Explicit `--preload ./src/sync/native-test-network.ts` can also protect
+other focused runners. Pending work cannot reach real fetch after a synthetic
+handler restores its mock. A passing fixture does
 not replace real browser shutdown, layout or platform acceptance.
 
 ## Native create-only drafts

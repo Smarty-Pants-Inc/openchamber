@@ -1,3 +1,4 @@
+import '@/sync/native-test-network';
 import React, { act } from 'react';
 import { mock, spyOn } from 'bun:test';
 import { setTimeout as sleep } from 'node:timers/promises';
