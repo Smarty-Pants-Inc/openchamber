@@ -17,19 +17,23 @@ export type AuthSessionState = 'ok' | 'expired' | 'reauthenticating';
 
 interface AuthSessionStore {
   state: AuthSessionState;
+  recoveryGeneration: number;
   /** Set only by the confirmed classifier or an explicit auth failure. */
   markExpired: () => void;
   markReauthenticating: () => void;
   markAuthenticated: () => void;
 }
 
-export const useAuthSessionStore = create<AuthSessionStore>((set, get) => ({
+export const useAuthSessionStore = create<AuthSessionStore>((set) => ({
   state: 'ok',
+  recoveryGeneration: 0,
   markExpired: () => set((current) => (current.state === 'expired' ? current : { state: 'expired' })),
   markReauthenticating: () => set({ state: 'reauthenticating' }),
   markAuthenticated: () => {
-    if (get().state !== 'ok') resetRuntimeAuthGeneration();
-    set({ state: 'ok' });
+    // Only verified recovery calls this operation. Publish after retiring old
+    // requests so mounted bindings select an SDK from the renewed authority.
+    resetRuntimeAuthGeneration();
+    set((current) => ({ state: 'ok', recoveryGeneration: current.recoveryGeneration + 1 }));
   },
 }));
 

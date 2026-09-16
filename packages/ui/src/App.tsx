@@ -41,7 +41,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { resumeAutoReviewRun } from '@/lib/reviewFlow';
-import { SyncProvider } from '@/sync/sync-context';
+import { RuntimeSyncProvider } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { AboutDialog } from '@/components/ui/AboutDialog';
@@ -903,7 +903,7 @@ function App({ apis }: AppProps) {
   if (embeddedSessionChat) {
     return (
       <ErrorBoundary>
-        <SyncProvider key={runtimeEndpointEpoch} sdk={opencodeClient.getSdkClient()} directory={currentDirectory || ''}>
+        <RuntimeSyncProvider key={runtimeEndpointEpoch} directory={currentDirectory || ''}>
           <RuntimeAPIProvider apis={apis}>
             <TooltipProvider delayDuration={300} skipDelayDuration={150}>
               <div className="h-full text-foreground bg-background">
@@ -916,7 +916,7 @@ function App({ apis }: AppProps) {
               </div>
             </TooltipProvider>
           </RuntimeAPIProvider>
-        </SyncProvider>
+        </RuntimeSyncProvider>
       </ErrorBoundary>
     );
   }
@@ -947,7 +947,7 @@ function App({ apis }: AppProps) {
 
   return (
     <ErrorBoundary>
-      <SyncProvider key={runtimeEndpointEpoch} sdk={opencodeClient.getSdkClient()} directory={currentDirectory || ''}>
+      <RuntimeSyncProvider key={runtimeEndpointEpoch} directory={currentDirectory || ''}>
         <RuntimeAPIProvider apis={apis}>
           <FireworksProvider>
               <TooltipProvider delayDuration={300} skipDelayDuration={150}>
@@ -970,7 +970,7 @@ function App({ apis }: AppProps) {
               </TooltipProvider>
           </FireworksProvider>
         </RuntimeAPIProvider>
-      </SyncProvider>
+      </RuntimeSyncProvider>
     </ErrorBoundary>
   );
 }
