@@ -1,8 +1,8 @@
-import { getActiveRelayTunnel } from './relay/runtime-tunnel';
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { getRuntimeUrlResolver, type RuntimeUrlQuery } from './runtime-url';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from './runtime-switch';
 
 export interface RuntimeFetchOptions extends RequestInit {
   query?: RuntimeUrlQuery;
@@ -57,21 +57,9 @@ const appendRuntimeQuery = (url: URL, query?: RuntimeUrlQuery): void => {
 const isActiveRuntimeServiceUrl = (url: URL): boolean => {
   try {
     const apiBase = getRuntimeUrlResolver().api('/api');
-    if (!/^[a-z][a-z\d+.-]*:\/\//i.test(apiBase)) return false;
-    const base = new URL(apiBase);
+    const base = new URL(apiBase, getCurrentOrigin() || undefined);
     if (url.origin !== base.origin) return false;
     return shouldResolveApiPath(url.pathname);
-  } catch {
-    return false;
-  }
-};
-
-const shouldResolveFetchInput = (input: string): boolean => {
-  if (shouldResolveApiPath(input)) return true;
-  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(input)) return false;
-  try {
-    const url = new URL(input);
-    return isCurrentWindowUrl(url) && shouldResolveApiPath(url.pathname);
   } catch {
     return false;
   }
@@ -156,13 +144,10 @@ export const sanitizeHeadersForBrowser = (init?: HeadersInit): [string, string][
   return dirty ? entries : undefined;
 };
 
-const mergeHeaders = async (inputHeaders?: HeadersInit, initHeaders?: HeadersInit, attachAuth = true): Promise<Headers> => {
+const mergeHeaders = async (inputHeaders?: HeadersInit, initHeaders?: HeadersInit): Promise<Headers> => {
   const headers = new Headers(sanitizeHeadersForBrowser(inputHeaders) ?? inputHeaders);
   if (initHeaders) {
     new Headers(sanitizeHeadersForBrowser(initHeaders) ?? initHeaders).forEach((value, key) => headers.set(key, value));
-  }
-  if (!attachAuth) {
-    return headers;
   }
   return buildRuntimeAuthHeaders(headers);
 };
@@ -197,26 +182,6 @@ const extractRelayPath = (input: string | URL | Request, query?: RuntimeUrlQuery
   }
 };
 
-const tryRelayFetch = async (
-  input: string | URL | Request,
-  requestInit: RequestInit,
-  query?: RuntimeUrlQuery,
-): Promise<Response | null> => {
-  const relay = getActiveRelayTunnel();
-  if (!relay) return null;
-  const path = extractRelayPath(input, query);
-  if (path === null) return null;
-  const inputHeaders = input instanceof Request ? input.headers : undefined;
-  const headers = await mergeHeaders(inputHeaders, requestInit.headers, true);
-  if (input instanceof Request) {
-    // Forward the Request itself — the tunnel reads its method/body/signal
-    // natively (incl. stream bodies). Re-wrapping as `new Request(path, input)`
-    // throws on a stream body without duplex:'half'.
-    return relay.fetch(input, { ...requestInit, headers });
-  }
-  return relay.fetch(path, { ...requestInit, headers });
-};
-
 const resolveRuntimeFetchInput = (input: string | URL | Request, query?: RuntimeUrlQuery): string | URL | Request => {
   if (typeof input === 'string') {
     return buildRuntimeFetchUrl(input, query);
@@ -230,165 +195,72 @@ const resolveRuntimeFetchInput = (input: string | URL | Request, query?: Runtime
   return target === input.url ? input : new Request(target, input);
 };
 
-// ---------------------------------------------------------------------------
-// In-flight read coalescing
-//
-// On cold start two independent data layers (the sync bootstrap and the config
-// store) fire the SAME idempotent reads — providers, config, path, agents,
-// project — concurrently, with no shared dedup. That saturates the single
-// OpenCode process and delays everything queued behind it (e.g. createSession).
-// Coalesce genuinely-concurrent identical GETs to those read endpoints so
-// OpenCode does the work once; every caller gets an independent `clone()`.
-//
-// Scope is deliberately tight: GET only, an allowlist of read paths, never an
-// event stream, and never a request carrying an AbortSignal (so one caller
-// aborting can't cancel the shared fetch for the others). The entry is removed
-// as soon as the request settles, so this only ever shares overlapping in-flight
-// requests — it never serves a stale/cached response.
-// ---------------------------------------------------------------------------
-const COALESCE_READ_PATH = /\/api\/(config|path|app\/agents|agent|project|command)(\b|\/|\?|$)/;
-const READ_COALESCE = new Map<string, Promise<Response>>();
-
-const coalesceReadKey = (method: string, url: string, hasSignal: boolean): string | null => {
-  if (hasSignal) return null;
-  if (method !== 'GET') return null;
-  if (url.includes('/event')) return null;
-  if (!COALESCE_READ_PATH.test(url)) return null;
-  return `GET ${url}`;
+// Response headers can arrive before a switch while the body is still pending.
+// Guard the standard buffered readers, including SDK text parsing and clones.
+// Streaming consumers retain their own event-pipeline generation checks.
+const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope): Response => {
+  const guard = <T>(read: () => Promise<T>) => async (): Promise<T> => {
+    assertRuntimeRequestScope(scope);
+    const value = await read();
+    assertRuntimeRequestScope(scope);
+    return value;
+  };
+  response.json = guard(response.json.bind(response));
+  response.text = guard(response.text.bind(response));
+  response.arrayBuffer = guard(response.arrayBuffer.bind(response));
+  response.blob = guard(response.blob.bind(response));
+  response.formData = guard(response.formData.bind(response));
+  const clone = response.clone.bind(response);
+  response.clone = () => guardRuntimeReadResponse(clone(), scope);
+  return response;
 };
 
-export const runtimeFetch = async (input: string | URL | Request, init: RuntimeFetchOptions = {}): Promise<Response> => {
+const fetchRuntimeRequest = async (
+  input: string | URL | Request,
+  init: RuntimeFetchOptions,
+  networkFetch: typeof fetch,
+): Promise<Response> => {
   const { query, ...requestInit } = init;
+  const scope = captureRuntimeRequestScope();
+  const relayPath = scope.relay ? extractRelayPath(input, query) : null;
+  const relay = relayPath !== null ? scope.relay : null;
+  const resolvedInput = relay ? input : resolveRuntimeFetchInput(input, query);
+  const url = relayPath ?? (resolvedInput instanceof Request ? resolvedInput.url : resolvedInput.toString());
+  const isRuntime = relay !== null || shouldAttachRuntimeAuth(resolvedInput);
+  if (!isRuntime) return networkFetch(resolvedInput, requestInit);
 
-  // Resolve the transport once — relay tunnel or network — then apply the SAME
-  // read-coalescing to both. On a relay the tunnel is bandwidth/latency-bound, so
-  // deduping concurrent identical GETs matters there most.
-  const relay = getActiveRelayTunnel();
-  const relayPath = relay ? extractRelayPath(input, query) : null;
+  const method = String(requestInit.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const headers = await mergeHeaders(resolvedInput instanceof Request ? resolvedInput.headers : undefined, requestInit.headers);
+  assertRuntimeRequestScope(scope);
+  addRuntimeProxyHeaders(url, headers);
+  // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
+  // bodies itself; constructing a relative Request would lose that contract.
+  const response = relay
+    ? await relay.fetch(input instanceof Request ? input : url, { ...requestInit, headers })
+    : await networkFetch(resolvedInput instanceof Request
+      ? new Request(resolvedInput, { ...requestInit, headers })
+      : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
 
-  let doFetch: () => Promise<Response>;
-  let url: string;
-  let method: string;
-  if (relay && relayPath !== null) {
-    const inputHeaders = input instanceof Request ? input.headers : undefined;
-    const headers = await mergeHeaders(inputHeaders, requestInit.headers, true);
-    doFetch = input instanceof Request
-      ? () => relay.fetch(input, { ...requestInit, headers })
-      : () => relay.fetch(relayPath, { ...requestInit, headers });
-    url = relayPath;
-    method = String(requestInit.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-  } else {
-    const resolvedInput = resolveRuntimeFetchInput(input, query);
-    const inputHeaders = resolvedInput instanceof Request ? resolvedInput.headers : undefined;
-    const headers = await mergeHeaders(inputHeaders, requestInit.headers, shouldAttachRuntimeAuth(resolvedInput));
-    const resolvedUrl =
-      resolvedInput instanceof Request ? resolvedInput.url
-      : resolvedInput instanceof URL ? resolvedInput.toString()
-      : String(resolvedInput);
-    addRuntimeProxyHeaders(resolvedUrl, headers);
-    doFetch = resolvedInput instanceof Request
-      ? () => fetch(new Request(resolvedInput, { ...requestInit, headers }))
-      : () => fetch(resolvedInput, { ...requestInit, headers });
-    url = resolvedUrl;
-    method = String(
-      requestInit.method ?? (resolvedInput instanceof Request ? resolvedInput.method : 'GET'),
-    ).toUpperCase();
+  if (isRuntimeRequestScopeCurrent(scope)) observeRuntimeAuthResponse(url, response.status, scope);
+  // Once dispatched, an effect belongs to its origin even after navigation.
+  if (method !== 'GET' && method !== 'HEAD') return response;
+  if (!isRuntimeRequestScopeCurrent(scope)) {
+    void response.body?.cancel().catch(() => {});
+    assertRuntimeRequestScope(scope);
   }
-
-  // Session-expiry classification rides on responses that already flow
-  // through here; only the status is read, never the body.
-  const rawFetch = doFetch;
-  doFetch = () => rawFetch().then((response) => {
-    observeRuntimeAuthResponse(url, response.status);
-    return response;
-  });
-
-  // A Request always carries a (possibly default) signal; treat any Request, or
-  // an explicit init.signal, as "has signal" and skip coalescing for safety.
-  const hasSignal = requestInit.signal != null || input instanceof Request;
-
-  const key = coalesceReadKey(method, url, hasSignal);
-  if (!key) return doFetch();
-
-  const existing = READ_COALESCE.get(key);
-  if (existing) return existing.then((res) => res.clone());
-
-  const pending = doFetch();
-  READ_COALESCE.set(key, pending);
-  pending.then(
-    () => READ_COALESCE.delete(key),
-    () => READ_COALESCE.delete(key),
-  );
-  return pending.then((res) => res.clone());
+  return guardRuntimeReadResponse(response, scope);
 };
 
-let runtimeFetchBridgeInstalled = false;
+// No global read sharing: service/loader owners already deduplicate by scope.
+// A path-only key cannot distinguish headers, credentials or relay hosts.
+let nativeRuntimeFetch: typeof fetch | null = null;
+export const runtimeFetch = (input: string | URL | Request, init: RuntimeFetchOptions = {}): Promise<Response> =>
+  fetchRuntimeRequest(input, init, nativeRuntimeFetch ?? fetch);
 
 export const installRuntimeFetchBridge = (): void => {
-  if (runtimeFetchBridgeInstalled || typeof window === 'undefined') return;
-  runtimeFetchBridgeInstalled = true;
-
+  if (nativeRuntimeFetch || globalThis.window === undefined) return;
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const relayResponse = await tryRelayFetch(input, init ?? {});
-    if (relayResponse) return relayResponse;
-    if (typeof input === 'string') {
-      if (!shouldResolveFetchInput(input)) {
-        try {
-          const url = new URL(input);
-          if (isActiveRuntimeServiceUrl(url)) {
-            const headers = await mergeHeaders(undefined, init?.headers);
-            addRuntimeProxyHeaders(url.toString(), headers);
-            return nativeFetch(input, { ...init, headers });
-          }
-        } catch {
-          // Non-URL fetch inputs should fall through unchanged.
-        }
-        return nativeFetch(input, init);
-      }
-      const headers = await mergeHeaders(undefined, init?.headers);
-      const target = buildRuntimeFetchUrl(input);
-      addRuntimeProxyHeaders(target, headers);
-      return nativeFetch(target, { ...init, headers });
-    }
-
-    if (input instanceof URL) {
-      const raw = input.toString();
-      if (!shouldResolveFetchInput(raw)) {
-        if (isActiveRuntimeServiceUrl(input)) {
-          const headers = await mergeHeaders(undefined, init?.headers);
-          addRuntimeProxyHeaders(input.toString(), headers);
-          return nativeFetch(input, { ...init, headers });
-        }
-        return nativeFetch(input, init);
-      }
-      const headers = await mergeHeaders(undefined, init?.headers);
-      const target = buildRuntimeFetchUrl(raw);
-      addRuntimeProxyHeaders(target, headers);
-      return nativeFetch(target, { ...init, headers });
-    }
-
-    if (input instanceof Request) {
-      if (!shouldResolveFetchInput(input.url)) {
-        try {
-          const url = new URL(input.url);
-          if (isActiveRuntimeServiceUrl(url)) {
-            const headers = await mergeHeaders(input.headers, init?.headers);
-            addRuntimeProxyHeaders(url.toString(), headers);
-            return nativeFetch(new Request(input, { ...init, headers }));
-          }
-        } catch {
-          // Non-URL request inputs should fall through unchanged.
-        }
-        return nativeFetch(input, init);
-      }
-      const headers = await mergeHeaders(input.headers, init?.headers);
-      const target = buildRuntimeFetchUrl(input.url);
-      addRuntimeProxyHeaders(target, headers);
-      const request = target === input.url ? input : new Request(target, input);
-      return nativeFetch(new Request(request, { ...init, headers }));
-    }
-
-    return nativeFetch(input, init);
-  };
+  nativeRuntimeFetch = nativeFetch;
+  window.fetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> =>
+    fetchRuntimeRequest(input, init, nativeFetch);
 };

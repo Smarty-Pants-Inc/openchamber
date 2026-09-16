@@ -91,6 +91,10 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { claimChatDraftOwnership, createChatDraftIdentity } from '@/lib/chatDraftPersistence'
+import { NativeCreationError } from '@/lib/opencode/nativeCreation'
+import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
+import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -151,7 +155,9 @@ export async function routeMessage(params: {
   appendSubmissions?: () => void
   displayName?: string
   delivery?: 'steer'
+  beforeDispatch?: () => void
 }): Promise<'command' | 'prompt' | 'shell'> {
+  params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
   if (params.displayName !== undefined && (params.inputMode === 'shell' || params.content.startsWith('/') || params.delivery)) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
@@ -244,6 +250,7 @@ export async function routeMessage(params: {
   // Normal prompt — optimistic insert so message appears instantly
   await optimisticSend({
     runtimeKey: params.runtimeKey,
+    beforeOptimisticInsert: params.beforeDispatch,
     sessionId: params.sessionId,
     content: params.content,
     providerID: params.providerID,
@@ -254,6 +261,7 @@ export async function routeMessage(params: {
     appendSubmissions: params.appendSubmissions,
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
+      beforeDispatch: params.beforeDispatch,
       id: params.sessionId,
       providerID: params.providerID,
       modelID: params.modelID,
@@ -290,6 +298,8 @@ type SendMessageOptions = {
   historySubmissions?: InputHistorySubmission[]
   /** Immutable copy of the new-session draft at submit time; used instead of the live draft. */
   draftSnapshot?: NewSessionDraftState
+  onNativeAccepted?: () => void
+  nativeIntent?: NativeDraftSend
   displayName?: string
   delivery?: 'steer'
 }
@@ -359,6 +369,7 @@ export type SessionUIState = {
   currentSessionDirectory: string | null
   materializedDraftSessionId: string | null
   newSessionDraft: NewSessionDraftState
+  nativeDraftCreations: ReadonlyMap<string, NativeDraftCreation>
   abortPromptSessionId: string | null
   abortPromptExpiresAt: number | null
   error: string | null
@@ -686,6 +697,7 @@ type MaterializedDraftSession = {
   directory: string | null
   agent?: string
   syntheticParts?: SyntheticContextPart[]
+  nativeDraft?: NativeDraftSend
 }
 
 const resolveProjectRefForWorktreeDirectory = (directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
@@ -894,10 +906,20 @@ export async function materializeOpenDraftSession(selection: {
   modelID: string
   agent?: string
   variant?: string
-}, draftOverride?: NewSessionDraftState): Promise<MaterializedDraftSession | null> {
+}, draftOverride?: NewSessionDraftState, nativeIntent?: NativeDraftSend): Promise<MaterializedDraftSession | null> {
+  if (nativeIntent) assertNativeDraftReady(nativeIntent)
   const store = useSessionUIStore.getState()
-  const draft = draftOverride ?? store.newSessionDraft
+  const draft = nativeIntent?.draft ?? draftOverride ?? store.newSessionDraft
   if (!draft?.open) return null
+  const native = nativeIntent?.session ?? await preparedNativeDraft(draft)
+  if (native) {
+    const model = native.nativeCreation.model
+    if (selection.providerID !== model.providerID || selection.modelID !== model.modelID) {
+      throw new NativeCreationError('model')
+    }
+    const nativeDraft = nativeIntent ?? await prepareNativeDraftSend(draft, native)
+    return { sessionId: native.id, directory: native.directory, syntheticParts: draft.syntheticParts, nativeDraft }
+  }
   const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
 
   const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
@@ -1020,6 +1042,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionDirectory: null,
   materializedDraftSessionId: null,
   newSessionDraft: { ...DEFAULT_DRAFT },
+  nativeDraftCreations: new Map(),
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
@@ -1363,6 +1386,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       projectContextPins: options?.projectContextPins,
     }
 
+    claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), directory, null, nextDraft.draftId))
     set({
       newSessionDraft: nextDraft,
       currentSessionId: null,
@@ -1500,6 +1524,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // session" reopens on, so it is recorded here too — not only when a draft
     // is opened or a session is created from one.
     const chosenDraft = get().newSessionDraft
+    claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), chosenDraft.directoryOverride, null, chosenDraft.draftId))
     persistDraftTarget({
       projectId: chosenDraft.target === "chat" ? null : chosenDraft.selectedProjectId ?? null,
       directory: chosenDraft.directoryOverride ?? null,
@@ -1713,9 +1738,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     inputMode?: "normal" | "shell",
     options?: SendMessageOptions,
   ) => {
+    // Composer preparation may span a runtime switch. Native intent must never reach legacy creation.
+    if (options?.nativeIntent) assertNativeDraftReady(options.nativeIntent)
     const capturedTarget = options?.target
     const displayName = options?.displayName
-    const capturedRuntimeKey = capturedTarget?.runtimeKey ?? getRuntimeKey()
+    const capturedRuntimeKey = options?.nativeIntent?.runtimeKey ?? capturedTarget?.runtimeKey ?? getRuntimeKey()
     if (capturedTarget && capturedTarget.runtimeKey !== getRuntimeKey()) {
       throw new Error("Message was not sent because the runtime changed.")
     }
@@ -1728,7 +1755,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       set({ pendingChangesBarDismissed: map });
     }
 
-    const draft = options?.draftSnapshot ?? get().newSessionDraft
+    const draft = options?.nativeIntent?.draft ?? options?.draftSnapshot ?? get().newSessionDraft
+    if (!capturedTarget && !options?.sessionId && draft.open) await preparedNativeDraft(draft)
+    if (options?.nativeIntent) assertNativeDraftReady(options.nativeIntent)
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
     const goalArm = inputMode !== "shell" && content.trim().length > 0
@@ -1786,9 +1815,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         modelID,
         agent: trimmedAgent,
         variant,
-      }, options?.draftSnapshot)
+      }, options?.draftSnapshot, options?.nativeIntent)
       if (!createdDraftSession) throw new Error("Failed to create session")
-
+      const nativeDraft = createdDraftSession.nativeDraft
+      const releaseNativeSend = nativeDraft ? beginNativeDraftSend(nativeDraft) : undefined
+      try {
       const draftParts: Array<{ text: string; attachments?: AttachedFile[]; synthetic?: boolean; metadata?: ContextPartMetadata; systemContext?: 'session-knowledge' }> | undefined = createdDraftSession.syntheticParts?.length
         ? [...(additionalParts || []), ...createdDraftSession.syntheticParts]
         : additionalParts
@@ -1826,8 +1857,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         filename: a.filename,
       }))
 
+      if (nativeDraft) assertNativeDraftReady(nativeDraft)
       await applyArmedGoal(createdDraftSession.sessionId, createdDraftSession.directory)
       const messageRoute = await routeMessage({
+        runtimeKey: capturedRuntimeKey,
+        beforeDispatch: nativeDraft ? () => assertNativeDraftReady(nativeDraft) : undefined,
         sessionId: createdDraftSession.sessionId,
         directory: createdDraftSession.directory,
         content,
@@ -1856,14 +1890,20 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       })
       // Recorded only after the send resolves: a failed send must carry the
       // pinned context again rather than assume the agent already saw it.
-      if (draftKnowledge.text && messageRoute === 'prompt') {
+      if (draftKnowledge.text && messageRoute === 'prompt' && (!nativeDraft || getRuntimeKey() === nativeDraft.runtimeKey)) {
         void reportSessionKnowledgeDelivered(
           createdDraftSession.directory,
           createdDraftSession.sessionId,
           draftKnowledge.signature,
         )
       }
+      if (nativeDraft) {
+        // Successful admission belongs to its origin even when another draft/runtime is now visible.
+        options?.onNativeAccepted?.()
+        acceptNativeDraftSend(nativeDraft)
+      }
       return
+      } finally { releaseNativeSend?.() }
     }
 
     // ---- Existing session ----

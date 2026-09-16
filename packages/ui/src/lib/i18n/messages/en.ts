@@ -1,4 +1,5 @@
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './en.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -7,6 +8,7 @@ export const dict = {
   'sessions.sidebar.projectAction.active': 'Project action active',
   ...settingsDict,
   ...displayNameI18n.en,
+  ...nativeCreationI18n.en,
   ...linearIssuePickerI18n.en,
   ...linearPanelI18n.en,
   'terminalView.actions.attachSelection': 'Attach selected output',
@@ -2213,6 +2215,14 @@ export const dict = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': 'Remove from queue',
   'chat.queuedMessage.reorderAria': 'Drag to reorder',
+  "chat.draft.ephemeralOnly": "Draft changes are only in this tab. Browser storage is unavailable. Copy your text before leaving or reloading.",
+  "chat.queuedMessage.unsupported": "This backend does not support queued messages. Your input is unchanged.",
+  "chat.queuedMessage.recoveryTitle": "Queued messages need review",
+  "chat.queuedMessage.recoveryDescription": "Delivery or transfer may already have happened. These messages will not send automatically. Check the session before sending them again.",
+  "chat.queuedMessage.admissionUnknown": "Queue acceptance could not be confirmed. Your input is still here. Check the queue before sending it again.",
+  "chat.queuedMessage.recoverPayload": "Download full message",
+  "chat.queuedMessage.forgetReviewed": "Remove reviewed record",
+  "chat.queuedMessage.forgetConfirm": "Remove this recovery record? Check the session and save the full message first. Removal does not undo a send.",
   'chat.queuedMessage.toast.queueFailed': 'Couldn\'t queue the message. It\'s back in the composer.',
   'chat.queuedMessage.toast.takeFailed': 'Couldn\'t load the queued message. Please try again.',
   'chat.container.returnToParent.aria': 'Return to parent session',

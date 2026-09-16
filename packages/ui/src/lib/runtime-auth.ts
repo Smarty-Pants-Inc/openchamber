@@ -1,4 +1,6 @@
+import { z } from 'zod';
 import { getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
 type RuntimeAuthCredential =
   | { type: 'bearer'; token: string }
@@ -8,7 +10,8 @@ export type RuntimeAuthCredentialProvider = () => RuntimeAuthCredential | Promis
 
 let credentialProvider: RuntimeAuthCredentialProvider = () => null;
 let runtimeBearerToken = '';
-let runtimeExtraHeaders: Record<string, string> = {};
+let credentialConfigured = false;
+let runtimeExtraHeaders: Record<string, string> | null = null;
 let runtimeUrlAuthToken = '';
 let runtimeUrlAuthTokenExpiresAt = 0;
 let runtimeUrlAuthRefreshPromise: Promise<string> | null = null;
@@ -18,9 +21,23 @@ let localRuntimeUrlAuthOrigin = '';
 let localRuntimeUrlAuthRefreshPromise: Promise<string> | null = null;
 let localRuntimeUrlAuthRefreshOrigin = '';
 let localRuntimeUrlAuthGeneration = 0;
+let localUrlAuthFailureOrigin = '';
+let localUrlAuthFailureCount = 0;
+let localUrlAuthRetryAt = 0;
+let localUrlAuthRejected = false;
 let runtimeAuthGeneration = 0;
 
+export const getRuntimeAuthGeneration = (): number => runtimeAuthGeneration;
+
+const urlAuthResponseSchema = z.object({ token: z.string().trim().min(1), expiresAt: z.number().finite() });
+
 const URL_AUTH_REFRESH_SKEW_MS = 10_000;
+const URL_AUTH_REQUEST_TIMEOUT_MS = 10_000;
+const URL_AUTH_RETRY_BASE_MS = 1_000;
+const URL_AUTH_RETRY_MAX_MS = 30_000;
+let urlAuthFailureCount = 0;
+let urlAuthRetryAt = 0;
+let urlAuthRejected = false;
 
 const isReservedRuntimeExtraHeaderName = (name: string): boolean => name.toLowerCase() === 'authorization';
 
@@ -84,6 +101,10 @@ const clearLocalRuntimeUrlAuthToken = (): void => {
   localRuntimeUrlAuthRefreshPromise = null;
   localRuntimeUrlAuthRefreshOrigin = '';
   localRuntimeUrlAuthGeneration += 1;
+  localUrlAuthFailureOrigin = '';
+  localUrlAuthFailureCount = 0;
+  localUrlAuthRetryAt = 0;
+  localUrlAuthRejected = false;
 };
 
 export const clearRuntimeUrlAuthToken = (): void => {
@@ -92,8 +113,12 @@ export const clearRuntimeUrlAuthToken = (): void => {
   clearLocalRuntimeUrlAuthToken();
 };
 
-const resetRuntimeAuthGeneration = (): void => {
+export const resetRuntimeAuthGeneration = (): void => {
   runtimeAuthGeneration += 1;
+  urlAuthFailureCount = 0;
+  urlAuthRetryAt = 0;
+  urlAuthRejected = false;
+  urlAuthApiBaseUrl = null;
   runtimeUrlAuthRefreshPromise = null;
   clearRuntimeUrlAuthToken();
   // Credentials changed: if a consumer is active, re-mint promptly.
@@ -101,12 +126,14 @@ const resetRuntimeAuthGeneration = (): void => {
 };
 
 export const setRuntimeAuthCredentialProvider = (provider: RuntimeAuthCredentialProvider): void => {
+  credentialConfigured = true;
   runtimeBearerToken = '';
   resetRuntimeAuthGeneration();
   credentialProvider = provider;
 };
 
 export const clearRuntimeAuthCredentialProvider = (): void => {
+  credentialConfigured = false;
   runtimeBearerToken = '';
   resetRuntimeAuthGeneration();
   credentialProvider = () => null;
@@ -114,6 +141,7 @@ export const clearRuntimeAuthCredentialProvider = (): void => {
 
 export const setRuntimeBearerToken = (token: string | null | undefined): void => {
   const normalized = normalizeBearerToken(token);
+  credentialConfigured = true;
   runtimeBearerToken = normalized;
   resetRuntimeAuthGeneration();
   credentialProvider = () => normalized ? { type: 'bearer', token: normalized } : null;
@@ -123,19 +151,19 @@ export const setRuntimeExtraHeaders = (headers: Record<string, string> | null | 
   // These headers are for runtime HTTP fetches and URL-token minting. Browser-owned
   // realtime transports (EventSource/WebSocket) cannot attach arbitrary headers.
   const next = sanitizeRuntimeExtraHeaders(headers);
-  if (runtimeExtraHeadersEqual(runtimeExtraHeaders, next)) return;
+  if (runtimeExtraHeaders && runtimeExtraHeadersEqual(runtimeExtraHeaders, next)) return;
   runtimeExtraHeaders = next;
   resetRuntimeAuthGeneration();
 };
 
-export const getRuntimeExtraHeadersSync = (): Record<string, string> => {
-  if (Object.keys(runtimeExtraHeaders).length > 0) return runtimeExtraHeaders;
+export const getRuntimeExtraHeadersSync = () => {
+  if (runtimeExtraHeaders) return { ...runtimeExtraHeaders };
   if (typeof window === 'undefined') return {};
   const injected = (window as typeof window & { __OPENCHAMBER_RUNTIME_HEADERS__?: Record<string, string> }).__OPENCHAMBER_RUNTIME_HEADERS__;
   return injected && typeof injected === 'object' ? sanitizeRuntimeExtraHeaders(injected) : {};
 };
 
-export const getRuntimeBearerTokenSync = (): string => runtimeBearerToken || readInjectedBearerToken();
+export const getRuntimeBearerTokenSync = (): string => credentialConfigured ? runtimeBearerToken : readInjectedBearerToken();
 
 export const setRuntimeUrlAuthToken = (token: string | null | undefined, expiresAt: number | null | undefined): void => {
   const normalized = normalizeBearerToken(token);
@@ -172,7 +200,8 @@ export const setLocalRuntimeUrlAuthToken = (
 
 const readValidRuntimeUrlAuthTokenSync = (): string => {
   if (!runtimeUrlAuthToken || runtimeUrlAuthTokenExpiresAt <= Date.now() + URL_AUTH_REFRESH_SKEW_MS) {
-    clearRuntimeUrlAuthToken();
+    runtimeUrlAuthToken = '';
+    runtimeUrlAuthTokenExpiresAt = 0;
     return '';
   }
   return runtimeUrlAuthToken;
@@ -206,11 +235,31 @@ export const getLocalRuntimeUrlAuthTokenSync = (localOrigin?: string | null): st
   return token;
 };
 
-const getRuntimeAuthCredential = async (): Promise<RuntimeAuthCredential> => {
-  const credential = await credentialProvider();
+// Use the same deadline through credential preparation, fetch and body IO.
+const awaitRuntimeAuth = async <T>(pending: Promise<T>, signal: AbortSignal): Promise<T> => {
+  signal.throwIfAborted();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+};
+
+const getRuntimeAuthCredential = async (signal?: AbortSignal): Promise<RuntimeAuthCredential> => {
+  const provider = credentialProvider;
+  const fallbackToken = getRuntimeBearerTokenSync();
+  const pending = provider();
+  const credential = pending instanceof Promise
+    ? await awaitRuntimeAuth(pending, signal ?? AbortSignal.timeout(URL_AUTH_REQUEST_TIMEOUT_MS))
+    : pending;
   const token = credential?.type === 'bearer'
     ? normalizeBearerToken(credential.token)
-    : getRuntimeBearerTokenSync();
+    : fallbackToken;
   return token ? { type: 'bearer', token } : null;
 };
 
@@ -219,48 +268,52 @@ const getRuntimeAuthCredential = async (): Promise<RuntimeAuthCredential> => {
 // empty-token window). Concurrent callers share one in-flight request.
 const mintRuntimeUrlAuthToken = (apiBaseUrl?: string | null): Promise<string> => {
   if (runtimeUrlAuthRefreshPromise) return runtimeUrlAuthRefreshPromise;
-  const generation = runtimeAuthGeneration;
+  if (urlAuthRejected || Date.now() < urlAuthRetryAt) {
+    return Promise.reject(new Error('Runtime URL auth refresh is waiting for recovery'));
+  }
+  const scope = captureRuntimeRequestScope();
+  const relay = getActiveRelayTunnel();
+  const url = apiBaseUrl ? buildAuthUrl(apiBaseUrl, '/auth/url-token') : scope.resolver.auth('/auth/url-token');
+  const headers = new Headers(getRuntimeExtraHeadersSync());
+  const signal = AbortSignal.timeout(URL_AUTH_REQUEST_TIMEOUT_MS);
 
   const refreshPromise = (async () => {
-    const credential = await getRuntimeAuthCredential();
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(getRuntimeExtraHeadersSync())) {
-      headers.set(key, value);
-    }
+    const credential = await getRuntimeAuthCredential(signal);
+    assertRuntimeRequestScope(scope);
     if (credential?.type === 'bearer') {
       headers.set('Authorization', `Bearer ${credential.token}`);
     }
     // In relay mode the mint must ride the tunnel, not the network: there is no
     // reachable network base URL. Same auth headers, same route, tunneled.
-    const relay = getActiveRelayTunnel();
-    const response = relay
-      ? await relay.fetch('/auth/url-token', { method: 'POST', headers })
-      : await fetch(buildAuthUrl(apiBaseUrl, '/auth/url-token'), {
-          method: 'POST',
-          headers,
-          credentials: 'include',
-        });
+    const response = await awaitRuntimeAuth(relay
+      ? relay.fetch('/auth/url-token', { method: 'POST', headers, signal })
+      : fetch(url, { method: 'POST', headers, credentials: 'include', signal }), signal);
+    assertRuntimeRequestScope(scope);
     if (!response.ok) {
-      if (generation === runtimeAuthGeneration) {
-        clearRuntimeUrlAuthToken();
-      }
+      urlAuthRejected = response.status === 401 || response.status === 403;
+      clearRuntimeUrlAuthToken();
       throw new Error(`Failed to mint runtime URL auth token (${response.status})`);
     }
-    const payload = await response.json().catch(() => null) as { token?: unknown; expiresAt?: unknown } | null;
-    const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
-    const expiresAt = typeof payload?.expiresAt === 'number' ? payload.expiresAt : 0;
-    if (generation !== runtimeAuthGeneration) {
-      throw new Error('Runtime URL auth token response is stale');
-    }
-    setRuntimeUrlAuthToken(token, expiresAt);
-    if (!runtimeUrlAuthToken) {
+    const { token, expiresAt } = urlAuthResponseSchema.parse(await awaitRuntimeAuth(response.json(), signal));
+    assertRuntimeRequestScope(scope);
+    if (expiresAt <= Date.now() + URL_AUTH_REFRESH_SKEW_MS + URL_AUTH_PROACTIVE_BUFFER_MS) {
       throw new Error('Runtime URL auth token response was invalid');
     }
+    setRuntimeUrlAuthToken(token, expiresAt);
+    urlAuthFailureCount = 0;
+    urlAuthRetryAt = 0;
     return runtimeUrlAuthToken;
-  })();
+  })().catch((error) => {
+    if (isRuntimeRequestScopeCurrent(scope)) {
+      urlAuthFailureCount += 1;
+      urlAuthRetryAt = Date.now() + Math.min(URL_AUTH_RETRY_MAX_MS, URL_AUTH_RETRY_BASE_MS * 2 ** Math.min(urlAuthFailureCount - 1, 5));
+    }
+    throw error;
+  });
   const trackedPromise = refreshPromise.finally(() => {
     if (runtimeUrlAuthRefreshPromise === trackedPromise) {
       runtimeUrlAuthRefreshPromise = null;
+      if (isRuntimeRequestScopeCurrent(scope)) scheduleUrlAuthRefresh();
     }
   });
   runtimeUrlAuthRefreshPromise = trackedPromise;
@@ -274,34 +327,45 @@ const mintLocalRuntimeUrlAuthToken = (localOrigin: string): Promise<string> => {
   if (localRuntimeUrlAuthRefreshPromise && localRuntimeUrlAuthRefreshOrigin === origin) {
     return localRuntimeUrlAuthRefreshPromise;
   }
+  if (localUrlAuthFailureOrigin === origin && (localUrlAuthRejected || Date.now() < localUrlAuthRetryAt)) {
+    return Promise.reject(new Error('Local runtime URL auth refresh is waiting for recovery'));
+  }
   const generation = localRuntimeUrlAuthGeneration;
+  const signal = AbortSignal.timeout(URL_AUTH_REQUEST_TIMEOUT_MS);
   const refreshPromise = (async () => {
-    const response = await fetch(buildAuthUrl(origin, '/auth/url-token'), {
+    const response = await awaitRuntimeAuth(fetch(buildAuthUrl(origin, '/auth/url-token'), {
       method: 'POST',
       credentials: 'include',
-    });
+      signal,
+    }), signal);
     if (!response.ok) {
       if (generation === localRuntimeUrlAuthGeneration && origin === localRuntimeUrlAuthRefreshOrigin) {
+        localUrlAuthRejected = response.status === 401 || response.status === 403;
         localRuntimeUrlAuthToken = '';
         localRuntimeUrlAuthTokenExpiresAt = 0;
         localRuntimeUrlAuthOrigin = '';
       }
       throw new Error(`Failed to mint local runtime URL auth token (${response.status})`);
     }
-    const payload = await response.json().catch(() => null) as { token?: unknown; expiresAt?: unknown } | null;
-    const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
-    const expiresAt = typeof payload?.expiresAt === 'number' ? payload.expiresAt : 0;
-    if (!token || !Number.isFinite(expiresAt)) {
-      throw new Error('Local runtime URL auth token response was invalid');
-    }
+    const { token, expiresAt } = urlAuthResponseSchema.parse(await awaitRuntimeAuth(response.json(), signal));
+    if (expiresAt <= Date.now() + URL_AUTH_REFRESH_SKEW_MS) throw new Error('Local runtime URL auth token response was invalid');
     if (generation !== localRuntimeUrlAuthGeneration || origin !== localRuntimeUrlAuthRefreshOrigin) {
       throw new Error('Local runtime URL auth token response is stale');
     }
     localRuntimeUrlAuthToken = token;
     localRuntimeUrlAuthTokenExpiresAt = expiresAt;
     localRuntimeUrlAuthOrigin = origin;
+    localUrlAuthFailureCount = 0;
+    localUrlAuthRetryAt = 0;
     return token;
-  })();
+  })().catch((error) => {
+    if (generation === localRuntimeUrlAuthGeneration && origin === localRuntimeUrlAuthRefreshOrigin) {
+      localUrlAuthFailureOrigin = origin;
+      localUrlAuthFailureCount += 1;
+      localUrlAuthRetryAt = Date.now() + Math.min(URL_AUTH_RETRY_MAX_MS, URL_AUTH_RETRY_BASE_MS * 2 ** Math.min(localUrlAuthFailureCount - 1, 5));
+    }
+    throw error;
+  });
   const trackedPromise = refreshPromise.finally(() => {
     if (localRuntimeUrlAuthRefreshPromise === trackedPromise) {
       localRuntimeUrlAuthRefreshPromise = null;
@@ -329,6 +393,7 @@ export const refreshLocalRuntimeUrlAuthToken = async (localOrigin: string): Prom
   if (
     (localRuntimeUrlAuthOrigin && localRuntimeUrlAuthOrigin !== origin)
     || (localRuntimeUrlAuthRefreshOrigin && localRuntimeUrlAuthRefreshOrigin !== origin)
+    || (localUrlAuthFailureOrigin && localUrlAuthFailureOrigin !== origin)
   ) {
     clearLocalRuntimeUrlAuthToken();
   }
@@ -366,24 +431,18 @@ const clearUrlAuthRefreshTimer = (): void => {
 
 const scheduleUrlAuthRefresh = (): void => {
   clearUrlAuthRefreshTimer();
-  if (urlAuthConsumerCount <= 0 || typeof window === 'undefined') return;
+  if (urlAuthConsumerCount <= 0 || globalThis.window === undefined || urlAuthRejected) return;
 
   // Refresh before the skew window so the old token is still valid when the new
   // one swaps in. With no token yet (expiry 0), refresh immediately.
   const refreshAt = runtimeUrlAuthTokenExpiresAt - URL_AUTH_REFRESH_SKEW_MS - URL_AUTH_PROACTIVE_BUFFER_MS;
-  const delay = runtimeUrlAuthTokenExpiresAt > 0 ? Math.max(0, refreshAt - Date.now()) : 0;
+  const delay = Math.max(0, urlAuthRetryAt - Date.now(), runtimeUrlAuthTokenExpiresAt > 0 ? refreshAt - Date.now() : 0);
+  const scope = captureRuntimeRequestScope();
 
   urlAuthRefreshTimer = setTimeout(() => {
     urlAuthRefreshTimer = null;
-    if (urlAuthConsumerCount <= 0) return;
-    void mintRuntimeUrlAuthToken(urlAuthApiBaseUrl)
-      .catch(() => {
-        // Transient — the reschedule below retries (token is cleared on
-        // failure → expiry 0 → delay 0 → prompt retry).
-      })
-      .finally(() => {
-        scheduleUrlAuthRefresh();
-      });
+    if (urlAuthConsumerCount <= 0 || !isRuntimeRequestScopeCurrent(scope)) return;
+    void mintRuntimeUrlAuthToken(urlAuthApiBaseUrl).catch(() => {});
   }, delay);
 };
 
@@ -420,6 +479,7 @@ export const subscribeRuntimeUrlAuthToken = (listener: () => void): (() => void)
 };
 
 export const buildRuntimeAuthHeaders = async (headers?: HeadersInit): Promise<Headers> => {
+  const generation = runtimeAuthGeneration;
   const next = new Headers(headers);
   for (const [key, value] of Object.entries(getRuntimeExtraHeadersSync())) {
     if (!next.has(key)) next.set(key, value);
@@ -429,6 +489,7 @@ export const buildRuntimeAuthHeaders = async (headers?: HeadersInit): Promise<He
   }
 
   const credential = await getRuntimeAuthCredential();
+  if (generation !== runtimeAuthGeneration) throw new Error('Runtime auth request is stale');
   if (credential?.type === 'bearer') {
     next.set('Authorization', `Bearer ${credential.token}`);
   }

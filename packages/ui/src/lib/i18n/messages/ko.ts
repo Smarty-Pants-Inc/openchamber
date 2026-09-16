@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './ko.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': '프로젝트 작업 실행 중',
   ...settingsDict,
   ...displayNameI18n.ko,
+  ...nativeCreationI18n.ko,
   ...linearIssuePickerI18n.ko,
   ...linearPanelI18n.ko,
   'terminalView.actions.attachSelection': '선택한 출력 첨부',
@@ -2215,6 +2217,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': '큐에서 제거',
   'chat.queuedMessage.reorderAria': '드래그하여 순서 변경',
+  "chat.draft.ephemeralOnly": "초안 변경 사항은 이 탭에만 남아 있습니다. 브라우저 저장소를 사용할 수 없습니다. 페이지를 떠나거나 새로고침하기 전에 텍스트를 복사하세요.",
+  "chat.queuedMessage.unsupported": "이 백엔드는 메시지 대기열을 지원하지 않습니다. 입력 내용은 그대로입니다.",
+  "chat.queuedMessage.recoveryTitle": "대기열 메시지를 확인해야 합니다",
+  "chat.queuedMessage.recoveryDescription": "전달이나 전송이 이미 이루어졌을 수 있습니다. 이 메시지는 자동으로 전송되지 않습니다. 다시 보내기 전에 세션을 확인하세요.",
+  "chat.queuedMessage.admissionUnknown": "대기열 등록 여부를 확인하지 못했습니다. 입력 내용은 남아 있습니다. 다시 보내기 전에 대기열을 확인하세요.",
+  "chat.queuedMessage.recoverPayload": "전체 메시지 다운로드",
+  "chat.queuedMessage.forgetReviewed": "확인한 기록 삭제",
+  "chat.queuedMessage.forgetConfirm": "이 복구 기록을 삭제할까요? 먼저 세션을 확인하고 전체 메시지를 저장하세요. 기록을 삭제해도 전송은 취소되지 않습니다.",
   'chat.queuedMessage.toast.queueFailed': '메시지를 대기열에 추가하지 못했습니다. 입력창으로 되돌렸습니다.',
   'chat.queuedMessage.toast.takeFailed': '대기열의 메시지를 불러오지 못했습니다. 다시 시도해 주세요.',
   'chat.container.returnToParent.aria': '상위 세션으로 돌아가기',

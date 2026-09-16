@@ -16,11 +16,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useInputStore } from '@/sync/input-store';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 interface QueuedMessageChipProps {
@@ -103,8 +101,8 @@ const QueuedMessageChip = memo(({ message, target, onEdit, onSend }: QueuedMessa
 QueuedMessageChip.displayName = 'QueuedMessageChip';
 
 interface QueuedMessageChipsProps {
-    /** The message was taken from the queue in full; the composer restores it. */
-    onEditMessage: (message: QueuedMessage) => void;
+    /** The composer owns the transfer and fences publication to its captured input. */
+    onEditMessage: (target: MessageQueueTarget, messageId: string) => Promise<void>;
     onSendMessage: (messageId: string) => void;
 }
 
@@ -133,7 +131,6 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
             [queueKey]
         )
     );
-    const popToInput = useMessageQueueStore((state) => state.popToInput);
     const reorderQueue = useMessageQueueStore((state) => state.reorderQueue);
 
     const sensors = useSensors(
@@ -152,20 +149,8 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
     const handleEdit = React.useCallback((message: QueuedMessage) => {
         if (!target) return;
 
-        // The full message (attachments included) comes back from the queue's
-        // owner; the chip itself only knows the summary.
-        void popToInput(target, message.id).then((popped) => {
-            if (!popped) return;
-            if (popped.attachments && popped.attachments.length > 0) {
-                const currentAttachments = useInputStore.getState().attachedFiles;
-                useInputStore.getState().setAttachedFiles([...currentAttachments, ...popped.attachments]);
-            }
-            onEditMessage(popped);
-        }).catch((error) => {
-            console.warn('[queue] failed to take queued message for editing:', error);
-            toast.error(t('chat.queuedMessage.toast.takeFailed'));
-        });
-    }, [target, popToInput, onEditMessage, t]);
+        void onEditMessage(target, message.id);
+    }, [target, onEditMessage]);
 
     const handleSend = React.useCallback((message: QueuedMessage) => {
         onSendMessage(message.id);

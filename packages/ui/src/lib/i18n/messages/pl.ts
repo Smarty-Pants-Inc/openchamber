@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './pl.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'Trwa wykonywanie akcji projektu',
   ...settingsDict,
   ...displayNameI18n.pl,
+  ...nativeCreationI18n.pl,
   ...linearIssuePickerI18n.pl,
   ...linearPanelI18n.pl,
   'terminalView.actions.attachSelection': 'Dołącz zaznaczone dane wyjściowe',
@@ -868,6 +870,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': 'Usuń z kolejki',
   'chat.queuedMessage.reorderAria': 'Przeciągnij, aby zmienić kolejność',
+  "chat.draft.ephemeralOnly": "Zmiany w szkicu są dostępne tylko w tej karcie. Pamięć przeglądarki jest niedostępna. Skopiuj tekst przed opuszczeniem lub ponownym załadowaniem strony.",
+  "chat.queuedMessage.unsupported": "Ten serwer nie obsługuje kolejki wiadomości. Wpisana treść pozostaje bez zmian.",
+  "chat.queuedMessage.recoveryTitle": "Wiadomości w kolejce wymagają sprawdzenia",
+  "chat.queuedMessage.recoveryDescription": "Dostarczenie lub przeniesienie mogło już nastąpić. Te wiadomości nie zostaną wysłane automatycznie. Sprawdź sesję przed ich ponownym wysłaniem.",
+  "chat.queuedMessage.admissionUnknown": "Nie udało się potwierdzić dodania do kolejki. Wpisana treść jest nadal dostępna. Sprawdź kolejkę przed ponownym wysłaniem.",
+  "chat.queuedMessage.recoverPayload": "Pobierz pełną wiadomość",
+  "chat.queuedMessage.forgetReviewed": "Usuń sprawdzony zapis",
+  "chat.queuedMessage.forgetConfirm": "Usunąć ten zapis odzyskiwania? Najpierw sprawdź sesję i zapisz pełną wiadomość. Usunięcie zapisu nie cofa wysłania.",
   'chat.queuedMessage.toast.queueFailed': 'Nie udało się dodać wiadomości do kolejki. Wróciła do pola wpisywania.',
   'chat.queuedMessage.toast.takeFailed': 'Nie udało się wczytać wiadomości z kolejki. Spróbuj ponownie.',
   'chat.container.returnToParent.aria': 'Powrót do sesji nadrzędnej',

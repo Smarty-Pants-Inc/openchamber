@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './zh-TW.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': '專案操作正在執行',
   ...settingsDict,
   ...displayNameI18n['zh-TW'],
+  ...nativeCreationI18n['zh-TW'],
   ...linearIssuePickerI18n['zh-TW'],
   ...linearPanelI18n['zh-TW'],
   'terminalView.actions.attachSelection': '附加所選輸出',
@@ -2183,6 +2185,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': '從佇列移除',
   'chat.queuedMessage.reorderAria': '拖曳以重新排序',
+  "chat.draft.ephemeralOnly": "草稿變更僅保留在此分頁中。瀏覽器儲存空間無法使用。離開或重新載入頁面前，請複製文字。",
+  "chat.queuedMessage.unsupported": "此後端不支援訊息排隊。輸入內容保持不變。",
+  "chat.queuedMessage.recoveryTitle": "佇列中的訊息需要檢查",
+  "chat.queuedMessage.recoveryDescription": "訊息可能已經送達或轉移。這些訊息不會自動傳送。再次傳送前，請檢查工作階段。",
+  "chat.queuedMessage.admissionUnknown": "無法確認訊息是否已加入佇列。輸入內容仍在此處。再次傳送前，請檢查佇列。",
+  "chat.queuedMessage.recoverPayload": "下載完整訊息",
+  "chat.queuedMessage.forgetReviewed": "移除已檢查的記錄",
+  "chat.queuedMessage.forgetConfirm": "要移除此復原記錄嗎？請先檢查工作階段並儲存完整訊息。移除記錄不會撤銷傳送。",
   'chat.queuedMessage.toast.queueFailed': '無法將訊息加入佇列，已放回輸入框。',
   'chat.queuedMessage.toast.takeFailed': '無法載入佇列中的訊息，請再試一次。',
   'chat.container.returnToParent.aria': '返回父會話',

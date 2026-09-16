@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './uk.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'Виконується дія проєкту',
   ...settingsDict,
   ...displayNameI18n.uk,
+  ...nativeCreationI18n.uk,
   ...linearIssuePickerI18n.uk,
   ...linearPanelI18n.uk,
   'terminalView.actions.attachSelection': 'Прикріпити вибраний вивід',
@@ -2191,6 +2193,14 @@ export const dict: Record<I18nKey, string> = {
   "chat.queuedMessage.send": "send",
   "chat.queuedMessage.removeAria": "Видалити з черги",
   "chat.queuedMessage.reorderAria": "Перетягніть, щоб змінити порядок",
+  "chat.draft.ephemeralOnly": "Зміни чернетки зберігаються лише в цій вкладці. Сховище браузера недоступне. Скопіюйте текст, перш ніж залишити або перезавантажити сторінку.",
+  "chat.queuedMessage.unsupported": "Цей сервер не підтримує чергу повідомлень. Введений текст не змінився.",
+  "chat.queuedMessage.recoveryTitle": "Повідомлення в черзі потребують перевірки",
+  "chat.queuedMessage.recoveryDescription": "Доставлення або передавання вже могло відбутися. Ці повідомлення не надсилатимуться автоматично. Перевірте сесію, перш ніж надсилати їх знову.",
+  "chat.queuedMessage.admissionUnknown": "Не вдалося підтвердити додавання до черги. Введений текст збережено тут. Перевірте чергу, перш ніж надсилати його знову.",
+  "chat.queuedMessage.recoverPayload": "Завантажити повне повідомлення",
+  "chat.queuedMessage.forgetReviewed": "Видалити перевірений запис",
+  "chat.queuedMessage.forgetConfirm": "Видалити цей запис відновлення? Спершу перевірте сесію та збережіть повне повідомлення. Видалення запису не скасовує надсилання.",
   "chat.queuedMessage.toast.queueFailed": "Не вдалося додати повідомлення в чергу. Воно повернулося в поле вводу.",
   "chat.queuedMessage.toast.takeFailed": "Не вдалося завантажити повідомлення з черги. Спробуйте ще раз.",
   "chat.container.returnToParent.aria": "Повернутися до батьківської сесії",
