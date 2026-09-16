@@ -954,7 +954,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Draft persistence: identity switching, debounced writes and the
     // flush-on-hide edges live in the hook.
-    const { persistNow: persistDraftImmediately } = useComposerDraft({
+    const { persistNow: persistDraftImmediately, ephemeralOnly: draftEphemeralOnly } = useComposerDraft({
         message,
         messageRef,
         setMessage,
@@ -3130,6 +3130,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
                 <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} />
+                {draftEphemeralOnly ? (
+                    <p role="alert" className="mb-2 text-sm text-[var(--status-warning)]">
+                        {t('chat.draft.ephemeralOnly')}
+                    </p>
+                ) : null}
                 <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                 <QueueRecoveryNotice target={messageQueueTarget} />
                 <QueuedMessageChips

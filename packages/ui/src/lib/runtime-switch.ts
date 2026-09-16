@@ -1,8 +1,9 @@
-import { refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@/lib/runtime-auth';
-import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
+import { getRuntimeAuthGeneration, refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@/lib/runtime-auth';
+import { configureRuntimeUrlResolver, getRuntimeUrlResolver } from '@/lib/runtime-url';
 import {
   activateRelayTunnel,
   deactivateRelayTunnel,
+  getActiveRelayTunnel,
   type RelayRuntimeDescriptor,
 } from '@/lib/relay/runtime-tunnel';
 
@@ -18,6 +19,31 @@ const RUNTIME_ENDPOINT_WILL_CHANGE_EVENT = 'openchamber:runtime-endpoint-will-ch
 
 let activeApiBaseUrl = '';
 let activeRuntimeKey = '';
+let transportGeneration = 0;
+
+// Capture before async preparation. URL equality cannot identify a relay host,
+// an A-B-A switch, or replacement credentials for the same endpoint.
+export const captureRuntimeRequestScope = () => Object.freeze({
+  runtimeKey: getRuntimeKey(),
+  transportGeneration,
+  authGeneration: getRuntimeAuthGeneration(),
+  relay: getActiveRelayTunnel(),
+  resolver: getRuntimeUrlResolver(),
+});
+
+export type RuntimeRequestScope = ReturnType<typeof captureRuntimeRequestScope>;
+
+export const isRuntimeRequestScopeCurrent = (scope: RuntimeRequestScope): boolean => (
+  scope.runtimeKey === getRuntimeKey()
+  && scope.transportGeneration === transportGeneration
+  && scope.authGeneration === getRuntimeAuthGeneration()
+  && scope.relay === getActiveRelayTunnel()
+  && scope.resolver === getRuntimeUrlResolver()
+);
+
+export const assertRuntimeRequestScope = (scope: RuntimeRequestScope): void => {
+  if (!isRuntimeRequestScopeCurrent(scope)) throw new Error('Runtime request is stale');
+};
 
 const setWindowRuntimeValue = <K extends '__OPENCHAMBER_API_BASE_URL__' | '__OPENCHAMBER_CLIENT_TOKEN__' | '__OPENCHAMBER_RUNTIME_HEADERS__'>(
   runtimeWindow: typeof window & {
@@ -142,6 +168,7 @@ export const initializeRuntimeEndpoint = (options: { apiBaseUrl?: string | null;
     return;
   }
 
+  transportGeneration += 1;
   activeApiBaseUrl = apiBaseUrl;
   activeRuntimeKey = options.runtimeKey?.trim() || (sameOrigin(apiBaseUrl, readInjectedLocalOrigin()) ? 'local' : normalizeRuntimeUrlKey(apiBaseUrl));
 };
@@ -155,6 +182,7 @@ export const switchRuntimeEndpoint = (options: { apiBaseUrl: string; clientToken
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<RuntimeEndpointChangedDetail>(RUNTIME_ENDPOINT_WILL_CHANGE_EVENT, { detail }));
   }
+  transportGeneration += 1;
   activeApiBaseUrl = apiBaseUrl;
   activeRuntimeKey = runtimeKey;
   if (typeof window !== 'undefined') {

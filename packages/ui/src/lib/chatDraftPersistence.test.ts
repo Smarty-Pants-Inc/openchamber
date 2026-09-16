@@ -11,9 +11,9 @@ import {
   subscribeChatDraftConsumption,
   writeChatDraft,
 } from './chatDraftPersistence';
-import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
+import { getSafeStorage } from '@/stores/utils/safeStorage';
 
-const storage = getDeferredSafeStorage();
+const storage = getSafeStorage();
 
 describe('chatDraftPersistence', () => {
   beforeEach(() => {

@@ -1,6 +1,11 @@
 import type { PersistStorage, StateStorage, StorageValue } from 'zustand/middleware';
 
-let safeStorageInstance: Storage | null = null;
+/** A successful write means the backing storage accepted it, not just memory. */
+interface SafeStorage extends Storage {
+    setItem(key: string, value: string): boolean;
+}
+
+let safeStorageInstance: SafeStorage | null = null;
 let safeSessionStorageInstance: Storage | null = null;
 let deferredSafeStorageInstance: Storage | null = null;
 
@@ -214,12 +219,13 @@ const getWindowStorage = (key: 'localStorage' | 'sessionStorage'): Storage | nul
     }
 };
 
-const createInMemoryStorage = (): Storage => {
+const createInMemoryStorage = (): SafeStorage => {
     const store = new Map<string, string>();
     return {
         getItem: (key: string) => store.get(key) ?? null,
         setItem: (key: string, value: string) => {
             store.set(key, value);
+            return false;
         },
         removeItem: (key: string) => {
             store.delete(key);
@@ -231,10 +237,10 @@ const createInMemoryStorage = (): Storage => {
         get length() {
             return store.size;
         },
-    } as Storage;
+    };
 };
 
-const createSafeStorageAdapter = (baseStorage: Storage): Storage => {
+const createSafeStorageAdapter = (baseStorage: Storage): SafeStorage => {
     const fallback = createInMemoryStorage();
     const fallbackKeys = new Set<string>();
     const deletedKeys = new Set<string>();
@@ -255,7 +261,7 @@ const createSafeStorageAdapter = (baseStorage: Storage): Storage => {
             fallback.removeItem(key);
             fallbackKeys.delete(key);
             deletedKeys.delete(key);
-            return;
+            return true;
         } catch {
             // Hide an older durable value even when quota or storage policy blocks replacement.
             try {
@@ -267,6 +273,7 @@ const createSafeStorageAdapter = (baseStorage: Storage): Storage => {
         fallback.setItem(key, value);
         fallbackKeys.add(key);
         deletedKeys.delete(key);
+        return false;
     };
 
     const safeRemove = (key: string) => {
@@ -323,15 +330,15 @@ const createSafeStorageAdapter = (baseStorage: Storage): Storage => {
         get length() {
             return visibleKeys().length;
         },
-    } as Storage;
+    };
 };
 
-const createSafeStorage = (): Storage => {
+const createSafeStorage = (): SafeStorage => {
     const baseStorage = getWindowStorage('localStorage');
     return baseStorage ? createSafeStorageAdapter(baseStorage) : createInMemoryStorage();
 };
 
-export const getSafeStorage = (): Storage => {
+export const getSafeStorage = (): SafeStorage => {
     if (!safeStorageInstance) {
         safeStorageInstance = createSafeStorage();
     }

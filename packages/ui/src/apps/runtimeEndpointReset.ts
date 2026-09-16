@@ -1,4 +1,5 @@
 import { opencodeClient } from '@/lib/opencode/client';
+import { resetRuntimeAuthSession } from '@/lib/runtime-auth-expiry';
 import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
 import { disposeTerminalInputTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -37,12 +38,14 @@ import { syncDesktopSettings } from '@/lib/persistence';
 // session, and the whole view are preserved — no reconnecting screen, no flash,
 // no bounce back to the draft.
 export const reconnectAppForTransportSwitch = (): void => {
+  resetRuntimeAuthSession();
   disposeTerminalInputTransport();
   opencodeClient.reconnectToRuntimeBaseUrl();
   resetStreamingState();
 };
 
 export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedDetail): void => {
+  resetRuntimeAuthSession();
   useSessionUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
   if (detail.previousRuntimeKey) {
     useAutoReviewStore.getState().stopRunningRunsForRuntime(detail.previousRuntimeKey);

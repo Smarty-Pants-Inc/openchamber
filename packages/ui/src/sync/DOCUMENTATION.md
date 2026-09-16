@@ -204,6 +204,15 @@ Rules:
 
 Initial loads use smaller pages on constrained VS Code/mobile surfaces. Prefetch resolves only the initial renderable page; it does not eagerly download older history. The mounted chat timeline requests older pages when its viewport is underfilled or the user scrolls toward history, while mobile uses its explicit load-older action. Timeline caches, pending work, prepend snapshots, and stale checks use runtime + directory + session identity so equal session IDs in different worktrees cannot share lifecycle state. Older pages are fetched through the same loader and merged with optimistic records before publication. The same chronology contract applies in the VS Code webview because it consumes this shared loader and sync store; the extension bridge must transport OpenCode records without introducing its own ID-based ordering.
 
+### Runtime request authority
+
+Request authority includes transport and auth generations as well as the runtime
+key. Retired SDK objects reject new dispatch, even after returning to the same URL
+and runtime key. Runtime resets supply the newly bound SDK to the message loader
+and sync/action references. Buffered reads reject stale publication; dispatched
+mutation receipts still settle with their original owner. See
+[`runtime-requests.md`](../lib/runtime-requests.md).
+
 ### Ordinary Pi accepted views
 
 For an ordinary Pi backend, the loader retains `x-smarty-ordinary-view` only after a successful, still-current initial or tail page is materialized. Older pages, SSE records and legacy prefetch coverage cannot grant or advance this token. Tokens remain in the runtime/directory/session loader entry, never persisted or borrowed from another target. The imperative OpenCode client captures that accepted token before asynchronous prompt preparation, checks it again before dispatch, and forwards it through the SDK request-header option.
