@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { switchRuntimeEndpoint } from '../runtime-switch';
 import { createDisplayNameChoice } from '../messages/displayName';
 
 type ConfigResponse = { data: Record<string, unknown> };
@@ -9,6 +10,13 @@ const configResolvers: Array<(response: ConfigResponse) => void> = [];
 const healthResolvers: Array<(response: { data: { capabilities?: { displayAttribution: number } } }) => void> = [];
 let configCalls = 0;
 let runtimeKey = 'test-runtime';
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async () => Response.json({ token: 'fixture-url-token', expiresAt: Date.now() + 60_000 });
+afterAll(() => { globalThis.fetch = originalFetch; });
+const selectRuntime = (key: string) => {
+  runtimeKey = key;
+  switchRuntimeEndpoint({ apiBaseUrl: 'https://runtime.example', runtimeKey: key });
+};
 const promptAsyncCalls: unknown[][] = [];
 const promptAsyncResults: Array<unknown> = [];
 const pathGetResults: Array<unknown> = [];
@@ -60,18 +68,6 @@ mock.module('@/contexts/runtimeAPIRegistry', () => ({
   getRegisteredRuntimeAPIs: mock(() => null),
 }));
 
-mock.module('@/lib/runtime-url', () => ({
-  getRuntimeUrlResolver: mock(() => ({
-    api: (path: string) => path,
-  })),
-}));
-
-mock.module('@/lib/runtime-switch', () => ({
-  getRuntimeApiBaseUrl: mock(() => ''),
-  getRuntimeKey: mock(() => runtimeKey),
-  subscribeRuntimeEndpointWillChange: mock(() => () => undefined),
-}));
-
 type DirectoryProbeQuery = { path?: string };
 const runtimeFetchCalls: Array<{ path: string; query: DirectoryProbeQuery | undefined }> = [];
 const runtimeFetchResults: Array<Response | Error> = [];
@@ -102,7 +98,7 @@ const { SessionMessageLoader, setImperativeSessionMessageLoader } = await import
 const { ChildStoreManager } = await import('@/sync/child-store');
 
 beforeEach(() => {
-  runtimeKey = 'test-runtime';
+  selectRuntime('test-runtime');
   messageView = undefined;
   messagePageCalls = 0;
   setImperativeSessionMessageLoader(null);
@@ -354,7 +350,7 @@ describe('opencodeClient prompt retry behavior', () => {
   });
 
   test('does not dispatch after the runtime changes while preparing attachments', async () => {
-    runtimeKey = 'runtime-a';
+    selectRuntime('runtime-a');
     const pending = opencodeClient.sendMessage({
       id: 'ses_runtime_race',
       providerID: 'runtime-race-provider',
@@ -369,7 +365,7 @@ describe('opencodeClient prompt retry behavior', () => {
       }],
     });
 
-    runtimeKey = 'runtime-b';
+    selectRuntime('runtime-b');
 
     let error: unknown = null;
     try {
@@ -436,7 +432,7 @@ describe('display attribution transport', () => {
 
   test('a runtime switch during capability lookup cannot send to the new backend', async () => {
     const pending = opencodeClient.sendMessage(request('Paul'));
-    runtimeKey = 'different-runtime';
+    selectRuntime('different-runtime');
     healthResolvers[0](capable);
     await expect(pending).rejects.toThrow('runtime changed');
     expect(promptAsyncCalls).toHaveLength(0);
