@@ -168,6 +168,14 @@
       "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission. Native intent crosses composer preparation; accepted completion remains with its origin after navigation and transfers newer unsent input to that owner. Draft open/target transitions claim the original live generation used for accepted cleanup across epoch remounts and off-screen replacements."
     },
     {
+      "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
+      "brandingSha256": "34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586",
+      "behaviorSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
+      "combinedSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
+      "behaviorSource": "3a3200ddae1611a079a76601ceba2b7ca1e43840",
+      "reason": "Verified authentication renews shared request authority even when the local gate is already authenticated. Stale passkey setup cannot authenticate a replaced runtime. Original donor and branding evidence remains unchanged."
+    },
+    {
       "path": "packages/web/server/lib/opencode/static-routes-runtime.js",
       "brandingSha256": "2bf4d904b5ed83c1a9173e0a23474a454394f87790ce55d3c04acdb51ee599d4",
       "behaviorSha256": "1189b5293412390d29863a240570a23ea88046044b2bc77ab345cec9ecb270aa",
@@ -176,5 +184,6 @@
       "reason": "Current no-store HTML and worker delivery without archive-stat 304s, relative to the explicit dist root beneath hidden install ancestors; requested dotfiles stay blocked. Uncached plain-text missing-asset responses, original branding and API/native ownership retained."
     }
   ],
-  "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514"
+  "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
+  "runtimeRecoverySource": "3a3200ddae1611a079a76601ceba2b7ca1e43840"
 }
