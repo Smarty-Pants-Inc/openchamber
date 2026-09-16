@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
 import { Window } from 'happy-dom';
+import { fileURLToPath } from 'node:url';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -73,7 +74,7 @@ await Bun.plugin({ name: 'mini-chat-worker-url', setup(build) {
     loader: 'js',
   }));
   build.onLoad({ filter: /useProviderLogo\.ts$/ }, async ({ path }) => {
-    const logos = Object.fromEntries(Array.from(new Bun.Glob('*.svg').scanSync('packages/ui/src/assets/provider-logos'))
+    const logos = Object.fromEntries(Array.from(new Bun.Glob('*.svg').scanSync(fileURLToPath(new URL('../assets/provider-logos/', import.meta.url))))
       .map((name) => [`../assets/provider-logos/${name}`, `/assets/provider-logos/${name}`]));
     const source = await Bun.file(path).text();
     return { contents: source.replace(/import\.meta\.glob<string>\([\s\S]*?\);/, `${JSON.stringify(logos)};`), loader: 'ts' };
