@@ -16,7 +16,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitStore } from '@/stores/useGitStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { SyncProvider, useSessions } from '@/sync/sync-context';
+import { RuntimeSyncProvider, useSessions } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { SyncRuntimeEffects } from './AppEffects';
 import { useAppFontEffects } from './useAppFontEffects';
@@ -323,7 +323,7 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
 
   return (
     <ErrorBoundary>
-      <SyncProvider sdk={opencodeClient.getSdkClient()} directory={currentDirectory || config.directory || ''}>
+      <RuntimeSyncProvider directory={currentDirectory || config.directory || ''}>
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <div className="h-full text-foreground bg-background">
@@ -333,7 +333,7 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
             </div>
           </TooltipProvider>
         </RuntimeAPIProvider>
-      </SyncProvider>
+      </RuntimeSyncProvider>
     </ErrorBoundary>
   );
 }
