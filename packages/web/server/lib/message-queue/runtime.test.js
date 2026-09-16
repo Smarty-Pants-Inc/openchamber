@@ -303,7 +303,9 @@ describe('message queue runtime', () => {
   });
 
   it('take hands back the full payload and retains a non-sendable recovery copy', async () => {
-    const { runtime } = createRuntime();
+    const { runtime, openCode } = createRuntime();
+    // This tests manual transfer, not a race with zero-delay idle dispatch.
+    runtime.setHold(SESSION, true);
     runtime.start();
     const attachment = { id: 'a1', filename: 'shot.png', mimeType: 'image/png', size: 3, source: 'local', dataUrl: 'data:image/png;base64,AAA=' };
     const first = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'with image', attachments: [attachment] }));
@@ -319,6 +321,7 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.state)).toEqual(['taken', 'taken']);
     await expect(runtime.take(SESSION, first.itemId)).rejects.toMatchObject({ status: 409 });
     expect((await runtime.recover(SESSION, first.itemId)).item.attachments[0].dataUrl).toBe(attachment.dataUrl);
+    expect(openCode.state.sent).toEqual([]);
   });
 
   it('names the directory in the broadcast that empties a queue', async () => {
@@ -337,13 +340,16 @@ describe('message queue runtime', () => {
   });
 
   it('reorders only with a complete permutation', async () => {
-    const { runtime } = createRuntime();
+    const { runtime, openCode } = createRuntime();
+    // Keep the permutation's membership fixed while admission awaits disk IO.
+    runtime.setHold(SESSION, true);
     runtime.start();
     const a = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'a' }));
     const b = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'b' }));
     await expect(runtime.reorder(SESSION, [b.itemId])).rejects.toThrow(TypeError);
     await runtime.reorder(SESSION, [b.itemId, a.itemId]);
     expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['b', 'a']);
+    expect(openCode.state.sent).toEqual([]);
   });
 
   it('retains a deleted session queue for recovery instead of discarding accepted work', async () => {
