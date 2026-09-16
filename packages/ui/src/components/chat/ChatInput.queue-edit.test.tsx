@@ -11,6 +11,7 @@ import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent
 // The shared fixture omits queue chips for draft-only tests. Keep the actual
 // component here and restore that leaf, without changing the draft-owned fixture.
 const actualChips = (await import('./QueuedMessageChips')).QueuedMessageChips;
+const actualLinkedRow = (await import('./composer/ui/LinkedReferenceRow')).LinkedReferenceRow;
 const { mountedNativeComposer, errors } = await import('./composer/submit/__tests__/nativeComposer.fixture');
 const chips = await import('./QueuedMessageChips');
 const renderActualChips = Object.assign(
@@ -18,6 +19,15 @@ const renderActualChips = Object.assign(
     actualChips,
 );
 spyOn(chips, 'QueuedMessageChips').mockImplementation(renderActualChips);
+const linkedRow = await import('./composer/ui/LinkedReferenceRow');
+spyOn(linkedRow, 'LinkedReferenceRow').mockImplementation(actualLinkedRow);
+// Exercise ChatInput's real picker callbacks without provider-backed dialogs.
+const issuePicker = await import('@/components/session/GitHubIssuePickerDialog');
+const prPicker = await import('@/components/session/GitHubPrPickerDialog');
+const linearPicker = await import('@/components/session/LinearIssuePickerDialog');
+spyOn(issuePicker, 'GitHubIssuePickerDialog').mockImplementation(({ onSelect }) => <button type="button" data-queue-select="linked-issue" onClick={() => onSelect?.({ number: 2, title: 'New issue B', url: 'https://queue.test/new-issue', contextText: 'new issue context' })}>Choose issue</button>);
+spyOn(prPicker, 'GitHubPrPickerDialog').mockImplementation(({ onSelect }) => <button type="button" data-queue-select="linked-pr" onClick={() => onSelect?.({ number: 3, title: 'New PR B', url: 'https://queue.test/new-pr', contextText: 'new PR context', head: 'new', base: 'main', includeDiff: false, instructionsText: 'new instructions' })}>Choose PR</button>);
+spyOn(linearPicker, 'LinearIssuePickerDialog').mockImplementation(({ onSelect }) => <button type="button" data-queue-select="linked-linear" onClick={() => onSelect?.({ identifier: 'NEW-4', title: 'New Linear B', url: 'https://queue.test/new-linear', contextText: 'new Linear context' })}>Choose Linear</button>);
 
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 const initialQueue = useMessageQueueStore.getState();
@@ -26,13 +36,15 @@ afterEach(async () => {
     useMessageQueueStore.setState(initialQueue, true);
 });
 
-for (const navigation of ['session', 'generation', 'runtime', 'typing', 'none'] as const) test(`mounted Edit receipt retains origin custody without stale publication: ${navigation}`, async () => {
+for (const navigation of ['session', 'generation', 'runtime', 'typing', 'linked-issue', 'linked-pr', 'linked-linear', 'none'] as const) test(`mounted Edit receipt retains origin custody without stale publication: ${navigation}`, async () => {
     const c = mounted = await mountedNativeComposer(false);
     const owner = createMessageQueueTarget(session.id, directory, c.runtimeA);
     if (!owner) throw new Error('Missing queue owner');
     const item = { id: 'edit-queued', state: 'pending' as const, createdAt: 1, content: 'old queued text', text: 'old queued text',
         attachments: [{ id: 'old-attachment', filename: 'old.txt', mimeType: 'text/plain', size: 3, source: 'local' as const, dataUrl: 'data:text/plain;base64,b2xk' }],
-        context: [{ kind: 'synthetic' as const, text: 'old queued context' }], sendConfig: { providerID: 'p', modelID: 'm' } };
+        context: [{ kind: 'synthetic' as const, text: 'old queued context' },
+            { kind: 'context' as const, text: 'old issue A context', metadata: { openchamberContext: { kind: 'github-issue' as const, number: 1, title: 'Old issue A', url: 'https://queue.test/old-issue' } } },
+        ], sendConfig: { providerID: 'p', modelID: 'm' } };
     await act(async () => {
         useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: directory,
             newSessionDraft: { ...state.newSessionDraft, open: false } }));
@@ -54,7 +66,20 @@ for (const navigation of ['session', 'generation', 'runtime', 'typing', 'none'] 
         edit.click(); await sleep(0);
     });
     expect(requests).toHaveLength(1);
-    if (navigation === 'generation') {
+    const linkedOnly = navigation.startsWith('linked-');
+    if (linkedOnly) {
+        const inputBeforeSelection = useInputStore.getState();
+        const inlineBeforeSelection = useInlineCommentDraftStore.getState();
+        await act(async () => {
+            const select = c.dom.container.querySelector<HTMLButtonElement>(`[data-queue-select="${navigation}"]`);
+            if (!select) throw new Error('Mounted picker callback missing');
+            select.click();
+        });
+        expect(c.text()).toBe('input before Edit');
+        expect(useInputStore.getState()).toBe(inputBeforeSelection);
+        expect(useInlineCommentDraftStore.getState()).toBe(inlineBeforeSelection);
+        expect(c.dom.container.querySelector(`a[href="https://queue.test/new-${navigation.slice(7)}"]`)).not.toBeNull();
+    } else if (navigation === 'generation') {
         const scope = captureRuntimeRequestScope();
         // Same URL/key/session/input, but a different transport generation.
         // No editor change can incidentally satisfy the publication fence.
@@ -80,9 +105,14 @@ for (const navigation of ['session', 'generation', 'runtime', 'typing', 'none'] 
     expect(errors).toEqual([]); // The accepted take is not reported as rejection.
     if (navigation === 'none') {
         expect(c.text()).toBe('old queued text');
+        expect(c.dom.container.querySelector('a[href="https://queue.test/old-issue"]')).not.toBeNull();
         expect(useInputStore.getState().attachedFiles.map(file => file.id)).toContain('old-attachment');
     } else {
-        expect(c.text()).toBe(navigation === 'generation' ? 'input before Edit' : 'new editor text');
+        if (linkedOnly) {
+            expect(c.dom.container.querySelector(`a[href="https://queue.test/new-${navigation.slice(7)}"]`)).not.toBeNull();
+            expect(c.dom.container.querySelector('a[href="https://queue.test/old-issue"]')).toBeNull();
+        }
+        expect(c.text()).toBe(navigation === 'generation' || linkedOnly ? 'input before Edit' : 'new editor text');
         expect(useInputStore.getState()).toBe(before);
         expect(useInlineCommentDraftStore.getState()).toBe(inlineBefore);
     }

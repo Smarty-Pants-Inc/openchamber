@@ -1231,12 +1231,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
     }, [inlineDraftTarget]);
 
+    const liveLinkedReferences = React.useRef<LinkedReferences>({ issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue });
+    React.useLayoutEffect(() => {
+        liveLinkedReferences.current = { issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue };
+    }, [linkedIssue, linkedPr, linkedLinearIssue]);
+
     const handleQueuedMessageEdit = React.useCallback(async (target: MessageQueueTarget, messageId: string) => {
         if (!messageQueueTarget || getMessageQueueKey(target) !== getMessageQueueKey(messageQueueTarget)) return;
         const scope = captureRuntimeRequestScope();
         const editor = composerRef.current;
         const text = editor?.getValue() ?? messageRef.current;
         const input = useInputStore.getState();
+        const linkedAtTake = liveLinkedReferences.current;
         const draftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: target.runtimeKey } : null;
         const drafts = draftTarget ? useInlineCommentDraftStore.getState().getDrafts(draftTarget) : null;
         let queued;
@@ -1247,6 +1253,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (!queued || !isRuntimeRequestScopeCurrent(scope)
             || currentChatDraftIdentityRef.current !== chatDraftIdentity
             || !editor || composerRef.current !== editor || editor.getValue() !== text) return;
+        const currentLinked = liveLinkedReferences.current;
+        if (currentLinked.issue !== linkedAtTake.issue || currentLinked.pr !== linkedAtTake.pr || currentLinked.linear !== linkedAtTake.linear) return;
         const currentInput = useInputStore.getState();
         if (currentInput.attachedFiles !== input.attachedFiles || currentInput.pendingSyntheticParts !== input.pendingSyntheticParts
             || (draftTarget && useInlineCommentDraftStore.getState().getDrafts(draftTarget) !== drafts)) return;
