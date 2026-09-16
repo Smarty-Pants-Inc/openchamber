@@ -51,10 +51,11 @@ mock.module("zustand", () => ({
   },
 }))
 
-const deferredStorage: Storage = {
+const deferredStorage: ReturnType<typeof import("@/stores/utils/safeStorage").getSafeStorage> = {
   getItem: (key: string) => storage.get(key) ?? null,
   setItem: (key: string, value: string) => {
     storage.set(key, value)
+    return true
   },
   removeItem: (key: string) => {
     storage.delete(key)
@@ -69,6 +70,7 @@ const deferredStorage: Storage = {
 }
 
 mock.module("@/stores/utils/safeStorage", () => ({
+  getSafeStorage: () => deferredStorage,
   getDeferredSafeStorage: () => deferredStorage,
   getSafeSessionStorage: () => deferredStorage,
   createDeferredSafeJSONStorage: () => ({
@@ -80,7 +82,8 @@ mock.module("@/stores/utils/safeStorage", () => ({
 
 mock.module("@/lib/opencode/client", () => ({
   opencodeClient: {
-    getDirectory: () => null,
+    getDirectory: () => "/home/test",
+    supportsNativeCreation: async () => false,
     getFilesystemHome: mock(async () => "/home/test"),
     getFilesystemHomeInfo: async () => ({ home: "/home/test" }),
     createDirectory: mock(async (path: string) => ({ success: true, path })),
@@ -272,6 +275,7 @@ mock.module("../sync-refs", () => ({
 }))
 
 mock.module("../session-actions", () => ({
+  createNativeSession: () => { throw new Error("Unexpected native creation in legacy draft fixture") },
   // Mirrors the real action's authoritative steps: the created session becomes
   // current under the directory the server confirmed, and that directory enters
   // the routing index. Everything these tests assert about routing depends on
