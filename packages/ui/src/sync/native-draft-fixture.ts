@@ -40,7 +40,7 @@ export function nativeDraftFixture() {
     create: async (request: Request): Promise<Response> => {
       if (request.method !== 'POST') throw new Error('Expected native creation POST');
       return Response.json(session);
-    }
+    },
     settings: async (): Promise<Response> => Response.json({}),
     snippet: async (): Promise<Response> => Response.json({ text: 'expanded X' }),
     magic: async (): Promise<Response> => Response.json({ version: 1, overrides: {} }),
@@ -49,7 +49,7 @@ export function nativeDraftFixture() {
     prompt: async (request: Request): Promise<Response> => {
       if (request.method !== 'POST') throw new Error('Expected native prompt POST');
       return new Response(null, { status: 204 });
-    }
+    },
   };
   const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new Request(input, init); requests.push(request.clone());
