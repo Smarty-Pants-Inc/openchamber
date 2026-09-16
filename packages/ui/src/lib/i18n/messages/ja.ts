@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './ja.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'プロジェクトアクション実行中',
   ...settingsDict,
   ...displayNameI18n.ja,
+  ...nativeCreationI18n.ja,
   ...linearIssuePickerI18n.ja,
   ...linearPanelI18n.ja,
   'terminalView.actions.attachSelection': '選択した出力を添付',
@@ -2209,6 +2211,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.queuedMessage.send': '送信',
   'chat.queuedMessage.removeAria': 'キューから削除',
   'chat.queuedMessage.reorderAria': 'ドラッグして並び替え',
+  "chat.draft.ephemeralOnly": "下書きの変更はこのタブ内にのみ保持されています。ブラウザーのストレージを利用できません。ページを離れたり再読み込みしたりする前に、テキストをコピーしてください。",
+  "chat.queuedMessage.unsupported": "このバックエンドはメッセージのキュー登録に対応していません。入力内容は変更されていません。",
+  "chat.queuedMessage.recoveryTitle": "キュー内のメッセージを確認してください",
+  "chat.queuedMessage.recoveryDescription": "配信または転送がすでに行われた可能性があります。これらのメッセージは自動送信されません。再送信する前にセッションを確認してください。",
+  "chat.queuedMessage.admissionUnknown": "キューへの登録を確認できませんでした。入力内容は残っています。再送信する前にキューを確認してください。",
+  "chat.queuedMessage.recoverPayload": "メッセージ全体をダウンロード",
+  "chat.queuedMessage.forgetReviewed": "確認済みの記録を削除",
+  "chat.queuedMessage.forgetConfirm": "この復元用の記録を削除しますか？先にセッションを確認し、メッセージ全体を保存してください。記録を削除しても送信は取り消されません。",
   'chat.queuedMessage.toast.queueFailed': 'メッセージをキューに追加できませんでした。入力欄に戻しました。',
   'chat.queuedMessage.toast.takeFailed': 'キューのメッセージを読み込めませんでした。もう一度お試しください。',
   'chat.container.returnToParent.aria': '親セッションに戻る',

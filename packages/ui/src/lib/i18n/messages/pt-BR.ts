@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './pt-BR.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'Ação do projeto em execução',
   ...settingsDict,
   ...displayNameI18n['pt-BR'],
+  ...nativeCreationI18n['pt-BR'],
   ...linearIssuePickerI18n['pt-BR'],
   ...linearPanelI18n['pt-BR'],
   'terminalView.actions.attachSelection': 'Anexar saída selecionada',
@@ -2191,6 +2193,14 @@ export const dict: Record<I18nKey, string> = {
   "chat.queuedMessage.send": "send",
   "chat.queuedMessage.removeAria": "Excluir da fila",
   "chat.queuedMessage.reorderAria": "Arraste para reordenar",
+  "chat.draft.ephemeralOnly": "As alterações do rascunho estão apenas nesta aba. O armazenamento do navegador está indisponível. Copie seu texto antes de sair ou recarregar a página.",
+  "chat.queuedMessage.unsupported": "Este servidor não oferece suporte a mensagens em fila. Seu texto permanece intacto.",
+  "chat.queuedMessage.recoveryTitle": "Mensagens na fila precisam de revisão",
+  "chat.queuedMessage.recoveryDescription": "A entrega ou a transferência pode já ter ocorrido. Estas mensagens não serão enviadas automaticamente. Verifique a sessão antes de enviá-las novamente.",
+  "chat.queuedMessage.admissionUnknown": "Não foi possível confirmar a inclusão na fila. Seu texto ainda está aqui. Verifique a fila antes de enviá-lo novamente.",
+  "chat.queuedMessage.recoverPayload": "Baixar mensagem completa",
+  "chat.queuedMessage.forgetReviewed": "Remover registro revisado",
+  "chat.queuedMessage.forgetConfirm": "Remover este registro de recuperação? Primeiro verifique a sessão e salve a mensagem completa. A remoção não desfaz um envio.",
   "chat.queuedMessage.toast.queueFailed": "Não foi possível enfileirar a mensagem. Ela voltou para o campo de texto.",
   "chat.queuedMessage.toast.takeFailed": "Não foi possível carregar a mensagem da fila. Tente novamente.",
   "chat.container.returnToParent.aria": "Voltar para a sessão principal",

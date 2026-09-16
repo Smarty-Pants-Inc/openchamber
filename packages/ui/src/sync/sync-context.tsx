@@ -47,6 +47,7 @@ import { syncDebug } from "./debug"
 import { getReconnectCandidateSessionIds, mergeBootstrapSessions } from "./reconnect-recovery"
 import { messagesBefore } from "./message-ordering"
 import { opencodeClient } from "@/lib/opencode/client"
+import { useAuthSessionStore } from "@/lib/runtime-auth-expiry"
 import { usePermissionStore } from "@/stores/permissionStore"
 import { applyMessageQueueUpdatedEvent, useMessageQueueStore } from "@/stores/messageQueueStore"
 import {
@@ -2163,6 +2164,12 @@ export function interruptedTurnToolParts(
 const dispatchOpenCodeUpdateAvailable = (payload: { version: string }) => {
   if (typeof window === "undefined") return
   window.dispatchEvent(new CustomEvent("openchamber:opencode-update-available", { detail: payload }))
+}
+
+// Auth recovery changes the SDK, not the provider's identity or workspace.
+export function RuntimeSyncProvider(props: { directory: string; children: React.ReactNode }) {
+  useAuthSessionStore((state) => state.recoveryGeneration)
+  return <SyncProvider sdk={opencodeClient.getSdkClient()} {...props} />
 }
 
 export function SyncProvider(props: {

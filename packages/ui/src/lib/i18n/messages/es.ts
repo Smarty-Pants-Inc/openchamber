@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './es.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': 'Acción del proyecto en curso',
   ...settingsDict,
   ...displayNameI18n.es,
+  ...nativeCreationI18n.es,
   ...linearIssuePickerI18n.es,
   ...linearPanelI18n.es,
   'terminalView.actions.attachSelection': 'Adjuntar salida seleccionada',
@@ -2191,6 +2193,14 @@ export const dict: Record<I18nKey, string> = {
   "chat.queuedMessage.send": "send",
   "chat.queuedMessage.removeAria": "Eliminar de la cola",
   "chat.queuedMessage.reorderAria": "Arrastra para reordenar",
+  "chat.draft.ephemeralOnly": "Los cambios del borrador solo están en esta pestaña. El almacenamiento del navegador no está disponible. Copia el texto antes de salir o recargar la página.",
+  "chat.queuedMessage.unsupported": "Este servidor no admite mensajes en cola. Tu texto no ha cambiado.",
+  "chat.queuedMessage.recoveryTitle": "Hay mensajes en cola que debes revisar",
+  "chat.queuedMessage.recoveryDescription": "Es posible que la entrega o la transferencia ya se haya realizado. Estos mensajes no se enviarán automáticamente. Revisa la sesión antes de volver a enviarlos.",
+  "chat.queuedMessage.admissionUnknown": "No se pudo confirmar la incorporación a la cola. Tu texto sigue aquí. Revisa la cola antes de volver a enviarlo.",
+  "chat.queuedMessage.recoverPayload": "Descargar mensaje completo",
+  "chat.queuedMessage.forgetReviewed": "Eliminar registro revisado",
+  "chat.queuedMessage.forgetConfirm": "¿Eliminar este registro de recuperación? Revisa la sesión y guarda el mensaje completo primero. Eliminar el registro no deshace un envío.",
   "chat.queuedMessage.toast.queueFailed": "No se pudo poner el mensaje en cola. Vuelve a estar en el editor.",
   "chat.queuedMessage.toast.takeFailed": "No se pudo cargar el mensaje en cola. Inténtalo de nuevo.",
   "chat.container.returnToParent.aria": "Volver a la sesión principal",

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test"
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { selectInputHistoryEntries, useInputHistoryStore } from "./useInputHistoryStore"
 import type { AttachedFile } from "./types/sessionTypes"
 import type { MessageQueueUpdatedEvent } from "./messageQueueStore"
@@ -21,7 +21,8 @@ mock.module("@/lib/runtime-fetch", () => ({
 }))
 const desktop = await import("@/lib/desktop")
 mock.module("@/lib/desktop", () => ({ ...desktop, isVSCodeRuntime: () => false }))
-mock.module("@/lib/runtime-switch", () => ({ getRuntimeKey: () => activeRuntimeKey }))
+const runtimeSwitch = await import("@/lib/runtime-switch")
+spyOn(runtimeSwitch, "getRuntimeKey").mockImplementation(() => activeRuntimeKey)
 mock.module("@/lib/persistence", () => ({ updateDesktopSettings: async () => undefined }))
 
 const {
@@ -49,6 +50,7 @@ const key = getMessageQueueKey(target)
 
 const serverItem = (id: string, content: string, extra: Partial<ServerItem> = {}): ServerItem => ({
   id,
+  state: 'pending',
   createdAt: 1,
   content,
   text: content,
@@ -88,13 +90,11 @@ beforeEach(() => {
   respond = () => json({ revision: 1, session: session([]) })
   // Forgetting also drops the revision guard, so each test starts unordered.
   useMessageQueueStore.getState().forgetQueue(target)
-  useMessageQueueStore.setState({ queuedMessages: {}, quarantinedLegacyMessages: {}, sendingIds: {} })
+  useMessageQueueStore.setState({ queuedMessages: {}, recoveryMessages: {}, quarantinedLegacyMessages: {}, sendingIds: {} })
 })
 
 describe("server-owned message queue", () => {
-  // First: the one-time upload of a legacy local queue happens before this
-  // runtime is known to be server-owned, which the later hydrations establish.
-  test("hydrate uploads messages queued by an older build before reading the server", async () => {
+  test("hydrate retains legacy input for review without uploading or replaying it", async () => {
     useMessageQueueStore.setState({
       queuedMessages: {
         [key]: [{ id: "local-1", content: "from before", text: "from before", createdAt: 1, sendConfig: { providerID: "p", modelID: "m" } }],
@@ -105,12 +105,9 @@ describe("server-owned message queue", () => {
       : json({ revision: 2, sessions: [session([serverItem("q1", "from before")])] }))
     await useMessageQueueStore.getState().hydrate()
 
-    expect(calls[0]).toEqual({
-      method: "POST",
-      path: "/api/message-queue/sessions/session-1/items",
-      body: { directory: "/repo", item: { content: "from before", text: "from before", attachments: [], context: [], sendConfig: { providerID: "p", modelID: "m" } } },
-    })
-    expect(calls[1]?.path).toBe("/api/message-queue")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.path).toBe("/api/message-queue")
+    expect(useMessageQueueStore.getState().recoveryMessages[key][0].state).toBe('unconfirmed')
     expect(useMessageQueueStore.getState().queuedMessages[key]?.map((m) => m.id)).toEqual(["q1"])
   })
 
@@ -123,7 +120,7 @@ describe("server-owned message queue", () => {
     expect(useMessageQueueStore.getState().sendingIds[key]).toEqual(["q1"])
   })
 
-  test("addToQueue shows the message at once and settles on the server's copy", async () => {
+  test("addToQueue publishes only the server's accepted copy", async () => {
     respond = () => json({ revision: 5, session: session([serverItem("srv-1", "hi @reviewer", { agentMention: "reviewer" })]) })
     const pending = useMessageQueueStore.getState().addToQueue(target, {
       content: "hi @reviewer",
@@ -132,7 +129,7 @@ describe("server-owned message queue", () => {
       attachments: [attachment],
       sendConfig: { providerID: "p", modelID: "m", agent: "build" },
     })
-    expect(useMessageQueueStore.getState().queuedMessages[key]).toHaveLength(1)
+    expect(useMessageQueueStore.getState().queuedMessages[key]).toBe(undefined)
     await pending
 
     expect(calls[0]).toEqual({
@@ -140,6 +137,7 @@ describe("server-owned message queue", () => {
       path: "/api/message-queue/sessions/session-1/items",
       body: {
         directory: "/repo",
+        requestId: calls[0]?.body.requestId,
         item: {
           content: "hi @reviewer",
           text: "hi",
@@ -227,8 +225,8 @@ describe("server-owned message queue", () => {
     await expect(useMessageQueueStore.getState().takeForSend(target, "srv-1")).rejects.toThrow()
   })
 
-  test("addToQueue rolls the optimistic entry back when the server refuses", async () => {
-    respond = () => new Response("nope", { status: 500 })
+  test("addToQueue publishes nothing when the server refuses before admission", async () => {
+    respond = () => new Response("nope", { status: 409 })
     await expect(useMessageQueueStore.getState().addToQueue(target, {
       content: "x",
       sendConfig: { providerID: "p", modelID: "m" },

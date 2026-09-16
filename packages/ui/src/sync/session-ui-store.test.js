@@ -18,6 +18,11 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { subscribeWorktreeTopologyChanged } from '@/lib/worktrees/worktreeManager';
 import { createContextPart } from '@/lib/messages/contextParts';
 
+// These existing fixtures exercise legacy draft materialization. Native create-only has its own scoped suite.
+const originalSupportsNativeCreation = opencodeClient.supportsNativeCreation;
+beforeEach(() => { opencodeClient.supportsNativeCreation = async () => false; });
+afterEach(() => { opencodeClient.supportsNativeCreation = originalSupportsNativeCreation; });
+
 /**
  * Unit tests for session worktree routing through the authoritative store.
  *

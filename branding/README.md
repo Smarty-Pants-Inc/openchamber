@@ -47,6 +47,30 @@ entries stay unchanged. The ownership test keeps an exact path allowlist and
 checks every original or explicitly overlaid output. This is behavioral source,
 not branding. Corrected-child review and candidate execution remain required.
 
+The native create-only repair extends those same twelve overlapping paths. Its
+`nativeCreationSource` and per-file `nativeCreationSha256` bind the exact local
+behavior source and combined output. Earlier attribution source/hash fields,
+branding hashes, original coverage dispositions, stock parity and accepted CI
+workflow entries stay intact. Turkish, new native-creation modules and other
+files outside the original donor ledger remain ordinary tracked source changes.
+This is a behavioral patch, not branding; implementation authorization does not
+replace independent exact-child review, CI or current browser/native evidence.
+The coupled draft-lifecycle correction extends only `session-ui-store.ts` among
+those donor-ledger paths. `nativeLifecycleSource` and `nativeLifecycleSha256`
+record that successor while retaining the original native-creation hash and all
+attribution/branding evidence. `nativeCompletionSource` and
+`nativeCompletionSha256` then bind the originating-intent and accepted-input
+completion repair on that same store path. `nativeLifetimeSource` and
+`nativeLifetimeSha256` add the live draft-generation claims used by remount-safe
+input cleanup. Each earlier hash remains intact.
+
+The foundation copy integration records `foundationCopySource` and
+`foundationCopySha256` for the eleven existing locale overlaps. It adds draft
+storage warnings and queue recovery text. Earlier native-creation, attribution,
+branding and donor hashes remain intact. Turkish is outside the original donor
+ledger. The exact locale allowlist and output hashes remain checked; source
+binding does not imply independent combined-source or release acceptance.
+
 The generator does not own these runtime files. Technical headers and events,
 including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and
 `openchamber:settings-changed`, remain unchanged. No generic branding substitution

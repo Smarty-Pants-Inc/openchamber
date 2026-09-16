@@ -192,6 +192,119 @@ and the send path reading the same grammar.
   state and registers its application shortcuts locally. The selectors only
   consume their shared prefix while the draft target UI is mounted.
 
+## Draft backing-storage failures
+
+Chat drafts use synchronous safe backing storage beneath the existing 500 ms
+typing debounce. Lifecycle saves return after the browser accepts the write or
+the adapter retains a memory-only fallback. The hook exposes `ephemeralOnly` for
+the localized composer alert without clearing live text or confirmed mentions.
+This status covers the shared v2 envelope, including writes by another consumer.
+Failed writes do not satisfy the unchanged-text cache, so a later lifecycle edge
+can retry the same text or a failed deletion. A successful write clears the alert.
+The durable v2 schema and page-lifetime generation ownership are unchanged.
+
+Tabs still share one whole-envelope key without a transaction. Page-local draft
+ownership does not resolve concurrent writes from another tab. A page killed
+without a lifecycle callback can lose edits inside the debounce window. Browser
+backing-storage acceptance is not an OS power-loss guarantee. If storage access
+is denied when the adapter is created, its memory-only fallback lasts for that
+adapter's lifetime. The alert tells the user to copy input before leaving.
+
+The isolated native composer and draft fixtures import
+`sync/native-test-network.ts` before their application modules. Their normal
+`bun test <test-file>` command therefore retains a process-lifetime deny-fetch
+guard. Explicit `--preload ./src/sync/native-test-network.ts` can also protect
+other focused runners. Pending work cannot reach real fetch after a synthetic
+handler restores its mock. A passing fixture does
+not replace real browser shutdown, layout or platform acceptance.
+
+## Native create-only drafts
+
+`state/useNativeCreation.ts` reads the selected directory's SDK `global.health`.
+Only `capabilities.ordinaryCreateOnly: 1` enables the separate **Create native Pi
+session** button in `ui/NativeCreationNotice.tsx`. A valid missing capability keeps
+the existing OpenCode/Chord path. A failed or malformed read is not absence; it
+shows a connection check, not permission to fall back to another runtime.
+
+Creation requires a selected project draft with no title, parent session, or
+pending worktree setup. `sync/native-draft-creation.ts` binds the one request and
+its result to the runtime, draft ID, project ID and directory. The canonical
+`session-actions.createNativeSession` indexes the returned owner but does not
+select it, close the draft, consume input/context, or send a prompt. Duplicate
+clicks and uncertain completion never submit another creation request. Records
+are keyed by runtime, draft, project and directory in the UI store. Project and
+runtime returns restore each result; late completion updates only its original
+record. Records survive consumer remounts for this browser lifetime, with no
+persistence, background replay, automatic eviction or restart guarantee.
+SDK1.18.29 sends `session.create({ directory })` with no body or Content-Type;
+the capability-advertising gateway must accept that empty creation request. It
+must still validate supplied bodies and must not relax other mutation routes.
+
+The successful attached session must include
+`nativeCreation: { model: { providerID, modelID }, inputReady: boolean }` from the
+just-created native snapshot. The UI displays that model, not the first connected
+session's provider listing. Model and readiness are creation-time observations;
+they do not change the native model or grant durable input permission. Finish
+original-TUI dialogs and run `/code-ready` there. The UI never arms the session.
+
+A later explicit Send uses `materializeOpenDraftSession` to prepare that owner
+with its exact model, without another create POST. `native-draft-send.ts` waits
+for the existing loader and checks its actually accepted ready history view.
+A resolved loader promise with stored error, missing view or changed loader is
+not acceptance. A later explicit Send can request a fresh read; it cannot replay
+an earlier prompt. Runtime and draft target are checked after history loading,
+after asynchronous SDK preparation and before dispatch. The composer carries the
+prepared native intent through settings, snippet and prompt-command awaits into
+the store. The store checks that intent before any materialization or mutation;
+it cannot recapture another runtime and enter legacy creation. Concurrent sends
+of the same prepared owner are refused.
+
+The native branch leaves text, confirmed mentions, files, inline and synthetic
+context in place until input admission succeeds. Only then does the acceptance
+callback consume the submitted input. A successful response records acceptance
+on the originating creation record even after navigation. It is not a stale
+pre-dispatch refusal. Cleanup consumes only captured input and scoped inline
+context; unrelated current input stays intact. `chatDraftPersistence` tracks the
+live draft generation owning each shared storage slot. Draft open/target actions
+claim that slot, and delayed writes or accepted cleanup must still own it. The
+draft ID stays out of the durable key and envelope. This is page-lifetime ownership,
+not a creation journal or cross-reload guarantee.
+
+Accepted cleanup asks this owner to consume the submitted snapshot. A matching
+mounted draft settles its live editor text and mentions before saved cleanup;
+an unmounted draft uses the snapshot flushed by `useComposerDraft`. The old
+submission component's refs do not grant ownership. The same generation check
+governs remaining inline-context transfer, including off-screen replacement
+drafts. The active original draft selects its owner now, or on return to that
+accepted draft, without another prompt.
+
+`useComposerDraft` treats this accepted materialization as an identity transfer.
+It keeps newer unsent text and confirmed mentions with the native owner, with
+stored drafts either on or off. Only the old draft slot is cleared; new inline
+context transfers to the owner and newer files/synthetic parts remain attached.
+History and native input refusals retain the original prepared input for another
+explicit Send. Native `/code-ready`, model checks and accepted-view validation
+remain authoritative; the UI does not manufacture a view or arm input.
+
+Failures keep the draft. Validated non-retryable API errors retain the backend's
+safe operation/pane/path details in the visible alert. Malformed success and
+runtime/directory mismatch retain a validated returned ID/directory when known.
+Arbitrary transport diagnostics stay private causes. A failure known to precede
+`session.create` offers **Check connection**, which performs only a health read.
+Success clears that failure and requires a separate explicit Create action.
+Post-submission uncertainty has no such recovery control. Inspect Herdr before
+an explicit new creation after an unknown result, including after a page reload.
+
+Focused SDK/state tests and Happy DOM tests mount the actual composer, CodeMirror
+and draft effects for these boundaries. The mounted tests retain the real store,
+SDK and history loader, with synthetic HTTP and isolated unrelated widgets.
+Lifetime regressions replace the composer at an epoch key while preserving
+runtime stores, storage and the in-flight request, matching the App/Mobile
+teardown boundary without mounting their full SyncProvider. They also cover
+replacement draft N at P navigating to Q before original O completes.
+They do not prove real browser layout, native attachment or input admission. Current desktop/mobile and light/dark evidence, shared-runtime checks,
+and browser-to-original-TUI proof remain integration/review gates.
+
 ## Optional display attribution
 
 `ui/DisplayNameChoice.tsx`, Send and Queue share `browserDisplayName` in
@@ -271,14 +384,15 @@ hardware.
 
 ## Testing
 
-The package has no DOM test environment, so coverage stops at the state and
-logic layers: the language, the submit assembly, path and drop handling, text
-splicing, large-paste detection, paste-offer invalidation, input-history
-traversal, and the CodeMirror language extension at the `EditorState` level.
-
-Rendering, focus, keyboard behavior, IME and WKWebView are **not covered by
-tests** and are verified by hand. That includes ArrowUp and ArrowDown recall,
-caret placement after recall, restored drafts, and any edited-entry overlay.
+State/logic tests cover the language, submit assembly, paths, text splicing,
+large-paste handling, input-history traversal and editor language extensions.
+`submit/__tests__/nativeComposer.test.tsx` also uses the UI package's Happy DOM
+dependency to mount real composer submission and draft-persistence effects. It
+covers settings/snippet/command preparation races, accepted responses after
+navigation and newer input through native materialization. It does not replace
+browser subscriptions, layout, physical focus/keyboard, IME or WKWebView proof.
+ArrowUp/ArrowDown recall and edited-entry overlay behavior still need manual
+verification.
 Do not report a change to them as validated on the strength of type-check and
 unit tests.
 

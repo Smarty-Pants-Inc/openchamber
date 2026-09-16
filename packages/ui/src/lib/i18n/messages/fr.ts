@@ -1,4 +1,5 @@
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './fr.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -7,6 +8,7 @@ export const dict = {
   'sessions.sidebar.projectAction.active': 'Action du projet en cours',
   ...settingsDict,
   ...displayNameI18n.fr,
+  ...nativeCreationI18n.fr,
   ...linearIssuePickerI18n.fr,
   ...linearPanelI18n.fr,
   'terminalView.actions.attachSelection': 'Joindre la sortie sélectionnée',
@@ -1943,6 +1945,14 @@ export const dict = {
   'chat.queuedMessage.send': 'envoyer',
   'chat.queuedMessage.removeAria': 'Supprimer de la file d\'attente',
   'chat.queuedMessage.reorderAria': 'Glisser pour réorganiser',
+  "chat.draft.ephemeralOnly": "Les modifications du brouillon sont uniquement dans cet onglet. Le stockage du navigateur est indisponible. Copiez votre texte avant de quitter ou de recharger la page.",
+  "chat.queuedMessage.unsupported": "Ce serveur ne prend pas en charge les messages en attente. Votre saisie reste inchangée.",
+  "chat.queuedMessage.recoveryTitle": "Des messages en attente doivent être vérifiés",
+  "chat.queuedMessage.recoveryDescription": "La livraison ou le transfert a peut-être déjà eu lieu. Ces messages ne seront pas envoyés automatiquement. Vérifiez la session avant de les renvoyer.",
+  "chat.queuedMessage.admissionUnknown": "L'ajout à la file d'attente n'a pas pu être confirmé. Votre saisie est toujours présente. Vérifiez la file avant de l'envoyer à nouveau.",
+  "chat.queuedMessage.recoverPayload": "Télécharger le message complet",
+  "chat.queuedMessage.forgetReviewed": "Supprimer l'enregistrement vérifié",
+  "chat.queuedMessage.forgetConfirm": "Supprimer cet enregistrement de récupération ? Vérifiez la session et enregistrez d'abord le message complet. La suppression n'annule pas un envoi.",
   'chat.queuedMessage.toast.queueFailed': 'Impossible de mettre le message en file d\'attente. Il est de retour dans l\'éditeur.',
   'chat.queuedMessage.toast.takeFailed': 'Impossible de charger le message en file d\'attente. Veuillez réessayer.',
   'chat.container.returnToParent.aria': 'Retour à la session parents',

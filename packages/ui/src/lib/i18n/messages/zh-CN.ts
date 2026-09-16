@@ -1,5 +1,6 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './zh-CN.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -8,6 +9,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.projectAction.active': '项目操作正在运行',
   ...settingsDict,
   ...displayNameI18n['zh-CN'],
+  ...nativeCreationI18n['zh-CN'],
   ...linearIssuePickerI18n['zh-CN'],
   ...linearPanelI18n['zh-CN'],
   'terminalView.actions.attachSelection': '附加所选输出',
@@ -2179,6 +2181,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': '从队列移除',
   'chat.queuedMessage.reorderAria': '拖动以重新排序',
+  "chat.draft.ephemeralOnly": "草稿更改仅保留在此标签页中。浏览器存储不可用。离开或重新加载页面前，请复制文本。",
+  "chat.queuedMessage.unsupported": "此后端不支持消息排队。输入内容保持不变。",
+  "chat.queuedMessage.recoveryTitle": "队列中的消息需要检查",
+  "chat.queuedMessage.recoveryDescription": "消息可能已经送达或转移。这些消息不会自动发送。再次发送前，请检查会话。",
+  "chat.queuedMessage.admissionUnknown": "无法确认消息是否已加入队列。输入内容仍在此处。再次发送前，请检查队列。",
+  "chat.queuedMessage.recoverPayload": "下载完整消息",
+  "chat.queuedMessage.forgetReviewed": "移除已检查的记录",
+  "chat.queuedMessage.forgetConfirm": "要移除此恢复记录吗？请先检查会话并保存完整消息。移除记录不会撤销发送。",
   'chat.queuedMessage.toast.queueFailed': '无法将消息加入队列，已放回输入框。',
   'chat.queuedMessage.toast.takeFailed': '无法加载队列中的消息，请重试。',
   'chat.container.returnToParent.aria': '返回父会话',

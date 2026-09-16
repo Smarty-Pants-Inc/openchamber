@@ -8,6 +8,7 @@ import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 export type InlineCommentSource = 'diff' | 'plan' | 'file' | 'preview-annotation' | 'terminal' | 'pr-comment' | 'pr-check' | 'chat-quote' | 'file-quote';
 
 export type InlineCommentDraftTarget = {
+  runtimeKey?: string;
   directory: string;
   sessionKey: string;
 };
@@ -75,7 +76,7 @@ export const getInlineCommentDraftKey = (runtimeKey: string, directory: string, 
 };
 
 const getCurrentKey = (target: InlineCommentDraftTarget): string | null =>
-  getInlineCommentDraftKey(getRuntimeKey(), target.directory, target.sessionKey);
+  getInlineCommentDraftKey(target.runtimeKey ?? getRuntimeKey(), target.directory, target.sessionKey);
 
 const serializedEntryBytes = (key: string, value: unknown): number =>
   encoder.encode(`${JSON.stringify(key)}:${JSON.stringify(value)}`).byteLength;

@@ -78,17 +78,6 @@ mock.module('@/contexts/runtimeAPIRegistry', () => ({
   getRegisteredRuntimeAPIs: mock(() => null),
 }));
 
-mock.module('@/lib/runtime-url', () => ({
-  getRuntimeUrlResolver: mock(() => ({
-    api: (path: string) => path,
-  })),
-}));
-
-mock.module('@/lib/runtime-switch', () => ({
-  getRuntimeApiBaseUrl: mock(() => ''),
-  getRuntimeKey: mock(() => 'test-runtime'),
-}));
-
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: mock(async () => new Response(JSON.stringify([]), {
     headers: { 'Content-Type': 'application/json' },

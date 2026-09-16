@@ -1,4 +1,5 @@
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './tr.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -7,6 +8,7 @@ export const dict = {
   'sessions.sidebar.projectAction.active': 'Proje eylemi çalışıyor',
   ...settingsDict,
   ...displayNameI18n.tr,
+  ...nativeCreationI18n.tr,
   ...linearIssuePickerI18n.tr,
   ...linearPanelI18n.tr,
   'terminalView.actions.attachSelection': 'Seçili çıktıyı ekle',
@@ -2172,6 +2174,14 @@ export const dict = {
   'chat.queuedMessage.send': 'gönder',
   'chat.queuedMessage.removeAria': 'Kuyruktan kaldır',
   'chat.queuedMessage.reorderAria': 'Yeniden sıralamak için sürükle',
+  "chat.draft.ephemeralOnly": "Taslak değişiklikleri yalnızca bu sekmede tutuluyor. Tarayıcı depolaması kullanılamıyor. Sayfadan ayrılmadan veya sayfayı yeniden yüklemeden önce metninizi kopyalayın.",
+  "chat.queuedMessage.unsupported": "Bu sunucu mesaj kuyruğunu desteklemiyor. Girdiğiniz içerik değişmedi.",
+  "chat.queuedMessage.recoveryTitle": "Kuyruktaki mesajlar incelenmeli",
+  "chat.queuedMessage.recoveryDescription": "Teslim veya aktarım zaten gerçekleşmiş olabilir. Bu mesajlar otomatik olarak gönderilmeyecek. Yeniden göndermeden önce oturumu kontrol edin.",
+  "chat.queuedMessage.admissionUnknown": "Kuyruğa ekleme işlemi doğrulanamadı. Girdiğiniz içerik hâlâ burada. Yeniden göndermeden önce kuyruğu kontrol edin.",
+  "chat.queuedMessage.recoverPayload": "Mesajın tamamını indir",
+  "chat.queuedMessage.forgetReviewed": "İncelenen kaydı kaldır",
+  "chat.queuedMessage.forgetConfirm": "Bu kurtarma kaydı kaldırılsın mı? Önce oturumu kontrol edin ve mesajın tamamını kaydedin. Kaydın kaldırılması gönderimi geri almaz.",
   'chat.queuedMessage.toast.queueFailed': 'Mesaj kuyruğa eklenemedi. Yazma alanına geri kondu.',
   'chat.queuedMessage.toast.takeFailed': 'Kuyruktaki mesaj yüklenemedi. Lütfen tekrar deneyin.',
   'chat.container.returnToParent.aria': 'Üst session\'a dön',

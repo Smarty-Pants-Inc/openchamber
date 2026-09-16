@@ -1,4 +1,5 @@
 import { displayNameI18n } from './display-name.i18n';
+import { nativeCreationI18n } from './native-creation.i18n';
 import { settingsDict } from './de.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -7,6 +8,7 @@ export const dict = {
   'sessions.sidebar.projectAction.active': 'Projektaktion aktiv',
   ...settingsDict,
   ...displayNameI18n.de,
+  ...nativeCreationI18n.de,
   ...linearIssuePickerI18n.de,
   ...linearPanelI18n.de,
   'common.language.german': 'Deutsch',
@@ -2008,6 +2010,14 @@ export const dict = {
   'chat.queuedMessage.send': 'senden',
   'chat.queuedMessage.removeAria': 'Aus der Warteschlange entfernen',
   'chat.queuedMessage.reorderAria': 'Ziehen, um neu anzuordnen',
+  "chat.draft.ephemeralOnly": "Änderungen am Entwurf sind nur in diesem Tab verfügbar. Der Browserspeicher ist nicht verfügbar. Kopiere deinen Text, bevor du die Seite verlässt oder neu lädst.",
+  "chat.queuedMessage.unsupported": "Dieses Backend unterstützt keine Nachrichtenwarteschlange. Deine Eingabe bleibt unverändert.",
+  "chat.queuedMessage.recoveryTitle": "Nachrichten in der Warteschlange müssen geprüft werden",
+  "chat.queuedMessage.recoveryDescription": "Die Zustellung oder Übertragung kann bereits erfolgt sein. Diese Nachrichten werden nicht automatisch gesendet. Prüfe die Sitzung, bevor du sie erneut sendest.",
+  "chat.queuedMessage.admissionUnknown": "Die Aufnahme in die Warteschlange konnte nicht bestätigt werden. Deine Eingabe ist noch vorhanden. Prüfe die Warteschlange, bevor du sie erneut sendest.",
+  "chat.queuedMessage.recoverPayload": "Vollständige Nachricht herunterladen",
+  "chat.queuedMessage.forgetReviewed": "Geprüften Eintrag entfernen",
+  "chat.queuedMessage.forgetConfirm": "Diesen Wiederherstellungseintrag entfernen? Prüfe zuerst die Sitzung und speichere die vollständige Nachricht. Das Entfernen macht einen Versand nicht rückgängig.",
   'chat.queuedMessage.toast.queueFailed': 'Die Nachricht konnte nicht in die Warteschlange gestellt werden. Sie ist wieder im Eingabefeld.',
   'chat.queuedMessage.toast.takeFailed': 'Die Nachricht aus der Warteschlange konnte nicht geladen werden. Bitte erneut versuchen.',
   'chat.container.returnToParent.aria': 'Zurück zur übergeordneten Sitzung',

@@ -7,12 +7,12 @@ import { planLocalSlashCommand } from '../slashCommands';
 const composer = readFileSync(new URL('../../../ChatInput.tsx', import.meta.url), 'utf8');
 const choice = readFileSync(new URL('../../ui/DisplayNameChoice.tsx', import.meta.url), 'utf8');
 
-// No DOM test runtime is installed. Execute the actual inline decision guards,
-// and bind their position to the production handler; this is not rendered UI proof.
+// Execute the inline decision guards and bind their position to the handler.
+// Mounted native submission is covered separately in nativeComposer.test.tsx.
 test('named whitespace commands stop before planning or consuming the composer', () => {
   const submit = composer.slice(composer.indexOf('const handleSubmit = async'));
   const start = submit.indexOf('if (displayName && inputSnapshot.message.');
-  const end = submit.indexOf('if (queuedOnly && autoReviewRunning)', start);
+  const end = submit.indexOf('\n        }', start) + '\n        }'.length;
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
   expect(end).toBeLessThan(submit.indexOf('planLocalSlashCommand('));

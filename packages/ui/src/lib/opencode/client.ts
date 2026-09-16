@@ -3,6 +3,7 @@ import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
+import { nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure } from './nativeCreation';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -32,7 +33,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch } from "@/lib/runtime-fetch";
-import { getRuntimeKey } from "@/lib/runtime-switch";
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
@@ -219,9 +220,11 @@ type RuntimeOpencodeClientConfig = {
 
 export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig): OpencodeClient => {
   const requestTimeoutMs = config.requestTimeoutMs ?? OPENCODE_REQUEST_TIMEOUT_MS;
+  const scope = captureRuntimeRequestScope();
   return createOpencodeClient({
     ...config,
     fetch: async (input: string | URL | Request, init?: RequestInit) => {
+      assertRuntimeRequestScope(scope);
       const method = String(
         init?.method ?? (input instanceof Request ? input.method : 'GET'),
       ).toUpperCase();
@@ -229,7 +232,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
         return runtimeFetch(input, init);
       }
       const timeout = createTimeoutSignal(requestTimeoutMs);
-      const callerSignal = init?.signal;
+      const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
       const supportsAny = typeof AbortSignal !== 'undefined'
         && typeof (AbortSignal as { any?: unknown }).any === 'function';
       let signal: AbortSignal;
@@ -339,7 +342,12 @@ const fsAbsolutePathSchema = z.string().trim().regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\
 const fsHomeResponseSchema = z.object({ home: fsAbsolutePathSchema, chatsRoot: fsAbsolutePathSchema.optional() });
 
 class OpencodeService {
-  private client: OpencodeClient;
+  private runtimeClient: OpencodeClient;
+  private runtimeScope = captureRuntimeRequestScope();
+  private get client(): OpencodeClient {
+    this.reconnectToRuntimeBaseUrl();
+    return this.runtimeClient;
+  }
   private baseUrl: string;
   private scopedClients: Map<string, OpencodeClient> = new Map();
   private currentDirectory: string | undefined = undefined;
@@ -356,7 +364,7 @@ class OpencodeService {
     const runtimeBase = resolveRuntimeBaseUrl();
     const requestedBaseUrl = runtimeBase || baseUrl;
     this.baseUrl = ensureAbsoluteBaseUrl(requestedBaseUrl);
-    this.client = createRuntimeOpencodeClient({ baseUrl: this.baseUrl });
+    this.runtimeClient = createRuntimeOpencodeClient({ baseUrl: this.baseUrl });
   }
 
   private assertRuntimeUnchanged(runtimeKey?: string): void {
@@ -366,17 +374,18 @@ class OpencodeService {
   }
 
   getBaseUrl(): string {
+    this.reconnectToRuntimeBaseUrl();
     return this.baseUrl;
   }
 
   reconnectToRuntimeBaseUrl(): void {
     const runtimeBase = resolveRuntimeBaseUrl();
     const nextBaseUrl = ensureAbsoluteBaseUrl(runtimeBase || DEFAULT_BASE_URL);
-    if (nextBaseUrl === this.baseUrl) {
-      return;
-    }
+    if (nextBaseUrl === this.baseUrl && isRuntimeRequestScopeCurrent(this.runtimeScope)) return;
+    this.runtimeScope = captureRuntimeRequestScope();
+    this.directoryContextQueue = Promise.resolve();
     this.baseUrl = nextBaseUrl;
-    this.client = createRuntimeOpencodeClient({ baseUrl: this.baseUrl });
+    this.runtimeClient = createRuntimeOpencodeClient({ baseUrl: this.baseUrl });
     this.scopedClients.clear();
     this.listDirectoryInFlight.clear();
     this.configProvidersInFlight.clear();
@@ -400,6 +409,7 @@ class OpencodeService {
    * Needed for worktree APIs where backend ignores per-call directory.
    */
   getScopedApiClient(directory: string): OpencodeClient {
+    this.reconnectToRuntimeBaseUrl();
     const normalized = this.normalizeCandidatePath(directory) ?? directory;
     const key = normalized || '';
     const existing = this.scopedClients.get(key);
@@ -492,7 +502,9 @@ class OpencodeService {
   }
 
   async withDirectory<T>(directory: string | undefined | null, fn: () => Promise<T>): Promise<T> {
+    const scope = captureRuntimeRequestScope();
     const runWithContext = async (): Promise<T> => {
+      assertRuntimeRequestScope(scope);
       if (directory === undefined || directory === null) {
         return fn();
       }
@@ -503,7 +515,7 @@ class OpencodeService {
       try {
         return await fn();
       } finally {
-        if (this.currentDirectory === scopedDirectory) {
+        if (isRuntimeRequestScopeCurrent(scope) && this.currentDirectory === scopedDirectory) {
           this.currentDirectory = previousDirectory;
         }
       }
@@ -631,6 +643,24 @@ class OpencodeService {
       this.currentDirectory ? { directory: this.currentDirectory } : undefined
     );
     return Array.isArray(response.data) ? response.data : [];
+  }
+
+  async supportsNativeCreation(directory: string): Promise<boolean> {
+    const runtimeKey = getRuntimeKey();
+    const response = await this.getScopedSdkClient(directory).global.health();
+    this.assertRuntimeUnchanged(runtimeKey);
+    const health = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health'));
+    return health.capabilities?.ordinaryCreateOnly === 1;
+  }
+
+  /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
+  async createNativeSession(directory: string) {
+    try {
+      const response = await this.getScopedSdkClient(directory).session.create({ directory });
+      if (response.error) throw response.error;
+      if (!response.data) throw new Error('Empty native creation response');
+      return nativeCreatedSession(response.data);
+    } catch (error) { throw nativeCreationFailure(error); }
   }
 
   async createSession(params?: { parentID?: string; title?: string; metadata?: Record<string, unknown> }, directory?: string | null): Promise<Session> {
@@ -864,6 +894,8 @@ class OpencodeService {
     text: string;
     /** Captured by the submitting browser, never a shared server setting. */
     displayName?: string;
+    /** Recheck a prepared draft after SDK-side attachment/attribution preparation, before dispatch. */
+    beforeDispatch?: () => void;
     prefaceText?: string;
     prefaceTextSynthetic?: boolean;
     agent?: string;
@@ -887,6 +919,8 @@ class OpencodeService {
     directory?: string | null;
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey);
+    const scope = captureRuntimeRequestScope();
+    const client = this.client;
 
     const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
     const viewRuntimeKey = params.runtimeKey ?? getRuntimeKey();
@@ -979,8 +1013,10 @@ class OpencodeService {
     if (displayName !== undefined) {
       // Other backends may retain metadata without attributing native input. Refuse before dispatch.
       this.assertRuntimeUnchanged(displayNameRuntimeKey);
-      const health = await this.client.global.health();
+      assertRuntimeRequestScope(scope);
+      const health = await client.global.health();
       this.assertRuntimeUnchanged(displayNameRuntimeKey);
+      assertRuntimeRequestScope(scope);
       if (!displayAttributionHealthSchema.safeParse(health.data).success) {
         const { formatMessage, useI18nStore } = await import('@/lib/i18n');
         throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.backendUnsupported'));
@@ -998,10 +1034,13 @@ class OpencodeService {
       || viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey) !== ordinaryView)) {
       throw new Error('Ordinary history view changed before submission');
     }
+    assertRuntimeRequestScope(scope);
+    params.beforeDispatch?.();
+    assertRuntimeRequestScope(scope);
     let response: Response;
 
     try {
-      const result = await this.client.session.promptAsync({
+      const result = await client.session.promptAsync({
         sessionID: params.id,
         ...(requestDirectory ? { directory: requestDirectory } : {}),
         model: {
@@ -1040,17 +1079,17 @@ class OpencodeService {
       // Do not retry prompt_async after a transport failure: through a remote
       // tunnel the POST may already be running server-side even though the
       // client lost the response.
-      if (ordinaryView && getRuntimeKey() === viewRuntimeKey) viewLoader?.invalidateOrdinaryView(viewTarget);
-      recordProviderError(params.providerID);
+      if (ordinaryView && isRuntimeRequestScopeCurrent(scope)) viewLoader?.invalidateOrdinaryView(viewTarget);
+      if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID);
       throw error;
     }
 
-    if (ordinaryView && getRuntimeKey() === viewRuntimeKey) {
+    if (ordinaryView && isRuntimeRequestScopeCurrent(scope)) {
       viewLoader?.invalidateOrdinaryView(viewTarget, response.status === 409);
       if (response.status === 409) void viewLoader?.refreshOrdinaryView(viewTarget);
     }
     if (response.ok) {
-      recordProviderSuccess(params.providerID);
+      if (isRuntimeRequestScopeCurrent(scope)) recordProviderSuccess(params.providerID);
       return messageId;
     }
 
@@ -1063,7 +1102,7 @@ class OpencodeService {
     const suffix = detail && detail.trim().length > 0 ? `: ${detail.trim()}` : '';
     const error = new Error(`Failed to send message (${response.status})${suffix}`) as Error & { status?: number };
     error.status = response.status;
-    recordProviderError(params.providerID, response.status);
+    if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID, response.status);
     throw error;
   }
 
@@ -1081,6 +1120,9 @@ class OpencodeService {
     directory?: string | null;
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey);
+    const scope = captureRuntimeRequestScope();
+    const client = this.client;
+    const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
 
     const tempMessageId = params.messageId ?? ascendingId("msg");
 
@@ -1091,10 +1133,10 @@ class OpencodeService {
       }
     }
 
-    const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
     this.assertRuntimeUnchanged(params.runtimeKey);
+    assertRuntimeRequestScope(scope);
 
-    const response = await this.client.session.command({
+    const response = await client.session.command({
       sessionID: params.id,
       ...(requestDirectory ? { directory: requestDirectory } : {}),
       command: params.command,
@@ -1520,6 +1562,8 @@ class OpencodeService {
   }
 
   async getConfig(directory?: string | null): Promise<Config> {
+    this.reconnectToRuntimeBaseUrl();
+    const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
     const key = effectiveDirectory ?? '';
     const cached = this.configCache.get(key);
@@ -1540,6 +1584,7 @@ class OpencodeService {
       const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const scopedClient = effectiveDirectory ? this.getScopedApiClient(effectiveDirectory) : this.client;
       const response = await scopedClient.config.get();
+      assertRuntimeRequestScope(scope);
       if (!response.data) throw new Error('Failed to get config');
       const ended = typeof performance !== 'undefined' ? performance.now() : Date.now();
       markStartupTrace('opencodeClient.getConfig:end', {
@@ -1563,11 +1608,12 @@ class OpencodeService {
   }
 
   async updateConfig(config: Record<string, unknown>): Promise<Config> {
+    const scope = captureRuntimeRequestScope();
     // IMPORTANT: Do NOT pass directory parameter for config updates
     // The config should be global, not directory-specific
     const response = await this.client.config.update({ config: config as Config });
     const data = unwrapSdkData(response, 'global.config.update');
-    this.clearConfigCache();
+    if (isRuntimeRequestScopeCurrent(scope)) this.clearConfigCache();
     return data;
   }
 
@@ -1582,8 +1628,10 @@ class OpencodeService {
    * @returns Updated config from server
    */
   async updateConfigPartial(modifier: (config: Config) => Config): Promise<Config> {
+    const scope = captureRuntimeRequestScope();
     const currentConfig = await this.getConfig();
     const updatedConfig = modifier(currentConfig);
+    assertRuntimeRequestScope(scope);
     const result = await this.updateConfig(updatedConfig);
     return result;
   }
@@ -1599,6 +1647,8 @@ class OpencodeService {
     providers: Provider[];
     default: { [key: string]: string };
   }> {
+    this.reconnectToRuntimeBaseUrl();
+    const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
     const key = effectiveDirectory ?? '';
 
@@ -1611,6 +1661,7 @@ class OpencodeService {
       const response = await this.client.config.providers(
         effectiveDirectory ? { directory: effectiveDirectory } : undefined,
       );
+      assertRuntimeRequestScope(scope);
       return unwrapSdkData(response, 'config.providers');
     })();
 
@@ -1618,7 +1669,7 @@ class OpencodeService {
     try {
       return await request;
     } finally {
-      this.configProvidersInFlight.delete(key);
+      if (this.configProvidersInFlight.get(key) === request) this.configProvidersInFlight.delete(key);
     }
   }
 
@@ -1648,6 +1699,8 @@ class OpencodeService {
    * empty list would defeat retries and clear the cached agent list.
    */
   async listAgents(directory?: string | null): Promise<Agent[]> {
+    this.reconnectToRuntimeBaseUrl();
+    const scope = this.runtimeScope;
     // Pass the directory explicitly so we don't depend on (and serialize behind)
     // withDirectory's shared context queue. Concurrent callers for the same
     // directory (e.g. config store + agents store at startup) share one request.
@@ -1662,6 +1715,7 @@ class OpencodeService {
     const request = (async () => {
       const params = effectiveDirectory ? { directory: effectiveDirectory } : undefined;
       const response = await this.client.app.agents(params);
+      assertRuntimeRequestScope(scope);
       if (!response.error && Array.isArray(response.data) && response.data.length > 0) {
         return response.data;
       }
@@ -1679,6 +1733,7 @@ class OpencodeService {
       }
 
       const fallbackData = await fallbackResponse.json().catch(() => null) as unknown;
+      assertRuntimeRequestScope(scope);
       if (!Array.isArray(fallbackData)) {
         throw new Error('agent.list failed: invalid response');
       }
@@ -1689,7 +1744,7 @@ class OpencodeService {
     try {
       return await request;
     } finally {
-      this.listAgentsInFlight.delete(key);
+      if (this.listAgentsInFlight.get(key) === request) this.listAgentsInFlight.delete(key);
     }
   }
 
@@ -1812,6 +1867,8 @@ class OpencodeService {
   }
 
   async listLocalDirectory(directoryPath: string | null | undefined, options?: { respectGitignore?: boolean }): Promise<FilesystemEntry[]> {
+    this.reconnectToRuntimeBaseUrl();
+    const scope = this.runtimeScope;
     const normalizedDirectoryPath = typeof directoryPath === 'string' ? normalizeFsPath(directoryPath.trim()) : '';
     const cacheKey = `${normalizedDirectoryPath}|${options?.respectGitignore ? '1' : '0'}`;
     const now = Date.now();
@@ -1830,6 +1887,7 @@ class OpencodeService {
       try {
         if (desktopFiles) {
           const result = await desktopFiles.listDirectory(directoryPath || '', options);
+          assertRuntimeRequestScope(scope);
           if (!result || !Array.isArray(result.entries)) {
             throw new FilesystemError('Directory listing returned an invalid response', {
               reason: 'invalid-response',
@@ -1875,6 +1933,7 @@ class OpencodeService {
         }
 
         const entries = result.entries as FilesystemEntry[];
+        assertRuntimeRequestScope(scope);
         this.listDirectoryCache.set(cacheKey, {
           entries,
           expiresAt: Date.now() + FS_LIST_CACHE_TTL_MS,

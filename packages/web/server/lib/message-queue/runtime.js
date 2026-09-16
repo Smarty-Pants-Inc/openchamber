@@ -11,11 +11,8 @@
 // it sends, because a queued prompt sent into a running turn would be steered
 // into it instead of starting the next one.
 
-import fs from 'fs';
-import path from 'path';
-
-const QUEUE_FILE_NAME = 'message-queue.json';
-const QUEUE_FILE_VERSION = 1;
+import { randomUUID } from 'node:crypto';
+import { createQueuePersistence } from './persistence.js';
 
 const MAX_SESSIONS = 50;
 const MAX_ITEMS_PER_SESSION = 20;
@@ -148,13 +145,39 @@ const parseStoredItem = (value) => {
   }
 };
 
+const parseStoredQueues = (value, version) => {
+  const stored = asRecord(value);
+  const sessions = asRecord(stored?.sessions);
+  if (stored?.version !== version || !Number.isSafeInteger(stored.revision) || stored.revision < 0 || !sessions) {
+    throw new Error('Unrecognized message queue file; preserve it for recovery');
+  }
+  const queues = new Map();
+  for (const [id, entry] of Object.entries(sessions)) {
+    const queue = asRecord(entry);
+    const directory = asNonEmptyString(queue?.directory);
+    const rawItems = asList(queue?.items);
+    if (!isValidSessionId(id) || !directory || !rawItems) throw new Error('Invalid stored queue; preserve it for recovery');
+    const items = rawItems.map((raw) => {
+      const item = parseStoredItem(raw);
+      const state = asRecord(raw)?.state;
+      if (!item || (version === 2 && !['pending', 'attempting', 'unknown', 'blocked', 'taken'].includes(state))) {
+        throw new Error('Invalid stored queue item; preserve it for recovery');
+      }
+      return { ...item, state: version === 1 || state === 'attempting' ? 'unknown' : state };
+    });
+    if (new Set(items.map(item => item.id)).size !== items.length) throw new Error('Duplicate stored queue item');
+    if (items.length) queues.set(id, { directory, items });
+  }
+  return { queues, revision: stored.revision };
+};
+
 const toPublicAttachment = ({ dataUrl: _dataUrl, ...attachment }) => attachment;
 
 // What clients see: everything except the payloads — attachment data URLs
 // (megabytes of base64) and captured context (a PR diff, say) — which would
 // otherwise ride every broadcast. A take hands the full item back.
 const toPublicItem = (item) => {
-  const publicItem = { id: item.id, createdAt: item.createdAt, content: item.content, text: item.text };
+  const publicItem = { id: item.id, createdAt: item.createdAt, content: item.content, text: item.text, state: item.state };
   if (item.agentMention) publicItem.agentMention = item.agentMention;
   publicItem.attachments = item.attachments.map(toPublicAttachment);
   publicItem.sendConfig = { ...item.sendConfig };
@@ -205,19 +228,18 @@ export function createMessageQueueRuntime({
   abortHoldMs = ABORT_HOLD_MS,
   retryDelayMs = getQueuedSendRetryDelayMs,
 }) {
-  const filePath = path.join(dataDir, QUEUE_FILE_NAME);
+  const persistence = createQueuePersistence(dataDir, parseStoredQueues);
 
-  /** sessionId → { directory, items } */
-  const queues = new Map();
+  /** sessionId → { directory, items }; only durable transactions publish here. */
+  let queues = new Map();
   let revision = 0;
   let loadPromise = null;
   let writePromise = Promise.resolve();
   let stopped = false;
 
-  /** In-memory only — a restart has no in-flight sends. */
+  // The live process reservation supplements the persisted attempt marker.
   const sending = new Map(); // sessionId → itemId
   const timers = new Map(); // sessionId → timeout
-  const failures = new Map(); // sessionId → { itemId, failures, nextAttemptAt }
   const abortedAt = new Map(); // sessionId → timestamp
   const holds = new Map(); // sessionId → expiresAt
   // sessionId → directory, kept after the queue empties: the UI keys its
@@ -227,77 +249,17 @@ export function createMessageQueueRuntime({
 
   // --- persistence ---------------------------------------------------------
 
-  const serialize = () => ({
-    version: QUEUE_FILE_VERSION,
-    revision,
-    sessions: Object.fromEntries(
-      Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
-    ),
-  });
-
-  const readFile = async () => {
-    let raw;
-    try {
-      raw = await fs.promises.readFile(filePath, 'utf8');
-    } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0 };
-      throw error;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      // Malformed is a failure, not an empty queue: keep the bytes for the
-      // user and start over rather than overwriting them on the next write.
-      const backup = `${filePath}.corrupt-${now()}`;
-      await fs.promises.rename(filePath, backup).catch(() => undefined);
-      console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0 };
-    }
-    const stored = asRecord(parsed) ?? {};
-    const sessions = {};
-    for (const [sessionId, value] of Object.entries(asRecord(stored.sessions) ?? {})) {
-      const entry = asRecord(value);
-      if (!entry || !isValidSessionId(sessionId)) continue;
-      const directory = asNonEmptyString(entry.directory);
-      const items = (asList(entry.items) ?? []).map(parseStoredItem).filter(Boolean);
-      if (!directory || items.length === 0) continue;
-      sessions[sessionId] = { directory, items };
-    }
-    return { sessions, revision: asCount(stored.revision) ?? 0 };
-  };
-
   const load = () => {
     if (!loadPromise) {
-      loadPromise = readFile()
-        .then((stored) => {
-          for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
-          revision = Math.max(revision, stored.revision);
-        })
-        .catch((error) => {
-          // A read failure keeps the in-memory (empty) queue but must not be
-          // mistaken for "nothing queued": the next write would clobber the
-          // file, so writes stay disabled until a later load succeeds.
-          loadPromise = null;
-          throw error;
-        });
+      loadPromise = persistence.load().then((stored) => {
+        queues = stored.queues;
+        revision = stored.revision;
+      }).catch((error) => {
+        loadPromise = null;
+        throw error;
+      });
     }
     return loadPromise;
-  };
-
-  const persist = () => {
-    const payload = JSON.stringify(serialize());
-    writePromise = writePromise
-      .then(async () => {
-        await fs.promises.mkdir(dataDir, { recursive: true });
-        const tmpPath = `${filePath}.${process.pid}.tmp`;
-        await fs.promises.writeFile(tmpPath, payload, 'utf8');
-        await fs.promises.rename(tmpPath, filePath);
-      })
-      .catch((error) => {
-        console.warn('[message-queue] failed to persist queue:', error?.message ?? error);
-      });
-    return writePromise;
   };
 
   // --- snapshots -----------------------------------------------------------
@@ -307,7 +269,9 @@ export function createMessageQueueRuntime({
     return {
       sessionId,
       directory: queue?.directory ?? directories.get(sessionId) ?? '',
-      items: (queue?.items ?? []).map(toPublicItem),
+      items: (queue?.items ?? []).map((item) => toPublicItem(
+        item.state === 'attempting' && sending.get(sessionId) !== item.id ? { ...item, state: 'unknown' } : item,
+      )),
       sendingId: sending.get(sessionId) ?? null,
     };
   };
@@ -324,31 +288,50 @@ export function createMessageQueueRuntime({
     });
   };
 
-  /** Every mutation goes through here: bump, persist, broadcast. */
-  const commit = (sessionId) => {
-    revision += 1;
-    void persist();
-    broadcast(sessionId);
-    return { revision, session: sessionSnapshot(sessionId) };
+  /** Serialize validation, durable write, publication and ACK, not just IO. */
+  const commit = (sessionId, change) => {
+    const operation = writePromise.then(async () => {
+      await load();
+      const next = new Map(queues);
+      const result = change(next);
+      if (result === null) return { revision, session: sessionSnapshot(sessionId) };
+      const directory = next.get(sessionId)?.directory ?? queues.get(sessionId)?.directory;
+      if (next.get(sessionId)?.items.length === 0) next.delete(sessionId);
+      await persistence.write(next, revision + 1);
+      queues = next;
+      revision += 1;
+      if (directory) directories.set(sessionId, directory);
+      try { broadcast(sessionId); } catch { /* A disconnected reader cannot undo durable acceptance. */ }
+      return { ...result, revision, session: sessionSnapshot(sessionId) };
+    });
+    writePromise = operation.catch(() => {});
+    return operation;
   };
 
-  const setQueueItems = (sessionId, directory, items) => {
-    directories.set(sessionId, directory);
-    if (items.length === 0) {
-      queues.delete(sessionId);
-      return;
-    }
-    queues.set(sessionId, { directory, items });
-  };
+  const changeItemState = (sessionId, itemId, state) => commit(sessionId, (next) => {
+    const queue = next.get(sessionId);
+    if (!queue?.items.some((item) => item.id === itemId)) return null;
+    next.set(sessionId, { ...queue, items: queue.items.map((item) => item.id === itemId ? { ...item, state } : item) });
+    return {};
+  });
 
   // --- OpenCode access -----------------------------------------------------
 
-  const openCodeFetch = async (fetchPath, { directory, method = 'GET', body, query } = {}) => {
-    const base = buildOpenCodeUrl(fetchPath, '');
+  const captureBackend = () => ({ root: buildOpenCodeUrl('/', ''), headers: getOpenCodeAuthHeaders() });
+  const assertBackend = (backend) => {
+    const current = captureBackend();
+    if (current.root !== backend.root || JSON.stringify(current.headers) !== JSON.stringify(backend.headers)) {
+      throw httpError('Queue backend changed before dispatch', 409);
+    }
+  };
+
+  const openCodeFetch = async (fetchPath, { directory, method = 'GET', body, query, backend = captureBackend() } = {}) => {
+    assertBackend(backend);
+    const base = `${backend.root}${fetchPath.replace(/^\//, '')}`;
     const params = new URLSearchParams(query || {});
     if (directory) params.set('directory', directory);
     const search = params.toString();
-    const headers = { Accept: 'application/json', ...getOpenCodeAuthHeaders() };
+    const headers = { Accept: 'application/json', ...backend.headers };
     const init = { method, headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
     if (body) {
       headers['Content-Type'] = 'application/json';
@@ -356,8 +339,7 @@ export function createMessageQueueRuntime({
     }
     const response = await fetchImpl(search ? `${base}?${search}` : base, init);
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw httpError(`OpenCode ${method} ${fetchPath} failed with ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`, response.status);
+      throw httpError(`Queue upstream request failed (${response.status})`, response.status);
     }
     return response.json().catch(() => null);
   };
@@ -366,8 +348,20 @@ export function createMessageQueueRuntime({
    * Live idleness, or null when it could not be established. Unknown is never
    * idle: a fetch failure re-arms instead of sending into a running turn.
    */
-  const isSessionIdle = async (sessionId, directory) => {
-    const statuses = asRecord(await openCodeFetch('/session/status', { directory }).catch(() => null));
+  const requireCapability = async (directory, backend = captureBackend()) => {
+    const health = asRecord(await openCodeFetch('/global/health', { directory, backend }));
+    assertBackend(backend);
+    const capabilities = asRecord(health?.capabilities);
+    const support = capabilities?.messageQueue;
+    if (health?.healthy !== true || (health.capabilities !== undefined && !capabilities)) throw httpError('Queue backend is unavailable', 503);
+    if (support !== undefined ? support !== 1 : capabilities?.displayAttribution === 1 || capabilities?.ordinaryCreateOnly === 1) {
+      throw httpError('This backend does not support queued messages', 501);
+    }
+    return backend;
+  };
+
+  const isSessionIdle = async (sessionId, directory, backend) => {
+    const statuses = asRecord(await openCodeFetch('/session/status', { directory, backend }).catch(() => null));
     if (!statuses) return null;
     const type = asRecord(statuses[sessionId])?.type;
     if (type === 'busy' || type === 'retry') return false;
@@ -377,6 +371,7 @@ export function createMessageQueueRuntime({
     const messages = asList(await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/message`, {
       directory,
       query: { limit: String(MESSAGE_TAIL_LIMIT) },
+      backend,
     }).catch(() => null));
     if (!messages) return null;
     const last = asRecord(asRecord(messages[messages.length - 1])?.info);
@@ -384,12 +379,12 @@ export function createMessageQueueRuntime({
     return true;
   };
 
-  const resolveSlashCommand = async (text, directory) => {
+  const resolveSlashCommand = async (text, directory, backend) => {
     if (!text.startsWith('/')) return null;
     const [head, ...tail] = text.split(' ');
     const name = head.slice(1);
     if (!name) return null;
-    const commands = asList(await openCodeFetch('/command', { directory })) ?? [];
+    const commands = asList(await openCodeFetch('/command', { directory, backend })) ?? [];
     const match = commands.map(asRecord).find((command) => command?.name === name);
     if (!match) return null;
     return {
@@ -441,7 +436,7 @@ export function createMessageQueueRuntime({
       : [synthetic];
   };
 
-  const sendItem = async (sessionId, directory, item) => {
+  const sendItem = async (sessionId, directory, item, backend, beforeDispatch) => {
     const { providerID, modelID, agent, variant } = item.sendConfig;
     const fileParts = item.attachments.map(toFilePart);
     const contextParts = item.context.flatMap(toContextParts);
@@ -450,13 +445,14 @@ export function createMessageQueueRuntime({
     // without context the command route keeps its semantics; with context the
     // prompt route carries the expanded template (or the skill invocation as an
     // explicit instruction) together with the context.
-    const command = await resolveSlashCommand(item.text, directory);
+    const command = await resolveSlashCommand(item.text, directory, backend);
     if (command && contextParts.length === 0) {
       const body = { command: command.name, arguments: command.arguments, model: `${providerID}/${modelID}` };
       if (agent) body.agent = agent;
       if (variant) body.variant = variant;
       if (fileParts.length > 0) body.parts = fileParts;
-      await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/command`, { directory, method: 'POST', body });
+      await beforeDispatch();
+      await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/command`, { directory, method: 'POST', body, backend });
       return;
     }
     let text = item.text;
@@ -490,7 +486,8 @@ export function createMessageQueueRuntime({
     if (agent) body.agent = agent;
     if (variant) body.variant = variant;
     body.parts = parts;
-    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/prompt_async`, { directory, method: 'POST', body });
+    await beforeDispatch();
+    await openCodeFetch(`/session/${encodeURIComponent(sessionId)}/prompt_async`, { directory, method: 'POST', body, backend });
     if (knowledge.text && sessionKnowledgeRuntime) {
       // After the prompt is accepted, so a rejected dispatch carries it again.
       await sessionKnowledgeRuntime.recordDelivered(sessionId, directory, knowledge.signature).catch(() => undefined);
@@ -508,7 +505,7 @@ export function createMessageQueueRuntime({
   };
 
   const armDispatch = (sessionId, delayMs = dispatchQuietMs) => {
-    if (stopped || !queues.has(sessionId)) return;
+    if (stopped || queues.get(sessionId)?.items[0]?.state !== 'pending') return;
     clearTimer(sessionId);
     const timer = setTimeout(() => {
       timers.delete(sessionId);
@@ -540,14 +537,16 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
-    const failure = failures.get(sessionId);
-    if (failure && failure.itemId !== head.id) failures.delete(sessionId);
-    else if (failure && failure.nextAttemptAt > now()) {
-      armDispatch(sessionId, failure.nextAttemptAt - now());
+    if (head.state !== 'pending') return;
+    let backend;
+    try { backend = await requireCapability(queue.directory); }
+    catch (error) {
+      if (error.status === 501) await changeItemState(sessionId, head.id, 'blocked');
+      else armDispatch(sessionId, retryDelayMs(1));
       return;
     }
 
-    const idle = await isSessionIdle(sessionId, queue.directory);
+    const idle = await isSessionIdle(sessionId, queue.directory, backend);
     if (idle === null) {
       armDispatch(sessionId, retryDelayMs(1));
       return;
@@ -558,31 +557,45 @@ export function createMessageQueueRuntime({
     // Re-read after the awaits — the user may have edited the queue meanwhile.
     const current = queues.get(sessionId);
     const item = current?.items[0];
-    if (!item || item.id !== head.id || sending.has(sessionId)) return;
+    if (!item || item.id !== head.id || item.state !== 'pending' || sending.has(sessionId) || isHeld(sessionId) || stopped) return;
 
     sending.set(sessionId, item.id);
-    broadcast(sessionId);
+    let attempted = false;
     try {
-      await sendItem(sessionId, current.directory, item);
-      const after = queues.get(sessionId);
-      if (after) setQueueItems(sessionId, after.directory, after.items.filter((entry) => entry.id !== item.id));
-      failures.delete(sessionId);
+      await sendItem(sessionId, current.directory, item, backend, async () => {
+        await commit(sessionId, (next) => {
+          assertBackend(backend);
+          const latest = next.get(sessionId);
+          if (stopped || isHeld(sessionId) || latest?.items[0]?.id !== item.id || latest.items[0].state !== 'pending') {
+            throw httpError('Queue changed before dispatch', 409);
+          }
+          next.set(sessionId, { ...latest, items: latest.items.map((entry) => entry.id === item.id ? { ...entry, state: 'attempting' } : entry) });
+          return {};
+        });
+        attempted = true;
+        if (stopped || isHeld(sessionId)) throw httpError('Queue dispatch stopped', 409);
+      });
       sending.delete(sessionId);
-      commit(sessionId);
-      try {
-        onPromptSent?.(sessionId);
-      } catch {
-        // bookkeeping only
+      await commit(sessionId, (next) => {
+        const after = next.get(sessionId);
+        if (!after) return null;
+        next.set(sessionId, { ...after, items: after.items.filter((entry) => entry.id !== item.id) });
+        return {};
+      });
+      try { onPromptSent?.(sessionId); } catch { /* bookkeeping only */ }
+    } catch {
+      sending.delete(sessionId);
+      if (attempted) {
+        // A POST failure, or failure to persist its settlement, is uncertain.
+        // Persisted attempting is also non-replayable if this write fails.
+        await changeItemState(sessionId, item.id, 'unknown').catch(() => {
+          try { broadcast(sessionId); } catch { /* Durable attempting still requires recovery. */ }
+        });
+        console.warn('[message-queue] delivery outcome unknown; retained for recovery');
+      } else {
+        // Only read/preparation failures are safe to retry automatically.
+        armDispatch(sessionId, retryDelayMs(1));
       }
-      console.log(`[message-queue] sent queued message to ${sessionId}`);
-    } catch (error) {
-      sending.delete(sessionId);
-      const count = (failure?.itemId === item.id ? failure.failures : 0) + 1;
-      const nextAttemptAt = now() + retryDelayMs(count);
-      failures.set(sessionId, { itemId: item.id, failures: count, nextAttemptAt });
-      console.warn(`[message-queue] send to ${sessionId} failed (attempt ${count}):`, error?.message ?? error);
-      broadcast(sessionId);
-      armDispatch(sessionId, nextAttemptAt - now());
     }
   }
 
@@ -599,104 +612,126 @@ export function createMessageQueueRuntime({
     return sessionId;
   };
 
-  const enqueue = async (sessionIdInput, directoryInput, itemInput) => {
+  const checkCapacity = (sessionId, directory, current = queues) => {
+    const queue = current.get(sessionId);
+    if (queue && queue.directory !== directory) throw httpError('Queue belongs to a different directory', 409);
+    if ((queue?.items.length ?? 0) >= MAX_ITEMS_PER_SESSION || (!queue && current.size >= MAX_SESSIONS)) {
+      throw httpError('Message queue is full', 409);
+    }
+  };
+
+  const checkAdmission = async (sessionIdInput, directoryInput) => {
     const sessionId = requireSessionId(sessionIdInput);
     const directory = asNonEmptyString(directoryInput);
     if (!directory) throw new TypeError('directory is required');
+    await load();
+    checkCapacity(sessionId, directory);
+    const backend = await requireCapability(directory);
+    return { sessionId, directory, backend };
+  };
+
+  const enqueue = async (sessionIdInput, directoryInput, itemInput, requestId) => {
     const parsed = parseQueuedItemInput(itemInput);
-    await load();
-    const item = {
-      id: `queued-${now()}-${Math.random().toString(36).slice(2, 9)}`,
-      createdAt: now(),
-      ...parsed,
-    };
-    const existing = queues.get(sessionId);
-    const items = [...(existing?.items ?? []), item].slice(-MAX_ITEMS_PER_SESSION);
-    queues.set(sessionId, { directory, items });
-    directories.set(sessionId, directory);
-    if (queues.size > MAX_SESSIONS) {
-      const oldest = Array.from(queues.entries())
-        .filter(([id]) => id !== sessionId && !sending.has(id))
-        .sort((left, right) => (left[1].items[0]?.createdAt ?? 0) - (right[1].items[0]?.createdAt ?? 0))
-        .slice(0, queues.size - MAX_SESSIONS);
-      for (const [staleId] of oldest) {
-        queues.delete(staleId);
-        clearTimer(staleId);
-        broadcast(staleId);
-        directories.delete(staleId);
-      }
-    }
-    const result = commit(sessionId);
-    // The session may already be idle (queued from a busy-looking composer
-    // right as the turn ended); the tick verifies before sending.
+    if (requestId !== undefined && !/^[A-Za-z0-9_-]{8,128}$/.test(requestId)) throw new TypeError('Invalid queue request ID');
+    const { sessionId, directory, backend } = await checkAdmission(sessionIdInput, directoryInput);
+    const item = { id: requestId ?? `queued-${randomUUID()}`, createdAt: now(), ...parsed, state: 'pending' };
+    const result = await commit(sessionId, (next) => {
+      assertBackend(backend);
+      checkCapacity(sessionId, directory, next);
+      const existing = next.get(sessionId);
+      if (existing?.items.some((entry) => entry.id === item.id)) throw httpError('Queue request already admitted; reconcile instead of retrying', 409);
+      next.set(sessionId, { directory, items: [...(existing?.items ?? []), item] });
+      return { itemId: item.id };
+    });
     armDispatch(sessionId);
-    return { ...result, itemId: item.id };
+    return result;
   };
 
-  const remove = async (sessionIdInput, itemId) => {
+  const remove = (sessionIdInput, itemId) => {
     const sessionId = requireSessionId(sessionIdInput);
-    await load();
-    if (sending.get(sessionId) === itemId) throw httpError('message is being sent', 409);
-    const queue = queues.get(sessionId);
-    if (!queue || !queue.items.some((item) => item.id === itemId)) {
-      return { revision, session: sessionSnapshot(sessionId) };
-    }
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id !== itemId));
-    return commit(sessionId);
+    return commit(sessionId, (next) => {
+      if (sending.get(sessionId) === itemId) throw httpError('message is being sent', 409);
+      const queue = next.get(sessionId);
+      if (!queue?.items.some((item) => item.id === itemId)) return null;
+      next.set(sessionId, { ...queue, items: queue.items.filter((item) => item.id !== itemId) });
+      return {};
+    });
   };
 
-  /** Removes the item and hands its full payload (attachments included) back. */
-  const take = async (sessionIdInput, itemId) => {
+  // Taking stops server dispatch but retains custody. A lost response cannot
+  // lose the only payload or make it sendable again. Recovery is read-only;
+  // explicit deletion after reconciliation is separate from taking.
+  const takeItems = (sessionIdInput, itemId) => {
+    const sessionId = requireSessionId(sessionIdInput);
+    return commit(sessionId, (next) => {
+      const queue = next.get(sessionId);
+      const items = (queue?.items ?? []).filter((item) => (!itemId || item.id === itemId)
+        && item.state === 'pending' && sending.get(sessionId) !== item.id);
+      if (itemId && !items.length) throw httpError('Queued message is not available for transfer; recover it instead', 409);
+      if (queue && items.length) {
+        const ids = new Set(items.map((item) => item.id));
+        next.set(sessionId, { ...queue, items: queue.items.map((item) => ids.has(item.id) ? { ...item, state: 'taken' } : item) });
+      }
+      if (itemId) return { items, item: items[0] };
+      return { items };
+    });
+  };
+  const take = (sessionId, itemId) => takeItems(sessionId, itemId);
+  const takeAll = (sessionId) => takeItems(sessionId);
+
+  const recover = async (sessionIdInput, itemId) => {
     const sessionId = requireSessionId(sessionIdInput);
     await load();
-    if (sending.get(sessionId) === itemId) throw httpError('message is being sent', 409);
-    const queue = queues.get(sessionId);
-    const item = queue?.items.find((entry) => entry.id === itemId);
-    if (!queue || !item) throw httpError('queued message not found', 404);
-    setQueueItems(sessionId, queue.directory, queue.items.filter((entry) => entry.id !== itemId));
-    return { ...commit(sessionId), item };
+    const item = queues.get(sessionId)?.items.find((entry) => entry.id === itemId);
+    if (!item) throw httpError('Queued message not found', 404);
+    return { revision, session: sessionSnapshot(sessionId), item };
   };
 
-  /** Removes every item not currently being sent and hands them back in order. */
-  const takeAll = async (sessionIdInput) => {
+  const reorder = (sessionIdInput, itemIds) => {
     const sessionId = requireSessionId(sessionIdInput);
-    await load();
-    const queue = queues.get(sessionId);
-    if (!queue) return { revision, session: sessionSnapshot(sessionId), items: [] };
-    const sendingId = sending.get(sessionId) ?? null;
-    const items = queue.items.filter((item) => item.id !== sendingId);
-    if (items.length === 0) return { revision, session: sessionSnapshot(sessionId), items: [] };
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId));
-    return { ...commit(sessionId), items };
+    if (!asList(itemIds) || itemIds.some((id) => !asNonEmptyString(id))) throw new TypeError('itemIds must be a list of ids');
+    return commit(sessionId, (next) => {
+      const queue = next.get(sessionId);
+      if (!queue) return null;
+      // The UI lists pending/attempting items only. Retained recovery records
+      // and live attempts stay fixed; pending work cannot cross either barrier.
+      const visible = queue.items.filter(item => item.state === 'pending'
+        || (item.state === 'attempting' && sending.get(sessionId) === item.id));
+      const byId = new Map(visible.map(item => [item.id, item]));
+      if (itemIds.length !== byId.size || new Set(itemIds).size !== itemIds.length || itemIds.some((id) => !byId.has(id))) {
+        throw new TypeError('itemIds must list every visible queued message exactly once');
+      }
+      const segments = new Map();
+      let segment = 0;
+      for (const item of queue.items) {
+        if (item.state === 'pending') segments.set(item.id, segment);
+        else segment += 1;
+      }
+      let index = 0;
+      const items = queue.items.map(item => {
+        if (!byId.has(item.id)) return item;
+        const replacement = byId.get(itemIds[index++]);
+        if (item.state === 'attempting' ? replacement.id !== item.id
+          : replacement.state !== 'pending' || segments.get(item.id) !== segments.get(replacement.id)) {
+          throw httpError('Queue order cannot cross an attempt or recovery barrier', 409);
+        }
+        return replacement;
+      });
+      next.set(sessionId, { ...queue, items });
+      return {};
+    });
   };
 
-  const reorder = async (sessionIdInput, itemIds) => {
+  const clear = (sessionIdInput) => {
     const sessionId = requireSessionId(sessionIdInput);
-    if (!asList(itemIds) || itemIds.some((id) => !asNonEmptyString(id))) {
-      throw new TypeError('itemIds must be a list of ids');
-    }
-    await load();
-    const queue = queues.get(sessionId);
-    if (!queue) return { revision, session: sessionSnapshot(sessionId) };
-    const byId = new Map(queue.items.map((item) => [item.id, item]));
-    if (itemIds.length !== byId.size || new Set(itemIds).size !== itemIds.length || itemIds.some((id) => !byId.has(id))) {
-      throw new TypeError('itemIds must list every queued message exactly once');
-    }
-    queues.set(sessionId, { directory: queue.directory, items: itemIds.map((id) => byId.get(id)) });
-    return commit(sessionId);
-  };
-
-  const clear = async (sessionIdInput) => {
-    const sessionId = requireSessionId(sessionIdInput);
-    await load();
-    const queue = queues.get(sessionId);
-    if (!queue) return { revision, session: sessionSnapshot(sessionId) };
-    // Never drop a message already handed to OpenCode: its send resolves and
-    // must find its entry.
-    const sendingId = sending.get(sessionId) ?? null;
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId));
-    clearTimer(sessionId);
-    return commit(sessionId);
+    return commit(sessionId, (next) => {
+      const queue = next.get(sessionId);
+      if (!queue) return null;
+      // Bulk clear is not reconciliation of uncertain effects or transfers.
+      next.set(sessionId, { ...queue, items: queue.items.filter((item) => item.state !== 'pending' || sending.get(sessionId) === item.id) });
+      clearTimer(sessionId);
+      return {};
+    });
   };
 
   const setHold = (sessionIdInput, held, ttlMs = HOLD_DEFAULT_TTL_MS) => {
@@ -722,11 +757,13 @@ export function createMessageQueueRuntime({
     const deletedSessionId = extractDeletedSessionId(payload);
     if (deletedSessionId) {
       if (!queues.has(deletedSessionId)) return;
-      queues.delete(deletedSessionId);
       clearTimer(deletedSessionId);
-      failures.delete(deletedSessionId);
-      commit(deletedSessionId);
-      directories.delete(deletedSessionId);
+      void commit(deletedSessionId, (next) => {
+        const queue = next.get(deletedSessionId);
+        if (!queue) return null;
+        next.set(deletedSessionId, { ...queue, items: queue.items.map((item) => item.state === 'pending' ? { ...item, state: 'blocked' } : item) });
+        return {};
+      }).catch(() => { console.warn('[message-queue] could not persist deleted-session hold'); });
       return;
     }
 
@@ -782,6 +819,8 @@ export function createMessageQueueRuntime({
     snapshot,
     sessionSnapshot,
     enqueue,
+    checkAdmission,
+    recover,
     remove,
     take,
     takeAll,
@@ -799,7 +838,7 @@ export function createMessageQueueRuntime({
 export function registerMessageQueueRoutes(app, runtime) {
   const respondError = (res, error, fallback) => {
     const status = error instanceof TypeError ? 400 : (Number.isInteger(error?.status) ? error.status : 500);
-    res.status(status).json({ error: error?.message ?? fallback });
+    res.status(status).json({ error: status === 500 ? fallback : error?.message ?? fallback });
   };
 
   app.get('/api/message-queue', async (_req, res) => {
@@ -811,9 +850,21 @@ export function registerMessageQueueRoutes(app, runtime) {
     }
   });
 
+  app.get('/api/message-queue/sessions/:sessionId/admission', async (req, res) => {
+    try {
+      await runtime.checkAdmission(req.params.sessionId, req.query.directory);
+      res.json({ supported: true });
+    } catch (error) { respondError(res, error, 'Queue admission refused'); }
+  });
+
+  app.get('/api/message-queue/sessions/:sessionId/items/:itemId', async (req, res) => {
+    try { res.json(await runtime.recover(req.params.sessionId, req.params.itemId)); }
+    catch (error) { respondError(res, error, 'Queue recovery failed'); }
+  });
+
   app.post('/api/message-queue/sessions/:sessionId/items', async (req, res) => {
     try {
-      res.json(await runtime.enqueue(req.params.sessionId, req.body?.directory, req.body?.item));
+      res.json(await runtime.enqueue(req.params.sessionId, req.body?.directory, req.body?.item, req.body?.requestId));
     } catch (error) {
       respondError(res, error, 'Failed to queue message');
     }
