@@ -242,6 +242,20 @@ it('old readers see no ready work and old-file rollback cannot overwrite newer c
   expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'message-queue-v2.json'), 'utf8')).sessions[SESSION].items).toHaveLength(1);
 });
 
+it.each(['unknown', 'taken', 'blocked'])('reorders pending work within a %s barrier without moving custody', async (state) => {
+  const { runtime, dataDir } = fixture();
+  const items = ['before', 'barrier', 'after-one', 'after-two'].map(id => ({ ...input, id, createdAt: 1, state: id === 'barrier' ? state : 'pending' }));
+  fs.writeFileSync(path.join(dataDir, 'message-queue.json'), JSON.stringify({ version: 2, sessions: {} }));
+  fs.writeFileSync(path.join(dataDir, 'message-queue-v2.json'), JSON.stringify({ version: 2, revision: 1, sessions: { [SESSION]: { directory: '/repo', items } } }));
+  await runtime.load();
+  await runtime.reorder(SESSION, ['before', 'after-two', 'after-one']);
+  expect(runtime.sessionSnapshot(SESSION).items.map(item => item.id)).toEqual(['before', 'barrier', 'after-two', 'after-one']);
+  const current = runtime.snapshot();
+  await expect(runtime.reorder(SESSION, ['after-one', 'before', 'after-two'])).rejects.toMatchObject({ status: 409 });
+  expect(runtime.snapshot()).toEqual(current);
+  expect((await runtime.recover(SESSION, 'barrier')).item).toEqual(items[1]);
+});
+
 it('fails closed if corrupt-file quarantine fails, retaining the original bytes', async () => {
   const { runtime, dataDir } = fixture();
   const file = path.join(dataDir, 'message-queue.json');

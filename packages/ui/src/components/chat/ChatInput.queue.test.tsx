@@ -87,6 +87,34 @@ test('held queue ACK consumes nothing; acceptance preserves newer typing and att
     expect(useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: session.id })).toEqual([]);
 });
 
+test('held preflight captures only the context present with the submitted text', async () => {
+    const c = await composer();
+    const preflight = deferred<Response>();
+    const requests = queueTransport(async request => request.method === 'GET' ? preflight.promise
+        : Response.json({ revision: 1, session: { sessionId: session.id, directory, sendingId: null, items: [] } }));
+    await c.submit();
+    expect(requests.map(request => request.method)).toEqual(['GET']);
+    await c.replace('newer input');
+    const newerPart = { text: 'newer synthetic', synthetic: true };
+    await act(async () => {
+        useInputStore.setState(state => ({ pendingSyntheticParts: [...state.pendingSyntheticParts ?? [], newerPart] }));
+        useInlineCommentDraftStore.getState().addDraft({ directory, sessionKey: session.id }, {
+            source: 'file', fileLabel: 'new.ts', startLine: 1, endLine: 1, code: 'new', language: 'ts', text: 'newer inline',
+        });
+        preflight.resolve(Response.json({ supported: true }));
+        await sleep(0);
+    });
+    const body = await requests.find(request => request.method === 'POST')?.json();
+    expect(body.item.content).toBe('queue this');
+    const texts = body.item.context.map((part: { text: string }) => part.text).join('\n');
+    expect(texts).toContain('inline context');
+    expect(texts).not.toContain('newer synthetic');
+    expect(texts).not.toContain('newer inline');
+    expect(c.text()).toBe('newer input');
+    expect(useInputStore.getState().pendingSyntheticParts).toEqual([newerPart]);
+    expect(useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: session.id }).map(draft => draft.text)).toEqual(['newer inline']);
+});
+
 test('a queue write refusal preserves the complete live input without restore races', async () => {
     const c = await composer();
     const requests = queueTransport(async request => request.method === 'GET' ? Response.json({ supported: true }) : Response.json({ error: 'full' }, { status: 409 }));

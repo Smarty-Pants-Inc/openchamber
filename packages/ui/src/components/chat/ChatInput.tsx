@@ -9,7 +9,7 @@ import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
+import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage, type MessageQueueTarget } from '@/stores/messageQueueStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
@@ -28,7 +28,7 @@ import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommen
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { startReviewFlow } from '@/lib/reviewFlow';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
@@ -1084,6 +1084,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const queueTarget = messageQueueTarget;
         const queueSessionId = currentSessionId;
         const messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
+        // Capture submission context with the text, before preflight can yield.
+        const syntheticParts = [...(useInputStore.getState().pendingSyntheticParts ?? [])];
+        const draftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: queueRuntimeKey } : null;
+        const drafts = draftTarget ? [...useInlineCommentDraftStore.getState().getDrafts(draftTarget)] : [];
+        const linked: LinkedReferences = { issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue };
         queueAdmissionInFlight.current = true;
         try {
         // Shell identity is not backend capability. This read refuses before
@@ -1120,10 +1125,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         // Everything attached to the composer leaves with the message: the
         // chips are part of what was queued, and come back if it is edited.
-        const syntheticParts = useInputStore.getState().pendingSyntheticParts ?? [];
-        const draftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: queueRuntimeKey } : null;
-        const drafts = draftTarget ? useInlineCommentDraftStore.getState().getDrafts(draftTarget) : [];
-        const linked: LinkedReferences = { issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue };
         const context = buildComposerContext({
             inlineComments: drafts,
             syntheticTexts: syntheticParts.map((part) => part.text),
@@ -1230,13 +1231,30 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
     }, [inlineDraftTarget]);
 
-    const handleQueuedMessageEdit = React.useCallback((queued: QueuedMessage) => {
+    const handleQueuedMessageEdit = React.useCallback(async (target: MessageQueueTarget, messageId: string) => {
+        if (!messageQueueTarget || getMessageQueueKey(target) !== getMessageQueueKey(messageQueueTarget)) return;
+        const scope = captureRuntimeRequestScope();
+        const editor = composerRef.current;
+        const text = editor?.getValue() ?? messageRef.current;
+        const input = useInputStore.getState();
+        const draftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: target.runtimeKey } : null;
+        const drafts = draftTarget ? useInlineCommentDraftStore.getState().getDrafts(draftTarget) : null;
+        let queued;
+        try { queued = await useMessageQueueStore.getState().popToInput(target, messageId); }
+        catch { toast.error(t('chat.queuedMessage.toast.takeFailed')); return; }
+        // A successful transfer remains accepted under its origin. Only editor
+        // publication is conditional; navigation is never a rejected receipt.
+        if (!queued || !isRuntimeRequestScopeCurrent(scope)
+            || currentChatDraftIdentityRef.current !== chatDraftIdentity
+            || !editor || composerRef.current !== editor || editor.getValue() !== text) return;
+        const currentInput = useInputStore.getState();
+        if (currentInput.attachedFiles !== input.attachedFiles || currentInput.pendingSyntheticParts !== input.pendingSyntheticParts
+            || (draftTarget && useInlineCommentDraftStore.getState().getDrafts(draftTarget) !== drafts)) return;
+        if (queued.attachments?.length) currentInput.setAttachedFiles([...currentInput.attachedFiles, ...queued.attachments]);
         setMessage(queued.content);
         restoreQueuedContext(queued.context ?? []);
-        setTimeout(() => {
-            composerRef.current?.focus();
-        }, 0);
-    }, [restoreQueuedContext]);
+        editor.focus();
+    }, [messageQueueTarget, chatDraftIdentity, inlineDraftTarget, restoreQueuedContext, t]);
 
     const handleQueuedMessageSend = React.useCallback((messageId: string) => {
         // Force-sending from the queue during a busy session counts as steer

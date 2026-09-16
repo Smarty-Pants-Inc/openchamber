@@ -143,6 +143,35 @@ test('a lost admission response reconciles by request ID without a second POST',
     expect(useMessageQueueStore.getState().recoveryMessages[getMessageQueueKey(owner)]).toEqual([]);
 });
 
+for (const present of [true, false]) test(`older full snapshot preserves newer session recovery; present=${present}`, async () => {
+    const owner = target();
+    const store = useMessageQueueStore.getState();
+    const key = getMessageQueueKey(owner);
+    const session = { sessionId: owner.sessionId, directory: owner.directory, sendingId: null, items: [
+        { ...item, id: 'revision-item', createdAt: 1, attachments: [], state: 'pending' as const },
+    ] };
+    store.applyServerSession(session, 9, owner.runtimeKey);
+    let release = (response: Response) => { void response; };
+    respond = () => new Promise<Response>(resolve => { release = resolve; });
+    const hydration = store.hydrate();
+    // Reach the real fetch before releasing its delayed full snapshot.
+    for (let i = 0; i < 20 && requests.length === 0; i++) await Promise.resolve();
+    expect(requests).toHaveLength(1);
+    store.applyServerSession({ ...session, sendingId: 'new-attempt', items: [
+        { ...session.items[0], state: 'unknown' },
+        { ...session.items[0], id: 'new-pending' },
+        { ...session.items[0], id: 'new-attempt', state: 'attempting' },
+    ] }, 11, owner.runtimeKey);
+    const current = useMessageQueueStore.getState();
+    const currentRecovery = current.recoveryMessages[key];
+    release(Response.json({ revision: 10, sessions: present ? [session] : [] }));
+    await hydration;
+    expect(store.getQueueForTarget(owner)).toEqual(current.queuedMessages[key]);
+    expect(useMessageQueueStore.getState().sendingIds[key]).toEqual(current.sendingIds[key]);
+    expect(useMessageQueueStore.getState().recoveryMessages[key]).toEqual(currentRecovery);
+    expect(useMessageQueueStore.getState().recoveryMessages[key][0].state).toBe('unknown');
+});
+
 test('snapshot uncertainty stays out of both queue chips and sendable work', async () => {
     const owner = target();
     respond = async () => Response.json({ revision: 100, sessions: [{ sessionId: owner.sessionId, directory: owner.directory, sendingId: null, items: [

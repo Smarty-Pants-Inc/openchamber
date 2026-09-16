@@ -7,7 +7,7 @@ import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 import type { AttachedFile } from './types/sessionTypes';
 import { contextPartMetadataSchema, type ContextPartMetadata } from '@/lib/messages/contextParts';
 import { updateDesktopSettings } from '@/lib/persistence';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -683,24 +683,36 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                     popToInput: async (target, messageId) => {
                         const [message] = await get().takeForSend(target, messageId);
-                        return message ?? null;
+                        if (!message) return null;
+                        const key = getMessageQueueKey(target);
+                        // Retain the full accepted transfer under its origin even
+                        // when navigation makes editor publication inappropriate.
+                        set(state => ({
+                            ...removeMessageLocally(state, key, message.id),
+                            recoveryMessages: { ...state.recoveryMessages, [key]: [
+                                ...(state.recoveryMessages[key] ?? []).filter(item => item.id !== message.id),
+                                { ...message, state: 'taken' },
+                            ] },
+                        }));
+                        return message;
                     },
 
                     takeForSend: async (target, messageId) => {
                         const key = getMessageQueueKey(target);
                         requireCurrentTarget(target);
                         if (isServerOwnedMessageQueue()) {
+                            const scope = captureRuntimeRequestScope();
                             if (messageId) {
                                 const result = await requestJson(
                                     serverTakeResponseSchema,
                                     `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}/take`,
                                     jsonInit('POST'),
                                 );
-                                applyServerSession(result.session, result.revision, target.runtimeKey);
+                                if (isRuntimeRequestScopeCurrent(scope)) applyServerSession(result.session, result.revision, target.runtimeKey);
                                 return [toQueuedMessage(result.item)];
                             }
                             const result = await requestJson(serverTakeAllResponseSchema, `${sessionPath(target.sessionId)}/take`, jsonInit('POST'));
-                            applyServerSession(result.session, result.revision, target.runtimeKey);
+                            if (isRuntimeRequestScopeCurrent(scope)) applyServerSession(result.session, result.revision, target.runtimeKey);
                             return result.items.map(toQueuedMessage);
                         }
 
@@ -824,27 +836,24 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (!isCurrent()) return;
                         serverOwnedRuntimeKeys.add(runtimeKey);
                         set((state) => {
-                            const queuedMessages: Record<string, QueuedMessage[]> = {};
-                            const sendingIds: Record<string, string[]> = {};
-                            const recoveryMessages = Object.fromEntries(Object.entries(state.recoveryMessages).map(([key, items]) => [key,
-                                parseMessageQueueKey(key)?.runtimeKey === runtimeKey ? items.filter(item => item.state === 'unconfirmed') : items,
-                            ]));
-                            for (const [key, queue] of Object.entries(state.queuedMessages)) {
-                                if (parseMessageQueueKey(key)?.runtimeKey !== runtimeKey) queuedMessages[key] = queue;
-                            }
-                            for (const [key, ids] of Object.entries(state.sendingIds)) {
-                                if (parseMessageQueueKey(key)?.runtimeKey !== runtimeKey) sendingIds[key] = ids;
+                            const queuedMessages = { ...state.queuedMessages };
+                            const sendingIds = { ...state.sendingIds };
+                            const recoveryMessages = { ...state.recoveryMessages };
+                            // Reconcile all known keys, including sessions absent
+                            // from this snapshot. Newer per-session state wins whole.
+                            const keys = new Set([...Object.keys(queuedMessages), ...Object.keys(sendingIds), ...Object.keys(recoveryMessages), ...appliedRevisions.keys()]);
+                            for (const key of keys) {
+                                if (parseMessageQueueKey(key)?.runtimeKey !== runtimeKey || (appliedRevisions.get(key) ?? -1) > snapshot.revision) continue;
+                                delete queuedMessages[key];
+                                delete sendingIds[key];
+                                recoveryMessages[key] = (recoveryMessages[key] ?? []).filter(item => item.state === 'unconfirmed');
+                                appliedRevisions.set(key, snapshot.revision);
                             }
                             for (const session of snapshot.sessions) {
                                 const target = createMessageQueueTarget(session.sessionId, session.directory, runtimeKey);
                                 if (!target) continue;
                                 const key = getMessageQueueKey(target);
-                                if ((appliedRevisions.get(key) ?? -1) > snapshot.revision) {
-                                    // A broadcast newer than this snapshot already landed; keep it.
-                                    if (state.queuedMessages[key]) queuedMessages[key] = state.queuedMessages[key];
-                                    if (state.sendingIds[key]) sendingIds[key] = state.sendingIds[key];
-                                    continue;
-                                }
+                                if ((appliedRevisions.get(key) ?? -1) > snapshot.revision) continue;
                                 appliedRevisions.set(key, snapshot.revision);
                                 const items = session.items.map(toQueuedMessage);
                                 const pending = items.filter((item) => item.state === 'pending' || item.state === 'attempting');

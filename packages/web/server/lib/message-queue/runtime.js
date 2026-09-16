@@ -693,11 +693,31 @@ export function createMessageQueueRuntime({
     return commit(sessionId, (next) => {
       const queue = next.get(sessionId);
       if (!queue) return null;
-      const byId = new Map(queue.items.map((item) => [item.id, item]));
+      // The UI lists pending/attempting items only. Retained recovery records
+      // and live attempts stay fixed; pending work cannot cross either barrier.
+      const visible = queue.items.filter(item => item.state === 'pending'
+        || (item.state === 'attempting' && sending.get(sessionId) === item.id));
+      const byId = new Map(visible.map(item => [item.id, item]));
       if (itemIds.length !== byId.size || new Set(itemIds).size !== itemIds.length || itemIds.some((id) => !byId.has(id))) {
-        throw new TypeError('itemIds must list every queued message exactly once');
+        throw new TypeError('itemIds must list every visible queued message exactly once');
       }
-      next.set(sessionId, { ...queue, items: itemIds.map((id) => byId.get(id)) });
+      const segments = new Map();
+      let segment = 0;
+      for (const item of queue.items) {
+        if (item.state === 'pending') segments.set(item.id, segment);
+        else segment += 1;
+      }
+      let index = 0;
+      const items = queue.items.map(item => {
+        if (!byId.has(item.id)) return item;
+        const replacement = byId.get(itemIds[index++]);
+        if (item.state === 'attempting' ? replacement.id !== item.id
+          : replacement.state !== 'pending' || segments.get(item.id) !== segments.get(replacement.id)) {
+          throw httpError('Queue order cannot cross an attempt or recovery barrier', 409);
+        }
+        return replacement;
+      });
+      next.set(sessionId, { ...queue, items });
       return {};
     });
   };

@@ -78,6 +78,12 @@ A recovered `attempting` item becomes `unknown`. Failed attempt settlement also
 leaves a non-replayable item, even if the write of `unknown` fails. In that case
 the stored `attempting` marker remains the recovery evidence. An uncertain head
 holds subsequent work in that session. Other sessions continue independently.
+Reorder requests list every visible pending or live-attempting item exactly once.
+Recovery records keep their slots, and live attempts are fixed barriers too.
+Pending items can move only within their existing segment between barriers.
+Cross-barrier moves return `409`; missing, duplicate or hidden IDs return `400`.
+A failed settlement's non-live attempt marker is projected as unknown and is not
+part of the reorderable ID set. Reordering never requires deleting custody.
 Bulk clear removes only pending items not reserved for sending. Individual
 reviewed removal can delete an uncertain or taken record. Session deletion blocks
 pending items rather than destroying their payloads.
@@ -166,7 +172,7 @@ projections, despite including all item IDs and states.
 | `DELETE /sessions/:id/items/:itemId` | Explicit removal; `409` while sending |
 | `POST /sessions/:id/items/:itemId/take` | Persist `taken`, return full item; repeat transfer refuses |
 | `POST /sessions/:id/take` | Persist `taken` for all transferable pending items, return payloads |
-| `PUT /sessions/:id/order` | Complete permutation of retained item IDs |
+| `PUT /sessions/:id/order` | Complete permutation of visible IDs, preserving attempt/recovery barriers |
 | `DELETE /sessions/:id` | Clear pending work, preserve uncertain/transferred/in-flight records |
 | `PUT /sessions/:id/hold` | `{ held, ttlMs? }` |
 
@@ -176,8 +182,9 @@ payloads are returned only to the authenticated requester, never broadcast.
 
 ## UI and foreground recovery
 
-The composer preflights before preparing documents or consuming input. It waits
-for admission before consuming the captured text, files and context. Later edits
+The composer captures text, synthetic parts and inline draft identities before
+its first preflight await. It preflights before preparing documents or consuming
+input, and consumes only those captured entries after acceptance. Later edits
 remain intact. An ambiguous POST retains local payload as `unconfirmed` and makes
 only a read to reconcile the request ID. An unresolved item blocks further intake
 for that target. The recovery notice downloads full JSON and confirms reviewed
@@ -188,3 +195,14 @@ sendable lists. Browser legacy queues are retained for review, never uploaded on
 hydration. Foreground VS Code admission checks the selected backend through its
 existing scoped SDK. Its in-flight failures become unknown. Persisted foreground
 items return as recovery work on reload, not ready-to-send work.
+
+Full-snapshot hydration preserves every newer per-session projection, including
+recovery and sending IDs, even if that session is absent from the older snapshot.
+
+Edit takes remain accepted even when the initiating editor is no longer current.
+The store retains the full taken payload under the captured queue target. Only
+editor publication checks the captured composer identity, current input and
+runtime request scope, including transport/auth generations. Late takes never
+append attachments or replace text/context in another editor, and never become
+fake rejection or automatic retry. Queue chips delegate the entire Edit action
+to the composer rather than writing to the global input store themselves.
