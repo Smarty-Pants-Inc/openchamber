@@ -12,7 +12,7 @@ import { SettingsView } from '@/components/views/SettingsView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
-import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+import { completeNativeAuthRecovery, subscribeNativeAuthExpiry } from './nativeAuthRecovery';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
@@ -28,7 +28,7 @@ import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device'
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint, MOBILE_DISCONNECTED_RUNTIME_KEY } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint, MOBILE_DISCONNECTED_RUNTIME_KEY } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { cn } from '@/lib/utils';
@@ -48,7 +48,7 @@ import {
 import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { SyncProvider } from '@/sync/sync-context';
+import { RuntimeSyncProvider } from '@/sync/sync-context';
 
 import { SyncAppEffects } from './AppEffects';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
@@ -660,6 +660,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   const nativeResumeValidationSeqRef = React.useRef(0);
 
   const handleNativeResume = React.useCallback(() => {
+    const scope = captureRuntimeRequestScope();
     const apiBaseUrl = getRuntimeApiBaseUrl();
     const validationSeq = nativeResumeValidationSeqRef.current + 1;
     nativeResumeValidationSeqRef.current = validationSeq;
@@ -683,6 +684,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     // runtime-endpoint-changed subscription (which re-bootstraps the app), so we
     // only refresh in place when the transport is 'unchanged'.
     const refreshInPlace = () => {
+      if (!completeNativeAuthRecovery(scope)) return;
       void initializeApp();
       void refreshGitHubAuthStatus(apis.github, { force: true });
       void refreshLinearAuthStatus(apis.linear, { force: true });
@@ -789,14 +791,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   // mounted here), so this is the only surface reacting to the signal.
   React.useEffect(() => {
     if (!isNativeMobileApp) return;
-    return useAuthSessionStore.subscribe((store, previous) => {
-      if (store.state === 'expired' && previous.state !== 'expired') {
-        handleNativeResume();
-        // The probe ladder owns the outcome from here; the shared store goes
-        // back to 'ok' so a later expiry can signal again.
-        useAuthSessionStore.getState().markAuthenticated();
-      }
-    });
+    return subscribeNativeAuthExpiry(handleNativeResume);
   }, [isNativeMobileApp, handleNativeResume]);
 
   React.useEffect(() => {
@@ -1267,7 +1262,7 @@ export function MobileApp({ apis }: MobileAppProps) {
 
   return (
     <ErrorBoundary>
-      <SyncProvider key={runtimeEndpointEpoch} sdk={opencodeClient.getSdkClient()} directory={currentDirectory || ''}>
+      <RuntimeSyncProvider key={runtimeEndpointEpoch} directory={currentDirectory || ''}>
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <div className="h-full bg-background text-foreground">
@@ -1293,7 +1288,7 @@ export function MobileApp({ apis }: MobileAppProps) {
             </div>
           </TooltipProvider>
         </RuntimeAPIProvider>
-      </SyncProvider>
+      </RuntimeSyncProvider>
     </ErrorBoundary>
   );
 }
