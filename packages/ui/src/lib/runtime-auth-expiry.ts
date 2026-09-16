@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { resetRuntimeAuthGeneration } from './runtime-auth';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from './runtime-switch';
 
 // Proactive detection of an expired OpenChamber client session (cookie or
 // bearer). There is no polling: every HTTP response already funnels through
@@ -21,11 +23,14 @@ interface AuthSessionStore {
   markAuthenticated: () => void;
 }
 
-export const useAuthSessionStore = create<AuthSessionStore>((set) => ({
+export const useAuthSessionStore = create<AuthSessionStore>((set, get) => ({
   state: 'ok',
   markExpired: () => set((current) => (current.state === 'expired' ? current : { state: 'expired' })),
   markReauthenticating: () => set({ state: 'reauthenticating' }),
-  markAuthenticated: () => set({ state: 'ok' }),
+  markAuthenticated: () => {
+    if (get().state !== 'ok') resetRuntimeAuthGeneration();
+    set({ state: 'ok' });
+  },
 }));
 
 // One confirm probe per window: parallel 401s from a burst of requests must
@@ -36,8 +41,22 @@ const CONFIRM_PROBE_MIN_INTERVAL_MS = 15_000;
 // enough for a 12h/7d session to plausibly have died.
 const FOCUS_REVALIDATE_MIN_INTERVAL_MS = 5 * 60_000;
 
-let lastProbeAt = 0;
-let probeInFlight = false;
+let lastProbeAt = -Infinity;
+let probeScope: RuntimeRequestScope | null = null;
+let probeInFlight: RuntimeRequestScope | null = null;
+
+export const resetRuntimeAuthSession = (): void => {
+  probeScope = captureRuntimeRequestScope();
+  lastProbeAt = -Infinity;
+  probeInFlight = null;
+  useAuthSessionStore.setState({ state: 'ok' });
+};
+
+const currentProbeScope = (): RuntimeRequestScope => {
+  if (!probeScope) probeScope = captureRuntimeRequestScope();
+  if (!isRuntimeRequestScopeCurrent(probeScope)) resetRuntimeAuthSession();
+  return probeScope ?? captureRuntimeRequestScope();
+};
 
 // Paths where a 401 is part of a normal flow (wrong password on login, a
 // pairing redeem, the confirm probe itself) rather than evidence of expiry.
@@ -57,14 +76,16 @@ const isClassifiablePath = (url: string): boolean => {
   return !isExcludedAuthPath(path);
 };
 
-const confirmSessionExpired = async (): Promise<void> => {
-  if (probeInFlight) return;
-  probeInFlight = true;
+const confirmSessionExpired = async (scope: RuntimeRequestScope): Promise<void> => {
+  if (probeInFlight || !isRuntimeRequestScopeCurrent(scope)) return;
+  probeInFlight = scope;
   try {
     // Deferred import: runtime-fetch classifies through this module, and the
     // probe deliberately re-enters it (its /auth/session path is excluded).
     const { runtimeFetch } = await import('./runtime-fetch');
-    const response = await runtimeFetch('/auth/session', { credentials: 'include' });
+    if (!isRuntimeRequestScopeCurrent(scope)) return;
+    const response = await runtimeFetch('/auth/session', { credentials: 'include', signal: AbortSignal.timeout(10_000) });
+    if (!isRuntimeRequestScopeCurrent(scope)) return;
     if (response.status === 401) {
       useAuthSessionStore.getState().markExpired();
       return;
@@ -79,7 +100,7 @@ const confirmSessionExpired = async (): Promise<void> => {
     // Transport failure is connectivity, not authentication; the connection
     // status machinery owns that story.
   } finally {
-    probeInFlight = false;
+    if (probeInFlight === scope) probeInFlight = null;
   }
 };
 
@@ -87,14 +108,16 @@ const confirmSessionExpired = async (): Promise<void> => {
  * Called by runtimeFetch for every response. Cheap by design: everything but
  * a 401 on a classifiable path returns immediately.
  */
-export const observeRuntimeAuthResponse = (url: string, status: number): void => {
+export const observeRuntimeAuthResponse = (url: string, status: number, scope = captureRuntimeRequestScope()): void => {
+  if (!isRuntimeRequestScopeCurrent(scope)) return;
+  currentProbeScope();
   if (status !== 401) return;
   if (useAuthSessionStore.getState().state === 'expired') return;
   if (!isClassifiablePath(url)) return;
   const now = Date.now();
   if (now - lastProbeAt < CONFIRM_PROBE_MIN_INTERVAL_MS) return;
   lastProbeAt = now;
-  void confirmSessionExpired();
+  void confirmSessionExpired(scope);
 };
 
 let watchInstalled = false;
@@ -109,13 +132,19 @@ export const installAuthSessionFocusWatch = (): void => {
   if (watchInstalled) return;
   watchInstalled = true;
   let lastConfirmedAt = Date.now();
+  let focusScope = captureRuntimeRequestScope();
   const revalidate = () => {
+    if (!isRuntimeRequestScopeCurrent(focusScope)) {
+      focusScope = captureRuntimeRequestScope();
+      lastConfirmedAt = 0;
+    }
+    const scope = currentProbeScope();
     if (useAuthSessionStore.getState().state !== 'ok') return;
     const now = Date.now();
     if (now - lastConfirmedAt < FOCUS_REVALIDATE_MIN_INTERVAL_MS) return;
     lastConfirmedAt = now;
     lastProbeAt = now;
-    void confirmSessionExpired();
+    void confirmSessionExpired(scope);
   };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') revalidate();

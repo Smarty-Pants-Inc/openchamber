@@ -320,8 +320,8 @@ describe('runtimeFetch transport contract', () => {
   });
 });
 
-describe('runtimeFetch read coalescing', () => {
-  test('coalesces concurrent identical GET reads into one fetch', async () => {
+describe('runtimeFetch independent reads', () => {
+  test('leaves read deduplication with the scoped service owner', async () => {
     const previous = getRuntimeUrlResolver();
     let calls = 0;
     try {
@@ -337,14 +337,13 @@ describe('runtimeFetch read coalescing', () => {
         runtimeFetch('/api/config/providers'),
       ]);
 
-      expect(calls).toBe(1);
-      // Each caller gets an independently-readable clone.
+      expect(calls).toBe(2);
+      // Each caller owns an independently readable response.
       expect(await a.json()).toEqual({ ok: true });
       expect(await b.json()).toEqual({ ok: true });
 
-      // After settle the entry is gone — a later call re-fetches.
       await runtimeFetch('/api/config/providers');
-      expect(calls).toBe(2);
+      expect(calls).toBe(3);
     } finally {
       setRuntimeUrlResolver(previous);
       globalThis.fetch = originalFetch;
