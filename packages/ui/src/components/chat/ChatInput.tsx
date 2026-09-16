@@ -9,7 +9,7 @@ import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
+import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
@@ -47,6 +47,7 @@ import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion 
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
+import { QueueRecoveryNotice } from './QueueRecoveryNotice';
 import { AutoReviewBanner } from './AutoReviewBanner';
 import type { FileMentionHandle } from './FileMentionAutocomplete';
 import type { CommandAutocompleteHandle, CommandInfo } from './CommandAutocomplete';
@@ -1063,8 +1064,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
 
-    // Add message to queue instead of sending
+    const queueAdmissionInFlight = React.useRef(false);
+    // Add message to queue instead of sending.
     const handleQueueMessage = React.useCallback(async () => {
+        if (queueAdmissionInFlight.current) return;
         try {
             if (browserDisplayName.read()) { toast.error(t('chat.displayName.plainOnly')); return; }
         } catch { toast.error(t('chat.displayName.error')); return; }
@@ -1081,6 +1084,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const queueTarget = messageQueueTarget;
         const queueSessionId = currentSessionId;
         const messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
+        queueAdmissionInFlight.current = true;
+        try {
+        // Shell identity is not backend capability. This read refuses before
+        // document preparation or any text, file, mention or context consumption.
+        try { await checkQueueAdmission(queueTarget); }
+        catch (error) {
+            toast.error(t(error instanceof QueueRequestError && error.status === 501
+                ? 'chat.queuedMessage.unsupported' : 'chat.queuedMessage.toast.queueFailed'));
+            return;
+        }
+        if (currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
         const composerAttachments = sanitizeAttachmentsForSend(attachedFiles);
 
         // A queued message is resolved now, not at delivery: the server that
@@ -1106,9 +1120,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         // Everything attached to the composer leaves with the message: the
         // chips are part of what was queued, and come back if it is edited.
-        const syntheticParts = consumePendingSyntheticParts() ?? [];
-        const draftTarget = inlineDraftTarget;
-        const drafts = draftTarget ? consumeDrafts(draftTarget) : [];
+        const syntheticParts = useInputStore.getState().pendingSyntheticParts ?? [];
+        const draftTarget = inlineDraftTarget ? { ...inlineDraftTarget, runtimeKey: queueRuntimeKey } : null;
+        const drafts = draftTarget ? useInlineCommentDraftStore.getState().getDrafts(draftTarget) : [];
         const linked: LinkedReferences = { issue: linkedIssue, pr: linkedPr, linear: linkedLinearIssue };
         const context = buildComposerContext({
             inlineComments: drafts,
@@ -1124,6 +1138,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 : null,
         }, skillInstruction);
         const attachmentsToQueue = [...composerAttachments, ...mentionAttachments];
+        if (getRuntimeKey() !== queueRuntimeKey || currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
 
         // Sending while the agent works must still take the reader to the
         // live edge — a queued message produces no user row yet, so the
@@ -1131,20 +1146,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // parked mid-history.
         scrollToLatest?.();
 
-        // Clear the composer. The mentions it had confirmed were resolved
-        // above, so nothing later needs them.
-        setMessage('');
-        confirmedMentionsRef.current.clear();
-        if (composerAttachments.length > 0) {
-            clearAttachedFiles();
-        }
-        setLinkedIssue(null);
-        setLinkedPr(null);
-        setLinkedLinearIssue(null);
-        if (!isMobile) {
-            composerRef.current?.focus();
-        }
-
+        // Keep the live input until the queue confirms durable acceptance.
         try {
             await addToQueue(queueTarget, {
                 content: messageToQueue,
@@ -1160,32 +1162,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 } : undefined,
             });
         } catch (error) {
-            console.warn('[queue] failed to queue message:', error);
-            toast.error(t('chat.queuedMessage.toast.queueFailed'));
-            // The composer was cleared on queueing; give everything back. The
-            // text is appended if the user has already typed something new.
-            const currentInput = composerRef.current?.getValue() ?? messageRef.current;
-            if (!currentInput) {
-                setMessage(messageToQueue);
-            } else {
-                useInputStore.getState().setPendingInputText(messageToQueue, 'append');
-            }
-            if (composerAttachments.length > 0) {
-                useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, ...composerAttachments]);
-            }
-            if (draftTarget && drafts.length > 0) {
-                useInlineCommentDraftStore.getState().restoreDrafts(draftTarget, drafts);
-            }
-            if (syntheticParts.length > 0) {
-                useInputStore.getState().setPendingSyntheticParts(syntheticParts);
-            }
-            setLinkedIssue(linked.issue);
-            setLinkedPr(linked.pr);
-            setLinkedLinearIssue(linked.linear);
+            const uncertain = useMessageQueueStore.getState().recoveryMessages[getMessageQueueKey(queueTarget)]?.some(item => item.state === 'unconfirmed');
+            toast.error(t(uncertain ? 'chat.queuedMessage.admissionUnknown'
+                : error instanceof QueueRequestError && error.status === 501 ? 'chat.queuedMessage.unsupported' : 'chat.queuedMessage.toast.queueFailed'));
             return;
         }
+        consumeChatDraft(chatDraftIdentity, inputSnapshot.message);
+        const input = useInputStore.getState();
+        input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.includes(file)));
+        input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
+        if (draftTarget) {
+            const live = useInlineCommentDraftStore.getState();
+            for (const draft of drafts) if (live.getDrafts(draftTarget).includes(draft)) live.removeDraft(draftTarget, draft.id);
+        }
+        setLinkedIssue(current => current === linked.issue ? null : current);
+        setLinkedPr(current => current === linked.pr ? null : current);
+        setLinkedLinearIssue(current => current === linked.linear ? null : current);
+        if (!isMobile && currentChatDraftIdentityRef.current === chatDraftIdentity) composerRef.current?.focus();
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, inlineDraftTarget, consumeDrafts, linkedIssue, linkedPr, linkedLinearIssue, scrollToLatest, clearAttachedFiles, isMobile, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+        } finally { queueAdmissionInFlight.current = false; }
+    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, inlineDraftTarget, linkedIssue, linkedPr, linkedLinearIssue, scrollToLatest, isMobile, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, chatDraftIdentity, t]);
 
     /** Put the context a queued message was captured with back on the composer chips. */
     const restoreQueuedContext = React.useCallback((context: readonly QueuedContextPart[]) => {
@@ -1275,6 +1271,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const handleSubmit = async (options?: SubmitOptions) => {
+        if (queueAdmissionInFlight.current) return;
+        if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
+            toast.error(t('chat.queuedMessage.admissionUnknown'));
+            return;
+        }
         const submitRuntimeKey = getRuntimeKey();
         const queuedOnly = options?.queuedOnly ?? false;
         const queuedMessageId = options?.queuedMessageId;
@@ -3130,6 +3131,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 <DisplayNameChoice />
                 <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} />
                 <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
+                <QueueRecoveryNotice target={messageQueueTarget} />
                 <QueuedMessageChips
                     onEditMessage={handleQueuedMessageEdit}
                     onSendMessage={handleQueuedMessageSend}
