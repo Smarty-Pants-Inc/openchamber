@@ -1,5 +1,5 @@
 import { normalizePath } from '@/lib/pathNormalization';
-import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
+import { getSafeStorage } from '@/stores/utils/safeStorage';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -28,10 +28,20 @@ type PersistedChatDraftEnvelope = {
 
 const STORAGE_KEY = 'openchamber.chatDrafts.v2';
 const MAX_DRAFTS = 50;
-const storage = getDeferredSafeStorage();
+// The composer already debounces typing. Lifecycle saves must reach backing storage now.
+const storage = getSafeStorage();
 const deletionListeners = new Set<(identity: ChatDraftIdentity) => void>();
 const consumptionListeners = new Set<(identity: ChatDraftIdentity, submitted: string) => void>();
 const draftOwners = new Map<string, number>();
+const persistenceListeners = new Set<() => void>();
+let ephemeralOnly = false;
+
+// One backing envelope owns all drafts, so a failed write affects every mounted reader.
+export const isChatDraftEphemeral = (): boolean => ephemeralOnly;
+export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
+  persistenceListeners.add(listener);
+  return () => persistenceListeners.delete(listener);
+};
 let cachedRawEnvelope: string | null | undefined;
 let cachedEnvelope: PersistedChatDraftEnvelope | undefined;
 
@@ -93,12 +103,17 @@ const readEnvelope = (): PersistedChatDraftEnvelope => {
   }
 };
 
-const writeEnvelope = (envelope: PersistedChatDraftEnvelope): void => {
+const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
   const serialized = JSON.stringify(envelope);
   cachedRawEnvelope = serialized;
   cachedEnvelope = envelope;
   countSyncPersistenceSerialization(serialized);
-  storage.setItem(STORAGE_KEY, serialized);
+  const stored = storage.setItem(STORAGE_KEY, serialized);
+  if (ephemeralOnly !== !stored) {
+    ephemeralOnly = !stored;
+    persistenceListeners.forEach(listener => listener());
+  }
+  return stored;
 };
 
 export const readChatDraft = (identity: ChatDraftIdentity | null): ChatDraftSnapshot => {
@@ -109,17 +124,19 @@ export const readChatDraft = (identity: ChatDraftIdentity | null): ChatDraftSnap
     : { text: '', confirmedMentions: new Set() };
 };
 
+/** True means backing storage accepted the snapshot; false means memory only; undefined means no owned change. */
 export const writeChatDraft = (
   identity: ChatDraftIdentity | null,
   text: string,
   confirmedMentions: Iterable<string>,
-): void => {
+): boolean | undefined => {
   if (!identity || !ownsChatDraft(identity)) return;
   const envelope = readEnvelope();
   const key = getChatDraftIdentityKey(identity);
   const mentions = Array.from(new Set(confirmedMentions));
   if (!text && mentions.length === 0) {
-    if (!(key in envelope.drafts)) return;
+    // Retry an absent entry after failure: its deletion may exist only in memory.
+    if (!(key in envelope.drafts) && !ephemeralOnly) return;
     delete envelope.drafts[key];
   } else {
     envelope.drafts[key] = { text, confirmedMentions: mentions, touchedAt: Date.now() };
@@ -128,7 +145,7 @@ export const writeChatDraft = (
   const retained = Object.entries(envelope.drafts)
     .sort((left, right) => right[1].touchedAt - left[1].touchedAt)
     .slice(0, MAX_DRAFTS);
-  writeEnvelope({ version: 2, drafts: Object.fromEntries(retained) });
+  return writeEnvelope({ version: 2, drafts: Object.fromEntries(retained) });
 };
 
 /** Current mounted consumers settle live edits first; unmounted inputs use their flushed snapshot. */

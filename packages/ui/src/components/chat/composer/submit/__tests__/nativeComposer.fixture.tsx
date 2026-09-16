@@ -1,3 +1,4 @@
+import '@/sync/native-test-network';
 import React, { act } from 'react';
 import { mock, spyOn } from 'bun:test';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -60,8 +61,8 @@ const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDr
 spyOn(sync, 'useSessionDirectory').mockImplementation(id => useSessionUIStore(s => id ? s.getDirectoryForSession(id) ?? undefined : undefined));
 await sleep(0); await bootstrap.restore(); bootstrapFetch.mockRestore();
 
-export async function mountedNativeComposer(persistChatDraft: boolean) {
-  const dom = nativeComposerDom(), fixture = nativeDraftFixture();
+export async function mountedNativeComposer(persistChatDraft: boolean, existingDom?: ReturnType<typeof nativeComposerDom>) {
+  const dom = existingDom ?? nativeComposerDom(), fixture = nativeDraftFixture();
   const initialUI = useUIStore.getState(), initialInline = useInlineCommentDraftStore.getState();
   errors.length = 0; browserDisplayName.useUnnamedForTab();
   useUIStore.setState({ persistChatDraft, isMobile: false });
@@ -74,7 +75,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
   const render = () => root.render(<I18nProvider key={epoch}><ChatInput /></I18nProvider>);
   try { await act(async () => render()); }
   catch (error) {
-    await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true); await dom.restore(); throw error;
+    await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true); if (!existingDom) await dom.restore(); throw error;
   }
   const editor = () => {
     const node = dom.container.querySelector<HTMLElement>('.cm-content');
@@ -103,7 +104,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean) {
     }),
     dispose: async () => {
       await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true);
-      useInlineCommentDraftStore.setState(initialInline, true); await dom.restore();
+      useInlineCommentDraftStore.setState(initialInline, true); if (!existingDom) await dom.restore();
     },
   };
 }

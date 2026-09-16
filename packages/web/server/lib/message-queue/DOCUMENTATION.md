@@ -1,158 +1,208 @@
-# Message Queue
+# Message queue
 
-## Purpose
+## Ownership
 
-Owns the messages a user queued while a session was busy, and sends them the
-moment the session goes idle. The queue lives in the web server so a closed
-tab, a locked phone, or a dropped connection no longer strands it. Structural
-template: `permission-auto-accept` — the server is authoritative, the shared UI
-renders a projection, and VS Code (which has no server of its own) keeps its
-UI-side queue and foreground auto-send hook.
+This module owns accepted background messages for web, Electron, hosted mobile,
+and Capacitor mobile. Shared UI renders its projection. VS Code has no
+OpenChamber server and keeps its existing foreground queue. Closing all VS Code
+webviews stops foreground delivery.
 
-## Files
+- `runtime.js` owns admission, serialized transactions, dispatch, recovery and routes.
+- `persistence.js` owns v2 file writes and v1 migration.
+- `runtime.test.js` covers delivery, holds, commands, context and route behavior.
+- `durability.test.js` covers write failures, capacity, uncertain attempts,
+  capability refusal, recovery and migration.
 
-- `runtime.js` — `createMessageQueueRuntime(...)` (state, persistence,
-  dispatch loop, event handling) and `registerMessageQueueRoutes(app, runtime)`.
-- `runtime.test.js` — delivery, idleness gates, retries, holds, persistence,
-  concurrency with in-flight sends, slash commands, and project knowledge.
+The server creates the runtime in `server/index.js`, registers its routes through
+`opencode/feature-routes-runtime.js`, and stops it through
+`opencode/shutdown-runtime.js`. The existing authenticated route family and JSON
+body limit apply to recovery too. Recovery routes are not URL-token allowlisted.
 
-Wiring: created in `server/index.js` after the global event hub and the
-session-knowledge runtime; routes registered in
-`opencode/feature-routes-runtime.js` (before the generic OpenCode proxy) with
-JSON bodies enabled in `opencode/core-routes.js`; stopped by
-`opencode/shutdown-runtime.js`.
+The UI owners are `stores/messageQueueStore.ts`, the queue branch of
+`components/chat/ChatInput.tsx`, and `components/chat/QueueRecoveryNotice.tsx`.
+Runtime request lifetime remains owned by the shared runtime transport. Queue
+code does not mint backend history views or grant session readiness.
 
-## Item
+## Admission and capacity
 
-An item is what the UI would have sent itself, captured at queue time so the
-send never re-resolves mutable UI state:
+Before accepting an item, the server reads authenticated, directory-scoped
+`GET /global/health`. An explicit `capabilities.messageQueue: 1` permits queueing.
+A value of `0`, an invalid value, or an identifiable Code backend with a missing
+value refuses queueing. Code is identifiable by `displayAttribution: 1` or the
+legacy `ordinaryCreateOnly: 1` signal. Healthy stock OpenCode without these fields
+retains its supported path. Capability is not authorization or an admission
+receipt. The Code owner must advertise `1` only for a qualified backend.
 
-```
-{
-  id, createdAt,
-  content,        // raw text for display and editing
-  text,           // text to deliver (agent mention stripped, file mentions resolved); defaults to content
-  agentMention?,  // delivered as an `agent` part
-  attachments: [{ id, filename, mimeType, size, source, serverPath?, dataUrl }],
-  context: [      // what the composer had attached, in send order
-    { kind: 'context', text, metadata, instructions? },  // a draft chip or linked issue/PR; metadata is the UI's structured payload
-    { kind: 'instruction', text },                       // derived from the text (skill instruction)
-    { kind: 'synthetic', text },                         // handed to the composer by another surface
-  ],
-  sendConfig: { providerID, modelID, agent?, variant? }   // required
-}
-```
+Admission checks run before mutation and again inside the serialized transaction
+for capacity and backend identity. Limits are 20 retained items per session and
+50 retained sessions. Overflow returns `409`; accepted work is never evicted.
+Uncertain and taken records count toward capacity until explicitly removed.
+A session queue cannot change directory while it retains items. Content is
+limited to 200,000 characters; the route family's 50 MB JSON limit bounds payloads.
 
-The server is a courier for `context`: it validates the shape (a kind it
-knows, a `metadata` object on `context` entries) and delivers each entry as a
-synthetic text part, an entry's `instructions` going out as its own part just
-before it and its `metadata` riding the part verbatim so the timeline renders
-the context block back. The payload inside `metadata` is the UI's contract
-(`lib/messages/contextParts.ts`), parsed by the UI on the way back.
+A transaction builds a candidate map, writes it, then publishes the in-memory
+state, revision, event and response. Failed persistence leaves the prior map
+intact. Dispatch cannot observe an uncommitted admission. Broadcast failure cannot
+undo acceptance. A client-supplied `requestId` identifies a lost admission response
+in a later snapshot. Repeated IDs still present in the queue return `409`.
+This is not a permanent deduplication ledger: clients must not retry an admission
+POST after an ambiguous response, including after an item has already settled.
 
-`parseQueuedItemInput` rejects anything the server could not deliver later
-(no text, attachments, or context; missing model; malformed attachment or
-context entry). Public snapshots and broadcasts strip the payloads —
-attachment `dataUrl` (megabytes of base64) and `context` (a PR diff, say) —
-so they do not ride every update; the only way to get them back is a `take`.
+## Payload and states
 
-## Persistence
+Each item stores its ID, creation time, raw `content`, delivery `text`, optional
+`agentMention`, attachments, captured context and required send configuration.
+Attachments include their `dataUrl`, filename, MIME type, size and source.
+The captured model is `{ providerID, modelID, agent?, variant? }`.
 
-`<data-dir>/message-queue.json` (`OPENCHAMBER_DATA_DIR` or
-`~/.config/openchamber`): `{ version, revision, sessions: { [sessionId]:
-{ directory, items } } }`, written atomically (temp file + rename) through a
-serialized write chain. A missing file is an empty queue. A malformed file is
-a failure, not an empty queue: it is moved aside as
-`message-queue.json.corrupt-<timestamp>` before the runtime starts empty, so
-the next write cannot overwrite the user's data. A failed read leaves writes
-disabled until a later load succeeds. `revision` is a global monotonic counter
-bumped on every mutation; clients use it to reject stale snapshots.
+Context preserves order and includes one of:
 
-In-memory only, deliberately: the in-flight item (`sendingId`), retry
-backoff, abort timestamps, and holds. A restart has no in-flight sends; a
-persisted "sending" flag would strand a message forever.
+- `{ kind: 'context', text, metadata, instructions? }` for attached draft or linked context.
+- `{ kind: 'instruction', text }` for instructions derived from the message.
+- `{ kind: 'synthetic', text }` for context supplied by another UI action.
 
-## Delivery loop
+The server validates the context envelope. The metadata payload belongs to
+`packages/ui/src/lib/messages/contextParts.ts`, where the UI parses it on recovery.
+Public snapshots and events omit attachment data URLs and all captured context.
+Authenticated item recovery returns the full payload without changing custody.
 
-1. `start()` subscribes to the global upstream hub and loads the file; on
-   load and on every hub `connect` it arms every session that has items.
-2. `session.status` for a queued session: `idle` arms a short quiet timer
-   (500 ms, coalescing the burst around a turn boundary), `busy`/`retry`
-   clears it. A `message.updated` for a completed assistant reply arms as
-   well, so a missed idle event cannot strand the queue. `session.deleted`
-   drops the session's queue. An assistant `MessageAbortedError` records an
-   abort.
-3. `tick(sessionId)` bails when the queue is empty, an item is in flight, or
-   the session is held. It re-arms after a 2 s post-abort hold (the UI's
-   old behavior: a stop is not immediately followed by the next prompt) or
-   while the head item is in retry backoff.
-4. Idleness is re-verified against OpenCode before sending, because
-   `prompt_async` into a running turn steers into it instead of starting the
-   next one: `GET /session/status` must not list the session as busy/retry,
-   and the trailing message must not be an unfinished assistant reply (the
-   status map only lists busy sessions, so a missed busy event leaves no
-   entry while a turn still streams). A failed fetch is unknown, never idle:
-   the tick re-arms with backoff.
-5. The head is marked in flight (broadcast), then sent:
-   - text starting with `/` that names a command in OpenCode's `/command`
-     list (skills included) and carries no captured context goes to
-     `POST /session/:id/command` with the captured model, agent, variant, and
-     file parts. That route accepts file parts only, so a command queued
-     **with** context takes the prompt route instead, the same rule the
-     composer applies: the command's template is expanded with its arguments
-     (`$ARGUMENTS`, `$1..$N`, or appended), a skill keeps its `/name args` text
-     and gets an explicit "the user invoked this skill" synthetic part after
-     the context;
-   - otherwise `POST /session/:id/prompt_async` with the parts in the same
-     order a UI send uses: text, files, the captured context, the skill
-     invocation when there is one, pending project knowledge
-     (`sessionKnowledgeRuntime.resolvePendingForSession`, synthetic, recorded
-     as delivered only after the prompt is accepted), then the agent mention.
-   Success removes the item, persists, broadcasts, and marks the user
-   message sent for notifications. Failure keeps the item, backs off
-   2 s → 60 s (doubling per consecutive failure of that item), and re-arms.
-6. The next item goes out after the next busy → idle cycle.
-
-## Holds
-
-Auto-review is driven from the UI and bounces the original session through
-idle between iterations; the UI tells the server to hold that session's queue
-(`PUT .../hold { held: true, ttlMs? }`) while a run is going and releases it
-when the run ends. A hold expires on its own (default 5 min, cap 10 min)
-because the UI that asserted it may be gone; the UI re-asserts it every two
-minutes while the run continues. Releasing arms a dispatch.
-
-## Routes (`/api/message-queue`)
-
-Normal authenticated OpenChamber runtime routes; never on browser URL-token
-allowlists.
-
-| Route | Purpose |
+| State | Meaning |
 |---|---|
-| `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
-| `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
-| `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight |
-| `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |
-| `POST .../sessions/:id/take` | Remove and return every item not in flight, in order |
-| `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
-| `DELETE .../sessions/:id` | Clear; the in-flight item stays |
-| `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
+| `pending` | Accepted, not yet attempted; eligible for dispatch |
+| `attempting` | Attempt marker persisted before the upstream POST |
+| `unknown` | An attempt may have taken effect; review required, never automatic replay |
+| `blocked` | Backend no longer supports queueing, or the session was deleted; review required |
+| `taken` | Full payload transferred to a foreground caller; retained for recovery, never server replay |
 
-Every mutation broadcasts `openchamber:message-queue.updated` with
-`{ revision, session }` to all connected clients (SSE and WS), so several
-devices on one server see one queue. The session in that payload always names
-its `directory`, including the broadcast that removes the last item: the UI
-keys its projection by directory, and a broadcast without one left the
-delivered message on screen (a session's directory is remembered until the
-session is deleted or evicted).
+A recovered `attempting` item becomes `unknown`. Failed attempt settlement also
+leaves a non-replayable item, even if the write of `unknown` fails. In that case
+the stored `attempting` marker remains the recovery evidence. An uncertain head
+holds subsequent work in that session. Other sessions continue independently.
+Reorder requests list every visible pending or live-attempting item exactly once.
+Recovery records keep their slots, and live attempts are fixed barriers too.
+Pending items can move only within their existing segment between barriers.
+Cross-barrier moves return `409`; missing, duplicate or hidden IDs return `400`.
+A failed settlement's non-live attempt marker is projected as unknown and is not
+part of the reorderable ID set. Reordering never requires deleting custody.
+Bulk clear removes only pending items not reserved for sending. Individual
+reviewed removal can delete an uncertain or taken record. Session deletion blocks
+pending items rather than destroying their payloads.
 
-Limits: 20 items per session, 50 sessions (oldest evicted, never one with an
-item in flight), 200k characters of content; attachment payloads are bounded
-by the route family's 50 MB JSON limit.
+## Delivery
 
-## UI ownership
+Startup, reconnect and live idle/completed events arm dispatch. The quiet timer
+coalesces turn-boundary events. A recent abort and UI holds delay delivery.
+Before each attempt, the runtime checks capability again and verifies live idle
+state using session status and the trailing message. Failed reads mean unknown
+readiness, not idle. Read/preparation failures may retry; an upstream POST failure
+never automatically retries.
 
-`packages/ui/src/stores/messageQueueStore.ts` is the projection: see its
-section in `packages/ui/src/stores/DOCUMENTATION.md`. VS Code intentionally
-does not use this module; with all OpenChamber webviews closed, queued
-messages there are not delivered.
+The runtime captures backend URL and auth headers and checks they are unchanged
+before dispatch. It persists `attempting` before issuing the POST. Successful
+upstream completion removes the item in another persisted transaction. A lost
+response or failed settlement becomes `unknown` without another POST.
+
+Recognized slash commands without captured context use the command route.
+Commands with context use the prompt route, with their template expanded or a
+skill invocation instruction attached. Prompt part order is text, files, captured
+context, skill instruction, pending project knowledge, then agent mention.
+Project knowledge is marked delivered only after upstream acceptance.
+
+Auto-review holds use `PUT .../hold`, defaulting to five minutes and capped at ten.
+The UI refreshes active holds. Holds, live send reservations and timers are
+process-local; persisted attempt state is the restart safety boundary.
+
+## Persistence and migration
+
+`<data-dir>/message-queue-v2.json` stores
+`{ version: 2, revision, sessions: { [sessionId]: { directory, items } } }`.
+The data directory is the existing `OPENCHAMBER_DATA_DIR` location. Writes use a
+same-directory temporary file with mode `0600`, then rename. Transactions serialize
+read-modify-write operations, not merely file writes. This requires one owning
+server process per data directory; concurrent old/new processes are unsupported.
+
+This implementation covers process restart and observed write/rename failures.
+It does not fsync the file or parent directory and does not claim power-loss or
+storage-controller durability. Browser foreground persistence is also not a
+server durability guarantee. These limits must remain visible in release approval.
+
+Old queue readers ignore the version field. V2 therefore uses a separate filename
+and leaves an empty v2 guard in `message-queue.json` so an older binary cannot replay
+uncertain v2 items. The guard is checked before every write and on v2 load.
+
+On first v1 load:
+
+1. Validate the entire legacy file. Every legacy item becomes `unknown`, since v1
+   cannot prove whether it was already attempted.
+2. Save the original bytes to `message-queue.json.v1-backup`, without overwriting
+   a different existing backup.
+3. Write the v2 recovery file, then replace the legacy file with the empty guard.
+
+A crash between migration writes can leave both files. Loading then fails closed
+until an operator reconciles them. Malformed legacy JSON is moved to
+`message-queue.json.corrupt-<timestamp>` before empty startup is allowed. A failed
+quarantine, invalid stored record, unsupported version or unreadable file blocks
+admission; none becomes authoritative empty success. Invalid v2 bytes stay in place.
+
+### Rollback
+
+Stop the owning server before rollback or file repair. Preserve the v2 file,
+legacy file, v1 backup and any quarantine files together. Recover full payloads
+and reconcile uncertain effects against backend receipts or history before
+removing reviewed records. Recovery itself never resends a message.
+
+An older binary sees the empty legacy guard and does not deliver v2 work. Keep the
+v2 file for return to the new binary. Do not copy the v1 backup over the guard or
+import it as pending work: it can contain already-delivered messages. If the old
+binary writes new legacy work, the new binary refuses startup/admission rather
+than merge it into v2. Reconcile both sets offline before repairing the guard.
+There is no automatic downgrade conversion or automatic reconciliation command.
+
+## Routes
+
+All paths below are under `/api/message-queue`. Snapshots are payload-free
+projections, despite including all item IDs and states.
+
+| Route | Contract |
+|---|---|
+| `GET /` | `{ revision, sessions[] }` projection |
+| `GET /sessions/:id/admission?directory=...` | Capability/capacity preflight; `{ supported: true }` |
+| `POST /sessions/:id/items` | `{ directory, item, requestId? }`; durable admission response includes `itemId` |
+| `GET /sessions/:id/items/:itemId` | Read-only full-payload recovery |
+| `DELETE /sessions/:id/items/:itemId` | Explicit removal; `409` while sending |
+| `POST /sessions/:id/items/:itemId/take` | Persist `taken`, return full item; repeat transfer refuses |
+| `POST /sessions/:id/take` | Persist `taken` for all transferable pending items, return payloads |
+| `PUT /sessions/:id/order` | Complete permutation of visible IDs, preserving attempt/recovery barriers |
+| `DELETE /sessions/:id` | Clear pending work, preserve uncertain/transferred/in-flight records |
+| `PUT /sessions/:id/hold` | `{ held, ttlMs? }` |
+
+Mutations broadcast `openchamber:message-queue.updated` with `{ revision, session }`.
+The session retains its directory even when its last item is removed. Full recovery
+payloads are returned only to the authenticated requester, never broadcast.
+
+## UI and foreground recovery
+
+The composer captures text, synthetic parts and inline draft identities before
+its first preflight await. It preflights before preparing documents or consuming
+input, and consumes only those captured entries after acceptance. Later edits
+remain intact. An ambiguous POST retains local payload as `unconfirmed` and makes
+only a read to reconcile the request ID. An unresolved item blocks further intake
+for that target. The recovery notice downloads full JSON and confirms reviewed
+removal; it has no Send or retry action.
+
+Unknown, blocked and taken items stay out of ordinary queue chips and foreground
+sendable lists. Browser legacy queues are retained for review, never uploaded on
+hydration. Foreground VS Code admission checks the selected backend through its
+existing scoped SDK. Its in-flight failures become unknown. Persisted foreground
+items return as recovery work on reload, not ready-to-send work.
+
+Full-snapshot hydration preserves every newer per-session projection, including
+recovery and sending IDs, even if that session is absent from the older snapshot.
+
+Edit takes remain accepted even when the initiating editor is no longer current.
+The store retains the full taken payload under the captured queue target. Only
+editor publication checks the captured composer identity, current input and
+runtime request scope, including transport/auth generations. Late takes never
+append attachments or replace text/context in another editor, and never become
+fake rejection or automatic retry. Queue chips delegate the entire Edit action
+to the composer rather than writing to the global input store themselves.
