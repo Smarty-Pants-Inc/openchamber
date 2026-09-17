@@ -34,6 +34,7 @@ export type FetchPermissionResult =
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch } from "@/lib/runtime-fetch";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
+import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
@@ -1225,9 +1226,7 @@ class OpencodeService {
     return unwrapSdkData(response, 'session.fork');
   }
 
-  async getSessionStatus(): Promise<
-    Record<string, { type: "idle" | "busy" | "retry"; attempt?: number; message?: string; next?: number }>
-  > {
+  async getSessionStatus(): Promise<Record<string, SessionStatus>> {
     return (await this.getSessionStatusForDirectory(this.currentDirectory ?? null)) ?? {};
   }
 
@@ -1241,25 +1240,20 @@ class OpencodeService {
    */
   async getSessionStatusForDirectory(
     directory: string | null | undefined
-  ): Promise<Record<string, { type: "idle" | "busy" | "retry"; attempt?: number; message?: string; next?: number }> | null> {
+  ): Promise<Record<string, SessionStatus> | null> {
     try {
       const trimmedDirectory = typeof directory === "string" ? directory.trim() : "";
       const result = await this.client.session.status(trimmedDirectory ? { directory: trimmedDirectory } : undefined);
       if (result.error || !result.data || typeof result.data !== "object") {
         return null;
       }
-      return result.data as Record<
-        string,
-        { type: "idle" | "busy" | "retry"; attempt?: number; message?: string; next?: number }
-      >;
+      return parseSessionStatusMap(result.data);
     } catch {
       return null;
     }
   }
 
-  async getGlobalSessionStatus(): Promise<
-    Record<string, { type: "idle" | "busy" | "retry"; attempt?: number; message?: string; next?: number }>
-  > {
+  async getGlobalSessionStatus(): Promise<Record<string, SessionStatus>> {
     return (await this.getSessionStatusForDirectory(null)) ?? {};
   }
 

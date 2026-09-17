@@ -1,5 +1,6 @@
 import type { OpencodeClient, PermissionRequest, Project, QuestionRequest } from "@opencode-ai/sdk/v2/client"
 import { retry } from "./retry"
+import { parseSessionStatusMap } from './session-status'
 import type { GlobalState, State } from "./types"
 import { runtimeFetch } from "../lib/runtime-fetch"
 import { emitSyncConfigChanged } from "./sync-refs"
@@ -172,7 +173,7 @@ export async function bootstrapDirectory(input: {
         if (next) commit({ project: next })
       }),
     ),
-    retry(() => sdk.session.status().then((x) => commit({ session_status: unwrap(x, "session.status"), sessionStatusReady: true }))),
+    retry(() => sdk.session.status().then((x) => commit({ session_status: parseSessionStatusMap(unwrap(x, "session.status")), sessionStatusReady: true }))),
   ])
 
   if (input.isStale?.()) return "stale"

@@ -185,7 +185,7 @@ import {
     mapInputHistoryEntriesToValues,
     mergeSessionInputHistory,
 } from './inputHistory';
-import { useUserMessageHistory } from '@/sync/sync-context';
+import { useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -494,9 +494,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [message, newSessionDraft.target, newSessionDraftOpen, prepareChatDraftDirectory]);
     const consumePendingSyntheticParts = useInputStore((s) => s.consumePendingSyntheticParts);
     const acknowledgeSessionAbort = useSessionUIStore((s) => s.acknowledgeSessionAbort);
+    const stopSessionId = isBtwActive && btwSessionId ? btwSessionId : currentSessionId;
+    const displayedStopStatus = useSessionStatus(stopSessionId ?? '', (isBtwActive ? btwDirectory : currentSessionDirectoryForSync ?? currentDirectory) ?? undefined);
     const abortCurrentOperation = React.useCallback(
-        (sessionIdOverride?: string) => sessionActions.abortCurrentOperation(sessionIdOverride ?? currentSessionId ?? ''),
-        [currentSessionId],
+        () => sessionActions.abortCurrentOperation(stopSessionId ?? '', { status: displayedStopStatus }),
+        [displayedStopStatus, stopSessionId],
     );
     const currentManagementSessionId = currentSessionId;
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
@@ -1042,7 +1044,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const hasQueuedMessages = queuedMessages.length > 0;
     const canSend = hasContent || hasQueuedMessages;
 
-    const canAbort = sessionPhase !== 'idle';
+    const canAbort = sessionPhase !== 'idle'
+        && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
 
     const getCurrentInputSnapshot = React.useCallback(() => {
         const currentMessage = composerRef.current?.getValue() ?? message;
@@ -2136,13 +2139,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
 
     const handleAbort = React.useCallback(() => {
-        clearAbortPrompt();
-
-        // btw mode: the stop button stops the fork's turn, not the main
-        // session's.
-        const abortTarget = isBtwActive && btwSessionId ? btwSessionId : currentSessionId;
-        void abortCurrentOperation(abortTarget || undefined);
-    }, [abortCurrentOperation, btwSessionId, clearAbortPrompt, currentSessionId, isBtwActive]);
+        void abortCurrentOperation().then((accepted) => {
+            if (accepted) clearAbortPrompt();
+            else toast.error(t('errorBoundary.title'));
+        });
+    }, [abortCurrentOperation, clearAbortPrompt, t]);
 
     const handleCycleAgent = React.useCallback((direction: 1 | -1 = 1) => {
         const nextAgentName = getCycledPrimaryAgentName(agents, currentAgentName, direction);
