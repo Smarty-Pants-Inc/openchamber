@@ -48,6 +48,10 @@ const { EditorView } = await import('@codemirror/view');
 const sync = await import('@/sync/sync-context');
 spyOn(sync, 'useUserMessageHistory').mockReturnValue([]);
 spyOn(sync, 'useSessions').mockReturnValue([]);
+// This fixture deliberately mounts ChatInput without SyncProvider. Keep the
+// status branch at its existing idle baseline; provider-backed status behavior
+// is covered by the sync and Stop tests.
+spyOn(sync, 'useSessionStatus').mockReturnValue(undefined);
 const { ChatInput } = await import('@/components/chat/ChatInput');
 const { I18nProvider } = await import('@/lib/i18n');
 const { nativeDraftFixture, directory } = await import('@/sync/native-draft-fixture');

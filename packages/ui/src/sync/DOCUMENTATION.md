@@ -132,6 +132,22 @@ Current consumers:
 
 - `useSessionAutoCleanup.ts`
 
+### Ordinary Stop authority
+
+`session-status.ts` preserves the gateway's `ordinary` marker and nullable
+`ordinaryTarget` through bootstrap, SSE, and status reconciliation. Changes to
+`generation` or `presentationId` publish a new status even when it stays busy.
+Idle clears the target but retains the ordinary marker.
+
+Composer and keyboard Stop capture the displayed status before dispatch.
+`abortCurrentOperation` sends that target through the stock SDK's
+`x-smarty-ordinary-generation` and `x-smarty-ordinary-presentation-id` headers.
+It never substitutes a newer target or retries a refused request. Ordinary Stop
+without displayed authority fails closed; stock OpenCode keeps its header-free
+request. The action returns `false` on refusal, including HTTP 409, and the composer
+reports failure instead of clearing its abort prompt. Shared web, desktop,
+VS Code, and mobile composers use this same path and existing runtime transport.
+
 ### Live cross-directory session/status view
 
 Use the sync hooks backed by aggregated child stores when the UI needs **live truth** for sessions or statuses across all initialized directories.

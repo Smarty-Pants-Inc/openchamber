@@ -13,10 +13,11 @@ import type {
   ProviderListResponse,
   QuestionRequest,
   Session,
-  SessionStatus,
   Todo,
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
+
+import type { SessionStatus } from './session-status'
 
 export type FileDiff = {
   file?: string

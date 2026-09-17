@@ -37,6 +37,7 @@ import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
 import { requestSessionArchiveBatch } from "./session-archive-batch"
 import { registerBulkArchiveEchoes, releaseBulkArchiveEchoes } from "./bulk-archive-echo"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { ordinaryAbortOptions, type SessionStatus } from './session-status'
 import { markAmbiguousTransportFailure } from "@/lib/relay/transport-error"
 import { getErrorStatus, isAmbiguousSendFailure } from "./send-failure-classification"
 import { getStaleRunningToolMessageID } from "./materialization"
@@ -2102,17 +2103,28 @@ function materializeConfirmedSendRecords(
 // Abort
 // ---------------------------------------------------------------------------
 
-export async function abortCurrentOperation(sessionId: string): Promise<void> {
+export async function abortCurrentOperation(sessionId: string, displayed?: { status: SessionStatus | undefined }): Promise<boolean> {
   // The abort must carry the SESSION'S directory, not the active UI directory:
   // OpenCode routes the request to the per-directory instance, and an abort
   // sent to the wrong instance cancels nothing while still returning 200 true
   // (the "stop button does nothing" report — sessions in another project/
   // worktree than the UI's current directory could never be aborted).
-  const { directory } = dirStoreForSession(sessionId)
+  const { store, directory } = dirStoreForSession(sessionId)
+  // Callers without displayed authority can still stop stock OpenCode, but
+  // must not acquire an ordinary target from newer state at dispatch time.
+  const status = displayed?.status
   try {
-    await sdk().session.abort({ sessionID: sessionId, directory })
+    if (store.getState().session_status[sessionId]?.ordinary && !status?.ordinary) {
+      throw new Error('Ordinary Stop requires displayed authority')
+    }
+    const options = ordinaryAbortOptions(status)
+    if (options) {
+      return assertSdkData(await sdk().session.abort({ sessionID: sessionId, directory }, options), 'session.abort')
+    }
+    return assertSdkData(await sdk().session.abort({ sessionID: sessionId, directory }), 'session.abort')
   } catch (error) {
     console.error("[session-actions] abort failed", error)
+    return false
   }
 }
 

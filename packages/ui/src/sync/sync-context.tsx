@@ -67,7 +67,7 @@ import {
   useGlobalSessionStatusStore,
 } from "./global-session-status"
 import type { State } from "./types"
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
+import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { PermissionRequest } from "@/types/permission"
 import type { QuestionRequest } from "@/types/question"
 import {
@@ -641,24 +641,7 @@ function getViewedSessionMaterializationTarget(directory: string) {
 }
 
 function toSessionStatus(status: Awaited<ReturnType<typeof opencodeClient.getSessionStatus>>[string] | undefined): SessionStatus | undefined {
-  if (!status) return undefined
-  if (status.type === "idle" || status.type === "busy") {
-    return { type: status.type }
-  }
-  if (
-    status.type === "retry"
-    && typeof status.attempt === "number"
-    && typeof status.message === "string"
-    && typeof status.next === "number"
-  ) {
-    return {
-      type: "retry",
-      attempt: status.attempt,
-      message: status.message,
-      next: status.next,
-    }
-  }
-  return undefined
+  return status ? parseSessionStatus(status) : undefined
 }
 
 function getActiveSessionCandidateIds(directory: string, state: DirectoryStore): string[] {
@@ -719,8 +702,11 @@ export function applySessionStatusSnapshot(
       if (mode === "monotonic") continue
 
       const existing = current[sessionId]
-      if (existing && existing.type !== "idle") {
-        draft()[sessionId] = { type: "idle" }
+      const idle: SessionStatus = incoming ?? (existing?.ordinary
+        ? { type: 'idle', ordinary: true, ordinaryTarget: null }
+        : { type: 'idle' })
+      if (!haveEquivalentSyncSnapshots(existing, idle)) {
+        draft()[sessionId] = idle
         changed = true
       }
     }

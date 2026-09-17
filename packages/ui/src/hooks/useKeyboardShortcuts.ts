@@ -5,6 +5,9 @@ import { activateAdjacentSessionTab, activateSessionTabByIndex, closeSessionTabA
 import { navigateSessionHistory } from '@/lib/sessionNavigationHistory';
 import { useSelectionStore } from '@/sync/selection-store';
 import * as sessionActions from '@/sync/session-actions';
+import { useSessionStatus } from '@/sync/sync-context';
+import { toast } from '@/components/ui';
+import { useI18n } from '@/lib/i18n';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
@@ -51,12 +54,15 @@ const dropdownTargetSelector = [
 ].join(',');
 
 export const useKeyboardShortcuts = () => {
+  const { t } = useI18n();
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
   const armAbortPrompt = useSessionUIStore((s) => s.armAbortPrompt);
   const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+  const currentSessionDirectory = useSessionUIStore((s) => s.currentSessionDirectory);
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const effectiveDirectory = useEffectiveDirectory();
+  const displayedStopStatus = useSessionStatus(currentSessionId ?? '', currentSessionDirectory ?? undefined);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
   const { themeMode, setThemeMode } = useThemeSystem();
   const { phase: sessionPhase } = useCurrentSessionActivity();
@@ -308,7 +314,10 @@ export const useKeyboardShortcuts = () => {
     },
     abort_run: () => {
       if (sessionPhase === 'idle' || !currentSessionId) return false;
-      void sessionActions.abortCurrentOperation(currentSessionId);
+      if (displayedStopStatus?.ordinary && (displayedStopStatus.type !== 'busy' || !displayedStopStatus.ordinaryTarget)) return false;
+      void sessionActions.abortCurrentOperation(currentSessionId, { status: displayedStopStatus }).then((accepted) => {
+        if (!accepted) toast.error(t('errorBoundary.title'));
+      });
     },
   });
 
