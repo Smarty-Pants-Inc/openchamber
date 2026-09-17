@@ -575,6 +575,7 @@ export function createMessageQueueRuntime({
         attempted = true;
         if (stopped || isHeld(sessionId)) throw httpError('Queue dispatch stopped', 409);
       });
+      try { onPromptSent?.(sessionId); } catch { /* bookkeeping only */ }
       sending.delete(sessionId);
       await commit(sessionId, (next) => {
         const after = next.get(sessionId);
@@ -582,7 +583,6 @@ export function createMessageQueueRuntime({
         next.set(sessionId, { ...after, items: after.items.filter((entry) => entry.id !== item.id) });
         return {};
       });
-      try { onPromptSent?.(sessionId); } catch { /* bookkeeping only */ }
     } catch {
       sending.delete(sessionId);
       if (attempted) {
