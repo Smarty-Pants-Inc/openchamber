@@ -55,6 +55,7 @@ const { prepareNativeDraft } = await import('@/sync/native-draft-creation');
 const { useUIStore } = await import('@/stores/useUIStore');
 const { useInputStore } = await import('@/sync/input-store');
 const { useDirectoryStore } = await import('@/stores/useDirectoryStore');
+const { useConfigStore } = await import('@/stores/useConfigStore');
 const { useSessionUIStore } = await import('@/sync/session-ui-store');
 const { browserDisplayName } = await import('@/lib/messages/displayName');
 const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDraftStore');
@@ -67,6 +68,8 @@ export async function mountedNativeComposer(persistChatDraft: boolean, existingD
   errors.length = 0; browserDisplayName.useUnnamedForTab();
   useUIStore.setState({ persistChatDraft, isMobile: false });
   useDirectoryStore.setState({ currentDirectory: directory });
+  // Join the same startup owner as the directory subscription before measuring submit IO.
+  await useConfigStore.getState().activateDirectory(directory);
   useInputStore.setState({ pendingInputText: null });
   useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, initialPrompt: undefined } }));
   await prepareNativeDraft();

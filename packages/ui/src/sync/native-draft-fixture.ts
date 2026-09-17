@@ -64,6 +64,10 @@ export function nativeDraftFixture() {
     if (url.pathname.endsWith('/config/settings')) return handlers.settings();
     if (url.pathname.endsWith('/snippets/expand')) return handlers.snippet();
     if (url.pathname.endsWith('/magic-prompts')) return handlers.magic();
+    // Complete the real directory-config startup without scheduling unrelated retries.
+    if (request.method === 'GET' && url.pathname.endsWith('/config/providers')) return Response.json({ providers: [], default: {} });
+    if (request.method === 'GET' && url.pathname.endsWith('/openchamber/models-metadata')) return Response.json({});
+    if (request.method === 'GET' && url.pathname.endsWith('/agent')) return Response.json([]);
     // Incidental project knowledge/configuration is unavailable, not another test authority.
     return new Response(null, { status: 404 });
   });
