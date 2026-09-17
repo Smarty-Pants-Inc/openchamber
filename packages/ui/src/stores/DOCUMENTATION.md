@@ -29,6 +29,19 @@ These are the most performance-sensitive.
 
 These stores act like centralized keyed caches. UI should consume narrow slices from them instead of re-fetching the same data in multiple places.
 
+### Optional model presentation metadata
+
+`useConfigStore` requests model metadata only through the existing runtime route
+`/api/openchamber/models-metadata`. Failure leaves optional enrichment unavailable;
+provider-supplied model data remains usable. Shared UI does not fall back to a
+third-party catalog origin. Web, Electron and mobile use the server route; VS Code
+uses its existing metadata bridge. Runtime-owned catalog retrieval can still use
+external networking, so this is not a server offline guarantee.
+
+Provider logos use bundled assets through `useProviderLogo`, including preloads.
+Unknown providers and failed assets use the existing no-logo/icon fallback without
+trying a remote image. A custom provider does not need a bundled logo to operate.
+
 ### UI state stores
 
 Examples:

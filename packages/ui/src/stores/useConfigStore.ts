@@ -23,7 +23,6 @@ import { normalizePath } from "@/lib/pathNormalization";
 import { getSyncConfig, subscribeToSyncConfigChanges } from "@/sync/sync-refs";
 import { getRuntimeKey } from "@/lib/runtime-switch";
 
-const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const MODELS_DEV_PROXY_URL = "/api/openchamber/models-metadata";
 
 const FALLBACK_PROVIDER_ID = "opencode";
@@ -627,49 +626,24 @@ const fetchModelsDevMetadata = async (): Promise<Map<string, ModelMetadata>> => 
         return new Map();
     }
 
-    const sources = [MODELS_DEV_PROXY_URL, MODELS_DEV_API_URL];
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    const timeout = controller ? setTimeout(() => controller.abort(), 8000) : undefined;
 
-    for (const source of sources) {
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-        const timeout = controller ? setTimeout(() => controller.abort(), 8000) : undefined;
-
-        try {
-            const isAbsoluteUrl = /^https?:\/\//i.test(source);
-            const requestInit: RequestInit = {
-                signal: controller?.signal,
-                headers: {
-                    Accept: 'application/json',
-                },
-                cache: 'no-store',
-            };
-
-            if (isAbsoluteUrl) {
-                requestInit.mode = 'cors';
-            } else {
-                requestInit.credentials = 'same-origin';
-            }
-
-            const response = isAbsoluteUrl
-                ? await fetch(source, requestInit)
-                : await runtimeFetch(source, requestInit);
-
-            if (!response.ok) {
-                throw new Error(`Metadata request to ${source} returned status ${response.status}`);
-            }
-
-            const data = await response.json();
-            return transformModelsDevResponse(data);
-        } catch (error: unknown) {
-            if ((error as Error)?.name === 'AbortError') {
-                console.warn(`Model metadata request aborted (${source})`);
-            } else {
-                console.warn(`Failed to fetch model metadata from ${source}:`, error);
-            }
-        } finally {
-            if (timeout) {
-                clearTimeout(timeout);
-            }
+    try {
+        const response = await runtimeFetch(MODELS_DEV_PROXY_URL, {
+            signal: controller?.signal,
+            headers: { Accept: 'application/json' },
+            cache: 'no-store',
+            credentials: 'same-origin',
+        });
+        if (!response.ok) {
+            throw new Error(`Metadata request to ${MODELS_DEV_PROXY_URL} returned status ${response.status}`);
         }
+        return transformModelsDevResponse(await response.json());
+    } catch (error) {
+        console.warn('Failed to fetch model metadata from runtime:', error);
+    } finally {
+        if (timeout) clearTimeout(timeout);
     }
 
     return new Map();
