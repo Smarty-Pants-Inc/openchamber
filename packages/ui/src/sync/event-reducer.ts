@@ -6,10 +6,10 @@ import type {
   Project,
   QuestionRequest,
   Session,
-  SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
+import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { FileDiff, GlobalState, State } from "./types"
 import { dropSessionCaches } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
@@ -99,6 +99,9 @@ function shouldPreserveExistingPart(previous: Part, next: Part): boolean {
 function areSessionStatusesEqual(left: SessionStatus | undefined, right: SessionStatus): boolean {
   if (left === right) return true
   if (!left || left.type !== right.type) return false
+  if (left.ordinary !== right.ordinary
+    || left.ordinaryTarget?.generation !== right.ordinaryTarget?.generation
+    || left.ordinaryTarget?.presentationId !== right.ordinaryTarget?.presentationId) return false
   if (left.type === "retry") {
     return right.type === "retry"
       && left.attempt === right.attempt
@@ -323,17 +326,8 @@ export function applyDirectoryEvent(
     }
 
     case "session.status": {
-      const props = event.properties as { sessionID: string; status: SessionStatus }
-      if (areSessionStatusesEqual(draft.session_status[props.sessionID], props.status)) {
-        return false
-      }
-      draft.session_status[props.sessionID] = props.status
-      return true
-    }
-
-    case "session.idle": {
-      const props = event.properties as { sessionID: string }
-      const status = { type: "idle" } as const
+      const props = event.properties
+      const status = parseSessionStatus(props.status)
       if (areSessionStatusesEqual(draft.session_status[props.sessionID], status)) {
         return false
       }
@@ -341,10 +335,27 @@ export function applyDirectoryEvent(
       return true
     }
 
+    case "session.idle": {
+      const props = event.properties
+      const previous = draft.session_status[props.sessionID]
+      const status: SessionStatus = previous?.ordinary
+        ? { type: 'idle', ordinary: true, ordinaryTarget: null }
+        : { type: 'idle' }
+      if (areSessionStatusesEqual(previous, status)) {
+        return false
+      }
+      draft.session_status[props.sessionID] = status
+      return true
+    }
+
     case "session.error": {
-      const props = event.properties as { sessionID: string }
-      const status = { type: "idle" } as const
-      if (areSessionStatusesEqual(draft.session_status[props.sessionID], status)) {
+      const props = event.properties
+      if (!props.sessionID) return false
+      const previous = draft.session_status[props.sessionID]
+      const status: SessionStatus = previous?.ordinary
+        ? { type: 'idle', ordinary: true, ordinaryTarget: null }
+        : { type: 'idle' }
+      if (areSessionStatusesEqual(previous, status)) {
         return false
       }
       draft.session_status[props.sessionID] = status
