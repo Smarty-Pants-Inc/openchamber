@@ -2475,6 +2475,10 @@ export function SyncProvider(props: {
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }
+        // ponytail: The viewed ordinary token cannot wait for boot or broad resync gates.
+        // Its existing loader owns coalescing and rejects stale generations.
+        const viewed = getViewedSessionMaterializationTarget(_activeDirectory)
+        if (viewed) void messageLoader.refreshOrdinaryView({ directory: viewed.directory, sessionID: viewed.sessionId })
         if (isRecentBoot()) {
           return
         }
