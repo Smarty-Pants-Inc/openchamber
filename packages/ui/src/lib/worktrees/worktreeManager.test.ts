@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { GitWorktreeCreateResult } from '@/lib/api/types';
 import type { WorktreeMetadata } from '@/types/worktree';
+import { startSessionWorktreeMenuLoad } from '@/components/session/sidebar/sessionWorktreeMenu';
 
 type WorktreeListEntry = {
   path?: string;
@@ -347,6 +348,67 @@ describe('worktreeManager list invalidation', () => {
       admittedPaths: ['/repo-feature'],
     })).map((entry) => entry.path)).toEqual(['/repo-feature']);
     expect(listCalls).toEqual(['/repo-admission', '/repo-admission']);
+  });
+
+  test('menu refresh keeps raw cache while catalog removal survives overlapping forced generations', async () => {
+    const project = { id: 'project-menu-admission', path: '/repo-menu-admission' };
+    let projects = [project];
+    const rawRef = { current: {
+      runtimeKey: 'runtime-menu',
+      revision: 0,
+      worktreesByProject: new Map<string, WorktreeMetadata[]>(),
+    } };
+    const loadMenu = () => startSessionWorktreeMenuLoad({
+      projectId: project.id,
+      sourceDirectory: project.path,
+      currentWorktree: null,
+    }, {
+      projects,
+      getCurrentProjects: () => projects,
+      rawWorktreesByProjectRef: rawRef,
+      getPublishedWorktreesByProject: () => sessionState.availableWorktreesByProject,
+      resolveProject: () => project,
+      listProjectWorktrees,
+      partitionWorktreesByRegisteredProject,
+      worktreeMapsEqual,
+      recordWorktreesSeen: () => {},
+      publishTopology: (next) => { Object.assign(sessionState, next); },
+      getRuntimeKey: () => 'runtime-menu',
+      now: () => 123,
+      projectRootBranch: 'main',
+    });
+
+    const unadmitted = loadMenu();
+    await waitForListCallCount(1);
+    listResolvers[0]([createdWorktree]);
+    expect((await unadmitted.refreshTargets).map((target) => target.metadata.path)).toEqual([project.path]);
+    expect(sessionState.availableWorktrees).toEqual([]);
+    expect(sessionState.availableWorktreesByProject.size).toBe(0);
+    expect((await listProjectWorktrees(project)).map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(listCalls).toHaveLength(1);
+
+    projects = [project, { id: 'feature', path: '/repo-feature' }];
+    const admitted = loadMenu();
+    expect(admitted.cachedTargets.map((target) => target.metadata.path)).toEqual([project.path, '/repo-feature']);
+    await waitForListCallCount(2);
+
+    projects = [project];
+    const removed = loadMenu();
+    expect(removed.cachedTargets.map((target) => target.metadata.path)).toEqual([project.path]);
+    await waitForListCallCount(3);
+    listResolvers[2]([createdWorktree]);
+    expect((await removed.refreshTargets).map((target) => target.metadata.path)).toEqual([project.path]);
+
+    listResolvers[1]([{ path: '/repo-stale', branch: 'stale', name: 'stale' }]);
+    await waitForListCallCount(4);
+    listResolvers[3]([createdWorktree]);
+    expect((await admitted.refreshTargets).map((target) => target.metadata.path)).toEqual([project.path]);
+    expect(sessionState.availableWorktrees).toEqual([]);
+    expect(sessionState.availableWorktreesByProject.size).toBe(0);
+    expect(rawRef.current.revision).toBe(3);
+    expect(rawRef.current.worktreesByProject.get(project.path)?.map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect((await listProjectWorktrees(project)).map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(listCalls).toHaveLength(4);
   });
 
   test('marks fast-created worktrees pending until bootstrap settles', async () => {
