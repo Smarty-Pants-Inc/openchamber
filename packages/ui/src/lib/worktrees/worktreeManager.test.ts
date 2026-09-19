@@ -152,6 +152,21 @@ describe('worktreeManager list invalidation', () => {
     expect(result.map((entry) => entry.path)).toEqual(['/repo-feature']);
   });
 
+  test('re-filters cached topology after project admission', async () => {
+    const project = { id: 'project-admission-barrier', path: '/repo-admission' };
+    const beforeAdmission = listProjectWorktrees(project, { admittedPaths: ['/repo-admission'] });
+
+    await waitForListCallCount(1);
+    listResolvers[0]([createdWorktree]);
+    expect(await beforeAdmission).toEqual([]);
+
+    const afterAdmission = await listProjectWorktrees(project, {
+      admittedPaths: ['/repo-admission', '/repo-feature'],
+    });
+    expect(afterAdmission.map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(listCalls).toEqual(['/repo-admission']);
+  });
+
   test('marks fast-created worktrees pending until bootstrap settles', async () => {
     const metadata = await createWorktree({ id: 'project-1', path: '/repo' }, {
       preferredName: 'feature',
