@@ -52,8 +52,11 @@ test('SDK-internal SSE recovery reports one disconnect and a fresh real connecti
     onDisconnect: reason => { disconnects.push(reason); },
     onReconnect: () => { connects += 1; },
     onEvent: (_directory, event) => {
-      if (event.type === 'server.heartbeat') heartbeatDelivered.resolve();
-      else (requests === 1 ? firstDelivered : recovered).resolve();
+      if (event.type === 'server.connected') (requests === 1 ? firstDelivered : recovered).resolve();
+      else {
+        expect(event.type).toBe('server.heartbeat');
+        heartbeatDelivered.resolve();
+      }
     } });
   try {
     first.controller.enqueue(frame('server.connected'));
@@ -80,11 +83,11 @@ test('cleanup during SDK acquisition cannot start a heartbeat, fetch, or late pu
     fetches += 1;
     throw new Error('A retired attempt must not start HTTP');
   } });
-  const acquired = deferred<Awaited<ReturnType<typeof sdk.global.event>>>();
+  const acquired = deferred<ReturnType<typeof sdk.global.event>>();
   const released = deferred<Awaited<ReturnType<typeof sdk.global.event>>>();
   const acquire = sdk.global.event.bind(sdk.global);
   sdk.global.event = (...args) => {
-    void acquire(...args).then(acquired.resolve, acquired.reject);
+    acquired.resolve(acquire(...args));
     return released.promise;
   };
   const timers = spyOn(globalThis, 'setTimeout');
@@ -94,10 +97,10 @@ test('cleanup during SDK acquisition cannot start a heartbeat, fetch, or late pu
   try {
     const stream = await acquired.promise;
     pipeline.cleanup();
-    timers.mockClear();
+    const timerCount = timers.mock.calls.length;
     released.resolve(stream);
     await released.promise;
-    expect(timers).not.toHaveBeenCalled();
+    expect(timers.mock.calls).toHaveLength(timerCount);
     expect(fetches).toBe(0);
     expect(publications).toBe(0);
   } finally { pipeline.cleanup(); timers.mockRestore(); }
@@ -107,18 +110,19 @@ test('cleanup from the real connection callback cannot enqueue its late event', 
   const wire = stream();
   const retired = deferred<void>();
   let publications = 0;
+  let timerCount = 0;
   const sdk = createOpencodeClient({ baseUrl: 'https://sync.invalid', fetch: async () => wire.response });
   const timers = spyOn(globalThis, 'setTimeout');
   const pipeline = createEventPipeline({ sdk, transport: 'sse', onEvent: () => { publications += 1; },
     onReconnect: () => {
       pipeline.cleanup();
-      timers.mockClear();
+      timerCount = timers.mock.calls.length;
       retired.resolve();
     } });
   try {
     wire.controller.enqueue(frame('server.connected'));
     await retired.promise;
-    expect(timers).not.toHaveBeenCalled();
+    expect(timers.mock.calls).toHaveLength(timerCount);
     expect(publications).toBe(0);
   } finally { pipeline.cleanup(); timers.mockRestore(); }
 });
