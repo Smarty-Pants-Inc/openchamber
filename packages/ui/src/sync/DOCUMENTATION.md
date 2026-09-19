@@ -235,6 +235,23 @@ For an ordinary Pi backend, the loader retains `x-smarty-ordinary-view` only aft
 
 Disconnect, transport switch, native branch removal and failed ordinary page loads revoke accepted views. A `session.error` for a known ordinary session also resets coverage, since generation or branch changes need not remove a renderable row. Idle refresh retains valid coverage. A branch reset preserves visible records on failure; a successful replacement tail drops the old cached branch and reports incomplete coverage until older pages reach root. Completion and reconnect use the existing loader GET path. Stale prompt responses can refresh history but never replay the mutation; missing tokens remain backend refusals. Backends without this header retain their normal prompt and event behavior.
 
+### Stream recovery
+
+The SSE pipeline reports a connection after its first valid event, not when the
+SDK returns a lazy stream object. SDK-internal failures notify the existing
+disconnect handler. The next valid event reports recovery, even when the SDK
+keeps the same generator. Aborted attempts cannot publish or start heartbeat timers.
+
+On recovery, the viewed ordinary session requests its accepted page through
+`refreshOrdinaryView` before the broad boot and directory-resync gates. The loader
+coalesces demand and rejects stale generations. This can add one target read ahead
+of broad resync, but prevents retained messages or an outstanding resync from
+hiding a missing token. Header-free backends keep their existing recovery path.
+
+WS ready-frame handling is unchanged. The transport-switch callback still sets
+an optimistic connection flag while requesting recovery. That flag is not loader
+acceptance or permission to send ordinary input.
+
 ## Failed-turn diagnostics
 
 A `session.error` event is the only account of a turn OpenCode stopped, and
