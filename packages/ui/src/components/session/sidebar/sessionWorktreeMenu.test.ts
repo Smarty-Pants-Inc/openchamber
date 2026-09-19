@@ -177,7 +177,134 @@ describe('commitDiscoveredRawWorktreesByProject', () => {
   });
 });
 
+describe('startSessionWorktreeMenuLoad catalog admission', () => {
+  const setup = () => {
+    const owner = { id: 'owner', path: '/repo' };
+    let projects = [owner];
+    let published = new Map<string, WorktreeMetadata[]>();
+    const rawRef = rawScope('runtime-1', [['/repo', [worktree()]]]);
+    const refreshes: Array<ReturnType<typeof createDeferred<WorktreeMetadata[]>>> = [];
+    const seen: string[] = [];
+    const deps: Parameters<typeof startSessionWorktreeMenuLoad>[1] = {
+      projects,
+      getCurrentProjects: () => projects,
+      rawWorktreesByProjectRef: rawRef,
+      getPublishedWorktreesByProject: () => published,
+      resolveProject: () => owner,
+      listProjectWorktrees: (_project, options) => {
+        expect(options).toEqual({ force: true });
+        const refresh = createDeferred<WorktreeMetadata[]>();
+        refreshes.push(refresh);
+        return refresh.promise;
+      },
+      partitionWorktreesByRegisteredProject: (_projects, topology) => new Map(topology),
+      worktreeMapsEqual: () => false,
+      recordWorktreesSeen: (paths) => {
+        for (const path of paths) if (path) seen.push(path);
+      },
+      publishTopology: (next) => {
+        expect(next.availableWorktrees).toEqual([...next.availableWorktreesByProject.values()].flat());
+        published = next.availableWorktreesByProject;
+      },
+      getRuntimeKey: () => 'runtime-1',
+      now: () => 123,
+      projectRootBranch: 'main',
+    };
+    return {
+      deps, rawRef, refreshes, seen,
+      setProjects: (next: typeof projects) => { projects = next; },
+      publishedPaths: () => [...published.values()].flat().map((entry) => entry.path),
+      load: () => startSessionWorktreeMenuLoad({ projectId: owner.id, sourceDirectory: owner.path, currentWorktree: null }, deps),
+    };
+  };
+
+  test('keeps physical worktrees raw but excludes unadmitted cached and refreshed menu/sidebar rows', async () => {
+    const state = setup();
+    // A refresh must also filter retained topology belonging to other projects.
+    state.rawRef.current.worktreesByProject.set('/other', [worktree({ path: '/other-feature', projectDirectory: '/other' })]);
+    state.setProjects([{ id: 'owner', path: '/repo' }, { id: 'other', path: '/other' }]);
+    const load = state.load();
+    state.refreshes[0]!.resolve([worktree()]);
+    expect((await load.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(load.cachedTargets.map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(state.publishedPaths()).toEqual([]);
+    expect(state.seen).toEqual([]);
+    expect(state.rawRef.current.worktreesByProject.get('/repo')?.map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(state.rawRef.current.worktreesByProject.get('/other')?.map((entry) => entry.path)).toEqual(['/other-feature']);
+  });
+
+  test('uses current catalog admission at completion and hides removed rows on the next menu open', async () => {
+    const state = setup();
+    const admitted = [{ id: 'owner', path: '/repo' }, { id: 'feature', path: '/repo-feature/' }];
+    const beforeAdmission = state.load();
+    state.setProjects(admitted);
+    state.refreshes[0]!.resolve([worktree()]);
+    expect((await beforeAdmission.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo', '/repo-feature']);
+    expect(state.publishedPaths()).toEqual(['/repo-feature']);
+
+    const beforeRemoval = state.load();
+    expect(beforeRemoval.cachedTargets.map((target) => target.metadata.path)).toEqual(['/repo', '/repo-feature']);
+    state.setProjects([{ id: 'owner', path: '/repo' }]);
+    state.refreshes[1]!.resolve([worktree()]);
+    expect((await beforeRemoval.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(state.publishedPaths()).toEqual([]);
+
+    const afterRemoval = state.load();
+    state.refreshes[2]!.resolve([worktree()]);
+    expect((await afterRemoval.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(afterRemoval.cachedTargets.map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(state.publishedPaths()).toEqual([]);
+
+    state.setProjects(admitted);
+    const readmitted = state.load();
+    state.refreshes[3]!.resolve([worktree()]);
+    expect(readmitted.cachedTargets.map((target) => target.metadata.path)).toEqual(['/repo', '/repo-feature']);
+    expect((await readmitted.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo', '/repo-feature']);
+    expect(state.rawRef.current.revision).toBe(4);
+  });
+
+  test('overlapping menu refreshes and aggregate discovery cannot republish catalog removals', async () => {
+    const state = setup();
+    state.setProjects([{ id: 'owner', path: '/repo' }, { id: 'feature', path: '/repo-feature' }]);
+    const capturedRevision = state.rawRef.current.revision;
+    const older = state.load();
+    const newer = state.load();
+    state.setProjects([{ id: 'owner', path: '/repo' }]);
+    state.refreshes[1]!.resolve([worktree()]);
+    expect((await newer.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo']);
+    state.refreshes[0]!.resolve([worktree()]);
+    expect((await older.refreshTargets).map((target) => target.metadata.path)).toEqual(['/repo']);
+    expect(state.publishedPaths()).toEqual([]);
+    expect(state.rawRef.current.revision).toBe(2);
+
+    let rediscoveries = 0;
+    const commit = (revision: number) => commitDiscoveredRawWorktreesByProject({
+      ...state.deps,
+      runtimeKey: 'runtime-1',
+      capturedRevision: revision,
+      nextRawWorktreesByProject: state.rawRef.current.worktreesByProject,
+      publishedWorktreesByProject: state.deps.getPublishedWorktreesByProject(),
+      projects: state.deps.getCurrentProjects(),
+      requestRediscovery: () => { rediscoveries += 1; },
+    });
+    expect(commit(capturedRevision)).toBe(false);
+    expect(rediscoveries).toBe(1);
+    expect(commit(state.rawRef.current.revision)).toBe(true);
+    expect(state.publishedPaths()).toEqual([]);
+    expect(state.rawRef.current.worktreesByProject.get('/repo')?.map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(state.seen).toEqual([]);
+  });
+});
+
 describe('startSessionWorktreeMenuLoad', () => {
+  const linkedProjects = [
+    { id: 'linked', path: '/repo-linked' },
+    { id: 'owner', path: '/repo' },
+    { id: 'current', path: '/repo-current' },
+    { id: 'existing', path: '/repo-existing' },
+    { id: 'new', path: '/repo-new' },
+  ];
+
   test('returns cached targets immediately, forces only the owning project refresh, and publishes refreshed topology', async () => {
     const calls: Array<{ projectId: string; force: boolean }> = [];
     const published: Array<{ availableWorktrees: WorktreeMetadata[]; availableWorktreesByProject: Map<string, WorktreeMetadata[]> }> = [];
@@ -197,10 +324,7 @@ describe('startSessionWorktreeMenuLoad', () => {
           { id: 'linked', path: '/repo-linked' },
           { id: 'other', path: '/repo-other' },
         ],
-        getCurrentProjects: () => [
-          { id: 'linked', path: '/repo-linked' },
-          { id: 'other', path: '/repo-other' },
-        ],
+        getCurrentProjects: () => [...linkedProjects, { id: 'other', path: '/repo-other' }],
         rawWorktreesByProjectRef: rawRef,
         getPublishedWorktreesByProject: () => new Map(),
         resolveProject: () => null,
@@ -263,7 +387,7 @@ describe('startSessionWorktreeMenuLoad', () => {
       },
       {
         projects: [{ id: 'linked', path: '/repo-linked' }],
-        getCurrentProjects: () => [{ id: 'linked', path: '/repo-linked' }],
+        getCurrentProjects: () => linkedProjects,
         rawWorktreesByProjectRef: rawRef,
         getPublishedWorktreesByProject: () => new Map([['/repo-linked', [existing]]]),
         resolveProject: () => null,
@@ -308,7 +432,7 @@ describe('startSessionWorktreeMenuLoad', () => {
       },
       {
         projects: [{ id: 'linked', path: '/repo-linked' }],
-        getCurrentProjects: () => [{ id: 'linked', path: '/repo-linked' }],
+        getCurrentProjects: () => linkedProjects,
         rawWorktreesByProjectRef: rawRef,
         getPublishedWorktreesByProject: () => publishedTopology,
         resolveProject: () => null,
@@ -361,6 +485,7 @@ describe('startSessionWorktreeMenuLoad', () => {
         getCurrentProjects: () => [
           { id: 'owner', path: '/repo' },
           { id: 'linked', path: '/repo-linked' },
+          { id: 'new', path: '/repo-new' },
         ],
         rawWorktreesByProjectRef: rawRef,
         getPublishedWorktreesByProject: () => new Map([['/repo', [ownerExisting]]]),
@@ -408,7 +533,7 @@ describe('startSessionWorktreeMenuLoad', () => {
       },
       {
         projects: [{ id: 'linked', path: '/repo-linked' }],
-        getCurrentProjects: () => [{ id: 'linked', path: '/repo-linked' }],
+        getCurrentProjects: () => linkedProjects,
         rawWorktreesByProjectRef: rawRef,
         getPublishedWorktreesByProject: () => publishedCurrentRuntime,
         resolveProject: () => null,
@@ -501,7 +626,11 @@ describe('startSessionWorktreeMenuLoad', () => {
       },
       {
         projects: [{ id: 'owner', path: '/repo' }],
-        getCurrentProjects: () => [{ id: 'owner', path: '/repo' }],
+        getCurrentProjects: () => [
+          { id: 'owner', path: '/repo' },
+          { id: 'feature', path: '/repo-feature' },
+          { id: 'another', path: '/repo-another' },
+        ],
         rawWorktreesByProjectRef: rawScope('runtime-1', []),
         getPublishedWorktreesByProject: () => new Map(),
         resolveProject: (directory) => {

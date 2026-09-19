@@ -423,6 +423,18 @@ export const notifyWorktreeTopologyChanged = (projectDirectory: string): void =>
   for (const listener of worktreeTopologyListeners) listener(normalized);
 };
 
+// The project catalog is the authoritative admission barrier for sidebar topology.
+// Git can still report every physical worktree in the repository; unadmitted rows
+// stay untouched on disk and are hidden until the catalog publishes their path.
+const filterToAdmittedWorktrees = (
+  worktrees: WorktreeMetadata[],
+  admittedPaths: readonly string[] | undefined,
+): WorktreeMetadata[] => {
+  if (!admittedPaths) return worktrees;
+  const admitted = new Set(admittedPaths.map((path) => normalizePath(path)).filter(Boolean));
+  return worktrees.filter((worktree) => admitted.has(normalizePath(worktree.path)));
+};
+
 const readProjectWorktrees = async (projectDirectory: string): Promise<WorktreeMetadata[]> => {
   const metadataProjectDirectory = await resolveProjectRoot(projectDirectory).catch(() => projectDirectory);
   const normalizedProjectDirectory = normalizePath(projectDirectory);
@@ -479,7 +491,10 @@ const readStableProjectWorktrees = async (
   );
 };
 
-export async function listProjectWorktrees(project: ProjectRef, options?: { force?: boolean }): Promise<WorktreeMetadata[]> {
+export async function listProjectWorktrees(project: ProjectRef, options?: {
+  force?: boolean;
+  admittedPaths?: readonly string[];
+}): Promise<WorktreeMetadata[]> {
   const projectDirectory = normalizePath(project.path);
   const force = options?.force === true;
   const previousCache = force ? _worktreeListCache.get(projectDirectory) : undefined;
@@ -493,12 +508,14 @@ export async function listProjectWorktrees(project: ProjectRef, options?: { forc
   // Return cached if fresh
   const cached = _worktreeListCache.get(projectDirectory);
   if (!force && cached && Date.now() - cached.at < WORKTREE_LIST_CACHE_TTL) {
-    return cached.value;
+    return filterToAdmittedWorktrees(cached.value, options?.admittedPaths);
   }
 
   // Dedup in-flight requests
   const inflight = _worktreeListInflight.get(projectDirectory);
-  if (inflight && inflight.generation === generation) return inflight.promise;
+  if (inflight && inflight.generation === generation) {
+    return inflight.promise.then((worktrees) => filterToAdmittedWorktrees(worktrees, options?.admittedPaths));
+  }
 
   const promise = readStableProjectWorktrees(projectDirectory, generation)
     .catch((error) => {
@@ -518,7 +535,7 @@ export async function listProjectWorktrees(project: ProjectRef, options?: { forc
     });
 
   _worktreeListInflight.set(projectDirectory, { generation, promise });
-  return promise;
+  return promise.then((worktrees) => filterToAdmittedWorktrees(worktrees, options?.admittedPaths));
 }
 
 export type CreateWorktreeArgs = {
