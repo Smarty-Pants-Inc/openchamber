@@ -100,6 +100,23 @@ export const ensureRawWorktreesByProjectScope = (args: {
   return args.rawWorktreesByProjectRef.current;
 };
 
+const getAdmittedPaths = (projects: ReadonlyArray<Pick<ProjectRef, 'path'>>): Set<string> =>
+  new Set(projects.map((project) => normalizePath(project.path) ?? '').filter(Boolean));
+
+// Filter only the published projection; raw topology remains available for later admission.
+const filterAdmittedTopology = (
+  topology: ReadonlyMap<string, WorktreeMetadata[]>,
+  admittedPaths: ReadonlySet<string>,
+): Map<string, WorktreeMetadata[]> => {
+  const admittedTopology = new Map<string, WorktreeMetadata[]>();
+  for (const [projectPath, worktrees] of topology) {
+    if (!admittedPaths.has(normalizePath(projectPath) ?? '')) continue;
+    const admittedWorktrees = worktrees.filter((worktree) => admittedPaths.has(normalizePath(worktree.path) ?? ''));
+    if (admittedWorktrees.length > 0) admittedTopology.set(projectPath, admittedWorktrees);
+  }
+  return admittedTopology;
+};
+
 const compareLinkedTargets = (a: SessionWorktreeMenuTarget, b: SessionWorktreeMenuTarget): number => {
   const aLabel = a.metadata.branch || a.metadata.name || a.metadata.label || a.metadata.path;
   const bLabel = b.metadata.branch || b.metadata.name || b.metadata.label || b.metadata.path;
@@ -263,6 +280,7 @@ export const startSessionWorktreeMenuLoad = (
     : null;
   const project = projectById ?? (args.sourceDirectory ? deps.resolveProject(args.sourceDirectory) : null);
   const normalizedProjectPath = normalizePath(project?.path ?? null);
+  const admittedPaths = getAdmittedPaths(deps.getCurrentProjects());
   const cachedTargets = buildSessionWorktreeMenuTargets({
     projectPath: normalizedProjectPath,
     discoveredWorktrees: normalizedProjectPath
@@ -271,7 +289,7 @@ export const startSessionWorktreeMenuLoad = (
     sourceDirectory: args.sourceDirectory,
     currentWorktree: args.currentWorktree,
     projectRootBranch: deps.projectRootBranch,
-  });
+  }).filter((target) => admittedPaths.has(target.metadata.path));
 
   return {
     cachedTargets,
@@ -334,7 +352,11 @@ export const startSessionWorktreeMenuLoad = (
         worktreesByProject: nextRawTopology,
       };
 
-      const partitionedWorktreesByProject = deps.partitionWorktreesByRegisteredProject(currentProjects, nextRawTopology);
+      const currentAdmittedPaths = getAdmittedPaths(currentProjects);
+      const partitionedWorktreesByProject = filterAdmittedTopology(
+        deps.partitionWorktreesByRegisteredProject(currentProjects, nextRawTopology),
+        currentAdmittedPaths,
+      );
       const allWorktrees = [...partitionedWorktreesByProject.values()].flat();
       deps.recordWorktreesSeen(allWorktrees.map((worktree) => worktree.path), deps.now());
 
@@ -352,7 +374,7 @@ export const startSessionWorktreeMenuLoad = (
         sourceDirectory: args.sourceDirectory,
         currentWorktree: args.currentWorktree,
         projectRootBranch: deps.projectRootBranch,
-      });
+      }).filter((target) => currentAdmittedPaths.has(target.metadata.path));
     })(),
   };
 };
@@ -378,7 +400,10 @@ export const commitDiscoveredRawWorktreesByProject = (args: {
     args.requestRediscovery();
     return false;
   }
-  const partitionedWorktreesByProject = args.partitionWorktreesByRegisteredProject(args.projects, args.nextRawWorktreesByProject);
+  const partitionedWorktreesByProject = filterAdmittedTopology(
+    args.partitionWorktreesByRegisteredProject(args.projects, args.nextRawWorktreesByProject),
+    getAdmittedPaths(args.projects),
+  );
   const allWorktrees = [...partitionedWorktreesByProject.values()].flat();
   args.recordWorktreesSeen(allWorktrees.map((worktree) => worktree.path), args.now());
   args.rawWorktreesByProjectRef.current = {
