@@ -555,29 +555,32 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   }
 
   const runSseAttempt = async (signal: AbortSignal) => {
+    let receivedEvent = false
     const events = await sdk.global.event({
       signal,
       ...(lastEventId && lastEventId.length > 0 ? { headers: { "Last-Event-ID": lastEventId } } : {}),
       onSseEvent: (event: { id?: unknown }) => {
+        if (signal.aborted) return
         resetHeartbeat()
         if (typeof event.id === "string" && event.id.length > 0) {
           lastEventId = event.id
         }
       },
       onSseError: (error: unknown) => {
-        if (isAbortError(error)) return
+        if (signal.aborted || isAbortError(error)) return
+        notifyDisconnected("sse_stream_error")
         if (streamErrorLogged) return
         streamErrorLogged = true
         console.error("[event-pipeline] SSE stream error", error)
       },
     })
-
-    markConnected()
+    if (signal.aborted) return
 
     let yielded = Date.now()
     resetHeartbeat()
 
     for await (const event of events.stream) {
+      if (signal.aborted) break
       resetHeartbeat()
       streamErrorLogged = false
 
@@ -585,6 +588,12 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
       if (!payload) {
         continue
       }
+      // The SDK stream is lazy and can retry internally without ending this attempt.
+      if (!receivedEvent || disconnected) {
+        receivedEvent = true
+        markConnected()
+      }
+      if (signal.aborted) break
       const directory = resolveEventDirectory(event, payload)
       enqueueEvent(directory, payload)
 
