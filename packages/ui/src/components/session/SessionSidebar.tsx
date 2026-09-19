@@ -257,7 +257,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
               const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
               const isGitRepo = cachedIsGitRepo ?? await checkIsGitRepository(projectPath);
               if (!isGitRepo) return null;
-              return listProjectWorktrees({ id: project.id, path: projectPath });
+              return listProjectWorktrees({ id: project.id, path: projectPath }, {
+                admittedPaths: projectEntries.map((entry) => entry.path),
+              });
             });
             if (worktrees === null) {
               worktreesByProject.delete(projectPath);

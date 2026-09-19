@@ -324,6 +324,31 @@ describe('worktreeManager list invalidation', () => {
     expect((await recoveredListing).map((entry) => entry.path)).toEqual(['/repo-feature']);
   });
 
+  test('re-filters cached topology after project admission', async () => {
+    const project = { id: 'project-admission-barrier', path: '/repo-admission' };
+    const beforeAdmission = listProjectWorktrees(project, { admittedPaths: ['/repo-admission'] });
+
+    await waitForListCallCount(1);
+    listResolvers[0]([createdWorktree]);
+    expect(await beforeAdmission).toEqual([]);
+
+    const afterAdmission = await listProjectWorktrees(project, {
+      admittedPaths: ['/repo-admission', '/repo-feature'],
+    });
+    expect(afterAdmission.map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(listCalls).toEqual(['/repo-admission']);
+
+    expect(await listProjectWorktrees(project, { admittedPaths: [] })).toEqual([]);
+    const forced = listProjectWorktrees(project, { force: true, admittedPaths: [] });
+    await waitForListCallCount(2);
+    listResolvers[1]([createdWorktree]);
+    expect(await forced).toEqual([]);
+    expect((await listProjectWorktrees(project, {
+      admittedPaths: ['/repo-feature'],
+    })).map((entry) => entry.path)).toEqual(['/repo-feature']);
+    expect(listCalls).toEqual(['/repo-admission', '/repo-admission']);
+  });
+
   test('marks fast-created worktrees pending until bootstrap settles', async () => {
     const metadata = await createWorktree({ id: 'project-1', path: '/repo' }, {
       preferredName: 'feature',
