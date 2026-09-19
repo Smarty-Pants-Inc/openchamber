@@ -279,7 +279,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
       if (cancelled || getRuntimeKey() !== discoveryRuntimeKey) return;
 
-      const activeProjectPaths = new Set(projectEntries.map((project) => normalizePath(project.path)).filter(Boolean));
+      const currentProjects = useProjectsStore.getState().projects;
+      const activeProjectPaths = new Set(currentProjects.map((project) => normalizePath(project.path)).filter(Boolean));
       for (const projectPath of worktreesByProject.keys()) {
         if (!activeProjectPaths.has(projectPath)) {
           worktreesByProject.delete(projectPath);
@@ -290,9 +291,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         runtimeKey: discoveryRuntimeKey,
         capturedRevision: capturedRawRevision,
         nextRawWorktreesByProject: worktreesByProject,
-        publishedWorktreesByProject: knownPublishedWorktreesByProject,
+        publishedWorktreesByProject: useSessionUIStore.getState().availableWorktreesByProject,
         partitionWorktreesByRegisteredProject,
-        projects: projectEntries,
+        projects: currentProjects,
         worktreeMapsEqual,
         recordWorktreesSeen,
         publishTopology: (next) => {
