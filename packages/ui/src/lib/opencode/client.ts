@@ -571,15 +571,7 @@ class OpencodeService {
       }
     }
 
-    if (!candidates.size) {
-      try {
-        const sessions = await this.listSessions();
-        sessions.forEach((session) => addCandidate(session.directory));
-      } catch (error) {
-        console.debug('Failed to inspect sessions for system info:', error);
-      }
-    }
-
+    // Home discovery must not probe sessions before a project directory is resolved.
     addCandidate(this.currentDirectory);
 
     if (typeof window !== 'undefined') {
