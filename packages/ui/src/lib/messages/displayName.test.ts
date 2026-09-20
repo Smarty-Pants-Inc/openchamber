@@ -89,6 +89,19 @@ test('unnamed recovery is deliberate, tab-local and never erases a saved name', 
   expect(choice.unnamedForTab).toBe(false);
 });
 
+test('human mode bypasses untrusted tab labels without destroying legacy state', () => {
+  const storage = tabStorage();
+  const choice = createDisplayNameChoice(() => storage);
+  choice.apply('Someone else');
+  choice.setHumanMode(true);
+  expect(choice.read()).toBeUndefined();
+  expect(readDisplayName(storage)).toBe('Someone else');
+  storage.setItem(DISPLAY_NAME_KEY, 'invalid\nname');
+  expect(choice.read()).toBeUndefined();
+  choice.setHumanMode(false);
+  expect(() => choice.read()).toThrow();
+});
+
 test('each shipped locale has translated display-name labels', () => {
   const keys = Object.keys(displayNameI18n.en);
   for (const [locale, messages] of Object.entries(displayNameI18n)) {

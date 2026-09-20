@@ -1,4 +1,5 @@
 import React from 'react';
+import { HumanAuthor } from '@/components/auth/HumanAuthor';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -865,6 +866,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                             }}
                                             className="px-5 py-3 shadow-none border border-primary/5"
                                         >
+                                            <HumanAuthor info={message.info} />
                                             <MessageBody
                                                 messageId={message.info.id}
                                                 parts={displayParts}
