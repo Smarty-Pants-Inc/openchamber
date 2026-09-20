@@ -64,6 +64,14 @@ completion repair on that same store path. `nativeLifetimeSource` and
 `nativeLifetimeSha256` add the live draft-generation claims used by remount-safe
 input cleanup. Each earlier hash remains intact.
 
+The selected ordinary-session change extends only `session-ui-store.ts` among
+these donor-ledger paths. `ordinarySelectionSource` binds reviewed source
+`abfdf54c266428181e293bc28ee437c9f55de3a5`; `ordinarySelectionSha256` records the
+store's exact output. Send preparation uses the selected native model and checks
+its authority again before dispatch. The prior lifetime hash and every earlier
+source/hash remain intact. This records a behavioral successor, not new branding
+or browser/native acceptance.
+
 The foundation copy integration records `foundationCopySource` and
 `foundationCopySha256` for the eleven existing locale overlaps. It adds draft
 storage warnings and queue recovery text. Earlier native-creation, attribution,

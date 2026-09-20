@@ -80,7 +80,7 @@ import {
 import { openSessionFromToast } from "./session-navigation"
 import { getPermissionToastKey, showPermissionNeededToast } from "./permission-toast"
 import { getRuntimeLiveStatusSeed, LIVE_STATUS_TTL_MS } from "./runtime-live-memory"
-import { getRuntimeKey } from "@/lib/runtime-switch"
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch"
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
 import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
@@ -1517,15 +1517,18 @@ async function resyncDirectoryAfterReconnect(
   routingIndex: EventRoutingIndex,
   reason: SessionMaterializationReason,
 ) {
+  const scope = captureRuntimeRequestScope()
   const current = store.getState()
   const candidateSessionIds = getActiveSessionCandidateIds(directory, current)
   if (candidateSessionIds.length === 0) return
 
   await resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "authoritative")
+  if (!isRuntimeRequestScopeCurrent(scope)) return
 
   const scopedClient = opencodeClient.getScopedSdkClient(directory)
   await Promise.all(candidateSessionIds.map(async (sessionId) => {
     syncDebug.recovery.materializing({ reason, directory, sessionID: sessionId })
+    const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
     const loader = getImperativeSessionMessageLoader()
     const [sessionResponse] = await Promise.all([
       retry(async () => {
@@ -1536,11 +1539,13 @@ async function resyncDirectoryAfterReconnect(
       loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve(),
     ])
     const session = sessionResponse?.data
-    if (!session) return
+    if (!session || session.id !== sessionId || !isRuntimeRequestScopeCurrent(scope)) return
 
     const nextSession = stripSessionDiffSnapshots(session)
     store.setState((state: DirectoryStore) => {
-      const sessions = upsertSessionRecord(state.session, nextSession)
+      const sessions = upsertSessionRecord(state.session, nextSession, {
+        requested: eventRevision, current: state.sessionEventRevision?.[sessionId] ?? 0,
+      })
       let sessionTotal = state.sessionTotal
 
       if (sessions === state.session) {
@@ -1558,6 +1563,7 @@ async function resyncDirectoryAfterReconnect(
     setIndexedSessionMessages(routingIndex, sessionId, directory, store.getState().message[sessionId] ?? [])
   }))
 
+  if (!isRuntimeRequestScopeCurrent(scope)) return
   await resyncBlockingRequestsForDirectory(directory, store, candidateSessionIds)
 
   ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())

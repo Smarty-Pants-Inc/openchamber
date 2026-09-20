@@ -215,13 +215,20 @@ export type PersistedDirCache = {
   sessions: Session[] | undefined
 }
 
-/** Read all cached metadata for a directory */
+function restoreSessionMetadata(session: Session): Session {
+  if (!Object.hasOwn(session, "ordinary")) return session
+  const metadata: Session & { nativeRuntime: "ordinary"; ordinary?: unknown } = { ...session, nativeRuntime: "ordinary" }
+  delete metadata.ordinary
+  return metadata
+}
+
+/** Read all cached metadata for a directory; persisted native detail has no live authority. */
 export function readDirCache(directory: string): PersistedDirCache {
   return {
     vcs: readCache<VcsInfo>(directory, "vcs"),
     projectMeta: readCache<ProjectMeta>(directory, "projectMeta"),
     icon: readCache<string>(directory, "icon"),
-    sessions: readCache<Session[]>(directory, "sessions"),
+    sessions: readCache<Session[]>(directory, "sessions")?.map(restoreSessionMetadata),
   }
 }
 
