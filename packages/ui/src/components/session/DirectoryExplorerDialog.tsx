@@ -105,7 +105,8 @@ const normalizeDirectoryPath = (path: string | null | undefined): string | null 
 
 const displayPathToAbsolutePath = (value: string, homeDirectory: string): string => {
   const trimmed = value.trim();
-  if (!homeDirectory && !isAbsoluteFilePath(trimmed)) return '';
+  // ponytail: Project normalization also strips drive roots; do not newly admit a relative target.
+  if (!homeDirectory && !isAbsoluteFilePath(trimTrailingSeparators(trimmed))) return '';
   if (trimmed === '~') return homeDirectory;
   if (trimmed.startsWith('~/')) return `${homeDirectory}${trimmed.slice(1)}`;
   return trimmed;

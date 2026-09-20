@@ -110,6 +110,16 @@ for (const [home, input, browse] of [['', '/', '/'], ['', 'C:/owned/', 'C:/owned
     assert.ok(requests.some(request => request.directory === browse));
   });
 }
+test('unresolved home refuses a drive root that downstream normalization makes relative', async () => {
+  await mount('', false);
+  assert.equal((await typePath('C:/')).disabled, true);
+  const input = document.querySelector('input[placeholder="Enter path or select from tree..."]');
+  const submit = new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true });
+  await act(async () => { input.dispatchEvent(submit); await tick(); });
+  assert.equal(submit.defaultPrevented, true, 'actual dialog submit handler received the shortcut');
+  assert.equal(requests.filter(request => request.path === '/api/fs/list').length, 0);
+  assert.equal(useProjectsStore.getState().projects.length, 0, 'normal submit shortcut must not add a relative drive target');
+});
 test('filesystem refusal still disables an absent absolute target', async () => {
   listingStatus = 403;
   await mount('', false);
