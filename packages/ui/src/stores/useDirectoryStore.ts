@@ -142,7 +142,8 @@ const getHomeDirectory = () => {
   if (processHome) {
     return processHome;
   }
-  return '/';
+  // ponytail: unknown bootstrap state is not an explicit selection of filesystem root.
+  return '';
 };
 
 
@@ -255,8 +256,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
     (set, get) => ({
 
       currentDirectory: initialCurrentDirectory,
-      directoryHistory: [initialCurrentDirectory],
-      historyIndex: 0,
+      directoryHistory: initialCurrentDirectory ? [initialCurrentDirectory] : [],
+      historyIndex: initialCurrentDirectory ? 0 : -1,
       homeDirectory: initialHomeDirectory,
       hasPersistedDirectory: initialHasPersistedDirectory,
       isHomeReady: initialIsHomeReady,
@@ -266,6 +267,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
         void options;
         const homeDir = cachedHomeDirectory || get().homeDirectory || safeStorage.getItem('homeDirectory');
         const resolvedPath = resolveDirectoryPath(path, homeDir);
+        if (!resolvedPath) return;
         if (streamDebugEnabled()) {
           console.log('[DirectoryStore] setDirectory called with path:', resolvedPath);
         }
@@ -368,6 +370,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
       },
 
       synchronizeHomeDirectory: (homePath: string) => {
+        if (!homePath) return;
         const state = get();
         const resolvedHome = homePath;
         cachedHomeDirectory = resolvedHome;

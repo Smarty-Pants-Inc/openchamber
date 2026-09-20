@@ -65,9 +65,13 @@ so a delayed or lost handshake cannot hide an already-materialized transcript
 
 Home initialization asks the runtime filesystem-home API first. If that is
 unavailable, `getSystemInfo` may use path/project metadata and existing directory
-hints, but never lists sessions to guess a home. An unresolved startup directory
-must not trigger project-session discovery. This does not prohibit explicitly
-selecting a root project or change the SDK's normal session-list operation.
+hints, but never lists sessions to guess a home. With no usable hint, the store
+keeps an empty directory and history; unknown bootstrap state is not a selection
+of `/`. Empty discovery does not persist or replace a resolved home. Consumers
+can use their existing empty-directory checks until discovery or user selection
+supplies a path. Explicitly selecting `/` remains valid, including when home
+discovery completes later. This does not change the SDK's session-list operation
+or grant access to an unowned directory.
 
 ### Session / project coordination stores
 
