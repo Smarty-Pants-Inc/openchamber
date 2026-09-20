@@ -73,6 +73,11 @@ supplies a path. Explicitly selecting `/` remains valid, including when home
 discovery completes later. This does not change the SDK's session-list operation
 or grant access to an unowned directory.
 
+The project picker can browse and submit explicit absolute paths without a
+resolved home. Relative and `~` input still require home discovery. Existing
+project membership and filesystem errors still block Add where applicable.
+An enabled button does not itself change membership or prove project readiness.
+
 ### Session / project coordination stores
 
 Examples:

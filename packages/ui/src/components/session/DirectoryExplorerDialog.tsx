@@ -16,6 +16,7 @@ import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useFileSystemAccess } from '@/hooks/useFileSystemAccess';
 import { cn } from '@/lib/utils';
+import { isAbsoluteFilePath } from '@/lib/path-utils';
 import { toast } from '@/components/ui';
 import { IdentityDropdown } from '@/components/views/git/GitHeader';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -104,6 +105,7 @@ const normalizeDirectoryPath = (path: string | null | undefined): string | null 
 
 const displayPathToAbsolutePath = (value: string, homeDirectory: string): string => {
   const trimmed = value.trim();
+  if (!homeDirectory && !isAbsoluteFilePath(trimmed)) return '';
   if (trimmed === '~') return homeDirectory;
   if (trimmed.startsWith('~/')) return `${homeDirectory}${trimmed.slice(1)}`;
   return trimmed;
@@ -261,7 +263,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     [query]
   );
   const browseDirectoryAbsolutePath = React.useMemo(
-    () => explorerRootDirectory ? displayPathToAbsolutePath(browseDirectoryDisplayPath, explorerRootDirectory) : '',
+    () => displayPathToAbsolutePath(browseDirectoryDisplayPath, explorerRootDirectory),
     [browseDirectoryDisplayPath, explorerRootDirectory]
   );
 
@@ -358,10 +360,10 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     ));
   }, []);
 
-  const targetPath = React.useMemo(() => {
-    if (!explorerRootDirectory) return '';
-    return trimTrailingSeparators(displayPathToAbsolutePath(query, explorerRootDirectory));
-  }, [explorerRootDirectory, query]);
+  const targetPath = React.useMemo(
+    () => trimTrailingSeparators(displayPathToAbsolutePath(query, explorerRootDirectory)),
+    [explorerRootDirectory, query]
+  );
   const normalizedTargetPath = normalizeDirectoryPath(targetPath);
   const isAlreadyAdded = Boolean(normalizedTargetPath && addedProjectPaths.has(normalizedTargetPath));
   const exactEntry = React.useMemo(() => {
