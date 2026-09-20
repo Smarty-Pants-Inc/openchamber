@@ -63,6 +63,12 @@ mounted session-chat iframe stay enabled independently of that visibility flag
 so a delayed or lost handshake cannot hide an already-materialized transcript
 (busy subagents would otherwise show only the working-status row).
 
+Home initialization asks the runtime filesystem-home API first. If that is
+unavailable, `getSystemInfo` may use path/project metadata and existing directory
+hints, but never lists sessions to guess a home. An unresolved startup directory
+must not trigger project-session discovery. This does not prohibit explicitly
+selecting a root project or change the SDK's normal session-list operation.
+
 ### Session / project coordination stores
 
 Examples:

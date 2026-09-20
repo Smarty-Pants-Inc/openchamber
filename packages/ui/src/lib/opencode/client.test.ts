@@ -31,6 +31,8 @@ const promptAsyncMock = mock(async (...args: unknown[]) => {
 });
 
 let pathGetCalls = 0;
+let sessionListCalls = 0;
+let projectWorktree: string | undefined;
 const pathGetMock = mock(async () => {
   pathGetCalls += 1;
   const next = pathGetResults.shift();
@@ -49,7 +51,9 @@ mock.module('@opencode-ai/sdk/v2', () => ({
         });
       }),
     },
+    project: { current: async () => ({ data: { worktree: projectWorktree } }) },
     session: {
+      list: async () => { sessionListCalls += 1; return { data: [] }; },
       promptAsync: promptAsyncMock,
       messages: async () => {
         messagePageCalls += 1;
@@ -107,6 +111,9 @@ beforeEach(() => {
   healthResolvers.length = 0;
   pathGetResults.length = 0;
   pathGetCalls = 0;
+  sessionListCalls = 0;
+  projectWorktree = undefined;
+  opencodeClient.setDirectory(undefined);
   runtimeFetchCalls.length = 0;
   runtimeFetchResults.length = 0;
   fsHomeResponses.length = 0;
@@ -178,6 +185,54 @@ describe('ordinary accepted browser view forwarding', () => {
       expect(messagePageCalls).toBe(2);
       expect(f.loader.getAcceptedOrdinaryView(target, runtimeKey)).toBe(nextView);
     } finally { f.close(); }
+  });
+});
+
+describe('home discovery does not probe project sessions', () => {
+  for (const directory of [undefined, '/', '/workspace/owned']) {
+    test(`unavailable metadata preserves fallback without listing sessions (${directory ?? 'unset'})`, async () => {
+      opencodeClient.setDirectory(directory);
+      pathGetResults.push(new Error('metadata unavailable'));
+      await opencodeClient.getSystemInfo();
+      expect(pathGetCalls).toBe(1);
+      expect(sessionListCalls).toBe(0);
+      expect(opencodeClient.getDirectory()).toBe(directory);
+    });
+  }
+
+  test('resolved project metadata remains a supported home-discovery source', async () => {
+    opencodeClient.setDirectory('/workspace/owned');
+    pathGetResults.push(new Error('path metadata unavailable'));
+    projectWorktree = '/workspace/owned';
+    const info = await opencodeClient.getSystemInfo();
+    expect(info.homeDirectory).toBe('/workspace/owned');
+    expect(sessionListCalls).toBe(0);
+    expect(opencodeClient.getDirectory()).toBe('/workspace/owned');
+  });
+
+  test('explicitly selected root metadata is not rejected or replaced', async () => {
+    opencodeClient.setDirectory('/');
+    pathGetResults.push({ data: { directory: '/', worktree: '/' } });
+    const info = await opencodeClient.getSystemInfo();
+    expect(info.homeDirectory).toBe('/');
+    expect(opencodeClient.getDirectory()).toBe('/');
+    expect(sessionListCalls).toBe(0);
+  });
+
+  for (const directory of ['/', '/workspace/owned']) {
+    test(`explicit session discovery remains available (${directory})`, async () => {
+      opencodeClient.setDirectory(directory);
+      expect(await opencodeClient.listSessions()).toEqual([]);
+      expect(sessionListCalls).toBe(1);
+      expect(opencodeClient.getDirectory()).toBe(directory);
+    });
+  }
+
+  test('the supported filesystem-home API does not discover project sessions', async () => {
+    fsHomeResponses.push(Response.json({ home: '/home/fixture' }));
+    expect(await opencodeClient.getFilesystemHome()).toBe('/home/fixture');
+    expect(pathGetCalls).toBe(0);
+    expect(sessionListCalls).toBe(0);
   });
 });
 
