@@ -235,6 +235,38 @@ For an ordinary Pi backend, the loader retains `x-smarty-ordinary-view` only aft
 
 Disconnect, transport switch, native branch removal and failed ordinary page loads revoke accepted views. A `session.error` for a known ordinary session also resets coverage, since generation or branch changes need not remove a renderable row. Idle refresh retains valid coverage. A branch reset preserves visible records on failure; a successful replacement tail drops the old cached branch and reports incomplete coverage until older pages reach root. Completion and reconnect use the existing loader GET path. Stale prompt responses can refresh history but never replay the mutation; missing tokens remain backend refusals. Backends without this header retain their normal prompt and event behavior.
 
+### Selected ordinary model state
+
+A session's `nativeRuntime: ordinary` marker establishes native ownership without
+claiming live detail. Its validated `ordinary` field carries generation, sequence,
+provider/model and thinking level. The selected session and directory own the
+read-only controls and Send configuration; catalog entries, message history and
+global preferences do not replace them. Missing or malformed native detail shows
+Unavailable. An initial marker still fetches session detail when history is cached;
+explicit unavailable detail does not start a polling or retry loop. All persisted
+session reads drop native detail from a copied row while preserving its ownership
+marker. This covers pending writes, current and legacy caches, and managed chats;
+already-written detail never gains live authority merely by surviving a reload.
+
+Lightweight updates preserve existing native detail for the same session/directory.
+Marker-only merges retain ownership but keep detail absent so the first detail GET
+is not mistaken for a completed unavailable response.
+Explicit unavailable detail is authoritative, and sequence ordering applies only
+within one generation. Both normal detail fetch and reconnect materialization use
+the same session-record event-revision guard: a held response cannot replace a newer
+native event. Reconnect also rechecks the existing runtime request scope after its
+waits. Producer freshness remains responsible for native generations.
+Model/effort-only changes use normal `session.updated`, not fabricated messages.
+
+`routeMessage` replaces saved provider/model with selected native state and leaves
+native agent/effort mutation to the original TUI. Its existing `beforeDispatch`
+callback rejects generation, model, effort or target changes during asynchronous
+preparation. Stock sessions retain their existing selection behavior. These values
+are not input authority: accepted-view, native readiness and no-replay checks still
+apply independently. Directory aliases are normalized only for the native lookup;
+request payload bytes remain unchanged. Unsupported command/shell mutations and
+ordinary queue admission still fail through their existing gateway/capability gates.
+
 ### Stream recovery
 
 The SSE pipeline reports a connection after its first valid event, not when the

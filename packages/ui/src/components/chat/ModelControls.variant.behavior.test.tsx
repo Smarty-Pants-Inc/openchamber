@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
 import { create } from 'zustand';
+import type { Session } from '@opencode-ai/sdk/v2';
+import type { OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 
 /**
  * Restoring a session must not invent an effort choice.
@@ -40,6 +42,7 @@ const provider = { id: PROVIDER_ID, name: PROVIDER_ID, models: [model] };
 const agent = { name: AGENT, mode: 'primary' as const };
 
 let latestUserChoice: UserModelChoice | null = null;
+let fixtureHistory: unknown[] = [];
 let forcePreserveManualOverride: boolean | null = null;
 
 /** Every effort written for the session, in order, including `undefined`. */
@@ -155,6 +158,8 @@ const useSessionUIStore = create(() => ({
   getDirectoryForSession: () => '/workspace/project',
 }));
 
+const useNativeSessions = create<{ sessions: Record<string, Session> }>(() => ({ sessions: {} }));
+
 const useUIStore = create(() => ({
   isMobile: false,
   isModelSelectorOpen: false,
@@ -199,7 +204,11 @@ mock.module('@/stores/contextStore', () => ({
 }));
 
 mock.module('@/sync/sync-context', () => ({
-  useSessionMessages: () => [],
+  useSession: (id?: string | null, directory?: string) => useNativeSessions(state => {
+    const session = id ? state.sessions[id] : undefined;
+    return session?.directory === directory ? session : undefined;
+  }),
+  useSessionMessages: () => fixtureHistory,
   useSessionRenderable: () => true,
 }));
 mock.module('@/sync/use-sync', () => ({ useSync: () => ({ sessions: [] }) }));
@@ -321,6 +330,13 @@ const renderModelControls = async () => {
   };
 };
 
+beforeEach(() => {
+  fixtureHistory = [];
+  useNativeSessions.setState({ sessions: {} });
+  useSessionUIStore.setState({ currentSessionId: SESSION_ID });
+  useConfigStore.setState({ providers: [provider] });
+});
+
 describe('ModelControls effort restore', () => {
   beforeEach(() => {
     variantWrites.length = 0;
@@ -402,5 +418,93 @@ describe('ModelControls effort restore', () => {
     } finally {
       await cleanup();
     }
+  });
+});
+
+const nativeSession = (id = 'B', modelID = 'live-b', sequence = 1): Session & { ordinary: OrdinaryModelState } => ({
+  id, slug: id, directory: '/workspace/project', projectID: 'fixture', title: id, version: '1',
+  time: { created: 1, updated: 1 },
+  ordinary: {
+    generation: `generation-${id}`, sequence, thinkingLevel: 'high',
+    model: { providerID: `fixture-${id.toLowerCase()}`, modelID, name: modelID },
+  },
+});
+
+describe('ordinary selected-session controls', () => {
+  beforeEach(() => {
+    variantWrites.length = 0;
+    overrideWrites.length = 0;
+    latestUserChoice = null;
+    useSessionUIStore.setState({ currentSessionId: 'B' });
+    useNativeSessions.setState({ sessions: { B: nativeSession() } });
+    useConfigStore.setState({ currentProviderId: PROVIDER_ID, currentModelId: MODEL_ID });
+  });
+
+  for (const history of ['empty', 'old-assistant', 'old-user', 'old-user-with-catalog-union']) {
+    test(`live B wins over ${history} and first-A catalog/defaults`, async () => {
+      if (history === 'old-assistant') fixtureHistory = [{ role: 'assistant', id: 'old-b', providerID: 'fixture-b', modelID: 'old-b' }];
+      if (history.startsWith('old-user')) latestUserChoice = {
+        id: 'old-b', providerID: 'fixture-b', modelID: 'old-b', variant: 'low', agent: AGENT,
+      };
+      if (history.endsWith('union')) useConfigStore.setState({ providers: [provider, {
+        id: 'fixture-b', name: 'fixture-b', models: [{ ...model, id: 'old-b', providerID: 'fixture-b' }],
+      }] });
+      const { dom, cleanup } = await renderModelControls();
+      try {
+        expect(dom.container.textContent).toContain('fixture-b');
+        expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('live-b');
+        expect(dom.container.querySelector('.model-controls__variant-label')?.textContent).toBe('High');
+        expect(dom.container.querySelector('button')).toBeNull();
+        expect(useConfigStore.getState().currentModelId).toBe(MODEL_ID);
+        expect(variantWrites).toEqual([]);
+      } finally { await cleanup(); }
+    });
+  }
+
+  test('model/effort-only updates render without messages and delayed A cannot replace selected B', async () => {
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      const next = nativeSession('B', 'new-live-b', 2);
+      next.ordinary.thinkingLevel = 'low';
+      await act(async () => useNativeSessions.setState({ sessions: { B: next, A: nativeSession('A', 'live-a') } }));
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('new-live-b');
+      expect(dom.container.querySelector('.model-controls__variant-label')?.textContent).toBe('Low');
+      await act(async () => useSessionUIStore.setState({ currentSessionId: 'A' }));
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('live-a');
+      await act(async () => useSessionUIStore.setState({ currentSessionId: 'B' }));
+      await act(async () => useNativeSessions.setState({ sessions: { B: next, A: nativeSession('A', 'delayed-a', 3) } }));
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('new-live-b');
+      expect(dom.container.textContent).not.toContain('delayed-a');
+      expect(variantWrites).toEqual([]);
+    } finally { await cleanup(); }
+  });
+
+  test('marker-only native summary stays unavailable instead of mounting stock defaults', async () => {
+    const marker: Session & { nativeRuntime: 'ordinary'; ordinary?: OrdinaryModelState } = {
+      ...nativeSession(), nativeRuntime: 'ordinary',
+    };
+    delete marker.ordinary;
+    useNativeSessions.setState({ sessions: { B: marker } });
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      expect(dom.container.textContent).toContain('Unavailable');
+      expect(dom.container.querySelector('.model-controls__model-label')).toBeNull();
+      expect(dom.container.querySelector('button')).toBeNull();
+      expect(variantWrites).toEqual([]);
+    } finally { await cleanup(); }
+  });
+
+  test('explicit unavailable native state cannot display a catalog or historical fallback', async () => {
+    const unavailable = nativeSession();
+    unavailable.ordinary.model = null;
+    unavailable.ordinary.thinkingLevel = null;
+    useNativeSessions.setState({ sessions: { B: unavailable } });
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      expect(dom.container.querySelector('.model-controls__model-label')).toBeNull();
+      expect(dom.container.querySelector('button')).toBeNull();
+      expect(dom.container.textContent).not.toContain(MODEL_ID);
+      expect(variantWrites).toEqual([]);
+    } finally { await cleanup(); }
   });
 });
