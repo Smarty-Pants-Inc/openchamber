@@ -18,6 +18,7 @@ import type { Session, Part, TextPart } from "@opencode-ai/sdk/v2/client"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
+import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
@@ -159,6 +160,24 @@ export async function routeMessage(params: {
 }): Promise<'command' | 'prompt' | 'shell'> {
   params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
+  const selectedOrdinary = () => {
+    const directory = normalizePath(requestDirectory) ?? undefined
+    return readOrdinaryModel(getSyncSessions(directory)
+      .find(session => session.id === params.sessionId && (!directory || normalizePath(session.directory) === directory)))
+  }
+  const ordinary = selectedOrdinary()
+  if (ordinary) {
+    const { formatMessage, useI18nStore } = await import('@/lib/i18n')
+    const unavailable = () => new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
+    if (!ordinary.model) throw unavailable()
+    const beforeDispatch = params.beforeDispatch
+    params = { ...params, providerID: ordinary.model.providerID, modelID: ordinary.model.modelID,
+      agent: undefined, variant: undefined, beforeDispatch: () => {
+        beforeDispatch?.()
+        if (!sameOrdinaryModel(ordinary, selectedOrdinary())) throw unavailable()
+      } }
+    params.beforeDispatch?.()
+  }
   if (params.displayName !== undefined && (params.inputMode === 'shell' || params.content.startsWith('/') || params.delivery)) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
     throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.plainOnly'))

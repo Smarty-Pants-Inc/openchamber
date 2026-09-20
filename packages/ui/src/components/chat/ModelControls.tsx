@@ -31,7 +31,10 @@ import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
+import { useSession, useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
+import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
+import { OrdinaryModelControls } from './OrdinaryModelControls';
+import { useChatColumnSession } from './chatColumnSession';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
@@ -313,7 +316,19 @@ interface ModelControlsProps {
     onMobilePanelChange?: (panel: MobileControlsPanel) => void;
 }
 
-export const ModelControls: React.FC<ModelControlsProps> = ({
+export const ModelControls: React.FC<ModelControlsProps> = (props) => {
+    const liveSessionId = useSessionUIStore(state => state.currentSessionId);
+    const column = useChatColumnSession();
+    const sessionId = column ? column.sessionId : liveSessionId;
+    const directory = useSessionUIStore(state => sessionId ? state.getDirectoryForSession(sessionId) : undefined);
+    const session = useSession(sessionId, column?.directory ?? directory ?? undefined);
+    const ordinary = React.useMemo(() => readOrdinaryModel(session), [session]);
+    // Keep ordinary state ahead of all historical, saved and directory-wide choices.
+    if (ordinary !== undefined) return <OrdinaryModelControls state={ordinary} className={props.className} />;
+    return <ConfiguredModelControls {...props} />;
+};
+
+const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
     className,
     mobilePanel,
     onMobilePanelChange,

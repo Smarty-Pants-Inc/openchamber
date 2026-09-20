@@ -15,6 +15,7 @@ import { dropSessionCaches } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { syncDebug } from "./debug"
 import { shouldSkipStaleSessionEvent } from "./session-event-freshness"
+import { mergeOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import {
   compareMessagesChronologically,
   findMessageIndex,
@@ -255,7 +256,7 @@ export function applyDirectoryEvent(
         return false
       }
       if (result.found) {
-        sessions[result.index] = info
+        sessions[result.index] = mergeOrdinaryModel(sessions[result.index], info)
       } else {
         sessions.splice(result.index, 0, info)
         trimSessions(draft)
@@ -286,7 +287,7 @@ export function applyDirectoryEvent(
       }
 
       if (result.found) {
-        sessions[result.index] = info
+        sessions[result.index] = mergeOrdinaryModel(sessions[result.index], info)
       } else {
         sessions.splice(result.index, 0, info)
         trimSessions(draft)

@@ -1,6 +1,7 @@
 import type { SessionStatus, Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { Session } from "@opencode-ai/sdk/v2"
 import { getSessionMaterializationStatus } from "./materialization"
+import { mergeOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 
 type ReconnectMaterializationState = {
   session: Session[]
@@ -57,8 +58,9 @@ export function mergeBootstrapSessions(
   )
   const rootIds = new Set(rootSessions.map((session) => session.id))
   const sessionsById = new Map(existingSessions.map((session) => [session.id, session]))
-  for (const session of completeSessions) sessionsById.set(session.id, session)
-  for (const session of rootSessions) sessionsById.set(session.id, session)
+  for (const session of [...completeSessions, ...rootSessions]) {
+    sessionsById.set(session.id, mergeOrdinaryModel(sessionsById.get(session.id), session))
+  }
 
   const includedIds = new Set(rootIds)
   const pendingParentIds: string[] = []

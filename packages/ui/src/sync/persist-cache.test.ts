@@ -87,6 +87,28 @@ afterEach(() => {
 })
 
 describe("persisted directory sessions", () => {
+  test("all cached native detail reads retain ownership but revoke live authority", async () => {
+    const chat = { ...session(1, 2, "Chat", "/home/user/.config/openchamber/chats/2026-08-21/session-a"),
+      ordinary: { generation: "old", sequence: 9, model: { providerID: "old", modelID: "old", name: "Old" }, thinkingLevel: "low" } }
+    const assertMetadata = (rows: Session[]) => {
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ id: chat.id, title: chat.title, nativeRuntime: "ordinary" })
+      expect(Object.hasOwn(rows[0], "ordinary")).toBe(false)
+      expect(chat.ordinary.generation).toBe("old")
+    }
+    persistSessions(directory, [chat]); persistManagedChatSessions([chat])
+    assertMetadata(readDirCache(directory).sessions!); assertMetadata(readManagedChatSessions())
+    await waitForPersistence()
+    const keys = [...storage.values.keys()].filter(key => key.endsWith(".sessions"))
+    expect(keys).toHaveLength(2)
+    for (const key of keys) storage.setItem(key, JSON.stringify([chat]))
+    assertMetadata(readDirCache(directory).sessions!); assertMetadata(readManagedChatSessions())
+    for (const key of keys) storage.removeItem(key)
+    storage.setItem(legacySessionKey(directory), JSON.stringify([chat]))
+    storage.setItem(legacySessionKey("openchamber:managed-chats"), JSON.stringify([chat]))
+    assertMetadata(readDirCache(directory).sessions!); assertMetadata(readManagedChatSessions())
+  })
+
   test("keeps one runtime-scoped startup snapshot for managed chats", async () => {
     const chat = session(1, 2, "Chat", "/home/user/.config/openchamber/chats/2026-08-21/session-a")
     persistManagedChatSessions([session(2, 3), chat])
