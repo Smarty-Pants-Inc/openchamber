@@ -14,7 +14,7 @@ test('returning Google callback preserves subject/profile but checks fresh verif
     googleClientSecret: 'fixture-secret', allowedDomains: ['example.test'] });
   const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = { ...keys.publicKey.export({ format: 'jwk' }), kid: 'fixture-key', alg: 'RS256', use: 'sig' };
-  let claims = { email: 'person@example.test', email_verified: true };
+  let claims = { email: 'person@example.test', email_verified: true, hd: 'example.test' };
   const enc = value => Buffer.from(JSON.stringify(value)).toString('base64url');
   t.mock.method(globalThis, 'fetch', async input => {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
@@ -46,6 +46,7 @@ test('returning Google callback preserves subject/profile but checks fresh verif
     assert.equal(start.status, 200);
     const url = new URL((await start.json()).url);
     assert.equal(url.origin, 'https://accounts.google.com');
+    assert.equal(url.searchParams.get('hd'), 'example.test', 'provider hint is present but is not the admission check');
     const response = await request(`/api/auth/callback/google?code=fixture-code&state=${encodeURIComponent(url.searchParams.get('state'))}`);
     const session = await (await request('/api/auth/get-session')).json();
     return { response, session };
@@ -61,15 +62,28 @@ test('returning Google callback preserves subject/profile but checks fresh verif
     assert.equal(returning.session.user.name, 'Chosen Name');
     await request('/api/auth/sign-out', {});
     for (const fresh of [
-      { email: 'outsider@elsewhere.test', email_verified: true },
-      { email: 'suffix@example.test.attacker.test', email_verified: true },
-      { email: 'person@example.test', email_verified: false },
-      { sub: 'new-outsider', email: 'new@elsewhere.test', email_verified: true },
+      { email: 'outsider@elsewhere.test', email_verified: true, hd: 'example.test' },
+      { email: 'suffix@example.test.attacker.test', email_verified: true, hd: 'example.test' },
+      { email: 'person@example.test', email_verified: false, hd: 'example.test' },
+      { sub: 'new-outsider', email: 'new@elsewhere.test', email_verified: true, hd: 'example.test' },
     ]) {
       claims = fresh;
       const denied = await login();
       assert.equal(denied.session, null);
       assert.match(denied.response.headers.get('location'), /account_not_allowed/);
+      assert.equal(database.prepare('SELECT count(*) AS n FROM session').get().n, 0);
+    }
+    for (const fresh of [
+      { email: 'person@example.test', email_verified: true },
+      { email: 'person@example.test', email_verified: true, hd: 'elsewhere.test' },
+      { email: 'person@example.test', email_verified: true, hd: 'example.test.attacker.test' },
+      { sub: 'new-non-workspace', email: 'new@example.test', email_verified: true },
+      { sub: 'new-wrong-workspace', email: 'new@example.test', email_verified: true, hd: 'elsewhere.test' },
+    ]) {
+      claims = fresh;
+      const denied = await login();
+      assert.equal(denied.session, null, 'missing/wrong fresh Workspace claim must not admit new or returning users');
+      assert.notEqual(denied.response.headers.get('location'), origin);
       assert.equal(database.prepare('SELECT count(*) AS n FROM session').get().n, 0);
     }
     assert.equal(database.prepare('SELECT count(*) AS n FROM user').get().n, 1);

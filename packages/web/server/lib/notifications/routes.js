@@ -51,7 +51,26 @@ export const registerNotificationRoutes = (app, dependencies) => {
     markUserMessageSent,
     setPushInitialized,
     setAutoAcceptSession,
+    authorizeUiSession,
+    humanMode = false,
   } = dependencies;
+
+  if (typeof humanMode !== 'boolean' || humanMode !== (uiAuthController?.humanMode === true)
+    || (humanMode && (typeof authorizeUiSession !== 'function'
+      || typeof uiAuthController?.getSessionGroup !== 'function'))) {
+    throw new Error('Notification human authentication configuration mismatch');
+  }
+
+  // Human mode stores a non-credential Better Auth session group key.
+  const resolveSessionGroup = async (req, res) => {
+    if (humanMode) {
+      const group = await uiAuthController.getSessionGroup?.(req);
+      if (!group || typeof authorizeUiSession !== 'function') return null;
+      try { return await authorizeUiSession(group) === true ? group : null; } catch { return null; }
+    }
+    return uiAuthController?.ensureSessionToken
+      ? await uiAuthController.ensureSessionToken(req, res) : getUiSessionTokenFromRequest(req);
+  };
 
   const ensureSessionWatcher = async () => {
     if (typeof ensureGlobalWatcherStarted !== 'function') {
@@ -79,9 +98,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
     await ensurePushInitialized();
     await ensureSessionWatcher();
 
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -130,9 +147,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
   app.delete('/api/push/subscribe', async (req, res) => {
     await ensurePushInitialized();
 
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -152,9 +167,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
   app.post('/api/push/apns-token', async (req, res) => {
     await ensureSessionWatcher();
 
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -175,9 +188,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
   });
 
   app.delete('/api/push/apns-token', async (req, res) => {
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -194,9 +205,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
   });
 
   app.post('/api/push/visibility', async (req, res) => {
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -207,8 +216,8 @@ export const registerNotificationRoutes = (app, dependencies) => {
     return res.json({ ok: true });
   });
 
-  app.get('/api/push/visibility', (req, res) => {
-    const uiToken = getUiSessionTokenFromRequest(req);
+  app.get('/api/push/visibility', async (req, res) => {
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
       return res.status(401).json({ error: 'UI session missing' });
     }
@@ -222,12 +231,11 @@ export const registerNotificationRoutes = (app, dependencies) => {
   app.get('/api/notifications/stream', async (req, res) => {
     await ensureSessionWatcher();
 
-    const uiToken = uiAuthController?.ensureSessionToken
-      ? await uiAuthController.ensureSessionToken(req, res)
-      : getUiSessionTokenFromRequest(req);
+    const uiToken = await resolveSessionGroup(req, res);
     if (!uiToken) {
-      return;
+      return res.status(401).json({ error: 'UI session missing' });
     }
+    if (res.destroyed || res.writableEnded) return;
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -254,6 +262,7 @@ export const registerNotificationRoutes = (app, dependencies) => {
     };
 
     req.on('close', cleanup);
+    res.on('close', cleanup);
     res.on('error', cleanup);
 
     const flushSse = () => {

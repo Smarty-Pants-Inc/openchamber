@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Vitest hoists this before runtime imports. Never forward fixture PIDs to the OS.
+vi.hoisted(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('OS signaling forbidden in terminal tests'); });
+});
 import { WebSocket } from 'ws';
 
 import { createTerminalRuntime } from './runtime.js';
@@ -145,6 +150,7 @@ describe('terminal runtime', () => {
   const createHarness = (overrides = {}) => {
     const routes = { get: new Map(), post: new Map(), delete: new Map() };
     const processes = [];
+    const signalCalls = [];
     const spawnDeferred = overrides.spawnDeferred ?? null;
     const app = {
       post(route, handler) { routes.post.set(route, handler); },
@@ -186,10 +192,49 @@ describe('terminal runtime', () => {
       fs: { promises: { stat: async () => ({ isDirectory: () => true }) } },
       searchPathFor: () => '/bin/sh',
       isExecutable: () => true,
+      signalProcess: (pid, signal) => signalCalls.push([pid, signal]),
       ...overrides,
     });
-    return { routes, processes, runtime };
+    return { routes, processes, signalCalls, runtime };
   };
+
+  it('uses the maintained signal seam and never reaches OS signaling during fixture cleanup', async () => {
+    const harness = createHarness();
+    try {
+      await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'owned', cwd: '/repo' } }, createResponse());
+      await harness.runtime.shutdown();
+      expect(harness.signalCalls).toEqual(process.platform === 'win32' ? [] : [[-123, 'SIGKILL']]);
+      expect(harness.processes[0].kills).toEqual(['SIGKILL']);
+    } finally { await harness.runtime.shutdown(); }
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it('checks human raw-upgrade authority after origin and leaves retained terminals untouched on denial', async () => {
+    const server = new EventEmitter();
+    const socket = new EventEmitter();
+    let allowOrigin = false;
+    const reject = vi.fn();
+    const requireUpgradeAuth = vi.fn(async (_req, raw, _admit, refuse) => refuse(raw, 401, 'UI authentication required'));
+    const runtime = createRuntime(server, {
+      uiAuthController: { enabled: true, humanMode: true, requireUpgradeAuth },
+      isRequestOriginAllowed: () => allowOrigin,
+      rejectWebSocketUpgrade: reject,
+      loadPtyProvider: async () => { throw new Error('PTY loading forbidden in upgrade-denial test'); },
+      signalProcess: () => { throw new Error('No process exists in upgrade-denial test'); },
+    });
+    try {
+      const req = { url: '/api/terminal/ws' };
+      server.emit('upgrade', req, socket, Buffer.alloc(0));
+      expect(requireUpgradeAuth).not.toHaveBeenCalled();
+      expect(reject).toHaveBeenLastCalledWith(socket, 403, 'Invalid origin');
+      allowOrigin = true;
+      server.emit('upgrade', req, socket, Buffer.alloc(0));
+      expect(requireUpgradeAuth).toHaveBeenCalledOnce();
+      expect(reject).toHaveBeenLastCalledWith(socket, 401, 'UI authentication required');
+    } finally { await runtime.shutdown(); }
+    expect(server.listenerCount('upgrade')).toBe(0);
+    expect(process.kill).not.toHaveBeenCalled();
+  });
 
   it('replaces only exited action runs and keeps session capacity available across reruns', async () => {
     const harness = createHarness();

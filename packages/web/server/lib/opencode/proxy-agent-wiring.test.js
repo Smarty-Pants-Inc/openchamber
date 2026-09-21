@@ -65,6 +65,47 @@ describe('OpenCode API proxy agent wiring', () => {
     createProxyMiddlewareMock.mockImplementation(() => (_req, _res, next) => next?.());
   });
 
+  it('sanitizes copied credentials and forwards only the server actor on every proxy', () => {
+    const actor = { version: 1, issuer: 'https://code.smartypants.ai', subject: 'opaque_user', name: 'Person' };
+    registerOpenCodeProxy(createStubApp(), {
+      ...createStubDeps(managedState()), getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer managed' }),
+    });
+    for (const [options] of createProxyMiddlewareMock.mock.calls) {
+      const headers = new Map([
+        ['authorization', 'Bearer client'], ['cookie', 'better-auth.session_token=private'],
+        ['x-smarty-human-identity', 'forged'],
+      ]);
+      const proxyReq = {
+        removeHeader: key => headers.delete(key.toLowerCase()),
+        setHeader: (key, value) => headers.set(key.toLowerCase(), value),
+        getHeader: key => headers.get(key.toLowerCase()),
+      };
+      options.on.proxyReq(proxyReq, { method: 'GET', headers: Object.fromEntries(headers), humanIdentity: actor });
+      expect(headers.get('authorization')).toBe('Bearer managed');
+      expect(headers.has('cookie')).toBe(false);
+      expect(JSON.parse(Buffer.from(headers.get('x-smarty-human-identity'), 'base64url').toString())).toEqual(actor);
+    }
+  });
+
+  it('does not forward a forged actor or client bearer in legacy mode', () => {
+    registerOpenCodeProxy(createStubApp(), createStubDeps(managedState()));
+    for (const [options] of createProxyMiddlewareMock.mock.calls) {
+      const headers = new Map([
+        ['authorization', 'Bearer client'], ['x-smarty-human-identity', 'forged'],
+        ['cookie', 'legacy=value; better-auth.session_token=private'],
+      ]);
+      const proxyReq = {
+        removeHeader: key => headers.delete(key.toLowerCase()),
+        setHeader: (key, value) => headers.set(key.toLowerCase(), value),
+        getHeader: key => headers.get(key.toLowerCase()),
+      };
+      options.on.proxyReq(proxyReq, { method: 'GET', headers: Object.fromEntries(headers) });
+      expect(headers.has('authorization')).toBe(false);
+      expect(headers.has('x-smarty-human-identity')).toBe(false);
+      expect(headers.get('cookie')).toBe('legacy=value');
+    }
+  });
+
   it('constructs every proxy with a keep-alive agent', () => {
     registerOpenCodeProxy(createStubApp(), createStubDeps(managedState()));
 

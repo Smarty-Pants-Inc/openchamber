@@ -76,6 +76,32 @@ afterEach(() => {
 });
 
 describe('apns runtime relay mode (default)', () => {
+  it('does not await another human session between authorization and relay send', async () => {
+    const valid = new Set(['human:s1', 'human:s2']);
+    const checks = new Map();
+    const authorizeUiSession = vi.fn(async (group) => {
+      checks.set(group, (checks.get(group) || 0) + 1);
+      if (group === 'human:s2' && checks.get(group) === 2) valid.delete('human:s1');
+      return valid.has(group);
+    });
+    const deliveries = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (isSend([url])) {
+        const { tokens } = JSON.parse(init.body);
+        deliveries.push(tokens);
+        if (tokens.includes('tokenA')) expect(valid.has('human:s1')).toBe(true);
+        if (tokens.includes('tokenB')) expect(valid.has('human:s2')).toBe(true);
+      }
+      return jsonResponse({ ok: true, results: [] });
+    }));
+    process.env.OPENCHAMBER_PUSH_RELAY_URL = 'https://relay.test/v1/push/send';
+    const runtime = createApnsRuntime(makeDeps({ humanMode: true, authorizeUiSession }));
+    await runtime.addOrUpdateApnsToken('human:s1', 'tokenA');
+    await runtime.addOrUpdateApnsToken('human:s2', 'tokenB');
+    await runtime.sendApnsToAllUiSessions({ title: 'fixture' });
+    expect(deliveries).toEqual([['tokenA'], ['tokenB']]);
+  });
+
   it('registers tokens (signed) and posts signed generic text, dropping dead tokens', async () => {
     const fetchMock = vi.fn(async (url) =>
       isRegister([url])

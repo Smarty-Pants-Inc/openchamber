@@ -7,6 +7,9 @@ import { createHumanAudience } from './human-audience.js';
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
   const admits = createHumanAudience(allowedDomains);
+  const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
+    ? allowedDomains[0].toLowerCase() : null;
+  if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
   const origin = new URL(baseURL);
   if (origin.origin !== baseURL || !['https:', 'http:'].includes(origin.protocol)
     || (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) {
@@ -25,17 +28,24 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     database, baseURL, secret,
     trustedOrigins: [baseURL],
     emailAndPassword: { enabled: false },
-    socialProviders: { google: { clientId: googleClientId, clientSecret: googleClientSecret, prompt: 'select_account' } },
+    socialProviders: { google: {
+      clientId: googleClientId, clientSecret: googleClientSecret, prompt: 'select_account', hd: hostedDomain,
+    } },
     account: { accountLinking: { enabled: false } },
     user: {
       changeEmail: { enabled: false },
       validateUserInfo: async ({ user, source }) => {
-        if (source.method !== 'oauth' || source.oauth?.providerId !== 'google' || !admits(user)) {
+        const profile = source.oauth?.profile;
+        if (source.method !== 'oauth' || source.oauth?.providerId !== 'google'
+          || profile?.hd !== hostedDomain || !admits(user)) {
           return { error: 'account_not_allowed', errorDescription: 'This account is not allowed to use this instance' };
         }
       },
     },
-    session: { cookieCache: { enabled: false } },
+    session: {
+      cookieCache: { enabled: false },
+      additionalFields: { workspacePolicy: { type: 'string', required: false, input: false, returned: false } },
+    },
     databaseHooks: {
       user: {
         create: { before: async (user) => { if (!admits(user)) deny(); } },
@@ -54,6 +64,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
           const runtime = context?.context ?? await auth.$context;
           const user = await runtime.internalAdapter.findUserById(session.userId);
           if (!admits(user)) deny();
+          return { data: { ...session, workspacePolicy: `google-hd:${hostedDomain}` } };
         } },
         delete: { after: async (session) => { closeSession(session.id); } },
       },
@@ -63,6 +74,18 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   const migration = await getMigrations(options);
   await migration.runMigrations();
   const auth = betterAuth(options);
+  const { adapter } = await auth.$context;
+  // No default/backfill: old email-only sessions are not evidence of Workspace admission.
+  for (const where of [
+    [{ field: 'workspacePolicy', value: null }],
+    [{ field: 'workspacePolicy', operator: 'ne', value: `google-hd:${hostedDomain}` }],
+  ]) {
+    if (await adapter.findOne({ model: 'session', where: [
+      ...where, { field: 'expiresAt', operator: 'gt', value: new Date() },
+    ] })) {
+      throw new Error('Human auth activation blocked: revoke prior-policy sessions through the owner-controlled migration, then require Google reauthentication');
+    }
+  }
   const resolve = async (req) => {
     // Device bearer credentials do not become people through an ambient cookie.
     if (req.headers.authorization) return null;
@@ -75,10 +98,25 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     name: validName(session.user.name) ? session.user.name : 'User',
     ...(validImage(session.user.image) ? { image: session.user.image } : {}),
   });
+  const authorizeUiSession = async (groupKey) => {
+    if (typeof groupKey !== 'string' || !/^human:[A-Za-z0-9_-]{1,128}$/.test(groupKey)) return false;
+    try {
+      const { adapter } = await auth.$context;
+      const session = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: groupKey.slice(6) }],
+        select: ['id', 'userId', 'expiresAt'] });
+      if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return false;
+      const user = await adapter.findOne({ model: 'user', where: [{ field: 'id', value: session.userId }],
+        select: ['email', 'emailVerified'] });
+      if (!admits(user)) return false;
+      const current = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: session.id }],
+        select: ['userId', 'expiresAt'] });
+      return current?.userId === session.userId && new Date(current.expiresAt).getTime() > Date.now();
+    } catch { return false; }
+  };
   const unauthorized = (res) => res.status(401).json({ authenticated: false, locked: true, humanAuthRequired: true });
-  const protect = async (req, res, next) => {
+  const protect = async (req, res, next, reject = unauthorized) => {
     const session = await resolve(req);
-    if (!session) return unauthorized(res);
+    if (!session) return reject(res);
     const responses = liveResponses.get(session.session.id) || new Set();
     liveResponses.set(session.session.id, responses);
     responses.add(res);
@@ -109,6 +147,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     resolve,
     protect,
     actor,
+    authorizeUiSession,
     status: async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       const session = await resolve(req);

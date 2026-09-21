@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createPushRuntime } from './push-runtime.js';
 
-const createRuntime = () => createPushRuntime({
+const createRuntime = (overrides = {}) => createPushRuntime({
   fsPromises: {
     mkdir: vi.fn(async () => {}),
     readFile: vi.fn(async () => JSON.stringify({ version: 1, subscriptionsBySession: {} })),
@@ -17,10 +17,33 @@ const createRuntime = () => createPushRuntime({
   PUSH_SUBSCRIPTIONS_FILE_PATH: '/tmp/push-subscriptions.json',
   readSettingsFromDiskMigrated: vi.fn(async () => ({})),
   writeSettingsToDisk: vi.fn(async () => {}),
+  ...overrides,
 });
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('human session push authorization', () => {
+  it('fails closed without a validator and rechecks the non-credential group before send', async () => {
+    const store = { version: 1, subscriptionsBySession: {
+      'human:session-1': [{ endpoint: 'https://push.example/1', p256dh: 'p', auth: 'a' }],
+      legacy: [{ endpoint: 'https://push.example/2', p256dh: 'p', auth: 'a' }],
+    } };
+    const readFile = vi.fn(async () => JSON.stringify(store));
+    const sendNotification = vi.fn(async () => {});
+    const authorizeUiSession = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const runtime = createRuntime({ humanMode: true, authorizeUiSession,
+      fsPromises: { mkdir: vi.fn(async () => {}), readFile, writeFile: vi.fn(async () => {}) },
+      webPush: { generateVAPIDKeys: vi.fn(), sendNotification, setVapidDetails: vi.fn() },
+    });
+    runtime.setPushInitialized(true);
+    await runtime.sendPushToAllUiSessions({ title: 'x', body: 'y' });
+    expect(authorizeUiSession).toHaveBeenCalledWith('human:session-1');
+    expect(authorizeUiSession).not.toHaveBeenCalledWith('legacy');
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalled();
+  });
 });
 
 describe('push runtime visibility tracking', () => {

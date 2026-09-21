@@ -9,6 +9,24 @@ Pairing v2 is implemented by `packages/web/server/lib/client-auth/pairing.js`. I
 
 ## Optional Google human authentication
 
+`createConfiguredHumanAuth(env)` is the explicit startup adapter. Unset, empty or
+`off` `OPENCHAMBER_HUMAN_AUTH` returns `null` and leaves legacy mode unchanged.
+Any other mode except `google` fails. Google mode requires all of
+`OPENCHAMBER_HUMAN_AUTH_DB` (absolute private SQLite path), exact `BETTER_AUTH_URL`,
+`BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a nonempty
+`SMARTY_HUMAN_AUTH_ALLOWED_DOMAINS` list. It creates/validates only a private
+0700 parent and 0600 regular database file, and does not load secrets itself.
+Integration supplies the already resolved environment and owns DB lifetime.
+
+The synchronous `setupBaseRoutes` caller receives the prebuilt `humanAuth` option;
+startup assembles it with `await createConfiguredHumanAuth(process.env)` before
+calling setup. Human mode is never inferred from a cookie, audience default or
+partially populated configuration. Google setup uses Better Auth's official
+`hd` provider option and its verified ID-token claim checks, then validates the
+raw OAuth profile `hd` claim again in `validateUserInfo`; a request `hd` hint or
+email suffix alone never grants access. The current authorized deployment has
+exact hosted domain `smartypants.ai`.
+
 `createHumanAuth({database, baseURL, secret, googleClientId, googleClientSecret,
 allowedDomains})` uses official Better Auth 1.7.5. The caller supplies a private
 SQLite connection and complete configuration. It runs the library's supported

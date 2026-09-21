@@ -167,7 +167,10 @@ export function createDevTunnelRuntime({
           return;
         }
 
-        wsServer.handleUpgrade(req, socket, head, (ws) => wsServer.emit('connection', ws, req));
+        const upgrade = () => wsServer.handleUpgrade(req, socket, head, (ws) => wsServer.emit('connection', ws, req));
+        if (uiAuthController?.humanMode) {
+          await uiAuthController.requireUpgradeAuth(req, socket, upgrade, rejectWebSocketUpgrade);
+        } else upgrade();
       } catch {
         rejectWebSocketUpgrade(socket, 500, 'Upgrade failed');
       }

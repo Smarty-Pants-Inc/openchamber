@@ -92,6 +92,49 @@ test('revocation between session lookup and response registration cannot admit o
   } finally { f.close(); }
 });
 
+test('the same session lifecycle guards raw upgrade sockets and uses a transport-specific refusal', async () => {
+  const f = await fixture();
+  try {
+    const denied = new Socket();
+    let refused = false;
+    await f.human.protect({ headers: {} }, denied, () => assert.fail('anonymous upgrade admitted'), socket => {
+      refused = true; socket.destroy();
+    });
+    assert.equal(refused, true);
+    assert.equal(denied.destroyed, true);
+    const headers = await f.helpers.getAuthHeaders({ userId: f.user.id });
+    const socket = new Socket();
+    let admitted = false;
+    await f.human.protect(request(headers), socket, () => { admitted = true; }, () => assert.fail('valid upgrade refused'));
+    assert.equal(admitted, true);
+    await f.human.auth.api.signOut({ headers });
+    assert.equal(socket.destroyed, true);
+    await new Promise(resolve => setImmediate(resolve));
+  } finally { f.close(); }
+});
+
+test('notification grouping uses non-credential session IDs and live adapter authority', async () => {
+  const f = await fixture();
+  try {
+    const headers = await f.helpers.getAuthHeaders({ userId: f.user.id });
+    const session = await f.human.resolve(request(headers));
+    const group = `human:${session.session.id}`;
+    assert.equal(await f.human.authorizeUiSession(group), true);
+    for (const forged of [session.session.token, 'legacy', 'human:', 'human:../id', 'human:missing']) {
+      assert.equal(await f.human.authorizeUiSession(forged), false);
+    }
+    f.database.prepare('UPDATE user SET emailVerified = 0 WHERE id = ?').run(f.user.id);
+    assert.equal(await f.human.authorizeUiSession(group), false);
+    f.database.prepare('UPDATE user SET emailVerified = 1 WHERE id = ?').run(f.user.id);
+    await f.human.auth.api.signOut({ headers });
+    assert.equal(await f.human.authorizeUiSession(group), false);
+    const other = await f.helpers.getAuthHeaders({ userId: f.user.id });
+    const next = await f.human.resolve(request(other));
+    f.database.prepare('UPDATE session SET expiresAt = 0 WHERE id = ?').run(next.session.id);
+    assert.equal(await f.human.authorizeUiSession(`human:${next.session.id}`), false);
+  } finally { f.close(); }
+});
+
 test('real HTTP auth handler rejects cross-origin account mutations and expired sessions', async () => {
   const f = await fixture();
   try {

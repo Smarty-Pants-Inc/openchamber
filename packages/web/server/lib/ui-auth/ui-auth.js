@@ -420,8 +420,18 @@ export const createUiAuth = ({
     });
     return {
       enabled: true,
+      humanMode: true,
+      authorizeUiSession: humanAuth.authorizeUiSession,
+      getSessionGroup: async (req) => {
+        const session = await humanAuth.resolve(req);
+        return session ? `human:${session.session.id}` : null;
+      },
       requireAuth: humanAuth.protect,
       requireSessionAuth: humanAuth.protect,
+      requireUpgradeAuth: (req, socket, next, reject) => {
+        if (req.headers?.origin !== humanAuth.auth.options.baseURL) return reject(socket, 403, 'Invalid origin');
+        return humanAuth.protect(req, socket, next, connection => reject(connection, 401, 'Human authentication required'));
+      },
       resolveAuthContext: async (req) => {
         const session = await humanAuth.resolve(req);
         return session ? { type: 'human', token: session.session.token, user: humanAuth.actor(session) } : null;
