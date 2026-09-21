@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { HumanAuthor, trustedHumanAuthor } from './HumanAuthor';
+import { HumanAuthor } from './HumanAuthor';
+import { trustedHumanAuthor } from './human-author-data';
 
 const author = { version: 1, issuer: 'https://code.example.test', subject: 'opaque-person-1', name: 'Person' };
 const info = (value: unknown) => ({ metadata: { smartyCodeHuman: value } });
