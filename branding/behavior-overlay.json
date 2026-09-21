@@ -212,7 +212,10 @@
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
       "brandingSha256": "c18b73e677e9903553c06f7a543d4966b022286c532120514460af2f07475643",
       "behaviorSha256": "eeee6d306083b7a7154790eda7ea099a3ad8ac79b50b01d49fac45b67f4d0fab",
-      "combinedSha256": "eeee6d306083b7a7154790eda7ea099a3ad8ac79b50b01d49fac45b67f4d0fab",
+      "combinedSha256": "aa75e609b9351f0714b699235967bff925e4056c63e4046b91545a04d9fa16c8",
+      "catalogFixtureSource": "24e8cf43def2efe83448542efa7be51ee1726271",
+      "catalogFixtureSha256": "aa75e609b9351f0714b699235967bff925e4056c63e4046b91545a04d9fa16c8",
+      "preCatalogFixtureCombinedSha256": "eeee6d306083b7a7154790eda7ea099a3ad8ac79b50b01d49fac45b67f4d0fab",
       "behaviorSource": "9c4e1f0db085252cf8edb612bd59baa2b91af6ca",
       "reason": "Existing gate harness retains real React and runtime exports for new account imports; offline and stale-host assertions remain unchanged."
     },

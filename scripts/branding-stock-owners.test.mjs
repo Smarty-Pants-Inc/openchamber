@@ -169,7 +169,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);

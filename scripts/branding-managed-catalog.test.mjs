@@ -28,7 +28,20 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
+  const fixtures = overlay.files.filter(entry => entry.catalogFixtureSha256);
+  assert.deepEqual(fixtures.map(entry => entry.path), ['packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx']);
+  for (const entry of fixtures) {
+    assert.equal(entry.catalogFixtureSource, '24e8cf43def2efe83448542efa7be51ee1726271');
+    assert.equal(entry.catalogFixtureSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
+  }
   const historical = structuredClone(overlay);
+  for (const entry of historical.files.filter(entry => entry.catalogFixtureSha256)) {
+    entry.combinedSha256 = entry.preCatalogFixtureCombinedSha256;
+    delete entry.preCatalogFixtureCombinedSha256;
+    delete entry.catalogFixtureSha256;
+    delete entry.catalogFixtureSource;
+  }
   delete historical.managedCatalogSource;
   delete historical.managedCatalogNote;
   historical.files = historical.files.filter(entry => !entry.managedCatalogAdded);
