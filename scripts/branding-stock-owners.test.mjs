@@ -24,8 +24,12 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.deepEqual([...overlays.keys()].sort(), [
     '.github/workflows/oc-review.yml',
     'packages/ui/src/components/auth/SessionAuthGate.tsx',
-    'packages/ui/src/sync/session-actions.test.ts', 'packages/web/server/index.js',
-    'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
+    'packages/ui/src/components/chat/ChatMessage.tsx',
+    'packages/ui/src/sync/session-actions.test.ts', 'packages/web/package.json', 'packages/web/server/index.js',
+    'packages/web/server/lib/notifications/apns-runtime.js',
+    'packages/web/server/lib/opencode/core-routes.js',
+    'packages/web/server/lib/opencode/core-routes.test.js',
+    'packages/web/server/lib/opencode/proxy.js', 'packages/web/server/lib/opencode/routes.js', 'packages/web/src/api/settings.ts',
     'packages/web/server/lib/opencode/static-routes-runtime.js',
     ...attributionPaths,
   ].sort());
@@ -106,7 +110,7 @@ test('runtime recovery binds only the reviewed auth gate donor overlap', () => {
   assert.deepEqual(overlay.files.filter(entry => entry.behaviorSource === source).map(entry => entry.path), [file]);
   const entry = overlays.get(file);
   assert.equal(entry.brandingSha256, '34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586');
-  assert.equal(entry.behaviorSha256, '9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b');
+  assert.equal(entry.behaviorSha256, '56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18');
   assert.equal(entry.combinedSha256, entry.behaviorSha256);
   assert.equal(sha256(read(file)), entry.behaviorSha256);
 });

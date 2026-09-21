@@ -27,8 +27,8 @@
     {
       "path": "packages/web/server/index.js",
       "brandingSha256": "f351fdc99db9db078e34f994b6f5e15aa1f905e10f990f1c765476c04fea17ca",
-      "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
-      "combinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
+      "behaviorSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
+      "combinedSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
       "reason": "Reviewed settings event/CORS and explicit transactional writer injection; branding labels retained."
     },
     {
@@ -168,10 +168,58 @@
       "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission. Native intent crosses composer preparation; accepted completion remains with its origin after navigation and transfers newer unsent input to that owner. Draft open/target transitions claim the original live generation used for accepted cleanup across epoch remounts and off-screen replacements."
     },
     {
+      "path": "packages/ui/src/components/chat/ChatMessage.tsx",
+      "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
+      "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
+      "combinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
+      "behaviorSource": "f07077052ba821ad138a931484108d00511fc437",
+      "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged."
+    },
+    {
+      "path": "packages/web/package.json",
+      "brandingSha256": "a785cbffe99e6f679157e4381b863cf42952bbad0879559bc06915cec901b4b7",
+      "behaviorSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
+      "combinedSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
+      "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
+      "reason": "Better Auth web dependency and package version binding for the selected web runtime; package identity remains unchanged."
+    },
+    {
+      "path": "packages/web/server/lib/notifications/apns-runtime.js",
+      "brandingSha256": "a12821c2b9391d9f23a7c251af8e969b8df01ff148a0a7a8d3628520d7cda8ff",
+      "behaviorSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "combinedSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
+      "reason": "Shared human-auth authorization reaches APNs runtime paths without changing notification payload ownership."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/core-routes.js",
+      "brandingSha256": "8641a72aa031573a76a3ed97d23689acdb1987b8d367a4df277ca1900d27e9b5",
+      "behaviorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "combinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
+      "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/core-routes.test.js",
+      "brandingSha256": "317092ade90ed22aa78ca27855d25c86aae863936bd6309f5203dfc8a04eba76",
+      "behaviorSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "combinedSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
+      "reason": "Focused core-route auth regression coverage for the selected human-auth composition."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/proxy.js",
+      "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
+      "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
+      "combinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
+      "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
+      "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication."
+    },
+    {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
       "brandingSha256": "34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586",
-      "behaviorSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
-      "combinedSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
+      "behaviorSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "combinedSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
       "behaviorSource": "3a3200ddae1611a079a76601ceba2b7ca1e43840",
       "reason": "Verified authentication renews shared request authority even when the local gate is already authenticated. Stale passkey setup cannot authenticate a replaced runtime. Original donor and branding evidence remains unchanged."
     },
