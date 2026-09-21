@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { afterEach, test, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { createHumanAuth } from './human-auth.js';
 
+afterEach(() => vi.restoreAllMocks());
+
 // Real library callback/state/account/session paths; synthetic Google token/JWKS endpoints only.
 // This proves neither actual Google enrollment nor an owner browser sign-in.
-test('returning Google callback preserves subject/profile but checks fresh verified audience', async (t) => {
+test('returning Google callback preserves subject/profile but checks fresh verified audience', async () => {
   const database = new DatabaseSync(':memory:');
   const origin = 'http://localhost:43210';
   const human = await createHumanAuth({ database, baseURL: origin,
@@ -16,7 +18,7 @@ test('returning Google callback preserves subject/profile but checks fresh verif
   const jwk = { ...keys.publicKey.export({ format: 'jwk' }), kid: 'fixture-key', alg: 'RS256', use: 'sig' };
   let claims = { email: 'person@example.test', email_verified: true, hd: 'example.test' };
   const enc = value => Buffer.from(JSON.stringify(value)).toString('base64url');
-  t.mock.method(globalThis, 'fetch', async input => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
     if (url.href === 'https://www.googleapis.com/oauth2/v3/certs') return Response.json({ keys: [jwk] });
     assert.equal(url.href, 'https://oauth2.googleapis.com/token', 'unexpected outbound fixture request');

@@ -27,6 +27,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   const options = {
     database, baseURL, secret,
     trustedOrigins: [baseURL],
+    advanced: { disableOriginCheck: false, disableCSRFCheck: false },
     emailAndPassword: { enabled: false },
     socialProviders: { google: {
       clientId: googleClientId, clientSecret: googleClientSecret, prompt: 'select_account', hd: hostedDomain,
