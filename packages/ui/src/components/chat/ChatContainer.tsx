@@ -75,6 +75,7 @@ import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
 import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
 
@@ -980,6 +981,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
+    const needsOrdinaryDetail = Boolean(currentSession && readOrdinaryModel(currentSession)
+        && !Object.hasOwn(currentSession, 'ordinary'));
 
     // In the embedded session-chat iframe, hide "Return to parent" when
     // viewing the panel's anchor session (the one recorded in the URL). Going
@@ -1369,9 +1372,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
     React.useEffect(() => {
         if (!messagesEnabled || !currentSessionId) return;
-        if (hasRenderableSessionSnapshot) return;
+        if (hasRenderableSessionSnapshot && !needsOrdinaryDetail) return;
         void ensureSessionRenderable(currentSessionId);
-    }, [currentSessionId, ensureSessionRenderable, hasRenderableSessionSnapshot, messagesEnabled]);
+    }, [currentSessionId, ensureSessionRenderable, hasRenderableSessionSnapshot, messagesEnabled, needsOrdinaryDetail, currentSession]);
 
     const composerSlotRef = React.useRef<HTMLDivElement | null>(null);
     const previousComposerRectRef = React.useRef<DOMRect | null>(null);

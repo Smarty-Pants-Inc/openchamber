@@ -14,13 +14,16 @@ Server.prototype.listen = () => { throw new Error('No listeners in offline selec
 const ui = fileURLToPath(new URL('../', import.meta.url));
 const cacheDir = await mkdtemp(join(tmpdir(), 'oc-ordinary-ingress-'));
 const loader = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)),
-  cacheDir, appType: 'custom', resolve: { alias: { '@': ui } },
+  cacheDir, plugins: [{ name: 'offline-composer-leaf', load(id) { if (id.endsWith('/components/chat/ChatInput.tsx')) return `import React from 'react'; import { ModelControls } from './ModelControls'; export const ChatInput = () => React.createElement(ModelControls);`; } }], appType: 'custom', resolve: { alias: { '@': ui } },
   server: { middlewareMode: true, watch: null, hmr: false, ws: false }, optimizeDeps: { noDiscovery: true, include: [] } });
 const load = path => loader.ssrLoadModule(`${ui}/${path}`);
 const window = new Window({ url: 'https://ingress.invalid' });
 for (const [key, value] of Object.entries({ window, document: window.document, navigator: window.navigator,
   localStorage: window.localStorage, HTMLElement: window.HTMLElement, Element: window.Element,
-  CustomEvent: window.CustomEvent, Event: window.Event, IS_REACT_ACT_ENVIRONMENT: true })) {
+  CustomEvent: window.CustomEvent, Event: window.Event, customElements: window.customElements,
+  ResizeObserver: window.ResizeObserver, MutationObserver: window.MutationObserver,
+  requestAnimationFrame: window.requestAnimationFrame.bind(window), cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+  IS_REACT_ACT_ENVIRONMENT: true })) {
   Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
 }
 const container = document.createElement('div');
@@ -37,9 +40,12 @@ const page = () => Response.json([{ info: { id: 'tail', sessionID: target.sessio
 { headers: { 'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}` } });
 let detailGets = 0, detail = () => Response.json({ ...info, ordinary: native });
 const streams = [];
+const requests = [];
 globalThis.fetch = async (input, init) => {
   const request = new Request(input instanceof Request ? input : new URL(input, window.location.href), init);
   const path = new URL(request.url).pathname.replace(/^\/api/, '');
+  requests.push({ path, method: request.method, directory: new URL(request.url).searchParams.get('directory')
+    ?? request.headers.get('x-opencode-directory') });
   if (path === '/auth/url-token') return Response.json({ token: 'fixture', expiresAt: Date.now() + 60_000 });
   if (path === '/global/event') return new Response(new ReadableStream({ start(controller) { streams.push(controller); } }),
     { headers: { 'content-type': 'text/event-stream' } });
@@ -62,8 +68,9 @@ const { useSync } = await load('sync/use-sync.ts');
 switchRuntimeEndpoint({ apiBaseUrl: 'https://ingress.invalid', runtimeKey: 'offline-ingress', clientToken: 'fixture' });
 opencodeClient.reconnectToRuntimeBaseUrl();
 useConfigStore.setState({ settingsMessageStreamTransport: 'sse', isConnected: false });
-let runtime, hook;
-const Selected = () => { runtime = useSyncRuntime(); hook = useSync(); return null; };
+const { I18nProvider } = await load('lib/i18n/context.tsx');
+let runtime, hook, ChatContainer, showChat = false;
+const Selected = () => { runtime = useSyncRuntime(); hook = useSync(); return showChat ? React.createElement(I18nProvider, null, React.createElement(ChatContainer, { autoOpenDraft: false })) : null; };
 const root = createRoot(container);
 test.before(async () => {
   await act(async () => root.render(React.createElement(SyncProvider,
@@ -168,6 +175,57 @@ test('actual native session.updated event supersedes a held older-generation det
     assert.equal(store.getState().session[0].ordinary.generation, 'newer');
     assert.equal(store.getState().session[0].ordinary.thinkingLevel, 'low');
   } finally { clearTimeout(timer); unsubscribe(); release(Response.json({ ...info, ordinary: native })); await inflight; }
+});
+test('actual ChatContainer fetches missing native detail after eager history is renderable', async () => {
+  ({ ChatContainer } = await load('components/chat/ChatContainer.tsx'));
+  const { useSessionUIStore } = await load('sync/session-ui-store.ts');
+  const { persistSessions } = await load('sync/persist-cache.ts');
+  const { ChildStoreManager } = await load('sync/child-store.ts');
+  const { readOrdinaryModel } = await load('lib/opencode/ordinaryModel.ts');
+  const store = runtime.childStores.getChild('/repo');
+  const model = { ...native, model: { providerID: 'cliproxyapi', modelID: 'gpt-6-astra', name: 'GPT-6 Astra' }, thinkingLevel: 'medium' };
+  persistSessions('/repo', [{ ...info, ordinary: model }]);
+  const restored = new ChildStoreManager();
+  store.setState({ session: restored.ensureChild('/repo', { bootstrap: false }).getState().session });
+  restored.disposeAll();
+  assert.equal(Object.hasOwn(store.getState().session[0], 'ordinary'), false);
+  const eager = store.getState();
+  store.setState({ message: { ...eager.message, [target.sessionID]: [...eager.message[target.sessionID],
+    { id: 'answer', sessionID: target.sessionID, role: 'assistant', time: { created: 2, completed: 3 },
+      modelID: 'gpt-6-astra', providerID: 'cliproxyapi', parentID: 'tail', agent: 'build', mode: 'build',
+      path: { cwd: '/repo', root: '/repo' }, cost: 0, tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } } }] },
+    part: { ...eager.part, answer: [{ id: 'answer-text', messageID: 'answer', sessionID: target.sessionID, type: 'text', text: 'Retained answer' }] } });
+  assert.equal(store.getState().message[target.sessionID].length, 2, 'eager history completed before caller mount');
+  useSessionUIStore.setState({ currentSessionId: target.sessionID, currentSessionDirectory: '/repo' });
+  const originalDetail = detail;
+  let release;
+  detail = () => new Promise(resolve => { release = resolve; });
+  const before = requests.length;
+  const detailRequests = () => requests.slice(before).filter(request => request.path === `/session/${target.sessionID}`);
+  const render = directory => root.render(React.createElement(SyncProvider,
+    { sdk: opencodeClient.getSdkClient(), directory }, React.createElement(Selected)));
+  try {
+    showChat = true;
+    await act(async () => render('/wrong-default'));
+    assert.deepEqual(detailRequests(), [{ path: `/session/${target.sessionID}`, method: 'GET', directory: '/repo' }],
+      'actual outer caller must request selected native detail despite renderable history and wrong default');
+    assert.equal(readOrdinaryModel(store.getState().session[0]).model, null);
+    assert.match(container.textContent, /Unavailable/);
+    assert.equal(container.querySelector('.model-controls__model-label'), null);
+    await act(async () => { release(Response.json({ ...info, ordinary: model })); });
+    assert.equal(container.querySelector('.model-controls__model-label')?.textContent, 'GPT-6 Astra');
+    assert.equal(container.querySelector('.model-controls__variant-label')?.textContent, 'Medium');
+    await act(async () => store.setState({ session: [{ ...info,
+      ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null } }] }));
+    assert.match(container.textContent, /Unavailable/);
+    assert.equal(container.querySelector('.model-controls__model-label'), null);
+    assert.equal(detailRequests().length, 1, 'explicit unavailable must not be treated as missing detail or retried');
+    assert.deepEqual(requests.slice(before).filter(request => request.method !== 'GET'), [], 'no send/create/model mutation');
+  } finally {
+    release?.(Response.json({ ...info, ordinary: model })); detail = originalDetail;
+    showChat = false;
+    await act(async () => render('/repo'));
+  }
 });
 test('runtime switch discards a held native detail response', async () => {
   const store = runtime.childStores.getChild('/repo');
