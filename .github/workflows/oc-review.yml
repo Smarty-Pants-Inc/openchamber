@@ -61,6 +61,38 @@ jobs:
       - name: Tests
         run: bun run test
 
+      - name: Build isolated actual-component UI proof
+        run: |
+          mkdir -p .auth-ui-proof
+          git rev-parse HEAD HEAD^{tree} HEAD^1 HEAD^2 > .auth-ui-proof/source-identity.txt
+          sha256sum bun.lock > .auth-ui-proof/lock.sha256
+          node node_modules/vite/bin/vite.js build --config scripts/auth-ui-proof/vite.config.mjs
+          find .auth-ui-build -type f -print0 | sort -z | xargs -0 sha256sum > .auth-ui-proof/build.sha256
+
+      - name: Install proof Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/oc-auth-ui-browsers
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+
+      - name: Prove account components with synthetic HTTP
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/oc-auth-ui-browsers
+        run: |
+          node scripts/auth-ui-proof/custody.mjs
+          timeout 180s node node_modules/@playwright/test/cli.js test --config scripts/auth-ui-proof/playwright.config.mjs
+
+      - name: Retain UI proof and exact fixture build
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oc-auth-ui-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .auth-ui-proof/
+            .auth-ui-build/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Electron Linux packaging unit tests
         working-directory: packages/electron
         run: |
