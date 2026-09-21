@@ -33,6 +33,9 @@ test('real Better Auth sessions keep one person across devices and editable prof
     const second = await f.human.resolve(request(b));
     assert.equal(first.user.id, second.user.id);
     assert.notEqual(first.session.id, second.session.id);
+    assert.equal(Object.hasOwn(f.human.actor(first), 'image'), false);
+    assert.equal(Object.hasOwn(f.human.actor({ ...first,
+      user: { ...first.user, image: 'javascript:alert(1)' } }), 'image'), false);
     await f.human.auth.api.updateUser({ headers: a, body: { name: 'New Name', image: 'https://example.test/photo' } });
     const updated = await f.human.resolve(request(b));
     assert.equal(updated.user.id, first.user.id);

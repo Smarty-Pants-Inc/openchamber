@@ -30,11 +30,14 @@ test('returning Google callback preserves subject/profile but checks fresh verif
   });
   const jar = new Map();
   async function request(path, body) {
-    const headers = { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), origin,
-      ...(body ? { 'content-type': 'application/json' } : {}) };
-    const response = await human.auth.handler(new Request(origin + path, {
-      headers, ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
-    }));
+    const headers = { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), origin };
+    const options = { headers };
+    if (body) {
+      headers['content-type'] = 'application/json';
+      options.method = 'POST';
+      options.body = JSON.stringify(body);
+    }
+    const response = await human.auth.handler(new Request(origin + path, options));
     for (const cookie of response.headers.getSetCookie()) {
       const [pair] = cookie.split(';'), index = pair.indexOf('=');
       jar.set(pair.slice(0, index), pair.slice(index + 1));

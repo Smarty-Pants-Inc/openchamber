@@ -93,11 +93,14 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     if (!session || !admits(session.user)) return null;
     return session;
   };
-  const actor = (session) => ({
-    version: 1, issuer: baseURL, subject: session.user.id,
-    name: validName(session.user.name) ? session.user.name : 'User',
-    ...(validImage(session.user.image) ? { image: session.user.image } : {}),
-  });
+  const actor = (session) => {
+    const identity = {
+      version: 1, issuer: baseURL, subject: session.user.id,
+      name: validName(session.user.name) ? session.user.name : 'User',
+    };
+    if (validImage(session.user.image)) identity.image = session.user.image;
+    return identity;
+  };
   const authorizeUiSession = async (groupKey) => {
     if (typeof groupKey !== 'string' || !/^human:[A-Za-z0-9_-]{1,128}$/.test(groupKey)) return false;
     try {
