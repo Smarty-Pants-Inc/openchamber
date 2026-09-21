@@ -21,7 +21,8 @@ for (const [path, name] of [
 const git = { checkIsGitRepository: async () => false };
 mock.module('@/hooks/useRuntimeAPIs', () => ({ useRuntimeAPIs: () => ({ git }) }));
 const { MobileSessionsSheet } = await import('./MobileSessionsSheet');
-// Same published context seam as issue-2903-subagent-status-line-only.test.tsx.
+// SAFETY: The imported sync module publishes this React context at the shared global key;
+// absence fails below. This is the same seam as issue-2903-subagent-status-line-only.test.tsx.
 const runtimeContext = (globalThis as {
   __openchamber_sync_runtime_context__?: React.Context<unknown>;
 }).__openchamber_sync_runtime_context__;

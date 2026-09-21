@@ -12,7 +12,8 @@ const rows = z.array(z.object({ id: z.string().min(1), worktree: directory, name
 export type ManagedProject = z.infer<typeof rows>[number];
 export type ManagedCatalogStatus = 'unknown' | 'stock' | 'ready' | 'unavailable';
 
-/** Absence of the marker is stock only before this runtime has ever admitted it. */
+/** Parse the SDK's untrusted response here; a marker is not payload validation.
+ * Absence of the marker is stock only before this runtime has ever admitted it. */
 export function readManagedCatalog(response: Response, data: unknown, admitted: boolean): ManagedProject[] | null {
   if (!response.ok) throw new Error('Project catalog unavailable');
   if (response.headers.get(MANAGED_CATALOG_HEADER) !== MANAGED_CATALOG_VERSION) {
@@ -29,10 +30,12 @@ export function readManagedCatalog(response: Response, data: unknown, admitted: 
 export function managedProjectView(rows: readonly ManagedProject[], bookmarks: readonly ProjectEntry[]): ProjectEntry[] {
   return rows.map(row => {
     const saved = bookmarks.find(project => project.path === row.worktree);
-    return saved ? { ...saved } : {
-      id: createProjectIdFromPath(row.worktree), path: row.worktree,
-      ...(row.name ? { label: row.name } : {}), addedAt: 0, lastOpenedAt: 0,
+    if (saved) return { ...saved };
+    const project: ProjectEntry = {
+      id: createProjectIdFromPath(row.worktree), path: row.worktree, addedAt: 0, lastOpenedAt: 0,
     };
+    if (row.name) project.label = row.name;
+    return project;
   });
 }
 
