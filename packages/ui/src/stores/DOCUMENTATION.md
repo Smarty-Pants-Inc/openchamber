@@ -382,6 +382,14 @@ the chat, the session list and the file tree.
 Failure is still not empty: a failed load restores that directory's previous
 list rather than clearing it.
 
+On an admitted managed runtime, `useConfigStore` resolves and prewarms only
+`visibleProjects`. A listed directory is already a gateway scope. Saved stock
+project and worktree mappings cannot redirect it or admit a removed directory.
+Startup replaces a stale selection through the non-persisted managed project
+selector, preserving saved projects, mappings and drafts. An empty managed
+catalog starts no saved-project config requests. Stock runtimes retain their
+existing parent-project mapping and persisted selection behavior.
+
 ## Selector Rules
 
 Use leaf selectors.

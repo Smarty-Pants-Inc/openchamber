@@ -13,7 +13,7 @@ import { useSelectionStore } from "@/sync/selection-store";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { updateDesktopSettings } from "@/lib/persistence";
 import { useDirectoryStore } from "@/stores/useDirectoryStore";
-import { useProjectsStore } from "@/stores/useProjectsStore";
+import { useProjectsStore, visibleProjects } from "@/stores/useProjectsStore";
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution";
 import { streamDebugEnabled } from "@/stores/utils/streamDebug";
 import { parseModelIdentifier } from "@/lib/modelIdentifier";
@@ -791,7 +791,7 @@ const normalizeConfigPath = (value: string | null | undefined): string | null =>
 
 const getKnownProjectDirectories = (): string[] => {
     try {
-        return useProjectsStore.getState().projects
+        return visibleProjects(useProjectsStore.getState())
             .map((project) => normalizeConfigPath(project.path))
             .filter((path): path is string => Boolean(path));
     } catch {
@@ -801,7 +801,9 @@ const getKnownProjectDirectories = (): string[] => {
 
 const getFallbackProjectDirectory = (): string | null => {
     try {
-        const { projects, activeProjectId } = useProjectsStore.getState();
+        const state = useProjectsStore.getState();
+        const projects = visibleProjects(state);
+        const { activeProjectId } = state;
         const active = activeProjectId
             ? projects.find((project) => project.id === activeProjectId)
             : null;
@@ -823,6 +825,14 @@ const resolveConfigDirectory = (directory: string | null | undefined): string | 
     const projects = getKnownProjectDirectories();
     if (!dir) return null;
     if (projects.includes(dir)) return dir;
+    // Managed rows already name each admitted gateway. Saved stock parent/worktree
+    // mappings cannot expand or replace that live authority.
+    try {
+        if (useProjectsStore.getState().managedCatalogAdmitted) return null;
+    } catch {
+        // Circular store initialization has no project authority yet.
+        return null;
+    }
 
     // 1. Persisted mapping — resolves synchronously when the async worktree
     //    discovery has not populated the runtime map yet.
@@ -831,7 +841,7 @@ const resolveConfigDirectory = (directory: string | null | undefined): string | 
     // 2. Live resolution via projects + discovered worktree map; cache the hit.
     try {
         const project = resolveProjectForSessionDirectory(
-            useProjectsStore.getState().projects,
+            visibleProjects(useProjectsStore.getState()),
             useSessionUIStore.getState().availableWorktreesByProject,
             dir,
         );
@@ -3289,7 +3299,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 ?? useDirectoryStore.getState().currentDirectory
                                 ?? fromDirectoryKey(get().activeDirectoryKey);
                             const resolvedProject = resolveProjectForSessionDirectory(
-                                useProjectsStore.getState().projects,
+                                visibleProjects(useProjectsStore.getState()),
                                 useSessionUIStore.getState().availableWorktreesByProject,
                                 initialDirectory ?? null,
                             );
@@ -3305,8 +3315,14 @@ export const useConfigStore = create<ConfigStore>()(
                                     initialDirectory,
                                     configDirectory,
                                 });
-                                opencodeClient.setDirectory(configDirectory);
-                                useDirectoryStore.getState().setDirectory(configDirectory, { showOverlay: false });
+                                const projectState = useProjectsStore.getState();
+                                if (projectState.managedCatalogAdmitted) {
+                                    const project = visibleProjects(projectState).find(entry => entry.path === configDirectory);
+                                    if (project) projectState.setActiveProject(project.id);
+                                } else {
+                                    opencodeClient.setDirectory(configDirectory);
+                                    useDirectoryStore.getState().setDirectory(configDirectory, { showOverlay: false });
+                                }
                             }
                             const configDirectoryKey = toDirectoryKey(configDirectory);
                             if (get().activeDirectoryKey !== configDirectoryKey) {
@@ -3352,7 +3368,7 @@ export const useConfigStore = create<ConfigStore>()(
                     }
 
                     const initialKey = toConfigDirectoryKey(initialDirectory ?? fromDirectoryKey(get().activeDirectoryKey));
-                    const projectDirectories = useProjectsStore.getState().projects
+                    const projectDirectories = visibleProjects(useProjectsStore.getState())
                         .map((project) => project.path)
                         .filter((path): path is string => typeof path === 'string' && path.trim().length > 0);
                     const seen = new Set<string>([initialKey]);

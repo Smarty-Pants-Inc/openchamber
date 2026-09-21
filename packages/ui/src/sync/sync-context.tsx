@@ -67,7 +67,7 @@ import {
   applyGlobalSessionStatusSnapshot,
   useGlobalSessionStatusStore,
 } from "./global-session-status"
-import type { State } from "./types"
+import { INITIAL_STATE, type State } from "./types"
 import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { PermissionRequest } from "@/types/permission"
 import type { QuestionRequest } from "@/types/question"
@@ -2773,6 +2773,19 @@ export function SyncProvider(props: {
 // Hooks
 // ---------------------------------------------------------------------------
 
+const refuseUnselectedWrite = (): never => { throw new Error("No directory selected for sync mutation") }
+const unselectedState: DirectoryStore = {
+  ...INITIAL_STATE, patch: refuseUnselectedWrite, replace: refuseUnselectedWrite,
+}
+// A missing selection is not a directory or an authoritative empty server result.
+// Keep read hooks mounted without registering, bootstrapping or persisting a fake child.
+const unselectedStore: StoreApi<DirectoryStore> = {
+  getState: () => unselectedState,
+  getInitialState: () => unselectedState,
+  setState: refuseUnselectedWrite,
+  subscribe: () => () => undefined,
+}
+
 /**
  * Get the child store for a directory (defaults to current).
  *
@@ -2797,9 +2810,10 @@ export function useDirectoryStore(
     runtime.currentDirectory.subscribe,
     () => directory ?? runtime.currentDirectory.get(),
   )
-  const store = runtime.childStores.ensureChild(dir, options)
+  const store = dir ? runtime.childStores.ensureChild(dir, options) : unselectedStore
 
   useEffect(() => {
+    if (!dir) return
     runtime.childStores.pin(dir)
     return () => runtime.childStores.unpin(dir)
   }, [dir, runtime.childStores])
