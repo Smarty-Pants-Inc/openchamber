@@ -76,3 +76,5 @@ workspaces/
 .maintenance-clone
 test-results/
 artifacts/
+.auth-ui-build/
+.auth-ui-proof/

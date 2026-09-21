@@ -22,7 +22,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.equal(overlay.behaviorSource, '1ab7ae3799ee4e633785451ef28cf52f49e53797');
   assert.equal(overlays.size, overlay.files.length);
   assert.deepEqual([...overlays.keys()].sort(), [
-    '.github/workflows/oc-review.yml',
+    '.github/workflows/oc-review.yml', 'package.json',
     'packages/ui/src/components/auth/SessionAuthGate.tsx',
     'packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx',
     'packages/ui/src/components/chat/ChatMessage.tsx',
@@ -142,6 +142,14 @@ test('human auth successor retains both earlier overlapping behavior hashes', ()
   }
 });
 
+test('hosted UI proof preserves the preceding workflow evidence', () => {
+  const entry = overlays.get('.github/workflows/oc-review.yml');
+  assert.equal(entry.behaviorSource, '94dd8952fb23d3e2aac8a2533cccef5dde443960');
+  assert.equal(entry.behaviorSha256, '1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f');
+  assert.equal(entry.humanAuthUiProofSource, '0d0f988aa98c345bf2bfc79d0c9b4e753347d744');
+  assert.equal(entry.humanAuthUiProofSha256, entry.combinedSha256);
+});
+
 test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {
   const entry = overlays.get('packages/web/server/lib/opencode/static-routes-runtime.js');
   assert.equal(entry.behaviorSource, '1d523f4766b6fd75a1298a0159599d35f3483e73');
@@ -160,7 +168,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);

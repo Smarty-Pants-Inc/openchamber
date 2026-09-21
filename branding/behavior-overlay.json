@@ -12,10 +12,20 @@
   "note": "Narrow behavior overlay; original stock/donor hashes and dispositions remain unchanged. This is not stock behavior or owning landing approval. Native create-only extends twelve attribution-overlap outputs. Its lifecycle, completion and live-generation corrections extend only session-ui-store.ts among those paths, retaining each earlier hash. Exact-successor review, owning CI and browser/native evidence remain separate gates. Foundation copy extends only eleven existing locale overlaps; full candidate review and required checks remain pending.",
   "files": [
     {
+      "path": "package.json",
+      "brandingSha256": "10703a004c8983a720eb3de993ee9ba0a0261f8352b4d8ecd2827309fcb9803b",
+      "behaviorSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "combinedSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "behaviorSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
+      "reason": "Pin Playwright 1.63.0 for isolated actual-component proof in the existing disposable hosted candidate job."
+    },
+    {
       "path": ".github/workflows/oc-review.yml",
       "brandingSha256": "ab8b9437a6b2bbd47d0ff931586444780ae61779c380b0cf0c2884b43e87fb91",
       "behaviorSha256": "1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f",
-      "combinedSha256": "1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f",
+      "humanAuthUiProofSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
+      "humanAuthUiProofSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
+      "combinedSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
       "behaviorSource": "94dd8952fb23d3e2aac8a2533cccef5dde443960",
       "reason": "Full-PR Knip/Oxlint reporting with independent exact-head disposition; reuse unchanged-head checks on Ready, retaining opened/synchronize/reopened and genuine speculative checks. Jobs, runner and protected queue unchanged."
     },
