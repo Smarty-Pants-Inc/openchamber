@@ -79,6 +79,7 @@ mock.module('@/lib/utils', () => ({ cn: (...values: Array<string | false | null 
 
 mock.module('@/stores/useProjectsStore', () => ({
   useProjectsStore: selectProjectState,
+  visibleProjects: () => [project],
 }));
 mock.module('@/stores/useGitHubAuthStore', () => ({
   useGitHubAuthStore: selectGitHubAuthState,

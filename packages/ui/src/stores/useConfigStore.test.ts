@@ -17,6 +17,11 @@ let liveAgents: TestAgent[] = [];
 let listAgentsImpl: ((directory?: string | null) => Promise<TestAgent[]>) | null = null;
 let withDirectoryCalls: Array<string | null> = [];
 let currentFetchDirectory: string | null = DIRECTORY;
+let selectedDirectory = DIRECTORY;
+let configScopes: Array<string | null | undefined> = [];
+let managedSelections: string[] = [];
+let managedCatalogAdmitted = false;
+let managedProjects: { id: string; path: string; label: string }[] = [];
 let configListener: ((event: { scopes: string[]; source?: string; timestamp: number }) => void | Promise<void>) | null = null;
 
 const makeStorage = (): Storage => ({
@@ -150,11 +155,14 @@ mock.module('@/stores/utils/safeStorage', () => ({
 }));
 
 mock.module('@/stores/useProjectsStore', () => ({
-  // Stock fixture only; managed membership is covered by the actual store regressions.
-  visibleProjects: <T,>(state: { projects: T[] }) => state.projects,
+  visibleProjects: <T,>(state: { projects: T[]; managedProjects: T[]; managedCatalogAdmitted: boolean }) =>
+    state.managedCatalogAdmitted ? state.managedProjects : state.projects,
   useProjectsStore: {
     getState: () => ({
-      activeProjectId: 'project',
+      activeProjectId: managedCatalogAdmitted ? managedProjects[0]?.id ?? null : 'project',
+      managedCatalogAdmitted,
+      managedProjects,
+      setActiveProject: (id: string) => { managedSelections.push(id); selectedDirectory = managedProjects.find(project => project.id === id)!.path; },
       projects: [
         { id: 'project', path: DIRECTORY, label: 'Project' },
         { id: 'other', path: OTHER_DIRECTORY, label: 'Other' },
@@ -166,7 +174,7 @@ mock.module('@/stores/useProjectsStore', () => ({
 mock.module('@/lib/opencode/client', () => ({
   opencodeClient: {
     setDirectory: mock(() => undefined),
-    getDirectory: mock(() => DIRECTORY),
+    getDirectory: mock(() => selectedDirectory),
     checkHealth: mock(async () => true),
     withDirectory: mock(async (directory: string | null, callback: () => Promise<unknown>) => {
       withDirectoryCalls.push(directory);
@@ -184,11 +192,13 @@ mock.module('@/lib/opencode/client', () => ({
       return { providers: [providerResponse(id, `${id}-model`, liveProviderVariants)], default: { default: id } };
     }),
     getProvidersForConfig: mock(async (directory?: string | null) => {
+      configScopes.push(directory);
       getProvidersCalls += 1;
       const id = liveProviderIdsByDirectory.get(directory ?? '') ?? liveProviderId;
       return { providers: [providerResponse(id, `${id}-model`, liveProviderVariants)], default: { default: id } };
     }),
     listAgents: mock(async (directory?: string | null) => {
+      configScopes.push(directory);
       listAgentsCalls += 1;
       const impl = listAgentsImpl as ((directory?: string | null) => Promise<TestAgent[]>) | null;
       return impl ? impl(directory) : liveAgents;
@@ -237,6 +247,7 @@ const { useConfigStore } = await import('./useConfigStore');
 const { emitSyncConfigChanged, setSyncRefs } = await import('@/sync/sync-refs');
 const { useSelectionStore } = await import('@/sync/selection-store');
 const { useSessionUIStore } = await import('@/sync/session-ui-store');
+const { useDirectoryStore } = await import('@/stores/useDirectoryStore');
 
 describe('useConfigStore provider persistence', () => {
   beforeEach(() => {
@@ -255,6 +266,7 @@ describe('useConfigStore provider persistence', () => {
     listAgentsImpl = null;
     withDirectoryCalls = [];
     currentFetchDirectory = DIRECTORY;
+    selectedDirectory = DIRECTORY; managedCatalogAdmitted = false; managedProjects = []; configScopes = []; managedSelections = [];
     setSyncRefs({} as never, { children: new Map(), getState: () => undefined } as never, DIRECTORY);
     useSelectionStore.setState({
       sessionModelSelections: new Map(),
@@ -282,6 +294,57 @@ describe('useConfigStore provider persistence', () => {
       isConnected: true,
       isInitialized: false,
     });
+  });
+
+  test('managed A replaces stale Net config scope without reading saved project or worktree mappings', async () => {
+    const admitted = '/acceptance/A';
+    managedCatalogAdmitted = true;
+    managedProjects = [{ id: 'a', path: admitted, label: 'A' }];
+    selectedDirectory = admitted;
+    storage.set('oc.worktreeProjectMap', JSON.stringify({ [admitted]: DIRECTORY }));
+    const savedMapping = storage.get('oc.worktreeProjectMap');
+    await useConfigStore.getState().initializeApp();
+    await useConfigStore.getState().prewarmProjectConfigs(admitted);
+    expect(useConfigStore.getState().activeDirectoryKey).toBe(admitted);
+    expect(configScopes.length).toBeGreaterThan(0);
+    expect(configScopes.every(path => path === admitted)).toBe(true);
+    const before = configScopes.length;
+    await useConfigStore.getState().loadProviders({ directory: DIRECTORY });
+    await useConfigStore.getState().loadAgents({ directory: OTHER_DIRECTORY });
+    expect(configScopes.length).toBe(before);
+    expect(storage.get('oc.worktreeProjectMap')).toBe(savedMapping);
+  });
+
+  test('stale selected Net falls back through managed A selection without persisted selection or draft writes', async () => {
+    const admitted = '/acceptance/A';
+    managedCatalogAdmitted = true;
+    managedProjects = [{ id: 'a', path: admitted, label: 'A' }];
+    selectedDirectory = DIRECTORY;
+    storage.set('oc.worktreeProjectMap', JSON.stringify({ '/saved/worktree': DIRECTORY }));
+    const savedMapping = storage.get('oc.worktreeProjectMap');
+    const draft = useSessionUIStore.getState().newSessionDraft;
+    const original = useDirectoryStore.getState().setDirectory;
+    let persistedSelections = 0;
+    useDirectoryStore.setState({ setDirectory: () => { persistedSelections++; } });
+    try {
+      await useConfigStore.getState().initializeApp();
+      expect(managedSelections).toEqual(['a']);
+      expect(selectedDirectory).toBe(admitted);
+      expect(useConfigStore.getState().activeDirectoryKey).toBe(admitted);
+      expect(configScopes.length).toBeGreaterThan(0);
+      expect(configScopes.every(path => path === admitted)).toBe(true);
+      expect(persistedSelections).toBe(0);
+      expect(storage.get('oc.worktreeProjectMap')).toBe(savedMapping);
+      expect(useSessionUIStore.getState().newSessionDraft).toBe(draft);
+    } finally { useDirectoryStore.setState({ setDirectory: original }); }
+  });
+
+  test('managed empty catalog does not initialize or prewarm saved project scopes', async () => {
+    managedCatalogAdmitted = true; selectedDirectory = '';
+    await useConfigStore.getState().initializeApp();
+    await useConfigStore.getState().prewarmProjectConfigs();
+    expect(configScopes).toEqual([]);
+    expect(useConfigStore.getState().isInitialized).toBe(true);
   });
 
   test('hydrates persisted provider snapshots for instant paint, then refreshes to live data', async () => {
