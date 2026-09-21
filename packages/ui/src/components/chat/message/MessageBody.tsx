@@ -27,7 +27,7 @@ import { flattenAssistantTextParts, suggestPlanTitleFromText } from '@/lib/messa
 import { MULTIRUN_EXECUTION_FORK_PROMPT_META_TEXT } from '@/lib/messages/executionMeta';
 import { useMessageTTS } from '@/hooks/useMessageTTS';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
@@ -1284,7 +1284,7 @@ const AssistantMessageBody = React.memo(({
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const getDirectoryForSession = useSessionUIStore((state) => state.getDirectoryForSession);
     const openMultiRunLauncherWithPrompt = useUIStore((state) => state.openMultiRunLauncherWithPrompt);
-    const projects = useProjectsStore((state) => state.projects);
+    const projects = useProjectsStore(visibleProjects);
     const effectiveDirectory = useEffectiveDirectory();
     const isReviewSessionView = reviewTransferDirection === 'review-to-original';
     const effectiveReviewTransferDirection = (!isMobile && !isVSCode) ? reviewTransferDirection : null;

@@ -5,7 +5,7 @@ import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore'
 import { useSessions } from '@/sync/sync-context';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
@@ -119,7 +119,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const addContextDraft = useInlineCommentDraftStore((state) => state.addDraft);
   const setPendingInputText = useInputStore((state) => state.setPendingInputText);
   const isMobile = useUIStore((state) => state.isMobile);
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
   const effectiveDirectory = useEffectiveDirectory();
   const sessions = useSessions();

@@ -13,7 +13,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useGitStore } from '@/stores/useGitStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { RuntimeSyncProvider, useSessions } from '@/sync/sync-context';
@@ -57,7 +57,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
   const sessions = useSessions();
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const setDirectory = useDirectoryStore((state) => state.setDirectory);
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const draftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const draftDirectory = useSessionUIStore((state) => {

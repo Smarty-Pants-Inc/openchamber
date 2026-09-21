@@ -3315,6 +3315,8 @@ export const dict = {
   'commandPalette.item.openArchive': 'Arşivlenmiş session\'ları aç',
   'commandPalette.item.openNotes': 'Notlar yüzeyini aç',
   'commandPalette.item.openTodos': 'Yapılacaklar yüzeyini aç',
+  'sessions.catalog.unavailable': 'Canlı projeler ve oturumlar yenilenemedi. Gösterilen öğeler güncel olmayabilir. Projeler ve Pi oturumları Herdr üzerinden yönetilir.',
+  'sessions.catalog.empty': 'Kullanılabilir canlı proje yok. Projeler ve Pi oturumları Herdr üzerinden yönetilir.',
   'sessionAuth.expired.banner': 'Session\'ınızın süresi doldu — devam etmek için oturum açın.',
   'sessionAuth.expired.loginAction': 'Oturum aç',
   'sessionAuth.expired.sendBlocked': 'Session süresi doldu — mesaj göndermek için oturum açın.',

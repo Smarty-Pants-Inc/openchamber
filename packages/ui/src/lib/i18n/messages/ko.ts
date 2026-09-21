@@ -2794,6 +2794,8 @@ export const dict: Record<I18nKey, string> = {
   'sessionAuth.error.passkeySignInCanceled': '패스키 로그인이 취소되었습니다.',
   'sessionAuth.error.enterPasswordForPasskey': '패스키를 추가하려면 비밀번호를 입력하세요.',
   'sessionAuth.locked.tunnelTitle': '터널 접근 필요',
+  'sessions.catalog.unavailable': '실행 중인 프로젝트와 세션을 새로 고칠 수 없습니다. 표시된 항목이 오래되었을 수 있습니다. 프로젝트와 Pi 세션은 Herdr에서 관리됩니다.',
+  'sessions.catalog.empty': '사용 가능한 실행 중인 프로젝트가 없습니다. 프로젝트와 Pi 세션은 Herdr에서 관리됩니다.',
   'sessionAuth.expired.banner': '세션이 만료되었습니다. 계속하려면 로그인하세요.',
   'sessionAuth.expired.loginAction': '로그인',
   'sessionAuth.expired.sendBlocked': '세션이 만료되었습니다. 메시지를 보내려면 로그인하세요.',

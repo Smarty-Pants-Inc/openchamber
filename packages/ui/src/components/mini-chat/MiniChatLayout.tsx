@@ -14,7 +14,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { useSessionMessages, useSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useGitBranchLabel, useGitStore } from '@/stores/useGitStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { Icon } from "@/components/icon/Icon";
@@ -56,7 +56,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const draftTarget = useSessionUIStore((state) => state.newSessionDraft.target);
   const draftProjectId = useSessionUIStore((state) => state.newSessionDraft?.selectedProjectId ?? null);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const activeProject = useProjectsStore((state) => state.getActiveProject());
   const getCurrentModel = useConfigStore((state) => state.getCurrentModel);
   const providers = useConfigStore((state) => state.providers);

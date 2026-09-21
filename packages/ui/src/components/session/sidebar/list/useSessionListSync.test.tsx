@@ -50,6 +50,8 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({
   refreshGlobalSessions: () => { state.globalRefreshes += 1; },
   refreshGlobalSessionsForDirectories: (directories: string[]) => { state.directoryRefreshes.push(directories); },
 }));
+// This hook suite observes scheduling/cleanup only; no catalog HTTP is executed.
+mock.module('@/lib/managed-project-refresh', () => ({ refreshManagedProjects: async () => {} }));
 mock.module('@/lib/openchamberEvents', () => ({
   subscribeOpenchamberEvents: (listener: (event: Event) => void) => {
     state.subscriptions += 1;
@@ -101,7 +103,8 @@ describe('useSessionListSync', () => {
     state.unsubscriptions = 0;
     dom = installHookTestDom();
     root = createRoot(dom.container);
-    useProjectsStore.setState({ projects, activeProjectId: 'project' });
+    useProjectsStore.setState({ projects, activeProjectId: 'project',
+      managedCatalogAdmitted: false, managedCatalogStatus: 'stock', managedRows: null, managedProjects: null });
     useDirectoryStore.setState({ currentDirectory: '/project' });
     useSessionUIStore.setState({ currentSessionDirectory: null, availableWorktreesByProject: new Map() });
   });
@@ -121,6 +124,25 @@ describe('useSessionListSync', () => {
     expect(state.directoryRefreshes).toEqual([]);
     expect(state.subscriptions).toBe(1);
     expect(state.cleanupInputs.at(-1)).toEqual({ enabled: true, hasAuthoritativeGlobalSessions: true, sessionCount: 0, sessions: [] });
+  });
+
+  test('unresolved capability blocks cleanup even when a stock load reports ready', () => {
+    useProjectsStore.setState({ managedCatalogStatus: 'unknown' });
+    act(() => root.render(<LifecycleProbe isVSCode={false} />));
+    expect(state.cleanupInputs.at(-1)?.enabled).toBe(false);
+    act(() => useProjectsStore.setState({ managedCatalogStatus: 'stock' }));
+    expect(state.cleanupInputs.at(-1)?.enabled).toBe(true);
+  });
+
+  test('managed ready/empty, unavailable, and lost capability never authorize deletion', () => {
+    useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedProjects: [], managedRows: [] });
+    act(() => root.render(<LifecycleProbe isVSCode={false} />));
+    expect(state.cleanupInputs.at(-1)?.enabled).toBe(false);
+    act(() => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
+    expect(state.cleanupInputs.at(-1)?.enabled).toBe(false);
+    // The next endpoint has no capability authority yet, despite a ready global cache.
+    act(() => useProjectsStore.getState().resetManagedCatalog());
+    expect(state.cleanupInputs.at(-1)?.enabled).toBe(false);
   });
 
   test('refreshes every VS Code directory on first mount and only topology additions afterward', () => {

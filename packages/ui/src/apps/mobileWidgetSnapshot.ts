@@ -3,7 +3,7 @@ import type { Session } from '@opencode-ai/sdk/v2';
 import type { ProjectEntry } from '@/lib/api/types';
 import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { compareSessionsByLifecycleOrder, useSessionOrderingStore } from '@/sync/session-ordering';
@@ -74,7 +74,7 @@ const buildMobileWidgetSnapshot = (): MobileWidgetSnapshot => {
   const sessions = useGlobalSessionsStore.getState().activeSessions;
   const unseenBySession = useNotificationStore.getState().index.session.unseenCount;
   const notifyOnSubtasks = useUIStore.getState().notifyOnSubtasks;
-  const projects = useProjectsStore.getState().projects;
+  const projects = visibleProjects(useProjectsStore.getState());
   const pinnedSessionIds = useSessionPinnedStore.getState().ids;
   const sessionOrderRanks = useSessionOrderingStore.getState().rankById;
 

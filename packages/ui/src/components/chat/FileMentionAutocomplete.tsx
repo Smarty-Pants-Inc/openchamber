@@ -2,7 +2,7 @@ import React from 'react';
 import { cn, truncatePathMiddle } from '@/lib/utils';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
@@ -49,7 +49,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const activeProjectPath = useProjectsStore(
     React.useCallback(
-      (state) => state.projects.find((project) => project.id === activeProjectId)?.path ?? null,
+      (state) => visibleProjects(state).find((project) => project.id === activeProjectId)?.path ?? null,
       [activeProjectId],
     ),
   );

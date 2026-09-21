@@ -51,7 +51,7 @@ import { truncatePathMiddle } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects as selectVisibleProjects } from '@/stores/useProjectsStore';
 import { buildCommandPaletteFileSearchKey, scoreCommandPaletteFiles } from './commandPaletteFilesState';
 
 type CommandEntry = {
@@ -117,7 +117,7 @@ export const CommandPalette: React.FC = () => {
   ));
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
-  const projects = useProjectsStore((s) => s.projects);
+  const projects = useProjectsStore(selectVisibleProjects);
   const effectiveDirectory = useEffectiveDirectory();
   const searchFiles = useFileSearchStore((s) => s.searchFiles);
   const { files: filesApi, git: gitApi } = useRuntimeAPIs();

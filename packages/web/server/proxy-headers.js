@@ -1,3 +1,5 @@
+export const exposedProxyResponseHeaders = 'x-next-cursor, x-smarty-code-catalog';
+
 const filteredRequestHeaders = new Set([
   // Client credentials for the OpenChamber server (UI client tokens) must
   // never reach the managed OpenCode upstream — it only accepts its own auth,

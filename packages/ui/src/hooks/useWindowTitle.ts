@@ -1,5 +1,5 @@
 import React from 'react';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { setDesktopWindowTitle } from '@/lib/desktopNative';
@@ -26,7 +26,7 @@ export const useWindowTitle = () => {
     if (!state.activeProjectId) {
       return null;
     }
-    return state.projects.find((project) => project.id === state.activeProjectId) ?? null;
+    return visibleProjects(state).find((project) => project.id === state.activeProjectId) ?? null;
   });
 
   const projectLabel = React.useMemo(() => {

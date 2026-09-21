@@ -7,7 +7,7 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
@@ -115,7 +115,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
 
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
+  const managedCatalogStatus = useProjectsStore(state => state.managedCatalogStatus);
+  const managed = useProjectsStore(state => state.managedCatalogAdmitted);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const removeProject = useProjectsStore((state) => state.removeProject);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
@@ -158,8 +160,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const knownSessionDirectories = React.useMemo(
-    () => buildKnownSessionDirectories(projects, availableWorktreesByProject, { includeWorktrees: !isVSCode }),
-    [availableWorktreesByProject, isVSCode, projects],
+    () => buildKnownSessionDirectories(projects, availableWorktreesByProject, { includeWorktrees: !isVSCode && !managed }),
+    [availableWorktreesByProject, isVSCode, managed, projects],
   );
   // The sidebar tree's +-buttons (project / group / folder) open a draft but,
   // unlike selecting an existing session, don't navigate. VS Code's compact view
@@ -211,8 +213,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
     const discoverWorktrees = async () => {
       const discoveryRuntimeKey = runtimeKey;
-      const projectEntries = useProjectsStore.getState().projects;
-      if (projectEntries.length === 0 || isVSCode) {
+      const projectEntries = visibleProjects(useProjectsStore.getState());
+      if (projectEntries.length === 0 || isVSCode || managed) {
         if (!cancelled) {
           rawWorktreesByProjectRef.current = {
             runtimeKey: null,
@@ -279,7 +281,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
       if (cancelled || getRuntimeKey() !== discoveryRuntimeKey) return;
 
-      const currentProjects = useProjectsStore.getState().projects;
+      const currentProjects = visibleProjects(useProjectsStore.getState());
       const activeProjectPaths = new Set(currentProjects.map((project) => normalizePath(project.path)).filter(Boolean));
       for (const projectPath of worktreesByProject.keys()) {
         if (!activeProjectPaths.has(projectPath)) {
@@ -316,7 +318,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isVSCode, projectWorktreeDiscoveryKey, runtimeKey, worktreeDiscoveryRevision]);
+  }, [isVSCode, managed, projectWorktreeDiscoveryKey, runtimeKey, worktreeDiscoveryRevision]);
 
   React.useEffect(() => {
     if (isVSCode) return;
@@ -573,7 +575,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       : (args.sourceDirectory ? resolveProjectRef(args.sourceDirectory) : null);
     return startSessionWorktreeMenuLoad(args, {
       projects,
-      getCurrentProjects: () => useProjectsStore.getState().projects,
+      getCurrentProjects: () => visibleProjects(useProjectsStore.getState()),
       rawWorktreesByProjectRef,
       getPublishedWorktreesByProject: () => useSessionUIStore.getState().availableWorktreesByProject,
       resolveProject: (directory) => resolveProjectRef(directory),
@@ -616,6 +618,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
       ) : null}
 
+      {managed && managedCatalogStatus === 'unavailable' && <p role="status">Project catalog unavailable. Last known projects are retained.</p>}
+      {managed && managedCatalogStatus === 'ready' && projects.length === 0 && <p role="status">No live managed projects.</p>}
       <SidebarHeader
         hideDirectoryControls={hideDirectoryControls}
         showProjectDisplayControls={!isVSCode}

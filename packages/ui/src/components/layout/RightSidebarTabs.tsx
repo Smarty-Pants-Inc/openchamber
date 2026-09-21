@@ -2,7 +2,7 @@ import React from 'react';
 
 import { ProjectNotesTodoPanel } from '@/components/session/project-context/ProjectNotesTodoPanel';
 import { useGitStore } from '@/stores/useGitStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { formatDirectoryName } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -29,7 +29,7 @@ export const ProjectContextPanel: React.FC<{
   // Display-only lookup: a user-renamed project label wins over the directory
   // name. The owner decision stays with the hook — this must not reintroduce
   // a fallback.
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const labeledProject = React.useMemo(
     () => (projectRef ? projects.find((project) => project.id === projectRef.id) ?? null : null),
     [projectRef, projects],

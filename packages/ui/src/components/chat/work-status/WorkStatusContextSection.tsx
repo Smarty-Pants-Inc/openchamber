@@ -9,7 +9,7 @@ import { fetchSessionKnowledgeSummary, setSessionProjectContextPin, type Session
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { useAgentMemoryStore } from '@/stores/useAgentMemoryStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { resolveProjectContextId } from '@/lib/projectContextApi';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -47,7 +47,7 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
   const newSessionDraft = useSessionUIStore((state) => state.newSessionDraft);
   const setDraftProjectContextPin = useSessionUIStore((state) => state.setDraftProjectContextPin);
   const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const isDraft = sessionId === null && newSessionDraft.open;
   const skills = useSkillsStore((state) => state.skills);
   const mcpStatus = useMcpStore(
