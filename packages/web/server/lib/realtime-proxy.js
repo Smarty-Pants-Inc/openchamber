@@ -138,6 +138,11 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
   const ensureAuthenticated = async (req, res) => {
     const controller = typeof getUiAuthController === 'function' ? getUiAuthController() : null;
     if (typeof controller?.ensureSessionToken !== 'function') return false;
+    if (controller.humanMode && res) {
+      let admitted = false;
+      await controller.requireAuth(req, res, () => { admitted = true; });
+      return admitted;
+    }
     const response = res || { setHeader: () => {} };
     const token = await controller.ensureSessionToken(req, response);
     return Boolean(token);
@@ -145,13 +150,14 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
 
   app.get(PROXY_SSE_PATH, async (req, res) => {
     if (!await ensureAuthenticated(req, res)) {
-      res.status(401).json({ error: 'UI authentication required' });
+      if (!res.headersSent && !res.destroyed) res.status(401).json({ error: 'UI authentication required' });
       return;
     }
     if (!await originAllowed(req)) {
       res.status(403).json({ error: 'Realtime proxy origin is not allowed' });
       return;
     }
+    if (res.destroyed || res.writableEnded) return;
     const resolved = resolveProxyTarget(req, getDesktopRuntimeConfig, 'sse');
     if (!resolved) {
       res.status(404).json({ error: 'Realtime proxy is unavailable' });
@@ -252,14 +258,17 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
         rejectWebSocketUpgrade(socket, 401, 'Unauthorized');
         return;
       }
-      void originAllowed(req).then((allowed) => {
+      void originAllowed(req).then(async (allowed) => {
         if (!allowed) {
           rejectWebSocketUpgrade(socket, 403, 'Forbidden');
           return;
         }
-        wsServer.handleUpgrade(req, socket, head, (ws) => {
+        const upgrade = () => wsServer.handleUpgrade(req, socket, head, (ws) => {
           wsServer.emit('connection', ws, req);
         });
+        const controller = typeof getUiAuthController === 'function' ? getUiAuthController() : null;
+        if (controller?.humanMode) await controller.requireUpgradeAuth(req, socket, upgrade, rejectWebSocketUpgrade);
+        else upgrade();
       }).catch(() => {
         rejectWebSocketUpgrade(socket, 403, 'Forbidden');
       });

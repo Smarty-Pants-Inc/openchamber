@@ -4,8 +4,15 @@ import { Input } from '@/components/ui/input';
 import { useI18n } from '@/lib/i18n';
 import { browserDisplayName, displayNameSchema } from '@/lib/messages/displayName';
 import { isIMECompositionEvent } from '@/lib/ime';
+import { useHumanAuth } from '@/lib/human-auth';
+import { HumanAccount } from '@/components/auth/HumanAccount';
 
 export function DisplayNameChoice() {
+  const enabled = useHumanAuth(state => state.enabled);
+  return enabled ? <HumanAccount /> : <LegacyDisplayNameChoice />;
+}
+
+function LegacyDisplayNameChoice() {
   const { t } = useI18n();
   const id = React.useId();
   const [name, setName] = React.useState('');

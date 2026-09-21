@@ -412,7 +412,45 @@ export const createUiAuth = ({
   readSettingsFromDiskMigrated,
   clientAuthController = null,
   requireClientAuth = false,
+  humanAuth = null,
 } = {}) => {
+  if (humanAuth) {
+    const legacyUnavailable = (_req, res) => res.status(409).json({
+      error: 'Sign in with Google. Existing device credentials are not human accounts.', humanAuthRequired: true,
+    });
+    return {
+      enabled: true,
+      humanMode: true,
+      authorizeUiSession: humanAuth.authorizeUiSession,
+      getSessionGroup: async (req) => {
+        const session = await humanAuth.resolve(req);
+        return session ? `human:${session.session.id}` : null;
+      },
+      requireAuth: humanAuth.protect,
+      requireSessionAuth: humanAuth.protect,
+      requireUpgradeAuth: (req, socket, next, reject) => {
+        if (req.headers?.origin !== humanAuth.auth.options.baseURL) return reject(socket, 403, 'Invalid origin');
+        return humanAuth.protect(req, socket, next, connection => reject(connection, 401, 'Human authentication required'));
+      },
+      resolveAuthContext: async (req) => {
+        const session = await humanAuth.resolve(req);
+        return session ? { type: 'human', token: session.session.token, user: humanAuth.actor(session) } : null;
+      },
+      handleSessionStatus: humanAuth.status,
+      handleSessionCreate: legacyUnavailable,
+      handleUrlAuthToken: legacyUnavailable,
+      handlePasskeyStatus: (_req, res) => res.json({ enabled: false, hasPasskeys: false, passkeyCount: 0, rpID: null }),
+      handlePasskeyRegistrationOptions: legacyUnavailable,
+      handlePasskeyRegistrationVerify: legacyUnavailable,
+      handlePasskeyAuthenticationOptions: legacyUnavailable,
+      handlePasskeyAuthenticationVerify: legacyUnavailable,
+      handlePasskeyList: legacyUnavailable,
+      handlePasskeyRevoke: legacyUnavailable,
+      handleResetAuth: legacyUnavailable,
+      ensureSessionToken: async (req) => (await humanAuth.resolve(req))?.session.token ?? null,
+      dispose: humanAuth.dispose,
+    };
+  }
   const normalizedPassword = normalizePassword(password);
   const urlAuthTokens = new Map();
 

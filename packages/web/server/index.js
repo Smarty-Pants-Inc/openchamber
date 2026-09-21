@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import http2 from 'node:http2';
 import { PRODUCT_NAME } from '../brand.generated.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
+import { createConfiguredHumanAuth } from './lib/ui-auth/human-auth-config.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
 import { createTunnelProviderRegistry } from './lib/tunnels/registry.js';
@@ -412,14 +413,7 @@ const requestSecurityRuntime = createRequestSecurityRuntime({
 
 const getUiSessionTokenFromRequest = (...args) => requestSecurityRuntime.getUiSessionTokenFromRequest(...args);
 
-const pushRuntime = createPushRuntime({
-  fsPromises,
-  path,
-  webPush,
-  PUSH_SUBSCRIPTIONS_FILE_PATH,
-  readSettingsFromDiskMigrated,
-  writeSettingsToDisk,
-});
+let pushRuntime;
 
 const getOrCreateVapidKeys = (...args) => pushRuntime.getOrCreateVapidKeys(...args);
 const addOrUpdatePushSubscription = (...args) => pushRuntime.addOrUpdatePushSubscription(...args);
@@ -439,16 +433,7 @@ const isUiVisible = (...args) => pushRuntime.isUiVisible(...args);
 const ensurePushInitialized = (...args) => pushRuntime.ensurePushInitialized(...args);
 const setPushInitialized = (...args) => pushRuntime.setPushInitialized(...args);
 
-const apnsRuntime = createApnsRuntime({
-  fsPromises,
-  path,
-  crypto,
-  http2,
-  APNS_TOKENS_FILE_PATH,
-  readSettingsFromDiskMigrated,
-  writeSettingsToDisk,
-  readSettingsStrict: readSettingsFromDiskStrict,
-});
+let apnsRuntime;
 
 const addOrUpdateApnsToken = (...args) => apnsRuntime.addOrUpdateApnsToken(...args);
 const removeApnsToken = (...args) => apnsRuntime.removeApnsToken(...args);
@@ -1498,6 +1483,27 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
 
 async function main(options = {}) {
+  const humanAuth = await createConfiguredHumanAuth(process.env);
+  try {
+    return await startConfiguredWebUiServer(options, humanAuth);
+  } catch (error) {
+    humanAuth?.dispose();
+    throw error;
+  }
+}
+
+async function startConfiguredWebUiServer(options, humanAuth) {
+  const humanMode = humanAuth !== null;
+  const authorizeUiSession = humanAuth?.authorizeUiSession ?? null;
+  pushRuntime = createPushRuntime({
+    fsPromises, path, webPush, PUSH_SUBSCRIPTIONS_FILE_PATH,
+    readSettingsFromDiskMigrated, writeSettingsToDisk, authorizeUiSession, humanMode,
+  });
+  apnsRuntime = createApnsRuntime({
+    fsPromises, path, crypto, http2, APNS_TOKENS_FILE_PATH,
+    readSettingsFromDiskMigrated, writeSettingsToDisk,
+    readSettingsStrict: readSettingsFromDiskStrict, authorizeUiSession, humanMode,
+  });
   const port = Number.isFinite(options.port) && options.port >= 0 ? Math.trunc(options.port) : DEFAULT_PORT;
   const host = typeof options.host === 'string' && options.host.length > 0 ? options.host : undefined;
   const effectiveBindHost = host
@@ -1608,6 +1614,7 @@ async function main(options = {}) {
     : (typeof process.env.OPENCHAMBER_UI_PASSWORD === 'string' ? process.env.OPENCHAMBER_UI_PASSWORD : null);
   if (
     isNetworkExposedBindHost(effectiveBindHost)
+    && !humanMode
     && !(typeof uiPassword === 'string' && uiPassword.trim().length > 0)
     && !isUnsafeUnauthenticatedLanAllowed(process.env)
   ) {
@@ -1766,6 +1773,7 @@ async function main(options = {}) {
     getTunnelUrl: () => tunnelRuntimeContextHolder?.tunnelService?.getPublicUrl?.() ?? null,
     verboseRequestLogs: OPENCHAMBER_VERBOSE_REQUEST_LOGS,
     uiPassword,
+    humanAuth,
     tunnelAuthController,
     remoteClientAuthRuntime,
     clientPairingRuntime,

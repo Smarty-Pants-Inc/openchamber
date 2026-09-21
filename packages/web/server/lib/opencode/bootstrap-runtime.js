@@ -23,6 +23,7 @@ export const createBootstrapRuntime = (dependencies) => {
       getTunnelUrl,
       verboseRequestLogs,
       uiPassword,
+      humanAuth = null,
       tunnelAuthController,
       remoteClientAuthRuntime,
       clientPairingRuntime,
@@ -69,9 +70,28 @@ export const createBootstrapRuntime = (dependencies) => {
       password: uiPassword,
       readSettingsFromDiskMigrated,
       clientAuthController: remoteClientAuthRuntime,
+      humanAuth,
     });
+    if (humanAuth) {
+      // Protect application mutations too, including status routes registered below.
+      app.use((req, res, next) => {
+        const origin = req.headers.origin;
+        if ((origin && origin !== humanAuth.auth.options.baseURL)
+          || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))) {
+          return res.status(403).json({ error: 'Human authentication requires the configured application origin' });
+        }
+        return next();
+      });
+      // Better Auth must receive the original stream before express.json consumes it.
+      app.all('/api/auth/*splat', (req, res, next) => {
+        if (req.path === '/api/auth/reset') return next('route'); // Retained legacy refusal route.
+        const scope = tunnelAuthController.classifyRequestScope(req);
+        return scope === 'tunnel' || scope === 'unknown-public'
+          ? tunnelAuthController.requireTunnelSession(req, res, next) : next();
+      }, humanAuth.handler);
+    }
     if (uiAuthController.enabled) {
-      console.log('UI password protection enabled for browser sessions');
+      console.log(humanAuth ? 'Google human authentication enabled' : 'UI password protection enabled for browser sessions');
     }
 
     registerServerStatusRoutes(app, {
@@ -113,6 +133,8 @@ export const createBootstrapRuntime = (dependencies) => {
 
     registerNotificationRoutes(app, {
       uiAuthController,
+      authorizeUiSession: uiAuthController.authorizeUiSession,
+      humanMode: uiAuthController.humanMode === true,
       ensurePushInitialized,
       ensureGlobalWatcherStarted,
       getOrCreateVapidKeys,

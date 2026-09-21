@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
+const realReact = { ...(await import('react')).default };
+const realRuntimeAuth = { ...await import('@/lib/runtime-auth') };
+const realRuntimeSwitch = { ...await import('@/lib/runtime-switch') };
+
 type ComponentFn<P extends Record<string, unknown> = Record<string, unknown>> = (props: P) => unknown;
 
 type HookRecord = {
@@ -164,6 +168,9 @@ function jsx<P extends Record<string, unknown>>(type: JSXElementType<P>, props: 
 }
 
 const ReactMock = {
+  ...realReact,
+  useSyncExternalStore: <Snapshot,>(_subscribe: (notify: () => void) => () => void, getSnapshot: () => Snapshot) => getSnapshot(),
+  useDebugValue: () => undefined,
   useCallback,
   useEffect,
   useMemo,
@@ -283,10 +290,12 @@ mock.module('@/lib/runtime-auth-expiry', () => ({
 
 
 mock.module('@/lib/runtime-auth', () => ({
+  ...realRuntimeAuth,
   getRuntimeExtraHeadersSync: mock(() => ({})),
 }));
 
 mock.module('@/lib/runtime-switch', () => ({
+  ...realRuntimeSwitch,
   getRuntimeApiBaseUrl: () => runtimeApiBaseUrl,
   getRuntimeKey: () => runtimeKey,
   subscribeRuntimeEndpointChanged: (listener: () => void) => {

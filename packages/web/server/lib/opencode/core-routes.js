@@ -241,7 +241,8 @@ export const registerServerStatusRoutes = (app, dependencies) => {
       (requestScope === 'tunnel' || requestScope === 'unknown-public')
       && typeof tunnelAuthController?.requireTunnelSession === 'function'
     ) {
-      return tunnelAuthController.requireTunnelSession(req, res, next);
+      return tunnelAuthController.requireTunnelSession(req, res, () => uiAuthController.humanMode
+        ? uiAuthController.requireAuth(req, res, next) : next());
     }
     return uiAuthController.requireAuth(req, res, next);
   };
@@ -259,7 +260,8 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     }
   });
 
-  app.post('/api/system/dev-shutdown', express.json({ limit: '64kb' }), async (req, res) => {
+  app.post('/api/system/dev-shutdown', express.json({ limit: '64kb' }),
+    (req, res, next) => uiAuthController?.humanMode ? requireShutdownAuth(req, res, next) : next(), async (req, res) => {
     if (!isDevShutdownAllowed()) {
       return res.status(403).json({ ok: false, error: 'Dev shutdown is disabled' });
     }
@@ -382,6 +384,13 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   const PAIRING_REDEEM_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
   const PAIRING_REDEEM_RATE_LIMIT_MAX_ATTEMPTS = 10;
   const pairingRedeemAttempts = new Map();
+  const refuseLegacyMutation = (res) => res.status(409).json({
+    error: 'Legacy device and pairing changes are unavailable in Google human mode', humanAuthRequired: true,
+  });
+  app.use('/api/client-auth', (req, res, next) => {
+    if (uiAuthController.humanMode && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return refuseLegacyMutation(res);
+    return next();
+  });
 
   const runWithUiAuth = async (req, res, next, handler, options = {}) => {
     try {
@@ -403,7 +412,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
           allowClientAuth: true,
           allowUrlToken: false,
         });
-        if (context?.type === 'session' || context?.type === 'client') {
+        if (context?.type === 'session' || context?.type === 'client' || context?.type === 'human') {
           await handler(context);
           return;
         }
@@ -424,6 +433,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
           allowClientAuth: true,
           allowUrlToken: false,
         });
+        if (context?.type === 'human') return refuseLegacyMutation(res);
         if (context?.type === 'session') {
           await handler(context);
           return;
@@ -593,7 +603,8 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   const requireApiAuth = async (req, res, next) => {
     const requestScope = tunnelAuthController.classifyRequestScope(req);
     if (requestScope === 'tunnel' || requestScope === 'unknown-public') {
-      return tunnelAuthController.requireTunnelSession(req, res, next);
+      return tunnelAuthController.requireTunnelSession(req, res, () => uiAuthController.humanMode
+        ? uiAuthController.requireAuth(req, res, next) : next());
     }
     return uiAuthController.requireAuth(req, res, next);
   };
@@ -603,6 +614,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     if (requestScope === 'tunnel' || requestScope === 'unknown-public') {
       const tunnelSession = tunnelAuthController.getTunnelSessionFromRequest(req);
       if (tunnelSession) {
+        if (uiAuthController.humanMode) return uiAuthController.handleSessionStatus(req, res);
         return res.json({ authenticated: true, scope: 'tunnel' });
       }
       tunnelAuthController.clearTunnelSessionCookie(req, res);

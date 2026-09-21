@@ -58,6 +58,18 @@ describe('core-routes', () => {
     expect(dependencies.gracefulShutdown).not.toHaveBeenCalled();
   });
 
+  it('requires human authentication as well as tunnel access before shutdown', async () => {
+    const app = express();
+    const shutdown = vi.fn();
+    registerServerStatusRoutes(app, { express, gracefulShutdown: shutdown,
+      getHealthSnapshot: () => ({}), openchamberVersion: 'test', runtimeName: 'test',
+      tunnelAuthController: { classifyRequestScope: () => 'tunnel', requireTunnelSession: (_req, _res, next) => next() },
+      uiAuthController: { humanMode: true, requireAuth: (_req, res) => res.status(401).end() },
+    });
+    await request(app).post('/api/system/shutdown').expect(401);
+    expect(shutdown).not.toHaveBeenCalled();
+  });
+
   it('should allow authenticated /api/system/shutdown requests', async () => {
     const app = express();
     const dependencies = {
@@ -311,6 +323,47 @@ describe('core-routes', () => {
     registerAuthAndAccessRoutes(app, dependencies);
     return { app, dependencies };
   };
+
+  it('human mode refuses all legacy client/pairing mutations, including unauthenticated redeem', async () => {
+    const { app, dependencies } = createPairingRouteApp();
+    dependencies.uiAuthController.humanMode = true;
+    dependencies.uiAuthController.resolveAuthContext.mockResolvedValue({ type: 'human', user: { subject: 'person' } });
+    for (const [method, path] of [
+      ['post', '/api/client-auth/clients'], ['delete', '/api/client-auth/clients/device'],
+      ['delete', '/api/client-auth/clients'], ['post', '/api/client-auth/pairing/sessions'],
+      ['delete', '/api/client-auth/pairing/sessions/pair'], ['post', '/api/client-auth/pairing/redeem'],
+    ]) {
+      const response = await request(app)[method](path).send({ pairingId: 'existing', secret: 'existing' }).expect(409);
+      expect(response.body.humanAuthRequired).toBe(true);
+    }
+    expect(dependencies.remoteClientAuthRuntime.createClient).not.toHaveBeenCalled();
+    expect(dependencies.remoteClientAuthRuntime.revokeClient).not.toHaveBeenCalled();
+    expect(dependencies.remoteClientAuthRuntime.purgeRevokedClients).not.toHaveBeenCalled();
+    expect(dependencies.clientPairingRuntime.createPairingSession).not.toHaveBeenCalled();
+    expect(dependencies.clientPairingRuntime.cancelPairingSession).not.toHaveBeenCalled();
+    expect(dependencies.clientPairingRuntime.redeemPairingSession).not.toHaveBeenCalled();
+    await request(app).get('/api/client-auth/clients').expect(200);
+    expect(dependencies.uiAuthController.requireSessionAuth).not.toHaveBeenCalled(); // No relabelled legacy fallback.
+  });
+
+  it('a tunnel session never substitutes for a human session or API admission', async () => {
+    const { app, dependencies } = createPairingRouteApp();
+    const order = [];
+    dependencies.uiAuthController.humanMode = true;
+    dependencies.tunnelAuthController.classifyRequestScope = () => 'tunnel';
+    dependencies.tunnelAuthController.getTunnelSessionFromRequest.mockReturnValue({ id: 'valid-tunnel' });
+    dependencies.tunnelAuthController.requireTunnelSession.mockImplementation((_req, _res, next) => { order.push('tunnel'); return next(); });
+    dependencies.uiAuthController.handleSessionStatus.mockImplementation((_req, res) => res.status(401).json({ humanAuthRequired: true }));
+    dependencies.uiAuthController.requireAuth.mockImplementation((_req, res) => { order.push('human'); return res.status(401).end(); });
+    app.get('/api/human-proof', (_req, res) => res.json({ ok: true }));
+    await request(app).get('/auth/session').expect(401, { humanAuthRequired: true });
+    await request(app).get('/api/human-proof').expect(401);
+    expect(order).toEqual(['tunnel', 'human']);
+    order.length = 0;
+    dependencies.uiAuthController.requireAuth.mockImplementation((_req, _res, next) => { order.push('human'); return next(); });
+    await request(app).get('/api/human-proof').expect(200, { ok: true });
+    expect(order).toEqual(['tunnel', 'human']);
+  });
 
   it('creates pairing sessions behind owner auth and returns no-store payload data', async () => {
     const { app, dependencies } = createPairingRouteApp();

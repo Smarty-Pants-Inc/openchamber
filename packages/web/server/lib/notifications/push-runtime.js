@@ -19,8 +19,16 @@ export const createPushRuntime = (deps) => {
     PUSH_SUBSCRIPTIONS_FILE_PATH,
     readSettingsFromDiskMigrated,
     writeSettingsToDisk,
+    authorizeUiSession = null,
+    humanMode = false,
   } = deps;
 
+  const authorize = async (groupKey) => {
+    if (!humanMode) return true;
+    if (typeof groupKey !== 'string' || !/^human:[A-Za-z0-9_-]{1,128}$/.test(groupKey)
+      || typeof authorizeUiSession !== 'function') return false;
+    try { return await authorizeUiSession(groupKey) === true; } catch { return false; }
+  };
   let persistPushSubscriptionsLock = Promise.resolve();
   let pushInitialized = false;
 
@@ -199,7 +207,7 @@ export const createPushRuntime = (deps) => {
     });
   };
 
-  const sendPushToSubscription = async (sub, payload) => {
+  const sendPushToSubscription = async (sub, payload, groupKey) => {
     await ensurePushInitialized();
     const body = JSON.stringify(payload);
 
@@ -212,6 +220,7 @@ export const createPushRuntime = (deps) => {
     };
 
     try {
+      if (!(await authorize(groupKey))) return;
       await webPush.sendNotification(pushSubscription, body);
     } catch (error) {
       const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : null;
@@ -229,18 +238,16 @@ export const createPushRuntime = (deps) => {
     const sessions = store.subscriptionsBySession || {};
     const subscriptionsByEndpoint = new Map();
 
-    for (const record of Object.values(sessions)) {
-      const subscriptions = normalizePushSubscriptions(record);
-      if (subscriptions.length === 0) continue;
-
-      for (const sub of subscriptions) {
-        if (!subscriptionsByEndpoint.has(sub.endpoint)) {
-          subscriptionsByEndpoint.set(sub.endpoint, sub);
-        }
+    for (const [groupKey, record] of Object.entries(sessions)) {
+      if (!(await authorize(groupKey))) continue;
+      for (const sub of normalizePushSubscriptions(record)) {
+        if (!subscriptionsByEndpoint.has(sub.endpoint)) subscriptionsByEndpoint.set(sub.endpoint, { sub, groupKey });
       }
     }
 
-    await Promise.all(Array.from(subscriptionsByEndpoint.values()).map(async (sub) => {
+    // Recheck immediately before each transport send. A revocation during the scan must
+    // not produce a new notification; already completed network delivery cannot be recalled.
+    await Promise.all(Array.from(subscriptionsByEndpoint.values()).map(async ({ sub, groupKey }) => {
       if (requireNoSse) {
         // Mobile PWA subscriptions follow the same presence model as native push: suppress only
         // when an interactive (desktop/web) client is visible. The phone PWA's own foreground is
@@ -249,7 +256,7 @@ export const createPushRuntime = (deps) => {
         const suppressed = isMobilePlatform(sub.platform) ? isAnyInteractiveClientVisible() : isAnyUiVisible();
         if (suppressed) return;
       }
-      await sendPushToSubscription(sub, payload);
+      await sendPushToSubscription(sub, payload, groupKey);
     }));
   };
 

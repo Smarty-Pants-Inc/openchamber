@@ -25,6 +25,24 @@ const createResponse = () => ({
 });
 
 describe('notification settings writer', () => {
+  it('refuses human-mode wiring mismatches before registering routes', () => {
+    const controller = { humanMode: true, getSessionGroup: async () => 'human:session' };
+    for (const dependencies of [
+      { humanMode: true },
+      { humanMode: false, uiAuthController: controller },
+      { humanMode: true, uiAuthController: controller },
+      { humanMode: 'true' },
+    ]) {
+      const app = { get: vi.fn(), post: vi.fn(), delete: vi.fn() };
+      expect(() => registerNotificationRoutes(app, dependencies)).toThrow(/configuration mismatch/);
+      expect(app.get).not.toHaveBeenCalled();
+      expect(app.post).not.toHaveBeenCalled();
+    }
+    const { app } = createRegistry();
+    expect(() => registerNotificationRoutes(app, { humanMode: true,
+      uiAuthController: controller, authorizeUiSession: async () => true })).not.toThrow();
+  });
+
   it('does not replace a public origin that appeared before its queued transform', async () => {
     const { app, getPost } = createRegistry();
     let settings = { projects: [{ id: 'project-1', path: '/project' }] };

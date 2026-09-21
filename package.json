@@ -168,6 +168,7 @@
     "@codemirror/view": "6.43.9"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@clack/prompts": "^1.1.0",
     "@eslint/js": "^9.33.0",
     "@oxlint/plugins": "1.78.0",
