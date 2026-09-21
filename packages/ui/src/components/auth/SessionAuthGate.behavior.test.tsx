@@ -240,6 +240,12 @@ mock.module('@/components/desktop/DesktopHostSwitcher', () => ({
   DesktopHostSwitcherInline: () => 'host-switcher',
 }));
 
+// This gate fixture is stock; the actual catalog banner has separate mounted coverage.
+mock.module('@/stores/useProjectsStore', () => ({
+  useProjectsStore: (selector: (store: { managedCatalogAdmitted: boolean }) => unknown) =>
+    selector({ managedCatalogAdmitted: false }),
+}));
+
 mock.module('@/lib/i18n', () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));

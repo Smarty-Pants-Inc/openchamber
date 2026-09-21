@@ -150,6 +150,8 @@ mock.module('@/stores/utils/safeStorage', () => ({
 }));
 
 mock.module('@/stores/useProjectsStore', () => ({
+  // Stock fixture only; managed membership is covered by the actual store regressions.
+  visibleProjects: <T,>(state: { projects: T[] }) => state.projects,
   useProjectsStore: {
     getState: () => ({
       activeProjectId: 'project',
