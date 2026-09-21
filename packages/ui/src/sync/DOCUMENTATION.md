@@ -606,6 +606,13 @@ re-rendered by a cross-project switch. This is what keeps sidebar rows
 (permissions, question counts, session lookups) out of the switch commit: a
 row must not pay for the chat changing directory.
 
+Without a selected directory, `useDirectoryStore` returns a stable read-only
+loading view. Global readers such as the PWA manifest and session status hooks
+can stay mounted. This view creates no child, starts no directory bootstrap,
+and rejects mutations. It does not turn an unavailable catalog into a successful
+empty result. Selecting a directory resumes its retained real child store;
+`ensureChild('')` still rejects an empty directory.
+
 ### Session switch commit
 
 The sidebar click publishes `currentSessionId`/`currentSessionDirectory`
