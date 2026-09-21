@@ -31,7 +31,7 @@ import { DraggableSessionRow } from '../folders/sessionFolderDnd';
 import { canShowSessionWorktreeMenu, getSessionWorktreeMenuDisabled, nodeContainsSessionId, nodeHasPinnedMembershipChange, selectQuestionBadgeSessionScopes, selectRowBadgeVisibilityClass } from './sessionNodeItemUtils';
 import type { SessionNode } from '../types';
 import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from '../utils';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -362,7 +362,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const projectLabelFromStore = useProjectsStore(
     React.useCallback((state) => {
       if (secondaryMeta?.projectLabel || !projectId) return null;
-      const project = state.projects.find((entry) => entry.id === projectId);
+      const project = visibleProjects(state).find((entry) => entry.id === projectId);
       if (!project) return null;
       return project.label?.trim() || formatDirectoryName(normalizePath(project.path) ?? project.path, null) || project.path;
     }, [projectId, secondaryMeta?.projectLabel]),
@@ -1174,7 +1174,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           if (normalized && !scopes.includes(normalized)) scopes.push(normalized);
         };
         if (projectId && !isVSCode) {
-          const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
+          const project = visibleProjects(useProjectsStore.getState()).find((entry) => entry.id === projectId);
           const projectRoot = normalizePath(project?.path ?? null);
           pushScope(projectRoot);
           if (projectRoot) {

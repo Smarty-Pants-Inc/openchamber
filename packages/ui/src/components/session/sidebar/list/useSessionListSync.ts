@@ -6,7 +6,8 @@ import { useChildStoreManager } from '@/sync/sync-context';
 import { getAllSyncSessions } from '@/sync/sync-refs';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
 import { buildKnownSessionDirectories } from './sessionListDirectories';
 import { useAuthoritativeSessionCleanup } from './useAuthoritativeSessionCleanup';
@@ -22,14 +23,17 @@ export const useSessionListSync = ({
   isVSCode,
 }: UseSessionListSyncOptions) => {
   const childStores = useChildStoreManager();
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
+  const managed = useProjectsStore(state => state.managedCatalogAdmitted);
+  const catalogStatus = useProjectsStore(state => state.managedCatalogStatus);
+  React.useEffect(() => { if (!isVSCode) void refreshManagedProjects(); }, [isVSCode]);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
   const availableWorktreesByProject = useSessionUIStore((state) => isVSCode ? EMPTY_WORKTREES_BY_PROJECT : state.availableWorktreesByProject);
   const knownDirectories = React.useMemo(
-    () => buildKnownSessionDirectories(projects, availableWorktreesByProject, { includeWorktrees: !isVSCode }),
-    [availableWorktreesByProject, isVSCode, projects],
+    () => buildKnownSessionDirectories(projects, availableWorktreesByProject, { includeWorktrees: !isVSCode && !managed }),
+    [availableWorktreesByProject, isVSCode, managed, projects],
   );
   const globalActiveSessions = useGlobalSessionsStore((state) => state.activeSessions);
   const archivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
@@ -97,7 +101,8 @@ export const useSessionListSync = ({
     [archivedSessions, globalActiveSessions],
   );
   useAuthoritativeSessionCleanup({
-    enabled: true,
+    // Until capability is known, absence is not evidence of native deletion.
+    enabled: isVSCode || (!managed && catalogStatus === 'stock'),
     hasAuthoritativeGlobalSessions,
     sessions: cleanupSessions,
   });

@@ -2794,6 +2794,8 @@ export const dict = {
   'sessionAuth.error.passkeySignInCanceled': 'Passkey sign-in was canceled.',
   'sessionAuth.error.enterPasswordForPasskey': 'Enter your password to add a passkey.',
   'sessionAuth.locked.tunnelTitle': 'Tunnel access required',
+  'sessions.catalog.unavailable': 'Live projects and sessions could not be refreshed. Shown items may be out of date. Projects and Pi sessions are managed in Herdr.',
+  'sessions.catalog.empty': 'No live projects are available. Projects and Pi sessions are managed in Herdr.',
   'sessionAuth.expired.banner': 'Your session expired — log in to continue.',
   'sessionAuth.expired.loginAction': 'Log in',
   'sessionAuth.expired.sendBlocked': 'Session expired — log in to send messages.',

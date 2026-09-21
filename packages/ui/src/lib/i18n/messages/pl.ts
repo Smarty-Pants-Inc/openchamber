@@ -2963,6 +2963,8 @@ export const dict: Record<I18nKey, string> = {
   'sessionAuth.locked.passwordDescription': 'Ta sesja jest chroniona hasłem.',
   'sessionAuth.locked.tunnelDescription': 'Otwórz ten tunel za pomocą jednorazowego linku połączenia z aplikacji desktopowej.',
   'sessionAuth.locked.tunnelTitle': 'Wymagany dostęp przez tunel',
+  'sessions.catalog.unavailable': 'Nie udało się odświeżyć aktywnych projektów i sesji. Wyświetlane elementy mogą być nieaktualne. Projektami i sesjami Pi zarządza się w Herdr.',
+  'sessions.catalog.empty': 'Brak dostępnych aktywnych projektów. Projektami i sesjami Pi zarządza się w Herdr.',
   'sessionAuth.expired.banner': 'Sesja wygasła — zaloguj się, aby kontynuować.',
   'sessionAuth.expired.loginAction': 'Zaloguj się',
   'sessionAuth.expired.sendBlocked': 'Sesja wygasła — zaloguj się, aby wysyłać wiadomości.',

@@ -5,6 +5,7 @@ import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { persistSessions, readDirCache } from '@/sync/persist-cache';
 import { ensureChatsRootDirectory } from '@/lib/chatDirectories';
 import { useGlobalSessionsStore } from './useGlobalSessionsStore';
+import { useProjectsStore } from './useProjectsStore';
 
 class TestStorage implements Storage {
   readonly values = new Map<string, string>();
@@ -55,6 +56,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: new TestStorage() });
   nextRuntime();
   useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+  useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
   home = spyOn(opencodeClient, 'getFilesystemHomeInfo').mockResolvedValue({ home: '/home/user', chatsRoot: '/srv/chats' });
 });
 afterEach(() => {
@@ -66,6 +68,17 @@ const seed = async () => {
   await new Promise((resolve) => setTimeout(resolve, 70));
   useGlobalSessionsStore.getState().resetForRuntimeSwitch();
 };
+
+for (const managed of [false, true]) {
+  test(`transient ${managed ? 'managed' : 'unknown'} catalog absence does not erase persisted chats`, async () => {
+    await seed(); await ensureChatsRootDirectory();
+    useProjectsStore.setState({ managedCatalogAdmitted: managed, managedCatalogStatus: managed ? 'ready' : 'unknown' });
+    if (managed) useGlobalSessionsStore.getState().applyManagedSessions([], 0, new Set());
+    else useGlobalSessionsStore.getState().applySnapshot([], []);
+    await new Promise(resolve => setTimeout(resolve, 70));
+    expect(readDirCache(scope).sessions?.map(session => session.id)).toEqual(['saved']);
+  });
+}
 
 describe('global load owns chats-root readiness', () => {
   test('concurrent loads wait for root, hydrate before request, and preserve saved chats after list failure', async () => {

@@ -2760,6 +2760,8 @@ export const dict: Record<I18nKey, string> = {
   "sessionAuth.error.passkeySignInCanceled": "El inicio de sesión con clave de paso se canceló.",
   "sessionAuth.error.enterPasswordForPasskey": "Introduce tu contraseña para añadir una clave de paso.",
   "sessionAuth.locked.tunnelTitle": "Se requiere acceso por túnel",
+  "sessions.catalog.unavailable": "No se pudieron actualizar los proyectos y las sesiones activos. Los elementos mostrados pueden estar desactualizados. Los proyectos y las sesiones de Pi se gestionan en Herdr.",
+  "sessions.catalog.empty": "No hay proyectos activos disponibles. Los proyectos y las sesiones de Pi se gestionan en Herdr.",
   "sessionAuth.expired.banner": "Tu sesión expiró: inicia sesión para continuar.",
   "sessionAuth.expired.loginAction": "Iniciar sesión",
   "sessionAuth.expired.sendBlocked": "Sesión expirada: inicia sesión para enviar mensajes.",

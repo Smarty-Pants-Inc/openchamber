@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyForwardProxyResponseHeaders,
   collectForwardProxyHeaders,
+  exposedProxyResponseHeaders,
   shouldForwardProxyResponseHeader,
 } from './proxy-headers.js';
 
@@ -50,6 +51,17 @@ describe('OpenCode proxy header handling', () => {
     }), { setHeader: (key, value) => applied.set(key, value) });
     expect(applied.get('x-smarty-ordinary-view')).toBe(view);
     expect(applied.get('x-next-cursor')).toBe('older-page');
+  });
+
+  it('forwards and exposes the managed catalog marker without inventing absent authority', () => {
+    const applied = new Map();
+    const response = { setHeader: (key, value) => applied.set(key, value) };
+    applyForwardProxyResponseHeaders(new Headers({ 'X-Smarty-Code-Catalog': 'managed-v1' }), response);
+    expect(applied.get('x-smarty-code-catalog')).toBe('managed-v1');
+    expect(exposedProxyResponseHeaders.split(', ')).toEqual(['x-next-cursor', 'x-smarty-code-catalog']);
+    applied.clear();
+    applyForwardProxyResponseHeaders(new Headers({ 'content-type': 'application/json' }), response);
+    expect(applied.has('x-smarty-code-catalog')).toBe(false);
   });
 
   it('drops forged actors and Better Auth cookies without changing legacy cookies', () => {

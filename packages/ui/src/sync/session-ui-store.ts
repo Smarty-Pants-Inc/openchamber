@@ -21,7 +21,7 @@ import { opencodeClient } from "@/lib/opencode/client"
 import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
-import { useProjectsStore } from "@/stores/useProjectsStore"
+import { useProjectsStore, visibleProjects } from "@/stores/useProjectsStore"
 import { useSessionDisplayStore } from "@/stores/useSessionDisplayStore"
 import { fetchSessionKnowledge, reportSessionKnowledgeDelivered } from "@/lib/sessionKnowledgeApi"
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
@@ -722,10 +722,10 @@ type MaterializedDraftSession = {
 const resolveProjectRefForWorktreeDirectory = (directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
   const projectsState = useProjectsStore.getState()
   if (projectId) {
-    const project = projectsState.projects.find((entry) => entry.id === projectId)
+    const project = visibleProjects(projectsState).find((entry) => entry.id === projectId)
     if (project?.path) return { id: project.id, path: project.path }
   }
-  const resolved = resolveProjectForSessionDirectory(projectsState.projects, useSessionUIStore.getState().availableWorktreesByProject, directory)
+  const resolved = resolveProjectForSessionDirectory(visibleProjects(projectsState), useSessionUIStore.getState().availableWorktreesByProject, directory)
   return resolved?.path ? { id: resolved.id, path: resolved.path } : null
 }
 
@@ -742,7 +742,7 @@ const resolveActiveProjectDirectory = (draft: NewSessionDraftState): string | nu
   return normalizePath(
     projectsState.getActiveProject()?.path
       ?? (draft.selectedProjectId
-        ? projectsState.projects.find((project) => project.id === draft.selectedProjectId)?.path
+        ? visibleProjects(projectsState).find((project) => project.id === draft.selectedProjectId)?.path
         : null)
       ?? null,
   )
@@ -822,7 +822,7 @@ const isRelocatableSessionDirectory = (directory: string, projects: readonly Pro
 const notifySessionRelocated = async (destinationDirectory: string): Promise<void> => {
   const { toast } = await import("sonner")
   const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
-  const project = useProjectsStore.getState().projects.find((entry) => normalizePath(entry.path) === destinationDirectory)
+  const project = visibleProjects(useProjectsStore.getState()).find((entry) => normalizePath(entry.path) === destinationDirectory)
   toast.info(formatMessage(useI18nStore.getState().dictionary, "sessions.missingDirectory.movedToProject", {
     project: project?.label ?? destinationDirectory,
   }))
@@ -841,7 +841,7 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   if (currentDraft.pendingWorktreeRequestId) return
   if (normalizePath(currentDraft.directoryOverride) !== original) return
 
-  const recoveredProject = useProjectsStore.getState().projects.find((project) => (
+  const recoveredProject = visibleProjects(useProjectsStore.getState()).find((project) => (
     normalizePath(project.path) === recovered
   ))
   const nextDraft: NewSessionDraftState = {
@@ -1080,6 +1080,12 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // setCurrentSession
   // ---------------------------------------------------------------------------
   setCurrentSession: (id, directoryHint?: string | null, transition?: "submitted-draft") => {
+    const selectionProjects = useProjectsStore.getState()
+    if (id && selectionProjects.managedCatalogAdmitted) {
+      const selectedDirectory = directoryHint ? normalizePath(directoryHint)
+        : resolveSessionDirectory(id, sid => get().worktreeMetadata.get(sid))
+      if (!visibleProjects(selectionProjects).some(project => project.path === selectedDirectory)) return
+    }
     const materializedDraftSessionId = id && transition === "submitted-draft" ? id : null
     // Publish the transition identity before closing the draft. Those are two
     // separate store updates, and ChatContainer must never observe a closed
@@ -1112,7 +1118,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const projectsState = useProjectsStore.getState()
     const sessionProject = resolvedDir
       ? resolveProjectForSessionDirectory(
-        projectsState.projects,
+        visibleProjects(projectsState),
         get().availableWorktreesByProject,
         resolvedDir,
       )
@@ -1165,7 +1171,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // and prompts run against a path that is gone. VS Code registers no
     // worktrees, so every session there is its workspace root.
     if (id && !isGuessedDir && resolvedDir && !isVSCodeRuntime()
-      && isRelocatableSessionDirectory(resolvedDir, projectsState.projects)) {
+      && isRelocatableSessionDirectory(resolvedDir, visibleProjects(projectsState))) {
       void get().recoverMissingSessionDirectory(id)
     }
 
@@ -1305,7 +1311,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       clearLastActiveSession(runtimeMemoryKey())
     }
     const projectsState = useProjectsStore.getState()
-    const projects = projectsState.projects
+    const projects = visibleProjects(projectsState)
     const availableWorktreesByProject = get().availableWorktreesByProject
     const activeProject = projectsState.getActiveProject()
     const currentDirectory = normalizePath(useDirectoryStore.getState().currentDirectory ?? null)
@@ -2216,7 +2222,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     let createdWorktreeProject: { id: string; path: string } | null = null
 
     if (execution.createWorktree) {
-      const projects = useProjectsStore.getState().projects
+      const projects = visibleProjects(useProjectsStore.getState())
       const project = resolveProjectForSessionDirectory(
         projects,
         get().availableWorktreesByProject,

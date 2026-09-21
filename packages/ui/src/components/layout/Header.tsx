@@ -22,7 +22,7 @@ import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSession
 import { useDirectoryStore as useAppDirectoryStore } from '@/stores/useDirectoryStore';
 import { isChatDirectoryForHome } from '@/lib/chatDirectories';
 import { useSync } from '@/sync/use-sync';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
@@ -318,7 +318,7 @@ export const Header: React.FC = () => {
     if (!state.activeProjectId) {
       return null;
     }
-    const project = state.projects.find((candidate) => candidate.id === state.activeProjectId);
+    const project = visibleProjects(state).find((candidate) => candidate.id === state.activeProjectId);
     return project ? { id: project.id, path: project.path, label: project.label } : null;
   }));
   const activeProjectLabel = React.useMemo(() => {
@@ -959,7 +959,7 @@ export const Header: React.FC = () => {
   const isMultiRunSurfaceOpen = useUIStore((state) => state.isMultiRunLauncherOpen);
   const worktreesSurfaceProjectLabel = useProjectsStore((state) => {
     if (!worktreesSurfaceProjectId) return null;
-    const project = state.projects.find((entry) => entry.id === worktreesSurfaceProjectId);
+    const project = visibleProjects(state).find((entry) => entry.id === worktreesSurfaceProjectId);
     return project?.label?.trim() || project?.path?.split('/').pop() || null;
   });
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {

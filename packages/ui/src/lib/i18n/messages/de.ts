@@ -2575,6 +2575,8 @@ export const dict = {
   'sessionAuth.error.passkeySignInCanceled': 'Passkey-Anmeldung wurde abgebrochen.',
   'sessionAuth.error.enterPasswordForPasskey': 'Geben Sie Ihr Passwort ein, um einen Passkey hinzuzufügen.',
   'sessionAuth.locked.tunnelTitle': 'Tunnel-Zugriff erforderlich',
+  'sessions.catalog.unavailable': 'Live-Projekte und -Sitzungen konnten nicht aktualisiert werden. Angezeigte Einträge können veraltet sein. Projekte und Pi-Sitzungen werden in Herdr verwaltet.',
+  'sessions.catalog.empty': 'Keine Live-Projekte verfügbar. Projekte und Pi-Sitzungen werden in Herdr verwaltet.',
   'sessionAuth.expired.banner': 'Deine Sitzung ist abgelaufen — melde dich an, um fortzufahren.',
   'sessionAuth.expired.loginAction': 'Anmelden',
   'sessionAuth.expired.sendBlocked': 'Sitzung abgelaufen — melde dich an, um Nachrichten zu senden.',

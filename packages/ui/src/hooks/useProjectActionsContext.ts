@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ProjectEntry } from '@/lib/api/types';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
 import type { ProjectRef } from '@/lib/openchamberConfig';
@@ -49,7 +49,8 @@ export const resolveProjectActionsOwner = ({
  * good context so the actions button doesn't flicker during session switches.
  */
 export function useProjectActionsContext(): ProjectActionsContext | null {
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
+  const managed = useProjectsStore(state => state.managedCatalogAdmitted);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const worktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
 
@@ -102,6 +103,6 @@ export function useProjectActionsContext(): ProjectActionsContext | null {
     if (activeProjectRef && actionDirectory) {
       return { projectRef: activeProjectRef, directory: actionDirectory };
     }
-    return lastContextRef.current;
-  }, [activeProjectRef, actionDirectory]);
+    return managed ? null : lastContextRef.current;
+  }, [activeProjectRef, actionDirectory, managed]);
 }

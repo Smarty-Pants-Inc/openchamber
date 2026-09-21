@@ -1,5 +1,5 @@
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { getAttachedSessionDirectory } from '@/sync/session-worktree-contract';
@@ -16,7 +16,7 @@ export const useChatSearchDirectory = (): string | undefined => {
   const newSessionDraft = useSessionUIStore((state) => state.newSessionDraft);
 
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
 
   const fallbackDirectory = useDirectoryStore((state) => state.currentDirectory);
 

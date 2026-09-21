@@ -11,6 +11,7 @@ import os from 'os';
 import crypto from 'crypto';
 import http2 from 'node:http2';
 import { PRODUCT_NAME } from '../brand.generated.js';
+import { exposedProxyResponseHeaders } from './proxy-headers.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createConfiguredHumanAuth } from './lib/ui-auth/human-auth-config.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
@@ -1694,7 +1695,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,If-Match,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,Ngrok-Skip-Browser-Warning');
-      res.setHeader('Access-Control-Expose-Headers', 'x-next-cursor');
+      res.setHeader('Access-Control-Expose-Headers', exposedProxyResponseHeaders);
       res.setHeader('Vary', 'Origin');
       if (req.method === 'OPTIONS') {
         res.status(204).end();

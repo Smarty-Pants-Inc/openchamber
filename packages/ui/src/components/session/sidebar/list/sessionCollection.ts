@@ -8,6 +8,7 @@ import {
 } from '@/sync/session-ordering';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { deriveRecentSessions } from '../recent/activitySections';
@@ -22,6 +23,7 @@ type ProjectSidebarActiveSessionsArgs = {
   liveSessions: Session[];
   knownDirectories: Set<string>;
   isVSCode: boolean;
+  managed?: boolean;
 };
 
 type SidebarSessionPartitions = {
@@ -60,9 +62,11 @@ const isKnownActiveSessionDirectory = (
   session: Session,
   knownDirectories: Set<string>,
   isVSCode: boolean,
+  managed = false,
 ): boolean => {
-  if (session.time?.archived) return true;
   const directory = normalizePath(resolveGlobalSessionDirectory(session));
+  if (managed) return directory !== null && knownDirectories.has(directory);
+  if (session.time?.archived) return true;
   if (!directory) return !isVSCode;
   if (knownDirectories.size === 0) return !isVSCode;
   return knownDirectories.has(directory);
@@ -75,17 +79,11 @@ export const projectSidebarActiveSessions = ({
   liveSessions,
   knownDirectories,
   isVSCode,
+  managed = false,
 }: ProjectSidebarActiveSessionsArgs): Session[] => {
-  const sessions = [...globalActiveSessions];
-  const knownIds = new Set(globalActiveSessions.map((session) => session.id));
-
-  for (const session of liveSessions) {
-    if (knownIds.has(session.id)) continue;
-    sessions.push(session);
-  }
-
+  const sessions = mergeSidebarSessionSources(globalActiveSessions, managed ? [] : liveSessions);
   return partitionSidebarSessions(sessions, isVSCode).projectSessions
-    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode));
+    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode, managed));
 };
 
 export const projectSidebarCollection = (args: ProjectSidebarActiveSessionsArgs): Session[] => {
@@ -142,10 +140,12 @@ const buildSidebarSessionStructure = ({
   knownDirectories,
   isVSCode,
   globalStructure,
+  managed = false,
 }: SidebarSessionStructureArgs) => {
   countSyncPerformance('sidebarStructureBuilds');
   const indexedGlobalSessions = globalActiveSessions ?? [];
-  const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
+  const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, managed ? [] : liveSessions)
+    .filter(session => !managed || isKnownActiveSessionDirectory(session, knownDirectories, isVSCode, true));
   const partition = partitionSidebarSessions(visibleSessions, isVSCode);
   const projectSessions = partition.projectSessions
     .filter((session) => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode));
@@ -210,12 +210,14 @@ export const buildSidebarSessionProjection = ({
   isVSCode,
   pinnedSessionIds,
   sessionOrderRanks,
+  managed = false,
 }: SidebarSessionProjectionArgs) => {
   const structure = buildSidebarSessionStructure({
     globalActiveSessions,
     liveSessions,
     knownDirectories,
     isVSCode,
+    managed,
   });
   const ordering = orderSidebarSessionStructure(structure, pinnedSessionIds, sessionOrderRanks);
   return {
@@ -241,7 +243,11 @@ export const useSessionProjectCollection = ({
 }: UseSessionProjectCollectionArgs) => {
   const globalActiveSessions = useGlobalSessionsStore((state) => state.activeSessions);
   const globalStructure = useGlobalSessionsStore((state) => state.structure);
-  const archivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
+  const cachedArchivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
+  const managed = useProjectsStore(state => state.managedCatalogAdmitted);
+  const archivedSessions = React.useMemo(() => managed
+    ? cachedArchivedSessions.filter(session => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode, true))
+    : cachedArchivedSessions, [cachedArchivedSessions, isVSCode, knownDirectories, managed]);
   const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
   const liveSessions = useAllLiveSessions();
   const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
@@ -255,7 +261,8 @@ export const useSessionProjectCollection = ({
     liveSessions,
     knownDirectories,
     isVSCode,
-  }), [globalActiveSessions, globalStructure, isVSCode, knownDirectories, liveSessions]);
+    managed,
+  }), [globalActiveSessions, globalStructure, isVSCode, knownDirectories, liveSessions, managed]);
   const ordering = React.useMemo(
     () => orderSidebarSessionStructure(structure, pinnedSessionIds, sessionOrderRanks),
     [pinnedSessionIds, sessionOrderRanks, structure],

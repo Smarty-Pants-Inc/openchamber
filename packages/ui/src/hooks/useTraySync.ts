@@ -16,7 +16,7 @@ import {
 } from '@/stores/useGlobalSessionsStore';
 import { useQuotaStore } from '@/stores/useQuotaStore';
 import { QUOTA_PROVIDERS, formatWindowLabel, formatQuotaValueLabel } from '@/lib/quota';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGitStore } from '@/stores/useGitStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -376,7 +376,7 @@ const buildSnapshot = (instanceName: string): TraySnapshot => {
     return 'idle';
   };
 
-  const projects = useProjectsStore.getState().projects;
+  const projects = visibleProjects(useProjectsStore.getState());
   const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
 
   const sessions: TraySession[] = allSessions
