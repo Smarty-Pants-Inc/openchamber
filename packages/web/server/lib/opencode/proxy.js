@@ -475,7 +475,7 @@ export const registerOpenCodeProxy = (app, deps) => {
         : (typeof req.url === 'string' ? req.url : '');
       const upstreamPath = requestUrl.startsWith('/api') ? requestUrl.slice(4) || '/' : requestUrl;
       const headers = normalizeForwardedDirectoryHeaders(
-        collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders())
+        collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders(), req.humanIdentity)
       );
       headers.accept ??= 'text/event-stream';
       headers['cache-control'] ??= 'no-cache';
@@ -617,7 +617,7 @@ export const registerOpenCodeProxy = (app, deps) => {
   const fetchSessionListPayload = async (upstreamPath, { req = null, timeoutMs = null } = {}) => {
     const headers = req
       ? {
-          ...normalizeForwardedDirectoryHeaders(collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders())),
+          ...normalizeForwardedDirectoryHeaders(collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders(), req.humanIdentity)),
           accept: 'application/json',
           'accept-encoding': 'identity',
         }
@@ -888,10 +888,13 @@ export const registerOpenCodeProxy = (app, deps) => {
     router: () => resolveProxyTarget(),
     on: {
       proxyReq: (proxyReq, req) => {
-        // Inject OpenCode auth headers
-        const authHeaders = getOpenCodeAuthHeaders();
-        if (authHeaders.Authorization) {
-          proxyReq.setHeader('Authorization', authHeaders.Authorization);
+        const headers = collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders(), req.humanIdentity);
+        // http-proxy copies the original request: remove credentials before replacing them.
+        for (const key of ['authorization', 'cookie', 'x-smarty-human-identity']) {
+          proxyReq.removeHeader(key);
+        }
+        for (const key of ['Authorization', 'cookie', 'x-smarty-human-identity']) {
+          if (headers[key]) proxyReq.setHeader(key, headers[key]);
         }
 
         if (req.headers?.['x-opencode-directory-encoding'] === 'uri') {

@@ -45,8 +45,16 @@ export const createApnsRuntime = (deps) => {
     writeSettingsToDisk,
     // Strict settings reader gating identity regeneration (see signing-key.js).
     readSettingsStrict,
+    authorizeUiSession = null,
+    humanMode = false,
   } = deps;
 
+  const authorize = async (groupKey) => {
+    if (!humanMode) return true;
+    if (typeof groupKey !== 'string' || !/^human:[A-Za-z0-9_-]{1,128}$/.test(groupKey)
+      || typeof authorizeUiSession !== 'function') return false;
+    try { return await authorizeUiSession(groupKey) === true; } catch { return false; }
+  };
   let persistLock = Promise.resolve();
   let cachedJwt = null; // { token, issuedAtMs, keyId }
   let cachedRelayKey = null; // { privateKey, publicJwk }
@@ -392,10 +400,13 @@ export const createApnsRuntime = (deps) => {
     };
   };
 
-  const sendViaRelay = async (deviceTokens, payload, relay, environment) => {
-    const tokens = deviceTokens.slice(0, 100);
+  const sendViaRelay = async (entries, payload, relay, environment) => {
     const title = typeof payload?.title === 'string' && payload.title.length > 0 ? payload.title : PRODUCT_NAME;
     const { privateKey, publicJwk } = await getOrCreateRelayKeypair();
+    if (humanMode && (entries.some((entry) => entry.groupKey !== entries[0]?.groupKey)
+      || !(await authorize(entries[0]?.groupKey)))) return;
+    const tokens = entries.slice(0, 100).map((entry) => entry.token);
+    if (!tokens.length) return;
     const ts = Date.now();
     // Sign over the same canonical form the relay verifies: ts.sortedTokens.title.
     const sig = signRelayMessage(privateKey, `${ts}.${[...tokens].sort().join(',')}.${title}`);
@@ -480,7 +491,9 @@ export const createApnsRuntime = (deps) => {
           finish();
         });
         Promise.all(
-          deviceTokens.map((token) => sendOne(client, token, body, jwt, sendConfig)),
+          deviceTokens.map(async ({ token, groupKey }) => {
+            if (await authorize(groupKey)) return sendOne(client, token, body, jwt, sendConfig);
+          }),
         ).finally(finish);
       });
     }
@@ -498,21 +511,36 @@ export const createApnsRuntime = (deps) => {
     // → production). Mixing them gets BadDeviceToken and the token wrongly dropped as dead.
     const tokensByEnvironment = new Map();
     const seen = new Set();
-    for (const record of Object.values(store.tokensBySession || {})) {
+    for (const [groupKey, record] of Object.entries(store.tokensBySession || {})) {
+      if (!(await authorize(groupKey))) continue;
       for (const entry of normalizeTokens(record)) {
         if (seen.has(entry.deviceToken)) continue;
         seen.add(entry.deviceToken);
         const group = tokensByEnvironment.get(entry.environment) || [];
-        group.push(entry.deviceToken);
+        group.push({ token: entry.deviceToken, groupKey });
         tokensByEnvironment.set(entry.environment, group);
       }
     }
+    if (humanMode && typeof authorizeUiSession !== 'function') return;
     if (seen.size === 0) return;
 
     const relay = resolveRelayConfig();
     if (relay) {
-      for (const [environment, deviceTokens] of tokensByEnvironment) {
-        await sendViaRelay(deviceTokens, payload, relay, relay.environment ?? environment);
+      for (const [environment, entries] of tokensByEnvironment) {
+        // Authorize one session per relay request; never await another session after its check.
+        const groups = [];
+        if (humanMode) {
+          const byGroup = new Map();
+          for (const entry of entries) {
+            const group = byGroup.get(entry.groupKey) || [];
+            group.push(entry);
+            byGroup.set(entry.groupKey, group);
+          }
+          groups.push(...byGroup.values());
+        } else {
+          groups.push(entries);
+        }
+        for (const group of groups) await sendViaRelay(group, payload, relay, relay.environment ?? environment);
       }
       return;
     }

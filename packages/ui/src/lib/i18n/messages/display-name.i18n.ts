@@ -1,5 +1,8 @@
+import { humanAuthI18n } from './human-auth.i18n';
+
 export const displayNameI18n = {
   en: {
+    ...humanAuthI18n.en,
     'chat.displayName.backendUnsupported': 'This backend does not support display attribution. Message was not sent.',
     'chat.displayName.label': 'Display name for this tab',
     'chat.displayName.apply': 'Apply name',
@@ -12,6 +15,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Named messages support plain prompts only. Queues, commands and steering are not supported; your draft is unchanged.',
   },
   de: {
+    ...humanAuthI18n.de,
     'chat.displayName.backendUnsupported': 'Dieses Backend unterstützt keine Anzeigenamen für Nachrichten. Die Nachricht wurde nicht gesendet.',
     'chat.displayName.label': 'Anzeigename für diesen Tab',
     'chat.displayName.apply': 'Name übernehmen',
@@ -24,6 +28,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Benannte Nachrichten unterstützen nur normale Prompts. Warteschlangen, Befehle und Steuerung werden nicht unterstützt. Dein Entwurf bleibt unverändert.',
   },
   es: {
+    ...humanAuthI18n.es,
     'chat.displayName.backendUnsupported': 'Este servidor no admite etiquetas de remitente. El mensaje no se ha enviado.',
     'chat.displayName.label': 'Nombre visible de esta pestaña',
     'chat.displayName.apply': 'Aplicar nombre',
@@ -36,6 +41,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Los mensajes con nombre solo admiten texto normal. No se admiten colas, comandos ni instrucciones durante la ejecución. Tu borrador no cambia.',
   },
   fr: {
+    ...humanAuthI18n.fr,
     'chat.displayName.backendUnsupported': 'Ce serveur ne prend pas en charge les noms d’expéditeur. Le message n’a pas été envoyé.',
     'chat.displayName.label': 'Nom affiché pour cet onglet',
     'chat.displayName.apply': 'Appliquer le nom',
@@ -48,6 +54,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Les messages nommés acceptent uniquement les requêtes ordinaires. Files, commandes et consignes en cours d’exécution ne sont pas prises en charge. Votre brouillon reste intact.',
   },
   ja: {
+    ...humanAuthI18n.ja,
     'chat.displayName.backendUnsupported': 'このバックエンドは表示名による送信者ラベルに対応していません。メッセージは送信されませんでした。',
     'chat.displayName.label': 'このタブの表示名',
     'chat.displayName.apply': '名前を適用',
@@ -60,6 +67,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '名前付きメッセージは通常のプロンプトのみ対応しています。キュー、コマンド、実行中の指示変更には対応していません。下書きは変更されません。',
   },
   ko: {
+    ...humanAuthI18n.ko,
     'chat.displayName.backendUnsupported': '이 백엔드는 표시 이름을 통한 발신자 표기를 지원하지 않습니다. 메시지를 보내지 않았습니다.',
     'chat.displayName.label': '이 탭의 표시 이름',
     'chat.displayName.apply': '이름 적용',
@@ -72,6 +80,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '이름이 있는 메시지는 일반 프롬프트만 지원합니다. 대기열, 명령 및 실행 중 지시 변경은 지원하지 않습니다. 초안은 그대로 유지됩니다.',
   },
   pl: {
+    ...humanAuthI18n.pl,
     'chat.displayName.backendUnsupported': 'Ten serwer nie obsługuje etykiet nadawcy. Wiadomość nie została wysłana.',
     'chat.displayName.label': 'Nazwa wyświetlana w tej karcie',
     'chat.displayName.apply': 'Zastosuj nazwę',
@@ -84,6 +93,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Nazwane wiadomości obsługują tylko zwykłe polecenia tekstowe. Kolejki, komendy i sterowanie podczas wykonania nie są obsługiwane. Szkic pozostaje bez zmian.',
   },
   'pt-BR': {
+    ...humanAuthI18n['pt-BR'],
     'chat.displayName.backendUnsupported': 'Este servidor não oferece suporte a rótulos de remetente. A mensagem não foi enviada.',
     'chat.displayName.label': 'Nome de exibição desta aba',
     'chat.displayName.apply': 'Aplicar nome',
@@ -96,6 +106,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Mensagens com nome aceitam apenas prompts comuns. Filas, comandos e instruções durante a execução não são compatíveis. Seu rascunho não muda.',
   },
   tr: {
+    ...humanAuthI18n.tr,
     'chat.displayName.backendUnsupported': 'Bu sunucu görünen adla gönderen etiketlemeyi desteklemiyor. Mesaj gönderilmedi.',
     'chat.displayName.label': 'Bu sekmenin görünen adı',
     'chat.displayName.apply': 'Adı uygula',
@@ -108,6 +119,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Adlı mesajlar yalnızca düz istemleri destekler. Kuyruklar, komutlar ve çalışma sırasında yönlendirme desteklenmez. Taslağınız değişmez.',
   },
   uk: {
+    ...humanAuthI18n.uk,
     'chat.displayName.backendUnsupported': 'Цей сервер не підтримує мітки відправника. Повідомлення не надіслано.',
     'chat.displayName.label': 'Відображуване ім’я для цієї вкладки',
     'chat.displayName.apply': 'Застосувати ім’я',
@@ -120,6 +132,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Іменовані повідомлення підтримують лише звичайні запити. Черги, команди й керування під час виконання не підтримуються. Чернетка не змінюється.',
   },
   'zh-CN': {
+    ...humanAuthI18n['zh-CN'],
     'chat.displayName.backendUnsupported': '此后端不支持显示名称归属标签。消息未发送。',
     'chat.displayName.label': '此标签页的显示名称',
     'chat.displayName.apply': '应用名称',
@@ -132,6 +145,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '带名称的消息仅支持普通提示，不支持队列、命令或执行中的引导。草稿保持不变。',
   },
   'zh-TW': {
+    ...humanAuthI18n['zh-TW'],
     'chat.displayName.backendUnsupported': '此後端不支援顯示名稱歸屬標籤。訊息未傳送。',
     'chat.displayName.label': '此分頁的顯示名稱',
     'chat.displayName.apply': '套用名稱',

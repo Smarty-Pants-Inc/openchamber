@@ -92,6 +92,7 @@ export function createTerminalRuntime({
   app, server, fs, path, uiAuthController, buildAugmentedPath, searchPathFor, isExecutable,
   isRequestOriginAllowed, rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
   loadPtyProvider, terminalTerminationGraceMs = TERMINATION_GRACE_MS,
+  signalProcess = (pid, signal) => process.kill(pid, signal),
 }) {
   const sessions = new Map();
   const pendingSessionCreates = new Map();
@@ -143,7 +144,7 @@ export function createTerminalRuntime({
   const killProcess = (ptyProcess, force = false) => {
     if (!ptyProcess) return;
     if (process.platform !== 'win32' && Number.isInteger(ptyProcess.pid) && ptyProcess.pid > 0) {
-      try { process.kill(-ptyProcess.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* already gone */ }
+      try { signalProcess(-ptyProcess.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* already gone */ }
     }
     try { ptyProcess.kill(force ? 'SIGKILL' : undefined); } catch { /* already gone */ }
   };
@@ -385,11 +386,17 @@ export function createTerminalRuntime({
 
   const upgradeHandler = (req, socket, head) => {
     if (parseRequestPathname(req.url) !== TERMINAL_WS_PATH) return;
-    const accept = () => {
+    const upgrade = () => {
       if (!wsServer) { rejectWebSocketUpgrade(socket, 500, 'Terminal WebSocket unavailable'); return; }
       try {
         wsServer.handleUpgrade(req, socket, head, (ws) => wsServer.emit('connection', ws, req));
       } catch { rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'); }
+    };
+    const accept = () => {
+      if (uiAuthController?.humanMode) {
+        void uiAuthController.requireUpgradeAuth(req, socket, upgrade, rejectWebSocketUpgrade)
+          .catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
+      } else upgrade();
     };
     const checkOrigin = () => {
       try {
@@ -406,6 +413,7 @@ export function createTerminalRuntime({
       } catch { rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'); }
     };
     if (!uiAuthController?.enabled) { accept(); return; }
+    if (uiAuthController.humanMode) { checkOrigin(); return; }
     try {
       const result = uiAuthController.ensureSessionToken(req, null);
       if (!(result instanceof Promise)) {

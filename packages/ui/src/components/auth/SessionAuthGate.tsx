@@ -1,4 +1,5 @@
 import React from 'react';
+import { z } from 'zod';
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,6 +16,8 @@ import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { installAuthSessionFocusWatch, useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { AuthExpiredBanner } from './AuthExpiredBanner';
+import { GoogleSignIn } from './HumanAccount';
+import { setHumanAuthEnabled, useHumanAuth } from '@/lib/human-auth';
 import { getRuntimeExtraHeadersSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { desktopHostsGet, desktopHostsSet, getDesktopHostApiUrl, normalizeHostUrl } from '@/lib/desktopHosts';
@@ -30,6 +33,7 @@ import {
 } from '@/lib/passkeys';
 
 const STATUS_CHECK_ENDPOINT = '/auth/session';
+const humanStatusSchema = z.object({ humanAuth: z.boolean().optional() });
 // Transient-failure auto-retry for the initial session check. Over the relay the
 // very first /auth/session can race the tunnel's initial WebSocket attempt (a
 // failed attempt rejects requests queued on the channel even though the tunnel
@@ -342,6 +346,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
   const skipAuth = vscodeRuntime;
   const showHostSwitcher = React.useMemo(() => isDesktopShell() && !vscodeRuntime, [vscodeRuntime]);
   const [state, setState] = React.useState<GateState>(() => (skipAuth ? 'authenticated' : 'pending'));
+  const humanAuthEnabled = useHumanAuth(state => state.enabled);
   const [password, setPassword] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
@@ -471,6 +476,8 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         }
 
         if (response.ok) {
+          const payload = humanStatusSchema.parse(JSON.parse(responseText));
+          setHumanAuthEnabled(payload.humanAuth === true);
           resetTransientRetry();
           completeAuthentication();
           setIsTunnelLocked(false);
@@ -479,13 +486,14 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           return;
         }
         if (response.status === 401) {
-          let data: { tunnelLocked?: boolean; debug?: { hasRefreshToken: boolean; message: string } } = {};
+          let data: { tunnelLocked?: boolean; humanAuthRequired?: boolean; debug?: { hasRefreshToken: boolean; message: string } } = {};
           try {
             data = JSON.parse(responseText);
           } catch {
             data = {};
           }
           resetTransientRetry();
+          setHumanAuthEnabled(data.humanAuthRequired === true);
           setIsTunnelLocked(data.tunnelLocked === true);
           setPasskeyStatus(latestPasskeyStatus);
           setState('locked');
@@ -546,6 +554,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
     }
 
     return subscribeRuntimeEndpointChanged(() => {
+      setHumanAuthEnabled(false);
       cancelPasskeyCeremony();
       setPassword('');
       setErrorMessage('');
@@ -884,6 +893,10 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
 
   if (state === 'rate-limited') {
     return <ErrorScreen onRetry={() => void checkStatus()} errorType="rate-limit" retryAfter={retryAfter} />;
+  }
+
+  if (state === 'locked' && humanAuthEnabled && !isTunnelLocked) {
+    return <AuthShell><GoogleSignIn /></AuthShell>;
   }
 
   if (state === 'locked') {

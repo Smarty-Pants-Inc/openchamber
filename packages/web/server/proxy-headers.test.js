@@ -52,6 +52,30 @@ describe('OpenCode proxy header handling', () => {
     expect(applied.get('x-next-cursor')).toBe('older-page');
   });
 
+  it('drops forged actors and Better Auth cookies without changing legacy cookies', () => {
+    expect(collectForwardProxyHeaders({
+      'X-Smarty-Human-Identity': 'forged',
+      Cookie: 'legacy=value; __Secure-better-auth.session_token=private; better-auth.session_data=private',
+    })).toEqual({ cookie: 'legacy=value' });
+    expect(collectForwardProxyHeaders({ cookie: '__Host-better-auth.session_token=private' })).toEqual({});
+  });
+
+  it('forwards only the resolved actor with managed upstream authentication', () => {
+    const actor = { version: 1, issuer: 'https://code.smartypants.ai', subject: 'opaque_user', name: 'A Person' };
+    const headers = collectForwardProxyHeaders({
+      authorization: 'Bearer client', cookie: 'legacy=value; better-auth.session_token=private',
+      'x-smarty-human-identity': 'forged', 'x-smarty-ordinary-view': 'accepted-view',
+    }, { Authorization: 'Bearer managed' }, actor);
+    expect(headers).toEqual({ Authorization: 'Bearer managed',
+      'x-smarty-human-identity': Buffer.from(JSON.stringify(actor)).toString('base64url'),
+      'x-smarty-ordinary-view': 'accepted-view' });
+  });
+
+  it('refuses actor forwarding without upstream authentication', () => {
+    expect(() => collectForwardProxyHeaders({}, {}, { subject: 'opaque_user' }))
+      .toThrow('Human identity forwarding requires upstream authentication');
+  });
+
   it('drops content-encoding from forwarded response headers', () => {
     expect(shouldForwardProxyResponseHeader('content-encoding')).toBe(false);
     expect(shouldForwardProxyResponseHeader('Content-Encoding')).toBe(false);

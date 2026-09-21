@@ -23,9 +23,11 @@ type DisplayNameStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 /** One applied-choice authority per tab; an explicit unnamed override needs no storage. */
 export function createDisplayNameChoice(storage: () => DisplayNameStorage) {
   let unnamedForTab = false;
+  let humanMode = false;
   return {
     get unnamedForTab() { return unnamedForTab; },
-    read: () => unnamedForTab ? undefined : readDisplayName(storage()),
+    setHumanMode(enabled: boolean) { humanMode = enabled; },
+    read: () => humanMode || unnamedForTab ? undefined : readDisplayName(storage()),
     apply(name: string) {
       saveDisplayName(storage(), name);
       unnamedForTab = false;
