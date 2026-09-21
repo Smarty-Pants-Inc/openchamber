@@ -2793,6 +2793,8 @@ export const dict: Record<I18nKey, string> = {
   'sessionAuth.error.passkeySignInCanceled': 'パスキーサインインがキャンセルされました。',
   'sessionAuth.error.enterPasswordForPasskey': 'パスキーを追加するためにパスワードを入力してください。',
   'sessionAuth.locked.tunnelTitle': 'トンネルアクセスが必要',
+  'sessions.catalog.unavailable': '稼働中のプロジェクトとセッションを更新できませんでした。表示内容は古い可能性があります。プロジェクトとPiセッションはHerdrで管理されます。',
+  'sessions.catalog.empty': '利用可能な稼働中のプロジェクトはありません。プロジェクトとPiセッションはHerdrで管理されます。',
   'sessionAuth.expired.banner': 'セッションの有効期限が切れました。続行するにはログインしてください。',
   'sessionAuth.expired.loginAction': 'ログイン',
   'sessionAuth.expired.sendBlocked': 'セッションが切れています。メッセージを送るにはログインしてください。',

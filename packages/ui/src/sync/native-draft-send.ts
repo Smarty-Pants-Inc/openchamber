@@ -1,7 +1,7 @@
 import { NativeCreationError, type NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSelectionStore } from './selection-store';
-import { nativeCreationForDraft } from './native-draft-creation';
+import { assertManagedDraftTarget, nativeCreationForDraft } from './native-draft-creation';
 import { getImperativeSessionMessageLoader, type SessionMessageLoader } from './session-message-loader';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
@@ -18,6 +18,7 @@ export function isNativeDraftCurrent(target: NativeDraftTarget): boolean {
 
 function assertNativeDraftCurrent(target: NativeDraftTarget): void {
   if (!isNativeDraftCurrent(target)) throw new NativeCreationError('stale');
+  assertManagedDraftTarget(target.draft, target.session.directory);
 }
 
 export async function prepareNativeDraftSend(draft: NewSessionDraftState, session: NativeCreatedSession): Promise<NativeDraftSend> {

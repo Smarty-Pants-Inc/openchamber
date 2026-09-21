@@ -1,3 +1,6 @@
+import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useProjectsStore } from './useProjectsStore';
+import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { create } from 'zustand';
 import type { OpencodeClient, Session } from '@opencode-ai/sdk/v2';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -50,6 +53,7 @@ type GlobalSessionsState = {
   rehydrateManagedChatSessions: () => void;
   loadSessions: (fallbackActive?: Session[]) => Promise<LoadResult>;
   refreshSessionsForDirectories: (directories: Iterable<string>, fallbackActive?: Session[]) => Promise<LoadResult>;
+  applyManagedSessions: (sessions: Session[], baselineRevision: number, directories: ReadonlySet<string>) => void;
   applySnapshot: (activeSessions: Session[], archivedSessions: Session[], status?: GlobalSessionsStatus) => void;
   applySessionMutations: (mutations: readonly GlobalSessionMutation[]) => void;
   upsertSession: (session: Session) => void;
@@ -341,7 +345,7 @@ const applySnapshot = (
     : archivedSessions;
   const sessionsChanged = nextActiveSessions !== state.activeSessions
     || nextArchivedSessions !== state.archivedSessions;
-  const nextEntityById = sessionsChanged
+  const nextEntityById = sessionsChanged || state.entityById.size !== nextActiveSessions.length + nextArchivedSessions.length
     ? new Map([...nextActiveSessions, ...nextArchivedSessions].map((session) => [session.id, session]))
     : state.entityById;
   const nextStructure = nextActiveSessions !== state.activeSessions
@@ -357,6 +361,7 @@ const applySnapshot = (
   if (
     nextActiveSessions === state.activeSessions
     && nextArchivedSessions === state.archivedSessions
+    && nextEntityById === state.entityById
     && nextSessionsByDirectory === state.sessionsByDirectory
     && nextReviewTransferMap === state.reviewTransferBySessionId
     && state.hasLoaded
@@ -389,15 +394,13 @@ const overlayMutationsSince = (
   }
   if (affectedIds.size === 0) return { activeSessions, archivedSessions };
 
-  const currentActive = new Map(state.activeSessions.map((session) => [session.id, session]));
-  const currentArchived = new Map(state.archivedSessions.map((session) => [session.id, session]));
   let nextActive = activeSessions.filter((session) => !affectedIds.has(session.id));
   let nextArchived = archivedSessions.filter((session) => !affectedIds.has(session.id));
   for (const sessionId of affectedIds) {
-    const active = currentActive.get(sessionId);
-    const archived = currentArchived.get(sessionId);
-    if (active) nextActive = upsertSessionIntoList(nextActive, active);
-    else if (archived) nextArchived = upsertSessionIntoList(nextArchived, archived);
+    const session = state.entityById.get(sessionId);
+    if (!session) continue;
+    if (session.time?.archived) nextArchived = upsertSessionIntoList(nextArchived, session);
+    else nextActive = upsertSessionIntoList(nextActive, session);
   }
   return { activeSessions: nextActive, archivedSessions: nextArchived };
 };
@@ -486,6 +489,9 @@ const applySessionMutations = (
   const revisionPatch = mutationRevisionPatch(state, mutations.map((mutation) => (
     mutation.type === 'upsert' ? mutation.session.id : mutation.sessionId
   )));
+  const projects = useProjectsStore.getState();
+  const managedDirectories = projects.managedCatalogAdmitted
+    ? new Set((projects.managedRows ?? []).map(project => project.worktree)) : null;
   let nextEntityById: Map<string, Session> | null = null;
   const activeIds = new Set(state.activeSessions.map((session) => session.id));
   const archivedIds = new Set(state.archivedSessions.map((session) => session.id));
@@ -525,10 +531,23 @@ const applySessionMutations = (
     }
 
     const sessionWithMetadata = mergeSessionDirectoryMetadata(mutation.session, existingSession);
-    if (existingSession && getSessionSignature(existingSession) === getSessionSignature(sessionWithMetadata)) continue;
+    const admitted = !managedDirectories || managedDirectories.has(resolveGlobalSessionDirectory(sessionWithMetadata) ?? '');
+    const wasVisible = activeIds.has(sessionId) || archivedIds.has(sessionId);
+    if (existingSession && getSessionSignature(existingSession) === getSessionSignature(sessionWithMetadata)
+      && admitted === wasVisible) continue;
     nextEntityById ??= new Map(state.entityById);
     nextEntityById.set(sessionId, sessionWithMetadata);
-    structureMutations.push({ sessionId, previous: existingSession, next: sessionWithMetadata });
+    if (!admitted) {
+      // ponytail: retain the event in the existing revision/entity index for a held read
+      // admitting a new directory. Only live members enter views; the next snapshot prunes this cache.
+      if (wasVisible) structureMutations.push({ sessionId, previous: existingSession, next: null });
+      if (activeIds.has(sessionId)) activeChanged = true;
+      if (archivedIds.has(sessionId)) archivedChanged = true;
+      removeMember(activeIds, activeAdditions, sessionId);
+      removeMember(archivedIds, archivedAdditions, sessionId);
+      continue;
+    }
+    structureMutations.push({ sessionId, previous: wasVisible ? existingSession : null, next: sessionWithMetadata });
     const isArchived = Boolean(sessionWithMetadata.time?.archived);
     const wasArchived = Boolean(existingSession?.time?.archived);
     if (existingSession) {
@@ -611,6 +630,24 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
   managedChatsHydrated: false,
   status: 'idle',
 
+  applyManagedSessions: (sessions, baselineRevision, directories) => {
+    // Retire older stock/directory loads; absence affects only this in-memory listing.
+    loadGeneration += 1;
+    inflightLoad = null;
+    const { active, archived } = splitGlobalSessionsByArchived(sessions);
+    set(state => {
+      const reconciled = overlayMutationsSince(state, active, archived, baselineRevision);
+      return applySnapshot(state,
+        reconciled.activeSessions.filter(session => directories.has(session.directory)),
+        reconciled.archivedSessions.filter(session => directories.has(session.directory)), 'ready');
+    });
+    const committed = get();
+    raiseSessionOrderingBaselines(committed.activeSessions);
+    const selected = useSessionUIStore.getState().currentSessionId;
+    if (selected && !committed.entityById.has(selected)) {
+      useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
+    }
+  },
   applySnapshot: (activeSessions, archivedSessions, status = 'ready') => {
     // An authoritative snapshot may carry newer `updated` stamps for sessions
     // whose active→settled cycle this client slept through — raise their
@@ -652,6 +689,10 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
   },
 
   loadSessions: async (fallbackActive) => {
+    if (useProjectsStore.getState().managedCatalogAdmitted) {
+      await refreshManagedProjects();
+      return { activeSessions: get().activeSessions, archivedSessions: get().archivedSessions };
+    }
     if (inflightLoad) {
       return inflightLoad;
     }
@@ -727,6 +768,10 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
   },
 
   refreshSessionsForDirectories: async (directories, fallbackActive) => {
+    if (useProjectsStore.getState().managedCatalogAdmitted) {
+      await refreshManagedProjects();
+      return { activeSessions: get().activeSessions, archivedSessions: get().archivedSessions };
+    }
     const directorySet = normalizeDirectorySet(directories);
     if (directorySet.size === 0) {
       const state = get();
@@ -872,6 +917,8 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
 
 useGlobalSessionsStore.subscribe((state, previous) => {
   countSyncPerformance('globalSessionPublications');
+  const catalog = useProjectsStore.getState();
+  if (!isVSCodeRuntime() && (catalog.managedCatalogAdmitted || catalog.managedCatalogStatus !== 'stock')) return;
   if (
     getChatsRootForHome(null) !== null
     && (state.activeSessions !== previous.activeSessions

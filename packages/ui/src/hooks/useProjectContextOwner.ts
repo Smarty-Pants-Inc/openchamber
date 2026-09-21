@@ -5,7 +5,7 @@ import { normalizePath } from '@/lib/pathNormalization';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import type { ProjectRef } from '@/lib/projectContextApi';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { WorktreeMetadata } from '@/types/worktree';
 import type { ProjectEntry } from '@/lib/api/types';
@@ -62,7 +62,7 @@ export const resolveProjectContextOwner = ({
 
 /** The single owner used by Project knowledge and agent-memory synchronization. */
 export const useProjectContextOwner = (directory: string | null): ProjectRef | null => {
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
   const worktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);

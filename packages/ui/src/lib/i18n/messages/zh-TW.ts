@@ -2764,6 +2764,8 @@ export const dict: Record<I18nKey, string> = {
   'sessionAuth.error.passkeySignInCanceled': 'Passkey 登入已取消。',
   'sessionAuth.error.enterPasswordForPasskey': '請輸入密碼以新增 passkey。',
   'sessionAuth.locked.tunnelTitle': '需要 Tunnel 存取',
+  'sessions.catalog.unavailable': '無法重新整理目前的專案與工作階段。顯示的內容可能已過時。專案與 Pi 工作階段在 Herdr 中管理。',
+  'sessions.catalog.empty': '沒有可用的目前專案。專案與 Pi 工作階段在 Herdr 中管理。',
   'sessionAuth.expired.banner': '工作階段已過期——請登入以繼續。',
   'sessionAuth.expired.loginAction': '登入',
   'sessionAuth.expired.sendBlocked': '工作階段已過期——請登入後再傳送訊息。',

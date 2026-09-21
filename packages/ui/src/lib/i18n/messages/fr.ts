@@ -2496,6 +2496,8 @@ export const dict = {
   'sessionAuth.error.passkeySignInCanceled': 'La connexion par mot de passe a été annulée.',
   'sessionAuth.error.enterPasswordForPasskey': 'Entrez votre mot de passe pour ajouter un mot de passe.',
   'sessionAuth.locked.tunnelTitle': 'Accès au tunnel requis',
+  'sessions.catalog.unavailable': 'Impossible d’actualiser les projets et les sessions actifs. Les éléments affichés peuvent être obsolètes. Les projets et les sessions Pi se gèrent dans Herdr.',
+  'sessions.catalog.empty': 'Aucun projet actif n’est disponible. Les projets et les sessions Pi se gèrent dans Herdr.',
   'sessionAuth.expired.banner': 'Votre session a expiré — connectez-vous pour continuer.',
   'sessionAuth.expired.loginAction': 'Se connecter',
   'sessionAuth.expired.sendBlocked': 'Session expirée — connectez-vous pour envoyer des messages.',

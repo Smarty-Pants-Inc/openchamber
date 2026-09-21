@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { managedActiveProject, managedProjectView, type ManagedProject, type ManagedCatalogStatus } from '@/lib/managed-project-catalog';
 import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -46,7 +47,15 @@ interface VSCodeWorkspaceFolderConfig {
 }
 
 interface ProjectsStore {
+  // Saved bookmarks remain the settings/CAS authority. Live membership never writes them.
   projects: ProjectEntry[];
+  managedCatalogAdmitted: boolean;
+  managedCatalogStatus: ManagedCatalogStatus;
+  managedRows: ManagedProject[] | null;
+  managedProjects: ProjectEntry[] | null;
+  admitManagedCatalog: () => void;
+  resetManagedCatalog: () => void;
+  applyManagedCatalog: (rows: ManagedProject[]) => void;
   activeProjectId: string | null;
   manualProjectOrder: string[];
 
@@ -73,6 +82,23 @@ interface ProjectsStore {
   synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => void;
   syncVSCodeWorkspaceFolders: (folders: VSCodeWorkspaceFolderConfig[], activePath?: string | null) => ProjectEntry | null;
   getActiveProject: () => ProjectEntry | null;
+}
+
+/** Stable selector: never creates a fresh array during a Zustand snapshot read. */
+const emptyManagedProjects: ProjectEntry[] = [];
+export const visibleProjects = (state: ProjectsStore): ProjectEntry[] => state.managedCatalogAdmitted
+  ? state.managedProjects ?? emptyManagedProjects : state.projects;
+
+// Presentation selection only. setDirectory() would persist settings and is not suitable here.
+function selectManagedDirectory(project: ProjectEntry | undefined) {
+  const path = project?.path;
+  opencodeClient.setDirectory(path);
+  useDirectoryStore.setState({ currentDirectory: path ?? '', isSwitchingDirectory: false });
+  const selected = useSessionUIStore.getState();
+  if (selected.currentSessionDirectory !== path) {
+    // Deselect without closing drafts or deleting retained session state.
+    useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
+  }
 }
 
 const safeStorage = getDeferredSafeStorage();
@@ -577,6 +603,19 @@ if (vscodeWorkspace) {
 export const useProjectsStore = create<ProjectsStore>()(
   devtools((set, get) => ({
     projects: effectiveInitialProjects,
+    managedCatalogAdmitted: false,
+    managedCatalogStatus: 'unknown',
+    managedRows: null,
+    managedProjects: null,
+    admitManagedCatalog: () => set({ managedCatalogAdmitted: true }),
+    resetManagedCatalog: () => set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null }),
+    applyManagedCatalog: (rows) => {
+      const state = get();
+      const projects = managedProjectView(rows, state.projects);
+      const activeProjectId = managedActiveProject(projects, state.activeProjectId);
+      set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
+      selectManagedDirectory(projects.find(project => project.id === activeProjectId));
+    },
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
 
@@ -728,7 +767,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextProjects = current.projects.filter((project) => project.id !== id);
       let nextActiveId = current.activeProjectId;
 
-      if (current.activeProjectId === id) {
+      if (!current.managedCatalogAdmitted && current.activeProjectId === id) {
         nextActiveId = nextProjects[0]?.id ?? null;
       }
 
@@ -736,6 +775,11 @@ export const useProjectsStore = create<ProjectsStore>()(
       set({ projects: nextProjects, activeProjectId: nextActiveId, manualProjectOrder: nextManualOrder });
       persistProjects(nextProjects, nextActiveId, current.projects, nextManualOrder);
 
+      if (current.managedCatalogAdmitted) {
+        if (current.managedRows) get().applyManagedCatalog(current.managedRows);
+        set({ managedCatalogStatus: current.managedCatalogStatus });
+        return;
+      }
       // Clean up worktree entries for the removed project
       if (project) {
         const normalizedPath = project.path.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
@@ -758,6 +802,11 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     setActiveProject: (id: string, options?: { expectedProjects: ProjectEntry[] }) => {
+      if (get().managedCatalogAdmitted) {
+        const target = get().managedProjects?.find(project => project.id === id);
+        if (!target) return;
+        set({ activeProjectId: id }); selectManagedDirectory(target); return;
+      }
       if (isVSCodeProjectsRuntime) {
         return;
       }
@@ -783,6 +832,10 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     setActiveProjectIdOnly: (id: string) => {
+      if (get().managedCatalogAdmitted) {
+        if (get().managedProjects?.some(project => project.id === id)) set({ activeProjectId: id });
+        return;
+      }
       if (isVSCodeProjectsRuntime) {
         return;
       }
@@ -1015,7 +1068,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextActiveProjectId = projects.some((project) => project.id === activeProjectId)
         ? activeProjectId
         : projects[0]?.id ?? null;
-      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [] });
+      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
     },
 
     synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => {
@@ -1029,6 +1082,15 @@ export const useProjectsStore = create<ProjectsStore>()(
         : null;
 
       const current = get();
+      if (current.managedCatalogAdmitted) {
+        // A settings echo cannot restore retired membership or a stale active pointer.
+        const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
+        const activeProjectId = managedActiveProject(managedProjects ?? [], current.activeProjectId);
+        set({ projects: incomingProjects, managedProjects, activeProjectId });
+        cacheProjects(incomingProjects, incomingActive);
+        if (managedProjects) selectManagedDirectory(managedProjects.find(project => project.id === activeProjectId));
+        return;
+      }
       const incomingIds = new Set(incomingProjects.map((p) => p.id));
 
       // The settings document is shared by every window on this server, so
@@ -1098,7 +1160,8 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     getActiveProject: () => {
-      const { projects, activeProjectId } = get();
+      const state = get();
+      const projects = visibleProjects(state), activeProjectId = state.activeProjectId;
       if (!activeProjectId) {
         return null;
       }

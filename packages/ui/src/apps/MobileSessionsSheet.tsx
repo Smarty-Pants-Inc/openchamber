@@ -53,10 +53,10 @@ import {
   partitionWorktreesByRegisteredProject,
 } from '@/lib/worktrees/worktreeManager';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { mergeLiveSessionWithGlobalSession, refreshGlobalSessions, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { mergeLiveSessionWithGlobalSession, refreshGlobalSessions, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useMobileSessionExpansionStore } from '@/stores/useMobileSessionExpansionStore';
 import { useMobileSessionTreeStore } from '@/stores/useMobileSessionTreeStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { orderWorktrees, useWorktreeOrderStore } from '@/stores/useWorktreeOrderStore';
 import {
@@ -872,7 +872,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     (state) => open || variant === 'sidebar' ? state.rankById : EMPTY_SESSION_ORDER_RANKS,
     [open, variant],
   ));
-  const projects = useProjectsStore((state) => state.projects);
+  const projects = useProjectsStore(visibleProjects);
+  const managed = useProjectsStore((state) => state.managedCatalogAdmitted);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -1019,19 +1020,27 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
    */
   const sessions = React.useMemo(() => {
     const liveById = new Map(liveSessions.map((session) => [session.id, session]));
-    const merged = globalActiveSessions.map((session) => {
-      const liveSession = liveById.get(session.id);
-      return liveSession ? mergeLiveSessionWithGlobalSession(liveSession, session) : session;
-    });
-    const seenIds = new Set(merged.map((session) => session.id));
-    for (const session of liveSessions) {
-      if (!seenIds.has(session.id)) merged.push(session);
+    const liveDirectories = new Set(projects.map((project) => normalizePath(project.path)).filter(Boolean));
+    const merged = globalActiveSessions
+      .filter((session) => !managed || liveDirectories.has(normalizePath(resolveGlobalSessionDirectory(session))))
+      .map((session) => {
+        const liveSession = liveById.get(session.id);
+        const overlay = liveSession ? mergeLiveSessionWithGlobalSession(liveSession, session) : session;
+        // Managed membership and directory ownership come from the committed global row.
+        return managed && resolveGlobalSessionDirectory(overlay) !== resolveGlobalSessionDirectory(session)
+          ? session : overlay;
+      });
+    if (!managed) {
+      const seenIds = new Set(merged.map((session) => session.id));
+      for (const session of liveSessions) {
+        if (!seenIds.has(session.id)) merged.push(session);
+      }
     }
     // Archived sessions never show on mobile (no archived view here): the live
     // overlay can carry them for the active directory, and they'd otherwise
     // surface in search and then "disappear" once the overlay refreshes.
     return merged.filter((session) => !session.time?.archived);
-  }, [globalActiveSessions, liveSessions]);
+  }, [globalActiveSessions, liveSessions, managed, projects]);
 
   // Managed Chats (sessions under ~/.config/openchamber/chats) are not owned
   // by any registered project; they get their own section above the project

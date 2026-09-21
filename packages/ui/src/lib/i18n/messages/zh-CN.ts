@@ -2760,6 +2760,8 @@ export const dict: Record<I18nKey, string> = {
   'sessionAuth.error.passkeySignInCanceled': 'Passkey 登录已取消。',
   'sessionAuth.error.enterPasswordForPasskey': '请输入密码以添加 passkey。',
   'sessionAuth.locked.tunnelTitle': '需要隧道访问',
+  'sessions.catalog.unavailable': '无法刷新当前项目和会话。显示的内容可能已过时。项目和 Pi 会话在 Herdr 中管理。',
+  'sessions.catalog.empty': '没有可用的当前项目。项目和 Pi 会话在 Herdr 中管理。',
   'sessionAuth.expired.banner': '会话已过期——请登录以继续。',
   'sessionAuth.expired.loginAction': '登录',
   'sessionAuth.expired.sendBlocked': '会话已过期——请登录后再发送消息。',

@@ -44,7 +44,7 @@ import { Button } from '@/components/ui/button';
 import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
 import { Icon } from "@/components/icon/Icon";
 import { cn, formatDirectoryName } from '@/lib/utils';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -627,7 +627,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
     );
 };
 
-const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
+export const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
     const { t } = useI18n();
     const draftTarget = useSessionUIStore((state) => state.newSessionDraft.target);
     const selectedProjectId = useSessionUIStore((state) => state.newSessionDraft.selectedProjectId ?? null);
@@ -635,8 +635,8 @@ const DraftWelcome: React.FC<{ exiting?: boolean }> = ({ exiting = false }) => {
         if (draftTarget === 'chat') return null;
         const projectId = selectedProjectId ?? state.activeProjectId;
         const project = (projectId
-            ? state.projects.find((candidate) => candidate.id === projectId)
-            : null) ?? state.projects[0] ?? null;
+            ? visibleProjects(state).find((candidate) => candidate.id === projectId)
+            : null) ?? (state.managedCatalogAdmitted && selectedProjectId ? null : visibleProjects(state)[0]) ?? null;
         return project ? getProjectDisplayLabel(project) : null;
     }, [draftTarget, selectedProjectId]));
 

@@ -20,7 +20,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useWorktreeBootstrapPending } from '@/hooks/useWorktreeBootstrapPending';
 import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { buildSessionTargetOptions } from '@/sync/session-worktree-contract';
 import { normalizePath } from '../attachments/filePaths';
@@ -48,7 +48,8 @@ export function getProjectDisplayLabel(project: { label?: string; path: string }
 }
 
 export function useDraftTarget(enabled: boolean) {
-    const configuredProjects: readonly DraftTargetProject[] = useProjectsStore((state) => state.projects);
+    const configuredProjects: readonly DraftTargetProject[] = useProjectsStore(visibleProjects);
+    const managed = useProjectsStore(state => state.managedCatalogAdmitted);
     const { t } = useI18n();
     const chatProject = React.useMemo<DraftTargetProject>(() => ({
         id: CHAT_DRAFT_PROJECT_ID,
@@ -56,7 +57,8 @@ export function useDraftTarget(enabled: boolean) {
         label: t('layout.mainTab.chat'),
         kind: 'chat',
     }), [t]);
-    const projects = React.useMemo(() => [chatProject, ...configuredProjects], [chatProject, configuredProjects]);
+    const projects = React.useMemo(() => managed ? configuredProjects : [chatProject, ...configuredProjects],
+        [chatProject, configuredProjects, managed]);
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
@@ -66,13 +68,16 @@ export function useDraftTarget(enabled: boolean) {
     const { git: runtimeGit } = useRuntimeAPIs();
 
     const selectedDraftProject = React.useMemo(() => {
-        if (newSessionDraft?.target === 'chat') return chatProject;
+        if (newSessionDraft?.target === 'chat') return managed ? null : chatProject;
         const explicit = newSessionDraft?.selectedProjectId
             ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
             : null;
         if (explicit) {
+            if (managed && newSessionDraft.directoryOverride
+                && normalizePath(newSessionDraft.directoryOverride) !== normalizePath(explicit.path)) return null;
             return explicit;
         }
+        if (managed && (newSessionDraft.selectedProjectId || newSessionDraft.directoryOverride)) return null;
 
         const active = activeProjectId
             ? projects.find((project) => project.id === activeProjectId) ?? null
@@ -81,8 +86,9 @@ export function useDraftTarget(enabled: boolean) {
             return active;
         }
 
-        return configuredProjects[0] ?? chatProject;
-    }, [activeProjectId, chatProject, configuredProjects, newSessionDraft?.selectedProjectId, newSessionDraft?.target, projects]);
+        return configuredProjects[0] ?? (managed ? null : chatProject);
+    }, [activeProjectId, chatProject, configuredProjects, managed, newSessionDraft.directoryOverride,
+        newSessionDraft.selectedProjectId, newSessionDraft.target, projects]);
 
     const selectedDraftProjectPath = React.useMemo(
         () => selectedDraftProject?.kind === 'chat' ? null : normalizePath(selectedDraftProject?.path ?? null),

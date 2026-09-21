@@ -2760,6 +2760,8 @@ export const dict: Record<I18nKey, string> = {
   "sessionAuth.error.passkeySignInCanceled": "Вхід за ключем доступу скасовано.",
   "sessionAuth.error.enterPasswordForPasskey": "Введіть пароль, щоб додати ключ доступу.",
   "sessionAuth.locked.tunnelTitle": "Потрібен доступ до тунелю",
+  "sessions.catalog.unavailable": "Не вдалося оновити активні проєкти й сесії. Показані елементи можуть бути застарілими. Проєктами й сесіями Pi керують у Herdr.",
+  "sessions.catalog.empty": "Немає доступних активних проєктів. Проєктами й сесіями Pi керують у Herdr.",
   "sessionAuth.expired.banner": "Сесія завершилась — увійди, щоб продовжити.",
   "sessionAuth.expired.loginAction": "Увійти",
   "sessionAuth.expired.sendBlocked": "Сесія завершилась — увійди, щоб надсилати повідомлення.",

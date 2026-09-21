@@ -21,7 +21,7 @@ import { getWorktreeDisplayName, removeProjectWorktree } from '@/lib/worktrees/w
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -72,7 +72,7 @@ export const SessionDialogs: React.FC = () => {
     const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
     const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
     const isHomeReady = useDirectoryStore((s) => s.isHomeReady);
-    const projects = useProjectsStore((s) => s.projects);
+    const projects = useProjectsStore(visibleProjects);
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const useMobileOverlay = isMobile || isTablet || hasTouchInput;

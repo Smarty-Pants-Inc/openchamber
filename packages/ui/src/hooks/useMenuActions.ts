@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getSyncSessions } from '@/sync/sync-refs';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -157,7 +157,9 @@ export const useMenuActions = (
   }, [setSessionSwitcherOpen]);
 
   const navigateProject = React.useCallback((direction: -1 | 1) => {
-    const { activeProjectId, projects, setActiveProject } = useProjectsStore.getState();
+    const state = useProjectsStore.getState();
+    const { activeProjectId, setActiveProject } = state;
+    const projects = visibleProjects(state);
     if (projects.length === 0) return;
 
     const currentIndex = projects.findIndex((project) => project.id === activeProjectId);

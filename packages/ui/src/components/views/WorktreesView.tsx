@@ -3,7 +3,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { WorktreeSectionContent } from '@/components/sections/openchamber/WorktreeSectionContent';
 
 // Full-page worktree management surface for a single project, opened from the
@@ -14,7 +14,7 @@ export function WorktreesView(): React.ReactNode {
   const projectId = useUIStore((state) => state.worktreesPageProjectId);
   const setNewWorktreeDialogOpen = useUIStore((state) => state.setNewWorktreeDialogOpen);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
-  const project = useProjectsStore((state) => state.projects.find((entry) => entry.id === projectId) ?? null);
+  const project = useProjectsStore((state) => visibleProjects(state).find((entry) => entry.id === projectId) ?? null);
 
   if (!projectId || !project) return null;
 

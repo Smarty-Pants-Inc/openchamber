@@ -1,3 +1,4 @@
+import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
@@ -2471,6 +2472,8 @@ export function SyncProvider(props: {
         }
       },
       onReconnect: () => {
+        // Includes first connect; do not place behind recent-boot/directory resync gates.
+        void refreshManagedProjects(true);
         useConfigStore.setState({
           isConnected: true,
           hasEverConnected: true,
