@@ -1,15 +1,18 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { Window } from 'happy-dom';
+import { z } from 'zod';
 import { configureRuntimeUrlResolver } from '../../lib/runtime-url';
 import { signInWithGoogle } from '../../lib/human-auth';
+
+const signInBody = z.object({ provider: z.literal('google'), disableRedirect: z.boolean() });
 
 // Actual Better Auth client and product runtime modules; only the HTTP response is synthetic.
 test('delayed Google sign-in cannot navigate after runtime switch; current runtime can navigate', async () => {
   const originalWindow = globalThis.window;
-  const originalFetch = globalThis.fetch;
+  const fetchSpy = spyOn(globalThis, 'fetch');
   const window = new Window({ url: 'https://ui.example.test/' });
   Object.assign(globalThis, { window });
-  const requests: { url: string; body: Record<string, unknown> }[] = [];
+  const requests: { url: string; body: z.infer<typeof signInBody> }[] = [];
   try {
     for (const mode of ['switched', 'returned', 'current']) {
       const stale = mode !== 'current';
@@ -18,13 +21,14 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
       let release!: () => void, submitted!: () => void;
       const paused = new Promise<void>(resolve => { release = resolve; });
       const started = new Promise<void>(resolve => { submitted = resolve; });
-      globalThis.fetch = (async (input, init) => {
-        const url = String(input);
-        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      fetchSpy.mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        const url = request.url;
+        const body = signInBody.parse(await request.json());
         requests.push({ url, body });
         submitted(); await paused;
         return Response.json({ url: 'https://accounts.google.com/o/oauth2/v2/auth?state=fixture', redirect: !body.disableRedirect });
-      }) as typeof fetch;
+      });
       const pending = signInWithGoogle();
       await started;
       if (stale) configureRuntimeUrlResolver({ apiBaseUrl: 'https://runtime-b.example.test' });
@@ -39,7 +43,7 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
       expect(request.body.disableRedirect).toBe(true);
     }
   } finally {
-    globalThis.fetch = originalFetch;
+    fetchSpy.mockRestore();
     Object.assign(globalThis, { window: originalWindow });
     configureRuntimeUrlResolver({});
     await window.happyDOM.close();
