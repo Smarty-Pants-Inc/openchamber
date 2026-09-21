@@ -153,7 +153,8 @@ describe('message queue runtime', () => {
 
     openCode.state.statuses = {};
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    // Prompt acceptance precedes the durable removal; wait for the committed queue.
+    await vi.waitFor(() => expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['second']));
 
     expect(openCode.state.sent).toHaveLength(1);
     expect(openCode.state.sent[0].path).toBe(`/session/${SESSION}/prompt_async`);
@@ -163,7 +164,6 @@ describe('message queue runtime', () => {
       parts: [{ type: 'text', text: 'first' }],
     });
     expect(promptSent).toEqual([SESSION]);
-    expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['second']);
     // Clients learned about the in-flight item and then the removal.
     expect(broadcasts.at(-1)).toMatchObject({
       type: 'openchamber:message-queue.updated',
@@ -173,9 +173,8 @@ describe('message queue runtime', () => {
     // The next turn: busy, then idle again — the second message goes out.
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'busy' } } });
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await vi.waitFor(() => expect(runtime.sessionSnapshot(SESSION).items).toEqual([]));
     expect(openCode.state.sent).toHaveLength(2);
-    expect(runtime.sessionSnapshot(SESSION).items).toEqual([]);
   });
 
   it('does not send into a running turn even when the status event says idle', async () => {

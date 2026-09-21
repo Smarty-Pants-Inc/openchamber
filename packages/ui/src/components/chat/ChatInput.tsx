@@ -96,7 +96,8 @@ import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
-import { getSyncMessages } from '@/sync/sync-refs';
+import { getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
+import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
     assignImageAttachmentFilenames,
@@ -1342,7 +1343,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }
         }
         const retainNativeDraft = Boolean(nativeIntent);
-        const nativeModelToSend = nativeIntent?.session.nativeCreation.model ?? nativeModel;
+        const ordinary = currentSessionId ? readOrdinaryModel(
+            getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
+                .find(session => session.id === currentSessionId),
+        ) : undefined;
+        if (ordinary && !ordinary.model) { toast.error(t('common.unavailable')); return; }
+        const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
             return;
         }

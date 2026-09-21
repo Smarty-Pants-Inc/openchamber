@@ -22,6 +22,7 @@ import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { clearSessionPrefetch } from "./session-prefetch-cache"
 import { getSessionMaterializationStatus } from "./materialization"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { readOrdinaryModel } from "@/lib/opencode/ordinaryModel"
 
 const INITIAL_MESSAGE_PAGE_SIZE = 50
 const VSCODE_INITIAL_MESSAGE_PAGE_SIZE = 30
@@ -241,14 +242,19 @@ export function useSync() {
         ? store
         : childStores.ensureChild(targetDirectory, { bootstrap: false })
       const current = targetStore.getState()
+      const eventRevision = current.sessionEventRevision?.[sessionID] ?? 0
       const materialization = getSessionMaterializationStatus(current, sessionID)
       const cachedReady = materialization.hasMessages && materialization.renderable
-      const hasSession = Binary.search(current.session, sessionID, (s) => s.id).found
-      if (cachedReady && hasSession && !force) {
+      const selected = Binary.search(current.session, sessionID, (s) => s.id)
+      const hasSession = selected.found
+      const summary = hasSession ? current.session[selected.index] : undefined
+      const needsOrdinaryDetail = Boolean(summary && readOrdinaryModel(summary) && !Object.hasOwn(summary, 'ordinary'))
+      if (cachedReady && hasSession && !force && !needsOrdinaryDetail) {
         return messageLoader.ensure({ directory: targetDirectory, sessionID }, { reason: "reactive" })
       }
       const shouldLoadMessages = Boolean(!cachedReady || force)
-      const shouldFetchSession = shouldFetchSessionForRenderableSync({ hasSession, shouldLoadMessages, force: Boolean(force) })
+      const shouldFetchSession = needsOrdinaryDetail
+        || shouldFetchSessionForRenderableSync({ hasSession, shouldLoadMessages, force: Boolean(force) })
       const promise = (async () => {
         await Promise.all([
           shouldFetchSession
@@ -262,7 +268,9 @@ export function useSync() {
                   if (result.data && !isStale()) {
                     const nextSession = stripSessionDiffSnapshots(result.data)
                     const s = targetStore.getState()
-                    const sessions = upsertSessionRecord(s.session, nextSession)
+                    const sessions = upsertSessionRecord(s.session, nextSession, {
+                      requested: eventRevision, current: s.sessionEventRevision?.[sessionID] ?? 0,
+                    })
                     if (sessions !== s.session && !isStale()) {
                       targetStore.setState({ session: sessions })
                     }
