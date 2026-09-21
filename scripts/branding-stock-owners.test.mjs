@@ -24,6 +24,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.deepEqual([...overlays.keys()].sort(), [
     '.github/workflows/oc-review.yml',
     'packages/ui/src/components/auth/SessionAuthGate.tsx',
+    'packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx',
     'packages/ui/src/components/chat/ChatMessage.tsx',
     'packages/ui/src/sync/session-actions.test.ts', 'packages/web/package.json', 'packages/web/server/index.js',
     'packages/web/server/lib/notifications/apns-runtime.js',
@@ -110,9 +111,24 @@ test('runtime recovery binds only the reviewed auth gate donor overlap', () => {
   assert.deepEqual(overlay.files.filter(entry => entry.behaviorSource === source).map(entry => entry.path), [file]);
   const entry = overlays.get(file);
   assert.equal(entry.brandingSha256, '34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586');
-  assert.equal(entry.behaviorSha256, '56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18');
-  assert.equal(entry.combinedSha256, entry.behaviorSha256);
-  assert.equal(sha256(read(file)), entry.behaviorSha256);
+  assert.equal(entry.behaviorSha256, '9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b');
+  assert.equal(entry.preHumanAuthCombinedSha256, entry.behaviorSha256);
+  assert.equal(entry.combinedSha256, entry.humanAuthSha256);
+  assert.equal(sha256(read(file)), entry.humanAuthSha256);
+});
+
+test('human auth successor retains both earlier overlapping behavior hashes', () => {
+  assert.equal(overlay.humanAuthSource, '578c060a38000455a3116417c30e7fe77b45007c');
+  assert.deepEqual(overlay.files.filter(entry => entry.humanAuthSha256).map(entry => entry.path), [
+    'packages/web/server/index.js', 'packages/ui/src/components/auth/SessionAuthGate.tsx',
+  ]);
+  const index = overlays.get('packages/web/server/index.js');
+  assert.equal(index.behaviorSha256, 'c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327');
+  assert.equal(index.preHumanAuthCombinedSha256, '28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c');
+  for (const entry of overlay.files.filter(entry => entry.humanAuthSha256)) {
+    assert.equal(entry.humanAuthSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.humanAuthSha256);
+  }
 });
 
 test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {
@@ -133,7 +149,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.humanAuthSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);

@@ -2,6 +2,7 @@
   "brandingSource": "961cabb1e08b7c20ae7cd17cd8788ce8af0d469a",
   "behaviorSource": "1ab7ae3799ee4e633785451ef28cf52f49e53797",
   "combinedSource": "75bbb3480780ed692ae0a640daa5b602d78e6152",
+  "humanAuthSource": "578c060a38000455a3116417c30e7fe77b45007c",
   "attributionSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
   "nativeCreationSource": "49db04d3938126afe57689dfbd224abf6e3c1328",
   "nativeLifecycleSource": "24170f63647a3acc20a819ef5139d300713157c0",
@@ -27,9 +28,11 @@
     {
       "path": "packages/web/server/index.js",
       "brandingSha256": "f351fdc99db9db078e34f994b6f5e15aa1f905e10f990f1c765476c04fea17ca",
-      "behaviorSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
+      "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
+      "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
+      "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
       "combinedSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "reason": "Reviewed settings event/CORS and explicit transactional writer injection; branding labels retained."
+      "reason": "Settings event/CORS and transactional writer evidence retained. Human auth successor awaits one shared controller before proxy and notification startup; exact-head review remains required."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
@@ -168,6 +171,14 @@
       "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission. Native intent crosses composer preparation; accepted completion remains with its origin after navigation and transfers newer unsent input to that owner. Draft open/target transitions claim the original live generation used for accepted cleanup across epoch remounts and off-screen replacements."
     },
     {
+      "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
+      "brandingSha256": "c18b73e677e9903553c06f7a543d4966b022286c532120514460af2f07475643",
+      "behaviorSha256": "eeee6d306083b7a7154790eda7ea099a3ad8ac79b50b01d49fac45b67f4d0fab",
+      "combinedSha256": "eeee6d306083b7a7154790eda7ea099a3ad8ac79b50b01d49fac45b67f4d0fab",
+      "behaviorSource": "9c4e1f0db085252cf8edb612bd59baa2b91af6ca",
+      "reason": "Existing gate harness retains real React and runtime exports for new account imports; offline and stale-host assertions remain unchanged."
+    },
+    {
       "path": "packages/ui/src/components/chat/ChatMessage.tsx",
       "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
       "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
@@ -218,10 +229,12 @@
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
       "brandingSha256": "34f679f305ff987129350fafa279078411924b8f51b925474fedcfa9f48ed586",
-      "behaviorSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "behaviorSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
+      "preHumanAuthCombinedSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
+      "humanAuthSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
       "combinedSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
       "behaviorSource": "3a3200ddae1611a079a76601ceba2b7ca1e43840",
-      "reason": "Verified authentication renews shared request authority even when the local gate is already authenticated. Stale passkey setup cannot authenticate a replaced runtime. Original donor and branding evidence remains unchanged."
+      "reason": "Runtime recovery evidence retained: verified authentication renews shared authority and stale passkeys cannot authenticate a replaced runtime. Human auth successor selects Google sign-in from server mode; exact-head review remains required."
     },
     {
       "path": "packages/web/server/lib/opencode/static-routes-runtime.js",
