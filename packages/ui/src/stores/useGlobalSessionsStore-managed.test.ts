@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { deferred } from '@/lib/runtime-isolation-fixture';
 import { opencodeClient } from '@/lib/opencode/client';
 import { useProjectsStore } from './useProjectsStore';
 import { useGlobalSessionsStore } from './useGlobalSessionsStore';
@@ -12,12 +13,12 @@ const project = { id: 'a', worktree: a };
 const session = (id: string, directory = a, updated = 1): Session => ({
   id, slug: id, projectID: 'a', directory, title: id, version: 'test', time: { created: 1, updated },
 });
-let globalRead = Promise.withResolvers<Session[]>();
-let entered = Promise.withResolvers<void>();
+let globalRead = deferred<Session[]>();
+let entered = deferred<void>();
 let restoreReads = () => {};
 
 beforeEach(() => {
-  globalRead = Promise.withResolvers<Session[]>(); entered = Promise.withResolvers<void>();
+  globalRead = deferred<Session[]>(); entered = deferred<void>();
   resetSessionOrdering();
   useGlobalSessionsStore.getState().resetForRuntimeSwitch();
   useProjectsStore.getState().resetManagedCatalog();

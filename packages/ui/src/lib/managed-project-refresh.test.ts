@@ -1,5 +1,6 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 import type { ManagedProject } from './managed-project-catalog';
+import { deferred } from './runtime-isolation-fixture';
 
 let generation = 0;
 let changed = () => {};
@@ -69,7 +70,7 @@ test('failed global read cannot turn last-known membership into empty', async ()
 });
 
 test('endpoint switch resets admission and drops late project response', async () => {
-  const held = Promise.withResolvers<{ response: Response; data: typeof row[] }>();
+  const held = deferred<{ response: Response; data: typeof row[] }>();
   projectRead = () => held.promise;
   const pending = refreshManagedProjects();
   generation++; changed();
@@ -78,8 +79,8 @@ test('endpoint switch resets admission and drops late project response', async (
 });
 
 test('late session response cannot publish after endpoint switch', async () => {
-  const held = Promise.withResolvers<{ directory: string }[]>();
-  const entered = Promise.withResolvers<void>();
+  const held = deferred<{ directory: string }[]>();
+  const entered = deferred<void>();
   sessionRead = () => { entered.resolve(); return held.promise; };
   const pending = refreshManagedProjects(); await entered.promise;
   generation++; changed(); held.resolve([{ directory: '/allowed/a' }]); await pending;
@@ -87,7 +88,7 @@ test('late session response cannot publish after endpoint switch', async () => {
 });
 
 test('fresh reconnect supersedes a held older sample without a second poller', async () => {
-  const held = Promise.withResolvers<{ response: Response; data: typeof row[] }>();
+  const held = deferred<{ response: Response; data: typeof row[] }>();
   projectRead = () => held.promise;
   const older = refreshManagedProjects();
   projectRead = async () => ({ response: response(), data: [] }); sessionRead = async () => [];
