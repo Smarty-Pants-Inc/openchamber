@@ -18,6 +18,9 @@ async function setup(page) {
       const handler = handlers.get(url.pathname);
       if (handler) return handler(route);
       if (url.pathname === '/api/auth/get-session') return route.fulfill({ json: session });
+      if (url.pathname === '/auth/url-token' && req.method() === 'POST') return route.fulfill({ status: 409, json: {
+        error: 'Sign in with Google. Existing device credentials are not human accounts.', humanAuthRequired: true,
+      } });
       unexpected.push(req.url());
       return route.fulfill({ status: 503, json: { message: 'Unconfigured fixture request' } });
     }
@@ -120,7 +123,7 @@ for (const path of ['get-session', 'update-user', 'sign-out', 'revoke-other-sess
   test(`stale runtime completion: ${path}`, async ({ page }, info) => {
     const api = await setup(page);
     const response = path === 'get-session' ? { json: session }
-      : path === 'sign-in/social' ? { json: { url: 'https://accounts.google.com/synthetic', redirect: true } }
+      : path === 'sign-in/social' ? { json: { url: 'https://accounts.google.com/synthetic', redirect: false } }
       : { json: { success: true } };
     const release = hold(api.handlers, `/api/auth/${path}`, response);
     await page.goto('/');
@@ -135,6 +138,7 @@ for (const path of ['get-session', 'update-user', 'sign-out', 'revoke-other-sess
       }
     }
     await expect.poll(() => api.requests.some(r => r.path === `/api/auth/${path}`)).toBe(true);
+    if (path === 'sign-in/social') expect(api.requests.find(r => r.path.endsWith('/sign-in/social')).body.disableRedirect).toBe(true);
     // Dialog is modal: invoke the real fixture control without bypassing its handler.
     await page.getByRole('button', { name: 'Fixture: change runtime', includeHidden: true }).evaluate(el => el.click());
     const completed = page.waitForResponse(r => new URL(r.url()).pathname === `/api/auth/${path}`);
