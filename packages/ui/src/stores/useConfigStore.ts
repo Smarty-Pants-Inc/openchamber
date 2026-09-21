@@ -827,7 +827,12 @@ const resolveConfigDirectory = (directory: string | null | undefined): string | 
     if (projects.includes(dir)) return dir;
     // Managed rows already name each admitted gateway. Saved stock parent/worktree
     // mappings cannot expand or replace that live authority.
-    if (useProjectsStore.getState().managedCatalogAdmitted) return null;
+    try {
+        if (useProjectsStore.getState().managedCatalogAdmitted) return null;
+    } catch {
+        // Circular store initialization has no project authority yet.
+        return null;
+    }
 
     // 1. Persisted mapping — resolves synchronously when the async worktree
     //    discovery has not populated the runtime map yet.
