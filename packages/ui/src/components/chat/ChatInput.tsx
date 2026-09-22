@@ -470,7 +470,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
     const nativeModel = nativeCreation.session?.nativeCreation.model;
     const materializedSessionId = useSessionUIStore(s => s.materializedDraftSessionId);
-    const nativeModelControls = (newSessionDraftOpen && nativeCreation.mode === 'ordinary') || Boolean(nativeModel);
+    const nativePending = newSessionDraftOpen && (nativeCreation.creation?.status === 'pending'
+        || nativeCreation.mode === 'ordinary' && !nativeCreation.session);
+    const nativeModelControls = nativePending || (newSessionDraftOpen && nativeCreation.mode === 'ordinary') || Boolean(nativeModel);
     const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
         s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
     ));
@@ -1043,7 +1045,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;
-    const canSend = hasContent || hasQueuedMessages;
+    const canSend = (hasContent || hasQueuedMessages) && !nativePending;
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));

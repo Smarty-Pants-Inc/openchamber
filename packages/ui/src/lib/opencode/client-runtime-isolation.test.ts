@@ -104,7 +104,9 @@ test('late native Create and Send receipts still settle the captured origin', as
     nativeCreation: { model: { providerID: 'fixture-provider', modelID: 'fixture-model' }, inputReady: false } };
   create.resolve(Response.json(session));
   send.resolve(new Response(null, { status: 204 }));
-  expect((await creating).id).toBe(session.id);
+  const created = await creating;
+  if (!('id' in created)) throw new Error('Expected the legacy 200 Session response');
+  expect(created.id).toBe(session.id);
   expect(await sending).toBe('fixture-message');
   expect(paths).toEqual(['/api/session', '/api/session/same/prompt_async']);
 });
