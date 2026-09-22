@@ -1442,7 +1442,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         useCompactDraftLayout,
     ]);
 
-	if (!currentSessionId && !draftOpen) {
+	// Keep the composer mounted while the deferred timeline catches up to a live selection.
+	if (!currentSessionId && !liveSessionId && !draftOpen) {
 		// The auto-open effect runs on the next tick. Use a neutral background
 		// until then instead of flashing the standard empty state.
 		if (autoOpenDraft && !initError) {
