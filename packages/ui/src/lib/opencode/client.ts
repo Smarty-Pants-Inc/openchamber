@@ -3,7 +3,8 @@ import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
-import { nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure } from './nativeCreation';
+import { nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
+  nativeCreationListSchema, type NativeCreationResult, type NativeCreationReply } from './nativeCreation';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -639,21 +640,52 @@ class OpencodeService {
   }
 
   async supportsNativeCreation(directory: string): Promise<boolean> {
+    return await this.nativeCreationMode(directory) !== 'legacy';
+  }
+
+  async nativeCreationMode(directory: string): Promise<'interactive' | 'ordinary' | 'legacy'> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
     const health = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health'));
-    return health.capabilities?.ordinaryCreateOnly === 1;
+    return health.capabilities?.ordinaryInteractiveCreate === 1 ? 'interactive'
+      : health.capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
   }
 
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
-  async createNativeSession(directory: string) {
+  async createNativeSession(directory: string): Promise<NativeCreationResult> {
     try {
       const response = await this.getScopedSdkClient(directory).session.create({ directory });
       if (response.error) throw response.error;
       if (!response.data) throw new Error('Empty native creation response');
-      return nativeCreatedSession(response.data);
+      return response.response.status === 202
+        ? nativeCreationResponseSchema.parse(response.data) : nativeCreatedSession(response.data);
     } catch (error) { throw nativeCreationFailure(error); }
+  }
+
+  /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
+  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply) {
+    const scope = captureRuntimeRequestScope();
+    const response = await runtimeFetch(`/api/session/creation${suffix}`, {
+      query: { directory }, method: reply ? 'POST' : 'GET',
+      ...(reply ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reply) } : {}),
+    });
+    const body: unknown = await response.json();
+    assertRuntimeRequestScope(scope);
+    if (!response.ok) throw nativeCreationFailure(body);
+    return body;
+  }
+
+  async listNativeCreations(directory: string) {
+    return nativeCreationListSchema.parse(await this.nativeCreationRequest(directory)).nativeCreations;
+  }
+
+  async readNativeCreation(directory: string, operationId: string) {
+    return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}`)).nativeCreation;
+  }
+
+  async replyNativeCreation(directory: string, operationId: string, reply: NativeCreationReply) {
+    return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}/reply`, reply)).nativeCreation;
   }
 
   async createSession(params?: { parentID?: string; title?: string; metadata?: Record<string, unknown> }, directory?: string | null): Promise<Session> {

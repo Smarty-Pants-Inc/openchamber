@@ -14,7 +14,7 @@ mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false 
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null,
   canCreate: true, refresh: async () => {}, describeError: () => 'Inspect w1:p2 /native-one/session.jsonl. Do not retry automatically.',
-  create: async () => {}, beforeSend: async () => undefined };
+  create: async () => {}, beforeSend: async () => undefined, operations: [], resume: async () => {}, reply: async () => {} };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);
 
 test('create-only action is a separate non-submit button without a model requirement', () => {
@@ -45,11 +45,12 @@ test('known pre-create failure exposes read-only connection recovery, while chec
   expect(render({ ...failure, creation: { status: 'checking', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p' } })).not.toContain('<button');
 });
 
-test('unknown recovery details reach an alert with no retry control', () => {
+test('unknown recovery details permit a status read but never a Create retry', () => {
   const html = render({ ...native, creation: { status: 'failed', runtimeKey: 'test', draftId: 1,
     directory: '/project', projectId: 'p', submitted: true, error: new NativeCreationError('unknown') } });
   expect(html).toContain('role="alert"');
   expect(html).toContain('w1:p2 /native-one/session.jsonl');
   expect(html).toContain('Do not retry automatically');
-  expect(html).not.toContain('<button');
+  expect(html).toContain('Read current creation status');
+  expect(html).not.toContain('Create native Pi session');
 });

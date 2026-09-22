@@ -3,8 +3,27 @@ import { z } from 'zod';
 
 export const nativeCreationHealthSchema = z.object({
   healthy: z.literal(true),
-  capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional() }).optional(),
+  capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional() }).optional(),
 });
+// Public creation-contract.ts; endpoint and native generations are distinct.
+const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
+export const nativeCreationStateSchema = z.object({
+  operationId: creationUUID, directory: z.string().min(1), generation: creationUUID.nullable(),
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  phase: z.enum(['awaiting-trust', 'starting', 'denied', 'cancelled', 'expired', 'ready-required', 'ready', 'unavailable']),
+  expiresAt: z.number(), native: z.object({ id: creationUUID, generation: creationUUID }).strict().optional(),
+  canInitialReady: z.boolean(),
+}).strict();
+export const nativeCreationResponseSchema = z.object({ nativeCreation: nativeCreationStateSchema }).strict();
+export const nativeCreationListSchema = z.object({ nativeCreations: z.array(nativeCreationStateSchema) }).strict();
+export type NativeCreationState = z.infer<typeof nativeCreationStateSchema>;
+export type NativeCreationReply = { generation: string; revision: number } & (
+  | { action: 'trust' | 'deny' | 'cancel'; native?: never }
+  | { action: 'ready'; native: { id: string; generation: string } }
+);
+export type NativeCreationResult = NativeCreatedSession | z.infer<typeof nativeCreationResponseSchema>;
+export const NATIVE_CREATION_INVALIDATED = 'openchamber:native-creation-invalidated';
+
 const nativeReferenceSchema = z.object({ id: z.uuid(), directory: z.string().min(1) });
 const nativeSessionSchema = nativeReferenceSchema.extend({
   nativeCreation: z.object({
