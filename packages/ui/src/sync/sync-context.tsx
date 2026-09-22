@@ -86,6 +86,7 @@ import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry"
 import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
 import { sessionEvents } from "@/lib/sessionEvents"
+import { NATIVE_CREATION_INVALIDATED } from "@/lib/opencode/nativeCreation"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
@@ -2456,6 +2457,10 @@ export function SyncProvider(props: {
         const batch = createDirectoryEventBatch()
         try {
           for (const payload of payloads) {
+            const eventType: string = payload.type
+            if (eventType === "native.creation.updated") {
+              window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { directory, runtimeKey } }))
+            }
             dispatchVSCodeRuntimeNotificationEvent(directory, payload)
             if (payload.type === "installation.update-available") {
               const version = typeof (payload.properties as { version?: unknown })?.version === "string"
@@ -2472,6 +2477,7 @@ export function SyncProvider(props: {
         }
       },
       onReconnect: () => {
+        window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { runtimeKey } }))
         // Includes first connect; do not place behind recent-boot/directory resync gates.
         void refreshManagedProjects(true);
         useConfigStore.setState({

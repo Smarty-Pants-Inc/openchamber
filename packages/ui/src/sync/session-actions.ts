@@ -889,6 +889,15 @@ function getRequestReplyClient(
 export async function createNativeSession(directory: string, runtimeKey: string) {
   if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
   const session = await opencodeClient.createNativeSession(directory);
+  if (!('id' in session)) {
+    if (session.nativeCreation.directory !== directory) throw new NativeCreationError('unknown');
+    return session;
+  }
+  return indexNativeCreatedSession(session, directory, runtimeKey);
+}
+
+/** Only a final, verified session enters the normal session indexes. */
+export function indexNativeCreatedSession(session: import('@/lib/opencode/nativeCreation').NativeCreatedSession, directory: string, runtimeKey: string) {
   const reference = { id: session.id, directory: session.directory };
   if (session.directory !== directory) throw new NativeCreationError('unknown', undefined, undefined, reference);
   if (getRuntimeKey() === runtimeKey) {
