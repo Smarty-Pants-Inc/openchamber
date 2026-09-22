@@ -707,22 +707,24 @@ export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, 
   return transfer?.edited ? 'retain' : 'restore'
 }
 /** Reconcile reload/route intent only against a published, authoritative managed snapshot. */
-export function restoreManagedSessionSelection(sessions: readonly Session[]): void {
+export function restoreManagedSessionSelection(sessions: readonly Session[]): Session | null {
   const projects = useProjectsStore.getState()
-  if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return
+  if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return null
   const key = runtimeMemoryKey()
   const persisted = readLastActiveSession(key)
   const store = useSessionUIStore.getState()
-  if (!persisted || (store.currentSessionId && store.currentSessionId !== persisted.sessionId)) return
+  if (!persisted) return null
   const session = sessions.find(entry => entry.id === persisted.sessionId)
   if (!session || !visibleProjects(projects).some(project => project.path === session.directory)
     || (persisted.directory && persisted.directory !== session.directory)) {
     clearLastActiveSession(key)
-    return
+    return null
   }
-  if (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory) {
+  if ((!store.currentSessionId || store.currentSessionId === session.id)
+    && (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory)) {
     store.setCurrentSession(session.id, session.directory)
   }
+  return session
 }
 
 const pendingChatDirectoryByDraft = new Map<string, Promise<string | null>>()

@@ -1,6 +1,6 @@
 import { ensureGlobalSessionsLoaded, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
 import { persistLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
@@ -33,9 +33,12 @@ export async function openSessionFromRoute(sessionId: string): Promise<void> {
   if (!snapshot || !current()) return;
   const latest = useSessionUIStore.getState();
   if (latest.currentSessionId && latest.currentSessionId !== id && latest.currentSessionId !== initial.currentSessionId) return;
-  const session = [...snapshot.activeSessions, ...snapshot.archivedSessions].find(entry => entry.id === id);
+  const session = useProjectsStore.getState().managedCatalogAdmitted
+    ? restoreManagedSessionSelection(snapshot.activeSessions)
+    : [...snapshot.activeSessions, ...snapshot.archivedSessions].find(entry => entry.id === id);
   if (!session) return;
   const directory = resolveGlobalSessionDirectory(session);
-  if (!directory || (latest.currentSessionId === id && directory === latest.currentSessionDirectory)) return;
-  latest.setCurrentSession(id, directory);
+  const selected = useSessionUIStore.getState();
+  if (!directory || (selected.currentSessionId === id && directory === selected.currentSessionDirectory)) return;
+  selected.setCurrentSession(id, directory);
 }

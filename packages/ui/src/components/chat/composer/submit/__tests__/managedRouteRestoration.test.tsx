@@ -74,3 +74,24 @@ for (const admitted of [false, true]) for (const result of ['present', 'absent',
     expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(0);
   } finally { held.resolve(); refresh.mockRestore(); }
 });
+
+for (const result of ['present', 'wrong-directory', 'absent', 'removed'] as const) test(`cached ready URL uses the same ownership validation: ${result}`, async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  await act(async () => {
+    useProjectsStore.getState().applyManagedCatalog(result === 'removed' ? [] : [{ id: 'a', worktree: directory }]);
+    useGlobalSessionsStore.getState().applySnapshot(result === 'absent' ? [] : [session], [], 'ready');
+    useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, nativeDraftCreations: new Map() });
+    await settle();
+  });
+  await act(async () => {
+    persistLastActiveSession(c.runtimeA, { sessionId: session.id, directory: result === 'wrong-directory' ? '/wrong-directory' : directory });
+    window.history.replaceState(null, '', `/?session=${session.id}`);
+    const host = document.createElement('div'); c.dom.container.appendChild(host);
+    root = createRoot(host); root.render(<Router />);
+    await settle();
+  });
+  expect(useSessionUIStore.getState().currentSessionId).toBe(result === 'present' ? session.id : null);
+  expect(new URL(window.location.href).searchParams.get('session')).toBe(result === 'present' ? session.id : null);
+  if (result !== 'present') expect(readLastActiveSession(c.runtimeA)).toBeNull();
+  expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(0);
+});
