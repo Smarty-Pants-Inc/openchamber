@@ -15,7 +15,9 @@ transitions. `session-ui-store.ts` marks sessions materialized from a submitted
 draft, so selecting an existing session while a draft is open switches without
 animation. Do not restore separate draft and session composer branches:
 remounting the editor loses focus and interrupts the transition. Keep the
-existing mobile fixed-position rules unchanged.
+existing mobile fixed-position rules unchanged. A live session selection keeps
+this composer mounted while the deferred timeline catches up. The empty-state
+branch requires no live session, no rendered session and no open draft.
 
 ## Layers
 
