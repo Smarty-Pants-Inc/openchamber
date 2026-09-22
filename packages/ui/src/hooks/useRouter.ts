@@ -7,6 +7,9 @@ import type { RouteState, AppRouteState } from '@/lib/router';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { readLastActiveSession } from '@/sync/last-session-cache';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 /**
  * Check if running in VS Code webview context.
@@ -113,8 +116,11 @@ export function useRouter(): void {
     const sessionState = useSessionUIStore.getState();
     const uiState = useUIStore.getState();
 
+    const status = useProjectsStore.getState().managedCatalogStatus;
+    const pending = status !== 'ready' && status !== 'stock'
+      ? readLastActiveSession(getRuntimeKey())?.sessionId : null;
     return {
-      sessionId: sessionState.currentSessionId,
+      sessionId: sessionState.currentSessionId ?? (pending === parseRoute().sessionId ? pending ?? null : null),
       isSettingsOpen: uiState.isSettingsDialogOpen,
       settingsPath: uiState.settingsPage,
     };
@@ -155,13 +161,12 @@ export function useRouter(): void {
       await applyRoute(route);
 
       // After applying, update URL to normalized form (use replaceState).
-      // Use the parsed route values instead of an immediate store snapshot so
-      // deep links do not briefly normalize `?session=...` back to `/` while
-      // the session's directory/message bootstrap is still catching up.
+      // The state reader retains pending route intent only while discovery is
+      // unresolved. Definitive absence and an explicit new draft must win.
       if (!isVSCode && !isEmbeddedChat) {
         updateBrowserURL({
           ...getCurrentAppState(),
-          sessionId: route.sessionId ?? useSessionUIStore.getState().currentSessionId,
+          sessionId: getCurrentAppState().sessionId,
           settingsPath: route.settingsPath ?? useUIStore.getState().settingsPage,
         }, { replace: true, force: true });
       }
