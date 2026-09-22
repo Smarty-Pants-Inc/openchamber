@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,20 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  const coldDrafts = historical.files.filter(entry => entry.coldDraftSha256);
+  assert.deepEqual(coldDrafts.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
+  for (const entry of coldDrafts) {
+    assert.equal(entry.coldDraftSource, 'b634303615d2294dd96be69d583377a3d0bece50');
+    assert.equal(entry.coldDraftSha256, '4d93472da28ca715b7bf6009e6d72cebaa2c478fd92a135bff0ba79b906d8639');
+    assert.equal(entry.preColdDraftCombinedSha256, entry.managedDraftSha256);
+    assert.ok(entry.coldDraftNote);
+    entry.combinedSha256 = entry.preColdDraftCombinedSha256;
+    delete entry.preColdDraftCombinedSha256;
+    delete entry.coldDraftSha256;
+    delete entry.coldDraftSource;
+    delete entry.coldDraftNote;
+  }
+  assert.equal(digest(JSON.stringify(historical)), '9642619415e82534a579641aaf42657420d8dcd579e47e4d0f8096aeb7e5b9d2');
   const successors = historical.files.filter(entry => entry.managedDraftSha256);
   assert.deepEqual(successors.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of successors) {

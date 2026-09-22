@@ -92,7 +92,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
-import { claimChatDraftOwnership, createChatDraftIdentity } from '@/lib/chatDraftPersistence'
+import { claimChatDraftOwnership, createChatDraftIdentity, type ChatDraftIdentity } from '@/lib/chatDraftPersistence'
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
 import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
@@ -680,6 +680,22 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
   target: "chat",
 }
 let nextDraftId = 1
+let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string } | null = null
+let catalogDraftTransfer: { draftId: number; runtimeKey: string; to: string | null } | null = null
+
+/** Only catalog resolution of the same implicit cold draft may retain its live input. */
+export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null): boolean {
+  const transfer = catalogDraftTransfer
+  const draft = useSessionUIStore.getState().newSessionDraft
+  const matches = Boolean(transfer && draft.open && draft.draftId === transfer.draftId
+    && getRuntimeKey() === transfer.runtimeKey
+    && (previous ? previous.runtimeKey === transfer.runtimeKey && previous.sessionId === null
+      && previous.draftId === transfer.draftId : true)
+    && (current ? current.runtimeKey === transfer.runtimeKey && current.sessionId === null
+      && current.draftId === transfer.draftId && current.directory === transfer.to : transfer.to === null))
+  if (matches) catalogDraftTransfer = null
+  return matches
+}
 const pendingChatDirectoryByDraft = new Map<string, Promise<string | null>>()
 
 const activeSessionByRuntime = new Map<string, string | null>()
@@ -836,6 +852,7 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
   if (!recovered || recovered === original) return
 
   const currentDraft = useSessionUIStore.getState().newSessionDraft
+  if (useProjectsStore.getState().managedCatalogAdmitted || currentDraft.draftId !== openedDraft.draftId) return
   if (!currentDraft.open) return
   if (currentDraft.preserveDirectoryOverride === true) return
   if (currentDraft.pendingWorktreeRequestId) return
@@ -1414,6 +1431,14 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       projectContextPins: options?.projectContextPins,
     }
 
+    catalogDraftTransfer = null
+    pendingGlobalCatalogDraft = !options?.target && options?.selectedProjectId === undefined
+      && options?.directoryOverride === undefined && target === "chat"
+      && !options?.parentID && !options?.bootstrapPendingDirectory
+      && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
+      && projectsState.managedCatalogStatus === "unknown"
+      ? { draftId: nextDraft.draftId, runtimeKey: getRuntimeKey() } : null
+    if (pendingGlobalCatalogDraft) observeGlobalDraftCatalog()
     claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), directory, null, nextDraft.draftId))
     set({
       newSessionDraft: nextDraft,
@@ -1455,6 +1480,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   prepareChatDraftDirectory: async () => {
     const draft = get().newSessionDraft
+    // Typing before discovery must not create an unauthorized Chat directory.
+    if (pendingGlobalCatalogDraft?.draftId === draft.draftId
+      && useProjectsStore.getState().managedCatalogStatus !== "stock") return null
     if (!draft.open || draft.target !== "chat") return null
     if (draft.preparedChatDirectory) return draft.preparedChatDirectory
 
@@ -1530,6 +1558,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   setNewSessionDraftTarget: (target) => {
+    pendingGlobalCatalogDraft = null
+    catalogDraftTransfer = null
     if (isVSCodeRuntime() && target.projectId === CHAT_DRAFT_PROJECT_ID) return
     const previousDraft = get().newSessionDraft
     if (previousDraft.preparedChatDirectory && target.projectId !== CHAT_DRAFT_PROJECT_ID) {
@@ -2429,6 +2459,39 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 setSessionOpener((sessionID, directory) => {
   useSessionUIStore.getState().setCurrentSession(sessionID, directory)
 })
+
+// Subscribe lazily: the project and session stores depend on each other at startup.
+let observingGlobalDraftCatalog = false
+function observeGlobalDraftCatalog() {
+  if (observingGlobalDraftCatalog) return
+  observingGlobalDraftCatalog = true
+  // Admission alone is not membership. Resolve only after the authoritative publication.
+  useProjectsStore.subscribe((projects) => {
+    const pending = pendingGlobalCatalogDraft
+    if (projects.managedCatalogStatus === "stock") pendingGlobalCatalogDraft = null
+    if (!pending || projects.managedCatalogStatus === "stock"
+      || !projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return
+    pendingGlobalCatalogDraft = null
+    const store = useSessionUIStore.getState()
+    const draft = store.newSessionDraft
+    if (!draft.open || draft.draftId !== pending.draftId || pending.runtimeKey !== getRuntimeKey()
+      || draft.target !== "chat" || draft.preparedChatDirectory) return
+    const members = visibleProjects(projects)
+    const project = members.find(member => member.id === projects.activeProjectId) ?? members[0]
+    const to = normalizePath(project?.path ?? null)
+    const nextDraft: NewSessionDraftState = { ...draft, target: "project",
+      selectedProjectId: project?.id ?? null, directoryOverride: to }
+    // Qualify the same live draft before notifying React. Home discovery may
+    // have changed its effective source directory; it did not create a new draft.
+    catalogDraftTransfer = { ...pending, to }
+    claimChatDraftOwnership(createChatDraftIdentity(pending.runtimeKey, to, null, draft.draftId))
+    useSessionUIStore.setState({ newSessionDraft: nextDraft })
+    writeRuntimeSessionMemory(runtimeMemoryKey(), { draft: nextDraft })
+    persistDraftTarget({ projectId: project?.id ?? null, directory: to, target: "project" })
+    void activateConfigForDirectory(to)
+    // applyManagedCatalog owns the corresponding directory publication.
+  })
+}
 
 // Write-through persist of the worktree map whenever discovery refreshes it.
 // Reference-equality guard filters hot session updates; the serialized
