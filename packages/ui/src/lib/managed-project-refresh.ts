@@ -52,6 +52,9 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
       useGlobalSessionsStore.getState().applyManagedSessions(sessions, baselineRevision, allowed);
     } catch {
       if (current()) useProjectsStore.setState({ managedCatalogStatus: 'unavailable' });
+    } finally {
+      // A discarded sample is not completed discovery for callers awaiting it.
+      if (requestRevision !== revision && isRuntimeRequestScopeCurrent(scope) && pending) await pending;
     }
   })();
   pending = request;
