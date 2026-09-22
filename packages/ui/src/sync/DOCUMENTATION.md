@@ -86,6 +86,12 @@ The composer compares normalized attachment MIME types with the selected model's
 
 Bootstrap remains stale-while-revalidate: a directory store may paint persisted sessions immediately, but only a successful authoritative fetch may replace that cached list.
 
+A fresh project-catalog read supersedes older samples without letting them publish.
+Callers awaiting a superseded sample follow its current same-runtime discovery
+before continuing. A discarded reply is not completed discovery. Runtime or auth
+scope changes stop that wait from following a different owner. This adds no fetch,
+retry or poller; route selection still checks its existing session and user intent.
+
 Directory session lists record whether their current snapshot is empty, persisted, live-event-derived, or authoritative. Bootstrap captures a mutation revision before starting its requests. Its completion replaces persisted data, including with a successful empty response, then overlays only session events and direct move/archive/delete mutations newer than that revision. It must not preserve the entire cached list as a race fallback because that would retain stale persisted sessions.
 
 The roots request is authoritative for root completeness. The broader child-session request has independent completeness: a successful empty response clears stale children, while a failed request preserves known children and their required ancestors without turning the failure into an empty snapshot.
