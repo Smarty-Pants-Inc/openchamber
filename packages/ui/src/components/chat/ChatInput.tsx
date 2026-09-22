@@ -3007,14 +3007,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         const valid = draftBranchItems.some((option) => option.value === selectedDraftDirectory);
-        if (valid) {
+        // The root is already the fallback, even before its branch metadata loads.
+        // Re-selecting it is not user intent and would cancel pending route restoration.
+        const alreadyAtRoot = newSessionDraft?.selectedProjectId === selectedDraftProject.id
+            && normalizePath(newSessionDraft.directoryOverride) === normalizePath(selectedDraftProject.path);
+        if (valid || alreadyAtRoot) {
             return;
         }
         setNewSessionDraftTarget({
             projectId: selectedDraftProject.id,
             directoryOverride: selectedDraftProject.path,
         });
-    }, [draftBranchItems, newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
+    }, [draftBranchItems, newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.directoryOverride, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, newSessionDraft?.selectedProjectId, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
 
 
     // Mobile pill composer: the collapse/expand state machine and the
