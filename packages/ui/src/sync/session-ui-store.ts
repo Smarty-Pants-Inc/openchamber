@@ -680,11 +680,20 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
   target: "chat",
 }
 let nextDraftId = 1
-let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string } | null = null
-let catalogDraftTransfer: { draftId: number; runtimeKey: string; to: string | null } | null = null
+let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string; edited?: boolean } | null = null
+let catalogDraftTransfer: { draftId: number; runtimeKey: string; to: string | null; edited?: boolean } | null = null
+
+export function markDraftInputEdited(draftId: number): void {
+  const draft = useSessionUIStore.getState().newSessionDraft
+  if (!draft.open || draft.draftId !== draftId) return
+  const runtimeKey = getRuntimeKey()
+  clearLastActiveSession(runtimeKey)
+  if (pendingGlobalCatalogDraft?.draftId === draftId && pendingGlobalCatalogDraft.runtimeKey === runtimeKey) pendingGlobalCatalogDraft.edited = true
+  if (catalogDraftTransfer?.draftId === draftId && catalogDraftTransfer.runtimeKey === runtimeKey) catalogDraftTransfer.edited = true
+}
 
 /** Only catalog resolution of the same implicit cold draft may retain its live input. */
-export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null): boolean {
+export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null): false | 'restore' | 'retain' {
   const transfer = catalogDraftTransfer
   const draft = useSessionUIStore.getState().newSessionDraft
   const matches = Boolean(transfer && draft.open && draft.draftId === transfer.draftId
@@ -693,9 +702,29 @@ export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, 
       && previous.draftId === transfer.draftId : true)
     && (current ? current.runtimeKey === transfer.runtimeKey && current.sessionId === null
       && current.draftId === transfer.draftId && current.directory === transfer.to : transfer.to === null))
-  if (matches) catalogDraftTransfer = null
-  return matches
+  if (!matches) return false
+  catalogDraftTransfer = null
+  return transfer?.edited ? 'retain' : 'restore'
 }
+/** Reconcile reload/route intent only against a published, authoritative managed snapshot. */
+export function restoreManagedSessionSelection(sessions: readonly Session[]): void {
+  const projects = useProjectsStore.getState()
+  if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return
+  const key = runtimeMemoryKey()
+  const persisted = readLastActiveSession(key)
+  const store = useSessionUIStore.getState()
+  if (!persisted || (store.currentSessionId && store.currentSessionId !== persisted.sessionId)) return
+  const session = sessions.find(entry => entry.id === persisted.sessionId)
+  if (!session || !visibleProjects(projects).some(project => project.path === session.directory)
+    || (persisted.directory && persisted.directory !== session.directory)) {
+    clearLastActiveSession(key)
+    return
+  }
+  if (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory) {
+    store.setCurrentSession(session.id, session.directory)
+  }
+}
+
 const pendingChatDirectoryByDraft = new Map<string, Promise<string | null>>()
 
 const activeSessionByRuntime = new Map<string, string | null>()
@@ -1558,6 +1587,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   setNewSessionDraftTarget: (target) => {
+    clearLastActiveSession(runtimeMemoryKey())
     pendingGlobalCatalogDraft = null
     catalogDraftTransfer = null
     if (isVSCodeRuntime() && target.projectId === CHAT_DRAFT_PROJECT_ID) return

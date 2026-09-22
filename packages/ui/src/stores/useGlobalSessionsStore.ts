@@ -1,4 +1,4 @@
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from './useProjectsStore';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { create } from 'zustand';
@@ -647,6 +647,7 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     if (selected && !committed.entityById.has(selected)) {
       useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
     }
+    restoreManagedSessionSelection(committed.activeSessions);
   },
   applySnapshot: (activeSessions, archivedSessions, status = 'ready') => {
     // An authoritative snapshot may carry newer `updated` stamps for sessions

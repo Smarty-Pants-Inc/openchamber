@@ -55,7 +55,7 @@ export interface ComposerDraftOptions {
     /** A successful native first Send transfers the live draft to this session. */
     materializedSessionId?: string | null;
     /** Exact owner-qualified resolution of an implicit cold global draft, never ordinary navigation. */
-    consumeCatalogDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => boolean;
+    consumeCatalogDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => false | 'restore' | 'retain';
     /** The draft restored on mount, if any. */
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
@@ -163,13 +163,22 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
         previousIdentityRef.current = identity;
         if (previousKey === currentKey) return;
-        if (callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity)) {
+        const catalogTransfer = callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity);
+        if (catalogTransfer) {
             clearPending();
             skipNextPersistRef.current = true;
             const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
-            messageRef.current = live;
-            if (persistEnabled) persistNow(identity, live);
-            return; // Same implicit draft, not navigation: retain cursor, text and mentions.
+            const restored = persistEnabled && catalogTransfer === 'restore' && !live ? readChatDraft(identity) : null;
+            if (restored?.text) {
+                messageRef.current = restored.text;
+                confirmedMentionsRef.current = restored.confirmedMentions;
+                setMessage(restored.text);
+                callbacksRef.current.onDraftRestored?.();
+            } else {
+                messageRef.current = live;
+                if (persistEnabled) persistNow(identity, live);
+            }
+            return; // Keep live input; an empty boot composer must not erase the restored slot.
         }
         callbacksRef.current.onIdentityChange?.();
         clearPending();

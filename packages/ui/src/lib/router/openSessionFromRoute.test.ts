@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import * as desktop from '@/lib/desktop';
 import type { Session } from '@opencode-ai/sdk/v2';
 
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 
 import { openSessionFromRoute } from './openSessionFromRoute';
 
@@ -19,6 +21,7 @@ const buildSession = (id: string, directory: string): Session => ({
 
 describe('openSessionFromRoute', () => {
   beforeEach(() => {
+    useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
     useSessionUIStore.getState().setCurrentSession(null);
     useGlobalSessionsStore.setState({
       activeSessions: [],
@@ -41,6 +44,18 @@ describe('openSessionFromRoute', () => {
 
     expect(useSessionUIStore.getState().currentSessionId).toBe(SESSION_ID);
     expect(useSessionUIStore.getState().currentSessionDirectory).toBe(PROJECT_DIR);
+  });
+
+  test('VS Code needs no managed discovery to open its known session', async () => {
+    const vscode = spyOn(desktop, 'isVSCodeRuntime');
+    vscode.mockReturnValue(true);
+    try {
+      useProjectsStore.setState({ managedCatalogStatus: 'unknown' });
+      useGlobalSessionsStore.setState({ activeSessions: [buildSession(SESSION_ID, PROJECT_DIR)] });
+      await openSessionFromRoute(SESSION_ID);
+      expect(useSessionUIStore.getState().currentSessionId).toBe(SESSION_ID);
+      expect(useSessionUIStore.getState().currentSessionDirectory).toBe(PROJECT_DIR);
+    } finally { vscode.mockRestore(); }
   });
 
   test('replaces a guessed directory once the global list knows the owner', async () => {
