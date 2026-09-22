@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,19 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  const persistedTargets = historical.files.filter(entry => entry.persistedTargetSha256);
+  assert.deepEqual(persistedTargets.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
+  for (const entry of persistedTargets) {
+    assert.equal(entry.persistedTargetSource, '4a692929d83673ae89b712f110f7138643872c2e');
+    assert.equal(entry.persistedTargetSha256, 'bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb');
+    assert.equal(entry.prePersistedTargetCombinedSha256, entry.restorationSha256);
+    assert.ok(entry.persistedTargetNote);
+    entry.combinedSha256 = entry.prePersistedTargetCombinedSha256;
+    delete entry.prePersistedTargetCombinedSha256;
+    delete entry.persistedTargetSha256;
+    delete entry.persistedTargetSource;
+    delete entry.persistedTargetNote;
+  }
   const restorations = historical.files.filter(entry => entry.restorationSha256);
   assert.deepEqual(restorations.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of restorations) {

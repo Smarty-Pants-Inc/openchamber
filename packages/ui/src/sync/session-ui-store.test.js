@@ -730,14 +730,20 @@ describe('createSession draft lifecycle', () => {
       activeProjectId: 'project-main',
     });
     useDirectoryStore.getState().setDirectory('/private/deleted-worktree', { showOverlay: false });
-    useSessionUIStore.getState().openNewSessionDraft();
+    // This case tests failed-create fallback, not restoration of a remembered target.
+    useSessionUIStore.getState().openNewSessionDraft({ directoryOverride: '/private/deleted-worktree' });
+    expect(useSessionUIStore.getState().newSessionDraft.directoryOverride).toBe('/private/deleted-worktree');
+    expect(getDeferredSafeStorage().getItem('lastDirectory')).toBe('/private/deleted-worktree');
+    const createSessionCalls = [];
     opencodeClient.getDirectoryAvailability = async () => 'missing';
-    opencodeClient.createSession = async () => {
+    opencodeClient.createSession = async (_params, directory) => {
+      createSessionCalls.push(directory);
       throw new Error('offline');
     };
 
     const session = await useSessionUIStore.getState().createSession('Draft title', '/private/deleted-worktree');
 
+    expect(createSessionCalls).toEqual(['/projects/main']);
     expect(session).toBeNull();
     expect(useDirectoryStore.getState().currentDirectory).toBe('/private/deleted-worktree');
     expect(getDeferredSafeStorage().getItem('lastDirectory')).toBe('/private/deleted-worktree');

@@ -1419,6 +1419,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (explicitDirectory !== null) return inferredProjectFromDir
       // Managed catalogs exclude Chat and arbitrary current-directory fallbacks.
       if (projectsState.managedCatalogAdmitted) return persistedProject ?? fallbackProject
+      if (restoresProjectTarget) return persistedProject
       // A chat session leaves a managed scratch directory behind as the current
       // one; it owns no project, so it must not decide this draft's project —
       // the recorded target below knows which project the user last chose.
@@ -1430,6 +1431,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (explicitDirectory !== null) return explicitDirectory
       if (explicitProject) return normalizePath(explicitProject.path ?? null)
       if (projectsState.managedCatalogAdmitted) return normalizePath(selectedProject?.path ?? null)
+      if (restoresProjectTarget) return persistedTarget?.directory ?? normalizePath(selectedProject?.path ?? null)
       // A chat session's directory is a managed scratch folder, never a
       // project: letting it through would open a project draft rooted in it.
       if (currentDirectory && !isChatDirectoryPath(currentDirectory)) return currentDirectory
