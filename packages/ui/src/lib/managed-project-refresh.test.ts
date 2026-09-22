@@ -87,6 +87,37 @@ test('late session response cannot publish after endpoint switch', async () => {
   expect(admitted).toBe(false); expect(publications).toEqual([]); expect(sessionsPublished).toBe(0);
 });
 
+for (const success of [true, false]) test(`superseded callers await current discovery, success=${success}`, async () => {
+  const reads = Array.from({ length: 3 }, () => deferred<{ response: Response; data: typeof row[] }>());
+  let calls = 0, settled = false;
+  projectRead = () => reads[calls++]!.promise;
+  const older = refreshManagedProjects().then(() => { settled = true; });
+  const middle = refreshManagedProjects(true), latest = refreshManagedProjects(true);
+  const joined = refreshManagedProjects();
+  reads[0]!.resolve({ response: response(false), data: [] });
+  reads[1]!.resolve({ response: response(false), data: [] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(settled).toBe(false); expect(status).toBe('unknown');
+  reads[2]!.resolve({ response: response(false, success ? 200 : 403), data: [] });
+  await Promise.all([older, middle, latest, joined]);
+  expect(calls).toBe(3); expect(status).toBe(success ? 'stock' : 'unavailable');
+  expect(admitted).toBe(false); expect(publications).toEqual([]); expect(sessionsPublished).toBe(0);
+});
+
+test('stale runtime/auth scope does not follow a held successor or publish', async () => {
+  const first = deferred<{ response: Response; data: typeof row[] }>();
+  const second = deferred<{ response: Response; data: typeof row[] }>();
+  projectRead = () => first.promise;
+  const older = refreshManagedProjects();
+  generation++; changed();
+  projectRead = () => second.promise;
+  const current = refreshManagedProjects();
+  first.resolve({ response: response(), data: [row] }); await older;
+  expect(status).toBe('unknown'); expect(admitted).toBe(false); expect(publications).toEqual([]);
+  second.resolve({ response: response(false), data: [] }); await current;
+  expect(status).toBe('stock'); expect(publications).toEqual([]);
+});
+
 test('fresh reconnect supersedes a held older sample without a second poller', async () => {
   const held = deferred<{ response: Response; data: typeof row[] }>();
   projectRead = () => held.promise;
