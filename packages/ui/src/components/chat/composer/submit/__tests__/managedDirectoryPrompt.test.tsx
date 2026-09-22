@@ -50,7 +50,8 @@ for (const outcome of ['member', 'empty', 'stock'] as const) test(`initial direc
 });
 
 test('unmanaged VS Code retains its initial empty prompt without catalog discovery', async () => {
-  const vscode = spyOn(desktop, 'isVSCodeRuntime').mockReturnValue(true);
+  const vscode = spyOn(desktop, 'isVSCodeRuntime');
+  vscode.mockReturnValue(true);
   try {
     mounted = await mountedNativeComposer(false, undefined, <SessionDialogs />);
     await act(async () => {

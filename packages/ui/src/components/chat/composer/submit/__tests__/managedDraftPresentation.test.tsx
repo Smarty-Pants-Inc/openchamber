@@ -65,7 +65,7 @@ for (const homeReady of [false, true]) for (const persist of [false, true]) for 
   await act(async () => {
     getDeferredSafeStorage().removeItem('oc.chatInput.lastDraftTarget');
     useProjectsStore.setState({ managedCatalogStatus: 'unknown' });
-    useDirectoryStore.setState({ currentDirectory: '/not-admitted', homeDirectory: homeReady ? homeInfo.home : null, isHomeReady: homeReady });
+    useDirectoryStore.setState({ currentDirectory: '/not-admitted', homeDirectory: homeReady ? homeInfo.home : '', isHomeReady: homeReady });
     useSessionUIStore.getState().openNewSessionDraft();
     await settle();
   });
