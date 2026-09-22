@@ -54,6 +54,8 @@ export interface ComposerDraftOptions {
     persistEnabled: boolean;
     /** A successful native first Send transfers the live draft to this session. */
     materializedSessionId?: string | null;
+    /** Exact owner-qualified resolution of an implicit cold global draft, never ordinary navigation. */
+    consumeCatalogDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => boolean;
     /** The draft restored on mount, if any. */
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
@@ -83,6 +85,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         identity,
         persistEnabled,
         materializedSessionId,
+        consumeCatalogDraftTransfer,
         initialDraft,
         onIdentityChange,
         onDraftRestored,
@@ -98,8 +101,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
-    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed });
-    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed };
+    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer });
+    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer };
 
     React.useLayoutEffect(() => { claimChatDraftOwnership(identity); }, [identity]);
 
@@ -160,6 +163,14 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
         previousIdentityRef.current = identity;
         if (previousKey === currentKey) return;
+        if (callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity)) {
+            clearPending();
+            skipNextPersistRef.current = true;
+            const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
+            messageRef.current = live;
+            if (persistEnabled) persistNow(identity, live);
+            return; // Same implicit draft, not navigation: retain cursor, text and mentions.
+        }
         callbacksRef.current.onIdentityChange?.();
         clearPending();
         // The incoming draft is being written into state right now; the
