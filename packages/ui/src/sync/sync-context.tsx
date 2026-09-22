@@ -2457,7 +2457,8 @@ export function SyncProvider(props: {
         const batch = createDirectoryEventBatch()
         try {
           for (const payload of payloads) {
-            if ((payload.type as string) === "native.creation.updated") {
+            const eventType: string = payload.type
+            if (eventType === "native.creation.updated") {
               window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { directory, runtimeKey } }))
             }
             dispatchVSCodeRuntimeNotificationEvent(directory, payload)

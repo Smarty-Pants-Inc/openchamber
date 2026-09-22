@@ -45,7 +45,8 @@ async function acceptState(record: Pending, next: NativeCreationState) {
     const ordinary = readOrdinaryModel(detail);
     if (detail.id !== next.native.id || detail.directory !== record.directory
       || !ordinary?.model || ordinary.generation !== next.native.generation) throw new NativeCreationError('stale');
-    const session = nativeCreatedSession({ ...detail, nativeCreation: { model: ordinary.model, inputReady: true } } as typeof detail);
+    const readySession = { ...detail, nativeCreation: { model: ordinary.model, inputReady: true } };
+    const session = nativeCreatedSession(readySession);
     indexNativeCreatedSession(session, record.directory, record.runtimeKey);
     publishNativeCreation(record, { runtimeKey: record.runtimeKey, draftId: record.draftId,
       projectId: record.projectId, directory: record.directory, status: 'created', session });

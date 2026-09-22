@@ -7,7 +7,7 @@ export const nativeCreationHealthSchema = z.object({
 });
 // Public creation-contract.ts; endpoint and native generations are distinct.
 const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
-export const nativeCreationStateSchema = z.object({
+const nativeCreationStateSchema = z.object({
   operationId: creationUUID, directory: z.string().min(1), generation: creationUUID.nullable(),
   revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   phase: z.enum(['awaiting-trust', 'starting', 'denied', 'cancelled', 'expired', 'ready-required', 'ready', 'unavailable']),

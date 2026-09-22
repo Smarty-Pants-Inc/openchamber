@@ -40,6 +40,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       }
     };
     const invalidated = (event: Event) => {
+      // SAFETY: This named app event is advisory; its scope is compared before an authorized refresh.
       const detail = (event as CustomEvent<{ runtimeKey: string; directory?: string }>).detail;
       if (detail?.runtimeKey === runtimeKey && (!detail.directory || detail.directory === directory)) void check();
     };
@@ -63,7 +64,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     if (getRuntimeKey() !== runtimeKey || now.draftId !== draft.draftId || now.directoryOverride !== draft.directoryOverride
       || now.selectedProjectId !== draft.selectedProjectId) throw new NativeCreationError('stale');
   };
-  const perform = async (action: () => Promise<unknown>) => {
+  const perform = async (action: () => Promise<void>) => {
     try { guard(); await action(); } catch (error) { toast.error(describeError(error)); }
   };
   const canCreate = mode === 'ordinary' && !scoped && isNativeDraftTarget(draft)

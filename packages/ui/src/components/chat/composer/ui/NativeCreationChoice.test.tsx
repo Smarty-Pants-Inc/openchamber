@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 import { nativeComposerDom } from '../submit/__tests__/nativeComposer-dom';
-import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
+import type { NativeCreationReply, NativeCreationState } from '@/lib/opencode/nativeCreation';
 const dom = nativeComposerDom();
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const { I18nProvider } = await import('@/lib/i18n');
@@ -19,7 +19,7 @@ const { NATIVE_CREATION_INVALIDATED } = await import('@/lib/opencode/nativeCreat
 let fixture: ReturnType<typeof nativeDraftFixture>, root: Root;
 let restoreFetch: () => void;
 let operation: NativeCreationState, listed: NativeCreationState[];
-let detail: () => Promise<Response>, reply: (body: Record<string, unknown>) => Promise<Response>;
+let detail: () => Promise<Response>, reply: (body: NativeCreationReply) => Promise<Response>;
 const operationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', endpoint = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const generation = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 function Caller() {
@@ -46,12 +46,16 @@ async function setup() {
   reply = async body => {
     expect(body.generation).toBe(endpoint); expect(body.revision).toBe(operation.revision);
     operation = { ...operation, revision: operation.revision + 1,
-      phase: body.action === 'trust' ? 'ready-required' : body.action === 'ready' ? 'ready' : body.action === 'deny' ? 'denied' : 'cancelled',
-      ...(body.action === 'trust' ? { native: { id: session.id, generation }, canInitialReady: true } : {}) };
+      phase: body.action === 'trust' ? 'ready-required' : body.action === 'ready' ? 'ready' : body.action === 'deny' ? 'denied' : 'cancelled' };
+    if (body.action === 'trust') {
+      operation.native = { id: session.id, generation };
+      operation.canInitialReady = true;
+    }
     listed = [operation]; return Response.json({ nativeCreation: operation });
   };
   const originalFetch = globalThis.fetch;
   restoreFetch = () => { globalThis.fetch = originalFetch; };
+  // SAFETY: This fixture uses fetch's callable API, not Bun preconnect; unhandled requests forward unchanged.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.includes('/session/creation') || path.endsWith(`/session/${session.id}`)) {

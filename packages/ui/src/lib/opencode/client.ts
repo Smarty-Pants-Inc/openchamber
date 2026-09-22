@@ -33,7 +33,7 @@ export type FetchPermissionResult =
   | { state: "resolved" }
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
-import { runtimeFetch } from "@/lib/runtime-fetch";
+import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
@@ -666,10 +666,12 @@ class OpencodeService {
   /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
   private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply) {
     const scope = captureRuntimeRequestScope();
-    const response = await runtimeFetch(`/api/session/creation${suffix}`, {
-      query: { directory }, method: reply ? 'POST' : 'GET',
-      ...(reply ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reply) } : {}),
-    });
+    const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET' };
+    if (reply) {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify(reply);
+    }
+    const response = await runtimeFetch(`/api/session/creation${suffix}`, options);
     const body: unknown = await response.json();
     assertRuntimeRequestScope(scope);
     if (!response.ok) throw nativeCreationFailure(body);
