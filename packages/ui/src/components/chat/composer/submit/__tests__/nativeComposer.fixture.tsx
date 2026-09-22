@@ -66,10 +66,12 @@ const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDr
 spyOn(sync, 'useSessionDirectory').mockImplementation(id => useSessionUIStore(s => id ? s.getDirectoryForSession(id) ?? undefined : undefined));
 await sleep(0); await bootstrap.restore(); bootstrapFetch.mockRestore();
 
-export async function mountedNativeComposer(persistChatDraft: boolean, existingDom?: ReturnType<typeof nativeComposerDom>, extraContent?: React.ReactNode) {
+export async function mountedNativeComposer(persistChatDraft: boolean, existingDom?: ReturnType<typeof nativeComposerDom>, extraContent?: React.ReactNode, body?: (fixture: ReturnType<typeof nativeDraftFixture>) => React.ReactNode) {
   const dom = existingDom ?? nativeComposerDom(), fixture = nativeDraftFixture();
   const initialUI = useUIStore.getState(), initialInline = useInlineCommentDraftStore.getState();
-  errors.length = 0; browserDisplayName.useUnnamedForTab();
+  errors.length = 0;
+  if (body) browserDisplayName.apply('');
+  else browserDisplayName.useUnnamedForTab();
   useUIStore.setState({ persistChatDraft, isMobile: false });
   useDirectoryStore.setState({ currentDirectory: directory });
   // Join the same startup owner as the directory subscription before measuring submit IO.
@@ -79,7 +81,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean, existingD
   await prepareNativeDraft();
   const root = createRoot(dom.container);
   let epoch = 0;
-  const render = () => root.render(<I18nProvider key={epoch}><ChatInput />{extraContent}</I18nProvider>);
+  const render = () => root.render(<I18nProvider key={epoch}>{body ? body(fixture) : <ChatInput />}{extraContent}</I18nProvider>);
   try { await act(async () => render()); }
   catch (error) {
     await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true); if (!existingDom) await dom.restore(); throw error;
@@ -91,6 +93,7 @@ export async function mountedNativeComposer(persistChatDraft: boolean, existingD
     return view;
   };
   return { ...fixture, dom, editor,
+    rerender: render,
     // Same lifetime boundary as App's epoch-keyed SyncProvider; runtime stores/storage/request stay alive.
     remount: () => { epoch++; render(); },
     text: () => editor().state.doc.toString(),
