@@ -13,7 +13,7 @@ mock.module('@/components/chat/markdown/markdown-shiki.worker.ts?worker&url', ()
 mock.module('@/hooks/useProviderLogo', () => ({ useProviderLogo: () => { throw new Error('Unexpected model panel'); }, preloadProviderLogos: () => undefined }));
 const { ChatContainer } = await import('@/components/chat/ChatContainer');
 type RuntimeValue = ReturnType<typeof useSyncRuntime>;
-// Same supported context boundary as composerSelectionLifetime; all stores/actions and the parent are real.
+// SAFETY: sync-context publishes these keys with RuntimeValue; parent checks both contexts before rendering.
 const globals = globalThis as typeof globalThis & {
   __openchamber_sync_context__?: React.Context<(RuntimeValue & { directory: string }) | null>;
   __openchamber_sync_runtime_context__?: React.Context<RuntimeValue | null>;
