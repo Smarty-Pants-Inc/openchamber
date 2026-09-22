@@ -7,6 +7,8 @@ import { directory } from '@/sync/native-draft-fixture';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 
 // Same Bun URL-import seam as markdown-worker.hang.test; no message renderer is mounted.
 mock.module('@/components/chat/markdown/markdown-shiki.worker.ts?worker&url', () => ({ default: 'blob:test-shiki-worker' }));
@@ -52,6 +54,37 @@ async function mount() {
   });
   return c;
 }
+
+for (const present of [true, false]) test(`global New session uses only admitted project targets (membership ${present})`, async () => {
+  const c = await mount();
+  const creates = c.creates().length;
+  await act(async () => {
+    // Same no-options action as the global sidebar button, with no saved project
+    // target and a current directory outside the authoritative catalog.
+    getDeferredSafeStorage().removeItem('oc.chatInput.lastDraftTarget');
+    useProjectsStore.setState({ activeProjectId: present ? 'a' : null,
+      managedCatalogAdmitted: true, managedCatalogStatus: 'ready',
+      managedProjects: present ? [savedA] : [],
+      managedRows: present ? [{ id: 'gateway-a', worktree: directory }] : [] });
+    useDirectoryStore.setState({ currentDirectory: '/not-admitted' });
+    useSessionUIStore.getState().openNewSessionDraft();
+    await settle();
+  });
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  expect(draft.target).toBe('project');
+  expect(draft.selectedProjectId).toBe(present ? 'a' : null);
+  expect(draft.directoryOverride).toBe(present ? directory : null);
+  expect(selectedTarget?.id ?? null).toBe(present ? 'a' : null);
+  if (present) {
+    expect(composerHeading()).toContain('Saved Alpha');
+    const create = [...c.dom.container.querySelectorAll('button')].find(button => button.textContent === 'Create native Pi session');
+    expect(create).toBeDefined();
+    expect(create?.disabled).toBe(false);
+  }
+  expect(c.creates()).toHaveLength(creates);
+  expect(c.prompts()).toHaveLength(0);
+  expect(c.requests.filter(request => new URL(request.url).pathname.includes('/chats'))).toHaveLength(0);
+});
 
 test('actual heading and composer cannot advertise saved A after authoritative managed empty', async () => {
   const c = await mount();
