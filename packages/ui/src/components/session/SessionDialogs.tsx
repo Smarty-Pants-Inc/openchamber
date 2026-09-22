@@ -26,6 +26,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useI18n } from '@/lib/i18n';
+import { isVSCodeRuntime } from '@/lib/desktop';
 
 const renderToastDescription = (text?: string) =>
     text ? <span className="text-foreground/80 dark:text-foreground/70">{text}</span> : undefined;
@@ -73,6 +74,8 @@ export const SessionDialogs: React.FC = () => {
     const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
     const isHomeReady = useDirectoryStore((s) => s.isHomeReady);
     const projects = useProjectsStore(visibleProjects);
+    // VS Code does not run managed catalog discovery; keep its existing empty prompt.
+    const catalogResolved = useProjectsStore(s => s.managedCatalogStatus === 'stock' || s.managedCatalogStatus === 'ready') || isVSCodeRuntime();
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const useMobileOverlay = isMobile || isTablet || hasTouchInput;
@@ -115,7 +118,7 @@ export const SessionDialogs: React.FC = () => {
     // Session loading is handled by sync bootstrap — no manual loadSessions needed.
 
     React.useEffect(() => {
-        if (hasShownInitialDirectoryPrompt || !isHomeReady || projects.length > 0) {
+        if (hasShownInitialDirectoryPrompt || !isHomeReady || !catalogResolved || projects.length > 0) {
             return;
         }
 
@@ -124,6 +127,7 @@ export const SessionDialogs: React.FC = () => {
         setIsDirectoryDialogOpen(true);
     }, [
         hasShownInitialDirectoryPrompt,
+        catalogResolved,
         isHomeReady,
         projects.length,
     ]);

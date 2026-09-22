@@ -1,14 +1,16 @@
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import React, { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
 // Installs the existing synthetic network, DOM and unrelated leaf mocks FIRST.
 import { mountedNativeComposer } from './nativeComposer.fixture';
-import { directory } from '@/sync/native-draft-fixture';
+import { deferred, directory } from '@/sync/native-draft-fixture';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
+import { opencodeClient } from '@/lib/opencode/client';
+import { useInputStore } from '@/sync/input-store';
 
 // Same Bun URL-import seam as markdown-worker.hang.test; no message renderer is mounted.
 mock.module('@/components/chat/markdown/markdown-shiki.worker.ts?worker&url', () => ({ default: 'blob:test-shiki-worker' }));
@@ -44,8 +46,8 @@ const composerHeading = () => {
   expect(heading).not.toBeNull();
   return heading?.textContent;
 };
-async function mount() {
-  const c = mounted = await mountedNativeComposer(false, undefined, surfaces);
+async function mount(persist = false) {
+  const c = mounted = await mountedNativeComposer(persist, undefined, surfaces);
   await act(async () => {
     useUIStore.setState({ isExpandedInput: false });
     useProjectsStore.setState({ projects: [savedA, savedB], activeProjectId: 'a',
@@ -54,6 +56,89 @@ async function mount() {
   });
   return c;
 }
+
+for (const homeReady of [false, true]) for (const persist of [false, true]) for (const present of [true, false]) test(`early global draft survives publication (home ${homeReady}, member ${present}, persisted ${persist})`, async () => {
+  const c = await mount(persist);
+  const homeInfo = { home: '/synthetic-home', chatsRoot: '/synthetic-chats' };
+  const pendingHome = deferred<typeof homeInfo>();
+  const home = spyOn(opencodeClient, 'getFilesystemHomeInfo').mockImplementation(() => homeReady ? Promise.resolve(homeInfo) : pendingHome.promise);
+  await act(async () => {
+    getDeferredSafeStorage().removeItem('oc.chatInput.lastDraftTarget');
+    useProjectsStore.setState({ managedCatalogStatus: 'unknown' });
+    useDirectoryStore.setState({ currentDirectory: '/not-admitted', homeDirectory: homeReady ? homeInfo.home : null, isHomeReady: homeReady });
+    useSessionUIStore.getState().openNewSessionDraft();
+    await settle();
+  });
+  home.mockRestore();
+  const mkdir = spyOn(opencodeClient, 'createDirectory').mockImplementation(async path => ({ success: true, path }));
+  await c.replace('Keep my cold global draft');
+  const directoriesCreated = mkdir.mock.calls.length;
+  mkdir.mockRestore();
+  await act(async () => {
+    useInputStore.getState().setAttachedFiles([{ id: 'cold-attachment', file: new File(['kept'], 'kept.txt'),
+      dataUrl: 'data:text/plain;base64,a2VwdA==', mimeType: 'text/plain', filename: 'kept.txt', size: 4, source: 'local' }]);
+    c.editor().dispatch({ selection: { anchor: 5 } });
+  });
+  const attachments = useInputStore.getState().attachedFiles;
+  expect(attachments).toHaveLength(1);
+  const before = useSessionUIStore.getState().newSessionDraft;
+  const selection = c.editor().state.selection.toJSON();
+  const creates = c.creates().length;
+  expect(before.target).toBe('chat');
+  await act(async () => { useProjectsStore.getState().admitManagedCatalog(); await settle(); });
+  expect(useSessionUIStore.getState().newSessionDraft).toEqual(before);
+  expect(c.text()).toBe('Keep my cold global draft');
+  expect(selectedTarget).toBeNull();
+  await act(async () => {
+    useProjectsStore.getState().applyManagedCatalog(present ? [{ id: 'gateway-a', worktree: directory }] : []);
+    await settle();
+  });
+  const after = useSessionUIStore.getState().newSessionDraft;
+  expect(after.draftId).toBe(before.draftId);
+  expect(after.target).toBe('project');
+  expect(after.directoryOverride).toBe(present ? directory : null);
+  expect(selectedTarget?.path ?? null).toBe(present ? directory : null);
+  expect(c.text()).toBe('Keep my cold global draft');
+  expect(c.editor().state.selection.toJSON()).toEqual(selection);
+  expect(c.creates()).toHaveLength(creates);
+  expect(c.prompts()).toHaveLength(0);
+  expect(directoriesCreated).toBe(0);
+  expect(useInputStore.getState().attachedFiles).toEqual(attachments);
+  if (present) {
+    expect([...c.dom.container.querySelectorAll('button')].find(b => b.textContent === 'Create native Pi session')?.disabled).toBe(false);
+  }
+  await act(async () => { useProjectsStore.getState().admitManagedCatalog(); await settle(); });
+  expect(useSessionUIStore.getState().newSessionDraft).toEqual(after);
+  await act(async () => { pendingHome.resolve(homeInfo); await settle(); });
+  expect(c.text()).toBe('Keep my cold global draft');
+  expect(c.editor().state.selection.toJSON()).toEqual(selection);
+});
+
+for (const choice of ['chat', 'project', 'selected', 'new-draft', 'stock'] as const) test(`cold reconciliation does not override ${choice}`, async () => {
+  const c = await mount();
+  await act(async () => {
+    getDeferredSafeStorage().removeItem('oc.chatInput.lastDraftTarget');
+    useProjectsStore.setState({ managedCatalogStatus: 'unknown' });
+    useSessionUIStore.getState().openNewSessionDraft();
+    if (choice === 'chat') useSessionUIStore.getState().setNewSessionDraftTarget({ projectId: 'openchamber:chats' });
+    if (choice === 'project') useSessionUIStore.getState().openNewSessionDraft({ target: 'project', selectedProjectId: 'b', directoryOverride: savedB.path });
+    if (choice === 'selected') c.target('b', savedB.path);
+    if (choice === 'new-draft') useSessionUIStore.getState().openNewSessionDraft({ target: 'chat' });
+    await settle();
+  });
+  const before = useSessionUIStore.getState().newSessionDraft;
+  await act(async () => {
+    if (choice === 'stock') useProjectsStore.setState({ managedCatalogStatus: 'stock' });
+    else useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-a', worktree: directory }]);
+    await settle();
+  });
+  expect(useSessionUIStore.getState().newSessionDraft).toEqual(before);
+  if (choice === 'stock') {
+    await act(async () => { useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-a', worktree: directory }]); await settle(); });
+    expect(useSessionUIStore.getState().newSessionDraft).toEqual(before);
+  }
+  expect(c.prompts()).toHaveLength(0);
+});
 
 for (const present of [true, false]) test(`global New session uses only admitted project targets (membership ${present})`, async () => {
   const c = await mount();
