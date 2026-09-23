@@ -220,6 +220,37 @@ const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDi
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
+/** Resolve the existing part of a target through realpath and keep the part not created yet. A dangling
+ * link on the way is refused (null): it could be recreated to point anywhere. */
+const canonicalizeForCreate = async (target, { fsPromises, path }) => {
+  let existing = target;
+  for (;;) {
+    try {
+      const real = await fsPromises.realpath(existing);
+      return path.join(real, path.relative(existing, target));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      if (await fsPromises.lstat(existing).then(() => true, () => false)) return null;
+      const parent = path.dirname(existing);
+      if (parent === existing) return null;
+      existing = parent;
+    }
+  }
+};
+
+/** Lexical containment is not enough: a symbolic link on the way may point anywhere. Returns the canonical
+ * path to operate on, or null when it leaves the canonical base it was admitted under. With `entry`, the
+ * final component itself is not followed (delete or rename a link, not its target). */
+const containedPath = async (resolved, { fsPromises, path, os, entry = false }) => {
+  const target = entry
+    ? await canonicalizeForCreate(path.dirname(resolved.resolved), { fsPromises, path })
+      .then((parent) => parent && path.join(parent, path.basename(resolved.resolved)))
+    : await canonicalizeForCreate(resolved.resolved, { fsPromises, path });
+  const base = await canonicalizeForCreate(resolved.base, { fsPromises, path });
+  return target && base && isPathWithinRoot(target, base, path, os) ? target : null;
+};
+const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
+
 const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath }) => {
   const normalized = normalizeDirectoryPath(targetPath);
   if (!normalized || typeof normalized !== 'string') {
@@ -724,7 +755,7 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Path is required' });
       }
 
-      let resolvedPath = '';
+      let resolvedPath = '', createPath = '';
       if (allowOutsideWorkspace) {
         console.warn('Rejected outside-workspace mkdir without trusted directory grant');
         return res.status(403).json({ error: 'Outside workspace directory creation requires a grant' });
@@ -742,9 +773,13 @@ export const registerFsRoutes = (app, dependencies) => {
           return res.status(400).json({ error: resolved.error });
         }
         resolvedPath = resolved.resolved;
+        createPath = await containedPath(resolved, { fsPromises, path, os });
+        if (!createPath) {
+          return res.status(403).json({ error: LEAVES_WORKSPACE });
+        }
       }
 
-      await fsPromises.mkdir(resolvedPath, { recursive: true });
+      await fsPromises.mkdir(createPath, { recursive: true });
       return res.json({ success: true, path: resolvedPath });
     } catch (error) {
       if (isOsPermissionError(error)) {
@@ -1134,14 +1169,10 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const writePath = await fsPromises.realpath(resolved.resolved).catch((error) => {
-        if (error && typeof error === 'object' && error.code === 'ENOENT') {
-          return resolved.resolved;
-        }
-        throw error;
-      });
-      const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
-      if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
+      // A missing target used to fall back to its lexical path, so a symlinked parent could create files
+      // (and parents) outside the workspace. Resolve every existing ancestor first.
+      const writePath = await containedPath(resolved, { fsPromises, path, os });
+      if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
@@ -1311,7 +1342,11 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      await fsPromises.rm(resolved.resolved, { recursive: true, force: true });
+      const deletePath = await containedPath(resolved, { fsPromises, path, os, entry: true });
+      if (!deletePath) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
+      await fsPromises.rm(deletePath, { recursive: true, force: true });
       return res.json({ success: true, path: resolved.resolved });
     } catch (error) {
       const err = error;
@@ -1366,7 +1401,12 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Source and destination must share the same workspace root' });
       }
 
-      await fsPromises.rename(resolvedOld.resolved, resolvedNew.resolved);
+      const [from, to] = await Promise.all([resolvedOld, resolvedNew]
+        .map((resolved) => containedPath(resolved, { fsPromises, path, os, entry: true })));
+      if (!from || !to) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
+      await fsPromises.rename(from, to);
       return res.json({ success: true, path: resolvedNew.resolved });
     } catch (error) {
       const err = error;
