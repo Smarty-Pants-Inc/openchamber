@@ -68,7 +68,7 @@ test('stock add is unchanged', async () => {
   const added = await useProjectsStore.getState().addProject('/stock/project');
   expect(added?.path).toBe('/stock/project');
   expect(useProjectsStore.getState().projects.map(project => project.path)).toEqual([saved.path, '/stock/project']);
-  expect(save).toHaveBeenCalled();
+  expect(save.mock.calls.length).toBeGreaterThan(0);
 });
 
 function createdId() { return useProjectsStore.getState().managedProjects![0]!.id; }
