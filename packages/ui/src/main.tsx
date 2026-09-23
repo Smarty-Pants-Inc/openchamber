@@ -7,7 +7,7 @@ import { SessionAuthGate } from './components/auth/SessionAuthGate'
 import { ThemeSystemProvider } from './contexts/ThemeSystemContext'
 import { ThemeProvider } from './components/providers/ThemeProvider'
 import './lib/debug'
-import { syncDesktopSettings, initializeAppearancePreferences } from './lib/persistence'
+import { deferSettingsWritesUntilLoaded, syncDesktopSettings, initializeAppearancePreferences } from './lib/persistence'
 import { startAppearanceAutoSave } from './lib/appearanceAutoSave'
 import { applyPersistedDirectoryPreferences } from './lib/directoryPersistence'
 import { preloadMarkdownRenderer } from './components/chat/markdownRendererLoader'
@@ -27,6 +27,8 @@ const runtimeAPIs = (typeof window !== 'undefined' && window.__OPENCHAMBER_RUNTI
 })();
 
 initializeLocale();
+// Startup defaults must not overwrite other browsers' shared settings.
+deferSettingsWritesUntilLoaded();
 
 // Initialize settings asynchronously — the app renders with defaults first
 // and hydrates once persisted preferences are applied. Users with non-default

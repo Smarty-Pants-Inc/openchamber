@@ -1849,6 +1849,41 @@ const isSettingsRuntimeContextCurrent = (context: SettingsRuntimeContext): boole
   context.generation === _settingsRuntimeGeneration && context.runtimeKey === getRuntimeKey()
 );
 
+// Shared server settings are written by every browser of the instance. Before a
+// page has read them, its writes carry startup defaults (default theme, home as
+// remembered directory), not user choices. Hold those writes until the first
+// authoritative load, then send only the keys the server does not yet have.
+// ponytail: a pre-load update resolves only after that load, or is dropped on
+// unload/runtime switch. Callers that await it during startup wait for the load.
+let _writesDeferredUntilLoad: SettingsRuntimeContext | null = null;
+
+const areSettingsWritesDeferred = (context: SettingsRuntimeContext): boolean => (
+  _writesDeferredUntilLoad !== null && isSameSettingsRuntimeContext(_writesDeferredUntilLoad, context)
+);
+
+/** Call before the first render of a surface that shares server settings. */
+export const deferSettingsWritesUntilLoaded = (): void => {
+  _writesDeferredUntilLoad = captureSettingsRuntimeContext();
+};
+
+const releaseDeferredSettingsWrites = (loaded: DesktopSettings, context: SettingsRuntimeContext): void => {
+  if (!areSettingsWritesDeferred(context)) return;
+  _writesDeferredUntilLoad = null;
+  if (!_pendingSettingsChanges || !_pendingSettingsContext
+    || !isSameSettingsRuntimeContext(_pendingSettingsContext, context)) return;
+  // Every pending key was written before this load; the server value wins.
+  const remaining = Object.fromEntries(Object.entries(_pendingSettingsChanges)
+    .filter(([key]) => loaded[key as keyof DesktopSettings] === undefined)) as Partial<DesktopSettings>;
+  _pendingSettingsChanges = remaining;
+  if (Object.keys(remaining).length > 0) {
+    _pendingSettingsRevision = _settingsMutationTracker.record(remaining);
+    dispatchSettingsSaveState('saving');
+  }
+  for (const flushed of _settingsFlushPromises) trackSettingsOperation(flushed, context, true);
+  if (_settingsFlushTimer) clearTimeout(_settingsFlushTimer);
+  _settingsFlushTimer = setTimeout(() => void _flushSettingsUpdate(), SETTINGS_DEBOUNCE_MS);
+};
+
 // Best-effort flush of the pending debounced settings write at a lifecycle
 // boundary. Clearing the timer before flushing means the write happens exactly
 // once — the flush consumes the pending changes, so a timer that already fired
@@ -2049,6 +2084,7 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
 
   const applySettings = async (loadedSettings: DesktopSettings) => {
     if (!isSettingsRuntimeContextCurrent(context)) return;
+    releaseDeferredSettingsWrites(loadedSettings, context);
     let settings = overlayPendingChanges(_settingsMutationTracker.reconcile(loadedSettings, operation));
     await waitForHydration();
     if (!isSettingsRuntimeContextCurrent(context)) return;
@@ -2185,8 +2221,9 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
   _settingsFlushTimer = null;
   _settingsFlushWaiters = [];
   try {
-    if (!changes || !context || Object.keys(changes).length === 0 || !isSettingsRuntimeContextCurrent(context)) {
-      // Nothing will be written — clear any pending "Saving…" indicator.
+    if (!changes || !context || Object.keys(changes).length === 0 || !isSettingsRuntimeContextCurrent(context)
+      || areSettingsWritesDeferred(context)) {
+      // Nothing will be written (a pre-load flush drops startup defaults) — clear any pending "Saving…" indicator.
       dispatchSettingsSaveState('saved');
       return;
     }
@@ -2292,16 +2329,18 @@ export const updateDesktopSettings = async (changes: Partial<DesktopSettings>,
   }
   _pendingSettingsChanges = { ...(_pendingSettingsChanges ?? {}), ...changes };
   _pendingSettingsContext = context;
+  const flushed = new Promise<void>((resolve) => {
+    _settingsFlushWaiters.push(resolve);
+  });
+  _settingsFlushPromises.add(flushed);
+  // Untracked while deferred: the settings load must not wait for these writes.
+  if (areSettingsWritesDeferred(context)) return flushed;
   _pendingSettingsRevision = _settingsMutationTracker.record(changes);
   dispatchSettingsSaveState('saving');
 
   if (_settingsFlushTimer) {
     clearTimeout(_settingsFlushTimer);
   }
-  const flushed = new Promise<void>((resolve) => {
-    _settingsFlushWaiters.push(resolve);
-  });
-  _settingsFlushPromises.add(flushed);
   _settingsFlushTimer = setTimeout(() => void _flushSettingsUpdate(), SETTINGS_DEBOUNCE_MS);
   return trackSettingsOperation(flushed, context, true);
 };
