@@ -66,7 +66,7 @@ const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDr
 spyOn(sync, 'useSessionDirectory').mockImplementation(id => useSessionUIStore(s => id ? s.getDirectoryForSession(id) ?? undefined : undefined));
 await sleep(0); await bootstrap.restore(); bootstrapFetch.mockRestore();
 
-export async function mountedNativeComposer(persistChatDraft: boolean, existingDom?: ReturnType<typeof nativeComposerDom>, extraContent?: React.ReactNode, body?: (fixture: ReturnType<typeof nativeDraftFixture>) => React.ReactNode) {
+export async function mountedNativeComposer(persistChatDraft: boolean, existingDom?: ReturnType<typeof nativeComposerDom>, extraContent?: React.ReactNode, body?: (fixture: ReturnType<typeof nativeDraftFixture>) => React.ReactNode, coldStart?: (fixture: ReturnType<typeof nativeDraftFixture>) => void) {
   const dom = existingDom ?? nativeComposerDom(), fixture = nativeDraftFixture();
   const initialUI = useUIStore.getState(), initialInline = useInlineCommentDraftStore.getState();
   errors.length = 0;
@@ -78,7 +78,8 @@ export async function mountedNativeComposer(persistChatDraft: boolean, existingD
   await useConfigStore.getState().activateDirectory(directory);
   useInputStore.setState({ pendingInputText: null });
   useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, initialPrompt: undefined } }));
-  await prepareNativeDraft();
+  if (coldStart) coldStart(fixture);
+  else await prepareNativeDraft();
   const root = createRoot(dom.container);
   let epoch = 0;
   const render = () => root.render(<I18nProvider key={epoch}>{body ? body(fixture) : <ChatInput />}{extraContent}</I18nProvider>);
