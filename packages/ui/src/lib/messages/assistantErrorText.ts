@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { isLikelyProviderAuthFailure, PROVIDER_AUTH_FAILURE_MESSAGE } from './providerAuthError';
 
+// Each field falls back on its own: one malformed field must not hide the others' detail.
+const optionalString = z.string().optional().catch(undefined);
 const assistantErrorSchema = z.object({
-  name: z.string().optional(),
-  message: z.string().optional(),
-  data: z.object({ message: z.string().optional() }).loose().optional(),
+  name: optionalString,
+  message: optionalString,
+  data: z.object({ message: optionalString }).loose().optional().catch(undefined),
 }).loose();
 
 /** The notice shown in place of an assistant turn that ended with an error; undefined when there is none. */
