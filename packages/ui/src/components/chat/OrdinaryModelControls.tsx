@@ -9,6 +9,7 @@ import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ord
 import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
+import { PiVoiceControl } from './PiVoiceControl';
 
 export type OrdinaryModelTarget = { sessionId: string; directory: string };
 type Option = { key: string; providerID: string; modelID: string; name: string; levels: string[] };
@@ -99,6 +100,7 @@ export function OrdinaryModelControls({ state, target, className }: {
           </SelectContent>
         </Select>
       ) : <span className="model-controls__variant-label whitespace-nowrap">{effortLabel}</span>}
+      {target ? <PiVoiceControl sessionId={target.sessionId} directory={target.directory} /> : null}
     </div>
   );
 }
