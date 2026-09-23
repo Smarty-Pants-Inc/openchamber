@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,19 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  const catalogReloads = historical.files.filter(entry => entry.catalogReloadSha256);
+  assert.deepEqual(catalogReloads.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
+  for (const entry of catalogReloads) {
+    assert.equal(entry.catalogReloadSource, '3eab4037a0e985b83258c2c0e473ae79a30cf1fb');
+    assert.equal(entry.catalogReloadSha256, '9933bb3e24f8b2fe7fc2c4360966c570ff4249da492dfb320b81798e5ce37473');
+    assert.equal(entry.preCatalogReloadCombinedSha256, entry.persistedTargetSha256);
+    assert.ok(entry.catalogReloadNote);
+    entry.combinedSha256 = entry.preCatalogReloadCombinedSha256;
+    delete entry.preCatalogReloadCombinedSha256;
+    delete entry.catalogReloadSha256;
+    delete entry.catalogReloadSource;
+    delete entry.catalogReloadNote;
+  }
   const sessionVoice = historical.files.filter(entry => entry.sessionVoiceSha256);
   assert.deepEqual(sessionVoice.map(entry => entry.path).sort(), paths.filter(path => path.includes('/i18n/messages/') || path.endsWith('/server/index.js')).sort());
   assert.equal(historical.sessionVoiceSource, '02e0e00b05a72bc9055f9363184dd28ff982682e');

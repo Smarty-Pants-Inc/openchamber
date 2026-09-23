@@ -537,6 +537,8 @@ VS Code intentionally has no managed Chats mode. It neither reads nor writes the
 
 For an implicit open, a recorded project that resolves in the current project view takes priority over a different startup directory, including before managed catalog admission. Explicit project or directory requests still take priority. This restores intent; it does not admit a project or bypass managed membership checks.
 
+After a reload the remembered project may not be in the cached project view yet (it can come only from the managed catalog). The automatic open then waits as a Chat draft, keeps the recorded target, and skips stale-directory recovery. When the catalog publishes, the draft moves to the remembered project if the catalog admits it; otherwise it moves to the active or first member as before. The composer re-checks native creation support at that point, because a check refused before admission would otherwise stay unavailable.
+
 `null` is what a record written before `target` existed reads as, and it leaves the Chat default in place rather than guessing a side from the directory. A recorded project that no longer exists falls back to Chat the same way. Only a picker choice writes `"chat"` or `"project"`.
 
 A session's own directory is not a target choice. "New session in the current directory" forwards the current session's directory even when that session is a managed chat, and a chat scratch directory names no project, so those overrides resolve to a chat draft. Treating one as an explicit project target is how a plus pressed inside a chat opened a project draft.
