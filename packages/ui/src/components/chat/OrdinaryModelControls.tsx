@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { modelVariantNames } from '@/lib/modelVariants';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
-import { useConfigStore } from '@/stores/useConfigStore';
+import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
 
@@ -19,11 +19,12 @@ const optionKey = (providerID: string, modelID: string) => JSON.stringify([provi
  * The selected native session's live model/effort. With a target, each choice asks the
  * native session to switch; the display changes only when the session reports it.
  */
-export function OrdinaryModelControls({ state, target, onApplied, className }: {
-  state: OrdinaryModelState; target?: OrdinaryModelTarget; onApplied?: (applied: OrdinaryModelState) => void; className?: string;
+export function OrdinaryModelControls({ state, target, className }: {
+  state: OrdinaryModelState; target?: OrdinaryModelTarget; className?: string;
 }) {
   const { t } = useI18n();
-  const providers = useConfigStore(s => s.providers);
+  // A chat column may show a session from a project that is not the active one.
+  const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));
   const loadProviders = useConfigStore(s => s.loadProviders);
   const [busy, setBusy] = React.useState(false);
   const options = React.useMemo<Option[]>(() => providers.flatMap(provider => provider.models.map(model => ({
@@ -48,14 +49,17 @@ export function OrdinaryModelControls({ state, target, onApplied, className }: {
     if (!target || !state.generation || busy) return;
     setBusy(true);
     try {
-      const applied = await opencodeClient.setOrdinaryModel(target.sessionId, target.directory,
-        { generation: state.generation, ...change });
-      // The native journal gained model/effort entries, so the accepted history view must be re-read before sending.
-      await getImperativeSessionMessageLoader()?.refreshOrdinaryView({ directory: target.directory, sessionID: target.sessionId });
-      onApplied?.(applied);
+      await opencodeClient.setOrdinaryModel(target.sessionId, target.directory, { generation: state.generation, ...change });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('common.unavailable'));
-    } finally { setBusy(false); }
+      setBusy(false);
+      return;
+    }
+    // The switch is applied; the display follows the session's own report. The native journal gained
+    // model/effort entries, so re-read the accepted history view. The loader keeps its own failure state.
+    await getImperativeSessionMessageLoader()?.refreshOrdinaryView({ directory: target.directory, sessionID: target.sessionId })
+      .catch(() => undefined);
+    setBusy(false);
   };
 
   return (

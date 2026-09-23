@@ -328,20 +328,27 @@ export const ModelControls: React.FC<ModelControlsProps> = (props) => {
     // Keep ordinary state ahead of all historical, saved and directory-wide choices.
     if (ordinary !== undefined) {
         const target = session && sessionId ? { sessionId, directory: session.directory } : undefined;
-        return <OrdinaryModelControls state={ordinary} target={target} className={props.className} />;
+        return <OrdinaryModelControls key={sessionId} state={ordinary} target={target} className={props.className} />;
     }
     return <ConfiguredModelControls {...props} />;
 };
 
-/** A created, unsent ordinary draft: live native state, and a switch also changes the model the draft sends. */
+/**
+ * A Code-created ordinary session. An unsent draft sends the model the live native session reports,
+ * however it changed (this picker, the TUI, or an uncertain switch that still applied).
+ */
 export const NativeDraftModelControls: React.FC<{ session: NativeCreatedSession; className?: string }> = ({ session: created, className }) => {
     const live = useSession(created.id, created.directory);
     const ordinary = React.useMemo(() => readOrdinaryModel(live ?? created), [live, created]);
+    React.useEffect(() => {
+        const liveModel = live ? readOrdinaryModel(live)?.model : undefined, sent = created.nativeCreation.model;
+        if (liveModel && (liveModel.providerID !== sent.providerID || liveModel.modelID !== sent.modelID)) {
+            applyNativeDraftModel(created, { providerID: liveModel.providerID, modelID: liveModel.modelID });
+        }
+    }, [created, live]);
     if (!ordinary) return null;
-    return <OrdinaryModelControls state={ordinary} target={{ sessionId: created.id, directory: created.directory }}
-        onApplied={applied => {
-            if (applied.model) applyNativeDraftModel(created, { providerID: applied.model.providerID, modelID: applied.model.modelID });
-        }} className={className} />;
+    return <OrdinaryModelControls key={created.id} state={ordinary} target={{ sessionId: created.id, directory: created.directory }}
+        className={className} />;
 };
 
 const ConfiguredModelControls: React.FC<ModelControlsProps> = ({

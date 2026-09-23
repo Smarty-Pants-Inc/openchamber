@@ -5,6 +5,7 @@ import { Window } from 'happy-dom';
 import { create } from 'zustand';
 import type { Session } from '@opencode-ai/sdk/v2';
 import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
+import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 
 /**
  * Restoring a session must not invent an effort choice.
@@ -206,7 +207,7 @@ mock.module('@/lib/messages/userModelChoice', () => ({
   ),
 }));
 
-mock.module('@/stores/useConfigStore', () => ({ useConfigStore }));
+mock.module('@/stores/useConfigStore', () => ({ useConfigStore, selectProvidersForDirectory: (state: ConfigState) => state.providers }));
 mock.module('@/sync/selection-store', () => ({ useSelectionStore }));
 mock.module('@/sync/session-ui-store', () => ({ useSessionUIStore }));
 mock.module('@/stores/useUIStore', () => ({ useUIStore }));
@@ -282,9 +283,13 @@ mock.module('@/sync/session-message-loader', () => ({
   getImperativeSessionMessageLoader: () => ({ refreshOrdinaryView: async (target: HistoryTarget) => { viewRefreshes.push(target); } }),
 }));
 
-mock.module('@/sync/native-draft-creation', () => ({ applyNativeDraftModel: () => undefined }));
+type DraftModel = { providerID: string; modelID: string };
+const draftModels: DraftModel[] = [];
+mock.module('@/sync/native-draft-creation', () => ({
+  applyNativeDraftModel: (_created: NativeCreatedSession, model: DraftModel) => { draftModels.push(model); },
+}));
 
-const { ModelControls } = await import('./ModelControls');
+const { ModelControls, NativeDraftModelControls } = await import('./ModelControls');
 const { I18nProvider } = await import('@/lib/i18n');
 
 const DOM_GLOBAL_NAMES = [
@@ -477,7 +482,7 @@ describe('ordinary selected-session controls', () => {
     useSessionUIStore.setState({ currentSessionId: 'B' });
     useNativeSessions.setState({ sessions: { B: nativeSession() } });
     useConfigStore.setState({ currentProviderId: PROVIDER_ID, currentModelId: MODEL_ID });
-    providerLoads.length = 0; modelChanges.length = 0; viewRefreshes.length = 0; toastErrors.length = 0;
+    providerLoads.length = 0; modelChanges.length = 0; viewRefreshes.length = 0; toastErrors.length = 0; draftModels.length = 0;
     modelChangeResult = async () => unchanged;
   });
 
@@ -577,6 +582,26 @@ describe('ordinary selected-session controls', () => {
       expect(toastErrors).toEqual(['Native model change refused; nothing was applied']);
       expect(viewRefreshes).toEqual([]);
     } finally { await cleanup(); }
+  });
+
+  test('an unsent draft follows the live native model however it changed', async () => {
+    const live = { ...nativeSession(), id: '01234567-1234-4234-9234-012345678901' };
+    const created: NativeCreatedSession = { ...live,
+      nativeCreation: { model: { providerID: 'fixture-b', modelID: 'live-b' }, inputReady: true } };
+    useNativeSessions.setState({ sessions: { [created.id]: live } });
+    const dom = installDom();
+    const root = createRoot(dom.container);
+    try {
+      await act(async () => root.render(<I18nProvider><NativeDraftModelControls session={created} /></I18nProvider>));
+      expect(draftModels).toEqual([]);
+      const switched = nativeSession('B', 'tui-b', 2); // Changed in the TUI, not through this picker.
+      await act(async () => useNativeSessions.setState({ sessions: { [created.id]: { ...switched, id: created.id } } }));
+      expect(draftModels).toEqual([{ providerID: 'fixture-b', modelID: 'tui-b' }]);
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('tui-b');
+    } finally {
+      await act(async () => root.unmount());
+      dom.restore();
+    }
   });
 
   test('a live model outside the loaded catalog stays read-only and re-reads the project catalog', async () => {
