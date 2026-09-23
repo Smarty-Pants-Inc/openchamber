@@ -124,10 +124,12 @@ describe("useProjectsStore default model and thinking level", () => {
 
 describe("useProjectsStore.addProjects", () => {
   const resetProjects = () => {
+    // Add requires an affirmatively stock catalog (#126 item 8).
     useProjectsStore.setState({
       projects: [],
       activeProjectId: null,
       manualProjectOrder: [],
+      managedCatalogStatus: "stock",
     })
   }
 

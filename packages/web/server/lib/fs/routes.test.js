@@ -1506,3 +1506,87 @@ describe('fs managed chats root', () => {
     expect(res.body).toEqual({ error: 'Path is outside of active workspace' });
   });
 });
+
+// OC91 review finding 2 and #126 item 8: mkdir cannot leave its workspace through a symbolic
+// link, and a managed catalog never uses the saved-settings fallback as a base.
+describe('fs mkdir canonical containment', () => {
+  let root;
+  beforeEach(async () => {
+    const fsPromises = await import('node:fs/promises');
+    const os = await import('node:os');
+    root = await fsPromises.realpath(await fsPromises.mkdtemp(path.join(os.tmpdir(), 'oc-mkdir-')));
+    await fsPromises.mkdir(path.join(root, 'project'), { recursive: true });
+    await fsPromises.mkdir(path.join(root, 'outside'), { recursive: true });
+    await fsPromises.symlink(path.join(root, 'outside'), path.join(root, 'project', 'link'));
+  });
+  afterEach(async () => {
+    const fsPromises = await import('node:fs/promises');
+    await fsPromises.rm(root, { recursive: true, force: true });
+  });
+
+  const register = async (env = {}) => {
+    const fsPromises = (await import('node:fs/promises')).default;
+    const { app, getRoute } = createRouteRegistry();
+    // The saved-settings fallback points at the project; managed mode must not use it.
+    const { resolveProjectDirectory } = createProjectDirectoryRuntime({
+      fsPromises,
+      path,
+      normalizeDirectoryPath: (p) => p,
+      readSettingsFromDiskMigrated: async () => ({ lastDirectory: path.join(root, 'project') }),
+      sanitizeProjects: (projects) => projects,
+    });
+    registerFsRoutes(app, {
+      os: { homedir: () => root },
+      path,
+      fsPromises,
+      spawn: vi.fn(),
+      crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: (p) => p,
+      resolveProjectDirectory,
+      resolveGitBinaryForSpawn: () => 'git',
+      openchamberUserConfigRoot: path.join(root, 'config'),
+      env,
+    });
+    return getRoute('POST', '/api/fs/mkdir');
+  };
+  const call = async (handler, target, directory) => {
+    const res = createMockResponse();
+    const headers = directory ? { 'x-opencode-directory': directory } : {};
+    await handler({ body: { path: target }, query: {}, get: (name) => headers[name.toLowerCase()] }, res);
+    return res;
+  };
+  const exists = async (target) => (await import('node:fs/promises')).stat(target).then(() => true, () => false);
+
+  it('refuses a symbolic-link parent that points outside and creates nothing', async () => {
+    const mkdir = await register();
+    const res = await call(mkdir, path.join(root, 'project', 'link', 'new'));
+    expect(res.statusCode).toBe(403);
+    expect(await exists(path.join(root, 'outside', 'new'))).toBe(false);
+  });
+
+  it('still creates nested folders inside the project and the chats root', async () => {
+    const mkdir = await register();
+    expect((await call(mkdir, path.join(root, 'project', 'a', 'b'))).statusCode).toBe(200);
+    expect((await call(mkdir, path.join(root, 'config', 'chats', '2026-09-23', 'session-a'))).statusCode).toBe(200);
+    expect(await exists(path.join(root, 'project', 'a', 'b'))).toBe(true);
+    expect(await exists(path.join(root, 'config', 'chats', '2026-09-23', 'session-a'))).toBe(true);
+  });
+
+  it('managed: refuses without an explicit directory except inside the chats root', async () => {
+    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' });
+    const refused = await call(mkdir, path.join(root, 'project', 'fallback'));
+    expect(refused.statusCode).toBe(403);
+    expect(refused.body.error).toContain('managed project catalog');
+    expect(await exists(path.join(root, 'project', 'fallback'))).toBe(false);
+    expect((await call(mkdir, path.join(root, 'config', 'chats', 'session-b'))).statusCode).toBe(200);
+  });
+
+  it('managed: allows an explicit project directory but not a symbolic-link escape from it', async () => {
+    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' });
+    const project = path.join(root, 'project');
+    expect((await call(mkdir, path.join(project, 'explicit'), project)).statusCode).toBe(200);
+    expect(await exists(path.join(project, 'explicit'))).toBe(true);
+    expect((await call(mkdir, path.join(project, 'link', 'escape'), project)).statusCode).toBe(403);
+    expect(await exists(path.join(root, 'outside', 'escape'))).toBe(false);
+  });
+});

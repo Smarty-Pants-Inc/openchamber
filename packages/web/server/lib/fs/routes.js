@@ -1,4 +1,5 @@
 import { createRealpathCache } from '../path-realpath-cache.js';
+import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-catalog-guard.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 
@@ -218,6 +219,28 @@ const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDi
   }
 
   return { ok: false, error: 'Path is outside of active workspace' };
+};
+
+// The same inputs resolveProjectDirectory reads before it falls back to saved settings.
+const hasExplicitProjectDirectory = (req) => Boolean(req.get('x-opencode-directory') || req.query?.directory);
+
+// Real path of the nearest existing ancestor plus the tail that does not exist yet (the tail
+// cannot contain a symbolic link). Null when an existing entry cannot be resolved, for example
+// a dangling symbolic link.
+const canonicalizeForCreate = async (target, { fsPromises, path }) => {
+  let existing = target;
+  for (;;) {
+    try {
+      const real = await fsPromises.realpath(existing);
+      return path.join(real, path.relative(existing, target));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      if (await fsPromises.lstat(existing).then(() => true, () => false)) return null;
+      const parent = path.dirname(existing);
+      if (parent === existing) return null;
+      existing = parent;
+    }
+  }
 };
 
 const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath }) => {
@@ -525,6 +548,7 @@ export const registerFsRoutes = (app, dependencies) => {
     resolveGitBinaryForSpawn,
     openchamberUserConfigRoot,
     managedChatsRoot,
+    env = process.env,
   } = dependencies;
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
@@ -724,12 +748,18 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Path is required' });
       }
 
-      let resolvedPath = '';
       if (allowOutsideWorkspace) {
         console.warn('Rejected outside-workspace mkdir without trusted directory grant');
         return res.status(403).json({ error: 'Outside workspace directory creation requires a grant' });
-      } else {
-        const resolved = await resolveWorkspacePathFromContext({
+      }
+      // Managed catalog: only an explicit project directory is a base, never the saved
+      // lastDirectory/activeProjectId fallback (#126 item 8). Chat creation sends no directory,
+      // so without one the chats root is the only valid target.
+      const chatsOnly = isManagedCatalog(env) && !hasExplicitProjectDirectory(req);
+      const roots = chatsOnly ? [chatsRoot] : managedRoots;
+      const resolved = chatsOnly
+        ? resolveWorkspacePath({ targetPath: dirPath, baseDirectory: chatsRoot, path, os, normalizeDirectoryPath, managedRoots: [] })
+        : await resolveWorkspacePathFromContext({
           req,
           targetPath: dirPath,
           resolveProjectDirectory,
@@ -738,10 +768,22 @@ export const registerFsRoutes = (app, dependencies) => {
           normalizeDirectoryPath,
           managedRoots,
         });
-        if (!resolved.ok) {
-          return res.status(400).json({ error: resolved.error });
-        }
-        resolvedPath = resolved.resolved;
+      if (!resolved.ok) {
+        return chatsOnly
+          ? res.status(403).json({ error: MANAGED_CATALOG_REFUSAL })
+          : res.status(400).json({ error: resolved.error });
+      }
+      const resolvedPath = resolved.resolved;
+
+      // Lexical containment is not enough: an existing symbolic link on the way could point
+      // anywhere. The canonical target must stay inside the canonical base it was admitted under
+      // (project, worktree or managed root) or a canonical managed root.
+      const canonicalTarget = await canonicalizeForCreate(resolvedPath, { fsPromises, path });
+      const canonicalRoots = await Promise.all([resolved.base, ...roots]
+        .map((root) => canonicalizeForCreate(root, { fsPromises, path })));
+      if (!canonicalTarget || !canonicalRoots.some((root) => root && isPathWithinRoot(canonicalTarget, root, path, os))) {
+        console.warn('Rejected mkdir that leaves its workspace through a symbolic link');
+        return res.status(403).json({ error: 'Path leaves the workspace through a symbolic link' });
       }
 
       await fsPromises.mkdir(resolvedPath, { recursive: true });

@@ -1,5 +1,6 @@
 import { createProjectIdFromPath } from '../projects/project-id.js';
 import { assertSettingsPrecondition, createSettingsRevision } from './settings-revision.js';
+import { isManagedCatalog } from './managed-catalog-guard.js';
 
 const DEFAULT_NOTIFICATION_TEMPLATES = {
   completion: { title: '{agent_name} is ready', message: '{model_name} completed the task' },
@@ -46,6 +47,7 @@ export const createSettingsRuntime = (deps) => {
     syncManagedRemoteTunnelConfigWithPresets,
     upsertManagedRemoteTunnelToken,
     onSettingsChanged = null,
+    env = process.env,
   } = deps;
 
   // This queue serializes this process's settings owner. It does not provide
@@ -648,7 +650,8 @@ export const createSettingsRuntime = (deps) => {
 
     let changed = false;
 
-    if (nextProjects.length === 0) {
+    // A managed catalog never registers a project from a saved lastDirectory (#126 item 8).
+    if (nextProjects.length === 0 && !isManagedCatalog(env)) {
       const legacy = typeof settings.lastDirectory === 'string' ? settings.lastDirectory.trim() : '';
       const candidate = legacy ? resolveDirectoryCandidate(legacy) : null;
 

@@ -54,6 +54,20 @@ describe('settings runtime', () => {
     }
   });
 
+  // #126 item 8: a managed catalog never turns a saved lastDirectory into a project.
+  for (const [mode, env, count] of [['stock', {}, 1], ['managed', { OPENCHAMBER_MANAGED_CATALOG: '1' }, 0]]) {
+    it(`legacy lastDirectory migration registers ${count} project(s) in ${mode} mode`, async () => {
+      const { runtime, settingsFilePath, tempRoot, cleanup } = await createRuntime({ env });
+      try {
+        await fsPromises.writeFile(settingsFilePath, JSON.stringify({ lastDirectory: tempRoot }), 'utf8');
+        const settings = await runtime.readSettingsFromDiskMigrated();
+        expect(settings.projects ?? []).toHaveLength(count);
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+
   it('preserves existing theme preferences during theme migration', async () => {
     const { runtime, settingsFilePath, cleanup } = await createRuntime();
     try {

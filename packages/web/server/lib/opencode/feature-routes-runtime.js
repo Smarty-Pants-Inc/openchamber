@@ -26,6 +26,7 @@ import { registerPluginRoutes } from './plugin-routes.js';
 import { getNpmInfo, clearCache as clearNpmCache } from './npm-registry.js';
 import { parseNpmSpec, parsePathSpec, isExactSemver } from './plugin-spec.js';
 import { registerOpenCodeRoutes } from './routes.js';
+import { registerManagedCatalogGuard } from './managed-catalog-guard.js';
 import { getProviderSources, removeProviderConfig, upsertProviderConfig } from './providers.js';
 import { getAgentSources, getAgentConfig, createAgent, updateAgent, deleteAgent } from './agents.js';
 import { getCommandSources, createCommand, updateCommand, deleteCommand } from './commands.js';
@@ -137,6 +138,9 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       permissionAutoAcceptRuntime,
       messageQueueRuntime,
     } = routeDependencies;
+
+    // First, so managed refusals precede the project, settings and filesystem routes below.
+    registerManagedCatalogGuard(app, { readSettingsFromDisk, sanitizeProjects });
 
     registerSettingsUtilityRoutes(app, {
       readCustomThemesFromDisk,

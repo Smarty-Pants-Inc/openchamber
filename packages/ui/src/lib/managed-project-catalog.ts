@@ -47,23 +47,35 @@ export function managedActiveProject(projects: readonly ProjectEntry[], active: 
 
 const trimSlashes = (path: string) => path.length > 1 ? path.replace(/\/+$/, '') : path;
 
-/** Name a saved selection (active project, else last directory) that the live catalog does not admit. */
+/** A saved selection the live catalog does not admit: its raw identity and a display name. */
+type StaleManagedSelection = { identity: string; name: string };
+
+/** Check the saved pointers (active project, else last directory), never the presentation selection. */
 export function staleManagedSelection(live: readonly ProjectEntry[], saved: readonly ProjectEntry[],
-  activeProjectId: string | null, lastDirectory: string | null): string | null {
+  activeProjectId: string | null, lastDirectory: string | null): StaleManagedSelection | null {
   if (activeProjectId && !live.some(project => project.id === activeProjectId)) {
     const project = saved.find(entry => entry.id === activeProjectId);
-    return project?.label || project?.path || activeProjectId;
+    return { identity: `project:${activeProjectId}`, name: project?.label || project?.path || activeProjectId };
   }
   if (!lastDirectory) return null;
   const path = trimSlashes(lastDirectory);
-  return live.some(project => trimSlashes(project.path) === path) ? null : path;
+  return live.some(project => trimSlashes(project.path) === path) ? null : { identity: `directory:${path}`, name: path };
 }
 
 const notedStaleSelections = new Set<string>();
-/** Tell the user once per saved selection that the view fell back; nothing is written to settings. */
-export function noteStaleManagedSelection(saved: string | null, shown: ProjectEntry | undefined) {
-  if (!saved || !shown || notedStaleSelections.has(saved)) return;
-  notedStaleSelections.add(saved);
-  toast.info(formatMessage(useI18nStore.getState().dictionary, 'projects.managedCatalog.staleSelection',
-    { saved, shown: shown.label || shown.path }));
+/** Tell the user once per runtime and saved identity that the view fell back; nothing is written.
+ * The note waits for the current turn so it names the final selection (session restoration included). */
+export function noteStaleManagedSelection(runtime: string, stale: StaleManagedSelection | null,
+  shown: () => ProjectEntry | undefined) {
+  if (!stale) return;
+  const key = `${runtime}\n${stale.identity}`;
+  if (notedStaleSelections.has(key)) return;
+  notedStaleSelections.add(key);
+  queueMicrotask(() => {
+    const project = shown();
+    // Nothing shown (empty catalog): no truthful note yet; a later publication may give one.
+    if (!project) { notedStaleSelections.delete(key); return; }
+    toast.info(formatMessage(useI18nStore.getState().dictionary, 'projects.managedCatalog.staleSelection',
+      { saved: stale.name, shown: project.label || project.path }));
+  });
 }

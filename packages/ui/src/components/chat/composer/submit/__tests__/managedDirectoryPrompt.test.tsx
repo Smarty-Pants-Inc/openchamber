@@ -44,9 +44,17 @@ for (const outcome of ['member', 'empty', 'stock'] as const) test(`initial direc
     await act(async () => { sessionEvents.requestDirectoryDialog(); await sleep(0); });
     expect(prompt()).toBeNull();
   }
-  // The initial-prompt gate never blocks an explicit user Add request, including while loading.
+  // An explicit Add request opens only on an affirmatively stock catalog. While discovery is
+  // unknown the runtime may still be managed, and a dialog opened then could create a folder
+  // and register a project before admission arrives (#126 item 8, OC91 review P1-1).
   await act(async () => {
     useProjectsStore.getState().resetManagedCatalog();
+    sessionEvents.requestDirectoryDialog();
+    await sleep(0);
+  });
+  expect(prompt()).toBeNull();
+  await act(async () => {
+    useProjectsStore.setState({ managedCatalogStatus: 'stock' });
     sessionEvents.requestDirectoryDialog();
     await sleep(0);
   });

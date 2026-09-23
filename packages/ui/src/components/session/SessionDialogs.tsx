@@ -21,7 +21,7 @@ import { getWorktreeDisplayName, removeProjectWorktree } from '@/lib/worktrees/w
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { canAddProjects, useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -209,7 +209,8 @@ export const SessionDialogs: React.FC = () => {
 
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {
-            if (useProjectsStore.getState().managedCatalogAdmitted) return;
+            // Only an affirmatively stock catalog (or VS Code) offers add; see canAddProjects (#126 item 8).
+            if (!canAddProjects(useProjectsStore.getState())) return;
             setIsDirectoryDialogOpen(true);
         });
     }, []);
