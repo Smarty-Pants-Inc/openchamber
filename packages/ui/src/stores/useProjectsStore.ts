@@ -635,7 +635,14 @@ export const useProjectsStore = create<ProjectsStore>()(
     managedCatalogStatus: 'unknown',
     managedRows: null,
     managedProjects: null,
-    admitManagedCatalog: () => set({ managedCatalogAdmitted: true }),
+    admitManagedCatalog: () => {
+      set({ managedCatalogAdmitted: true });
+      // First marker: deny every directory until rows are published, and leave the pre-discovery
+      // scope unselected. Later markers keep the rows already admitted (#126 item 8).
+      if (useDirectoryStore.getState().managedDirectories !== null) return;
+      useDirectoryStore.setState({ managedDirectories: [] });
+      if (useDirectoryStore.getState().currentDirectory) selectManagedDirectory(undefined);
+    },
     resetManagedCatalog: () => {
       set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
       useDirectoryStore.setState({ managedDirectories: null });

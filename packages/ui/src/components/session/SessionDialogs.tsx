@@ -25,6 +25,7 @@ import { canAddProjects, useProjectsStore, visibleProjects } from '@/stores/useP
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { resolveProjectAddAllowed } from '@/lib/managed-project-add';
 import { useI18n } from '@/lib/i18n';
 import { isVSCodeRuntime } from '@/lib/desktop';
 
@@ -210,10 +211,20 @@ export const SessionDialogs: React.FC = () => {
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {
             // Only an affirmatively stock catalog (or VS Code) offers add; see canAddProjects (#126 item 8).
-            if (!canAddProjects(useProjectsStore.getState())) return;
-            setIsDirectoryDialogOpen(true);
+            if (canAddProjects(useProjectsStore.getState())) {
+                setIsDirectoryDialogOpen(true);
+                return;
+            }
+            if (useProjectsStore.getState().managedCatalogAdmitted) return;
+            // Discovery is unresolved: retry it, then open only on a stock answer.
+            void resolveProjectAddAllowed().then((allowed) => {
+                if (allowed) setIsDirectoryDialogOpen(true);
+                else if (!useProjectsStore.getState().managedCatalogAdmitted) {
+                    toast.info(t('sessions.sidebar.dialogs.deleteResult.tryAgain'));
+                }
+            });
         });
-    }, []);
+    }, [t]);
 
     React.useEffect(() => {
         if (!deleteDialog) {

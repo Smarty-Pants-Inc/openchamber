@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mintOutsideFileGrant, registerFsRoutes } from './routes.js';
 import { createProjectDirectoryRuntime } from '../opencode/project-directory-runtime.js';
+import { createManagedCatalogReader } from '../opencode/managed-catalog-reader.js';
 
 const createRouteRegistry = () => {
   const routes = new Map();
@@ -1524,8 +1525,15 @@ describe('fs mkdir canonical containment', () => {
     await fsPromises.rm(root, { recursive: true, force: true });
   });
 
-  const register = async (env = {}) => {
+  // Live managed rows as the gateway reports them; `null` means the catalog read fails.
+  const gateway = (rows) => async () => (rows === null
+    ? new Response('down', { status: 502 })
+    : Response.json(rows.map((worktree) => ({ id: worktree, worktree })), { headers: { 'x-smarty-code-catalog': 'managed-v1' } }));
+  const register = async (env = {}, liveRows) => {
     const fsPromises = (await import('node:fs/promises')).default;
+    const reader = liveRows === undefined ? undefined : createManagedCatalogReader({
+      buildOpenCodeUrl: (route) => `http://gateway${route}`, getOpenCodeAuthHeaders: () => ({}), fetch: gateway(liveRows),
+    });
     const { app, getRoute } = createRouteRegistry();
     // The saved-settings fallback points at the project; managed mode must not use it.
     const { resolveProjectDirectory } = createProjectDirectoryRuntime({
@@ -1546,6 +1554,7 @@ describe('fs mkdir canonical containment', () => {
       resolveGitBinaryForSpawn: () => 'git',
       openchamberUserConfigRoot: path.join(root, 'config'),
       env,
+      isLiveManagedDirectory: reader?.isLiveDirectory,
     });
     return getRoute('POST', '/api/fs/mkdir');
   };
@@ -1581,12 +1590,27 @@ describe('fs mkdir canonical containment', () => {
     expect((await call(mkdir, path.join(root, 'config', 'chats', 'session-b'))).statusCode).toBe(200);
   });
 
-  it('managed: allows an explicit project directory but not a symbolic-link escape from it', async () => {
-    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' });
+  it('managed: allows a live explicit directory but not a symbolic-link escape from it', async () => {
     const project = path.join(root, 'project');
+    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' }, [`${project}/`]);
     expect((await call(mkdir, path.join(project, 'explicit'), project)).statusCode).toBe(200);
     expect(await exists(path.join(project, 'explicit'))).toBe(true);
     expect((await call(mkdir, path.join(project, 'link', 'escape'), project)).statusCode).toBe(403);
     expect(await exists(path.join(root, 'outside', 'escape'))).toBe(false);
+  });
+
+  it('managed: an explicit directory that is not a live row admits nothing outside the chats root', async () => {
+    const project = path.join(root, 'project');
+    for (const liveRows of [[path.join(root, 'other')], null]) {
+      const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' }, liveRows);
+      // A supplied header is not admission: `/` (or the saved project) would contain anything.
+      for (const [target, directory] of [[path.join(root, 'outside', 'new'), '/'], [path.join(project, 'new'), project]]) {
+        const res = await call(mkdir, target, directory);
+        expect(res.statusCode).toBe(403);
+        expect(res.body.error).toContain('managed project catalog');
+        expect(await exists(target)).toBe(false);
+      }
+      expect((await call(mkdir, path.join(root, 'config', 'chats', 'session-c'), '/')).statusCode).toBe(200);
+    }
   });
 });

@@ -16,6 +16,7 @@ let projectRead = async () => ({ response: response(), data: [row] });
 let sessionRead = async () => [{ directory: '/allowed/a' }];
 const projectState = {
   get managedCatalogAdmitted() { return admitted; },
+  get managedCatalogStatus() { return status; },
   admitManagedCatalog() { admitted = true; },
   resetManagedCatalog() { admitted = false; status = 'unknown'; publications = []; },
   applyManagedCatalog(rows: ManagedProject[]) { publications.push(rows); status = 'ready'; },
@@ -28,7 +29,9 @@ mock.module('@/lib/runtime-switch', () => ({
   isRuntimeRequestScopeCurrent: (scope: number) => scope === generation,
   subscribeRuntimeEndpointChanged: (callback: () => void) => { changed = callback; return () => {}; },
 }));
-mock.module('@/stores/useProjectsStore', () => ({ useProjectsStore: {
+mock.module('@/stores/useProjectsStore', () => ({
+  canAddProjects: (state: typeof projectState) => !state.managedCatalogAdmitted && state.managedCatalogStatus === 'stock',
+  useProjectsStore: {
   getState: () => projectState,
   setState: (patch: { managedCatalogStatus: string }) => { status = patch.managedCatalogStatus; },
 } }));
@@ -38,6 +41,7 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({ useGlobalSessionsStore: 
 mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: () => sessionRead() }));
 mock.module('@/stores/utils/vscodeRuntime', () => ({ isVSCodeRuntime: () => false }));
 const { refreshManagedProjects } = await import('./managed-project-refresh');
+const { resolveProjectAddAllowed } = await import('./managed-project-add');
 
 beforeEach(() => {
   generation++; changed(); sessionsPublished = 0;
@@ -126,4 +130,23 @@ test('fresh reconnect supersedes a held older sample without a second poller', a
   await refreshManagedProjects(true);
   held.resolve({ response: response(), data: [row] }); await older;
   expect(publications).toEqual([[]]); expect(sessionsPublished).toBe(1);
+});
+
+// An explicit Add while discovery is unresolved retries it and adds only on an affirmative stock answer.
+test('add request retries unresolved discovery and allows only stock', async () => {
+  projectRead = async () => { throw new Error('offline'); };
+  await refreshManagedProjects();
+  expect(status).toBe('unavailable');
+  expect(await resolveProjectAddAllowed()).toBe(false);
+  projectRead = async () => ({ response: response(false), data: [] });
+  expect(await resolveProjectAddAllowed()).toBe(true);
+  expect(status).toBe('stock');
+});
+
+test('add request refuses when the retry finds a managed catalog', async () => {
+  projectRead = async () => { throw new Error('offline'); };
+  await refreshManagedProjects();
+  projectRead = async () => ({ response: response(), data: [row] });
+  expect(await resolveProjectAddAllowed()).toBe(false);
+  expect(admitted).toBe(true);
 });

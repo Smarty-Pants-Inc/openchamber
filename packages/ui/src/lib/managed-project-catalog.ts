@@ -47,19 +47,27 @@ export function managedActiveProject(projects: readonly ProjectEntry[], active: 
 
 const trimSlashes = (path: string) => path.length > 1 ? path.replace(/\/+$/, '') : path;
 
-/** A saved selection the live catalog does not admit: its raw identity and a display name. */
-type StaleManagedSelection = { identity: string; name: string };
+/** A saved selection the live catalog does not admit: its identities and a display name. */
+type StaleManagedSelection = { identities: string[]; name: string };
+
+// One saved selection may arrive as a cached path first and as a settings project id later, so
+// it is keyed by its saved path (and that path's derived id) whenever the path is known.
+const pathIdentities = (path: string) => [`path:${path}`, `project:${createProjectIdFromPath(path)}`];
 
 /** Check the saved pointers (active project, else last directory), never the presentation selection. */
 export function staleManagedSelection(live: readonly ProjectEntry[], saved: readonly ProjectEntry[],
   activeProjectId: string | null, lastDirectory: string | null): StaleManagedSelection | null {
   if (activeProjectId && !live.some(project => project.id === activeProjectId)) {
     const project = saved.find(entry => entry.id === activeProjectId);
-    return { identity: `project:${activeProjectId}`, name: project?.label || project?.path || activeProjectId };
+    const identities = project ? [`project:${activeProjectId}`, ...pathIdentities(trimSlashes(project.path))]
+      : [`project:${activeProjectId}`];
+    return { identities, name: project?.label || project?.path || activeProjectId };
   }
   if (!lastDirectory) return null;
   const path = trimSlashes(lastDirectory);
-  return live.some(project => trimSlashes(project.path) === path) ? null : { identity: `directory:${path}`, name: path };
+  if (live.some(project => trimSlashes(project.path) === path)) return null;
+  const project = saved.find(entry => trimSlashes(entry.path) === path);
+  return { identities: pathIdentities(path), name: project?.label || path };
 }
 
 const notedStaleSelections = new Set<string>();
@@ -68,13 +76,13 @@ const notedStaleSelections = new Set<string>();
 export function noteStaleManagedSelection(runtime: string, stale: StaleManagedSelection | null,
   shown: () => ProjectEntry | undefined) {
   if (!stale) return;
-  const key = `${runtime}\n${stale.identity}`;
-  if (notedStaleSelections.has(key)) return;
-  notedStaleSelections.add(key);
+  const keys = stale.identities.map(identity => `${runtime}\n${identity}`);
+  if (keys.some(key => notedStaleSelections.has(key))) return;
+  for (const key of keys) notedStaleSelections.add(key);
   queueMicrotask(() => {
     const project = shown();
     // Nothing shown (empty catalog): no truthful note yet; a later publication may give one.
-    if (!project) { notedStaleSelections.delete(key); return; }
+    if (!project) { for (const key of keys) notedStaleSelections.delete(key); return; }
     toast.info(formatMessage(useI18nStore.getState().dictionary, 'projects.managedCatalog.staleSelection',
       { saved: stale.name, shown: project.label || project.path }));
   });

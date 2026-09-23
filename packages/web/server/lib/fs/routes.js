@@ -549,6 +549,8 @@ export const registerFsRoutes = (app, dependencies) => {
     openchamberUserConfigRoot,
     managedChatsRoot,
     env = process.env,
+    // Managed only: is this directory a live catalog row? Throws when the catalog cannot be read.
+    isLiveManagedDirectory = async () => false,
   } = dependencies;
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
@@ -752,10 +754,14 @@ export const registerFsRoutes = (app, dependencies) => {
         console.warn('Rejected outside-workspace mkdir without trusted directory grant');
         return res.status(403).json({ error: 'Outside workspace directory creation requires a grant' });
       }
-      // Managed catalog: only an explicit project directory is a base, never the saved
-      // lastDirectory/activeProjectId fallback (#126 item 8). Chat creation sends no directory,
-      // so without one the chats root is the only valid target.
-      const chatsOnly = isManagedCatalog(env) && !hasExplicitProjectDirectory(req);
+      // Managed catalog: only an explicit directory that is a live catalog row is a base, never the
+      // saved lastDirectory/activeProjectId fallback or a supplied header alone (#126 item 8). Chat
+      // creation sends no directory, so otherwise the chats root is the only valid target. A catalog
+      // read failure admits no base (fail closed).
+      const chatsOnly = isManagedCatalog(env) && !(hasExplicitProjectDirectory(req)
+        && await resolveProjectDirectory(req)
+          .then(({ directory }) => Boolean(directory) && isLiveManagedDirectory(directory))
+          .catch(() => false));
       const roots = chatsOnly ? [chatsRoot] : managedRoots;
       const resolved = chatsOnly
         ? resolveWorkspacePath({ targetPath: dirPath, baseDirectory: chatsRoot, path, os, normalizeDirectoryPath, managedRoots: [] })

@@ -38,7 +38,8 @@ const spies = () => {
 /** Record a saved active pointer through the stock owner, then forget that write. */
 const saveActive = (id: string, save: ReturnType<typeof spies>['save']) => {
   useProjectsStore.getState().setActiveProjectIdOnly(id);
-  save.mockClear();
+  save.mockReset();
+  save.mockResolvedValue(undefined);
 };
 const noteText = (note: ReturnType<typeof spies>['note']) => note.mock.calls.map(call => String(call[0]));
 
@@ -108,6 +109,43 @@ test('settings that arrive after admission are reconciled and noted', async () =
   await sleep(0);
   expect(useProjectsStore.getState().activeProjectId).toBe(createdId());
   expect(noteText(note)).toEqual(['Saved project Stale bookmark is not in the live catalog. Showing live.']);
+});
+
+test('a cached path and a later settings project for the same saved selection note once', async () => {
+  const { note } = spies();
+  storage.setItem('lastDirectory', saved.path);
+  useProjectsStore.getState().applyManagedCatalog([live]);
+  await sleep(0);
+  useProjectsStore.getState().synchronizeFromSettings({ projects: [saved], activeProjectId: saved.id, lastDirectory: saved.path });
+  await sleep(0);
+  expect(noteText(note)).toEqual(['Saved project Stale bookmark is not in the live catalog. Showing live.']);
+});
+
+test('an admitted saved active project is kept, not replaced by the first row', async () => {
+  const { note } = spies();
+  useProjectsStore.getState().applyManagedCatalog([live, other]);
+  const second = useProjectsStore.getState().managedProjects![1]!.id;
+  useProjectsStore.getState().setActiveProject(second);
+  useProjectsStore.getState().synchronizeFromSettings({ projects: [saved], activeProjectId: second, lastDirectory: other.worktree });
+  await sleep(0);
+  expect(useProjectsStore.getState().activeProjectId).toBe(second);
+  expect(note).not.toHaveBeenCalled();
+});
+
+test('the first managed marker denies every directory before rows are published', () => {
+  const { save } = spies();
+  useDirectoryStore.setState({ managedDirectories: null, currentDirectory: '/sandbox/old' });
+  useProjectsStore.getState().admitManagedCatalog();
+  // The pre-discovery scope is dropped, and delayed restoration during the session read is refused.
+  expect(useDirectoryStore.getState().currentDirectory).toBe('');
+  useDirectoryStore.getState().setDirectory('/sandbox/old');
+  expect(useDirectoryStore.getState().currentDirectory).toBe('');
+  expect(save).not.toHaveBeenCalled();
+  // A later marker (for example before a failed refresh) keeps the rows already admitted.
+  useProjectsStore.getState().applyManagedCatalog([live]);
+  useProjectsStore.getState().admitManagedCatalog();
+  expect(useDirectoryStore.getState().managedDirectories).toEqual([live.worktree]);
+  expect(useDirectoryStore.getState().currentDirectory).toBe(live.worktree);
 });
 
 test('a stale lastDirectory falls back with a note; an admitted one is silent', async () => {

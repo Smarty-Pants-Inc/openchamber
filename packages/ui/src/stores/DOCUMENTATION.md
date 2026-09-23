@@ -395,12 +395,19 @@ true only for an affirmatively stock catalog (`managedCatalogStatus ===
 'stock'`, not admitted) or in VS Code, which never runs catalog discovery.
 While the status is `unknown` or `unavailable`, or the catalog is admitted,
 `addProject` and `addProjects` return `null`/`[]` without a settings write,
-the directory-dialog request is ignored and the directory explorer (browse,
-folder creation, clone, add) does not render. Web, desktop and mobile reach
+the directory explorer (browse, folder creation, clone, add) does not render.
+An explicit Add request while discovery is `unknown` or `unavailable` retries
+discovery (`resolveProjectAddAllowed` in `lib/managed-project-add.ts`) and
+opens the dialog only on a `stock` answer from the same runtime; otherwise it
+shows a brief try-again toast. Web, desktop and mobile reach
 `stock` through `refreshManagedProjects` on the first sync connect. The server
 enforces the same boundary with `OPENCHAMBER_MANAGED_CATALOG=1`.
 
-While admitted, `useDirectoryStore.managedDirectories` holds the live rows.
+From the first managed marker (`admitManagedCatalog`, before the session
+listing is awaited) `useDirectoryStore.managedDirectories` is `[]`: every
+directory is denied and the pre-discovery selection is dropped until rows are
+published. Later markers and failed refreshes keep the rows already admitted.
+Once published, `managedDirectories` holds the live rows.
 `setDirectory`, history navigation and home restoration ignore any other
 target, so delayed startup restoration cannot replace the catalog's fallback
 or write a rejected `lastDirectory`. Bookmark edits persist `projects` only;
@@ -409,9 +416,12 @@ the presentation active project is never written as the saved pointer.
 When the saved active project (the cached pointer, or `activeProjectId` from
 settings that arrive after admission) or the saved `lastDirectory` is not a
 live row, the view shows an admitted project. One toast per runtime and saved
-identity (`project:<id>` or `directory:<path>`) per page load names the
+saved selection per page load names the
 project shown after the current turn, so session restoration is included.
-Saved settings stay unchanged.
+A selection is keyed by its saved path (and that path's derived id) whenever
+the path is known, so a cached `lastDirectory` and a later settings
+`activeProjectId` for the same project note once. An admitted saved active
+project is kept. Saved settings stay unchanged.
 
 ## Selector Rules
 
