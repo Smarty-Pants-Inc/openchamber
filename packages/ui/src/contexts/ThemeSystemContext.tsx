@@ -555,10 +555,19 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     return () => window.removeEventListener('message', handleMessage);
   }, [applyIncomingThemeSync]);
 
+  // Shared settings hold the user's theme choice. Publish only when that choice changes,
+  // not when this device merely derives a different variant (system mode) or its theme
+  // list reloads; otherwise a new browser overwrites another browser's choice (smarty-code#117).
+  const publishedThemeChoiceRef = useRef<string | null>(null);
   useEffect(() => {
     if (receivesParentThemeSync) {
       return;
     }
+    const choice = JSON.stringify([preferences.themeMode, preferences.lightThemeId, preferences.darkThemeId]);
+    if (publishedThemeChoiceRef.current === choice) {
+      return;
+    }
+    publishedThemeChoiceRef.current = choice;
 
     const lightTheme = ensureThemeById(preferences.lightThemeId, 'light');
     const darkTheme = ensureThemeById(preferences.darkThemeId, 'dark');
@@ -598,7 +607,12 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
         return;
       }
 
-      setPreferences((prev) => resolveThemePreferencesFromSettingsSync(detail, prev) ?? prev);
+      setPreferences((prev) => {
+        const next = resolveThemePreferencesFromSettingsSync(detail, prev) ?? prev;
+        // The adopted or confirmed shared choice needs no republish.
+        if (detail.adoptTheme) publishedThemeChoiceRef.current = JSON.stringify([next.themeMode, next.lightThemeId, next.darkThemeId]);
+        return next;
+      });
     };
 
     window.addEventListener('openchamber:settings-synced', handleSettingsSynced);
