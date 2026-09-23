@@ -298,6 +298,63 @@ describe('ChildStoreManager directory bootstrap scheduler', () => {
   // smarty-code sidebar audit (2026-09-23): a scope whose requests never answer (a folded
   // non-admitted worktree) held its slot forever; its group and every queued group spun on
   // "Loading sessions…". A bootstrap that does not settle by its deadline fails and frees its slot.
+  test('a late outcome after the deadline is ignored', async () => {
+    const manager = new ChildStoreManager();
+    const task = deferred();
+    manager.setBootstrapDemand('sidebar', [{ directory: '/late', priority: 'visible', reason: 'project-expanded' }]);
+    let current: (() => boolean) | undefined;
+    const cleanup = manager.configure({ bootstrapConcurrency: 1, bootstrapTimeoutMs: 20,
+      onBootstrap: ({ isCurrent }) => { current = isCurrent; return task.promise; } });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await settle();
+    expect(manager.getBootstrapState('/late')).toBe('failed');
+    expect(current?.()).toBe(false);
+    task.resolve();
+    await settle();
+    expect(manager.getBootstrapState('/late')).toBe('failed');
+    cleanup();
+    manager.disposeAll();
+  });
+
+  test('a forced retry during a hung run reruns after the deadline instead of staying failed', async () => {
+    const manager = new ChildStoreManager();
+    let runs = 0;
+    manager.setBootstrapDemand('sidebar', [{ directory: '/retry', priority: 'visible', reason: 'project-expanded' }]);
+    const cleanup = manager.configure({ bootstrapConcurrency: 1, bootstrapTimeoutMs: 20,
+      onBootstrap: () => { runs += 1; return runs === 1 ? new Promise<void>(() => {}) : Promise.resolve(); } });
+    await settle();
+    manager.requestBootstrap({ directory: '/retry', priority: 'visible', reason: 'project-expanded', force: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await settle();
+    expect(runs).toBe(2);
+    expect(manager.getBootstrapState('/retry')).toBe('complete');
+    cleanup();
+    manager.disposeAll();
+  });
+
+  test('a hung run from a replaced configuration still frees its slot', async () => {
+    const manager = new ChildStoreManager();
+    const started: string[] = [];
+    manager.setBootstrapDemand('sidebar', [
+      { directory: '/h', priority: 'visible', reason: 'project-expanded' },
+      { directory: '/n', priority: 'visible', reason: 'project-expanded' },
+    ]);
+    const onBootstrap = ({ directory }: { directory: string }) => {
+      started.push(directory);
+      return directory === '/h' && started.filter((entry) => entry === '/h').length === 1 ? new Promise<void>(() => {}) : Promise.resolve();
+    };
+    const first = manager.configure({ bootstrapConcurrency: 1, bootstrapTimeoutMs: 20, onBootstrap });
+    await settle();
+    first();
+    const second = manager.configure({ bootstrapConcurrency: 1, bootstrapTimeoutMs: 20, onBootstrap });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle();
+    expect(manager.getBootstrapState('/n')).toBe('complete');
+    expect(manager.getBootstrapState('/h')).toBe('complete');
+    second();
+    manager.disposeAll();
+  });
+
   test('a bootstrap that never settles fails at its deadline and the queue keeps draining', async () => {
     const manager = new ChildStoreManager();
     const started: string[] = [];

@@ -128,7 +128,7 @@ describe('sidebar search over standalone groups', () => {
 // so the parent section folded the worktree in (a duplicate row and a scope bootstrap the gateway
 // refuses) while the worktree's own section spun. A worktree that is its own project renders only there.
 describe('worktrees that are their own projects', () => {
-  test('are not folded into the parent section', () => {
+  for (const managed of [true, false]) test(`${managed ? 'managed catalog: are not folded into the parent' : 'stock: keep their parent worktree group'}`, () => {
     let captured: Sections | null = null;
     const parent = { id: 'herdr', path: '/p/herdr', normalizedPath: '/p/herdr', label: 'herdr' };
     const child = { id: 'upstream', path: '/p/herdr/worktrees/upstream-0.9', normalizedPath: '/p/herdr/worktrees/upstream-0.9', label: 'upstream-0.9' };
@@ -149,6 +149,7 @@ describe('worktrees that are their own projects', () => {
         lastRepoStatus: true, buildGroupedSessions: grouping.buildGroupedSessions, hasSessionSearchQuery: false,
         normalizedSessionSearchQuery: '', filterSessionNodesForSearch: grouping.filterSessionNodesForSearch,
         buildGroupSearchText: grouping.buildGroupSearchText, foldersMap: {}, standaloneGroups: [],
+        excludeWorktreeProjects: managed,
       });
       return null;
     };
@@ -156,7 +157,13 @@ describe('worktrees that are their own projects', () => {
     if (!captured) throw new Error('sections hook was not mounted');
     const sections = (captured as Sections).projectSections;
     const parentDirs = sections.find((section) => section.project.id === 'herdr')!.groups.map((group) => group.directory);
-    expect(parentDirs).not.toContain(child.normalizedPath);
+    if (managed) expect(parentDirs).not.toContain(child.normalizedPath);
+    else expect(parentDirs).toContain(child.normalizedPath);
     expect(parentDirs).toContain('/p/herdr/worktrees/scratch');
+    // The worktree still renders as its own project section.
+    expect(sections.find((section) => section.project.id === 'upstream')!.groups.some((group) => group.directory === child.normalizedPath)).toBe(true);
+    // The flat view's bootstrap scopes follow the same rule.
+    const flatScopes = (captured as Sections).flatSectionsForRender.find((section) => section.project.id === 'herdr')!.groups[0]!.folderScopes!.map((scope) => scope.directory);
+    expect(flatScopes.includes(child.normalizedPath)).toBe(!managed);
   });
 });

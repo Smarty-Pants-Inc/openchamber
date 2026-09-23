@@ -245,6 +245,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     buildGroupSearchText,
     foldersMap,
     standaloneGroups,
+    excludeWorktreeProjects: managedCatalog,
   });
 
   const onSearchMatchCountChange = view.onSearchMatchCountChange;

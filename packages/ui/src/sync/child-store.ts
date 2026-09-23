@@ -285,8 +285,12 @@ function createDirectoryStore(directory: string): StoreApi<DirectoryStore> {
   return store
 }
 
-/** Upper bound for one directory bootstrap, including its bounded retries. */
-export const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 45_000
+/**
+ * Backstop for a directory bootstrap that never settles. It is above the existing bounds of a slow
+ * but live bootstrap (30 s per request, three-attempt retries per phase, paged session reads), so
+ * it only ends runs that would otherwise hold their slot forever.
+ */
+export const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 180_000
 
 export class ChildStoreManager {
   readonly children = new Map<string, StoreApi<DirectoryStore>>()
@@ -631,21 +635,49 @@ export class ChildStoreManager {
       // A scope whose requests never answer must not hold its slot (and every queued group's
       // "Loading sessions…") forever. Fail it at the deadline and free the slot; a later
       // demand can retry. The late outcome of the abandoned run is ignored.
-      let timedOut = false
-      const deadline = setTimeout(() => {
-        if (this.runningBootstraps.get(next.directory)?.token !== token || !isCurrent()) return
-        timedOut = true
-        this.runningBootstraps.delete(next.directory)
-        this.directoryBootstrapRuns.delete(next.directory)
-        this.bootstrapStates.set(next.directory, "failed")
-        this.bootstrapFailures.set(next.directory, "generic")
-        finishPerformanceEvent("error")
+      // A scope whose requests never answer must not hold its slot (and every queued group's
+      // "Loading sessions…") forever. At the deadline the run is abandoned: its late outcome and
+      // deferred commits are ignored, the slot is freed, and the normal rerun/manual-demand
+      // bookkeeping runs so a forced retry or a changed generation requeues it.
+      let settled = false
+      const settleRun = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(deadline)
+        const executionBecameStale = this.bootstrapGeneration !== running.generation || this.disposed
+        if (this.runningBootstraps.get(next.directory)?.token === token) {
+          this.runningBootstraps.delete(next.directory)
+        }
+        const currentManualDemand = this.manualBootstrapDemands.get(next.directory)
+        const hasNewForcedManualDemand = currentManualDemand !== undefined
+          && currentManualDemand.revision !== running.manualDemandRevision
+          && currentManualDemand.demand.force === true
+        if (!executionBecameStale && !hasNewForcedManualDemand) {
+          this.manualBootstrapDemands.delete(next.directory)
+        }
+        if ((executionBecameStale || hasNewForcedManualDemand || running.rerunRequested) && !this.disposed) {
+          const demand = this.aggregateBootstrapDemand(next.directory)
+          if (demand) this.queueBootstrap({ ...demand, force: true }, false)
+        }
         this.notifyBootstrapSubscribers()
         this.pumpBootstrapQueue()
+      }
+      const deadline = setTimeout(() => {
+        if (settled || this.runningBootstraps.get(next.directory)?.token !== token) return
+        const current = isCurrent()
+        if (this.directoryBootstrapRuns.get(next.directory) === runSequence) this.directoryBootstrapRuns.delete(next.directory)
+        if (current) {
+          this.bootstrapStates.set(next.directory, "failed")
+          this.bootstrapFailures.set(next.directory, "generic")
+          finishPerformanceEvent("error")
+        } else {
+          finishPerformanceEvent("stale")
+        }
+        settleRun()
       }, this.bootstrapTimeoutMs)
       void bootstrapPromise
         .then(() => {
-          if (timedOut) return
+          if (settled) return
           if (isCurrent()) {
             this.bootstrapStates.set(next.directory, "complete")
             this.bootstrapFailures.delete(next.directory)
@@ -655,7 +687,7 @@ export class ChildStoreManager {
           }
         })
         .catch((error) => {
-          if (timedOut) return
+          if (settled) return
           if (isCurrent()) {
             this.bootstrapStates.set(next.directory, "failed")
             this.bootstrapFailures.set(
@@ -667,27 +699,7 @@ export class ChildStoreManager {
             finishPerformanceEvent("stale")
           }
         })
-        .finally(() => {
-          clearTimeout(deadline)
-          if (timedOut) return
-          const executionBecameStale = this.bootstrapGeneration !== running.generation || this.disposed
-          if (this.runningBootstraps.get(next.directory)?.token === token) {
-            this.runningBootstraps.delete(next.directory)
-          }
-          const currentManualDemand = this.manualBootstrapDemands.get(next.directory)
-          const hasNewForcedManualDemand = currentManualDemand !== undefined
-            && currentManualDemand.revision !== running.manualDemandRevision
-            && currentManualDemand.demand.force === true
-          if (!executionBecameStale && !hasNewForcedManualDemand) {
-            this.manualBootstrapDemands.delete(next.directory)
-          }
-          if ((executionBecameStale || hasNewForcedManualDemand || running.rerunRequested) && !this.disposed) {
-            const demand = this.aggregateBootstrapDemand(next.directory)
-            if (demand) this.queueBootstrap({ ...demand, force: true }, false)
-          }
-          this.notifyBootstrapSubscribers()
-          this.pumpBootstrapQueue()
-        })
+        .finally(settleRun)
     }
   }
 
