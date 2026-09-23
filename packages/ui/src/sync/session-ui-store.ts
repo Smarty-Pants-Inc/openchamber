@@ -1448,8 +1448,14 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // A remembered project that the cached view cannot resolve yet may still be admitted by the
     // pending managed catalog (a reload before catalog delivery, smarty-code#113). Keep its record
     // and let the catalog transfer below decide, instead of replacing it with this Chat fallback.
-    const awaitingRememberedProject = persistedTarget?.target === "project" && persistedProject === null
-      && target === "chat" && projectsState.managedCatalogStatus === "unknown" ? persistedTarget : undefined
+    // Only the implicit automatic open waits; an explicit choice (for example New Chat) is recorded now.
+    const implicitCatalogOpen = !options?.target && options?.selectedProjectId === undefined
+      && options?.directoryOverride === undefined && target === "chat"
+      && !options?.parentID && !options?.bootstrapPendingDirectory
+      && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
+      && projectsState.managedCatalogStatus === "unknown"
+    const awaitingRememberedProject = implicitCatalogOpen && persistedTarget?.target === "project"
+      && persistedProject === null ? persistedTarget : undefined
     if (!awaitingRememberedProject) persistDraftTarget({ projectId: selectedProject?.id ?? null, directory, target })
 
     const nextDraft: NewSessionDraftState = {
@@ -1472,11 +1478,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
 
     catalogDraftTransfer = null
-    pendingGlobalCatalogDraft = !options?.target && options?.selectedProjectId === undefined
-      && options?.directoryOverride === undefined && target === "chat"
-      && !options?.parentID && !options?.bootstrapPendingDirectory
-      && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
-      && projectsState.managedCatalogStatus === "unknown"
+    pendingGlobalCatalogDraft = implicitCatalogOpen
       ? { draftId: nextDraft.draftId, runtimeKey: getRuntimeKey(), remembered: awaitingRememberedProject } : null
     if (pendingGlobalCatalogDraft) observeGlobalDraftCatalog()
     claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), directory, null, nextDraft.draftId))
