@@ -324,7 +324,10 @@ export const ModelControls: React.FC<ModelControlsProps> = (props) => {
     const session = useSession(sessionId, column?.directory ?? directory ?? undefined);
     const ordinary = React.useMemo(() => readOrdinaryModel(session), [session]);
     // Keep ordinary state ahead of all historical, saved and directory-wide choices.
-    if (ordinary !== undefined) return <OrdinaryModelControls state={ordinary} className={props.className} />;
+    if (ordinary !== undefined) {
+        const voice = sessionId && session?.directory ? { sessionId, directory: session.directory } : undefined;
+        return <OrdinaryModelControls state={ordinary} className={props.className} voice={voice} />;
+    }
     return <ConfiguredModelControls {...props} />;
 };
 
