@@ -9,7 +9,7 @@ const ordinaryModelSchema = z.object({
     modelID: z.string().min(1),
     name: z.string().min(1),
   }).nullable(),
-  thinkingLevel: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']).nullable(),
+  thinkingLevel: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).nullable(),
 }).refine(value => value.model === null || (value.generation !== null && value.thinkingLevel !== null));
 
 const ordinaryOwnershipSchema = z.object({ nativeRuntime: z.literal('ordinary') });
@@ -44,3 +44,15 @@ export function mergeOrdinaryModel(current: Session | undefined, incoming: Sessi
   const retained = Object.hasOwn(current, 'ordinary') ? { ordinary: previous } : { nativeRuntime: 'ordinary' };
   return { ...incoming, ...retained };
 }
+
+/** Body of the Smarty Code gateway's `PATCH /session/:id { ordinary }` model switch. */
+export type OrdinaryModelChange = {
+  generation: string;
+  model: { providerID: string; modelID: string };
+  thinkingLevel?: string;
+};
+
+/** Failure body of a Smarty Code gateway request. */
+export const gatewayErrorSchema = z.object({ data: z.object({ message: z.string().min(1) }) });
+/** The switch answers with the updated session; only its identity and native state are read. */
+export const ordinarySwitchResponseSchema = z.looseObject({ id: z.string().min(1), ordinary: ordinaryModelSchema });

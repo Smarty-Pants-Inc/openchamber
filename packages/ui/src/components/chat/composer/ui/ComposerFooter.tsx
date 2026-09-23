@@ -18,7 +18,8 @@ import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { ModelControls } from '../../ModelControls';
+import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
+import { ModelControls, NativeDraftModelControls } from '../../ModelControls';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
@@ -34,6 +35,8 @@ export interface ComposerFooterProps {
     directory?: string;
     newSessionDraftOpen: boolean;
     nativeModelControls?: boolean;
+    /** The ordinary session created for this composer, when native creation owns its model. */
+    nativeSession?: NativeCreatedSession | null;
     messageLength: number;
 
     radius: string;
@@ -79,6 +82,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         directory,
         newSessionDraftOpen,
         nativeModelControls,
+        nativeSession,
         messageLength,
         radius: chatInputRadius,
         footerPaddingClass,
@@ -236,7 +240,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         <SessionGoalObjectiveCounter length={messageLength} />
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
-                        {!nativeModelControls ? <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} /> : null}
+                        {!nativeModelControls ? <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
+                            : nativeSession ? <NativeDraftModelControls session={nativeSession} className={cn('flex-1 min-w-0 justify-end')} /> : null}
                         <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}

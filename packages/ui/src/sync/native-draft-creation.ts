@@ -48,6 +48,18 @@ export function publishNativeCreation(target: DraftTarget, result: NativeDraftCr
   });
 }
 
+/** A native model switch changes what an unsent created draft must send; nothing else changes. */
+export function applyNativeDraftModel(created: NativeCreatedSession, model: { providerID: string; modelID: string }): void {
+  useSessionUIStore.setState(state => {
+    const nativeDraftCreations = new Map(state.nativeDraftCreations);
+    for (const [key, record] of nativeDraftCreations) {
+      if (record.status !== 'created' || record.inputAccepted || record.session !== created) continue;
+      nativeDraftCreations.set(key, { ...record, session: { ...created, nativeCreation: { ...created.nativeCreation, model } } });
+    }
+    return { nativeDraftCreations };
+  });
+}
+
 export async function prepareNativeDraft(): Promise<void> {
   const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
   assertManagedDraftTarget(draft);

@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
 import { create } from 'zustand';
 import type { Session } from '@opencode-ai/sdk/v2';
-import type { OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
+import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
+import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 
 /**
  * Restoring a session must not invent an effort choice.
@@ -44,6 +45,15 @@ const agent = { name: AGENT, mode: 'primary' as const };
 let latestUserChoice: UserModelChoice | null = null;
 let fixtureHistory: unknown[] = [];
 let forcePreserveManualOverride: boolean | null = null;
+/** Directories whose provider catalog the ordinary picker asked to re-read. */
+const providerLoads: Array<string | null> = [];
+/** Ordinary model switches sent to the gateway, and the outcome each one gets. */
+const modelChanges: Array<{ id: string; directory: string; change: OrdinaryModelChange }> = [];
+const unchanged: OrdinaryModelState = { generation: 'generation-B', sequence: 1, model: null, thinkingLevel: null };
+let modelChangeResult: () => Promise<OrdinaryModelState> = async () => unchanged;
+type HistoryTarget = { directory: string; sessionID: string };
+const viewRefreshes: HistoryTarget[] = [];
+const toastErrors: string[] = [];
 
 /** Every effort written for the session, in order, including `undefined`. */
 const variantWrites: VariantChoice[] = [];
@@ -73,6 +83,7 @@ type ConfigState = {
   getVisibleAgents: () => typeof agent[];
   getCurrentModelVariants: () => string[];
   getModelMetadata: () => undefined;
+  loadProviders: (options?: { directory?: string | null }) => Promise<void>;
 };
 
 const useConfigStore = create<ConfigState>((set) => ({
@@ -116,6 +127,7 @@ const useConfigStore = create<ConfigState>((set) => ({
   getVisibleAgents: () => [agent],
   getCurrentModelVariants: () => Object.keys(model.variants),
   getModelMetadata: () => undefined,
+  loadProviders: async (options) => { providerLoads.push(options?.directory ?? null); },
 }));
 
 type SelectionState = {
@@ -195,7 +207,7 @@ mock.module('@/lib/messages/userModelChoice', () => ({
   ),
 }));
 
-mock.module('@/stores/useConfigStore', () => ({ useConfigStore }));
+mock.module('@/stores/useConfigStore', () => ({ useConfigStore, selectProvidersForDirectory: (state: ConfigState) => state.providers }));
 mock.module('@/sync/selection-store', () => ({ useSelectionStore }));
 mock.module('@/sync/session-ui-store', () => ({ useSessionUIStore }));
 mock.module('@/stores/useUIStore', () => ({ useUIStore }));
@@ -245,7 +257,39 @@ mock.module('@/lib/device', () => ({ useDeviceInfo: () => ({ isTouch: false }) }
 mock.module('@/lib/desktop', () => ({ isDesktopShell: () => false }));
 mock.module('@/lib/startupTrace', () => ({ markStartupTrace: () => undefined }));
 
-const { ModelControls } = await import('./ModelControls');
+// A minimal select: items are buttons that report their value, so tests can choose one.
+const SelectChange = React.createContext<((value: string) => void) | undefined>(undefined);
+mock.module('@/components/ui/select', () => ({
+  Select: ({ children, onValueChange, disabled }: React.PropsWithChildren<{ onValueChange?: (value: string) => void; disabled?: boolean }>) => (
+    <SelectChange.Provider value={disabled ? undefined : onValueChange}><div data-select="">{children}</div></SelectChange.Provider>
+  ),
+  SelectTrigger: ({ children, ...props }: React.PropsWithChildren<{ 'aria-label'?: string }>) => (
+    <span data-trigger={props['aria-label']}>{children}</span>
+  ),
+  SelectContent: passthrough,
+  SelectItem: function SelectItem({ value, children }: React.PropsWithChildren<{ value: string }>) {
+    const change = React.useContext(SelectChange);
+    return <button type="button" data-value={value} onClick={() => change?.(value)}>{children}</button>;
+  },
+}));
+mock.module('@/components/ui', () => ({ toast: { error: (message: string) => { toastErrors.push(message); } } }));
+mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
+  setOrdinaryModel: async (id: string, directory: string, change: OrdinaryModelChange) => {
+    modelChanges.push({ id, directory, change });
+    return modelChangeResult();
+  },
+} }));
+mock.module('@/sync/session-message-loader', () => ({
+  getImperativeSessionMessageLoader: () => ({ refreshOrdinaryView: async (target: HistoryTarget) => { viewRefreshes.push(target); } }),
+}));
+
+type DraftModel = { providerID: string; modelID: string };
+const draftModels: DraftModel[] = [];
+mock.module('@/sync/native-draft-creation', () => ({
+  applyNativeDraftModel: (_created: NativeCreatedSession, model: DraftModel) => { draftModels.push(model); },
+}));
+
+const { ModelControls, NativeDraftModelControls } = await import('./ModelControls');
 const { I18nProvider } = await import('@/lib/i18n');
 
 const DOM_GLOBAL_NAMES = [
@@ -438,6 +482,8 @@ describe('ordinary selected-session controls', () => {
     useSessionUIStore.setState({ currentSessionId: 'B' });
     useNativeSessions.setState({ sessions: { B: nativeSession() } });
     useConfigStore.setState({ currentProviderId: PROVIDER_ID, currentModelId: MODEL_ID });
+    providerLoads.length = 0; modelChanges.length = 0; viewRefreshes.length = 0; toastErrors.length = 0; draftModels.length = 0;
+    modelChangeResult = async () => unchanged;
   });
 
   for (const history of ['empty', 'old-assistant', 'old-user', 'old-user-with-catalog-union']) {
@@ -491,6 +537,78 @@ describe('ordinary selected-session controls', () => {
       expect(dom.container.querySelector('.model-controls__model-label')).toBeNull();
       expect(dom.container.querySelector('button')).toBeNull();
       expect(variantWrites).toEqual([]);
+    } finally { await cleanup(); }
+  });
+
+  const liveCatalog = () => useConfigStore.setState({ providers: [provider, {
+    id: 'fixture-b', name: 'fixture-b', models: [
+      { ...model, id: 'live-b', name: 'live-b', providerID: 'fixture-b' },
+      { ...model, id: 'other-b', name: 'other-b', providerID: 'fixture-b' },
+    ],
+  }] });
+  const choose = async (container: HTMLElement, value: string) => {
+    const option = [...container.querySelectorAll('button')].find(button => button.getAttribute('data-value') === value);
+    expect(option).toBeDefined();
+    await act(async () => { option!.click(); });
+  };
+
+  test('a catalog model switches the native session by its observed generation, then re-reads the view', async () => {
+    liveCatalog();
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      await choose(dom.container, JSON.stringify(['fixture-b', 'other-b']));
+      await choose(dom.container, 'low');
+      expect(modelChanges).toEqual([
+        { id: 'B', directory: '/workspace/project', change: { generation: 'generation-B',
+          model: { providerID: 'fixture-b', modelID: 'other-b' } } },
+        { id: 'B', directory: '/workspace/project', change: { generation: 'generation-B',
+          model: { providerID: 'fixture-b', modelID: 'live-b' }, thinkingLevel: 'low' } },
+      ]);
+      expect(viewRefreshes).toEqual([{ directory: '/workspace/project', sessionID: 'B' }, { directory: '/workspace/project', sessionID: 'B' }]);
+      // Only the native session's own report changes what is shown.
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('live-b');
+      expect(dom.container.querySelector('.model-controls__variant-label')?.textContent).toBe('High');
+      expect(variantWrites).toEqual([]);
+      expect(useConfigStore.getState().currentModelId).toBe(MODEL_ID);
+    } finally { await cleanup(); }
+  });
+
+  test('a refused switch reports the gateway reason and keeps the accepted view', async () => {
+    liveCatalog();
+    modelChangeResult = async () => { throw new Error('Native model change refused; nothing was applied'); };
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      await choose(dom.container, 'low');
+      expect(toastErrors).toEqual(['Native model change refused; nothing was applied']);
+      expect(viewRefreshes).toEqual([]);
+    } finally { await cleanup(); }
+  });
+
+  test('an unsent draft follows the live native model however it changed', async () => {
+    const live = { ...nativeSession(), id: '01234567-1234-4234-9234-012345678901' };
+    const created: NativeCreatedSession = { ...live,
+      nativeCreation: { model: { providerID: 'fixture-b', modelID: 'live-b' }, inputReady: true } };
+    useNativeSessions.setState({ sessions: { [created.id]: live } });
+    const dom = installDom();
+    const root = createRoot(dom.container);
+    try {
+      await act(async () => root.render(<I18nProvider><NativeDraftModelControls session={created} /></I18nProvider>));
+      expect(draftModels).toEqual([]);
+      const switched = nativeSession('B', 'tui-b', 2); // Changed in the TUI, not through this picker.
+      await act(async () => useNativeSessions.setState({ sessions: { [created.id]: { ...switched, id: created.id } } }));
+      expect(draftModels).toEqual([{ providerID: 'fixture-b', modelID: 'tui-b' }]);
+      expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('tui-b');
+    } finally {
+      await act(async () => root.unmount());
+      dom.restore();
+    }
+  });
+
+  test('a live model outside the loaded catalog stays read-only and re-reads the project catalog', async () => {
+    const { dom, cleanup } = await renderModelControls();
+    try {
+      expect(dom.container.querySelector('button')).toBeNull();
+      expect(providerLoads).toEqual(['/workspace/project']);
     } finally { await cleanup(); }
   });
 
