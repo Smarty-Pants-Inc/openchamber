@@ -104,6 +104,37 @@ test('reload before catalog: automatic open returns to the remembered project th
     .toEqual({ projectId: owned.id, directory: owned.path, target: 'project' });
   expect(JSON.parse(getDeferredSafeStorage().getItem(key)!)).toEqual(JSON.parse(remembered));
   expect(mounted.text()).toBe('unsent draft text');
+  // The rest of the app follows the draft, not the shared active project.
+  await act(async () => { await Promise.resolve(); });
+  expect(useProjectsStore.getState().activeProjectId).toBe(owned.id);
+  expect(useDirectoryStore.getState().currentDirectory).toBe(owned.path);
+  expect(mounted.creates()).toHaveLength(0);
+  expect(mounted.prompts()).toHaveLength(0);
+});
+
+for (const outcome of ['not admitted', 'stock'] as const) test(`reload before catalog: remembered project ${outcome} falls back to the previous rule`, async () => {
+  mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
+    useSessionUIStore.getState().closeNewSessionDraft();
+    getDeferredSafeStorage().setItem(key, JSON.stringify({ projectId: owned.id, directory: owned.path, target: 'project' }));
+    useDirectoryStore.setState({ currentDirectory: net.path });
+    opencodeClient.setDirectory(net.path);
+  });
+  await act(async () => {
+    if (outcome === 'stock') useProjectsStore.setState({ managedCatalogStatus: 'stock' });
+    else useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-net', worktree: net.path }]);
+  });
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  const saved = JSON.parse(getDeferredSafeStorage().getItem(key)!);
+  if (outcome === 'stock') {
+    expect(draft.target).toBe('chat');
+    expect(saved).toEqual({ projectId: null, directory: null, target: 'chat' });
+  } else {
+    expect({ projectId: draft.selectedProjectId, directory: draft.directoryOverride, target: draft.target })
+      .toEqual({ projectId: net.id, directory: net.path, target: 'project' });
+    expect(saved).toEqual({ projectId: net.id, directory: net.path, target: 'project' });
+  }
   expect(mounted.creates()).toHaveLength(0);
   expect(mounted.prompts()).toHaveLength(0);
 });

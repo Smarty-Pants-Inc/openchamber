@@ -2509,7 +2509,14 @@ function observeGlobalDraftCatalog() {
   // Admission alone is not membership. Resolve only after the authoritative publication.
   useProjectsStore.subscribe((projects) => {
     const pending = pendingGlobalCatalogDraft
-    if (projects.managedCatalogStatus === "stock") pendingGlobalCatalogDraft = null
+    if (projects.managedCatalogStatus === "stock") {
+      pendingGlobalCatalogDraft = null
+      // No catalog will admit the remembered project: record the Chat fallback it now is.
+      const draft = useSessionUIStore.getState().newSessionDraft
+      if (pending?.remembered && draft.open && draft.draftId === pending.draftId && draft.target === "chat") {
+        persistDraftTarget({ projectId: null, directory: null, target: "chat" })
+      }
+    }
     if (!pending || projects.managedCatalogStatus === "stock"
       || !projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return
     pendingGlobalCatalogDraft = null
@@ -2519,10 +2526,16 @@ function observeGlobalDraftCatalog() {
       || draft.target !== "chat" || draft.preparedChatDirectory) return
     const members = visibleProjects(projects)
     const remembered = pending.remembered
-    const project = (remembered && members.find(member => member.id === remembered.projectId
-      || normalizePath(member.path) === remembered.directory))
+    // The remembered project wins when the catalog admits it, including a remembered worktree.
+    const rememberedProject = remembered
+      ? (remembered.projectId ? members.find(member => member.id === remembered.projectId) : undefined)
+        ?? resolveDraftProjectForDirectory(members, store.availableWorktreesByProject, remembered.directory) ?? undefined
+      : undefined
+    const project = rememberedProject
       ?? members.find(member => member.id === projects.activeProjectId) ?? members[0]
-    const to = normalizePath(project?.path ?? null)
+    const to = rememberedProject && remembered?.directory
+      && resolveDraftProjectForDirectory([rememberedProject], store.availableWorktreesByProject, remembered.directory)
+      ? remembered.directory : normalizePath(project?.path ?? null)
     const nextDraft: NewSessionDraftState = { ...draft, target: "project",
       selectedProjectId: project?.id ?? null, directoryOverride: to }
     // Qualify the same live draft before notifying React. Home discovery may
@@ -2533,7 +2546,14 @@ function observeGlobalDraftCatalog() {
     writeRuntimeSessionMemory(runtimeMemoryKey(), { draft: nextDraft })
     persistDraftTarget({ projectId: project?.id ?? null, directory: to, target: "project" })
     void activateConfigForDirectory(to)
-    // applyManagedCatalog owns the corresponding directory publication.
+    // applyManagedCatalog publishes the active project's directory. A remembered project
+    // selects itself afterwards so the app follows the draft (local, managed branch).
+    if (project && project.id !== projects.activeProjectId) {
+      queueMicrotask(() => useProjectsStore.getState().setActiveProject(project.id))
+    }
+    if (to && project && to !== normalizePath(project.path)) {
+      queueMicrotask(() => { if (to !== useDirectoryStore.getState().currentDirectory) useDirectoryStore.getState().setDirectory(to) })
+    }
   })
 }
 

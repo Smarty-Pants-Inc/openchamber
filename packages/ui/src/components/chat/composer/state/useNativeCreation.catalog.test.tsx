@@ -44,6 +44,7 @@ test('native creation support is checked again when the managed catalog becomes 
   } finally {
     await act(async () => root.unmount());
     client.nativeCreationMode = original.mode; client.listNativeCreations = original.list;
+    useProjectsStore.getState().resetManagedCatalog();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
     }
