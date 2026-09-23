@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,18 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  const sessionVoice = historical.files.filter(entry => entry.sessionVoiceSha256);
+  assert.deepEqual(sessionVoice.map(entry => entry.path).sort(), paths.filter(path => path.includes('/i18n/messages/') || path.endsWith('/server/index.js')).sort());
+  assert.equal(historical.sessionVoiceSource, '02e0e00b05a72bc9055f9363184dd28ff982682e');
+  assert.ok(historical.sessionVoiceNote);
+  for (const entry of sessionVoice) {
+    assert.match(entry.preSessionVoiceCombinedSha256, /^[a-f0-9]{64}$/);
+    entry.combinedSha256 = entry.preSessionVoiceCombinedSha256;
+    delete entry.preSessionVoiceCombinedSha256;
+    delete entry.sessionVoiceSha256;
+  }
+  delete historical.sessionVoiceSource;
+  delete historical.sessionVoiceNote;
   const persistedTargets = historical.files.filter(entry => entry.persistedTargetSha256);
   assert.deepEqual(persistedTargets.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of persistedTargets) {
