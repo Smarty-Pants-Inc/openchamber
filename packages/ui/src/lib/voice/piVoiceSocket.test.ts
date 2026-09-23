@@ -2,20 +2,26 @@ import { afterEach, expect, test } from 'bun:test';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
 import { openPiVoiceSocket } from './piVoiceCall';
 
-afterEach(() => { configureRuntimeUrlResolver({}); });
+const NativeWebSocket = globalThis.WebSocket;
+const install = <T,>(value: T) => Object.defineProperty(globalThis, 'WebSocket', { configurable: true, writable: true, value });
+afterEach(() => { install(NativeWebSocket); configureRuntimeUrlResolver({}); });
 
-test('opens the session voice socket on the active runtime with its project directory', async () => {
-  const seen: URL[] = [];
-  const server = Bun.serve({ hostname: '127.0.0.1', port: 0,
-    fetch(request, bun) { seen.push(new URL(request.url)); return bun.upgrade(request) ? undefined : new Response(null, { status: 400 }); },
-    websocket: { message() {} } });
-  try {
-    configureRuntimeUrlResolver({ apiBaseUrl: `http://127.0.0.1:${server.port}` });
-    const socket = openPiVoiceSocket('ses 1', '/repo');
-    await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error('refused')); });
-    expect(seen[0]?.pathname).toBe('/api/session/ses%201/voice/socket');
-    expect(seen[0]?.searchParams.get('directory')).toBe('/repo');
-    expect([...seen[0]!.searchParams.keys()]).toEqual(['directory']); // No token in the URL.
-    socket.close();
-  } finally { server.stop(true); }
+test('opens the session voice socket on the active runtime with its project directory and no token', () => {
+  const opened: string[] = [];
+  class RecordingWebSocket extends EventTarget {
+    readyState = 0;
+    binaryType = 'blob';
+    onopen = null; onmessage = null; onerror = null; onclose = null;
+    constructor(url: string | URL) { super(); opened.push(String(url)); }
+    send() {}
+    close() {}
+  }
+  install(Object.assign(RecordingWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }));
+  configureRuntimeUrlResolver({ apiBaseUrl: 'https://code.example.test' });
+  openPiVoiceSocket('ses 1', '/repo');
+  expect(opened).toHaveLength(1);
+  const url = new URL(opened[0]!);
+  expect(url.protocol).toBe('wss:');
+  expect(url.pathname).toBe('/api/session/ses%201/voice/socket');
+  expect([...url.searchParams.entries()]).toEqual([['directory', '/repo']]);
 });

@@ -11,7 +11,7 @@ type Call = ReturnType<typeof startPiVoiceCall>;
 // Loaded on first use: the call module brings the runtime socket, not needed to render the chip.
 const loadCall = () => import('@/lib/voice/piVoiceCall');
 type ControlState = { status: 'idle' } | { status: 'starting' } | PiVoiceState;
-const PHASES = ['connecting', 'listening', 'working', 'speaking', 'muted', 'error', 'standby'] as const;
+const PHASES = ['connecting', 'listening', 'working', 'speaking'] as const;
 const knownPhase = (value: string | undefined) => PHASES.find(phase => phase === value);
 
 /** One live voice call with the selected ordinary Pi session; the session's /live engine does the rest. */
@@ -49,8 +49,9 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
       toast.error(t('chat.piVoice.failed', { reason: error instanceof Error ? error.message : String(error) }));
     }
   };
-  const phase = knownPhase(state.status === 'active' ? state.phase : state.status === 'starting' ? 'connecting' : undefined)
-    ?? (state.status === 'active' && state.live ? 'listening' : undefined);
+  const phase = state.status === 'active' && state.muted ? 'muted'
+    : knownPhase(state.status === 'active' ? state.phase : state.status === 'starting' ? 'connecting' : undefined)
+      ?? (state.status === 'active' && state.live ? 'listening' : undefined);
   const label = active ? t('chat.piVoice.end') : t('chat.piVoice.start');
   return (
     <Button type="button" variant="chip" size="xs" aria-pressed={active} aria-label={label}

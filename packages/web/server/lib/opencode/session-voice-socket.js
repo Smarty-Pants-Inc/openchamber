@@ -32,6 +32,8 @@ const pipe = (browser, upstream) => {
     if (upstream.readyState === WebSocket.CONNECTING) {
       earlyBytes += data.length;
       if (earlyBytes <= MAX_AUDIO_BACKLOG_BYTES) early.push([data, isBinary]);
+      // Losing audio before the call opens is harmless; losing control is not.
+      else if (!isBinary) browser.close(1013, 'Voice call is still connecting');
       return;
     }
     if (upstream.readyState !== WebSocket.OPEN) return;
@@ -98,17 +100,19 @@ export const attachSessionVoiceSocket = ({
     const match = VOICE_SOCKET_PATH.exec(url.pathname);
     if (!match) return;
     const directory = url.searchParams.get('directory');
+    let sessionId;
+    try { sessionId = decodeURIComponent(match[1]); } catch { sessionId = ''; }
     const controller = getUiAuthController();
     if (!controller?.humanMode) {
       rejectWebSocketUpgrade(socket, 403, 'Voice calls need a signed-in human');
       return;
     }
-    if (!directory) {
-      rejectWebSocketUpgrade(socket, 400, 'Voice needs a project directory');
+    if (!directory || !sessionId) {
+      rejectWebSocketUpgrade(socket, 400, 'Voice needs a session and a project directory');
       return;
     }
     void Promise.resolve(controller.requireUpgradeAuth(req, socket,
-      () => connect(req, socket, head, decodeURIComponent(match[1]), directory), rejectWebSocketUpgrade))
+      () => connect(req, socket, head, sessionId, directory), rejectWebSocketUpgrade))
       .catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
   };
   server.on('upgrade', upgradeHandler);

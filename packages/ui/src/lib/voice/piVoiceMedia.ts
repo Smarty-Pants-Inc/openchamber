@@ -1,15 +1,17 @@
 import { isDesktopShell } from '@/lib/desktop';
+import { getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
 import type { PiVoiceAudio } from './piVoiceCall';
 import { PI_VOICE_WORKLET, PI_VOICE_WORKLET_NAME } from './piVoiceWorklet';
 
 /**
- * Runtime parity: web and hosted/Capacitor mobile pages are browser clients of the same server,
- * so they get the control when they have AudioWorklet and a secure-context microphone. The
- * desktop shell and VS Code (excluded by the control) show none: they are not Code's web page.
+ * Runtime parity: web and hosted/Capacitor mobile pages that reach the server directly get the
+ * control when they have AudioWorklet and a secure-context microphone. The private relay tunnel
+ * does not carry the voice socket, and the desktop shell and VS Code (excluded by the control)
+ * are not Code's web page, so they show none.
  */
 export function supportsPiVoice(): boolean {
-  return !isDesktopShell() && globalThis.window?.isSecureContext === true && 'AudioWorkletNode' in window
-    && Boolean(globalThis.navigator?.mediaDevices);
+  return !isDesktopShell() && !getActiveRelayTunnel() && globalThis.window?.isSecureContext === true
+    && 'AudioWorkletNode' in window && Boolean(globalThis.navigator?.mediaDevices);
 }
 
 /**

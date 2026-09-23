@@ -91,6 +91,7 @@ it('refuses anonymous, non-human and directory-less upgrades before the gateway'
   await expect(open(await edge(upstream.port, signedIn), { cookie: 'session=bad' })).rejects.toThrow('HTTP 401');
   await expect(open(await edge(upstream.port, { humanMode: false }))).rejects.toThrow('HTTP 403');
   await expect(open(await edge(upstream.port, signedIn), { path: '/api/session/s/voice/socket' })).rejects.toThrow('HTTP 400');
+  await expect(open(await edge(upstream.port, signedIn), { path: '/api/session/%E0%A4%A/voice/socket?directory=%2Frepo' })).rejects.toThrow('HTTP 400');
   expect(upstream.seen).toEqual([]);
 });
 
