@@ -239,15 +239,25 @@ const canonicalizeForCreate = async (target, { fsPromises, path }) => {
 };
 
 /** Lexical containment is not enough: a symbolic link on the way may point anywhere. Returns the canonical
- * path to operate on, or null when it leaves the canonical base it was admitted under. With `entry`, the
- * final component itself is not followed (delete or rename a link, not its target). */
-const containedPath = async (resolved, { fsPromises, path, os, entry = false }) => {
+ * path to operate on, or null when it leaves every canonical root that admits it: the admitting base (for a
+ * symlinked project root, the validated canonical root, not its alias) or a lexically matching managed root.
+ * With `entry`, the final component itself is not followed (delete or rename a link, not its target); a
+ * filesystem root is never an entry. ponytail: this assumes a stable tree between check and operation;
+ * Node exposes no directory-handle-relative calls to pin ancestors. */
+const containedPath = async (resolved, { fsPromises, path, os, entry = false, managedRoots = [] }) => {
+  const canonical = (target) => canonicalizeForCreate(target, { fsPromises, path });
+  if (entry && path.dirname(resolved.resolved) === resolved.resolved) return null;
   const target = entry
-    ? await canonicalizeForCreate(path.dirname(resolved.resolved), { fsPromises, path })
-      .then((parent) => parent && path.join(parent, path.basename(resolved.resolved)))
-    : await canonicalizeForCreate(resolved.resolved, { fsPromises, path });
-  const base = await canonicalizeForCreate(resolved.base, { fsPromises, path });
-  return target && base && isPathWithinRoot(target, base, path, os) ? target : null;
+    ? await canonical(path.dirname(resolved.resolved)).then((parent) => parent && path.join(parent, path.basename(resolved.resolved)))
+    : await canonical(resolved.resolved);
+  if (!target) return null;
+  const roots = [resolved.canonicalBase ?? resolved.base,
+    ...managedRoots.filter((root) => isPathWithinRoot(resolved.resolved, root, path, os))];
+  for (const root of roots) {
+    const base = resolved.canonicalBase && root === resolved.canonicalBase ? root : await canonical(root);
+    if (base && isPathWithinRoot(target, base, path, os)) return target;
+  }
+  return null;
 };
 const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
@@ -319,7 +329,8 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
       managedRoots,
     });
     if (lexical.ok) {
-      return lexical;
+      // The alias may be retargeted later; containment must use the validated canonical project root.
+      return lexical.base === path.resolve(requestedBase) ? { ...lexical, canonicalBase: resolvedProject.directory } : lexical;
     }
   }
 
@@ -773,7 +784,7 @@ export const registerFsRoutes = (app, dependencies) => {
           return res.status(400).json({ error: resolved.error });
         }
         resolvedPath = resolved.resolved;
-        createPath = await containedPath(resolved, { fsPromises, path, os });
+        createPath = await containedPath(resolved, { fsPromises, path, os, managedRoots });
         if (!createPath) {
           return res.status(403).json({ error: LEAVES_WORKSPACE });
         }
@@ -1171,7 +1182,7 @@ export const registerFsRoutes = (app, dependencies) => {
 
       // A missing target used to fall back to its lexical path, so a symlinked parent could create files
       // (and parents) outside the workspace. Resolve every existing ancestor first.
-      const writePath = await containedPath(resolved, { fsPromises, path, os });
+      const writePath = await containedPath(resolved, { fsPromises, path, os, managedRoots });
       if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
@@ -1342,7 +1353,7 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const deletePath = await containedPath(resolved, { fsPromises, path, os, entry: true });
+      const deletePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true });
       if (!deletePath) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
@@ -1402,7 +1413,7 @@ export const registerFsRoutes = (app, dependencies) => {
       }
 
       const [from, to] = await Promise.all([resolvedOld, resolvedNew]
-        .map((resolved) => containedPath(resolved, { fsPromises, path, os, entry: true })));
+        .map((resolved) => containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true })));
       if (!from || !to) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
@@ -1508,7 +1519,11 @@ export const registerFsRoutes = (app, dependencies) => {
         console.warn(`Rejected /api/fs/exec outside workspace: ${resolvedForWorkspace.error}`);
         return res.status(403).json({ error: resolvedForWorkspace.error });
       }
-      const resolvedCwd = resolvedForWorkspace.resolved;
+      // A cwd reached through a symbolic link that points outside must not become the child's cwd.
+      const resolvedCwd = await containedPath(resolvedForWorkspace, { fsPromises, path, os, managedRoots });
+      if (!resolvedCwd) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
       const stats = await fsPromises.stat(resolvedCwd);
       if (!stats.isDirectory()) {
         return res.status(400).json({ error: 'Specified cwd is not a directory' });
