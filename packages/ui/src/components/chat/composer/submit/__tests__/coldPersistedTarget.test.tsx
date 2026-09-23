@@ -10,6 +10,7 @@ import { createProjectIdFromPath } from '@/lib/projectId';
 import type { useSyncRuntime } from '@/sync/sync-context';
 import { claimChatDraftOwnership, createChatDraftIdentity, writeChatDraft } from '@/lib/chatDraftPersistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 
 mock.module('@/components/chat/markdown/markdown-shiki.worker.ts?worker&url', () => ({ default: 'blob:test-shiki-worker' }));
 mock.module('@/hooks/useProviderLogo', () => ({ useProviderLogo: () => { throw new Error('Unexpected model panel'); }, preloadProviderLogos: () => undefined }));
@@ -135,6 +136,33 @@ for (const outcome of ['not admitted', 'stock'] as const) test(`reload before ca
       .toEqual({ projectId: net.id, directory: net.path, target: 'project' });
     expect(saved).toEqual({ projectId: net.id, directory: net.path, target: 'project' });
   }
+  expect(mounted.creates()).toHaveLength(0);
+  expect(mounted.prompts()).toHaveLength(0);
+});
+
+// review/astra on smarty-code#163: keeping the remembered target is for the implicit automatic
+// open only. An explicit New Chat choice while the catalog is pending is recorded at once.
+test('reload before catalog: an explicit New Chat choice is recorded and stays Chat', async () => {
+  mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
+    useSessionUIStore.getState().closeNewSessionDraft();
+    getDeferredSafeStorage().setItem(key, JSON.stringify({ projectId: owned.id, directory: owned.path, target: 'project' }));
+    // No current directory, so stale-directory recovery cannot repair the record for the test.
+    useDirectoryStore.setState({ currentDirectory: '' });
+  });
+  const saved = () => JSON.parse(getDeferredSafeStorage().getItem(key)!) as { projectId: string | null; directory: string | null; target: string };
+  // The store records the explicit choice itself, before any composer effect runs.
+  await act(async () => {
+    useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: CHAT_DRAFT_PROJECT_ID, directoryOverride: null });
+    expect(saved()).toEqual({ projectId: null, directory: null, target: 'chat' });
+  });
+  expect(saved()).toMatchObject({ projectId: null, target: 'chat' });
+  await act(async () => useProjectsStore.getState().applyManagedCatalog([
+    { id: 'gateway-net', worktree: net.path }, { id: 'gateway-owned', worktree: owned.path },
+  ]));
+  expect(useSessionUIStore.getState().newSessionDraft.target).toBe('chat');
+  expect(saved()).toMatchObject({ projectId: null, target: 'chat' });
   expect(mounted.creates()).toHaveLength(0);
   expect(mounted.prompts()).toHaveLength(0);
 });
