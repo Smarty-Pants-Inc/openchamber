@@ -1,10 +1,15 @@
+import { isDesktopShell } from '@/lib/desktop';
 import type { PiVoiceMedia } from './piVoiceCall';
 
 const ICE_WAIT_MS = 2000;
 
-/** Web runtimes with WebRTC and a secure-context microphone. Other runtimes show no voice control. */
+/**
+ * Runtime parity: web and hosted/Capacitor mobile pages are browser clients of the same server,
+ * so they get the control when they have WebRTC and a secure-context microphone. The desktop
+ * shell and VS Code (excluded by the control) show none: their pages are not the gateway's client.
+ */
 export function supportsPiVoice(): boolean {
-  return globalThis.window?.isSecureContext === true && 'RTCPeerConnection' in window && 'AudioContext' in window
+  return !isDesktopShell() && globalThis.window?.isSecureContext === true && 'RTCPeerConnection' in window && 'AudioContext' in window
     && Boolean(globalThis.navigator?.mediaDevices);
 }
 

@@ -23,7 +23,7 @@ const startSchema = z.object({ callId: z.string().regex(/^[\w-]{1,64}$/) });
 const failureSchema = z.object({ data: z.object({ message: z.string().min(1) }) });
 
 export type PiVoicePoll = z.infer<typeof pollSchema>;
-export type PiVoiceUp = { type: 'offer'; sdp: string } | { type: 'open' } | { type: 'toggleMute' }
+export type PiVoiceUp = { type: 'offer'; sdp: string } | { type: 'open' }
   | { type: 'levels'; input: number[]; output: number[] } | { type: 'failure'; message: string };
 export type PiVoiceState =
   | { status: 'active'; phase: string; muted: boolean; transcript: z.infer<typeof transcriptSchema> | null }
@@ -72,17 +72,20 @@ export interface PiVoiceMedia {
 
 const LEVEL_MS = 100, FLUSH_MS = 400;
 
-/** Starts one call. The server ends it on hangup, engine failure or session loss. */
+/** Starts one call and owns `media` from here on. The server ends it on hangup, engine failure or session loss. */
 export async function startPiVoiceCall(transport: PiVoiceTransport, media: PiVoiceMedia,
   onState: (state: PiVoiceState) => void) {
-  const callId = await transport.start();
+  let callId: string;
+  try { callId = await transport.start(); } catch (error) { media.close(); throw error; }
   const polling = new AbortController();
   let ended = false, muted = false, input: number[] = [], output: number[] = [];
   const outbox: PiVoiceUp[] = [];
   const send = (message: PiVoiceUp) => { outbox.push(message); };
-  const finish = (error: string | null) => {
+  // Release the microphone first; telling the server may stall and must not keep it open.
+  const finish = (error: string | null, notify = false) => {
     if (ended) return; ended = true;
     polling.abort(); clearInterval(timer); media.release(); media.close();
+    if (notify) void transport.stop(callId).catch(() => undefined);
     onState({ status: 'ended', error });
   };
   const timer = setInterval(() => {
@@ -91,7 +94,10 @@ export async function startPiVoiceCall(transport: PiVoiceTransport, media: PiVoi
     if (input.length * LEVEL_MS < FLUSH_MS && !outbox.length) return;
     const batch = [...outbox.splice(0, 30), ...(input.length ? [{ type: 'levels' as const, input, output }] : [])];
     input = []; output = [];
-    if (batch.length) transport.send(callId, batch).catch(() => undefined);
+    // Level-only batches may drop; a lost control message would stall the call, so end it.
+    if (batch.length) transport.send(callId, batch).catch((error: Error) => {
+      if (batch.some(message => message.type !== 'levels')) finish(error.message, true);
+    });
   }, LEVEL_MS);
   const handle = async (message: z.infer<typeof downSchema>) => {
     if (message.type === 'offer.request') {
@@ -118,20 +124,10 @@ export async function startPiVoiceCall(transport: PiVoiceTransport, media: PiVoi
         onState({ status: 'active', phase: poll.phase, muted, transcript: poll.transcript });
       }
     } catch (error) {
-      if (ended) return;
       // Reads are not replayed mutations, but a lost control channel must not keep the mic open.
-      await transport.stop(callId).catch(() => undefined);
-      finish(error instanceof Error ? error.message : String(error));
+      finish(error instanceof Error ? error.message : String(error), true);
     }
   })();
   onState({ status: 'active', phase: 'connecting', muted: false, transcript: null });
-  return {
-    callId,
-    toggleMute: () => transport.send(callId, [{ type: 'toggleMute' }]),
-    async hangup() {
-      if (ended) return;
-      await transport.stop(callId).catch(() => undefined);
-      finish(null);
-    },
-  };
+  return { callId, hangup: () => finish(null, true) };
 }

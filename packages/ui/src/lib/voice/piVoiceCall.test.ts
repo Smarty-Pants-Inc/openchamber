@@ -61,9 +61,7 @@ test('answers the engine offer request, reports open and ends by releasing every
   expect(levels?.type === 'levels' && levels.input.every(v => v === 0.25) && levels.output.every(v => v === 0.5)).toBe(true);
   server.push({ type: 'mute', muted: true });
   await until(() => log.muted);
-  await call.toggleMute();
-  expect(server.sent.at(-1)).toEqual({ type: 'toggleMute' });
-  await call.hangup();
+  call.hangup();
   expect(server.stops).toBe(1);
   expect(log.mic).toBe('closed');
   expect(log.closed).toBe(1);
@@ -100,4 +98,45 @@ test('a lost control channel stops the call instead of keeping the microphone op
   await until(() => states.at(-1)?.status === 'ended');
   expect(server.stops).toBe(1);
   expect(states.at(-1)).toEqual({ status: 'ended', error: 'HTTP 503' });
+});
+
+test('hangup releases the microphone before the server answers', async () => {
+  const server = fakeServer(), { media, log } = fakeMedia(), states: PiVoiceState[] = [];
+  server.transport.stop = () => new Promise(() => {}); // A stalled gateway.
+  const call = await startPiVoiceCall(server.transport, media, state => states.push(state));
+  server.push({ type: 'offer.request' });
+  await until(() => log.mic === 'open');
+  call.hangup();
+  expect(log.mic).toBe('closed');
+  expect(log.closed).toBe(1);
+  expect(states.at(-1)).toEqual({ status: 'ended', error: null });
+});
+
+test('a lost control message ends the call; lost level reports do not', async () => {
+  const server = fakeServer(), { media, log } = fakeMedia(), states: PiVoiceState[] = [];
+  let failControl = false;
+  const send = server.transport.send;
+  server.transport.send = async (id, messages) => {
+    if (messages.some(m => m.type !== 'levels') && failControl) throw new Error('HTTP 502');
+    if (messages.every(m => m.type === 'levels')) throw new Error('dropped');
+    await send(id, messages);
+  };
+  await startPiVoiceCall(server.transport, media, state => states.push(state));
+  server.push({ type: 'offer.request' });
+  await until(() => server.sent.some(m => m.type === 'offer'));
+  await new Promise(resolve => setTimeout(resolve, 500)); // Level-only batches fail and are ignored.
+  expect(states.at(-1)?.status).toBe('active');
+  failControl = true;
+  log.events?.open();
+  await until(() => states.at(-1)?.status === 'ended');
+  expect(states.at(-1)).toEqual({ status: 'ended', error: 'HTTP 502' });
+  expect(server.stops).toBe(1);
+  expect(log.mic).toBe('closed');
+});
+
+test('a refused start closes the media it was given', async () => {
+  const server = fakeServer(), { media, log } = fakeMedia();
+  server.transport.start = async () => { throw new Error('Live voice is unavailable in this session'); };
+  await expect(startPiVoiceCall(server.transport, media, () => {})).rejects.toThrow('unavailable');
+  expect(log.closed).toBe(1);
 });
