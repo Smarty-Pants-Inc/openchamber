@@ -211,3 +211,60 @@ describe('canonical roots and directory grants (OC100 pass 2)', () => {
     expect((await fs.readdir(root)).filter(name => name.includes('.tmp-'))).toEqual([]);
   });
 });
+
+describe('pass-3 review cases', () => {
+  let root, fs;
+  const git = async (cwd, ...args) => {
+    const { execFile } = await import('node:child_process');
+    await new Promise((resolve, reject) => execFile('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd },
+      (error) => (error ? reject(error) : resolve())));
+  };
+  beforeEach(async () => {
+    fs = (await import('node:fs/promises')).default;
+    const os = await import('node:os');
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-contain5-')));
+  });
+  afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const write = async (project, target, extra = {}) => {
+    const { app, route } = registry();
+    registerFsRoutes(app, {
+      os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+      normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: project }),
+      resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, 'config'), ...extra,
+    });
+    const res = response(); await route('/api/fs/write')({ body: { path: target, content: 'x' }, query: {}, get: () => null }, res); return res;
+  };
+
+  it('a cached project root replaced by a link to another repository grants none of it', async () => {
+    const project = path.join(root, 'project'), other = path.join(root, 'other');
+    await fs.mkdir(other); await git(other, 'init', '-q'); await git(other, 'commit', '-q', '--allow-empty', '-m', 'x');
+    await fs.symlink(other, project); // The runtime cache still reports `project` as the canonical root.
+    expect([400, 403]).toContain((await write(project, path.join(other, 'victim.txt'))).statusCode);
+    expect(await fs.readdir(other)).toEqual(['.git']);
+  });
+
+  it('a redirected ancestor with a copied worktree marker is not that worktree', async () => {
+    const repo = path.join(root, 'repo'), trees = path.join(root, 'trees'), outside = path.join(root, 'outside');
+    await fs.mkdir(repo); await fs.mkdir(trees); await git(repo, 'init', '-q'); await git(repo, 'commit', '-q', '--allow-empty', '-m', 'x');
+    await git(repo, 'worktree', 'add', '-q', path.join(trees, 'wt'));
+    expect((await write(repo, path.join(trees, 'wt', 'ok.txt'))).statusCode).toBe(200);
+    await fs.mkdir(path.join(outside, 'wt'), { recursive: true });
+    await fs.copyFile(path.join(trees, 'wt', '.git'), path.join(outside, 'wt', '.git'));
+    await fs.rename(trees, path.join(root, 'trees-moved')); await fs.symlink(outside, trees);
+    expect([400, 403]).toContain((await write(repo, path.join(trees, 'wt', 'victim.txt'))).statusCode);
+    expect(await fs.readdir(path.join(outside, 'wt'))).toEqual(['.git']);
+  });
+
+  it('a relocated managed root that does not exist yet can be created', async () => {
+    await fs.mkdir(path.join(root, 'project'));
+    const { app, route } = registry();
+    registerFsRoutes(app, {
+      os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+      normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: path.join(root, 'project') }),
+      resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, 'config'), managedChatsRoot: path.join(root, 'srv', 'chats'),
+    });
+    const res = response(); await route('/api/fs/mkdir')({ body: { path: path.join(root, 'srv', 'chats', 'day', 's1') }, query: {}, get: () => null }, res);
+    expect(res.statusCode).toBe(200);
+    expect((await fs.stat(path.join(root, 'srv', 'chats', 'day', 's1'))).isDirectory()).toBe(true);
+  });
+});

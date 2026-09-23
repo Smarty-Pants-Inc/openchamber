@@ -258,28 +258,33 @@ const containedPath = async (resolved, { fsPromises, path, os, entry = false, st
     // resolves to a directory (a managed root linked to a file grants nothing).
     const validated = resolved.canonicalBase && root === resolved.canonicalBase;
     const base = validated ? root : await canonical(root);
-    if (!base || (!validated && !(await fsPromises.stat(base).then((entry) => entry.isDirectory(), () => false)))) continue;
-    // `strict`: the target must lie strictly inside, so its parent (and any temporary sibling) is contained too.
-    if (isPathWithinRoot(target, base, path, os) && !(strict && target === base)) return target;
+    // A root not created yet (a relocated chats root before first use) can only become a directory.
+    const directory = validated || !base ? Boolean(base) : await fsPromises.stat(base)
+      .then((entry) => entry.isDirectory(), (error) => error?.code === 'ENOENT');
+    if (!directory) continue;
+    // `strict`: the target must lie strictly inside (same path semantics as containment, so casing cannot slip).
+    if (isPathWithinRoot(target, base, path, os) && !(strict && path.relative(base, target) === '')) return target;
   }
   return null;
 };
 const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
-/** A linked worktree registration grants its checkout only while the registered path is still a real directory
- * (not replaced by a link) that points back to the same registration (Git's own `gitdir` backlink).
- * ponytail: a registered path that is itself a symbolic link is refused; symlinked ancestors still work. */
-const ownedWorktreeRoot = async (candidate, path) => {
+/** A worktree registration grants its checkout only while the registered path still resolves to itself (no link
+ * anywhere on it, so a redirected ancestor cannot stand in), and a linked checkout's Git administrative directory
+ * lies inside the active repository and points back to it (Git's `gitdir` backlink, relative ones included).
+ * ponytail: a worktree registered through a symlinked path is refused; re-register it at its canonical path. */
+const ownedWorktreeRoot = async (candidate, commonGitDir, path) => {
   const fs = (await import('node:fs/promises')).default;
   try {
-    if ((await fs.lstat(candidate)).isSymbolicLink()) return null;
-    const root = await fs.realpath(candidate);
-    const marker = path.join(root, '.git');
-    if ((await fs.lstat(marker)).isDirectory()) return root; // A main checkout owns its repository directory.
+    if (await fs.realpath(candidate) !== candidate) return null;
+    const marker = path.join(candidate, '.git');
+    if ((await fs.lstat(marker)).isDirectory()) return await fs.realpath(marker) === commonGitDir ? candidate : null;
     const gitdir = /^gitdir: (.+)$/m.exec(await fs.readFile(marker, 'utf8'))?.[1]?.trim();
     if (!gitdir) return null;
-    const backlink = (await fs.readFile(path.join(path.resolve(root, gitdir), 'gitdir'), 'utf8')).trim();
-    return await fs.realpath(backlink) === await fs.realpath(marker) ? root : null;
+    const admin = await fs.realpath(path.resolve(candidate, gitdir));
+    if (!isPathWithinRoot(admin, path.join(commonGitDir, 'worktrees'), path, { homedir: () => commonGitDir })) return null;
+    const backlink = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8')).trim();
+    return path.resolve(admin, backlink) === marker ? candidate : null;
   } catch {
     return null;
   }
@@ -295,8 +300,15 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   const resolvedBase = path.resolve(baseDirectory || os.homedir());
 
   try {
+    // The discovery base must still be the validated canonical project root (not replaced by a link since).
+    const fs = (await import('node:fs/promises')).default;
+    if (await fs.realpath(resolvedBase).catch(() => null) !== resolvedBase) {
+      return { ok: false, error: 'Path is outside of active workspace' };
+    }
     const { getWorktrees } = await import('../git/index.js');
     const worktrees = await getWorktrees(resolvedBase);
+    const main = typeof worktrees[0]?.path === 'string' ? path.resolve(worktrees[0].path) : '';
+    const commonGitDir = main ? await fs.realpath(path.join(main, '.git')).catch(() => '') : '';
 
     for (const worktree of worktrees) {
       const candidatePath = typeof worktree?.path === 'string'
@@ -308,7 +320,7 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
       }
       const candidateResolved = path.resolve(candidate);
       if (isPathWithinRoot(resolved, candidateResolved, path, os)) {
-        const canonicalBase = await ownedWorktreeRoot(candidateResolved, path);
+        const canonicalBase = commonGitDir && await ownedWorktreeRoot(candidateResolved, commonGitDir, path);
         if (!canonicalBase) continue;
         return { ok: true, base: candidateResolved, resolved, canonicalBase };
       }
