@@ -19,6 +19,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import {
   applyPersistedHomeDirectoryToWindow,
+  deferSettingsWritesUntilLoaded,
   getRuntimeSettingsMirrorStorageKey,
   getSettingsSaveState,
   invalidateSettingsCache,
@@ -1906,5 +1907,90 @@ describe('unload lifecycle flush (#2197)', () => {
     await delay(50);
 
     expect(saveCalls).toEqual([]);
+  });
+});
+
+describe('startup writes before the first authoritative load (smarty-code#117)', () => {
+  const shared = {
+    homeDirectory: '/home/owner',
+    lastDirectory: '/home/owner/work/net',
+    themeId: 'owner-dark',
+    themeVariant: 'dark' as const,
+    useSystemTheme: false,
+    draftStartersCraftGoalAdded: true,
+    draftStartersScheduleTaskAdded: true,
+  };
+  // What a fresh browser's first render publishes before settings arrive.
+  const startupDefaults = {
+    homeDirectory: '/home/owner',
+    lastDirectory: '/home/owner',
+    themeId: 'default-light',
+    themeVariant: 'light' as const,
+    useSystemTheme: true,
+  };
+  const ownerKeys = Object.keys(startupDefaults);
+
+  beforeEach(() => {
+    getWindow();
+    registerRuntimeAPIs(null);
+    invalidateSettingsCache();
+  });
+
+  test('a fresh browser does not replace existing shared settings with its startup defaults', async () => {
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(async (changes) => {
+      saveCalls.push(changes);
+      return { ...changes } as SettingsPayload;
+    }, async () => ({ settings: { ...shared }, source: 'web' }));
+
+    deferSettingsWritesUntilLoaded();
+    const startup = updateDesktopSettings({ ...startupDefaults });
+    await delay(300);
+    expect(saveCalls).toEqual([]);
+
+    await syncDesktopSettings();
+    await startup;
+    await delay(300);
+
+    expect(saveCalls.filter((changes) => ownerKeys.some((key) => key in changes))).toEqual([]);
+  });
+
+  test('keeps startup values the server lacks and saves later choices normally', async () => {
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(async (changes) => {
+      saveCalls.push(changes);
+      return { ...changes } as SettingsPayload;
+    }, async () => ({ settings: { ...shared }, source: 'web' }));
+
+    deferSettingsWritesUntilLoaded();
+    const startup = updateDesktopSettings({ lastDirectory: '/home/owner', gitChangesViewMode: 'tree' });
+    await syncDesktopSettings();
+    await startup;
+    await delay(300);
+    expect(saveCalls.some((changes) => changes.gitChangesViewMode === 'tree' && !('lastDirectory' in changes))).toBe(true);
+
+    saveCalls.length = 0;
+    await updateDesktopSettings({ lastDirectory: '/home/owner/work/code' });
+    expect(saveCalls).toEqual([{ lastDirectory: '/home/owner/work/code' }]);
+  });
+
+  test('drops startup defaults when the page unloads before settings load', async () => {
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(async (changes) => {
+      saveCalls.push(changes);
+      return { ...changes } as SettingsPayload;
+    }, async () => ({ settings: { ...shared }, source: 'web' }));
+
+    deferSettingsWritesUntilLoaded();
+    const startup = updateDesktopSettings({ ...startupDefaults });
+    getWindow().dispatchEvent(new Event('pagehide'));
+    await startup;
+    await delay(50);
+    expect(saveCalls).toEqual([]);
+
+    // Release the gate so it cannot leak into later tests.
+    await syncDesktopSettings();
+    await delay(300);
+    expect(saveCalls.filter((changes) => ownerKeys.some((key) => key in changes))).toEqual([]);
   });
 });
