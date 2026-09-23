@@ -37,8 +37,13 @@ for (const outcome of ['member', 'empty', 'stock'] as const) test(`initial direc
     else useProjectsStore.getState().applyManagedCatalog(outcome === 'member' ? [{ id: 'a', worktree: '/native-project' }] : []);
     await sleep(0);
   });
-  expect(Boolean(prompt())).toBe(outcome !== 'member');
+  // An admitted managed catalog, even an empty one, never offers to add a project (#126 item 8).
+  expect(Boolean(prompt())).toBe(outcome === 'stock');
   if (prompt()) await act(async () => { prompt()?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  if (outcome !== 'stock') {
+    await act(async () => { sessionEvents.requestDirectoryDialog(); await sleep(0); });
+    expect(prompt()).toBeNull();
+  }
   // The initial-prompt gate never blocks an explicit user Add request, including while loading.
   await act(async () => {
     useProjectsStore.getState().resetManagedCatalog();

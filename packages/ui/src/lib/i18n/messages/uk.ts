@@ -1867,6 +1867,7 @@ export const dict: Record<I18nKey, string> = {
   "directoryExplorerDialog.toast.desktopCouldNotGrantAccess": "Десктопний застосунок не зміг надати доступ до файлу.",
   "directoryExplorerDialog.toast.addedProjects": "Додано {count} проєкт(и)",
   "directoryExplorerDialog.toast.failedToAddProject": "Не вдалося додати проєкт",
+  "projects.managedCatalog.staleSelection": "Збереженого проєкту {saved} немає в поточному каталозі. Показано {shown}.",
   "directoryExplorerDialog.toast.cloneUrlRequired": "Введіть URL репозиторію перед клонуванням.",
   "directoryExplorerDialog.toast.selectValidDirectoryPath": "Виберіть правильний шлях до каталогу.",
   "directoryExplorerDialog.toast.failedToSelectDirectory": "Не вдалося вибрати каталог",

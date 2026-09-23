@@ -76,6 +76,8 @@ export const SessionDialogs: React.FC = () => {
     const projects = useProjectsStore(visibleProjects);
     // VS Code does not run managed catalog discovery; keep its existing empty prompt.
     const catalogResolved = useProjectsStore(s => s.managedCatalogStatus === 'stock' || s.managedCatalogStatus === 'ready') || isVSCodeRuntime();
+    // A live managed catalog is the only project source; adding a project is not offered (#126 item 8).
+    const managedCatalog = useProjectsStore(s => s.managedCatalogAdmitted);
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const useMobileOverlay = isMobile || isTablet || hasTouchInput;
@@ -118,7 +120,7 @@ export const SessionDialogs: React.FC = () => {
     // Session loading is handled by sync bootstrap — no manual loadSessions needed.
 
     React.useEffect(() => {
-        if (hasShownInitialDirectoryPrompt || !isHomeReady || !catalogResolved || projects.length > 0) {
+        if (hasShownInitialDirectoryPrompt || !isHomeReady || !catalogResolved || managedCatalog || projects.length > 0) {
             return;
         }
 
@@ -128,6 +130,7 @@ export const SessionDialogs: React.FC = () => {
     }, [
         hasShownInitialDirectoryPrompt,
         catalogResolved,
+        managedCatalog,
         isHomeReady,
         projects.length,
     ]);
@@ -206,6 +209,7 @@ export const SessionDialogs: React.FC = () => {
 
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {
+            if (useProjectsStore.getState().managedCatalogAdmitted) return;
             setIsDirectoryDialogOpen(true);
         });
     }, []);

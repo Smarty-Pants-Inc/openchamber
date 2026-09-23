@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import { managedActiveProject, managedProjectView, type ManagedProject, type ManagedCatalogStatus } from '@/lib/managed-project-catalog';
+import {
+  managedActiveProject, managedProjectView, noteStaleManagedSelection, staleManagedSelection,
+  type ManagedProject, type ManagedCatalogStatus,
+} from '@/lib/managed-project-catalog';
 import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -613,8 +616,14 @@ export const useProjectsStore = create<ProjectsStore>()(
       const state = get();
       const projects = managedProjectView(rows, state.projects);
       const activeProjectId = managedActiveProject(projects, state.activeProjectId);
+      const shown = projects.find(project => project.id === activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
-      selectManagedDirectory(projects.find(project => project.id === activeProjectId));
+      selectManagedDirectory(shown);
+      // Saved settings stay untouched; the live view falls back visibly instead of 403ing (#126 item 8).
+      // The home fallback that the directory store records as lastDirectory is not a saved project.
+      const lastDirectory = safeStorage.getItem('lastDirectory');
+      noteStaleManagedSelection(staleManagedSelection(projects, state.projects, state.activeProjectId,
+        lastDirectory === useDirectoryStore.getState().homeDirectory ? null : lastDirectory), shown);
     },
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
@@ -633,6 +642,8 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     addProject: async (path: string, options?: { label?: string; id?: string }) => {
+      // The live managed catalog is the only project source: no bookmark write, no folder creation.
+      if (get().managedCatalogAdmitted) return null;
       if (isVSCodeProjectsRuntime) {
         // Projects are scoped to VS Code workspace folders in this runtime.
         // Adding a folder through the extension host makes the project appear
@@ -696,6 +707,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     addProjects: async (paths: string[]) => {
+      if (get().managedCatalogAdmitted) return [];
       if (isVSCodeProjectsRuntime) {
         // VS Code paths are added via runtimeApis.vscode.addWorkspaceFolder,
         // which is reached only by addProject. Iterate so valid selections

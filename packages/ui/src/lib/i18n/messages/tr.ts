@@ -1851,6 +1851,7 @@ export const dict = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': 'Masaüstü uygulaması dosya erişimi veremedi.',
   'directoryExplorerDialog.toast.addedProjects': '{count} proje eklendi',
   'directoryExplorerDialog.toast.failedToAddProject': 'Proje eklenemedi',
+  'projects.managedCatalog.staleSelection': 'Kayıtlı proje {saved} canlı katalogda yok. {shown} gösteriliyor.',
   'directoryExplorerDialog.toast.cloneUrlRequired': 'Klonlamadan önce bir depo URL\'si girin.',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': 'Geçerli bir dizin yolu seçin.',
   'directoryExplorerDialog.toast.failedToSelectDirectory': 'Dizin seçilemedi',

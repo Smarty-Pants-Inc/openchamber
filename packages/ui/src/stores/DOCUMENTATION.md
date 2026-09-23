@@ -390,6 +390,15 @@ selector, preserving saved projects, mappings and drafts. An empty managed
 catalog starts no saved-project config requests. Stock runtimes retain their
 existing parent-project mapping and persisted selection behavior.
 
+The admitted managed catalog is the only project source. `addProject` and
+`addProjects` return `null`/`[]` without a settings write, and the directory
+explorer (browse, folder creation, clone, add) does not render; every
+add-project entry point is hidden. When a saved active project or
+`lastDirectory` is not a live row, `applyManagedCatalog` shows the first
+admitted project and one toast per saved selection per page load. Saved
+settings stay unchanged. Admission needs the catalog marker, so a runtime
+that has never answered `/project` with it still uses the stock add path.
+
 ## Selector Rules
 
 Use leaf selectors.

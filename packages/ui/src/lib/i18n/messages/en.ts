@@ -1889,6 +1889,7 @@ export const dict = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': 'Desktop could not grant file access.',
   'directoryExplorerDialog.toast.addedProjects': 'Added {count} project(s)',
   'directoryExplorerDialog.toast.failedToAddProject': 'Failed to add project',
+  'projects.managedCatalog.staleSelection': 'Saved project {saved} is not in the live catalog. Showing {shown}.',
   'directoryExplorerDialog.toast.cloneUrlRequired': 'Enter a repository URL before cloning.',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': 'Please select a valid directory path.',
   'directoryExplorerDialog.toast.failedToSelectDirectory': 'Failed to select directory',

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ProjectEntry } from '@/lib/api/types';
 import { createProjectIdFromPath } from '@/lib/projectId';
+import { formatMessage, useI18nStore } from '@/lib/i18n';
+import { toast } from '@/components/ui';
 
 export const MANAGED_CATALOG_HEADER = 'x-smarty-code-catalog';
 export const MANAGED_CATALOG_VERSION = 'managed-v1';
@@ -41,4 +43,27 @@ export function managedProjectView(rows: readonly ManagedProject[], bookmarks: r
 
 export function managedActiveProject(projects: readonly ProjectEntry[], active: string | null): string | null {
   return projects.some(project => project.id === active) ? active : projects[0]?.id ?? null;
+}
+
+const trimSlashes = (path: string) => path.length > 1 ? path.replace(/\/+$/, '') : path;
+
+/** Name a saved selection (active project, else last directory) that the live catalog does not admit. */
+export function staleManagedSelection(live: readonly ProjectEntry[], saved: readonly ProjectEntry[],
+  activeProjectId: string | null, lastDirectory: string | null): string | null {
+  if (activeProjectId && !live.some(project => project.id === activeProjectId)) {
+    const project = saved.find(entry => entry.id === activeProjectId);
+    return project?.label || project?.path || activeProjectId;
+  }
+  if (!lastDirectory) return null;
+  const path = trimSlashes(lastDirectory);
+  return live.some(project => trimSlashes(project.path) === path) ? null : path;
+}
+
+const notedStaleSelections = new Set<string>();
+/** Tell the user once per saved selection that the view fell back; nothing is written to settings. */
+export function noteStaleManagedSelection(saved: string | null, shown: ProjectEntry | undefined) {
+  if (!saved || !shown || notedStaleSelections.has(saved)) return;
+  notedStaleSelections.add(saved);
+  toast.info(formatMessage(useI18nStore.getState().dictionary, 'projects.managedCatalog.staleSelection',
+    { saved, shown: shown.label || shown.path }));
 }

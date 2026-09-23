@@ -1859,6 +1859,7 @@ export const dict: Record<I18nKey, string> = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': '桌面端無法授予檔案存取權限。',
   'directoryExplorerDialog.toast.addedProjects': '已新增 {count} 個專案',
   'directoryExplorerDialog.toast.failedToAddProject': '新增專案失敗',
+  'projects.managedCatalog.staleSelection': '已儲存的專案 {saved} 不在即時目錄中。正在顯示 {shown}。',
   'directoryExplorerDialog.toast.cloneUrlRequired': '複製前請輸入儲存庫 URL。',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': '請選擇有效的目錄路徑。',
   'directoryExplorerDialog.toast.failedToSelectDirectory': '選擇目錄失敗',

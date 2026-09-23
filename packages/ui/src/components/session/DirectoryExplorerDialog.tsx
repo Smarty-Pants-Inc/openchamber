@@ -144,7 +144,13 @@ const resolveFreshFilesystemHome = async (): Promise<string | null> => {
   return opencodeClient.getFilesystemHome().catch(() => null);
 };
 
-export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
+/** A live managed catalog is the only project source: no browsing, folder creation or project add (#126 item 8). */
+export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (props) => {
+  const managed = useProjectsStore((s) => s.managedCatalogAdmitted);
+  return managed ? null : <StockDirectoryExplorerDialog {...props} />;
+};
+
+const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
   open,
   onOpenChange,
 }) => {
