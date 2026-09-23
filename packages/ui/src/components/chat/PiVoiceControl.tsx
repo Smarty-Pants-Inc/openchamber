@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useI18n } from '@/lib/i18n';
+import { opencodeClient } from '@/lib/opencode/client';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { PiVoiceState, startPiVoiceCall } from '@/lib/voice/piVoiceCall';
 import { browserPiVoiceAudio, supportsPiVoice } from '@/lib/voice/piVoiceMedia';
 
@@ -20,6 +22,17 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   // VS Code, and surfaces rendered without a runtime provider, show no voice control.
   const unsupportedRuntime = React.useContext(RuntimeAPIContext)?.runtime.isVSCode !== false;
   const [state, setState] = React.useState<ControlState>({ status: 'idle' });
+  // Shown only when the gateway advertises session voice for this directory; unknown means hidden.
+  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string } | null>(null);
+  React.useEffect(() => {
+    if (unsupportedRuntime || !supportsPiVoice()) return;
+    let cancelled = false;
+    const runtimeKey = getRuntimeKey();
+    opencodeClient.supportsSessionVoice(directory).then(supported => {
+      if (!cancelled && supported && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory });
+    }, () => undefined);
+    return () => { cancelled = true; };
+  }, [directory, unsupportedRuntime]);
   const call = React.useRef<Call | undefined>(undefined);
   // Leaving the session or page ends its call.
   const generation = React.useRef(0);
@@ -32,7 +45,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); cancel(); };
   }, [sessionId, directory, cancel]);
-  if (unsupportedRuntime || !supportsPiVoice()) return null;
+  if (unsupportedRuntime || !supportsPiVoice() || advertised?.directory !== directory || advertised.runtimeKey !== getRuntimeKey()) return null;
   const active = state.status === 'starting' || state.status === 'active';
   const toggle = async () => {
     if (active) { call.current?.hangup(); return; }

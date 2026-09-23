@@ -653,6 +653,14 @@ class OpencodeService {
       : health.capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
   }
 
+  /** True only when this directory's gateway advertises session voice calls (Smarty Code `sessionVoice`). */
+  async supportsSessionVoice(directory: string): Promise<boolean> {
+    const runtimeKey = getRuntimeKey();
+    const response = await this.getScopedSdkClient(directory).global.health();
+    this.assertRuntimeUnchanged(runtimeKey);
+    return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.sessionVoice === 1;
+  }
+
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
   async createNativeSession(directory: string): Promise<NativeCreationResult> {
     try {
