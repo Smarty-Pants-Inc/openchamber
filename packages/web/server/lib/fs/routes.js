@@ -244,7 +244,7 @@ const canonicalizeForCreate = async (target, { fsPromises, path }) => {
  * With `entry`, the final component itself is not followed (delete or rename a link, not its target); a
  * filesystem root is never an entry. ponytail: this assumes a stable tree between check and operation;
  * Node exposes no directory-handle-relative calls to pin ancestors. */
-const containedPath = async (resolved, { fsPromises, path, os, entry = false, managedRoots = [] }) => {
+const containedPath = async (resolved, { fsPromises, path, os, entry = false, strict = false, managedRoots = [] }) => {
   const canonical = (target) => canonicalizeForCreate(target, { fsPromises, path });
   if (entry && path.dirname(resolved.resolved) === resolved.resolved) return null;
   const target = entry
@@ -254,12 +254,36 @@ const containedPath = async (resolved, { fsPromises, path, os, entry = false, ma
   const roots = [resolved.canonicalBase ?? resolved.base,
     ...managedRoots.filter((root) => isPathWithinRoot(resolved.resolved, root, path, os))];
   for (const root of roots) {
-    const base = resolved.canonicalBase && root === resolved.canonicalBase ? root : await canonical(root);
-    if (base && isPathWithinRoot(target, base, path, os)) return target;
+    // The validated canonical project root is a known directory; any other root is a directory grant only if it
+    // resolves to a directory (a managed root linked to a file grants nothing).
+    const validated = resolved.canonicalBase && root === resolved.canonicalBase;
+    const base = validated ? root : await canonical(root);
+    if (!base || (!validated && !(await fsPromises.stat(base).then((entry) => entry.isDirectory(), () => false)))) continue;
+    // `strict`: the target must lie strictly inside, so its parent (and any temporary sibling) is contained too.
+    if (isPathWithinRoot(target, base, path, os) && !(strict && target === base)) return target;
   }
   return null;
 };
 const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
+
+/** A linked worktree registration grants its checkout only while the registered path is still a real directory
+ * (not replaced by a link) that points back to the same registration (Git's own `gitdir` backlink).
+ * ponytail: a registered path that is itself a symbolic link is refused; symlinked ancestors still work. */
+const ownedWorktreeRoot = async (candidate, path) => {
+  const fs = (await import('node:fs/promises')).default;
+  try {
+    if ((await fs.lstat(candidate)).isSymbolicLink()) return null;
+    const root = await fs.realpath(candidate);
+    const marker = path.join(root, '.git');
+    if ((await fs.lstat(marker)).isDirectory()) return root; // A main checkout owns its repository directory.
+    const gitdir = /^gitdir: (.+)$/m.exec(await fs.readFile(marker, 'utf8'))?.[1]?.trim();
+    if (!gitdir) return null;
+    const backlink = (await fs.readFile(path.join(path.resolve(root, gitdir), 'gitdir'), 'utf8')).trim();
+    return await fs.realpath(backlink) === await fs.realpath(marker) ? root : null;
+  } catch {
+    return null;
+  }
+};
 
 const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath }) => {
   const normalized = normalizeDirectoryPath(targetPath);
@@ -279,12 +303,14 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
         ? worktree.path
         : (typeof worktree?.worktree === 'string' ? worktree.worktree : '');
       const candidate = normalizeDirectoryPath(candidatePath);
-      if (!candidate) {
-        continue;
+      if (!candidate || worktree?.prunable === true) {
+        continue; // A prunable registration no longer proves a checkout exists at that path.
       }
       const candidateResolved = path.resolve(candidate);
       if (isPathWithinRoot(resolved, candidateResolved, path, os)) {
-        return { ok: true, base: candidateResolved, resolved };
+        const canonicalBase = await ownedWorktreeRoot(candidateResolved, path);
+        if (!canonicalBase) continue;
+        return { ok: true, base: candidateResolved, resolved, canonicalBase };
       }
     }
   } catch (error) {
@@ -309,7 +335,9 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
     managedRoots,
   });
   if (resolved.ok || resolved.error !== 'Path is outside of active workspace') {
-    return resolved;
+    // The validated canonical project root is the boundary, even if its path is later replaced by a link.
+    return resolved.ok && resolved.base === path.resolve(resolvedProject.directory)
+      ? { ...resolved, canonicalBase: resolvedProject.directory } : resolved;
   }
 
   // The active project directory is validated with fs.realpath, so the base is
@@ -1182,9 +1210,12 @@ export const registerFsRoutes = (app, dependencies) => {
 
       // A missing target used to fall back to its lexical path, so a symlinked parent could create files
       // (and parents) outside the workspace. Resolve every existing ancestor first.
-      const writePath = await containedPath(resolved, { fsPromises, path, os, managedRoots });
+      const writePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, strict: true });
       if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
+      }
+      if (await fsPromises.stat(writePath).then((entry) => entry.isDirectory(), () => false)) {
+        return res.status(400).json({ error: 'Specified path is a directory' });
       }
 
       const existing = await fsPromises.readFile(writePath, 'utf8').catch(() => null);
@@ -1246,12 +1277,12 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
-      const requestedParent = path.dirname(resolved.resolved);
-      const canonicalParent = await fsPromises.realpath(requestedParent);
-      if (!isPathWithinRoot(canonicalParent, canonicalBase, path, os)) {
+      // The same containment policy as write: the canonical root (never a retargeted alias) must contain the entry.
+      const entryPath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true });
+      if (!entryPath) {
         return res.status(403).json({ error: 'Access denied' });
       }
+      const canonicalParent = path.dirname(entryPath);
 
       const existingPath = await fsPromises.realpath(resolved.resolved).catch((error) => {
         if (error && typeof error === 'object' && error.code === 'ENOENT') {
@@ -1259,8 +1290,11 @@ export const registerFsRoutes = (app, dependencies) => {
         }
         throw error;
       });
-      const writePath = existingPath || path.join(canonicalParent, path.basename(resolved.resolved));
-      if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
+      // An existing target is followed (as before) and must itself stay inside the canonical root.
+      const writePath = existingPath
+        ? await containedPath(resolved, { fsPromises, path, os, managedRoots, strict: true })
+        : path.join(canonicalParent, path.basename(resolved.resolved));
+      if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
@@ -1353,7 +1387,7 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const deletePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true });
+      const deletePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true });
       if (!deletePath) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
@@ -1413,7 +1447,7 @@ export const registerFsRoutes = (app, dependencies) => {
       }
 
       const [from, to] = await Promise.all([resolvedOld, resolvedNew]
-        .map((resolved) => containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true })));
+        .map((resolved) => containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true })));
       if (!from || !to) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }

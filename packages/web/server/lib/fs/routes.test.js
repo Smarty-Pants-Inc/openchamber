@@ -309,6 +309,7 @@ describe('fs write', () => {
     const fsPromises = {
       readFile: vi.fn(async () => 'same'),
       mkdir: vi.fn(async () => undefined),
+      stat: vi.fn(async () => ({ isDirectory: () => false })), // The target is a file, not a directory.
       writeFile: vi.fn(async () => undefined),
     };
     const handler = registerWrite(fsPromises);
@@ -323,6 +324,7 @@ describe('fs write', () => {
     const fsPromises = {
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
+      stat: vi.fn(async () => ({ isDirectory: () => false })), // The target is a file, not a directory.
       writeFile: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined),
@@ -348,6 +350,7 @@ describe('fs write', () => {
       }),
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
+      stat: vi.fn(async () => ({ isDirectory: () => false })), // The target is a file, not a directory.
       writeFile: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined),
@@ -372,6 +375,7 @@ describe('fs write', () => {
       }),
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
+      stat: vi.fn(async () => ({ isDirectory: () => false })), // The target is a file, not a directory.
       writeFile: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined),
@@ -1485,6 +1489,7 @@ describe('fs managed chats root', () => {
         mkdir: async (targetPath) => {
           mkdirCalls.push(targetPath);
         },
+        stat: async () => ({ isDirectory: () => true }), // The managed chats root is a directory grant.
       },
     });
 

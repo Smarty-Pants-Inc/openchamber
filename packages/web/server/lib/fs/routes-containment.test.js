@@ -118,3 +118,96 @@ describe('containment review cases (OC100 pass 1)', () => {
     expect((await call('/api/fs/rename', { oldPath: '/', newPath: path.join(root, 'moved') })).statusCode).toBe(403);
   });
 });
+
+describe('worktree fallback identity (OC100 pass 2)', () => {
+  let root, fs;
+  const git = async (cwd, ...args) => {
+    const { execFile } = await import('node:child_process');
+    await new Promise((resolve, reject) => execFile('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd },
+      (error) => (error ? reject(error) : resolve())));
+  };
+  beforeEach(async () => {
+    fs = (await import('node:fs/promises')).default;
+    const os = await import('node:os');
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-contain3-')));
+    await fs.mkdir(path.join(root, 'repo')); await fs.mkdir(path.join(root, 'outside'));
+    await git(path.join(root, 'repo'), 'init', '-q');
+    await git(path.join(root, 'repo'), 'commit', '-q', '--allow-empty', '-m', 'init');
+    await git(path.join(root, 'repo'), 'worktree', 'add', '-q', path.join(root, 'wt'));
+  });
+  afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const call = async (target) => {
+    const { app, route } = registry();
+    registerFsRoutes(app, {
+      os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+      normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: path.join(root, 'repo') }),
+      resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, 'config'),
+    });
+    const res = response(); await route('/api/fs/write')({ body: { path: target, content: 'x' }, query: {}, get: () => null }, res); return res;
+  };
+
+  it('a live linked worktree is writable; one replaced by a link elsewhere is not', async () => {
+    expect((await call(path.join(root, 'wt', 'ok.txt'))).statusCode).toBe(200);
+    await fs.rename(path.join(root, 'wt'), path.join(root, 'wt-moved'));
+    await fs.symlink(path.join(root, 'outside'), path.join(root, 'wt'));
+    expect([400, 403]).toContain((await call(path.join(root, 'wt', 'victim.txt'))).statusCode); // Refused, not written.
+    // Even a copied .git marker does not make the outside folder that worktree: Git's backlink names the moved checkout.
+    await fs.copyFile(path.join(root, 'wt-moved', '.git'), path.join(root, 'outside', '.git'));
+    expect([400, 403]).toContain((await call(path.join(root, 'wt', 'victim2.txt'))).statusCode);
+    await fs.rm(path.join(root, 'outside', '.git'));
+    expect(await fs.readdir(path.join(root, 'outside'))).toEqual([]);
+  });
+});
+
+describe('canonical roots and directory grants (OC100 pass 2)', () => {
+  let root, fs;
+  beforeEach(async () => {
+    fs = (await import('node:fs/promises')).default;
+    const os = await import('node:os');
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-contain4-')));
+    for (const dir of ['project', 'outside', 'config']) await fs.mkdir(path.join(root, dir));
+    await fs.writeFile(path.join(root, 'outside', 'victim.txt'), 'keep');
+  });
+  afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const routes = (resolveProjectDirectory) => {
+    const { app, route } = registry();
+    registerFsRoutes(app, {
+      os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+      normalizeDirectoryPath: (p) => p, resolveProjectDirectory, resolveGitBinaryForSpawn: () => 'git',
+      openchamberUserConfigRoot: path.join(root, 'config'), managedChatsRoot: path.join(root, 'config', 'chats'),
+    });
+    return route;
+  };
+  const upload = async (route, target) => {
+    const { Readable } = await import('node:stream');
+    const req = Object.assign(Readable.from([Buffer.from('x')]), { query: { path: target },
+      headers: { 'content-type': 'application/octet-stream', 'content-length': '1' }, get: () => null });
+    const res = response(); await route('/api/fs/upload')(req, res); return res;
+  };
+
+  it('upload follows the validated root, not a retargeted alias', async () => {
+    const alias = path.join(root, 'alias'); await fs.symlink(path.join(root, 'outside'), alias);
+    const route = routes(async () => ({ directory: path.join(root, 'project'), requestedDirectory: alias }));
+    expect((await upload(route, path.join(alias, 'new.txt'))).statusCode).toBe(403);
+    expect(await fs.readdir(path.join(root, 'outside'))).toEqual(['victim.txt']);
+  });
+
+  it('a project root replaced by a link while its canonical path is cached grants nothing outside', async () => {
+    const project = path.join(root, 'project');
+    await fs.rm(project, { recursive: true }); await fs.symlink(path.join(root, 'outside'), project);
+    const route = routes(async () => ({ directory: project })); // The runtime cache still reports the old root.
+    const res = response(); await route('/api/fs/write')({ body: { path: path.join(project, 'new.txt'), content: 'x' }, query: {}, get: () => null }, res);
+    expect(res.statusCode).toBe(403);
+    expect(await fs.readdir(path.join(root, 'outside'))).toEqual(['victim.txt']);
+  });
+
+  it('a managed root linked to a file grants nothing, and a root itself is never a write target', async () => {
+    await fs.symlink(path.join(root, 'outside', 'victim.txt'), path.join(root, 'config', 'chats'));
+    const route = routes(async () => ({ directory: path.join(root, 'project') }));
+    const write = async (target) => { const res = response(); await route('/api/fs/write')({ body: { path: target, content: 'x' }, query: {}, get: () => null }, res); return res; };
+    expect((await write(path.join(root, 'config', 'chats'))).statusCode).toBeGreaterThanOrEqual(400);
+    expect(await fs.readFile(path.join(root, 'outside', 'victim.txt'), 'utf8')).toBe('keep');
+    expect((await write(path.join(root, 'project'))).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await fs.readdir(root)).filter(name => name.includes('.tmp-'))).toEqual([]);
+  });
+});
