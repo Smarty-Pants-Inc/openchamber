@@ -680,7 +680,7 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
   target: "chat",
 }
 let nextDraftId = 1
-let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string; edited?: boolean } | null = null
+let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string; edited?: boolean; remembered?: PersistedDraftTarget } | null = null
 let catalogDraftTransfer: { draftId: number; runtimeKey: string; to: string | null; edited?: boolean } | null = null
 
 export function markDraftInputEdited(draftId: number): void {
@@ -884,6 +884,8 @@ const recoverStaleDraftDirectory = async (openedDraft: NewSessionDraftState): Pr
 
   const currentDraft = useSessionUIStore.getState().newSessionDraft
   if (useProjectsStore.getState().managedCatalogAdmitted || currentDraft.draftId !== openedDraft.draftId) return
+  // The pending catalog transfer owns a draft that waits for its remembered project.
+  if (pendingGlobalCatalogDraft?.draftId === openedDraft.draftId && pendingGlobalCatalogDraft.remembered) return
   if (!currentDraft.open) return
   if (currentDraft.preserveDirectoryOverride === true) return
   if (currentDraft.pendingWorktreeRequestId) return
@@ -1443,7 +1445,12 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       warmChatsRootDirectory()
     }
 
-    persistDraftTarget({ projectId: selectedProject?.id ?? null, directory, target })
+    // A remembered project that the cached view cannot resolve yet may still be admitted by the
+    // pending managed catalog (a reload before catalog delivery, smarty-code#113). Keep its record
+    // and let the catalog transfer below decide, instead of replacing it with this Chat fallback.
+    const awaitingRememberedProject = persistedTarget?.target === "project" && persistedProject === null
+      && target === "chat" && projectsState.managedCatalogStatus === "unknown" ? persistedTarget : undefined
+    if (!awaitingRememberedProject) persistDraftTarget({ projectId: selectedProject?.id ?? null, directory, target })
 
     const nextDraft: NewSessionDraftState = {
       draftId: nextDraftId++,
@@ -1470,7 +1477,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       && !options?.parentID && !options?.bootstrapPendingDirectory
       && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
       && projectsState.managedCatalogStatus === "unknown"
-      ? { draftId: nextDraft.draftId, runtimeKey: getRuntimeKey() } : null
+      ? { draftId: nextDraft.draftId, runtimeKey: getRuntimeKey(), remembered: awaitingRememberedProject } : null
     if (pendingGlobalCatalogDraft) observeGlobalDraftCatalog()
     claimChatDraftOwnership(createChatDraftIdentity(getRuntimeKey(), directory, null, nextDraft.draftId))
     set({
@@ -2511,7 +2518,10 @@ function observeGlobalDraftCatalog() {
     if (!draft.open || draft.draftId !== pending.draftId || pending.runtimeKey !== getRuntimeKey()
       || draft.target !== "chat" || draft.preparedChatDirectory) return
     const members = visibleProjects(projects)
-    const project = members.find(member => member.id === projects.activeProjectId) ?? members[0]
+    const remembered = pending.remembered
+    const project = (remembered && members.find(member => member.id === remembered.projectId
+      || normalizePath(member.path) === remembered.directory))
+      ?? members.find(member => member.id === projects.activeProjectId) ?? members[0]
     const to = normalizePath(project?.path ?? null)
     const nextDraft: NewSessionDraftState = { ...draft, target: "project",
       selectedProjectId: project?.id ?? null, directoryOverride: to }

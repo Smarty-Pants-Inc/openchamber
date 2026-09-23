@@ -5,6 +5,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, NATIVE_CREATION_INVALIDATED, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from '@/sync/native-draft-control';
 import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
@@ -21,6 +22,9 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const [capability, setCapability] = React.useState<Capability | null>(null);
   const [revision, recheck] = React.useReducer(value => value + 1, 0);
   const directory = draft.directoryOverride ?? currentDirectory;
+  // A check before the managed catalog admits this directory is refused by the gateway; check
+  // again when the catalog publishes instead of leaving the draft unavailable (smarty-code#113).
+  const catalogReady = useProjectsStore(s => s.managedCatalogStatus === 'ready');
   React.useEffect(() => {
     if (!draft.open || !directory) return;
     let cancelled = false, request = 0;
@@ -47,7 +51,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     window.addEventListener(NATIVE_CREATION_INVALIDATED, invalidated);
     void check();
     return () => { cancelled = true; window.removeEventListener(NATIVE_CREATION_INVALIDATED, invalidated); };
-  }, [directory, draft.open, draft.draftId, runtimeKey, revision]);
+  }, [directory, draft.open, draft.draftId, runtimeKey, revision, catalogReady]);
 
   const mode = capability?.runtimeKey === runtimeKey && capability.directory === directory
     ? capability.mode : 'loading';
