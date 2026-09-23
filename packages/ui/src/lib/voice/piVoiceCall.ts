@@ -23,8 +23,10 @@ export type PiVoiceSocket = RelayTunnelWebSocket;
 
 /** Microphone and speaker for one call. */
 export interface PiVoiceAudio {
-  /** Opens the microphone; each captured PCM16 24 kHz frame goes to `onCapture`. */
-  start(onCapture: (pcm: ArrayBuffer) => void): Promise<void>;
+  /** In the user's gesture: resume audio and open the microphone. A denied microphone throws, before any call. */
+  prepare(): Promise<void>;
+  /** Routes captured PCM16 24 kHz frames; `onLost` reports a microphone that went away. */
+  capture(onCapture: (pcm: ArrayBuffer) => void, onLost: (reason: string) => void): void;
   play(pcm: ArrayBuffer): void;
   setMuted(muted: boolean): void;
   close(): void;
@@ -37,9 +39,12 @@ export function openPiVoiceSocket(sessionId: string, directory: string): PiVoice
 
 const OPEN = 1;
 
-/** Starts one call and owns `audio` from here on. Every ending path releases the microphone first. */
+/**
+ * Starts one call with a prepared microphone and owns `audio` from here on. Captured audio flows
+ * only while the call is live. Every ending path releases the microphone first.
+ */
 export function startPiVoiceCall(socket: PiVoiceSocket, audio: PiVoiceAudio, onState: (state: PiVoiceState) => void) {
-  let ended = false, microphone = false;
+  let ended = false, live = false;
   let state: Extract<PiVoiceState, { status: 'active' }> = { status: 'active', phase: 'connecting', muted: false, live: false, error: null };
   const send = (message: PiVoiceUp | ArrayBuffer) => {
     if (socket.readyState === OPEN) socket.send(message instanceof ArrayBuffer ? message : JSON.stringify(message));
@@ -59,13 +64,10 @@ export function startPiVoiceCall(socket: PiVoiceSocket, audio: PiVoiceAudio, onS
     const next: Partial<typeof state> = {};
     if (message.phase) next.phase = message.phase;
     if (message.muted !== undefined) { next.muted = message.muted; audio.setMuted(message.muted); }
-    if (message.active) next.live = true;
+    if (message.active) { next.live = true; live = true; }
     update(next);
-    if (message.active && !microphone) {
-      microphone = true;
-      audio.start(pcm => send(pcm)).catch((error: Error) => finish(`Microphone unavailable: ${error.message}`));
-    }
   };
+  audio.capture(pcm => { if (live) send(pcm); }, reason => finish(reason));
   socket.binaryType = 'arraybuffer';
   socket.onopen = () => send({ type: 'start' });
   socket.onmessage = event => {
@@ -80,4 +82,15 @@ export function startPiVoiceCall(socket: PiVoiceSocket, audio: PiVoiceAudio, onS
   socket.onclose = () => finish('Voice connection closed');
   onState(state);
   return { hangup: () => finish(null) };
+}
+
+/**
+ * Joins the gesture's microphone preparation to a new call. A denied or failed microphone, or a
+ * control that went away meanwhile, opens no socket and starts no call; the audio is closed instead.
+ */
+export async function beginPiVoiceCall(prepared: Promise<void>, audio: PiVoiceAudio, openSocket: () => PiVoiceSocket,
+  onState: (state: PiVoiceState) => void, wanted: () => boolean) {
+  try { await prepared; } catch (error) { audio.close(); throw error; }
+  if (!wanted()) { audio.close(); return undefined; }
+  return startPiVoiceCall(openSocket(), audio, onState);
 }

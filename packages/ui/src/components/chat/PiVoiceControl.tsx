@@ -21,9 +21,17 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   const unsupportedRuntime = React.useContext(RuntimeAPIContext)?.runtime.isVSCode !== false;
   const [state, setState] = React.useState<ControlState>({ status: 'idle' });
   const call = React.useRef<Call | undefined>(undefined);
-  // Leaving the session or page ends its call (also one still starting) and releases the microphone.
+  // Leaving the session or page ends its call.
   const generation = React.useRef(0);
-  React.useEffect(() => () => { generation.current++; call.current?.hangup(); call.current = undefined; }, [sessionId, directory]);
+  // Ends this control's call, including one still starting, and releases the microphone.
+  const cancel = React.useCallback(() => { generation.current++; call.current?.hangup(); call.current = undefined; }, []);
+  React.useEffect(() => {
+    // A page that is unloaded (not merely backgrounded) ends its call. A page kept in the back/forward
+    // cache loses its socket, and the call then ends with a reason rather than silently.
+    const leave = (event: PageTransitionEvent) => { if (!event.persisted) cancel(); };
+    window.addEventListener('pagehide', leave);
+    return () => { window.removeEventListener('pagehide', leave); cancel(); };
+  }, [sessionId, directory, cancel]);
   if (unsupportedRuntime || !supportsPiVoice()) return null;
   const active = state.status === 'starting' || state.status === 'active';
   const toggle = async () => {
@@ -31,18 +39,19 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     const owner = generation.current;
     setState({ status: 'starting' });
     try {
-      // Audio is created inside the click so autoplay policy allows the remote voice.
-      const audio = browserPiVoiceAudio();
-      const voice = await loadCall().catch((error: Error) => { audio.close(); throw error; });
-      if (generation.current !== owner) { audio.close(); return; }
-      call.current = voice.startPiVoiceCall(voice.openPiVoiceSocket(sessionId, directory), audio, next => {
+      // One gesture: audio and the microphone are prepared inside the click. A denied
+      // microphone starts no call.
+      const audio = browserPiVoiceAudio(), prepared = audio.prepare();
+      const voice = await loadCall().catch((error: Error) => { void prepared.catch(() => undefined); audio.close(); throw error; });
+      const started = await voice.beginPiVoiceCall(prepared, audio, () => voice.openPiVoiceSocket(sessionId, directory), next => {
         if (generation.current !== owner) return;
         setState(next);
         if (next.status === 'ended') {
           call.current = undefined;
           if (next.error) toast.error(t('chat.piVoice.ended', { reason: next.error }));
         }
-      });
+      }, () => generation.current === owner);
+      call.current = started;
     } catch (error) {
       if (generation.current !== owner) return;
       setState({ status: 'idle' });

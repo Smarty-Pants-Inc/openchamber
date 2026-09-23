@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { startPiVoiceCall, type PiVoiceAudio, type PiVoiceDown, type PiVoiceSocket, type PiVoiceState } from './piVoiceCall';
+import { beginPiVoiceCall, startPiVoiceCall, type PiVoiceAudio, type PiVoiceDown, type PiVoiceSocket, type PiVoiceState } from './piVoiceCall';
 
 interface SocketLog { json: unknown[]; audio: number[][]; closed?: number }
 function fakeSocket() {
@@ -19,21 +19,19 @@ function fakeSocket() {
     down(message: PiVoiceDown) { socket.onmessage?.({ data: JSON.stringify(message) }); },
     raw(data: string | ArrayBuffer) { socket.onmessage?.({ data }); } };
 }
-interface AudioLog { mic: string; muted: boolean; played: number[][]; closed: number; capture?: (pcm: ArrayBuffer) => void }
-function fakeAudio(deny = false) {
-  const log: AudioLog = { mic: 'closed', muted: false, played: [], closed: 0 };
+interface AudioLog { mic: string; muted: boolean; played: number[][]; closed: number;
+  capture?: (pcm: ArrayBuffer) => void; lost?: (reason: string) => void }
+function fakeAudio() {
+  const log: AudioLog = { mic: 'open', muted: false, played: [], closed: 0 };
   const audio: PiVoiceAudio = {
-    async start(onCapture) { if (deny) throw new Error('Permission denied'); log.mic = 'open'; log.capture = onCapture; },
+    async prepare() { log.mic = 'open'; },
+    capture(onCapture, onLost) { log.capture = onCapture; log.lost = onLost; },
     play(pcm) { log.played.push([...new Uint8Array(pcm)]); },
     setMuted(muted) { log.muted = muted; },
     close() { log.closed++; log.mic = 'closed'; },
   };
   return { audio, log };
 }
-const until = async (check: () => boolean) => {
-  for (let i = 0; i < 100 && !check(); i++) await new Promise(resolve => setTimeout(resolve, 5));
-  expect(check()).toBe(true);
-};
 
 test('starts on open, opens the microphone only when live, and moves PCM both ways', async () => {
   const s = fakeSocket(), { audio, log } = fakeAudio(), states: PiVoiceState[] = [];
@@ -42,9 +40,9 @@ test('starts on open, opens the microphone only when live, and moves PCM both wa
   s.open();
   expect(s.log.json).toEqual([{ type: 'start' }]);
   s.down({ type: 'state', phase: 'connecting' });
-  expect(log.mic).toBe('closed');
+  log.capture?.(new Uint8Array([5]).buffer); // Prepared microphone, call not live yet: nothing is sent.
+  expect(s.log.audio).toEqual([]);
   s.down({ type: 'state', active: true, muted: false });
-  await until(() => log.mic === 'open');
   log.capture?.(new Uint8Array([1, 2]).buffer);
   expect(s.log.audio).toEqual([[1, 2]]);
   s.raw(new Uint8Array([7, 8]).buffer);
@@ -72,7 +70,7 @@ test('hangup releases the microphone before telling the server', () => {
   expect(log.closed).toBe(1);
 });
 
-test('a server end, a lost socket or a denied microphone end the call with a reason', async () => {
+test('a server end, a lost socket or a lost microphone end the call with a reason', () => {
   const endings: [(s: ReturnType<typeof fakeSocket>) => void, string][] = [
     [s => s.down({ type: 'ended', reason: 'No voice provider is loaded in this session' }), 'No voice provider is loaded in this session'],
     [s => s.socket.onclose?.({ code: 1006, reason: '' }), 'Voice connection closed'],
@@ -86,11 +84,28 @@ test('a server end, a lost socket or a denied microphone end the call with a rea
     expect(states.at(-1)).toEqual({ status: 'ended', error: reason });
     expect(log.closed).toBe(1);
   }
-  const s = fakeSocket(), { audio, log } = fakeAudio(true), states: PiVoiceState[] = [];
+  const s = fakeSocket(), { audio, log } = fakeAudio(), states: PiVoiceState[] = [];
   startPiVoiceCall(s.socket, audio, state => states.push(state));
   s.open();
-  s.down({ type: 'state', active: true });
-  await until(() => states.at(-1)?.status === 'ended');
-  expect(states.at(-1)).toEqual({ status: 'ended', error: 'Microphone unavailable: Permission denied' });
+  log.lost?.('The microphone was disconnected');
+  expect(states.at(-1)).toEqual({ status: 'ended', error: 'The microphone was disconnected' });
   expect(log.closed).toBe(1);
+});
+
+test('a denied microphone or a vanished control opens no socket; a prepared one starts the call', async () => {
+  let opened = 0;
+  const open = () => { opened++; return fakeSocket().socket; };
+  const denied = fakeAudio();
+  await expect(beginPiVoiceCall(Promise.reject(new Error('Permission denied')), denied.audio, open, () => {}, () => true))
+    .rejects.toThrow('Permission denied');
+  expect(denied.log.closed).toBe(1);
+  const gone = fakeAudio();
+  expect(await beginPiVoiceCall(Promise.resolve(), gone.audio, open, () => {}, () => false)).toBeUndefined();
+  expect(gone.log.closed).toBe(1);
+  expect(opened).toBe(0);
+  const states: PiVoiceState[] = [];
+  const call = await beginPiVoiceCall(Promise.resolve(), fakeAudio().audio, open, state => states.push(state), () => true);
+  expect(opened).toBe(1);
+  expect(states.at(-1)).toMatchObject({ status: 'active', phase: 'connecting' });
+  call?.hangup();
 });

@@ -20,34 +20,42 @@ export function supportsPiVoice(): boolean {
  */
 export function browserPiVoiceAudio(): PiVoiceAudio {
   const context = new AudioContext();
-  void context.resume();
   let stream: MediaStream | undefined, node: AudioWorkletNode | undefined, source: MediaStreamAudioSourceNode | undefined;
   let closed = false, epoch = 0;
+  let deliver: (pcm: ArrayBuffer) => void = () => undefined, lost: (reason: string) => void = () => undefined;
+  // Backgrounding is not consent revocation: keep media, and resume audio the platform suspended.
+  const resumeWhenVisible = () => { if (document.visibilityState === 'visible' && context.state !== 'running') void context.resume().catch(() => undefined); };
   const release = () => {
+    document.removeEventListener('visibilitychange', resumeWhenVisible);
     for (const track of stream?.getTracks() ?? []) track.stop();
     source?.disconnect(); node?.disconnect();
     stream = undefined; source = undefined; node = undefined;
   };
   return {
-    async start(onCapture) {
+    async prepare() {
+      const resumed = context.resume(); // Inside the user's gesture.
       const url = URL.createObjectURL(new Blob([PI_VOICE_WORKLET], { type: 'text/javascript' }));
       try { await context.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
       const microphone = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      await resumed;
       if (closed) {
         for (const track of microphone.getTracks()) track.stop();
         throw new Error('Voice call ended');
       }
       stream = microphone;
+      for (const track of microphone.getAudioTracks()) track.addEventListener('ended', () => lost('The microphone was disconnected'));
       source = context.createMediaStreamSource(microphone);
       node = new AudioWorkletNode(context, PI_VOICE_WORKLET_NAME, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
       node.port.onmessage = (event: MessageEvent<{ type?: string; epoch?: number; pcm?: ArrayBuffer }>) => {
-        if (event.data.type === 'capture' && event.data.epoch === epoch && event.data.pcm) onCapture(event.data.pcm);
+        if (event.data.type === 'capture' && event.data.epoch === epoch && event.data.pcm) deliver(event.data.pcm);
       };
       source.connect(node);
       node.connect(context.destination);
+      document.addEventListener('visibilitychange', resumeWhenVisible);
     },
+    capture(onCapture, onLost) { deliver = onCapture; lost = onLost; },
     play(pcm) { node?.port.postMessage(pcm, [pcm]); },
     setMuted(muted) {
       epoch++;
