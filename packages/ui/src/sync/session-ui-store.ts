@@ -1448,7 +1448,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // A remembered project that the cached view cannot resolve yet may still be admitted by the
     // pending managed catalog (a reload before catalog delivery, smarty-code#113). Keep its record
     // and let the catalog transfer below decide, instead of replacing it with this Chat fallback.
-    // Only the implicit automatic open waits; an explicit choice (for example New Chat) is recorded now.
+    // Only an open that names no target (automatic or a plain "new session") waits for the catalog;
+    // an explicit choice (for example New Chat) is recorded now.
     const implicitCatalogOpen = !options?.target && options?.selectedProjectId === undefined
       && options?.directoryOverride === undefined && target === "chat"
       && !options?.parentID && !options?.bootstrapPendingDirectory

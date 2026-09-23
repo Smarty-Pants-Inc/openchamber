@@ -148,7 +148,8 @@ test('reload before catalog: an explicit New Chat choice is recorded and stays C
     useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
     useSessionUIStore.getState().closeNewSessionDraft();
     getDeferredSafeStorage().setItem(key, JSON.stringify({ projectId: owned.id, directory: owned.path, target: 'project' }));
-    useDirectoryStore.setState({ currentDirectory: null });
+    // No current directory, so stale-directory recovery cannot repair the record for the test.
+    useDirectoryStore.setState({ currentDirectory: '' });
   });
   const saved = () => JSON.parse(getDeferredSafeStorage().getItem(key)!) as { projectId: string | null; directory: string | null; target: string };
   // The store records the explicit choice itself, before any composer effect runs.
