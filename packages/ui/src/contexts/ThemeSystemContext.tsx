@@ -36,6 +36,7 @@ import {
   resolveThemePreferencesForRuntime,
   resolveThemePreferencesFromSettingsSync,
   resolveThemePreferencesFromStorageEvent,
+  themeChoiceKey,
   writeThemePreferencesForRuntime,
 } from './theme-storage';
 
@@ -160,6 +161,12 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
   const isVSCode = useMemo(() => isVSCodeRuntime(), []);
   const isDesktopShell = useMemo(() => detectDesktopShell(), []);
   const customThemesRequestRef = useRef(0);
+  // Shared settings hold the user's theme choice (mode and light/dark IDs). Publish only when
+  // that choice changes, not when this device derives another variant (system mode) or its theme
+  // list reloads; otherwise a new browser overwrites another browser's choice (smarty-code#117).
+  // themeId/themeVariant are last-publisher hints, not authority. Ref writes in state updaters
+  // below are idempotent, so StrictMode double calls are safe.
+  const publishedThemeChoiceRef = useRef<string | null>(null);
   const receivesParentThemeSync = useMemo(() => {
     if (typeof window === 'undefined') {
       return false;
@@ -304,7 +311,12 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     setCustomThemesLoading(false);
     // Adopt the new instance's last-known theme immediately; the incoming
     // settings sync refines it with the server's authoritative value.
-    setPreferences((prev) => adoptThemePreferencesForRuntime(detail.runtimeKey, prev));
+    setPreferences((prev) => {
+      const next = adoptThemePreferencesForRuntime(detail.runtimeKey, prev);
+      // A cached choice is not a new user choice; do not publish it over the new instance.
+      publishedThemeChoiceRef.current = themeChoiceKey(next);
+      return next;
+    });
     void reloadCustomThemes();
   }), [isVSCode, reloadCustomThemes]);
 
@@ -555,15 +567,11 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     return () => window.removeEventListener('message', handleMessage);
   }, [applyIncomingThemeSync]);
 
-  // Shared settings hold the user's theme choice. Publish only when that choice changes,
-  // not when this device merely derives a different variant (system mode) or its theme
-  // list reloads; otherwise a new browser overwrites another browser's choice (smarty-code#117).
-  const publishedThemeChoiceRef = useRef<string | null>(null);
   useEffect(() => {
     if (receivesParentThemeSync) {
       return;
     }
-    const choice = JSON.stringify([preferences.themeMode, preferences.lightThemeId, preferences.darkThemeId]);
+    const choice = themeChoiceKey({ themeMode: preferences.themeMode, lightThemeId: preferences.lightThemeId, darkThemeId: preferences.darkThemeId });
     if (publishedThemeChoiceRef.current === choice) {
       return;
     }
@@ -610,7 +618,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       setPreferences((prev) => {
         const next = resolveThemePreferencesFromSettingsSync(detail, prev) ?? prev;
         // The adopted or confirmed shared choice needs no republish.
-        if (detail.adoptTheme) publishedThemeChoiceRef.current = JSON.stringify([next.themeMode, next.lightThemeId, next.darkThemeId]);
+        if (detail.adoptTheme) publishedThemeChoiceRef.current = themeChoiceKey(next);
         return next;
       });
     };

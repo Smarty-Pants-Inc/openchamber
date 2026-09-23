@@ -12,6 +12,7 @@ import { useThemeSystem } from './useThemeSystem';
 let setTheme: (id: string) => void = () => {};
 const Capture = () => { setTheme = useThemeSystem().setTheme; return null; };
 
+// Run in its own process (CI's isolated runner): persistence's lifecycle binds to this test's Window.
 // smarty-code#117: a fresh browser whose OS prefers light must not publish its derived
 // light theme over a shared "system" choice made by another browser (seen live at 20:45:43Z).
 test('a fresh browser does not publish its local theme over shared settings after the first load', async () => {
@@ -30,7 +31,7 @@ test('a fresh browser does not publish its local theme over shared settings afte
   const root = createRoot(document.createElement('div'));
   try {
     deferSettingsWritesUntilLoaded();
-    await act(async () => root.render(<ThemeSystemProvider><Capture /></ThemeSystemProvider>));
+    await act(async () => root.render(<React.StrictMode><ThemeSystemProvider><Capture /></ThemeSystemProvider></React.StrictMode>));
     await act(async () => { await syncDesktopSettings(); });
     // Later theme-list churn (custom themes arriving) re-runs the theme effect with the same preferences.
     const extra = { ...getDefaultTheme(false), metadata: { ...getDefaultTheme(false).metadata, id: 'fixture-extra', name: 'Fixture extra' } };
