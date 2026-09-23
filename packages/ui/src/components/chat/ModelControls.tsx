@@ -34,6 +34,8 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useSession, useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { OrdinaryModelControls } from './OrdinaryModelControls';
+import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
+import { applyNativeDraftModel } from '@/sync/native-draft-creation';
 import { useChatColumnSession } from './chatColumnSession';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
@@ -324,8 +326,22 @@ export const ModelControls: React.FC<ModelControlsProps> = (props) => {
     const session = useSession(sessionId, column?.directory ?? directory ?? undefined);
     const ordinary = React.useMemo(() => readOrdinaryModel(session), [session]);
     // Keep ordinary state ahead of all historical, saved and directory-wide choices.
-    if (ordinary !== undefined) return <OrdinaryModelControls state={ordinary} className={props.className} />;
+    if (ordinary !== undefined) {
+        const target = session && sessionId ? { sessionId, directory: session.directory } : undefined;
+        return <OrdinaryModelControls state={ordinary} target={target} className={props.className} />;
+    }
     return <ConfiguredModelControls {...props} />;
+};
+
+/** A created, unsent ordinary draft: live native state, and a switch also changes the model the draft sends. */
+export const NativeDraftModelControls: React.FC<{ session: NativeCreatedSession; className?: string }> = ({ session: created, className }) => {
+    const live = useSession(created.id, created.directory);
+    const ordinary = React.useMemo(() => readOrdinaryModel(live ?? created), [live, created]);
+    if (!ordinary) return null;
+    return <OrdinaryModelControls state={ordinary} target={{ sessionId: created.id, directory: created.directory }}
+        onApplied={applied => {
+            if (applied.model) applyNativeDraftModel(created, { providerID: applied.model.providerID, modelID: applied.model.modelID });
+        }} className={className} />;
 };
 
 const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
