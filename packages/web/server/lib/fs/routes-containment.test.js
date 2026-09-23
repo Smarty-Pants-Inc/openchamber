@@ -268,3 +268,43 @@ describe('pass-3 review cases', () => {
     expect((await fs.stat(path.join(root, 'srv', 'chats', 'day', 's1'))).isDirectory()).toBe(true);
   });
 });
+
+describe('pass-4 worktree layouts', () => {
+  let root, fs;
+  const git = async (cwd, ...args) => {
+    const { execFile } = await import('node:child_process');
+    await new Promise((resolve, reject) => execFile('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd },
+      (error) => (error ? reject(error) : resolve())));
+  };
+  beforeEach(async () => {
+    fs = (await import('node:fs/promises')).default;
+    const os = await import('node:os');
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-contain6-')));
+  });
+  afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const write = async (project, target) => {
+    const { app, route } = registry();
+    registerFsRoutes(app, {
+      os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+      normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: project }),
+      resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, 'config'),
+    });
+    const res = response(); await route('/api/fs/write')({ body: { path: target, content: 'x' }, query: {}, get: () => null }, res); return res;
+  };
+
+  it('a sibling of a bare-backed checkout stays writable', async () => {
+    const seed = path.join(root, 'seed'), bare = path.join(root, 'repo.git');
+    await fs.mkdir(seed); await git(seed, 'init', '-q', '-b', 'main'); await git(seed, 'commit', '-q', '--allow-empty', '-m', 'x');
+    await git(root, 'clone', '-q', '--bare', seed, bare);
+    await git(bare, 'worktree', 'add', '-q', path.join(root, 'a'), '-b', 'a');
+    await git(bare, 'worktree', 'add', '-q', path.join(root, 'b'), '-b', 'b');
+    expect((await write(path.join(root, 'a'), path.join(root, 'b', 'ok.txt'))).statusCode).toBe(200);
+  });
+
+  it('a worktree whose administrative name starts with two dots stays writable', async () => {
+    const repo = path.join(root, 'repo');
+    await fs.mkdir(repo); await git(repo, 'init', '-q'); await git(repo, 'commit', '-q', '--allow-empty', '-m', 'x');
+    await git(repo, 'worktree', 'add', '-q', '-b', 'scratch', path.join(root, '..scratch'));
+    expect((await write(repo, path.join(root, '..scratch', 'ok.txt'))).statusCode).toBe(200);
+  });
+});

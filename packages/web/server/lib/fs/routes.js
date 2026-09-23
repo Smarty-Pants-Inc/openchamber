@@ -190,7 +190,8 @@ const gitReadEntryBytes = (key, result) =>
 const isPathWithinRoot = (resolvedPath, rootPath, path, os) => {
   const resolvedRoot = path.resolve(rootPath || os.homedir());
   const relative = path.relative(resolvedRoot, resolvedPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  // Only `..` itself or a `../` prefix leaves the root; a child named `..scratch` stays inside.
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     return false;
   }
   return true;
@@ -269,6 +270,13 @@ const containedPath = async (resolved, { fsPromises, path, os, entry = false, st
 };
 const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
+const gitCommonDir = async (directory, path) => {
+  const { execFile } = await import('node:child_process');
+  const output = await new Promise((resolve, reject) => execFile('git', ['rev-parse', '--git-common-dir'], { cwd: directory },
+    (error, stdout) => (error ? reject(error) : resolve(String(stdout).trim()))));
+  return path.resolve(directory, output);
+};
+
 /** A worktree registration grants its checkout only while the registered path still resolves to itself (no link
  * anywhere on it, so a redirected ancestor cannot stand in), and a linked checkout's Git administrative directory
  * lies inside the active repository and points back to it (Git's `gitdir` backlink, relative ones included).
@@ -282,6 +290,7 @@ const ownedWorktreeRoot = async (candidate, commonGitDir, path) => {
     const gitdir = /^gitdir: (.+)$/m.exec(await fs.readFile(marker, 'utf8'))?.[1]?.trim();
     if (!gitdir) return null;
     const admin = await fs.realpath(path.resolve(candidate, gitdir));
+    if (admin === commonGitDir) return candidate; // A main checkout with a separate Git directory.
     if (!isPathWithinRoot(admin, path.join(commonGitDir, 'worktrees'), path, { homedir: () => commonGitDir })) return null;
     const backlink = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8')).trim();
     return path.resolve(admin, backlink) === marker ? candidate : null;
@@ -307,8 +316,8 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
     }
     const { getWorktrees } = await import('../git/index.js');
     const worktrees = await getWorktrees(resolvedBase);
-    const main = typeof worktrees[0]?.path === 'string' ? path.resolve(worktrees[0].path) : '';
-    const commonGitDir = main ? await fs.realpath(path.join(main, '.git')).catch(() => '') : '';
+    // Git's own answer for the common directory covers bare and separate-git-dir repositories too.
+    const commonGitDir = await gitCommonDir(resolvedBase, path).then((dir) => fs.realpath(dir)).catch(() => '');
 
     for (const worktree of worktrees) {
       const candidatePath = typeof worktree?.path === 'string'
