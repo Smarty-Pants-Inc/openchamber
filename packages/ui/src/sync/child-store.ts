@@ -285,6 +285,9 @@ function createDirectoryStore(directory: string): StoreApi<DirectoryStore> {
   return store
 }
 
+/** Upper bound for one directory bootstrap, including its bounded retries. */
+export const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 45_000
+
 export class ChildStoreManager {
   readonly children = new Map<string, StoreApi<DirectoryStore>>()
   private readonly lifecycle = new Map<string, DirState>()
@@ -305,6 +308,7 @@ export class ChildStoreManager {
   private isBooting?: (directory: string) => boolean
   private isLoadingSessions?: (directory: string) => boolean
   private bootstrapConcurrency = 2
+  private bootstrapTimeoutMs = DEFAULT_BOOTSTRAP_TIMEOUT_MS
   private bootstrapGeneration = 0
   private bootstrapSequence = 0
   private bootstrapRunSequence = 0
@@ -328,6 +332,7 @@ export class ChildStoreManager {
     isBooting?: (directory: string) => boolean
     isLoadingSessions?: (directory: string) => boolean
     bootstrapConcurrency?: number
+    bootstrapTimeoutMs?: number
   }): () => void {
     const generation = ++this.bootstrapGeneration
     this.disposed = false
@@ -336,6 +341,7 @@ export class ChildStoreManager {
     this.isBooting = callbacks.isBooting
     this.isLoadingSessions = callbacks.isLoadingSessions
     this.bootstrapConcurrency = Math.max(1, Math.floor(callbacks.bootstrapConcurrency ?? 2))
+    this.bootstrapTimeoutMs = Math.max(1, Math.floor(callbacks.bootstrapTimeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS))
     this.pumpBootstrapQueue()
 
     return () => {
@@ -622,8 +628,24 @@ export class ChildStoreManager {
       } catch (error) {
         bootstrapPromise = Promise.reject(error)
       }
+      // A scope whose requests never answer must not hold its slot (and every queued group's
+      // "Loading sessions…") forever. Fail it at the deadline and free the slot; a later
+      // demand can retry. The late outcome of the abandoned run is ignored.
+      let timedOut = false
+      const deadline = setTimeout(() => {
+        if (this.runningBootstraps.get(next.directory)?.token !== token || !isCurrent()) return
+        timedOut = true
+        this.runningBootstraps.delete(next.directory)
+        this.directoryBootstrapRuns.delete(next.directory)
+        this.bootstrapStates.set(next.directory, "failed")
+        this.bootstrapFailures.set(next.directory, "generic")
+        finishPerformanceEvent("error")
+        this.notifyBootstrapSubscribers()
+        this.pumpBootstrapQueue()
+      }, this.bootstrapTimeoutMs)
       void bootstrapPromise
         .then(() => {
+          if (timedOut) return
           if (isCurrent()) {
             this.bootstrapStates.set(next.directory, "complete")
             this.bootstrapFailures.delete(next.directory)
@@ -633,6 +655,7 @@ export class ChildStoreManager {
           }
         })
         .catch((error) => {
+          if (timedOut) return
           if (isCurrent()) {
             this.bootstrapStates.set(next.directory, "failed")
             this.bootstrapFailures.set(
@@ -645,6 +668,8 @@ export class ChildStoreManager {
           }
         })
         .finally(() => {
+          clearTimeout(deadline)
+          if (timedOut) return
           const executionBecameStale = this.bootstrapGeneration !== running.generation || this.disposed
           if (this.runningBootstraps.get(next.directory)?.token === token) {
             this.runningBootstraps.delete(next.directory)

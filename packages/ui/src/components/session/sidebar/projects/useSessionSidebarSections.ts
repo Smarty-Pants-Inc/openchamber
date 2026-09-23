@@ -97,6 +97,10 @@ export const useSessionSidebarSections = (args: Args) => {
     standaloneGroups,
   } = args;
   const projectSectionCacheRef = React.useRef<Map<string, ProjectSectionCacheEntry>>(new Map());
+  // A worktree that is also its own project (a managed catalog lists linked worktrees as projects)
+  // renders only in its own section. Folding it into the parent duplicated its rows and queued a
+  // scope bootstrap the gateway refuses. Cached per input array so section caching stays stable.
+  const ownWorktreesCacheRef = React.useRef<WeakMap<WorktreeMetadata[], { key: string; value: WorktreeMetadata[] }>>(new WeakMap());
 
   const projectSections = React.useMemo<ProjectSection[]>(() => {
     const previousCache = projectSectionCacheRef.current;
@@ -107,10 +111,21 @@ export const useSessionSidebarSections = (args: Args) => {
       left.length === right.length && left.every((session, index) => session === right[index])
     );
 
+    const projectPaths = new Set(normalizedProjects.map((project) => project.normalizedPath));
+    const projectPathsKey = [...projectPaths].sort().join('\u0000');
+    const worktreesOwnedBy = (projectPath: string): WorktreeMetadata[] => {
+      const all = availableWorktreesByProject.get(projectPath) ?? EMPTY_WORKTREES;
+      if (!all.some((meta) => projectPaths.has(normalizePath(meta.path) ?? meta.path))) return all;
+      const cached = ownWorktreesCacheRef.current.get(all);
+      if (cached?.key === projectPathsKey) return cached.value;
+      const value = all.filter((meta) => !projectPaths.has(normalizePath(meta.path) ?? meta.path));
+      ownWorktreesCacheRef.current.set(all, { key: projectPathsKey, value });
+      return value;
+    };
     const sections = normalizedProjects.map((project) => {
       const activeSessions = getSessionsForProject(project.id);
       const archivedSessions = getArchivedSessionsForProject(project.id);
-      const worktreesForProject = availableWorktreesByProject.get(project.normalizedPath) ?? EMPTY_WORKTREES;
+      const worktreesForProject = worktreesOwnedBy(project.normalizedPath);
       const isRepo = projectRepoStatus.has(project.id)
         ? Boolean(projectRepoStatus.get(project.id))
         : lastRepoStatus;

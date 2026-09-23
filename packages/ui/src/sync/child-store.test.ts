@@ -295,6 +295,35 @@ describe('ChildStoreManager session message subscriptions', () => {
 });
 
 describe('ChildStoreManager directory bootstrap scheduler', () => {
+  // smarty-code sidebar audit (2026-09-23): a scope whose requests never answer (a folded
+  // non-admitted worktree) held its slot forever; its group and every queued group spun on
+  // "Loading sessions…". A bootstrap that does not settle by its deadline fails and frees its slot.
+  test('a bootstrap that never settles fails at its deadline and the queue keeps draining', async () => {
+    const manager = new ChildStoreManager();
+    const started: string[] = [];
+    manager.setBootstrapDemand('sidebar', [
+      { directory: '/hung', priority: 'visible', reason: 'project-expanded' },
+      { directory: '/next', priority: 'visible', reason: 'project-expanded' },
+    ]);
+    const cleanup = manager.configure({
+      bootstrapConcurrency: 1,
+      bootstrapTimeoutMs: 30,
+      onBootstrap: ({ directory }) => {
+        started.push(directory);
+        return directory === '/hung' ? new Promise<void>(() => {}) : Promise.resolve();
+      },
+    });
+    await settle();
+    expect(manager.getBootstrapState('/hung')).toBe('running');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle();
+    expect(manager.getBootstrapState('/hung')).toBe('failed');
+    expect(started).toEqual(['/hung', '/next']);
+    expect(manager.getBootstrapState('/next')).toBe('complete');
+    cleanup();
+    manager.disposeAll();
+  });
+
   test('bounds concurrency and eventually refreshes every queued directory', async () => {
     const manager = new ChildStoreManager();
     const running = new Map<string, ReturnType<typeof deferred>>();
