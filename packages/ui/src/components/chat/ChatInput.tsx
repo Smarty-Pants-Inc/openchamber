@@ -3464,6 +3464,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
                         newSessionDraftOpen={newSessionDraftOpen}
                         nativeModelControls={nativeModelControls}
+                        nativeSession={nativeCreation.session}
                         messageLength={message.length}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
