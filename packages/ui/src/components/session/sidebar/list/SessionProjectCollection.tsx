@@ -28,6 +28,8 @@ import { RecentSessionSection } from '../recent/RecentSessionSection';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import type { useSessionProjectViewState } from '../projects/useSessionProjectViewState';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { showsChatGroup } from './chatGroupVisibility';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
 import { useExpandedParents } from '../sessions/useExpandedParents';
 import { SessionGroupSection } from '../projects/SessionGroupSection';
@@ -195,8 +197,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   // Built before the sections hook runs, because that hook owns the search data
   // for every group the sidebar renders — the chats group included. A group the
   // hook never sees renders an empty list while a search is active.
+  const managedCatalog = useProjectsStore((state) => state.managedCatalogAdmitted);
   const chatGroup = React.useMemo<SessionGroup | null>(() => {
-    if (topology.isVSCode) return null;
+    if (!showsChatGroup({ isVSCode: topology.isVSCode, managedCatalog, chatSessionCount: collection.chatSessions.length })) return null;
     const chatsRoot = getChatsRootForHome(view.homeDirectory)
       ?? collection.chatSessions.map((session) => getChatsRootFromDirectory(session.directory)).find(Boolean)
       ?? null;
@@ -221,7 +224,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
         .filter((session) => !session.time?.archived && isRootSession(session))
         .map((session) => ({ session, children: (collection.childrenMap.get(session.id) ?? []).filter((child) => !child.time?.archived).map((child) => ({ session: child, children: [], worktree: null })), worktree: null })),
     };
-  }, [collection.chatSessions, collection.childrenMap, topology.isVSCode, view.homeDirectory]);
+  }, [managedCatalog, collection.chatSessions, collection.childrenMap, topology.isVSCode, view.homeDirectory]);
   const standaloneGroups = React.useMemo<SessionGroup[]>(
     () => chatGroup ? [chatGroup] : EMPTY_STANDALONE_GROUPS,
     [chatGroup],
@@ -242,6 +245,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     buildGroupSearchText,
     foldersMap,
     standaloneGroups,
+    excludeWorktreeProjects: managedCatalog,
   });
 
   const onSearchMatchCountChange = view.onSearchMatchCountChange;
