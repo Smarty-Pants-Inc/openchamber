@@ -13,7 +13,7 @@ import { markAppBootReady } from './appBootReady';
 import { installMobileWidgetSnapshotBridge } from './mobileWidgetSnapshot';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { initializeLocale, I18nProvider } from '@/lib/i18n';
-import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
+import { deferSettingsWritesUntilLoaded, initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { preloadMarkdownRenderer } from '@/components/chat/markdownRendererLoader';
@@ -22,6 +22,8 @@ import { MobileApp } from './MobileApp';
 
 const initializeSharedPreferences = () => {
   initializeLocale();
+  // Startup defaults must not overwrite other browsers' shared settings.
+  deferSettingsWritesUntilLoaded();
 
   void initializeAppearancePreferences().then(() => {
     void Promise.all([
