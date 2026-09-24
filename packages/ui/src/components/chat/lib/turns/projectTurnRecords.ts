@@ -91,6 +91,8 @@ interface ProjectTurnRecordsOptions {
      * turn instead of starting a new one.
      */
     mergeHiddenUserTurns?: { planModeEnabled: boolean };
+    /** Older history exists above the loaded window: show the leading assistant messages. */
+    showLeadingOrphans?: boolean;
 }
 
 const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
@@ -98,6 +100,7 @@ const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
     showTextJustificationActivity: false,
     showTurnChangedFiles: false,
     mergeHiddenUserTurns: undefined,
+    showLeadingOrphans: false,
 };
 
 const areSameMessageRefs = (left: ChatMessageEntry[], right: ChatMessageEntry[]): boolean => {
@@ -270,8 +273,17 @@ export const projectTurnRecords = (
     const stableTurns = hydrateStableTurnRecords(turns, effectiveOptions);
     const projection = projectTurnIndexes(stableTurns);
     const ungroupedMessageIds = new Set<string>();
-    messages.forEach((message) => {
+    // When older history exists above the loaded window, assistant messages before its first user message belong to
+    // a turn whose user message is not loaded yet. Show them rather than a blank timeline that pages back through
+    // megabytes of tool output looking for a user turn (smarty-code#116 pilot). Later orphans stay hidden: those are
+    // a reply that arrived before its own user message.
+    const firstUserIndex = messages.findIndex((message) => resolveMessageRole(message) === 'user');
+    messages.forEach((message, index) => {
         if (resolveMessageRole(message) === 'assistant') {
+            if (effectiveOptions.showLeadingOrphans && !groupedMessageIds.has(message.info.id)
+                && (firstUserIndex < 0 || index < firstUserIndex)) {
+                ungroupedMessageIds.add(message.info.id);
+            }
             return;
         }
         if (!groupedMessageIds.has(message.info.id)) {

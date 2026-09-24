@@ -497,6 +497,7 @@ const ChatViewport = React.memo(({
                     activeStreamingPhase={activeStreamingPhase}
                     retryOverlay={retryOverlay}
                     isLoadingOlder={isLoadingOlder}
+                    hasOlderHistory={canLoadEarlierPrompts}
                     scrollToBottom={scrollToBottom}
                     endPinningReleased={endPinningReleased}
                     directory={directory}

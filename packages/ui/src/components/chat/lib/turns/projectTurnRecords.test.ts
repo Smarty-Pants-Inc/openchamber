@@ -78,6 +78,22 @@ describe('projectTurnRecords', () => {
         expect(projection.indexes.messageToTurnId.has('a1')).toBe(false);
     });
 
+    test('with older history above, leading assistant messages render as ungrouped entries; later orphans stay hidden', () => {
+        const lead1 = createMessageEntry({ id: 'a0', role: 'assistant', parentID: 'u0', createdAt: 1 });
+        const lead2 = createMessageEntry({ id: 'a0b', role: 'assistant', parentID: 'u0', createdAt: 2 });
+        const user1 = createMessageEntry({ id: 'u1', role: 'user', createdAt: 3 });
+        const assistant1 = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 4 });
+        const late = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u2', createdAt: 5 });
+
+        const shown = projectTurnRecords([lead1, lead2, user1, assistant1, late], { showLeadingOrphans: true });
+        expect([...shown.ungroupedMessageIds]).toEqual(['a0', 'a0b']);
+        expect(shown.turns.map((turn) => turn.turnId)).toEqual(['u1']);
+        // A window of only assistant messages (a tool-heavy tail) renders too.
+        expect([...projectTurnRecords([lead1, lead2], { showLeadingOrphans: true }).ungroupedMessageIds]).toEqual(['a0', 'a0b']);
+        // Without older history the previous rule holds.
+        expect(projectTurnRecords([lead1, lead2]).ungroupedMessageIds.size).toBe(0);
+    });
+
     test('keeps non-assistant orphan messages available as ungrouped entries', () => {
         const system = createMessageEntry({ id: 's1', role: 'system', createdAt: 1 });
 
