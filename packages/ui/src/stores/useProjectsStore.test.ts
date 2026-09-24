@@ -4,6 +4,7 @@ import type { ProjectEntry } from "@/lib/api/types"
 import type { DesktopSettings } from "@/lib/desktop"
 import { useProjectsStore } from "./useProjectsStore"
 import { useDirectoryStore } from "./useDirectoryStore"
+import { getDeferredSafeStorage } from "./utils/safeStorage"
 
 describe("useProjectsStore settings synchronization", () => {
   test("treats a successful empty project snapshot as authoritative", () => {
@@ -141,6 +142,40 @@ describe("managed catalog default project", () => {
       expect(useProjectsStore.getState().activeProjectId).toBe(code!.id)
     } finally {
       save.mockRestore()
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+})
+
+describe("managed catalog remembered directory", () => {
+  // R3.4 gate: shared lastDirectory named the smarty-dev checkout, but the stale active pointer selected smarty-code.
+  test("a bootstrap sync prefers the remembered directory over a stale active pointer", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-dev", worktree: "/p/dev" }, { id: "g-code", worktree: "/p/code" }])
+      const [dev, code] = useProjectsStore.getState().managedProjects!
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [], activeProjectId: code!.id, lastDirectory: "/p/dev" } as DesktopSettings, { adoptActiveProject: true })
+      expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
+    } finally {
+      save.mockRestore()
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+  test("first admission (admit, then apply) selects the project at the locally remembered directory", () => {
+    const storage = getDeferredSafeStorage()
+    const previous = storage.getItem("lastDirectory")
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: "stale", manualProjectOrder: [] })
+      storage.setItem("lastDirectory", "/p/dev/")
+      useProjectsStore.getState().admitManagedCatalog()
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-code", worktree: "/p/code" }, { id: "g-dev", worktree: "/p/dev" }])
+      const dev = useProjectsStore.getState().managedProjects!.find(project => project.path === "/p/dev")
+      expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
+    } finally {
+      if (previous === null) storage.removeItem("lastDirectory"); else storage.setItem("lastDirectory", previous)
       useProjectsStore.getState().resetManagedCatalog()
     }
   })

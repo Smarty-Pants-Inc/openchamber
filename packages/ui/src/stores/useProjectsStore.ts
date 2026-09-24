@@ -97,6 +97,12 @@ export const visibleProjects = (state: ProjectsStore): ProjectEntry[] => state.m
 export const canAddProjects = (state: ProjectsStore): boolean => isVSCodeProjectsRuntime
   || (!state.managedCatalogAdmitted && state.managedCatalogStatus === 'stock');
 
+// ponytail: exact match on normalized paths; a lastDirectory inside a member but not published falls back to the pointer.
+const managedProjectAt = (projects: ProjectEntry[], directory: string | null | undefined): string | undefined => {
+  const wanted = directory ? normalizeProjectPath(directory) : '';
+  return wanted ? projects.find(project => normalizeProjectPath(project.path) === wanted)?.id : undefined;
+};
+
 // Presentation selection only. setDirectory() would persist settings and is not suitable here.
 function selectManagedDirectory(project: ProjectEntry | undefined) {
   const path = project?.path;
@@ -650,7 +656,10 @@ export const useProjectsStore = create<ProjectsStore>()(
     applyManagedCatalog: (rows) => {
       const state = get();
       const projects = managedProjectView(rows, state.projects);
-      const activeProjectId = managedActiveProject(projects, state.activeProjectId);
+      // First admission: the remembered directory (shared lastDirectory, mirrored locally) names the project
+      // the user last worked in; the active pointer is not saved while the catalog is managed, so it can be stale.
+      const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
+      const activeProjectId = managedActiveProject(projects, remembered ?? state.activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
       useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
       selectManagedDirectory(projects.find(project => project.id === activeProjectId));
@@ -849,7 +858,10 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (get().managedCatalogAdmitted) {
         const target = get().managedProjects?.find(project => project.id === id);
         if (!target) return;
-        set({ activeProjectId: id }); selectManagedDirectory(target); return;
+        set({ activeProjectId: id }); selectManagedDirectory(target);
+        // Remember the explicit choice: the next bootstrap restores the project at lastDirectory.
+        safeStorage.setItem('lastDirectory', target.path); void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
+        return;
       }
       if (isVSCodeProjectsRuntime) {
         return;
@@ -1131,8 +1143,10 @@ export const useProjectsStore = create<ProjectsStore>()(
         // A settings echo cannot restore retired membership or a stale active pointer.
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.
-        const remembered = adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
-          ? incomingActive : current.activeProjectId;
+        // The remembered directory wins over the active pointer, which is not saved while the catalog is managed.
+        const rememberedByDirectory = adoptActiveProject ? managedProjectAt(managedProjects ?? [], settings.lastDirectory) : undefined;
+        const remembered = rememberedByDirectory ?? (adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
+          ? incomingActive : current.activeProjectId);
         const activeProjectId = managedActiveProject(managedProjects ?? [], remembered);
         set({ projects: incomingProjects, managedProjects, activeProjectId });
         cacheProjects(incomingProjects, incomingActive);
