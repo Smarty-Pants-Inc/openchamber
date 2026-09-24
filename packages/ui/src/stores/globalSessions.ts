@@ -125,6 +125,8 @@ export async function listGlobalSessionPages(
         narrowToArchived?: boolean;
         roots?: boolean;
         pageSize: number;
+        /** Skip the shared background gate: only for callers bounded by the bootstrap scheduler. */
+        ungated?: boolean;
         onPage?: (sessions: GlobalSessionRecord[]) => void;
     },
 ): Promise<GlobalSessionRecord[]> {
@@ -142,13 +144,17 @@ export async function listGlobalSessionPages(
     } else {
         operation = "bootstrap.sessions.all";
     }
+    // ponytail: the sidebar bootstrap's authoritative list passes `ungated`; its scheduler already bounds it. Behind the
+    // shared 3-slot background gate it queued after 5-19 s git status polls, leaving groups on "Loading sessions…" for
+    // minutes (R3.6 gate). Assumes an HTTP/2 origin (Smarty's is); on HTTP/1.1, six ungated lists can fill the pool.
+    const gate = options.ungated ? <T,>(task: () => Promise<T>) => task() : runBackgroundNetworkTask;
     while (true) {
         let attempts = 0;
         const finishPerformanceEvent = startSessionLoadPerformanceEvent({
             operation,
             caller: cursor === undefined ? "initial-page" : "pagination",
         });
-        const { response, payload } = await runBackgroundNetworkTask(() => retry(
+        const { response, payload } = await gate(() => retry(
             async () => {
                 attempts += 1;
                 const response = await apiClient.experimental.session.list({
