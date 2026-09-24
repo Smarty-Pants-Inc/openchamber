@@ -1,5 +1,5 @@
 import { useUIStore } from '@/stores/useUIStore';
-import { updateDesktopSettings } from '@/lib/persistence';
+import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
 import type { DesktopSettings } from '@/lib/desktop';
 import type { MonoFontOption, UiFontOption } from '@/lib/fontOptions';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -151,6 +151,12 @@ export const startAppearanceAutoSave = (): void => {
       gitChangesViewMode: state.gitChangesViewMode,
       toolJsonViewMode: state.toolJsonViewMode,
     };
+
+    // Server values being applied are not this browser's choices (smarty-code#117).
+    if (isApplyingServerSettings()) {
+      previous = current;
+      return;
+    }
 
     const diff: Partial<DesktopSettings> = {};
 
