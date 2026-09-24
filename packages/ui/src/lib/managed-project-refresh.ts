@@ -65,8 +65,11 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_DELAY_MS * (attempt + 1)));
         if (!current()) return;
       }
-    } catch {
-      if (current()) useProjectsStore.setState({ managedCatalogStatus: 'unavailable' });
+    } catch (error) {
+      if (!current()) return;
+      // The banner alone does not say which read or check failed (R3.5 live leg); name it for diagnosis.
+      console.warn('[managed-catalog] refresh failed:', error instanceof Error ? error.message : String(error));
+      useProjectsStore.setState({ managedCatalogStatus: 'unavailable' });
     } finally {
       // A discarded sample is not completed discovery for callers awaiting it.
       if (requestRevision !== revision && isRuntimeRequestScopeCurrent(scope) && pending) await pending;
