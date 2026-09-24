@@ -14,6 +14,7 @@ import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import type { SessionGroup } from '../types';
 import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { SessionGroupSection, type SessionGroupSectionProps } from './SessionGroupSection';
+import { splitSectionsByWorkspace } from './workspaceSections';
 import { buildGroupRenderDescriptors, resolveSearchResultPlacement, selectRenderedProjectSections, type ProjectSection } from './sessionProjectRender';
 import { formatProjectLabel } from '../utils';
 import { useI18n } from '@/lib/i18n';
@@ -299,19 +300,20 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
           }}
         >
             <SortableContext items={renderedSections.map((section) => section.project.id)} strategy={verticalListSortingStrategy}>
-            {renderedSections.map((section) => {
+            {splitSectionsByWorkspace(renderedSections).map(({ key: renderKey, label: workspaceLabel, section, split }) => {
               const project = section.project;
+              // Actions act on the one OC project (one per checkout); collapse is per rendered workspace item.
               const projectKey = project.id;
-              const projectLabel = getProjectLabel(project, view.homeDirectory);
+              const projectLabel = workspaceLabel ?? getProjectLabel(project, view.homeDirectory);
               const projectDescription = formatPathForDisplay(project.normalizedPath, view.homeDirectory);
-              const isCollapsed = model.singleProjectMode ? false : view.collapsedProjects.has(projectKey);
+              const isCollapsed = model.singleProjectMode ? false : view.collapsedProjects.has(renderKey);
               const isRepo = model.projectRepoStatus.get(projectKey);
 
               return (
                 <SortableProjectItem
-                  key={projectKey}
-                  id={projectKey}
-                  disabled={model.singleProjectMode || view.projectSortOrder !== 'manual'}
+                  key={renderKey}
+                  id={renderKey}
+                  disabled={split || model.singleProjectMode || view.projectSortOrder !== 'manual'}
                   projectLabel={projectLabel}
                   projectDescription={projectDescription}
                   projectDirectory={project.normalizedPath}
@@ -330,7 +332,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                   setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey}
                   projectPickerOptions={model.singleProjectMode ? projectPickerOptions : undefined}
                   onProjectSelect={model.singleProjectMode ? actions.setSingleProjectId : undefined}
-                  onToggle={() => { if (!model.singleProjectMode) actions.toggleProject(projectKey); }}
+                  onToggle={() => { if (!model.singleProjectMode) actions.toggleProject(renderKey); }}
                   onNewSession={() => {
                     if (projectKey !== model.activeProjectId) actions.setActiveProjectIdOnly(projectKey);
                     if (view.mobileVariant) actions.setSessionSwitcherOpen(false);
@@ -346,7 +348,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                   onManageWorktrees={() => actions.openWorktreesPage(projectKey)}
                   onRenameStart={() => actions.openProjectEditDialog(projectKey)}
                   onClose={() => actions.removeProject(projectKey)}
-                  sentinelRef={(el) => { model.projectHeaderSentinelRefs.current.set(projectKey, el); }}
+                  sentinelRef={(el) => { model.projectHeaderSentinelRefs.current.set(renderKey, el); }}
                   showCreateButtons
                  >
                   {!isCollapsed ? (
