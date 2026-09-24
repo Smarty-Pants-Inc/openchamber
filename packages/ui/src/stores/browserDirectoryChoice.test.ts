@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { BROWSER_LAST_DIRECTORY_KEY, seedBrowserLastDirectory } from './useDirectoryStore';
+import { BROWSER_LAST_DIRECTORY_KEY, seedBrowserLastDirectory } from './browserDirectoryChoice';
 
 const storage = (values: Record<string, string>) => ({
   values, getItem: (key: string) => values[key] ?? null, setItem: (key: string, value: string) => { values[key] = value; },
