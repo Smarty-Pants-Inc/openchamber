@@ -14,7 +14,7 @@ import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import type { SessionGroup } from '../types';
 import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { SessionGroupSection, type SessionGroupSectionProps } from './SessionGroupSection';
-import { splitSectionsByWorkspace } from './workspaceSections';
+import { nestSharedCheckout } from './workspaceSections';
 import { buildGroupRenderDescriptors, resolveSearchResultPlacement, selectRenderedProjectSections, type ProjectSection } from './sessionProjectRender';
 import { formatProjectLabel } from '../utils';
 import { useI18n } from '@/lib/i18n';
@@ -203,9 +203,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
       syncTopFade(scrollContainerRef.current);
     }
   }, [enableStickyFade, hasProjectScroller, syncTopFade]);
-  // A shared checkout renders one top-level item per Herdr workspace; headers are keyed by item.
-  const renderItems = splitSectionsByWorkspace(renderedSections);
-  const itemProjectIds = new Map(renderItems.map((item) => [item.key, item.section.project.id]));
+  // A shared checkout renders as one Herdr block headed by its first workspace.
+  const renderItems = nestSharedCheckout(renderedSections);
   let stuckProject: ProjectSection['project'] | null = null;
   let stuckLabel: string | null = null;
   for (const item of renderItems) {
@@ -300,21 +299,16 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
             if (view.projectSortOrder !== 'manual') return;
             const { active, over } = event;
             if (!over || active.id === over.id) return;
-            const activeProject = itemProjectIds.get(String(active.id)) ?? active.id;
-            const overProject = itemProjectIds.get(String(over.id)) ?? over.id;
-            const oldIndex = model.sectionsForRender.findIndex((section) => section.project.id === activeProject);
-            const newIndex = model.sectionsForRender.findIndex((section) => section.project.id === overProject);
+            const oldIndex = model.sectionsForRender.findIndex((section) => section.project.id === active.id);
+            const newIndex = model.sectionsForRender.findIndex((section) => section.project.id === over.id);
             if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
             actions.reorderProjects(oldIndex, newIndex);
           }}
         >
             <SortableContext items={renderItems.map((item) => item.key)} strategy={verticalListSortingStrategy}>
-            {renderItems.map(({ key: renderKey, label: workspaceLabel, section, split }) => {
+            {renderItems.map(({ key: renderKey, label: workspaceLabel, section }) => {
               const project = section.project;
-              // Actions and collapse act on the one OC project (one per checkout): collapsing any of a shared
-              // checkout's workspace items collapses all of them, so persistence and load priority stay per project.
               const projectKey = project.id;
-              const extraWorkspaceItem = split && renderKey !== projectKey;
               const projectLabel = workspaceLabel ?? getProjectLabel(project, view.homeDirectory);
               const projectDescription = formatPathForDisplay(project.normalizedPath, view.homeDirectory);
               const isCollapsed = model.singleProjectMode ? false : view.collapsedProjects.has(projectKey);
@@ -324,7 +318,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                 <SortableProjectItem
                   key={renderKey}
                   id={renderKey}
-                  disabled={split || model.singleProjectMode || view.projectSortOrder !== 'manual'}
+                  disabled={model.singleProjectMode || view.projectSortOrder !== 'manual'}
                   projectLabel={projectLabel}
                   projectDescription={projectDescription}
                   projectDirectory={project.normalizedPath}
@@ -357,8 +351,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                     actions.openNewWorktreeDialog();
                   }}
                   onManageWorktrees={() => actions.openWorktreesPage(projectKey)}
-                  onRenameStart={extraWorkspaceItem ? undefined : () => actions.openProjectEditDialog(projectKey)}
-                  onClose={extraWorkspaceItem ? undefined : () => actions.removeProject(projectKey)}
+                  onRenameStart={() => actions.openProjectEditDialog(projectKey)}
+                  onClose={() => actions.removeProject(projectKey)}
                   sentinelRef={(el) => { model.projectHeaderSentinelRefs.current.set(renderKey, el); }}
                   showCreateButtons
                  >
@@ -367,8 +361,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                       {(() => {
                          const orderedGroups = section.groups;
                         const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
-                        // A shared checkout's workspace groups are all root groups, labelled, never sortable.
-                        const workspaceRoots = orderedGroups.filter((group) => group.isMain && group.workspaceId);
+                        // Root groups: the header's own rows, then a shared checkout's other workspaces (labelled, never sortable).
+                        const roots = orderedGroups.filter((group) => group.isMain);
                         const nestedGroups = rootGroup
                           ? orderedGroups.filter((group) => !group.isMain)
                           : orderedGroups;
@@ -396,7 +390,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                             {/* Root/flat sessions render directly under the
                                 project zone header; worktree and archived
                                 groups keep their own slim sortable sub-header. */}
-                              {(workspaceRoots.length > 0 ? workspaceRoots : rootGroup ? [rootGroup] : []).map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} hideGroupLabel={!root.workspaceId} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
+                              {roots.map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} hideGroupLabel={!root.workspaceId} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
                             <SortableContext items={nestedGroups.map((group) => group.id)} strategy={verticalListSortingStrategy}>
                               {nestedGroups.map((group) => {
                                 const groupKey = `${projectKey}:${group.id}`;
