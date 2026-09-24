@@ -248,3 +248,30 @@ describe("useProjectsStore.addProjects", () => {
     expect(added.map((p) => p.path)).toEqual(["/repo", "C:/repo", home ? `${home}/project` : "~/project"])
   })
 })
+
+describe("project icon discovery across a runtime switch", () => {
+  test("a late discovery response never replaces the new runtime's project list (smarty-code#155)", async () => {
+    const { switchRuntimeEndpoint } = await import("@/lib/runtime-switch")
+    const runtimeB = { id: "project-b", path: "/runtime-b" } as ProjectEntry
+    let respond: (response: Response) => void = () => {}
+    const fetched = spyOn(globalThis, "fetch").mockImplementation(
+      (() => new Promise<Response>((resolve) => { respond = resolve })) as unknown as typeof fetch)
+    try {
+      useProjectsStore.setState({ projects: [runtimeB], activeProjectId: runtimeB.id })
+      const discovery = useProjectsStore.getState().discoverProjectIcon("project-a")
+      for (let tick = 0; tick < 5; tick++) await Promise.resolve()
+      // Headers arrive on runtime A; the switch happens while the body (A's settings) is still being read.
+      let body: ReadableStreamDefaultController<Uint8Array> | undefined
+      respond(new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller } }),
+        { headers: { "content-type": "application/json" } }))
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve()
+      switchRuntimeEndpoint({ apiBaseUrl: "http://runtime-b.invalid" })
+      body!.enqueue(new TextEncoder().encode(JSON.stringify({ settings: { projects: [{ path: "/runtime-a" }] } })))
+      body!.close()
+      expect(await discovery).toEqual({ ok: false, error: "Runtime request is stale" })
+      expect(useProjectsStore.getState().projects).toEqual([runtimeB])
+    } finally {
+      fetched.mockRestore()
+    }
+  })
+})
