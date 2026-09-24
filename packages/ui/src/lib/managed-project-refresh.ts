@@ -6,7 +6,7 @@ import { listGlobalSessionPages } from '@/stores/globalSessions';
 import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { warmChatsRootDirectory } from './chatDirectories';
-import { applyGlobalSessionStatusSnapshot } from '@/sync/global-session-status';
+import { applyFleetSessionStatuses, getSessionStatusEventVersion } from '@/sync/global-session-status';
 import { readManagedCatalog, MANAGED_CATALOG_HEADER, MANAGED_CATALOG_VERSION } from './managed-project-catalog';
 
 const REFRESH_RETRIES = 2;
@@ -33,14 +33,11 @@ subscribeRuntimeEndpointChanged(() => {
 async function seedManagedActivity(sdk: ReturnType<typeof opencodeClient.getSdkClient>,
   sessions: readonly { id: string; directory: string }[], current: () => boolean): Promise<void> {
   if (sessions.length === 0) return;
+  // Events that land while the read is in flight win over it.
+  const versions = new Map(sessions.map(session => [session.id, getSessionStatusEventVersion(session.id)]));
   const result = await sdk.session.status().catch(() => null);
   if (!current() || !result?.data || typeof result.data !== 'object') return;
-  const statuses = result.data as Record<string, { type?: string }>;
-  const byDirectory = new Map<string, string[]>();
-  for (const session of sessions) byDirectory.set(session.directory, [...(byDirectory.get(session.directory) ?? []), session.id]);
-  for (const [directory, ids] of byDirectory) {
-    applyGlobalSessionStatusSnapshot(directory, Object.fromEntries(ids.filter(id => id in statuses).map(id => [id, statuses[id]!])), ids);
-  }
+  applyFleetSessionStatuses(sessions, result.data as Record<string, { type?: string }>, versions);
 }
 
 /** Called by existing bootstrap/reconnect/list refresh, not a second discovery loop. */
