@@ -1,4 +1,5 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { clearSessionReadFailure, isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
@@ -164,7 +165,9 @@ function formatSdkError(error: unknown): string {
 function assertSdkSuccess<T>(result: SdkResult<T>, operation: string): T | undefined {
   if (!result.error) return result.data
   const status = result.response?.status
-  throw new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`)
+  const error = new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`) as Error & { status?: number }
+  if (status !== undefined) error.status = status
+  throw error
 }
 
 function useSyncSystem() {
@@ -1523,12 +1526,21 @@ async function resyncDirectoryAfterReconnect(
   const current = store.getState()
   const candidateSessionIds = getActiveSessionCandidateIds(directory, current)
   if (candidateSessionIds.length === 0) return
+  // Per-session reads skip sessions the server just answered with a terminal status; the directory-wide
+  // status and blocking-request passes still see every candidate, and the viewed session is never skipped.
+  const viewedSessionID = getViewedSessionMaterializationTarget(directory)?.sessionId
+  const readSessionIds = candidateSessionIds.filter((sessionId) => sessionId === viewedSessionID
+    || !isSessionReadSuppressed(directory, sessionId))
+  const runtimeKey = getRuntimeKey()
+  const recordFailure = (sessionId: string, error: unknown) => {
+    if (isRuntimeRequestScopeCurrent(scope)) recordSessionReadFailure(directory, sessionId, error, runtimeKey)
+  }
 
   await resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "authoritative")
   if (!isRuntimeRequestScopeCurrent(scope)) return
 
   const scopedClient = opencodeClient.getScopedSdkClient(directory)
-  await Promise.all(candidateSessionIds.map(async (sessionId) => {
+  await Promise.all(readSessionIds.map(async (sessionId) => {
     syncDebug.recovery.materializing({ reason, directory, sessionID: sessionId })
     const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
     const loader = getImperativeSessionMessageLoader()
@@ -1537,10 +1549,12 @@ async function resyncDirectoryAfterReconnect(
         const response = await scopedClient.session.get({ sessionID: sessionId })
         assertSdkSuccess(response, "session.get")
         return response
-      }).catch(() => null),
-      loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve(),
+      }).catch((error: unknown) => { recordFailure(sessionId, error); return null }),
+      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve())
+        .catch((error: unknown) => { recordFailure(sessionId, error) }),
     ])
     const session = sessionResponse?.data
+    if (session?.id === sessionId) clearSessionReadFailure(directory, sessionId, runtimeKey)
     if (!session || session.id !== sessionId || !isRuntimeRequestScopeCurrent(scope)) return
 
     const nextSession = stripSessionDiffSnapshots(session)
