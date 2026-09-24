@@ -1477,7 +1477,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             <p className="typography-meta mt-1 text-muted-foreground">
                                 {authSessionExpired
                                     ? t('chat.container.sessionLoadError.authDescription')
-                                    : t('chat.container.sessionLoadError.description')}
+                                    // Show the server's own explanation (for example an unenrolled fleet session).
+                                    : (sessionMessageLoadState.error as (Error & { serverMessage?: string }) | null)?.serverMessage
+                                        ?? t('chat.container.sessionLoadError.description')}
                             </p>
                             {authSessionExpired ? (
                                 <Button variant="outline" size="sm" className="mt-4" onClick={() => useAuthSessionStore.getState().markReauthenticating()}>
