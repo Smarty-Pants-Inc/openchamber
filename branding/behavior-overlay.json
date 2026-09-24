@@ -267,9 +267,13 @@
       "path": "packages/ui/src/components/chat/ChatMessage.tsx",
       "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
       "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
-      "combinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
+      "combinedSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
       "behaviorSource": "f07077052ba821ad138a931484108d00511fc437",
-      "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged."
+      "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged.",
+      "preStopWordingCombinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
+      "stopWordingSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
+      "stopWordingSource": "1bb8b45e6b73d501337c17bf74db875ec9496178",
+      "stopWordingNote": "A user Stop (MessageAbortedError) reads Stopped instead of a send failure; the error-notice mapping moves unchanged into lib/messages/assistantErrorText.ts. Human-author display integration and branding ownership remain unchanged."
     },
     {
       "path": "packages/web/package.json",
