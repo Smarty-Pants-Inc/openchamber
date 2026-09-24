@@ -281,7 +281,8 @@ const gitExecutable = async (path) => {
   const exe = binary.slice(0, -ext.length) + '.exe';
   const fs = (await import('node:fs/promises')).default;
   // A native .com runs directly when it has no adjacent .exe (as the Git service keeps it); a batch file cannot.
-  return await fs.access(exe).then(() => exe, () => (ext === '.com' ? binary : 'git'));
+  const isFile = await fs.stat(exe).then((entry) => entry.isFile(), () => false); // As the service checks it.
+  return isFile ? exe : ext === '.com' ? binary : 'git';
 };
 const gitCommonDir = async (directory, path) => {
   const { execFile } = await import('node:child_process');

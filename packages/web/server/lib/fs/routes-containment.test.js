@@ -376,6 +376,7 @@ describe('pass-7: native .com Git overrides', () => {
       await git(repo, 'worktree', 'add', '-q', path.join(root, 'wt'));
       const real = execFileSync('sh', ['-c', 'command -v git']).toString().trim(), log = path.join(root, 'used');
       const shim = path.join(root, 'git-shim.com');
+      await fs.mkdir(path.join(root, 'git-shim.exe')); // A directory named like the adjacent executable is not one.
       await fs.writeFile(shim, `#!/bin/sh\necho com >> ${log}\nexec ${real} "$@"\n`, { mode: 0o755 });
       const { app, route } = registry();
       registerFsRoutes(app, {
