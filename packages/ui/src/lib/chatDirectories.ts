@@ -44,6 +44,12 @@ export function isChatDirectoryForHome(directory: string | null | undefined, hom
   return Boolean(normalized && legacy && isWithinRoot(normalized, legacy));
 }
 
+/** The chats root the runtime reported, for requests. No guessed legacy root: `~/.config/openchamber/chats` is not
+ * the directory a managed gateway admits, and reads of it get 403 before the real root is known (#126). */
+export function getReportedChatsRoot(): string | null {
+  return cachedRoots()?.configured ?? null;
+}
+
 export function getChatsRootForHome(home: string | null | undefined): string | null {
   return cachedRoots()?.configured ?? legacyRootForHome(home);
 }

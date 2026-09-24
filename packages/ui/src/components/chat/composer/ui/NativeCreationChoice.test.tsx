@@ -36,6 +36,8 @@ async function click(label: string) {
 const replies = () => fixture.requests.filter(r => new URL(r.url).pathname.endsWith('/reply'));
 async function setup() {
   fixture = nativeDraftFixture();
+  // A stock runtime: discovery has answered, so the capability check may run.
+  useProjectsStore.setState({ managedCatalogStatus: 'stock' });
   opencodeClient.setDirectory('/wrong-default');
   operation = { operationId, directory, generation: endpoint, revision: 1, phase: 'awaiting-trust', expiresAt: Date.now() + 60_000, canInitialReady: false };
   listed = [];

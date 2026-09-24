@@ -12,10 +12,9 @@ mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) 
 mock.module('@/sync/native-draft-control', () => ({ refreshNativeCreation: async () => {}, replyNativeCreation: async () => {}, resumeNativeCreation: async () => {} }));
 const { useNativeCreation } = await import('./useNativeCreation');
 
-// smarty-code#113: after a reload the capability check can run before the managed catalog admits
-// the directory (gateway 403/503). It must check again once the catalog is ready, not stay
-// on "Cannot check native creation support".
-test('native creation support is checked again when the managed catalog becomes ready', async () => {
+// smarty-code#113 / #126: before managed discovery answers, the directory may not be admitted (gateway 403), so no
+// check is sent; once the catalog is ready the check runs, instead of staying on "Cannot check native creation support".
+test('native creation support is checked once the managed catalog becomes ready, not before', async () => {
   const win = new Window({ url: 'http://localhost' });
   const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -35,11 +34,11 @@ test('native creation support is checked again when the managed catalog becomes 
   try {
     await act(async () => root.render(<Probe />));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect(mode).toBe('unavailable');
+    expect([mode, checks]).toEqual(['loading', 0]);
     admitted = true;
     await act(async () => useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-owned', worktree: '/projects/owned' }]));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect(checks).toBeGreaterThanOrEqual(2);
+    expect(checks).toBe(1);
     expect(mode).toBe('ordinary');
   } finally {
     await act(async () => root.unmount());

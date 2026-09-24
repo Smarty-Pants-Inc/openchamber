@@ -41,6 +41,7 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({ useGlobalSessionsStore: 
 let sessionReadOptions: unknown;
 mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: (_sdk: unknown, options: unknown) => { sessionReadOptions = options; return sessionRead(); } }));
 mock.module('@/stores/utils/vscodeRuntime', () => ({ isVSCodeRuntime: () => false }));
+mock.module('@/lib/chatDirectories', () => ({ warmChatsRootDirectory: async () => {} }));
 const { refreshManagedProjects } = await import('./managed-project-refresh');
 const { resolveProjectAddAllowed } = await import('./managed-project-add');
 

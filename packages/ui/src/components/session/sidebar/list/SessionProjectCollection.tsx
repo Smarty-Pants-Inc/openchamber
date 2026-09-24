@@ -33,7 +33,7 @@ import { showsChatGroup } from './chatGroupVisibility';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
 import { useExpandedParents } from '../sessions/useExpandedParents';
 import { SessionGroupSection } from '../projects/SessionGroupSection';
-import { CHAT_DRAFT_PROJECT_ID, getChatsRootForHome, getChatsRootFromDirectory } from '@/lib/chatDirectories';
+import { CHAT_DRAFT_PROJECT_ID, getChatsRootFromDirectory, getReportedChatsRoot } from '@/lib/chatDirectories';
 import { isCapacitorApp } from '@/lib/platform';
 
 const PR_NO_PR_RETRY_MS = 5 * 60_000;
@@ -200,7 +200,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const managedCatalog = useProjectsStore((state) => state.managedCatalogAdmitted);
   const chatGroup = React.useMemo<SessionGroup | null>(() => {
     if (!showsChatGroup({ isVSCode: topology.isVSCode, managedCatalog, chatSessionCount: collection.chatSessions.length })) return null;
-    const chatsRoot = getChatsRootForHome(view.homeDirectory)
+    const chatsRoot = getReportedChatsRoot()
       ?? collection.chatSessions.map((session) => getChatsRootFromDirectory(session.directory)).find(Boolean)
       ?? null;
     if (!chatsRoot) return null;
@@ -224,7 +224,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
         .filter((session) => !session.time?.archived && isRootSession(session))
         .map((session) => ({ session, children: (collection.childrenMap.get(session.id) ?? []).filter((child) => !child.time?.archived).map((child) => ({ session: child, children: [], worktree: null })), worktree: null })),
     };
-  }, [managedCatalog, collection.chatSessions, collection.childrenMap, topology.isVSCode, view.homeDirectory]);
+  }, [managedCatalog, collection.chatSessions, collection.childrenMap, topology.isVSCode]);
   const standaloneGroups = React.useMemo<SessionGroup[]>(
     () => chatGroup ? [chatGroup] : EMPTY_STANDALONE_GROUPS,
     [chatGroup],
@@ -264,7 +264,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   // concurrently at expanded priority.
   const childStores = useChildStoreManager();
   const expansionDemandOwner = `session-collection-expansion:${React.useId()}`;
+  // Same gate as useSessionListSync: no scoped reads before managed discovery answers (#126 startup 403s).
+  const discoveryPending = useProjectsStore((state) => state.managedCatalogStatus === 'unknown') && !topology.isVSCode;
   React.useEffect(() => {
+    if (discoveryPending) return;
     childStores.setBootstrapDemand(expansionDemandOwner, buildSessionBootstrapDemands({
       projectSections,
       activeProjectId: view.activeProjectId,
@@ -274,7 +277,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
       currentSessionDirectory: null,
     }));
     return () => childStores.clearBootstrapDemand(expansionDemandOwner);
-  }, [childStores, expansionDemandOwner, projectSections, projectView.collapsedProjects, projectView.collapsedGroups, view.activeProjectId]);
+  }, [childStores, discoveryPending, expansionDemandOwner, projectSections, projectView.collapsedProjects, projectView.collapsedGroups, view.activeProjectId]);
   const source = view.useGroupedSections ? sectionsForRender : flatSectionsForRender;
   const sectionsForSidebarRender = React.useMemo(() => view.showInlineArchived ? source : source.map((section) => (
     section.groups.some((group) => group.isArchivedBucket)
