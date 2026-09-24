@@ -312,6 +312,7 @@ export class ChildStoreManager {
   private isBooting?: (directory: string) => boolean
   private isLoadingSessions?: (directory: string) => boolean
   private bootstrapConcurrency = 2
+  private bootstrapGate: ((directory: string) => "allow" | "wait" | "deny") | null = null
   private bootstrapTimeoutMs = DEFAULT_BOOTSTRAP_TIMEOUT_MS
   private bootstrapGeneration = 0
   private bootstrapSequence = 0
@@ -573,7 +574,7 @@ export class ChildStoreManager {
     return changed
   }
 
-  private nextBootstrap(): QueuedBootstrap | undefined {
+  private nextBootstrap(admitted: (directory: string) => boolean = () => true): QueuedBootstrap | undefined {
     const candidates = [...this.bootstrapQueue.values()].sort((left, right) => {
       const priority = BOOTSTRAP_PRIORITY[left.priority] - BOOTSTRAP_PRIORITY[right.priority]
       return priority !== 0 ? priority : left.sequence - right.sequence
@@ -583,16 +584,28 @@ export class ChildStoreManager {
     ).length
     // Low-priority scopes may use all but two slots (one with upstream's two), keeping room for foreground work.
     const lowPrioritySlots = Math.max(1, this.bootstrapConcurrency - 2)
-    return candidates.find((entry) => (
+    return candidates.find((entry) => admitted(entry.directory) && (
       BOOTSTRAP_PRIORITY[entry.priority] < BOOTSTRAP_PRIORITY.visible || lowPriorityRunning < lowPrioritySlots
     ))
+  }
+
+  /**
+   * Which queued directories may bootstrap. "wait" holds the queue (a managed catalog is still being discovered);
+   * "deny" parks the directory's queued run (not admitted by the managed gateway yet, #126); a later gate change that
+   * admits it (a catalog refresh listing a new worktree) starts it.
+   */
+  setBootstrapGate(gate: ((directory: string) => "allow" | "wait" | "deny") | null): void {
+    this.bootstrapGate = gate
+    this.pumpBootstrapQueue()
   }
 
   private pumpBootstrapQueue(): void {
     if (!this.onBootstrap || this.disposed) return
     while (this.runningBootstraps.size < this.bootstrapConcurrency) {
-      const next = this.nextBootstrap()
+      const gate = this.bootstrapGate
+      const next = this.nextBootstrap(gate ? (directory) => gate(directory) !== "deny" : undefined)
       if (!next) return
+      if (gate?.(next.directory) === "wait") return
       this.bootstrapQueue.delete(next.directory)
       const token = {}
       const running: RunningBootstrap = {

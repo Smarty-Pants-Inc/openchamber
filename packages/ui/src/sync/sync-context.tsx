@@ -1,4 +1,8 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useDirectoryStore as useDirectorySelectionStore } from '@/stores/useDirectoryStore';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { clearSessionReadFailure, isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
@@ -2276,6 +2280,17 @@ export function SyncProvider(props: {
 
     window.addEventListener("openchamber:system-resume", onSystemResume)
     return () => window.removeEventListener("openchamber:system-resume", onSystemResume)
+  }, [childStores])
+
+  // Managed catalog admission for directory bootstraps (#126): hold them until discovery answers, then drop
+  // directories the gateway does not admit. Re-evaluated whenever the catalog or the directory rows change.
+  useEffect(() => {
+    const isVSCode = isVSCodeRuntime()
+    const gate = (directory: string) => managedBootstrapVerdict(directory, isVSCode)
+    childStores.setBootstrapGate(gate)
+    const repump = () => childStores.setBootstrapGate(gate)
+    const unsubscribes = [useProjectsStore.subscribe(repump), useDirectorySelectionStore.subscribe(repump), useGlobalSessionsStore.subscribe(repump)]
+    return () => { for (const unsubscribe of unsubscribes) unsubscribe(); childStores.setBootstrapGate(null) }
   }, [childStores])
 
   // Configure child store manager
