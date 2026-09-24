@@ -697,6 +697,8 @@ export interface ProjectEntry {
   sidebarCollapsed?: boolean;
   /** Managed catalog only (never persisted): the published repository root of a linked worktree. */
   parent?: string;
+  /** Managed catalog only (never persisted): the Herdr workspaces that present this checkout. */
+  workspaces?: { id: string; label: string }[];
 }
 
 export interface SettingsPayload {

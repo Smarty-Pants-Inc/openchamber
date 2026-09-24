@@ -52,17 +52,18 @@ export const buildGroupRenderDescriptors = (
   if (!primaryGroup) return [];
 
   const archivedGroup = section.groups.find((group) => group.isArchivedBucket && group.id !== primaryGroup.id);
+  // A shared checkout splits its root into labelled workspace groups; all of them are the root.
+  const workspaceGroups = section.groups.filter((group) => group.isMain && group.workspaceId);
+  const rootGroups = workspaceGroups.length > 0 ? workspaceGroups : section.groups.filter((group) => group.isMain).slice(0, 1);
   const groups = options.mainWorkspaceOnly
-    ? [primaryGroup, ...(archivedGroup ? [archivedGroup] : [])]
-    : [
-      ...(section.groups.find((group) => group.isMain) ? [section.groups.find((group) => group.isMain)!] : []),
-      ...section.groups.filter((group) => !group.isMain),
-    ];
+    ? [...(workspaceGroups.length > 0 ? workspaceGroups : [primaryGroup]), ...(archivedGroup ? [archivedGroup] : [])]
+    : [...rootGroups, ...section.groups.filter((group) => !group.isMain)];
 
   return groups.map((group) => ({
     group,
     groupKey: `${section.project.id}:${group.id}`,
     projectId: section.project.id,
-    hideGroupLabel: options.mainWorkspaceOnly ? group.id === primaryGroup.id : group.isMain,
+    hideGroupLabel: group.workspaceId ? false
+      : options.mainWorkspaceOnly ? group.id === primaryGroup.id : group.isMain,
   }));
 };
