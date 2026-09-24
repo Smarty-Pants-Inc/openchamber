@@ -125,7 +125,7 @@ export async function listGlobalSessionPages(
         narrowToArchived?: boolean;
         roots?: boolean;
         pageSize: number;
-        /** Skip the shared background gate: only for callers bounded by the bootstrap scheduler. */
+        /** Skip the shared background gate: only for bounded callers (the bootstrap scheduler, the single-flight catalog refresh). */
         ungated?: boolean;
         onPage?: (sessions: GlobalSessionRecord[]) => void;
     },
