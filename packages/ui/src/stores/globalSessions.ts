@@ -125,8 +125,10 @@ export async function listGlobalSessionPages(
         narrowToArchived?: boolean;
         roots?: boolean;
         pageSize: number;
-        /** Skip the shared background gate: only for callers bounded by the bootstrap scheduler. */
+        /** Skip the shared background gate: only for bounded callers (the bootstrap scheduler, the catalog refresh). */
         ungated?: boolean;
+        /** Stop before the next page or retry once the caller's result would be discarded. */
+        isCurrent?: () => boolean;
         onPage?: (sessions: GlobalSessionRecord[]) => void;
     },
 ): Promise<GlobalSessionRecord[]> {
@@ -156,6 +158,7 @@ export async function listGlobalSessionPages(
         });
         const { response, payload } = await gate(() => retry(
             async () => {
+                if (options.isCurrent && !options.isCurrent()) throw new Error('Superseded session list read');
                 attempts += 1;
                 const response = await apiClient.experimental.session.list({
                     ...(options.directory ? { directory: options.directory } : {}),
@@ -168,7 +171,7 @@ export async function listGlobalSessionPages(
                     .map((session) => stripSessionListDetails(session) as GlobalSessionRecord);
                 return { response, payload };
             },
-            { attempts: 3, delay: 500, retryIf: () => true },
+            { attempts: 3, delay: 500, retryIf: () => !options.isCurrent || options.isCurrent() },
         )).catch((error) => {
             finishPerformanceEvent("error", { retryCount: Math.max(0, attempts - 1) });
             throw error;
