@@ -12,11 +12,12 @@ import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persiste
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { getDeferredSafeStorage } from './utils/safeStorage';
 import { useDirectoryStore } from './useDirectoryStore';
+import { BROWSER_LAST_DIRECTORY_KEY, getExplicitDirectoryChoices } from './browserDirectoryChoice';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { getVSCodeBootstrapConfig } from '@/lib/vscodeBootstrap';
 import { isVSCodeRuntime } from './utils/vscodeRuntime';
 
@@ -65,7 +66,8 @@ interface ProjectsStore {
   addProject: (path: string, options?: { label?: string; id?: string }) => Promise<ProjectEntry | null>;
   addProjects: (paths: string[]) => Promise<ProjectEntry[]>;
   removeProject: (id: string) => void;
-  setActiveProject: (id: string, options?: { expectedProjects: ProjectEntry[] }) => void;
+  /** `remember: false` selects without saving lastDirectory: restoring a local choice is not a new one (#113). */
+  setActiveProject: (id: string, options?: { expectedProjects?: ProjectEntry[]; remember?: boolean }) => void;
   setActiveProjectIdOnly: (id: string) => void;
   renameProject: (id: string, label: string) => void;
   updateProjectMeta: (id: string, meta: {
@@ -86,6 +88,13 @@ interface ProjectsStore {
   syncVSCodeWorkspaceFolders: (folders: VSCodeWorkspaceFolderConfig[], activePath?: string | null) => ProjectEntry | null;
   getActiveProject: () => ProjectEntry | null;
 }
+
+// A bootstrap's shared active pointer held while discovery is pending: a one-shot for the runtime and the
+// local choice it was held under. A stock answer, or a discovery failure (the stock rule), adopts it; a managed
+// catalog, any newer explicit selection and a runtime reset discard it (review/astra on OC#159).
+type HeldBootstrapPointer = { id: string | null; runtimeKey: string; explicitChoices: number };
+let heldBootstrapPointer: HeldBootstrapPointer | null = null;
+const discardHeldBootstrapPointer = (): void => { heldBootstrapPointer = null; };
 
 /** Stable selector: never creates a fresh array during a Zustand snapshot read. */
 const emptyManagedProjects: ProjectEntry[] = [];
@@ -650,6 +659,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (useDirectoryStore.getState().currentDirectory) selectManagedDirectory(undefined);
     },
     resetManagedCatalog: () => {
+      discardHeldBootstrapPointer();
       set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
       useDirectoryStore.setState({ managedDirectories: null });
     },
@@ -658,7 +668,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       const projects = managedProjectView(rows, state.projects);
       // First admission: the remembered directory (shared lastDirectory, mirrored locally) names the project
       // the user last worked in; the active pointer is not saved while the catalog is managed, so it can be stale.
-      const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
+      const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY))
+        ?? managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
       const activeProjectId = managedActiveProject(projects, remembered ?? state.activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
       useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
@@ -854,13 +865,16 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
     },
 
-    setActiveProject: (id: string, options?: { expectedProjects: ProjectEntry[] }) => {
+    setActiveProject: (id: string, options?: { expectedProjects?: ProjectEntry[]; remember?: boolean }) => {
+      discardHeldBootstrapPointer();
       if (get().managedCatalogAdmitted) {
         const target = get().managedProjects?.find(project => project.id === id);
         if (!target) return;
         set({ activeProjectId: id }); selectManagedDirectory(target);
+        if (options?.remember === false) return;
         // Remember the explicit choice: the next bootstrap restores the project at lastDirectory.
-        safeStorage.setItem('lastDirectory', target.path); void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
+        safeStorage.setItem('lastDirectory', target.path); safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, target.path);
+        void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
         return;
       }
       if (isVSCodeProjectsRuntime) {
@@ -888,6 +902,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     setActiveProjectIdOnly: (id: string) => {
+      discardHeldBootstrapPointer();
       if (get().managedCatalogAdmitted) {
         if (get().managedProjects?.some(project => project.id === id)) set({ activeProjectId: id });
         return;
@@ -1119,6 +1134,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     resetForRuntimeSwitch: () => {
+      discardHeldBootstrapPointer();
       if (isVSCodeProjectsRuntime) {
         return;
       }
@@ -1147,7 +1163,12 @@ export const useProjectsStore = create<ProjectsStore>()(
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.
         // The remembered directory wins over the active pointer, which is not saved while the catalog is managed.
-        const rememberedByDirectory = adoptActiveProject ? managedProjectAt(managedProjects ?? [], settings.lastDirectory) : undefined;
+        // This browser's own last choice first; the shared one only when it has none (#113). The local
+        // `lastDirectory` is not used here: this same sync has already mirrored the shared value into it.
+        const rememberedByDirectory = adoptActiveProject
+          ? managedProjectAt(managedProjects ?? [], safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY))
+            ?? managedProjectAt(managedProjects ?? [], settings.lastDirectory)
+          : undefined;
         const remembered = rememberedByDirectory ?? (adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
           ? incomingActive : current.activeProjectId);
         const activeProjectId = managedActiveProject(managedProjects ?? [], remembered);
@@ -1158,6 +1179,23 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
       const incomingIds = new Set(incomingProjects.map((p) => p.id));
+
+      // While discovery has not answered, the runtime may be managed: its shared active pointer is not saved there
+      // and can be stale (3.13: a fresh browser opened on smarty-code, not the remembered smarty-dev). Keep it for a
+      // stock answer; a managed catalog selects its remembered project on admission instead.
+      if (adoptActiveProject && current.managedCatalogStatus === 'unknown') {
+        heldBootstrapPointer = { id: incomingActive, runtimeKey: getRuntimeKey(),
+          explicitChoices: getExplicitDirectoryChoices() };
+        // A pointer to a project no longer listed is dropped, never replaced by the held shared one.
+        const keptActive = current.activeProjectId && incomingIds.has(current.activeProjectId) ? current.activeProjectId : null;
+        const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
+        if (!projectsChanged && keptActive === current.activeProjectId) return;
+        const cleanedOrder = get().manualProjectOrder.filter((id) => incomingIds.has(id));
+        set({ projects: incomingProjects, activeProjectId: keptActive, manualProjectOrder: cleanedOrder });
+        cacheProjects(incomingProjects, keptActive);
+        persistManualProjectOrder(cleanedOrder);
+        return;
+      }
 
       // The settings document is shared by every window on this server, so
       // outside a bootstrap sync the incoming active pointer is just another
@@ -1237,6 +1275,25 @@ export const useProjectsStore = create<ProjectsStore>()(
 
   }), { name: 'projects-store' })
 );
+
+// A stock answer adopts the bootstrap's held shared active pointer, as a bootstrap sync would have (no settings write).
+useProjectsStore.subscribe((state, previous) => {
+  if (state.managedCatalogStatus === previous.managedCatalogStatus || !heldBootstrapPointer) return;
+  if (state.managedCatalogStatus === 'unknown') return;
+  const pointer = heldBootstrapPointer;
+  heldBootstrapPointer = null;
+  // Only for the runtime that held it, and only if this browser made no explicit choice since.
+  if (pointer.runtimeKey !== getRuntimeKey()
+    || pointer.explicitChoices !== getExplicitDirectoryChoices()) return;
+  const held = pointer.id;
+  if (state.managedCatalogAdmitted || !held || held === state.activeProjectId) return;
+  const project = state.projects.find((entry) => entry.id === held);
+  if (!project) return;
+  useProjectsStore.setState({ activeProjectId: held });
+  cacheProjects(state.projects, held);
+  opencodeClient.setDirectory(project.path);
+  useDirectoryStore.getState().setDirectory(project.path, { showOverlay: false, remember: false });
+});
 
 if (typeof window !== 'undefined') {
   window.addEventListener('openchamber:settings-synced', (event: Event) => {
