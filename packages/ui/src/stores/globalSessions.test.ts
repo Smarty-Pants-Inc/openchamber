@@ -3,6 +3,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { describe, expect, test } from 'bun:test'
 import type { OpencodeClient, Session } from '@opencode-ai/sdk/v2'
 
+import { runBackgroundNetworkTask } from '@/lib/background-network';
 import { filterManagedChatsForRuntime, listGlobalSessionPages, splitGlobalSessionsByArchived } from './globalSessions'
 
 describe('managed Chats runtime visibility', () => {
@@ -28,6 +29,22 @@ describe('managed Chats runtime visibility', () => {
 })
 
 describe('listGlobalSessionPages', () => {
+  test('a directory-scoped bootstrap list does not wait behind saturated background work', async () => {
+    const releases: Array<() => void> = []
+    const blockers = Array.from({ length: 3 }, () => runBackgroundNetworkTask(() => new Promise<void>((resolve) => releases.push(resolve))))
+    try {
+      const apiClient = { experimental: { session: { list: async () => ({ data: [], response: new Response('[]') }) } } } as unknown as OpencodeClient
+      const listed = await Promise.race([
+        listGlobalSessionPages(apiClient, { directory: '/repo/app', archived: false, roots: true, pageSize: 500 }).then(() => 'listed'),
+        new Promise((resolve) => setTimeout(() => resolve('blocked'), 200)),
+      ])
+      expect(listed).toBe('listed')
+    } finally {
+      for (const release of releases) release()
+      await Promise.all(blockers)
+    }
+  })
+
   test('sanitizes session list records before returning them', async () => {
     const apiClient = {
       experimental: {

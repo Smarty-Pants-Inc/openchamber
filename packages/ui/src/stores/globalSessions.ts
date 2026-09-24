@@ -142,13 +142,17 @@ export async function listGlobalSessionPages(
     } else {
         operation = "bootstrap.sessions.all";
     }
+    // ponytail: a directory-scoped list is the sidebar bootstrap's authoritative read, already bounded by the
+    // bootstrap scheduler's slots. Behind the shared 3-slot background gate it queued after 5-19 s git status
+    // polls, leaving groups on "Loading sessions…" for minutes (R3.6 gate). Global pages stay gated.
+    const gate = options.directory ? <T,>(task: () => Promise<T>) => task() : runBackgroundNetworkTask;
     while (true) {
         let attempts = 0;
         const finishPerformanceEvent = startSessionLoadPerformanceEvent({
             operation,
             caller: cursor === undefined ? "initial-page" : "pagination",
         });
-        const { response, payload } = await runBackgroundNetworkTask(() => retry(
+        const { response, payload } = await gate(() => retry(
             async () => {
                 attempts += 1;
                 const response = await apiClient.experimental.session.list({
