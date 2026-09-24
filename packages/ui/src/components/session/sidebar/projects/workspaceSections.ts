@@ -2,37 +2,36 @@ import type { SessionGroup } from '../types';
 
 type Section<P> = { project: P; groups: SessionGroup[] };
 export type WorkspaceRenderItem<P> = {
-  /** Unique render/collapse key; the first item of an unsplit section keeps the project id. */
+  /** Render and collapse key: the project id. */
   key: string;
   /** Header label override; undefined keeps the project's own label. */
   label?: string;
   section: Section<P>;
-  split: boolean;
 };
 
-const basename = (path: string): string => path.replace(/\/+$/, '').split('/').pop() ?? path;
-
 /**
- * Herdr parity (smarty-code#126, org's live rule): a checkout shared by several Herdr workspaces shows
- * one TOP-LEVEL group per workspace, labelled exactly, not one joined project with sub-groups. The OC
- * project stays one per checkout; only rendering splits. The workspace whose label names the checkout
- * folder (else the last, Herdr's primary) owns the linked worktree and archived groups.
+ * Herdr parity (smarty-code#126 5809353823, Herdr `workspace_entries` in `src/client/shell/sidebar.rs`): the
+ * workspaces of one repository form one block. Its head is the first non-linked workspace in Herdr order; every
+ * other member, the checkout's other workspaces and each linked worktree, is a child in Herdr order. For a checkout
+ * shared by several workspaces, the head workspace labels the project header and its sessions are the header's
+ * own rows; the other workspaces stay labelled child groups, before the linked worktree groups.
+ * ponytail: the catalog gives Herdr order within a checkout (`workspaces`) and across rows, not one order across
+ * both, so the checkout's other workspaces are placed before its worktrees. That matches Herdr while they were
+ * opened first (true for smarty-dev today); revisit if the catalog publishes a block-wide order. The main-workspace-only
+ * view keeps every workspace as a labelled group.
  */
-export function splitSectionsByWorkspace<P extends { id: string; normalizedPath: string }>(
-  sections: readonly Section<P>[],
-): WorkspaceRenderItem<P>[] {
-  return sections.flatMap((section): WorkspaceRenderItem<P>[] => {
+export function nestSharedCheckout<P extends { id: string }>(sections: readonly Section<P>[]): WorkspaceRenderItem<P>[] {
+  return sections.map((section): WorkspaceRenderItem<P> => {
     const workspaceGroups = section.groups.filter((group) => group.isMain && group.workspaceId);
-    if (workspaceGroups.length < 2) return [{ key: section.project.id, section, split: false }];
-    const folder = basename(section.project.normalizedPath);
-    const owner = workspaceGroups.find((group) => group.label === folder) ?? workspaceGroups[workspaceGroups.length - 1]!;
-    const rest = section.groups.filter((group) => !(group.isMain && group.workspaceId));
-    return workspaceGroups.map((group) => ({
-      key: group === owner ? section.project.id : `${section.project.id}::workspace:${group.workspaceId}`,
-      label: group.label,
-      split: true,
-      // The workspace's sessions render directly under its own header (a plain root group).
-      section: { project: section.project, groups: [{ ...group, workspaceId: undefined }, ...(group === owner ? rest : [])] },
-    }));
+    if (workspaceGroups.length < 2) return { key: section.project.id, section };
+    // Marked where the split is made, so a saved group order or a search filter cannot change the head.
+    // A search that filters the head out keeps the project label, with every workspace labelled.
+    const head = workspaceGroups.find((group) => group.isWorkspaceHead);
+    if (!head) return { key: section.project.id, section };
+    return {
+      key: section.project.id,
+      label: head.label,
+      section: { project: section.project, groups: section.groups.map((group) => group === head ? { ...group, workspaceId: undefined } : group) },
+    };
   });
 }
