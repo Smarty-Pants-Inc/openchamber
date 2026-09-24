@@ -16,7 +16,7 @@ import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { getVSCodeBootstrapConfig } from '@/lib/vscodeBootstrap';
 import { isVSCodeRuntime } from './utils/vscodeRuntime';
 
@@ -88,8 +88,12 @@ interface ProjectsStore {
   getActiveProject: () => ProjectEntry | null;
 }
 
-// A bootstrap's shared active pointer held while discovery is pending; applied only if the catalog is stock.
-let deferredBootstrapActiveProjectId: string | null | undefined;
+// A bootstrap's shared active pointer held while discovery is pending: a one-shot for the runtime and the
+// local choice it was held under. A stock answer, or a discovery failure (the stock rule), adopts it; a managed
+// catalog, any newer explicit selection and a runtime reset discard it (review/astra on OC#159).
+type HeldBootstrapPointer = { id: string | null; runtimeKey: string; browserChoice: string | null };
+let heldBootstrapPointer: HeldBootstrapPointer | null = null;
+const discardHeldBootstrapPointer = (): void => { heldBootstrapPointer = null; };
 
 /** Stable selector: never creates a fresh array during a Zustand snapshot read. */
 const emptyManagedProjects: ProjectEntry[] = [];
@@ -654,6 +658,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (useDirectoryStore.getState().currentDirectory) selectManagedDirectory(undefined);
     },
     resetManagedCatalog: () => {
+      discardHeldBootstrapPointer();
       set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
       useDirectoryStore.setState({ managedDirectories: null });
     },
@@ -860,6 +865,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     setActiveProject: (id: string, options?: { expectedProjects?: ProjectEntry[]; remember?: boolean }) => {
+      discardHeldBootstrapPointer();
       if (get().managedCatalogAdmitted) {
         const target = get().managedProjects?.find(project => project.id === id);
         if (!target) return;
@@ -895,6 +901,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     setActiveProjectIdOnly: (id: string) => {
+      discardHeldBootstrapPointer();
       if (get().managedCatalogAdmitted) {
         if (get().managedProjects?.some(project => project.id === id)) set({ activeProjectId: id });
         return;
@@ -1126,6 +1133,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     resetForRuntimeSwitch: () => {
+      discardHeldBootstrapPointer();
       if (isVSCodeProjectsRuntime) {
         return;
       }
@@ -1175,7 +1183,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       // and can be stale (3.13: a fresh browser opened on smarty-code, not the remembered smarty-dev). Keep it for a
       // stock answer; a managed catalog selects its remembered project on admission instead.
       if (adoptActiveProject && current.managedCatalogStatus === 'unknown') {
-        deferredBootstrapActiveProjectId = incomingActive;
+        heldBootstrapPointer = { id: incomingActive, runtimeKey: getRuntimeKey(),
+          browserChoice: safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY) };
         // A pointer to a project no longer listed is dropped, never replaced by the held shared one.
         const keptActive = current.activeProjectId && incomingIds.has(current.activeProjectId) ? current.activeProjectId : null;
         const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
@@ -1268,11 +1277,15 @@ export const useProjectsStore = create<ProjectsStore>()(
 
 // A stock answer adopts the bootstrap's held shared active pointer, as a bootstrap sync would have (no settings write).
 useProjectsStore.subscribe((state, previous) => {
-  if (state.managedCatalogStatus === previous.managedCatalogStatus || deferredBootstrapActiveProjectId === undefined) return;
+  if (state.managedCatalogStatus === previous.managedCatalogStatus || !heldBootstrapPointer) return;
   if (state.managedCatalogStatus === 'unknown') return;
-  const held = deferredBootstrapActiveProjectId;
-  deferredBootstrapActiveProjectId = undefined;
-  if (state.managedCatalogStatus !== 'stock' || state.managedCatalogAdmitted || !held || held === state.activeProjectId) return;
+  const pointer = heldBootstrapPointer;
+  heldBootstrapPointer = null;
+  // Only for the runtime that held it, and only if this browser made no explicit choice since.
+  if (pointer.runtimeKey !== getRuntimeKey()
+    || pointer.browserChoice !== safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY)) return;
+  const held = pointer.id;
+  if (state.managedCatalogAdmitted || !held || held === state.activeProjectId) return;
   const project = state.projects.find((entry) => entry.id === held);
   if (!project) return;
   useProjectsStore.setState({ activeProjectId: held });

@@ -95,6 +95,47 @@ describe("bootstrap active pointer while discovery is pending", () => {
   })
 })
 
+describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
+  const hold = () => {
+    useProjectsStore.getState().resetManagedCatalog()
+    useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+    getDeferredSafeStorage().removeItem("oc.browser.lastDirectory")
+    const raw = { projects: [{ path: "/repo-a" }, { path: "/repo-b" }] } as DesktopSettings
+    useProjectsStore.getState().synchronizeFromSettings(raw, { adoptActiveProject: false })
+    const [first, second] = useProjectsStore.getState().projects
+    useProjectsStore.getState().synchronizeFromSettings({ ...raw, activeProjectId: first!.id } as DesktopSettings)
+    return { first: first!, second: second! }
+  }
+  for (const choice of ["setActiveProject", "directory"] as const) test(`a newer explicit selection (${choice}) is not undone by the stock answer`, () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      const { second } = hold()
+      if (choice === "setActiveProject") useProjectsStore.getState().setActiveProject(second.id)
+      else { useDirectoryStore.getState().setDirectory(second.path); useProjectsStore.setState({ activeProjectId: second.id }) }
+      useProjectsStore.setState({ managedCatalogStatus: "stock" })
+      expect(useProjectsStore.getState().activeProjectId).toBe(second.id)
+    } finally { save.mockRestore(); useProjectsStore.getState().resetManagedCatalog() }
+  })
+  test("a runtime reset discards the held pointer", () => {
+    hold()
+    useProjectsStore.getState().resetManagedCatalog()
+    useProjectsStore.setState({ managedCatalogStatus: "stock" })
+    expect(useProjectsStore.getState().activeProjectId).toBe(null)
+    useProjectsStore.getState().resetManagedCatalog()
+  })
+  test("unknown -> unavailable -> stock restores the saved selection without a settings write", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      const { first } = hold()
+      useProjectsStore.setState({ managedCatalogStatus: "unavailable" })
+      expect(useProjectsStore.getState().activeProjectId).toBe(first.id)
+      useProjectsStore.setState({ managedCatalogStatus: "stock" })
+      expect(useProjectsStore.getState().activeProjectId).toBe(first.id)
+      expect(save).not.toHaveBeenCalled()
+    } finally { save.mockRestore(); useProjectsStore.getState().resetManagedCatalog() }
+  })
+})
+
 describe("useProjectsStore selection identity", () => {
   test("changes only the active project id", () => {
     const first = { id: "project-a", path: "/repo-a", lastOpenedAt: 10 } as ProjectEntry
