@@ -61,6 +61,43 @@ describe("SessionMessageLoader", () => {
     childStores.disposeAll()
   })
 
+  // Smarty gateway #181: an unenrolled fleet session answers its history with x-smarty-read-only: 1.
+  test("marks a read-only fleet history and clears it when a refresh no longer carries the marker", async () => {
+    let readOnly = true
+    const { childStores, loader } = createLoader(async () => ({
+      data: [createRecord("session-a")],
+      response: { headers: { get: (name: string) => name === "x-smarty-read-only" && readOnly ? "1" : null } },
+    }))
+    const target = { directory: "/repo", sessionID: "session-a" }
+    await loader.ensure(target, { reason: "navigation" })
+    expect(loader.getSnapshot(target).readOnly).toBe(true)
+    // An invalidation keeps the marker until the next newest page, and coverage is not cached.
+    loader.invalidateSession(target)
+    expect(loader.getSnapshot(target).readOnly).toBe(true)
+    await loader.ensure(target, { reason: "navigation" })
+    expect(loader.getSnapshot(target).readOnly).toBe(true)
+    readOnly = false
+    await loader.refreshTail(target, 50)
+    expect(loader.getSnapshot(target).readOnly).toBe(false)
+    loader.dispose()
+    childStores.disposeAll()
+  })
+
+  test("an older page never clears the read-only marker", async () => {
+    const { childStores, loader } = createLoader(async (input) => ({
+      data: [createRecord("session-a", input.before ? "msg-0" : "msg-1")],
+      response: { headers: { get: (name: string) => name === "x-next-cursor" && !input.before ? "cursor-1"
+        : name === "x-smarty-read-only" && !input.before ? "1" : null } },
+    }))
+    const target = { directory: "/repo", sessionID: "session-a" }
+    await loader.ensure(target, { reason: "navigation" })
+    expect(loader.getSnapshot(target).readOnly).toBe(true)
+    await loader.loadOlder(target)
+    expect(loader.getSnapshot(target).readOnly).toBe(true)
+    loader.dispose()
+    childStores.disposeAll()
+  })
+
   test("leaves older history loading to explicit viewport demand", async () => {
     const calls: Array<{ limit?: number; before?: string }> = []
     const { childStores, loader } = createLoader(async ({ sessionID, limit, before }) => {
