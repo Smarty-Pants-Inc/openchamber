@@ -371,7 +371,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                               const newIndex = nestedGroups.findIndex((item) => item.id === over.id);
                               if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
                               const nextNested = arrayMove(nestedGroups, oldIndex, newIndex).map((item) => item.id);
-                              const next = rootGroup ? [...orderedGroups.filter((group) => group.isMain).map((group) => group.id), ...nextNested] : nextNested;
+                              // Workspace roots keep Herdr's order; only worktree groups are saved as sortable.
+                              const next = rootGroup && !rootGroup.workspaceId ? [rootGroup.id, ...nextNested] : nextNested;
                                  actions.setGroupOrderByProject((prev) => {
                                 const map = new Map(prev);
                                 map.set(projectKey, next);

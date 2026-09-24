@@ -293,9 +293,7 @@ export const useSessionSidebarSections = (args: Args) => {
           scopeKey: group.folderScopeKey ?? normalizePath(group.directory ?? null),
           directory: group.directory ?? null,
         }))
-        .filter((scope): scope is { scopeKey: string; directory: string | null } => Boolean(scope.scopeKey))
-        // Workspace sub-groups of one checkout share its scope; list each scope once.
-        .filter((scope, index, all) => all.findIndex((other) => other.scopeKey === scope.scopeKey) === index);
+        .filter((scope): scope is { scopeKey: string; directory: string | null } => Boolean(scope.scopeKey));
       const rootGroup = nonArchivedGroups.find((group) => group.isMain) ?? null;
 
       const flatGroup: SessionGroup = {

@@ -14,6 +14,8 @@ const workspaceOf = (session: unknown): string | null => {
  * first workspace's group. Worktree and archived groups are unchanged. A new session started from any
  * of these groups targets the shared checkout; its workspace comes from Herdr once its pane exists.
  * ponytail: sub-groups inside one project section (the OC project model is one per checkout);
+ * existing folders stay on the first workspace group (Herdr's first workspace), so a foldered session of
+ * another workspace shows unfoldered in its own group (the flat view shows every folder);
  * separate top-level sections per workspace would need virtual projects.
  */
 export function splitRootGroupByWorkspace(groups: SessionGroup[], workspaces: readonly Workspace[] | undefined): SessionGroup[] {
