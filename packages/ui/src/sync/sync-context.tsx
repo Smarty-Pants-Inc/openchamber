@@ -2286,7 +2286,10 @@ export function SyncProvider(props: {
 
   useEffect(() => {
     return childStores.configure({
-      bootstrapConcurrency: 2,
+      // ponytail: upstream's 2 suits a few local projects. A Smarty catalog has ~35 scopes, and two slots
+      // left groups on "Loading sessions…" for 60-160 s (R3.4 gate). The deployed server answered 7 scopes'
+      // bootstrap requests in parallel in under 3 s. Revisit if the server sheds load at 6.
+      bootstrapConcurrency: 6,
       onBootstrap: async (context: DirectoryBootstrapContext) => {
         const { directory } = context
         const store = childStores.getChild(directory)
