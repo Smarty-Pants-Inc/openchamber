@@ -7,13 +7,13 @@ import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { PiVoiceState, startPiVoiceCall } from '@/lib/voice/piVoiceCall';
-import { browserPiVoiceAudio, supportsPiVoice } from '@/lib/voice/piVoiceMedia';
+import { browserPiVoiceMedia, supportsPiVoice } from '@/lib/voice/piVoiceMedia';
 
 type Call = ReturnType<typeof startPiVoiceCall>;
 // Loaded on first use: the call module brings the runtime socket, not needed to render the chip.
 const loadCall = () => import('@/lib/voice/piVoiceCall');
 type ControlState = { status: 'idle' } | { status: 'starting' } | PiVoiceState;
-const PHASES = ['connecting', 'listening', 'working', 'speaking'] as const;
+const PHASES = ['connecting', 'listening', 'working', 'speaking', 'muted'] as const;
 const knownPhase = (value: string | undefined) => PHASES.find(phase => phase === value);
 
 /** One live voice call with the selected ordinary Pi session; the session's /live engine does the rest. */
@@ -54,9 +54,9 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     try {
       // One gesture: audio and the microphone are prepared inside the click. A denied
       // microphone starts no call.
-      const audio = browserPiVoiceAudio(), prepared = audio.prepare();
-      const voice = await loadCall().catch((error: Error) => { void prepared.catch(() => undefined); audio.close(); throw error; });
-      const started = await voice.beginPiVoiceCall(prepared, audio, () => voice.openPiVoiceSocket(sessionId, directory), next => {
+      const media = browserPiVoiceMedia(), prepared = media.prepare();
+      const voice = await loadCall().catch((error: Error) => { void prepared.catch(() => undefined); media.close(); throw error; });
+      const started = await voice.beginPiVoiceCall(prepared, media, () => voice.openPiVoiceSocket(sessionId, directory), next => {
         if (generation.current !== owner) return;
         setState(next);
         if (next.status === 'ended') {
@@ -72,12 +72,14 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     }
   };
   const phase = state.status === 'active' && state.muted ? 'muted'
-    : knownPhase(state.status === 'active' ? state.phase : state.status === 'starting' ? 'connecting' : undefined)
-      ?? (state.status === 'active' && state.live ? 'listening' : undefined);
+    : knownPhase(state.status === 'active' ? state.phase : state.status === 'starting' ? 'connecting' : undefined);
   const label = active ? t('chat.piVoice.end') : t('chat.piVoice.start');
+  // The engine's latest line, with the same you:/agent: labels every voice surface shows.
+  const line = state.status === 'active' && state.transcript
+    ? t(state.transcript.role === 'user' ? 'chat.piVoice.you' : 'chat.piVoice.agent', { text: state.transcript.text }) : undefined;
   return (
     <Button type="button" variant="chip" size="xs" aria-pressed={active} aria-label={label}
-      title={state.status === 'active' && state.error ? state.error : label}
+      title={line ?? label}
       disabled={state.status === 'starting'} onClick={() => { void toggle(); }}>
       <Icon name="mic" className="size-3.5" />
       {phase ? <span aria-live="polite">{t(`chat.piVoice.phase.${phase}`)}</span> : null}
