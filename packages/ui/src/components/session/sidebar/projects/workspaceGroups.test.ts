@@ -17,11 +17,28 @@ describe('workspace groups for a shared checkout', () => {
       ['smarty-org', ['org']],
       ['ci-delivery', ['ci']],
     ]);
-    expect(groups.slice(0, 2).every((group) => !group.isMain && group.directory === '/p/dev')).toBe(true);
+    // Still root groups: not worktrees (no PR polling or extra bootstrap), labelled by their workspace.
+    expect(groups.slice(0, 2).map((group) => [group.isMain, group.workspaceId, group.directory])).toEqual([[true, 'w2', '/p/dev'], [true, 'wA9', '/p/dev']]);
+    // Folders stay with the first workspace group only.
+    expect(groups[0]!.folderScopeKey).toBe('/p/dev');
+    expect(groups[1]!.folderScopeKey).not.toBe('/p/dev');
   });
   test('a single-workspace project keeps its root group', () => {
     const groups = [root, worktree];
     expect(splitRootGroupByWorkspace(groups, [{ id: 'w2', label: 'smarty-dev' }])).toBe(groups);
     expect(splitRootGroupByWorkspace(groups, undefined)).toBe(groups);
+  });
+});
+
+describe('render descriptors for workspace groups', () => {
+  test('all workspace groups render as labelled roots, in both full and main-only views', async () => {
+    const { buildGroupRenderDescriptors } = await import('./sessionProjectRender');
+    const groups = splitRootGroupByWorkspace([root, worktree], [{ id: 'w2', label: 'smarty-dev' }, { id: 'wA9', label: 'smarty-org' }]);
+    // SAFETY: the builder reads only project.id from the section's project.
+    const section = { project: { id: 'dev' }, groups } as unknown as Parameters<typeof buildGroupRenderDescriptors>[0];
+    const full = buildGroupRenderDescriptors(section, { mainWorkspaceOnly: false });
+    expect(full.map((d) => [d.group.label, d.hideGroupLabel])).toEqual([['smarty-dev', false], ['smarty-org', false], ['ci-delivery', false]]);
+    const mainOnly = buildGroupRenderDescriptors(section, { mainWorkspaceOnly: true });
+    expect(mainOnly.map((d) => d.group.label)).toEqual(['smarty-dev', 'smarty-org']);
   });
 });
