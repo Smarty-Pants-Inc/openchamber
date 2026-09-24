@@ -199,9 +199,15 @@ export const useProjectSessionSelection = (args: Args): void => {
       return;
     }
 
+    const initialObservation = previousActiveProjectRef.current === null;
     previousActiveProjectRef.current = activeProjectId;
 
     if (selection.kind === 'open-draft') {
+      // The first active project a mounted sidebar sees is the startup state (on a reload, the shared or cached
+      // pointer), not a user switch. Opening an explicit draft for it recorded that project over the remembered
+      // draft target before the catalog could restore it (smarty-code#113, R3.15). The automatic draft open owns
+      // startup; only a later change of the active project opens a draft here.
+      if (initialObservation) return;
       if (mobileVariant) {
         setSessionSwitcherOpen(false);
       }
