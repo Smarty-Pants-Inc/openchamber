@@ -20,6 +20,8 @@ export type SessionGroup = {
   isMain: boolean;
   /** Managed catalog: this root group holds one Herdr workspace's sessions of a shared checkout. */
   workspaceId?: string;
+  /** The first workspace in Herdr order of a shared checkout: heads the Herdr block (#126). */
+  isWorkspaceHead?: boolean;
   isArchivedBucket?: boolean;
   worktree: WorktreeMetadata | null;
   directory: string | null;

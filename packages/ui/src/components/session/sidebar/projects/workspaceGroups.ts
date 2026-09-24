@@ -30,6 +30,7 @@ export function splitRootGroupByWorkspace(groups: SessionGroup[], workspaces: re
     // Still root groups (not worktrees): no PR polling, extra bootstrap demand or sorting.
     isMain: true,
     workspaceId: workspace.id,
+    isWorkspaceHead: index === 0,
     // Folders belong to the first workspace group; the others would repeat them.
     folderScopeKey: index === 0 ? root.folderScopeKey : `${root.folderScopeKey ?? root.directory}#workspace:${workspace.id}`,
     sessions: root.sessions.filter((node) => {
