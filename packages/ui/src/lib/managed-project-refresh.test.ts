@@ -21,9 +21,13 @@ const projectState = {
   resetManagedCatalog() { admitted = false; status = 'unknown'; publications = []; },
   applyManagedCatalog(rows: ManagedProject[]) { publications.push(rows); status = 'ready'; },
 };
+let statusRead = async (): Promise<{ data: Record<string, { type: string }> } | null> => ({ data: {} });
+const seeded: unknown[][] = [];
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
-  getSdkClient: () => ({ project: { list: () => projectRead() } }),
+  getSdkClient: () => ({ project: { list: () => projectRead() }, session: { status: () => statusRead() } }),
 } }));
+mock.module('@/sync/global-session-status', () => ({ getSessionStatusEventVersion: () => 0,
+  applyFleetSessionStatuses: (...args: unknown[]) => { seeded.push(args.slice(0, 2)); } }));
 mock.module('@/lib/runtime-switch', () => ({
   captureRuntimeRequestScope: () => generation,
   isRuntimeRequestScopeCurrent: (scope: number) => scope === generation,
@@ -63,6 +67,15 @@ test('success publishes, lost marker preserves membership as unavailable', async
 test('the membership read does not wait behind background polls', async () => {
   await refreshManagedProjects(true);
   expect(sessionReadOptions).toMatchObject({ archived: true, ungated: true });
+});
+
+test('publishing seeds every session directory from the fleet-wide status map', async () => {
+  sessionRead = async () => [{ id: 's1', directory: '/allowed/a' }, { id: 's2', directory: '/allowed/a' }] as never;
+  statusRead = async () => ({ data: { s1: { type: 'busy' }, other: { type: 'busy' } } });
+  seeded.length = 0;
+  await refreshManagedProjects(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(seeded).toEqual([[[{ id: 's1', directory: '/allowed/a' }, { id: 's2', directory: '/allowed/a' }], { s1: { type: 'busy' }, other: { type: 'busy' } }]]);
 });
 
 test('successful empty publishes only after a successful global read', async () => {
