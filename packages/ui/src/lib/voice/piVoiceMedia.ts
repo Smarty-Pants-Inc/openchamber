@@ -1,70 +1,108 @@
 import { isDesktopShell } from '@/lib/desktop';
 import { getActiveRelayTunnel } from '@/lib/relay/runtime-tunnel';
-import type { PiVoiceAudio } from './piVoiceCall';
-import { PI_VOICE_WORKLET, PI_VOICE_WORKLET_NAME } from './piVoiceWorklet';
+import type { PiVoiceMedia } from './piVoiceCall';
+
+const ICE_WAIT_MS = 2000;
 
 /**
  * Runtime parity: web and hosted/Capacitor mobile pages that reach the server directly get the
- * control when they have AudioWorklet and a secure-context microphone. The private relay tunnel
- * does not carry the voice socket, and the desktop shell and VS Code (excluded by the control)
- * are not Code's web page, so they show none.
+ * control when they have WebRTC and a secure-context microphone. The private relay tunnel does not
+ * carry the voice socket, and the desktop shell and VS Code (excluded by the control) are not
+ * Code's web page, so they show none.
  */
 export function supportsPiVoice(): boolean {
   return !isDesktopShell() && !getActiveRelayTunnel() && globalThis.window?.isSecureContext === true
-    && 'AudioWorkletNode' in window && Boolean(globalThis.navigator?.mediaDevices);
+    && 'RTCPeerConnection' in window && 'AudioContext' in window && Boolean(globalThis.navigator?.mediaDevices);
+}
+
+function meter(context: AudioContext, stream: MediaStream) {
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  const source = context.createMediaStreamSource(stream);
+  source.connect(analyser);
+  const buffer = new Float32Array(analyser.fftSize);
+  return {
+    level() {
+      analyser.getFloatTimeDomainData(buffer);
+      let sum = 0;
+      for (const sample of buffer) sum += sample * sample;
+      return Math.sqrt(sum / buffer.length);
+    },
+    stop() { source.disconnect(); },
+  };
+}
+
+function iceGathered(peer: RTCPeerConnection) {
+  return new Promise<void>(resolve => {
+    if (peer.iceGatheringState === 'complete') { resolve(); return; }
+    peer.addEventListener('icegatheringstatechange', () => { if (peer.iceGatheringState === 'complete') resolve(); });
+    setTimeout(resolve, ICE_WAIT_MS);
+  });
 }
 
 /**
- * Real microphone and speaker for one call: PCM16 24 kHz frames through an AudioWorklet.
- * Create it inside the user's click so autoplay policy allows the remote voice.
+ * Microphone, speaker and the call's RTCPeerConnection, as in pi-better-openai's /live browser page
+ * (src/live/browser-page.ts): the page holds the media; the Pi session's /live engine signals it.
+ * Create it inside the user's click so autoplay policy allows the remote voice and meters.
  */
-export function browserPiVoiceAudio(): PiVoiceAudio {
+export function browserPiVoiceMedia(): PiVoiceMedia {
+  const audio = new Audio();
+  audio.autoplay = true;
   const context = new AudioContext();
-  let stream: MediaStream | undefined, node: AudioWorkletNode | undefined, source: MediaStreamAudioSourceNode | undefined;
-  let closed = false, epoch = 0;
-  let deliver: (pcm: ArrayBuffer) => void = () => undefined, lost: (reason: string) => void = () => undefined;
+  let stream: MediaStream | undefined, peer: RTCPeerConnection | undefined, lost: (reason: string) => void = () => undefined;
+  let meters: { mic: ReturnType<typeof meter>; speaker: ReturnType<typeof meter> } | undefined;
   // Backgrounding is not consent revocation: keep media, and resume audio the platform suspended.
   const resumeWhenVisible = () => { if (document.visibilityState === 'visible' && context.state !== 'running') void context.resume().catch(() => undefined); };
-  const release = () => {
-    document.removeEventListener('visibilitychange', resumeWhenVisible);
-    for (const track of stream?.getTracks() ?? []) track.stop();
-    source?.disconnect(); node?.disconnect();
-    stream = undefined; source = undefined; node = undefined;
+  const hangup = () => {
+    meters?.mic.stop(); meters?.speaker.stop(); meters = undefined;
+    peer?.close(); peer = undefined;
+    audio.srcObject = null;
   };
   return {
     async prepare() {
       const resumed = context.resume(); // Inside the user's gesture.
-      const url = URL.createObjectURL(new Blob([PI_VOICE_WORKLET], { type: 'text/javascript' }));
-      try { await context.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
       const microphone = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       await resumed;
-      if (closed) {
-        for (const track of microphone.getTracks()) track.stop();
-        throw new Error('Voice call ended');
-      }
       stream = microphone;
       for (const track of microphone.getAudioTracks()) track.addEventListener('ended', () => lost('The microphone was disconnected'));
-      source = context.createMediaStreamSource(microphone);
-      node = new AudioWorkletNode(context, PI_VOICE_WORKLET_NAME, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
-      node.port.onmessage = (event: MessageEvent<{ type?: string; epoch?: number; pcm?: ArrayBuffer }>) => {
-        if (event.data.type === 'capture' && event.data.epoch === epoch && event.data.pcm) deliver(event.data.pcm);
-      };
-      source.connect(node);
-      node.connect(context.destination);
       document.addEventListener('visibilitychange', resumeWhenVisible);
     },
-    capture(onCapture, onLost) { deliver = onCapture; lost = onLost; },
-    play(pcm) { node?.port.postMessage(pcm, [pcm]); },
-    setMuted(muted) {
-      epoch++;
-      node?.port.postMessage({ type: 'input_muted', muted, epoch });
-      for (const track of stream?.getAudioTracks() ?? []) track.enabled = !muted;
+    async offer(events) {
+      const microphone = stream;
+      if (!microphone) throw new Error('The microphone is not open');
+      hangup();
+      const connection = peer = new RTCPeerConnection();
+      for (const track of microphone.getTracks()) connection.addTrack(track, microphone);
+      // ponytail: data-channel events are not relayed: the engine uses its sideband, and a
+      // page-forged server event must not reach the engine.
+      connection.createDataChannel('oai-events').onopen = () => { if (peer === connection) events.open(); };
+      connection.ontrack = event => {
+        const remote = event.streams[0];
+        if (!remote || peer !== connection) return;
+        audio.srcObject = remote;
+        void audio.play().catch(() => undefined);
+        meters = { mic: meter(context, microphone), speaker: meter(context, remote) };
+      };
+      connection.onconnectionstatechange = () => {
+        if (peer === connection && connection.connectionState === 'failed') events.failed('WebRTC connection failed');
+      };
+      await connection.setLocalDescription(await connection.createOffer());
+      await iceGathered(connection);
+      if (peer !== connection || !connection.localDescription) throw new Error('The call was replaced');
+      return connection.localDescription.sdp;
     },
+    async answer(sdp) { await peer?.setRemoteDescription({ type: 'answer', sdp }); },
+    onLost(listener) { lost = listener; },
+    setMuted(muted) { for (const track of stream?.getAudioTracks() ?? []) track.enabled = !muted; },
+    levels: () => meters && { input: meters.mic.level(), output: meters.speaker.level() },
+    hangup,
     close() {
-      closed = true;
-      release();
+      hangup();
+      document.removeEventListener('visibilitychange', resumeWhenVisible);
+      for (const track of stream?.getTracks() ?? []) track.stop();
+      stream = undefined;
       void context.close().catch(() => undefined);
     },
   };
