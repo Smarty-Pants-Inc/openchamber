@@ -270,9 +270,12 @@ const containedPath = async (resolved, { fsPromises, path, os, entry = false, st
 };
 const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
+// The Git executable the server resolved (OPENCHAMBER_GIT_BINARY on Windows); set when the routes are registered.
+let gitBinaryForSpawn = () => 'git';
 const gitCommonDir = async (directory, path) => {
   const { execFile } = await import('node:child_process');
-  const output = await new Promise((resolve, reject) => execFile('git', ['rev-parse', '--git-common-dir'], { cwd: directory },
+  const output = await new Promise((resolve, reject) => execFile(gitBinaryForSpawn(), ['rev-parse', '--git-common-dir'],
+    { cwd: directory, windowsHide: true },
     (error, stdout) => (error ? reject(error) : resolve(String(stdout).trim()))));
   return path.resolve(directory, output);
 };
@@ -617,6 +620,7 @@ export const registerFsRoutes = (app, dependencies) => {
     openchamberUserConfigRoot,
     managedChatsRoot,
   } = dependencies;
+  if (typeof resolveGitBinaryForSpawn === 'function') gitBinaryForSpawn = resolveGitBinaryForSpawn;
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
   const chatsRoot = typeof managedChatsRoot === 'string' && managedChatsRoot.trim()
