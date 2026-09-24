@@ -46,9 +46,9 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
     // Failure of either read is nonauthoritative; no partial empty publication.
     const baselineRevision = useGlobalSessionsStore.getState().mutationRevision;
     // Ungated: this read decides live membership after every stream close. Behind the shared background gate it
-    // waited 13-18 s for git status polls, so a renamed or closed Herdr workspace showed late (#126 item 3). It is
-    // single-flight (a fresh refresh supersedes the previous one), so it cannot fan out.
-    const sessions = await listGlobalSessionPages(sdk, { archived: true, narrowToArchived: false, pageSize: 500, ungated: true });
+    // waited 13-18 s for git status polls, so a renamed or closed Herdr workspace showed late (#126 item 3). A
+    // superseded sample stops before its next page or retry, so rapid reconnects leave at most one page request each.
+    const sessions = await listGlobalSessionPages(sdk, { archived: true, narrowToArchived: false, pageSize: 500, ungated: true, isCurrent: current });
     if (!current()) return;
     const allowed = new Set(rows.map(row => row.worktree));
     if (sessions.some(session => !allowed.has(session.directory))) throw new Error('Catalog changed during session read');
