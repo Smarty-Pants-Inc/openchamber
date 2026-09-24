@@ -36,6 +36,20 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The Stop wording change (smarty-code#122) is the newest layer: strip it first, restoring the prior ledger exactly.
+  const stopWording = historical.files.filter(entry => entry.stopWordingSha256);
+  assert.deepEqual(stopWording.map(entry => entry.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
+  for (const entry of stopWording) {
+    assert.equal(entry.stopWordingSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
+    assert.equal(entry.stopWordingSource, '1bb8b45e6b73d501337c17bf74db875ec9496178');
+    assert.ok(entry.stopWordingNote);
+    entry.combinedSha256 = entry.preStopWordingCombinedSha256;
+    delete entry.preStopWordingCombinedSha256;
+    delete entry.stopWordingSha256;
+    delete entry.stopWordingSource;
+    delete entry.stopWordingNote;
+  }
   const catalogReloads = historical.files.filter(entry => entry.catalogReloadSha256);
   assert.deepEqual(catalogReloads.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of catalogReloads) {
