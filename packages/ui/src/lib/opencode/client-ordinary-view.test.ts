@@ -93,6 +93,17 @@ test('forwards only the materialized tail header through the real SDK, preservin
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
 });
 
+test('a second send waits for the revoked view to be re-read instead of sending without one', async () => {
+  await loader.ensure(target);
+  await opencodeClient.sendMessage(params);
+  expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
+  const second = `ov2_${'c'.repeat(64)}`;
+  history = async () => page(second);
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST', 'GET', 'POST']);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, second]);
+});
+
 test('never borrows a view from another session, directory or same-URL runtime', async () => {
   await loader.ensure(target);
   await opencodeClient.sendMessage({ ...params, id: 'ordinary-b' });
