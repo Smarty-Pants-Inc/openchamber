@@ -25,7 +25,7 @@ import { useProjectsStore, visibleProjects } from "@/stores/useProjectsStore"
 import { useSessionDisplayStore } from "@/stores/useSessionDisplayStore"
 import { fetchSessionKnowledge, reportSessionKnowledgeDelivered } from "@/lib/sessionKnowledgeApi"
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
-import { useDirectoryStore } from "@/stores/useDirectoryStore"
+import { BROWSER_LAST_DIRECTORY_KEY, useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
 import { useCommandsStore } from "@/stores/useCommandsStore"
 import { useSkillsStore } from "@/stores/useSkillsStore"
@@ -2555,6 +2555,9 @@ function observeGlobalDraftCatalog() {
     useSessionUIStore.setState({ newSessionDraft: nextDraft })
     writeRuntimeSessionMemory(runtimeMemoryKey(), { draft: nextDraft })
     persistDraftTarget({ projectId: project?.id ?? null, directory: to, target: "project" })
+    // The restored draft is this browser's own choice: record it locally (never in shared settings) so a later
+    // bootstrap settings sync keeps the app on it (#113).
+    if (to && rememberedProject) safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, to)
     void activateConfigForDirectory(to)
     // applyManagedCatalog publishes the active project's directory. A remembered project
     // selects itself afterwards so the app follows the draft (local, managed branch).

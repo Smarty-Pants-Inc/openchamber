@@ -148,7 +148,7 @@ for (const admitted of [false, true]) test(`reload before catalog: a remembered 
 // review/astra on OC#159: a bootstrap settings sync that completes AFTER the catalog restored the nested child names
 // the parent as the shared lastDirectory, and has already mirrored it into local `lastDirectory`. The app must stay on
 // the child (its own last choice), and the restoration must send no settings write.
-test('reload before catalog: a late bootstrap settings sync keeps the restored nested worktree', async () => {
+for (const upgraded of [false, true]) test(`reload before catalog: a late bootstrap settings sync keeps the restored nested worktree (browser key ${upgraded ? 'absent: upgrade' : 'present'})`, async () => {
   const child = { id: createProjectIdFromPath('/projects/net/.worktrees/child'), path: '/projects/net/.worktrees/child' };
   mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
     useProjectsStore.getState().resetManagedCatalog();
@@ -156,7 +156,9 @@ test('reload before catalog: a late bootstrap settings sync keeps the restored n
     useSessionUIStore.getState().closeNewSessionDraft();
     getDeferredSafeStorage().setItem(key, JSON.stringify({ projectId: child.id, directory: child.path, target: 'project' }));
     // This browser picked the child before the reload (an earlier page life).
-    getDeferredSafeStorage().setItem('oc.browser.lastDirectory', child.path);
+    // An upgrading browser has only the remembered draft target and text, no browser key yet.
+    if (upgraded) getDeferredSafeStorage().removeItem('oc.browser.lastDirectory');
+    else getDeferredSafeStorage().setItem('oc.browser.lastDirectory', child.path);
     const slot = createChatDraftIdentity(getRuntimeKey(), child.path, null, -1132);
     claimChatDraftOwnership(slot); writeChatDraft(slot, 'unsent nested text', []);
     useDirectoryStore.setState({ currentDirectory: net.path });
