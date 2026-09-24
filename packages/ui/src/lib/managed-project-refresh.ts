@@ -10,6 +10,7 @@ import { readManagedCatalog, MANAGED_CATALOG_HEADER, MANAGED_CATALOG_VERSION } f
 
 const REFRESH_RETRIES = 2;
 const REFRESH_RETRY_DELAY_MS = 150;
+const DISCOVERY_TIMEOUT_MS = 10_000;
 let revision = 0;
 let pending: Promise<void> | undefined;
 let pendingScope: ReturnType<typeof captureRuntimeRequestScope> | undefined;
@@ -33,7 +34,9 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
   const sample = async () => {
     // This SDK is runtime-scoped, NOT directory-scoped: no directory query/header.
     const sdk = opencodeClient.getSdkClient();
-    const result = await sdk.project.list();
+    // Bounded: startup scoped reads wait for this answer, so a hung read must end as "unavailable", not "unknown".
+    const result = await Promise.race([sdk.project.list(), new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Project catalog read timed out')), DISCOVERY_TIMEOUT_MS))]);
     if (!current()) return;
     if (result.response.ok && result.response.headers.get(MANAGED_CATALOG_HEADER) === MANAGED_CATALOG_VERSION) {
       useProjectsStore.getState().admitManagedCatalog();
@@ -54,7 +57,9 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
     const allowed = new Set(rows.map(row => row.worktree));
     if (sessions.some(session => !allowed.has(session.directory))) throw new Error('Catalog changed during session read');
     useProjectsStore.getState().applyManagedCatalog(rows);
-    void warmChatsRootDirectory();
+    if (!current()) return;
+    // Requests name only the reported chats root; know it before chat sessions publish (it never throws).
+    await warmChatsRootDirectory();
     if (!current()) return;
     useGlobalSessionsStore.getState().applyManagedSessions(sessions, baselineRevision, allowed);
   };
