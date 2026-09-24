@@ -173,7 +173,10 @@ export async function bootstrapDirectory(input: {
         if (next) commit({ project: next })
       }),
     ),
-    retry(() => sdk.session.status().then((x) => commit({ session_status: parseSessionStatusMap(unwrap(x, "session.status")), sessionStatusReady: true }))),
+    // Scoped like the watchdog's poll. The Smarty gateway answers an unscoped read with every fleet session, which put
+    // them all into each directory's store; the scoped poll then saw them "stale" and resynced them forever (#126, 3.9).
+    retry(() => sdk.session.status(directory ? { directory } : undefined)
+      .then((x) => commit({ session_status: parseSessionStatusMap(unwrap(x, "session.status")), sessionStatusReady: true }))),
   ])
 
   if (input.isStale?.()) return "stale"
