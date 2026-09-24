@@ -14,15 +14,23 @@ const suppressedUntil = new Map<string, number>()
 const keyFor = (directory: string, sessionID: string, runtimeKey = getRuntimeKey()) =>
   JSON.stringify([runtimeKey, directory, sessionID])
 
-export function recordSessionReadFailure(directory: string, sessionID: string, error: unknown, now = Date.now()): void {
+/** Pass the runtime key captured when the read started, so a late answer never marks another runtime. */
+export function recordSessionReadFailure(directory: string, sessionID: string, error: unknown,
+  runtimeKey = getRuntimeKey(), now = Date.now()): void {
   const status = (error as { status?: unknown } | null)?.status
   if (typeof status === "number" && TERMINAL_STATUSES.has(status)) {
-    suppressedUntil.set(keyFor(directory, sessionID), now + TERMINAL_SESSION_READ_BACKOFF_MS)
+    suppressedUntil.set(keyFor(directory, sessionID, runtimeKey), now + TERMINAL_SESSION_READ_BACKOFF_MS)
   }
 }
 
-export function isSessionReadSuppressed(directory: string, sessionID: string, now = Date.now()): boolean {
-  const key = keyFor(directory, sessionID)
+/** A successful read (for example after enrollment) makes the session readable again at once. */
+export function clearSessionReadFailure(directory: string, sessionID: string, runtimeKey = getRuntimeKey()): void {
+  suppressedUntil.delete(keyFor(directory, sessionID, runtimeKey))
+}
+
+export function isSessionReadSuppressed(directory: string, sessionID: string, now = Date.now(),
+  runtimeKey = getRuntimeKey()): boolean {
+  const key = keyFor(directory, sessionID, runtimeKey)
   const until = suppressedUntil.get(key)
   if (until === undefined) return false
   if (until > now) return true
