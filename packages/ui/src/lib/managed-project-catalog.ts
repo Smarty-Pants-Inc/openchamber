@@ -59,15 +59,24 @@ export function nestManagedProjects<P extends Pick<ProjectEntry, 'path' | 'label
   const children = projects.filter(project => project.parent && roots.has(project.parent));
   if (children.length === 0) return { topLevel: [...projects], worktreesByProject: new Map(worktreesByProject) };
   const nested = new Map(worktreesByProject);
-  for (const child of children) {
+  for (const [herdrOrder, child] of children.entries()) {
     const parent = child.parent!;
     const label = child.label || child.path.split('/').filter(Boolean).at(-1) || child.path;
     const existing = nested.get(parent) ?? [];
     const found = existing.find(meta => meta.path === child.path);
-    const entry: WorktreeMetadata = found ? { ...found, label } : { path: child.path, projectDirectory: parent, branch: '', label };
+    // Catalog rows come in Herdr workspace order, so a child's index is its place in Herdr's block.
+    const entry: WorktreeMetadata = found ? { ...found, label, herdrOrder } : { path: child.path, projectDirectory: parent, branch: '', label, herdrOrder };
     nested.set(parent, [...existing.filter(meta => meta.path !== child.path), entry]);
   }
   return { topLevel: projects.filter(project => !children.includes(project)), worktreesByProject: nested };
+}
+
+/** Herdr order first for managed children; 0 leaves other worktrees to OpenChamber's activity sort. */
+export function byHerdrOrder(a: Pick<WorktreeMetadata, 'herdrOrder'>, b: Pick<WorktreeMetadata, 'herdrOrder'>): number {
+  if (a.herdrOrder === undefined && b.herdrOrder === undefined) return 0;
+  if (a.herdrOrder === undefined) return 1;
+  if (b.herdrOrder === undefined) return -1;
+  return a.herdrOrder - b.herdrOrder;
 }
 
 export function managedActiveProject(projects: readonly ProjectEntry[], active: string | null): string | null {
