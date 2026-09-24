@@ -82,6 +82,51 @@ const normalizeDirectory = (directory: string): string =>
 // Event-driven path: called by the sync dispatcher for status-bearing events
 // whose directory has no child store. Mirrors the child reducer's semantics
 // (`session.idle` / `session.error` both resolve to idle).
+// Per-session count of status events applied, so a fleet snapshot read before an event cannot overwrite it.
+const statusEventVersions = new Map<string, number>();
+const bumpStatusEventVersion = (sessionId: string): void => {
+  statusEventVersions.set(sessionId, (statusEventVersions.get(sessionId) ?? 0) + 1);
+};
+export const getSessionStatusEventVersion = (sessionId: string): number => statusEventVersions.get(sessionId) ?? 0;
+
+/**
+ * A fleet-wide status map (a managed gateway's unscoped /session/status) for exactly the listed sessions, in one
+ * update (#126). Only these sessions change; one whose status event arrived after `versions` was captured keeps it.
+ */
+export const applyFleetSessionStatuses = (
+  sessions: readonly { id: string; directory: string }[],
+  raw: Record<string, { type?: string } | undefined>,
+  versions: ReadonlyMap<string, number>,
+): void => {
+  const considered = sessions.filter((session) => getSessionStatusEventVersion(session.id) === (versions.get(session.id) ?? 0));
+  if (considered.length === 0) return;
+  const known = new Set(considered.map((session) => session.id));
+  const activeSessionIds = new Set(considered.filter((session) => normalizeStatusType(raw[session.id]?.type) !== 'idle').map((session) => session.id));
+  reconcileSessionActivitySnapshot(activeSessionIds, known);
+  reconcileSessionActivityTiming(activeSessionIds, (sessionId) => known.has(sessionId));
+  useGlobalSessionStatusStore.setState((state) => {
+    let next: Map<string, GlobalSessionStatusEntry> | null = null;
+    let active: Set<string> | null = null;
+    for (const session of considered) {
+      const current = (next ?? state.statusById).get(session.id);
+      const type = normalizeStatusType(raw[session.id]?.type);
+      if (type === 'idle') {
+        if (!current) continue;
+        (next ??= new Map(state.statusById)).delete(session.id);
+        (active ??= new Set(state.activeSessionIds)).delete(session.id);
+        continue;
+      }
+      // SAFETY: normalizeStatusType has narrowed this entry to the SDK's busy/retry status discriminator.
+      const status = { ...raw[session.id], type } as SessionStatus;
+      const directory = normalizeDirectory(session.directory);
+      if (current && current.directory === directory && statusesEqual(current.status, status)) continue;
+      (next ??= new Map(state.statusById)).set(session.id, { status, directory });
+      if (!current) (active ??= new Set(state.activeSessionIds)).add(session.id);
+    }
+    return next ? { statusById: next, activeSessionIds: active ?? state.activeSessionIds } : state;
+  });
+};
+
 export const applyGlobalSessionStatusEvents = (directory: string, payloads: readonly Event[]): void => {
   if (payloads.length === 0) return;
   const normalizedDirectory = normalizeDirectory(directory);
@@ -94,6 +139,7 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
   const draftStatuses = (): Map<string, GlobalSessionStatusEntry> => (statusById ??= new Map(state.statusById));
   const draftActiveIds = (): Set<string> => (activeSessionIds ??= new Set(state.activeSessionIds));
   const settle = (sessionId: string): void => {
+    bumpStatusEventVersion(sessionId);
     if (currentStatuses().has(sessionId)) {
       draftStatuses().delete(sessionId);
       draftActiveIds().delete(sessionId);
@@ -114,6 +160,7 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
       }
       // SAFETY: the normalized discriminator is one of the SDK's active status types.
       const status = { ...(props.status ?? {}), type } as SessionStatus;
+      bumpStatusEventVersion(props.sessionID);
       const current = currentStatuses().get(props.sessionID);
       if (!current || current.directory !== normalizedDirectory || !statusesEqual(current.status, status)) {
         draftStatuses().set(props.sessionID, { status, directory: normalizedDirectory });
