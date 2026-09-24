@@ -11,7 +11,7 @@ const asked: string[] = [];
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
   supportsSessionVoice: async (directory: string) => { asked.push(directory); return advertised.get(directory) === true; },
 } }));
-mock.module('@/lib/voice/piVoiceMedia', () => ({ supportsPiVoice: () => true, browserPiVoiceAudio: () => { throw new Error('not in this test'); } }));
+mock.module('@/lib/voice/piVoiceMedia', () => ({ supportsPiVoice: () => true, browserPiVoiceMedia: () => { throw new Error('not in this test'); } }));
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
 mock.module('@/components/ui', () => ({ toast: { error: () => undefined } }));
 
