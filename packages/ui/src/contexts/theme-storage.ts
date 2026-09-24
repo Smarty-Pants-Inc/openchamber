@@ -225,3 +225,7 @@ export const resolveThemePreferencesFromSettingsSync = (
 
   return { themeMode, lightThemeId, darkThemeId };
 };
+
+/** Stable key of the shared theme choice; device-derived themeId/themeVariant are excluded. */
+export const themeChoiceKey = (preferences: StoredThemePreferences): string =>
+  JSON.stringify([preferences.themeMode, preferences.lightThemeId, preferences.darkThemeId]);

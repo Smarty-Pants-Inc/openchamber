@@ -106,6 +106,7 @@ import { resolvePrimaryWorktreeRoot } from './lib/git/service.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { attachRealtimeProxy } from './lib/realtime-proxy.js';
+import { attachSessionVoiceSocket } from './lib/opencode/session-voice-socket.js';
 import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
 import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
@@ -1714,6 +1715,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
   expressApp = app;
   server = http.createServer(app);
   let realtimeProxyRuntime = { stop: () => {} };
+  let sessionVoiceRuntime = { stop: () => {} };
 
   // The relay service is constructed further below (it depends on the tunnel
   // runtime's active port). The pairing routes registered here only read the
@@ -1844,6 +1846,13 @@ async function startConfiguredWebUiServer(options, humanAuth) {
     getDesktopRuntimeConfig,
     getUiAuthController: () => uiAuthController,
     isRequestOriginAllowed,
+  });
+  sessionVoiceRuntime = attachSessionVoiceSocket({
+    server,
+    getUiAuthController: () => uiAuthController,
+    rejectWebSocketUpgrade,
+    buildOpenCodeUrl,
+    getOpenCodeAuthHeaders,
   });
 
   const tunnelRuntimeContext = tunnelWiringRuntime.initialize(app, port);
@@ -2073,6 +2082,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
     },
     stop: (shutdownOptions = {}) => {
       realtimeProxyRuntime.stop();
+      sessionVoiceRuntime.stop();
       clearInterval(relayReconcileTimer);
       try {
         relayService.stop();

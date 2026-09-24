@@ -37,6 +37,7 @@ import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
+import { gatewayErrorSchema, ordinarySwitchResponseSchema, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
 import {
@@ -652,6 +653,14 @@ class OpencodeService {
       : health.capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
   }
 
+  /** True only when this directory's gateway advertises session voice calls (Smarty Code `sessionVoice`). */
+  async supportsSessionVoice(directory: string): Promise<boolean> {
+    const runtimeKey = getRuntimeKey();
+    const response = await this.getScopedSdkClient(directory).global.health();
+    this.assertRuntimeUnchanged(runtimeKey);
+    return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.sessionVoice === 1;
+  }
+
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
   async createNativeSession(directory: string): Promise<NativeCreationResult> {
     try {
@@ -736,6 +745,21 @@ class OpencodeService {
       ...sdkPatch,
     });
     return unwrapSdkData(response, 'session.update');
+  }
+
+  /** Smarty Code gateway: switch an ordinary native session's model/effort. Never retried. */
+  async setOrdinaryModel(id: string, directory: string, change: OrdinaryModelChange): Promise<OrdinaryModelState> {
+    const scope = captureRuntimeRequestScope();
+    const response = await runtimeFetch(`/api/session/${encodeURIComponent(id)}`, {
+      method: 'PATCH', query: { directory }, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordinary: change }),
+    });
+    const body: unknown = await response.json().catch(() => null);
+    assertRuntimeRequestScope(scope);
+    if (!response.ok) throw new Error(gatewayErrorSchema.safeParse(body).data?.data.message ?? `Model change failed (${response.status})`);
+    const applied = ordinarySwitchResponseSchema.safeParse(body);
+    if (!applied.success || applied.data.id !== id) throw new Error('Model change outcome unknown');
+    return applied.data.ordinary;
   }
 
   async getSessionMessages(id: string, limit?: number, directory?: string | null): Promise<{ info: Message; parts: Part[] }[]> {

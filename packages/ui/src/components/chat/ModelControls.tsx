@@ -34,6 +34,8 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useSession, useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { OrdinaryModelControls } from './OrdinaryModelControls';
+import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
+import { applyNativeDraftModel } from '@/sync/native-draft-creation';
 import { useChatColumnSession } from './chatColumnSession';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
@@ -324,8 +326,29 @@ export const ModelControls: React.FC<ModelControlsProps> = (props) => {
     const session = useSession(sessionId, column?.directory ?? directory ?? undefined);
     const ordinary = React.useMemo(() => readOrdinaryModel(session), [session]);
     // Keep ordinary state ahead of all historical, saved and directory-wide choices.
-    if (ordinary !== undefined) return <OrdinaryModelControls state={ordinary} className={props.className} />;
+    if (ordinary !== undefined) {
+        const target = session && sessionId ? { sessionId, directory: session.directory } : undefined;
+        return <OrdinaryModelControls key={sessionId} state={ordinary} target={target} className={props.className} />;
+    }
     return <ConfiguredModelControls {...props} />;
+};
+
+/**
+ * A Code-created ordinary session. An unsent draft sends the model the live native session reports,
+ * however it changed (this picker, the TUI, or an uncertain switch that still applied).
+ */
+export const NativeDraftModelControls: React.FC<{ session: NativeCreatedSession; className?: string }> = ({ session: created, className }) => {
+    const live = useSession(created.id, created.directory);
+    const ordinary = React.useMemo(() => readOrdinaryModel(live ?? created), [live, created]);
+    React.useEffect(() => {
+        const liveModel = live ? readOrdinaryModel(live)?.model : undefined, sent = created.nativeCreation.model;
+        if (liveModel && (liveModel.providerID !== sent.providerID || liveModel.modelID !== sent.modelID)) {
+            applyNativeDraftModel(created, { providerID: liveModel.providerID, modelID: liveModel.modelID });
+        }
+    }, [created, live]);
+    if (!ordinary) return null;
+    return <OrdinaryModelControls key={created.id} state={ordinary} target={{ sessionId: created.id, directory: created.directory }}
+        className={className} />;
 };
 
 const ConfiguredModelControls: React.FC<ModelControlsProps> = ({

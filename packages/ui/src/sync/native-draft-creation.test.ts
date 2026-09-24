@@ -7,7 +7,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useInputStore } from './input-store';
 import { useSessionUIStore, materializeOpenDraftSession, type NewSessionDraftState } from './session-ui-store';
-import { nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft } from './native-draft-creation';
+import { applyNativeDraftModel, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft } from './native-draft-creation';
 
 const directory = '/synthetic-project';
 const session: NativeCreatedSession = { id: '01234567-1234-4234-9234-012345678901', slug: 'native', projectID: 'p', directory,
@@ -62,6 +62,23 @@ test('ordinary Send refuses before creation; model/history refusal retains the c
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
   expect(useSessionUIStore.getState().newSessionDraft).toEqual(draft);
   expect(create).toHaveBeenCalledTimes(1); expect(legacy).not.toHaveBeenCalled(); expect(prompt).not.toHaveBeenCalled();
+});
+
+test('a native model switch changes only the unsent created draft model', async () => {
+  await prepareNativeDraft();
+  const switched = { providerID: 'native-provider', modelID: 'switched-model' };
+  const created = await preparedNativeDraft(draft);
+  applyNativeDraftModel({ ...session }, switched); // Another object is not this draft's owner.
+  expect(await preparedNativeDraft(draft)).toBe(created);
+  applyNativeDraftModel(created!, switched);
+  const next = await preparedNativeDraft(draft);
+  expect(next).toEqual({ ...session, nativeCreation: { ...session.nativeCreation, model: switched } });
+  // The draft now refuses its creation-time model and accepts only the switched one.
+  let refusal: NativeCreationError | undefined;
+  try { await materializeOpenDraftSession(session.nativeCreation.model); }
+  catch (error) { if (error instanceof NativeCreationError) refusal = error; }
+  expect(refusal?.code).toBe('model');
+  expect(create).toHaveBeenCalledTimes(1); expect(prompt).not.toHaveBeenCalled();
 });
 
 test('in-flight duplicate actions do not submit again', async () => {

@@ -191,7 +191,8 @@ const gitReadEntryBytes = (key, result) =>
 const isPathWithinRoot = (resolvedPath, rootPath, path, os) => {
   const resolvedRoot = path.resolve(rootPath || os.homedir());
   const relative = path.relative(resolvedRoot, resolvedPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  // Only `..` itself or a `../` prefix leaves the root; a child named `..scratch` stays inside.
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     return false;
   }
   return true;
@@ -224,9 +225,8 @@ const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDi
 // The same inputs resolveProjectDirectory reads before it falls back to saved settings.
 const hasExplicitProjectDirectory = (req) => Boolean(req.get('x-opencode-directory') || req.query?.directory);
 
-// Real path of the nearest existing ancestor plus the tail that does not exist yet (the tail
-// cannot contain a symbolic link). Null when an existing entry cannot be resolved, for example
-// a dangling symbolic link.
+/** Resolve the existing part of a target through realpath and keep the part not created yet. A dangling
+ * link on the way is refused (null): it could be recreated to point anywhere. */
 const canonicalizeForCreate = async (target, { fsPromises, path }) => {
   let existing = target;
   for (;;) {
@@ -243,6 +243,82 @@ const canonicalizeForCreate = async (target, { fsPromises, path }) => {
   }
 };
 
+/** Lexical containment is not enough: a symbolic link on the way may point anywhere. Returns the canonical
+ * path to operate on, or null when it leaves every canonical root that admits it: the admitting base (for a
+ * symlinked project root, the validated canonical root, not its alias) or a lexically matching managed root.
+ * With `entry`, the final component itself is not followed (delete or rename a link, not its target); a
+ * filesystem root is never an entry. ponytail: this assumes a stable tree between check and operation;
+ * Node exposes no directory-handle-relative calls to pin ancestors. */
+const containedPath = async (resolved, { fsPromises, path, os, entry = false, strict = false, managedRoots = [] }) => {
+  const canonical = (target) => canonicalizeForCreate(target, { fsPromises, path });
+  if (entry && path.dirname(resolved.resolved) === resolved.resolved) return null;
+  const target = entry
+    ? await canonical(path.dirname(resolved.resolved)).then((parent) => parent && path.join(parent, path.basename(resolved.resolved)))
+    : await canonical(resolved.resolved);
+  if (!target) return null;
+  const roots = [resolved.canonicalBase ?? resolved.base,
+    ...managedRoots.filter((root) => isPathWithinRoot(resolved.resolved, root, path, os))];
+  for (const root of roots) {
+    // The validated canonical project root is a known directory; any other root is a directory grant only if it
+    // resolves to a directory (a managed root linked to a file grants nothing).
+    const validated = resolved.canonicalBase && root === resolved.canonicalBase;
+    const base = validated ? root : await canonical(root);
+    // A root not created yet (a relocated chats root before first use) can only become a directory.
+    const directory = validated || !base ? Boolean(base) : await fsPromises.stat(base)
+      .then((entry) => entry.isDirectory(), (error) => error?.code === 'ENOENT');
+    if (!directory) continue;
+    // `strict`: the target must lie strictly inside (same path semantics as containment, so casing cannot slip).
+    if (isPathWithinRoot(target, base, path, os) && !(strict && path.relative(base, target) === '')) return target;
+  }
+  return null;
+};
+const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
+
+// The Git executable the server resolved (OPENCHAMBER_GIT_BINARY on Windows); set when the routes are registered.
+let gitBinaryForSpawn = () => 'git';
+/** As the Git service does: a Windows .cmd/.bat/.com override runs through its adjacent .exe; without one, a native .com
+ * runs itself and a batch file (which execFile cannot run) falls back to PATH's git. */
+const gitExecutable = async (path) => {
+  const binary = gitBinaryForSpawn();
+  const ext = path.extname(binary).toLowerCase();
+  if (!['.cmd', '.bat', '.com'].includes(ext)) return binary;
+  const exe = binary.slice(0, -ext.length) + '.exe';
+  const fs = (await import('node:fs/promises')).default;
+  // A native .com runs directly when it has no adjacent .exe (as the Git service keeps it); a batch file cannot.
+  const isFile = await fs.stat(exe).then((entry) => entry.isFile(), () => false); // As the service checks it.
+  return isFile ? exe : ext === '.com' ? binary : 'git';
+};
+const gitCommonDir = async (directory, path) => {
+  const { execFile } = await import('node:child_process');
+  const binary = await gitExecutable(path);
+  const output = await new Promise((resolve, reject) => execFile(binary, ['rev-parse', '--git-common-dir'],
+    { cwd: directory, windowsHide: true },
+    (error, stdout) => (error ? reject(error) : resolve(String(stdout).trim()))));
+  return path.resolve(directory, output);
+};
+
+/** A worktree registration grants its checkout only while the registered path still resolves to itself (no link
+ * anywhere on it, so a redirected ancestor cannot stand in), and a linked checkout's Git administrative directory
+ * lies inside the active repository and points back to it (Git's `gitdir` backlink, relative ones included).
+ * ponytail: a worktree registered through a symlinked path is refused; re-register it at its canonical path. */
+const ownedWorktreeRoot = async (candidate, commonGitDir, path) => {
+  const fs = (await import('node:fs/promises')).default;
+  try {
+    if (await fs.realpath(candidate) !== candidate) return null;
+    const marker = path.join(candidate, '.git');
+    if ((await fs.lstat(marker)).isDirectory()) return await fs.realpath(marker) === commonGitDir ? candidate : null;
+    const gitdir = /^gitdir: (.+)$/m.exec(await fs.readFile(marker, 'utf8'))?.[1]?.trim();
+    if (!gitdir) return null;
+    const admin = await fs.realpath(path.resolve(candidate, gitdir));
+    if (admin === commonGitDir) return candidate; // A main checkout with a separate Git directory.
+    if (!isPathWithinRoot(admin, path.join(commonGitDir, 'worktrees'), path, { homedir: () => commonGitDir })) return null;
+    const backlink = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8')).trim();
+    return path.resolve(admin, backlink) === marker ? candidate : null;
+  } catch {
+    return null;
+  }
+};
+
 const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath }) => {
   const normalized = normalizeDirectoryPath(targetPath);
   if (!normalized || typeof normalized !== 'string') {
@@ -253,20 +329,29 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   const resolvedBase = path.resolve(baseDirectory || os.homedir());
 
   try {
+    // The discovery base must still be the validated canonical project root (not replaced by a link since).
+    const fs = (await import('node:fs/promises')).default;
+    if (await fs.realpath(resolvedBase).catch(() => null) !== resolvedBase) {
+      return { ok: false, error: 'Path is outside of active workspace' };
+    }
     const { getWorktrees } = await import('../git/index.js');
     const worktrees = await getWorktrees(resolvedBase);
+    // Git's own answer for the common directory covers bare and separate-git-dir repositories too.
+    const commonGitDir = await gitCommonDir(resolvedBase, path).then((dir) => fs.realpath(dir)).catch(() => '');
 
     for (const worktree of worktrees) {
       const candidatePath = typeof worktree?.path === 'string'
         ? worktree.path
         : (typeof worktree?.worktree === 'string' ? worktree.worktree : '');
       const candidate = normalizeDirectoryPath(candidatePath);
-      if (!candidate) {
-        continue;
+      if (!candidate || worktree?.prunable === true) {
+        continue; // A prunable registration no longer proves a checkout exists at that path.
       }
       const candidateResolved = path.resolve(candidate);
       if (isPathWithinRoot(resolved, candidateResolved, path, os)) {
-        return { ok: true, base: candidateResolved, resolved };
+        const canonicalBase = commonGitDir && await ownedWorktreeRoot(candidateResolved, commonGitDir, path);
+        if (!canonicalBase) continue;
+        return { ok: true, base: candidateResolved, resolved, canonicalBase };
       }
     }
   } catch (error) {
@@ -291,7 +376,9 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
     managedRoots,
   });
   if (resolved.ok || resolved.error !== 'Path is outside of active workspace') {
-    return resolved;
+    // The validated canonical project root is the boundary, even if its path is later replaced by a link.
+    return resolved.ok && resolved.base === path.resolve(resolvedProject.directory)
+      ? { ...resolved, canonicalBase: resolvedProject.directory } : resolved;
   }
 
   // The active project directory is validated with fs.realpath, so the base is
@@ -311,7 +398,8 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
       managedRoots,
     });
     if (lexical.ok) {
-      return lexical;
+      // The alias may be retargeted later; containment must use the validated canonical project root.
+      return lexical.base === path.resolve(requestedBase) ? { ...lexical, canonicalBase: resolvedProject.directory } : lexical;
     }
   }
 
@@ -552,6 +640,7 @@ export const registerFsRoutes = (app, dependencies) => {
     // Managed only: is this directory a live catalog row? Throws when the catalog cannot be read.
     isLiveManagedDirectory = async () => false,
   } = dependencies;
+  if (typeof resolveGitBinaryForSpawn === 'function') gitBinaryForSpawn = resolveGitBinaryForSpawn;
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
   const chatsRoot = typeof managedChatsRoot === 'string' && managedChatsRoot.trim()
@@ -780,19 +869,13 @@ export const registerFsRoutes = (app, dependencies) => {
           : res.status(400).json({ error: resolved.error });
       }
       const resolvedPath = resolved.resolved;
-
-      // Lexical containment is not enough: an existing symbolic link on the way could point
-      // anywhere. The canonical target must stay inside the canonical base it was admitted under
-      // (project, worktree or managed root) or a canonical managed root.
-      const canonicalTarget = await canonicalizeForCreate(resolvedPath, { fsPromises, path });
-      const canonicalRoots = await Promise.all([resolved.base, ...roots]
-        .map((root) => canonicalizeForCreate(root, { fsPromises, path })));
-      if (!canonicalTarget || !canonicalRoots.some((root) => root && isPathWithinRoot(canonicalTarget, root, path, os))) {
+      const createPath = await containedPath(resolved, { fsPromises, path, os, managedRoots: roots });
+      if (!createPath) {
         console.warn('Rejected mkdir that leaves its workspace through a symbolic link');
-        return res.status(403).json({ error: 'Path leaves the workspace through a symbolic link' });
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
 
-      await fsPromises.mkdir(resolvedPath, { recursive: true });
+      await fsPromises.mkdir(createPath, { recursive: true });
       return res.json({ success: true, path: resolvedPath });
     } catch (error) {
       if (isOsPermissionError(error)) {
@@ -1182,15 +1265,14 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const writePath = await fsPromises.realpath(resolved.resolved).catch((error) => {
-        if (error && typeof error === 'object' && error.code === 'ENOENT') {
-          return resolved.resolved;
-        }
-        throw error;
-      });
-      const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
-      if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
+      // A missing target used to fall back to its lexical path, so a symlinked parent could create files
+      // (and parents) outside the workspace. Resolve every existing ancestor first.
+      const writePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, strict: true });
+      if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
+      }
+      if (await fsPromises.stat(writePath).then((entry) => entry.isDirectory(), () => false)) {
+        return res.status(400).json({ error: 'Specified path is a directory' });
       }
 
       const existing = await fsPromises.readFile(writePath, 'utf8').catch(() => null);
@@ -1252,12 +1334,12 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
-      const requestedParent = path.dirname(resolved.resolved);
-      const canonicalParent = await fsPromises.realpath(requestedParent);
-      if (!isPathWithinRoot(canonicalParent, canonicalBase, path, os)) {
+      // The same containment policy as write: the canonical root (never a retargeted alias) must contain the entry.
+      const entryPath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true });
+      if (!entryPath) {
         return res.status(403).json({ error: 'Access denied' });
       }
+      const canonicalParent = path.dirname(entryPath);
 
       const existingPath = await fsPromises.realpath(resolved.resolved).catch((error) => {
         if (error && typeof error === 'object' && error.code === 'ENOENT') {
@@ -1265,8 +1347,11 @@ export const registerFsRoutes = (app, dependencies) => {
         }
         throw error;
       });
-      const writePath = existingPath || path.join(canonicalParent, path.basename(resolved.resolved));
-      if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
+      // An existing target is followed (as before) and must itself stay inside the canonical root.
+      const writePath = existingPath
+        ? await containedPath(resolved, { fsPromises, path, os, managedRoots, strict: true })
+        : path.join(canonicalParent, path.basename(resolved.resolved));
+      if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
@@ -1359,7 +1444,11 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      await fsPromises.rm(resolved.resolved, { recursive: true, force: true });
+      const deletePath = await containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true });
+      if (!deletePath) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
+      await fsPromises.rm(deletePath, { recursive: true, force: true });
       return res.json({ success: true, path: resolved.resolved });
     } catch (error) {
       const err = error;
@@ -1414,7 +1503,12 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Source and destination must share the same workspace root' });
       }
 
-      await fsPromises.rename(resolvedOld.resolved, resolvedNew.resolved);
+      const [from, to] = await Promise.all([resolvedOld, resolvedNew]
+        .map((resolved) => containedPath(resolved, { fsPromises, path, os, managedRoots, entry: true, strict: true })));
+      if (!from || !to) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
+      await fsPromises.rename(from, to);
       return res.json({ success: true, path: resolvedNew.resolved });
     } catch (error) {
       const err = error;
@@ -1516,7 +1610,11 @@ export const registerFsRoutes = (app, dependencies) => {
         console.warn(`Rejected /api/fs/exec outside workspace: ${resolvedForWorkspace.error}`);
         return res.status(403).json({ error: resolvedForWorkspace.error });
       }
-      const resolvedCwd = resolvedForWorkspace.resolved;
+      // A cwd reached through a symbolic link that points outside must not become the child's cwd.
+      const resolvedCwd = await containedPath(resolvedForWorkspace, { fsPromises, path, os, managedRoots });
+      if (!resolvedCwd) {
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
+      }
       const stats = await fsPromises.stat(resolvedCwd);
       if (!stats.isDirectory()) {
         return res.status(400).json({ error: 'Specified cwd is not a directory' });

@@ -3,6 +3,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { formatMessage, useI18nStore } from '@/lib/i18n';
 import { toast } from '@/components/ui';
+import type { WorktreeMetadata } from '@/types/worktree';
 
 export const MANAGED_CATALOG_HEADER = 'x-smarty-code-catalog';
 export const MANAGED_CATALOG_VERSION = 'managed-v1';
@@ -10,7 +11,10 @@ const directory = z.string().min(1).refine(path =>
   // eslint-disable-next-line no-control-regex -- Reject control bytes in native catalog paths.
   !/[\u0000-\u001f]/.test(path) && (path.startsWith('/') || /^[A-Za-z]:\//.test(path))
   && !path.split('/').some(part => part === '.' || part === '..'));
-const rows = z.array(z.object({ id: z.string().min(1), worktree: directory, name: z.string().optional() }));
+const rows = z.array(z.object({ id: z.string().min(1), worktree: directory, name: z.string().optional(),
+  // managed-v1 grouping fields (smarty-code#126): a linked worktree names its published repository root.
+  parent: directory.optional(),
+  workspaces: z.array(z.object({ id: z.string().min(1), label: z.string() })).optional() }));
 export type ManagedProject = z.infer<typeof rows>[number];
 export type ManagedCatalogStatus = 'unknown' | 'stock' | 'ready' | 'unavailable';
 
@@ -30,15 +34,40 @@ export function readManagedCatalog(response: Response, data: unknown, admitted: 
 
 /** Bookmark metadata decorates live membership; bookmarks themselves never change. */
 export function managedProjectView(rows: readonly ManagedProject[], bookmarks: readonly ProjectEntry[]): ProjectEntry[] {
+  const members = new Set(rows.map(row => row.worktree));
   return rows.map(row => {
     const saved = bookmarks.find(project => project.path === row.worktree);
-    if (saved) return { ...saved };
-    const project: ProjectEntry = {
+    const project: ProjectEntry = saved ? { ...saved } : {
       id: createProjectIdFromPath(row.worktree), path: row.worktree, addedAt: 0, lastOpenedAt: 0,
     };
+    // The catalog's name is the Herdr workspace label: it wins over a saved bookmark label.
     if (row.name) project.label = row.name;
+    if (row.parent && row.parent !== row.worktree && members.has(row.parent)) project.parent = row.parent;
+    if (row.workspaces && row.workspaces.length > 0) project.workspaces = row.workspaces.map(workspace => ({ ...workspace }));
     return project;
   });
+}
+
+/**
+ * Herdr's tree: a linked worktree with a published root renders under that root, as a worktree
+ * group, not as its own top-level project. Its sessions stay attributed to its own directory.
+ */
+export function nestManagedProjects<P extends Pick<ProjectEntry, 'path' | 'label' | 'parent'>>(
+  projects: readonly P[], worktreesByProject: ReadonlyMap<string, WorktreeMetadata[]>,
+): { topLevel: P[]; worktreesByProject: Map<string, WorktreeMetadata[]> } {
+  const roots = new Set(projects.filter(project => !project.parent).map(project => project.path));
+  const children = projects.filter(project => project.parent && roots.has(project.parent));
+  if (children.length === 0) return { topLevel: [...projects], worktreesByProject: new Map(worktreesByProject) };
+  const nested = new Map(worktreesByProject);
+  for (const child of children) {
+    const parent = child.parent!;
+    const label = child.label || child.path.split('/').filter(Boolean).at(-1) || child.path;
+    const existing = nested.get(parent) ?? [];
+    const found = existing.find(meta => meta.path === child.path);
+    const entry: WorktreeMetadata = found ? { ...found, label } : { path: child.path, projectDirectory: parent, branch: '', label };
+    nested.set(parent, [...existing.filter(meta => meta.path !== child.path), entry]);
+  }
+  return { topLevel: projects.filter(project => !children.includes(project)), worktreesByProject: nested };
 }
 
 export function managedActiveProject(projects: readonly ProjectEntry[], active: string | null): string | null {

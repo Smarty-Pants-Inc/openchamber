@@ -122,6 +122,30 @@ describe("useProjectsStore default model and thinking level", () => {
   })
 })
 
+describe("managed catalog default project", () => {
+  // Live 2026-09-24: shared settings said smarty-code, but a fresh page opened on the first catalog
+  // member because the catalog published before the bootstrap settings sync and that sync was ignored.
+  test("a bootstrap settings sync after the catalog selects the shared remembered project", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-org", worktree: "/p/dev" }, { id: "g-code", worktree: "/p/code" }])
+      const [org, code] = useProjectsStore.getState().managedProjects!
+      expect(useProjectsStore.getState().activeProjectId).toBe(org!.id)
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [], activeProjectId: code!.id } as DesktopSettings, { adoptActiveProject: true })
+      expect(useProjectsStore.getState().activeProjectId).toBe(code!.id)
+      expect(useDirectoryStore.getState().currentDirectory).toBe("/p/code")
+      // A later reconcile sync (another window's choice) does not move this window.
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [], activeProjectId: org!.id } as DesktopSettings, { adoptActiveProject: false })
+      expect(useProjectsStore.getState().activeProjectId).toBe(code!.id)
+    } finally {
+      save.mockRestore()
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+})
+
 describe("useProjectsStore.addProjects", () => {
   const resetProjects = () => {
     // Add requires an affirmatively stock catalog (#126 item 8).

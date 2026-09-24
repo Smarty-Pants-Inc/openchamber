@@ -991,9 +991,12 @@ export const createSettingsRuntime = (deps) => {
       // Validating project paths hits the filesystem for every entry, so only
       // do it when the incoming update actually touches the projects list —
       // not on every theme/window-state/etc. save.
+      // Only a NEW project path is checked on disk: a saved bookmark whose folder is briefly absent (a worktree
+      // being recreated) must survive an unrelated rename or reorder. Only an explicit omission removes it.
       if (Object.prototype.hasOwnProperty.call(sanitized, 'projects') && Array.isArray(next.projects)) {
-        const validated = await validateProjectEntries(next.projects);
-        next = { ...next, projects: validated };
+        const saved = new Set((sanitizeProjects(current?.projects) || []).map((project) => project.path));
+        const added = await validateProjectEntries(next.projects.filter((project) => !saved.has(project?.path)));
+        next = { ...next, projects: next.projects.filter((project) => saved.has(project?.path) || added.includes(project)) };
       }
 
       if (Array.isArray(next.projects) && next.projects.length > 0) {

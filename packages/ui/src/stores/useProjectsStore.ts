@@ -1130,7 +1130,10 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (current.managedCatalogAdmitted) {
         // A settings echo cannot restore retired membership or a stale active pointer.
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
-        const activeProjectId = managedActiveProject(managedProjects ?? [], current.activeProjectId);
+        // A bootstrap sync carries the shared remembered project; the catalog may have published first.
+        const remembered = adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
+          ? incomingActive : current.activeProjectId;
+        const activeProjectId = managedActiveProject(managedProjects ?? [], remembered);
         set({ projects: incomingProjects, managedProjects, activeProjectId });
         cacheProjects(incomingProjects, incomingActive);
         if (managedProjects) selectManagedDirectory(managedProjects.find(project => project.id === activeProjectId));

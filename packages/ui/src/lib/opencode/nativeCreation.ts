@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 export const nativeCreationHealthSchema = z.object({
   healthy: z.literal(true),
-  capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional() }).optional(),
+  capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional(),
+    sessionVoice: z.literal(1).optional() }).optional(),
 });
 // Public creation-contract.ts; endpoint and native generations are distinct.
 const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);

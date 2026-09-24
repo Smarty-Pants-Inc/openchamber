@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.managedAddSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.managedAddSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,7 +36,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // smarty-code#126 item 8 adds one copy key to the locale outputs; unwind it before earlier layers.
+  // smarty-code#126 item 8 adds one copy key to the locale outputs; it is the newest layer, so unwind it first.
   const managedAdds = historical.files.filter(entry => entry.managedAddSha256);
   assert.deepEqual(managedAdds.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
   assert.equal(historical.managedAddSource, 'a5104366fda151b13a679566c9d411e3005f942f');
@@ -50,6 +50,45 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.managedAddSha256;
     delete entry.managedAddNote;
   }
+  // The Stop wording change (smarty-code#122) is the newest layer: strip it first, restoring the prior ledger exactly.
+  const stopWording = historical.files.filter(entry => entry.stopWordingSha256);
+  assert.deepEqual(stopWording.map(entry => entry.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
+  for (const entry of stopWording) {
+    assert.equal(entry.stopWordingSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
+    assert.equal(entry.stopWordingSource, '1bb8b45e6b73d501337c17bf74db875ec9496178');
+    assert.ok(entry.stopWordingNote);
+    entry.combinedSha256 = entry.preStopWordingCombinedSha256;
+    delete entry.preStopWordingCombinedSha256;
+    delete entry.stopWordingSha256;
+    delete entry.stopWordingSource;
+    delete entry.stopWordingNote;
+  }
+  const catalogReloads = historical.files.filter(entry => entry.catalogReloadSha256);
+  assert.deepEqual(catalogReloads.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
+  for (const entry of catalogReloads) {
+    assert.equal(entry.catalogReloadSource, 'f489f5a5b9ec527e5b10abff6183dc1c95346726');
+    assert.equal(entry.catalogReloadSha256, '0b2c4c2042de795d4714bc2a79d811a6fb1f570c99a31db9fcc72408455e60c3');
+    assert.equal(entry.preCatalogReloadCombinedSha256, entry.persistedTargetSha256);
+    assert.ok(entry.catalogReloadNote);
+    entry.combinedSha256 = entry.preCatalogReloadCombinedSha256;
+    delete entry.preCatalogReloadCombinedSha256;
+    delete entry.catalogReloadSha256;
+    delete entry.catalogReloadSource;
+    delete entry.catalogReloadNote;
+  }
+  const sessionVoice = historical.files.filter(entry => entry.sessionVoiceSha256);
+  assert.deepEqual(sessionVoice.map(entry => entry.path).sort(), paths.filter(path => path.includes('/i18n/messages/') || path.endsWith('/server/index.js')).sort());
+  assert.equal(historical.sessionVoiceSource, '02e0e00b05a72bc9055f9363184dd28ff982682e');
+  assert.ok(historical.sessionVoiceNote);
+  for (const entry of sessionVoice) {
+    assert.match(entry.preSessionVoiceCombinedSha256, /^[a-f0-9]{64}$/);
+    entry.combinedSha256 = entry.preSessionVoiceCombinedSha256;
+    delete entry.preSessionVoiceCombinedSha256;
+    delete entry.sessionVoiceSha256;
+  }
+  delete historical.sessionVoiceSource;
+  delete historical.sessionVoiceNote;
   const persistedTargets = historical.files.filter(entry => entry.persistedTargetSha256);
   assert.deepEqual(persistedTargets.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of persistedTargets) {
