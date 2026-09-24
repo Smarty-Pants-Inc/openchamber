@@ -34,6 +34,7 @@ import {
 import { checkIsGitRepository } from '@/lib/gitApi';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { normalizePath } from './sidebar/utils';
+import { nestManagedProjects } from '@/lib/managed-project-catalog';
 import { recordWorktreesSeen } from './sidebar/projects/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
@@ -426,9 +427,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         addedAt: project.addedAt,
         lastOpenedAt: project.lastOpenedAt,
         sidebarCollapsed: project.sidebarCollapsed,
+        parent: normalizePath(project.parent ?? null) ?? undefined,
       }];
     });
   }, [projects]);
+  // Managed catalog: nest published linked worktrees under their root, as Herdr does.
+  const displayTopology = React.useMemo(() => {
+    const nested = managed
+      ? nestManagedProjects(normalizedProjects, availableWorktreesByProject)
+      : { topLevel: normalizedProjects, worktreesByProject: availableWorktreesByProject };
+    return { projects: nested.topLevel, worktreesByProject: nested.worktreesByProject };
+  }, [availableWorktreesByProject, managed, normalizedProjects]);
 
   const normalizedProjectPaths = React.useMemo(
     () => normalizedProjects.map((project) => project.normalizedPath),
@@ -502,7 +511,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   previousSidebarRenderSourcesRef.current = sidebarRenderSources;
 
   const sortedProjects = React.useMemo(() => {
-    const list = [...normalizedProjects];
+    const list = [...displayTopology.projects];
 
     switch (projectSortOrder) {
       case 'a-z':
@@ -537,7 +546,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     }
 
     return list;
-  }, [normalizedProjects, projectSortOrder, manualProjectOrder]);
+  }, [displayTopology.projects, projectSortOrder, manualProjectOrder]);
   const projectView = useSessionProjectViewState({ isVSCode, projects: sortedProjects });
 
   const searchEmptyState = React.useMemo(() => (
@@ -651,7 +660,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       <SessionProjectCollection
         topology={{
           projects: sortedProjects,
-          availableWorktreesByProject,
+          availableWorktreesByProject: displayTopology.worktreesByProject,
           knownDirectories: knownSessionDirectories,
           isVSCode,
           worktreeMetadata,
