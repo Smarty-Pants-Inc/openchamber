@@ -4,6 +4,7 @@ import type { ProjectEntry } from "@/lib/api/types"
 import type { DesktopSettings } from "@/lib/desktop"
 import { useProjectsStore } from "./useProjectsStore"
 import { useDirectoryStore } from "./useDirectoryStore"
+import { getDeferredSafeStorage } from "./utils/safeStorage"
 
 describe("useProjectsStore settings synchronization", () => {
   test("treats a successful empty project snapshot as authoritative", () => {
@@ -159,6 +160,22 @@ describe("managed catalog remembered directory", () => {
       expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
     } finally {
       save.mockRestore()
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+  test("first admission (admit, then apply) selects the project at the locally remembered directory", () => {
+    const storage = getDeferredSafeStorage()
+    const previous = storage.getItem("lastDirectory")
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: "stale", manualProjectOrder: [] })
+      storage.setItem("lastDirectory", "/p/dev/")
+      useProjectsStore.getState().admitManagedCatalog()
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-code", worktree: "/p/code" }, { id: "g-dev", worktree: "/p/dev" }])
+      const dev = useProjectsStore.getState().managedProjects!.find(project => project.path === "/p/dev")
+      expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
+    } finally {
+      if (previous === null) storage.removeItem("lastDirectory"); else storage.setItem("lastDirectory", previous)
       useProjectsStore.getState().resetManagedCatalog()
     }
   })
