@@ -14,6 +14,7 @@ queue_rules:
       - check-success = smarty-review
       - check-success = smarty-land-ready
       - check-success = smarty-ci
+      - check-success = review/astra
     merge_conditions:
       - check-success = smarty-ci
 
@@ -25,5 +26,6 @@ queue_rules:
       - base = smarty-code
       - -draft
       - check-success = checks
+      - check-success = review/astra
     merge_conditions:
       - check-success = checks
