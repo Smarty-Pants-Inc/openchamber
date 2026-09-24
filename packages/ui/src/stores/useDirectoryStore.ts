@@ -1,3 +1,4 @@
+import { BROWSER_LAST_DIRECTORY_KEY, recordExplicitDirectoryChoice, seedBrowserLastDirectory } from './browserDirectoryChoice';
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -33,6 +34,8 @@ interface DirectoryStore {
 let cachedHomeDirectory: string | null = null;
 let homeResolveGeneration = 0;
 const safeStorage = getDeferredSafeStorage();
+seedBrowserLastDirectory(safeStorage);
+
 const persistedLastDirectory = safeStorage.getItem('lastDirectory');
 const initialHasPersistedDirectory =
   typeof persistedLastDirectory === 'string' && persistedLastDirectory.length > 0;
@@ -290,6 +293,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
           if (remember) {
             safeStorage.setItem('lastDirectory', resolvedPath);
+            safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, resolvedPath);
+            recordExplicitDirectoryChoice();
             void updateDesktopSettings({ lastDirectory: resolvedPath });
           }
 
@@ -316,6 +321,10 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
           safeStorage.setItem('lastDirectory', newDirectory);
 
+          safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
+
+          recordExplicitDirectoryChoice();
+
           void updateDesktopSettings({ lastDirectory: newDirectory });
 
           set({
@@ -339,6 +348,10 @@ export const useDirectoryStore = create<DirectoryStore>()(
           invalidateFileSearchCache();
 
           safeStorage.setItem('lastDirectory', newDirectory);
+
+          safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
+
+          recordExplicitDirectoryChoice();
 
           void updateDesktopSettings({ lastDirectory: newDirectory });
 

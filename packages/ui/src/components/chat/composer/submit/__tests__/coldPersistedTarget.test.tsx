@@ -113,6 +113,79 @@ test('reload before catalog: automatic open returns to the remembered project th
   expect(mounted.prompts()).toHaveLength(0);
 });
 
+// smarty-code#113 (Release 3.12): the remembered project is a NESTED catalog worktree whose parent is a cached
+// bookmark. Before discovery the cached view resolved the worktree to its parent by path, opened the draft there
+// and recorded the parent over the remembered target. It must wait for the catalog and return to the child.
+for (const admitted of [false, true]) test(`reload before catalog: a remembered nested worktree is restored, not its parent (admitted early: ${admitted})`, async () => {
+  const child = { id: createProjectIdFromPath('/projects/net/.worktrees/child'), path: '/projects/net/.worktrees/child' };
+  const remembered = JSON.stringify({ projectId: child.id, directory: child.path, target: 'project' });
+  mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
+    if (admitted) useProjectsStore.getState().admitManagedCatalog();
+    useSessionUIStore.getState().closeNewSessionDraft();
+    getDeferredSafeStorage().setItem(key, remembered);
+    const slot = createChatDraftIdentity(getRuntimeKey(), child.path, null, -1131);
+    claimChatDraftOwnership(slot); writeChatDraft(slot, 'unsent nested text', []);
+    useDirectoryStore.setState({ currentDirectory: net.path });
+    opencodeClient.setDirectory(net.path);
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  expect(getDeferredSafeStorage().getItem(key)).toBe(remembered);
+  expect(useSessionUIStore.getState().newSessionDraft.selectedProjectId).not.toBe(net.id);
+  await act(async () => useProjectsStore.getState().applyManagedCatalog([
+    { id: 'gateway-net', worktree: net.path }, { id: 'gateway-child', worktree: child.path, parent: net.path },
+  ]));
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  expect({ projectId: draft.selectedProjectId, directory: draft.directoryOverride, target: draft.target })
+    .toEqual({ projectId: child.id, directory: child.path, target: 'project' });
+  expect(JSON.parse(getDeferredSafeStorage().getItem(key)!)).toEqual(JSON.parse(remembered));
+  expect(mounted.text()).toBe('unsent nested text');
+  expect(mounted.creates()).toHaveLength(0);
+  expect(mounted.prompts()).toHaveLength(0);
+});
+
+// review/astra on OC#159: a bootstrap settings sync that completes AFTER the catalog restored the nested child names
+// the parent as the shared lastDirectory, and has already mirrored it into local `lastDirectory`. The app must stay on
+// the child (its own last choice), and the restoration must send no settings write.
+for (const upgraded of [false, true]) test(`reload before catalog: a late bootstrap settings sync keeps the restored nested worktree (browser key ${upgraded ? 'absent: upgrade' : 'present'})`, async () => {
+  const child = { id: createProjectIdFromPath('/projects/net/.worktrees/child'), path: '/projects/net/.worktrees/child' };
+  mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
+    useSessionUIStore.getState().closeNewSessionDraft();
+    getDeferredSafeStorage().setItem(key, JSON.stringify({ projectId: child.id, directory: child.path, target: 'project' }));
+    // This browser picked the child before the reload (an earlier page life).
+    // An upgrading browser has only the remembered draft target and text, no browser key yet.
+    if (upgraded) getDeferredSafeStorage().removeItem('oc.browser.lastDirectory');
+    else getDeferredSafeStorage().setItem('oc.browser.lastDirectory', child.path);
+    const slot = createChatDraftIdentity(getRuntimeKey(), child.path, null, -1132);
+    claimChatDraftOwnership(slot); writeChatDraft(slot, 'unsent nested text', []);
+    useDirectoryStore.setState({ currentDirectory: net.path });
+    opencodeClient.setDirectory(net.path);
+  });
+  await act(async () => useProjectsStore.getState().applyManagedCatalog([
+    { id: 'gateway-net', worktree: net.path }, { id: 'gateway-child', worktree: child.path, parent: net.path },
+  ]));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  // The late bootstrap sync, in syncDesktopSettings' order: the local mirror first, then the settings event.
+  getDeferredSafeStorage().setItem('lastDirectory', net.path);
+  await act(async () => {
+    useProjectsStore.getState().synchronizeFromSettings({ lastDirectory: net.path, activeProjectId: net.id, projects: [net] },
+      { adoptActiveProject: true });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  expect({ projectId: draft.selectedProjectId, directory: draft.directoryOverride, target: draft.target })
+    .toEqual({ projectId: child.id, directory: child.path, target: 'project' });
+  expect(mounted.text()).toBe('unsent nested text');
+  expect(useProjectsStore.getState().activeProjectId).toBe(child.id);
+  expect(useDirectoryStore.getState().currentDirectory).toBe(child.path);
+  expect(mounted.requests.filter((request) => request.method !== 'GET' && new URL(request.url).pathname.endsWith('/config/settings'))).toEqual([]);
+  expect(mounted.creates()).toHaveLength(0);
+  expect(mounted.prompts()).toHaveLength(0);
+});
+
 for (const outcome of ['not admitted', 'stock'] as const) test(`reload before catalog: remembered project ${outcome} falls back to the previous rule`, async () => {
   mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
     useProjectsStore.getState().resetManagedCatalog();
