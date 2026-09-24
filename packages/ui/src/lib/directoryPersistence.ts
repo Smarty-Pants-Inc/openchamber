@@ -22,6 +22,7 @@ export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
   // (initializeHomeDirectory → /api/fs/home) that runs on every startup.
 
   if (savedDirectory && !isVSCodeRuntime()) {
-    useDirectoryStore.getState().setDirectory(savedDirectory, { showOverlay: false });
+    // Restoring the remembered directory is not a new choice; publishing it would overwrite another browser's.
+    useDirectoryStore.getState().setDirectory(savedDirectory, { showOverlay: false, remember: false });
   }
 };

@@ -1140,6 +1140,11 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (typeof candidate.darkThemeId === 'string' && candidate.darkThemeId.length > 0) {
     result.darkThemeId = candidate.darkThemeId;
   }
+  // Splash colours are part of the shared theme choice. Without them a first load did not know the server had
+  // them, and released its pre-load defaults over them (smarty-code#117).
+  for (const key of ['splashBgLight', 'splashFgLight', 'splashBgDark', 'splashFgDark'] as const) {
+    if (typeof candidate[key] === 'string' && candidate[key].length > 0) result[key] = candidate[key];
+  }
   if (typeof candidate.lastDirectory === 'string' && candidate.lastDirectory.length > 0) {
     result.lastDirectory = candidate.lastDirectory;
   }
@@ -1861,6 +1866,16 @@ const areSettingsWritesDeferred = (context: SettingsRuntimeContext): boolean => 
   _writesDeferredUntilLoad !== null && isSameSettingsRuntimeContext(_writesDeferredUntilLoad, context)
 );
 
+// Store updates made while applying server settings are the server's own values, not user choices; the
+// appearance auto-save must not write them back (smarty-code#117: a first load echoed server values and
+// materialized defaults, changing the shared settings and their etag).
+let _applyingServerSettings = 0;
+export const isApplyingServerSettings = (): boolean => _applyingServerSettings > 0;
+const applyServerUiPreferences = (settings: DesktopSettings): void => {
+  _applyingServerSettings += 1;
+  try { applyDesktopUiPreferences(settings); } finally { _applyingServerSettings -= 1; }
+};
+
 /** Call before the first render of a surface that shares server settings. */
 export const deferSettingsWritesUntilLoaded = (): void => {
   _writesDeferredUntilLoad = captureSettingsRuntimeContext();
@@ -2096,11 +2111,21 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
     // deliberate legacy "off" preference migrated from
     // `openchamber:files:auto-save-enabled`. Prefer the hydrated store value and
     // seed the backend once so later omitted→default authority is correct.
-    const shouldSeedAutoSaveEnabled = typeof settings.autoSaveEnabled !== 'boolean';
-    const shouldSeedSidebarProjectDisplayMode = settings.sidebarProjectDisplayMode === undefined;
-    const shouldSeedSidebarSessionGroupingMode = settings.sidebarSessionGroupingMode === undefined;
-    const shouldSeedSidebarProjectSortOrder = settings.sidebarProjectSortOrder === undefined;
-    const shouldSeedSidebarShowRecentSection = settings.sidebarShowRecentSection === undefined;
+    // A seed writes only a local preference that differs from the default: writing a default would publish
+    // this browser's startup state as the shared choice (smarty-code#117). An absent key already means default.
+    const uiDefaults = useUIStore.getInitialState();
+    const displayDefaults = useSessionDisplayStore.getInitialState();
+    const displayState = useSessionDisplayStore.getState();
+    const shouldSeedAutoSaveEnabled = typeof settings.autoSaveEnabled !== 'boolean'
+      && useUIStore.getState().autoSaveEnabled !== uiDefaults.autoSaveEnabled;
+    const shouldSeedSidebarProjectDisplayMode = settings.sidebarProjectDisplayMode === undefined
+      && displayState.projectDisplayMode !== displayDefaults.projectDisplayMode;
+    const shouldSeedSidebarSessionGroupingMode = settings.sidebarSessionGroupingMode === undefined
+      && displayState.sessionGroupingMode !== displayDefaults.sessionGroupingMode;
+    const shouldSeedSidebarProjectSortOrder = settings.sidebarProjectSortOrder === undefined
+      && displayState.projectSortOrder !== displayDefaults.projectSortOrder;
+    const shouldSeedSidebarShowRecentSection = settings.sidebarShowRecentSection === undefined
+      && displayState.showRecentSection !== displayDefaults.showRecentSection;
     const authoritativeSettings = materializeAuthoritativeUiSettings(settings);
     try {
       persistToLocalStorage(settings);
@@ -2127,7 +2152,7 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
       useUIStore.setState({ globalDraftStarters: null });
     }
     try {
-      applyDesktopUiPreferences(authoritativeSettings);
+      applyServerUiPreferences(authoritativeSettings);
     } catch (error) {
       console.warn('applyDesktopUiPreferences failed:', error);
     }
@@ -2250,7 +2275,7 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
           if (updated) {
             invalidateSettingsCache();
             const reconciled = _settingsMutationTracker.reconcile(updated, operation);
-            applyDesktopUiPreferences(reconciled);
+            applyServerUiPreferences(reconciled);
             dispatchSettingsSynced(reconciled, false);
           }
           dispatchSettingsSaveState(updated ? 'saved' : 'error');
@@ -2288,7 +2313,7 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
         if (updated) {
           invalidateSettingsCache();
           const reconciled = _settingsMutationTracker.reconcile(updated, operation);
-          applyDesktopUiPreferences(reconciled);
+          applyServerUiPreferences(reconciled);
           dispatchSettingsSynced(reconciled, false);
           dispatchSettingsSaveState('saved');
         } else {
