@@ -1,4 +1,5 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
@@ -164,7 +165,9 @@ function formatSdkError(error: unknown): string {
 function assertSdkSuccess<T>(result: SdkResult<T>, operation: string): T | undefined {
   if (!result.error) return result.data
   const status = result.response?.status
-  throw new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`)
+  const error = new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`) as Error & { status?: number }
+  if (status !== undefined) error.status = status
+  throw error
 }
 
 function useSyncSystem() {
@@ -1521,7 +1524,9 @@ async function resyncDirectoryAfterReconnect(
 ) {
   const scope = captureRuntimeRequestScope()
   const current = store.getState()
+  // Sessions the server just answered with a terminal status are not re-read on every pass.
   const candidateSessionIds = getActiveSessionCandidateIds(directory, current)
+    .filter((sessionId) => !isSessionReadSuppressed(directory, sessionId))
   if (candidateSessionIds.length === 0) return
 
   await resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "authoritative")
@@ -1537,8 +1542,9 @@ async function resyncDirectoryAfterReconnect(
         const response = await scopedClient.session.get({ sessionID: sessionId })
         assertSdkSuccess(response, "session.get")
         return response
-      }).catch(() => null),
-      loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve(),
+      }).catch((error: unknown) => { recordSessionReadFailure(directory, sessionId, error); return null }),
+      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve())
+        .catch((error: unknown) => { recordSessionReadFailure(directory, sessionId, error) }),
     ])
     const session = sessionResponse?.data
     if (!session || session.id !== sessionId || !isRuntimeRequestScopeCurrent(scope)) return
