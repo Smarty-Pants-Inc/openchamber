@@ -96,7 +96,7 @@ import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
-import { getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
+import { getAllSyncSessions, getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
@@ -1349,8 +1349,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const ordinary = currentSessionId ? readOrdinaryModel(
             getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
                 .find(session => session.id === currentSessionId),
-        ) : undefined;
-        if (ordinary && !ordinary.model) { toast.error(t('common.unavailable')); return; }
+        // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b).
+        ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+        if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
             return;
