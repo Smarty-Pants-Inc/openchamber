@@ -122,3 +122,48 @@ describe('sidebar search over standalone groups', () => {
     expect(sections.searchMatchCount).toBe(0);
   });
 });
+
+// Sidebar audit 2026-09-23 (code.smartypants.ai): the managed catalog lists a repository and its
+// linked worktrees as separate projects. Git discovery also listed the worktree under its parent,
+// so the parent section folded the worktree in (a duplicate row and a scope bootstrap the gateway
+// refuses) while the worktree's own section spun. A worktree that is its own project renders only there.
+describe('worktrees that are their own projects', () => {
+  for (const managed of [true, false]) test(`${managed ? 'managed catalog: are not folded into the parent' : 'stock: keep their parent worktree group'}`, () => {
+    let captured: Sections | null = null;
+    const parent = { id: 'herdr', path: '/p/herdr', normalizedPath: '/p/herdr', label: 'herdr' };
+    const child = { id: 'upstream', path: '/p/herdr/worktrees/upstream-0.9', normalizedPath: '/p/herdr/worktrees/upstream-0.9', label: 'upstream-0.9' };
+    const other = { path: '/p/herdr/worktrees/scratch', name: 'scratch', branch: 'scratch', label: 'scratch' };
+    const worktrees = new Map([[parent.normalizedPath, [
+      { path: child.normalizedPath, name: 'upstream-0.9', branch: 'upstream-0.9', label: 'upstream-0.9' }, other,
+    ]]]);
+    const Harness = () => {
+      const grouping = useSessionGrouping({ homeDirectory: '/home/user', worktreeMetadata: new Map(), pinnedSessionIds: new Set(),
+        sessionOrderRanks: new Map(), gitBranches: new Map(), isVSCode: false });
+      captured = useSessionSidebarSections({
+        // SAFETY: the hook reads only id and normalizedPath from project items in this path.
+        normalizedProjects: [parent, child] as unknown as Parameters<typeof useSessionSidebarSections>[0]['normalizedProjects'],
+        getSessionsForProject: () => [], getArchivedSessionsForProject: () => [],
+        // SAFETY: fixture worktree metadata carries the fields the grouping reads.
+        availableWorktreesByProject: worktrees as unknown as Parameters<typeof useSessionSidebarSections>[0]['availableWorktreesByProject'],
+        projectRepoStatus: new Map([['herdr', true], ['upstream', true]]), projectRootBranches: new Map(), gitBranches: new Map(),
+        lastRepoStatus: true, buildGroupedSessions: grouping.buildGroupedSessions, hasSessionSearchQuery: false,
+        normalizedSessionSearchQuery: '', filterSessionNodesForSearch: grouping.filterSessionNodesForSearch,
+        buildGroupSearchText: grouping.buildGroupSearchText, foldersMap: {}, standaloneGroups: [],
+        excludeWorktreeProjects: managed,
+      });
+      return null;
+    };
+    renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(Harness)));
+    if (!captured) throw new Error('sections hook was not mounted');
+    const sections = (captured as Sections).projectSections;
+    const parentDirs = sections.find((section) => section.project.id === 'herdr')!.groups.map((group) => group.directory);
+    if (managed) expect(parentDirs).not.toContain(child.normalizedPath);
+    else expect(parentDirs).toContain(child.normalizedPath);
+    expect(parentDirs).toContain('/p/herdr/worktrees/scratch');
+    // The worktree still renders as its own project section.
+    expect(sections.find((section) => section.project.id === 'upstream')!.groups.some((group) => group.directory === child.normalizedPath)).toBe(true);
+    // The flat view's bootstrap scopes follow the same rule.
+    const flatScopes = (captured as Sections).flatSectionsForRender.find((section) => section.project.id === 'herdr')!.groups[0]!.folderScopes!.map((scope) => scope.directory);
+    expect(flatScopes.includes(child.normalizedPath)).toBe(!managed);
+  });
+});
