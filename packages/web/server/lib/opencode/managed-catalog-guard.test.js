@@ -97,7 +97,9 @@ describe('managed catalog server boundary', () => {
 
     for (const body of [{ lastDirectory: '/unadmitted' }, { lastDirectory: savedProject.path },
       { activeProjectId: savedProject.id }, { activeProjectId: 'unknown' },
-      { projects: [savedProject, liveProject], activeProjectId: savedProject.id }]) {
+      { projects: [savedProject, liveProject], activeProjectId: savedProject.id },
+      // Persistence stores the raw value, and a pointer to a bookmark this update removes names nothing.
+      { activeProjectId: ` ${liveProject.id} ` }, { projects: [savedProject], activeProjectId: liveProject.id }]) {
       const response = await request(app).put('/api/config/settings').send(body).expect(403);
       expect(response.body.error).toContain('managed project catalog');
     }

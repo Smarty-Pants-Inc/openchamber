@@ -361,7 +361,7 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
-const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots }) => {
+const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots, worktrees = true }) => {
   const resolvedProject = await resolveProjectDirectory(req);
   if (!resolvedProject.directory) {
     return { ok: false, error: resolvedProject.error || 'Active workspace is required' };
@@ -403,6 +403,7 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
     }
   }
 
+  if (!worktrees) return resolved;
   return resolveWorkspacePathFromWorktrees({
     targetPath,
     baseDirectory: resolvedProject.directory,
@@ -846,22 +847,28 @@ export const registerFsRoutes = (app, dependencies) => {
       // Managed catalog: only an explicit directory that is a live catalog row is a base, never the
       // saved lastDirectory/activeProjectId fallback or a supplied header alone (#126 item 8). Chat
       // creation sends no directory, so otherwise the chats root is the only valid target. A catalog
-      // read failure admits no base (fail closed).
-      const chatsOnly = isManagedCatalog(env) && !(hasExplicitProjectDirectory(req)
-        && await resolveProjectDirectory(req)
-          .then(({ directory }) => Boolean(directory) && isLiveManagedDirectory(directory))
-          .catch(() => false));
-      const roots = chatsOnly ? [chatsRoot] : managedRoots;
+      // read failure admits no base (fail closed). The project is resolved once: the admitted
+      // resolution is the one used below, and only it and the chats root are grants (no config root,
+      // no sibling worktree that was not itself checked).
+      const managed = isManagedCatalog(env);
+      const admitted = managed && hasExplicitProjectDirectory(req)
+        ? await resolveProjectDirectory(req)
+          .then(async (project) => (project.directory && await isLiveManagedDirectory(project.directory) ? project : null))
+          .catch(() => null)
+        : null;
+      const chatsOnly = managed && !admitted;
+      const roots = managed ? [chatsRoot] : managedRoots;
       const resolved = chatsOnly
         ? resolveWorkspacePath({ targetPath: dirPath, baseDirectory: chatsRoot, path, os, normalizeDirectoryPath, managedRoots: [] })
         : await resolveWorkspacePathFromContext({
           req,
           targetPath: dirPath,
-          resolveProjectDirectory,
+          resolveProjectDirectory: admitted ? async () => admitted : resolveProjectDirectory,
           path,
           os,
           normalizeDirectoryPath,
-          managedRoots,
+          managedRoots: roots,
+          worktrees: !managed,
         });
       if (!resolved.ok) {
         return chatsOnly

@@ -1534,7 +1534,7 @@ describe('fs mkdir canonical containment', () => {
   const gateway = (rows) => async () => (rows === null
     ? new Response('down', { status: 502 })
     : Response.json(rows.map((worktree) => ({ id: worktree, worktree })), { headers: { 'x-smarty-code-catalog': 'managed-v1' } }));
-  const register = async (env = {}, liveRows) => {
+  const register = async (env = {}, liveRows, wrapResolver = (resolve) => resolve) => {
     const fsPromises = (await import('node:fs/promises')).default;
     const reader = liveRows === undefined ? undefined : createManagedCatalogReader({
       buildOpenCodeUrl: (route) => `http://gateway${route}`, getOpenCodeAuthHeaders: () => ({}), fetch: gateway(liveRows),
@@ -1555,7 +1555,7 @@ describe('fs mkdir canonical containment', () => {
       spawn: vi.fn(),
       crypto: { randomUUID: () => 'job-0' },
       normalizeDirectoryPath: (p) => p,
-      resolveProjectDirectory,
+      resolveProjectDirectory: wrapResolver(resolveProjectDirectory),
       resolveGitBinaryForSpawn: () => 'git',
       openchamberUserConfigRoot: path.join(root, 'config'),
       env,
@@ -1617,5 +1617,26 @@ describe('fs mkdir canonical containment', () => {
       }
       expect((await call(mkdir, path.join(root, 'config', 'chats', 'session-c'), '/')).statusCode).toBe(200);
     }
+  });
+
+  it('managed: a live directory grants only itself and the chats root, never the config root', async () => {
+    const project = path.join(root, 'project');
+    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' }, [project]);
+    const target = path.join(root, 'config', 'not-chats');
+    expect((await call(mkdir, target, project)).statusCode).not.toBe(200);
+    expect(await exists(target)).toBe(false);
+    expect((await call(mkdir, path.join(root, 'config', 'chats', 'session-d'), project)).statusCode).toBe(200);
+  });
+
+  it('managed: the admitted resolution is the one used; a second resolution cannot switch the base', async () => {
+    const project = path.join(root, 'project');
+    // The first resolution names the live project; any later one (the header's directory gone) the unadmitted one.
+    const outside = { directory: path.join(root, 'outside'), requestedDirectory: path.join(root, 'outside') };
+    let calls = 0;
+    const mkdir = await register({ OPENCHAMBER_MANAGED_CATALOG: '1' }, [project],
+      (resolve) => async (req) => (calls++ === 0 ? resolve(req) : outside));
+    const target = path.join(root, 'outside', 'raced');
+    expect((await call(mkdir, target, project)).statusCode).not.toBe(200);
+    expect(await exists(target)).toBe(false);
   });
 });

@@ -31,7 +31,8 @@ export const registerManagedCatalogGuard = (app, {
     const body = req.body ?? {};
     const projects = Array.isArray(body.projects) ? body.projects : null;
     const lastDirectory = text(body.lastDirectory);
-    const activeProjectId = text(body.activeProjectId);
+    // The raw value is what persistence stores, so it is what is checked (no trimming).
+    const activeProjectId = typeof body.activeProjectId === 'string' ? body.activeProjectId : text(body.activeProjectId);
     if (!projects && !lastDirectory && !activeProjectId) return next();
     try {
       const saved = sanitizeProjects((await readSettingsFromDisk()).projects) || [];
@@ -41,7 +42,9 @@ export const registerManagedCatalogGuard = (app, {
       }
       if (lastDirectory && !(await isLiveDirectory(lastDirectory))) return refuse(res);
       if (activeProjectId) {
-        const bookmark = saved.find((project) => project.id === activeProjectId);
+        // It must name a bookmark that stays in the list this update leaves, and that bookmark must be live.
+        const kept = projects ? new Set((sanitizeProjects(projects) || []).map((project) => project.id)) : null;
+        const bookmark = saved.find((project) => project.id === activeProjectId && (!kept || kept.has(project.id)));
         if (!bookmark || !(await isLiveDirectory(bookmark.path))) return refuse(res);
       }
       return next();

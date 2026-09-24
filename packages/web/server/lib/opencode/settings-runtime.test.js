@@ -479,4 +479,22 @@ describe('settings runtime', () => {
       await cleanup();
     }
   });
+
+  it('managed: a missing active project is cleared, never replaced by the first saved bookmark', async () => {
+    const env = { OPENCHAMBER_MANAGED_CATALOG: '1' };
+    const { runtime, tempRoot, cleanup } = await createRuntime({ env, mergePersistedSettings: (current, changes) => ({ ...current, ...changes }) });
+    try {
+      const [stale, live] = ['stale', 'live'].map((name) => path.join(tempRoot, name));
+      await fsPromises.mkdir(stale); await fsPromises.mkdir(live);
+      const project = (dir) => ({ id: createProjectIdFromPath(dir), path: dir });
+      await runtime.persistSettings({ projects: [project(stale), project(live)], activeProjectId: project(live).id });
+      await runtime.persistSettings({ activeProjectId: ` ${project(live).id} ` });
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
+      await runtime.persistSettings({ activeProjectId: project(live).id });
+      await runtime.persistSettings({ projects: [project(stale)] }); // The active bookmark is removed.
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
 });

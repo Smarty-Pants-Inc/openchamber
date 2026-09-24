@@ -679,8 +679,11 @@ export const createSettingsRuntime = (deps) => {
 
     if (nextProjects.length > 0) {
       const active = nextProjects.find((project) => project.id === nextActiveProjectId) || null;
-      if (!active) {
-        nextActiveProjectId = nextProjects[0].id;
+      // Managed: a saved bookmark is not a catalog row, so no fallback pointer is made up; the client
+      // shows the first admitted row without persisting it (#126 item 8).
+      const fallback = isManagedCatalog(env) ? undefined : nextProjects[0].id;
+      if (!active && nextActiveProjectId !== fallback) {
+        nextActiveProjectId = fallback;
         changed = true;
       }
     } else if (nextActiveProjectId) {
@@ -1002,7 +1005,9 @@ export const createSettingsRuntime = (deps) => {
       if (Array.isArray(next.projects) && next.projects.length > 0) {
         const activeId = typeof next.activeProjectId === 'string' ? next.activeProjectId : '';
         const active = next.projects.find((project) => project.id === activeId) || null;
-        if (!active) {
+        if (!active && isManagedCatalog(env)) {
+          if (next.activeProjectId !== undefined) next = { ...next, activeProjectId: undefined }; // As at read time.
+        } else if (!active) {
           console.log(`[persistSettings] Active project ID ${activeId} not found, switching to ${next.projects[0].id}`);
           next = { ...next, activeProjectId: next.projects[0].id };
         }
