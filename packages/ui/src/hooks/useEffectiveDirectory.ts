@@ -3,7 +3,7 @@ import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { getAttachedSessionDirectory } from '@/sync/session-worktree-contract';
 import { useSessionDirectory } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { getChatsRootForHome } from '@/lib/chatDirectories';
+import { getReportedChatsRoot } from '@/lib/chatDirectories';
 
 /**
  * Hook that resolves the effective working directory for tabs (Git, Diff, Files, Terminal).
@@ -27,7 +27,8 @@ export const useEffectiveDirectory = (): string | undefined => {
     const worktreeAttachment = useSessionWorktreeStore((s) => currentSessionId ? s.getAttachment(currentSessionId) : undefined);
     const worktreeMap = useSessionUIStore((s) => s.worktreeMetadata);
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
-    const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
+    // Re-render when the runtime's home resolves; the reported chats root arrives with it.
+    useDirectoryStore((s) => s.homeDirectory);
 
     // If we have an active session, use its directory
     if (currentSessionId) {
@@ -50,7 +51,7 @@ export const useEffectiveDirectory = (): string | undefined => {
     }
 
     if (newSessionDraft?.open && newSessionDraft.target === 'chat') {
-        const chatDirectory = newSessionDraft.preparedChatDirectory ?? getChatsRootForHome(homeDirectory);
+        const chatDirectory = newSessionDraft.preparedChatDirectory ?? getReportedChatsRoot();
         if (chatDirectory) return chatDirectory;
     }
 

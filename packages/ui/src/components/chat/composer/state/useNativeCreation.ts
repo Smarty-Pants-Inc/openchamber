@@ -9,6 +9,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from '@/sync/native-draft-control';
 import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
+import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 
 type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[] };
 
@@ -24,9 +26,11 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const directory = draft.directoryOverride ?? currentDirectory;
   // A check before the managed catalog admits this directory is refused by the gateway; check
   // again when the catalog publishes instead of leaving the draft unavailable (smarty-code#113).
-  const catalogReady = useProjectsStore(s => s.managedCatalogStatus === 'ready');
+  // Nor check before discovery answers at all: the directory in hand (the home fallback) may not be admitted either.
+  const catalogStatus = useProjectsStore(s => s.managedCatalogStatus);
+  const discoveryPending = catalogStatus === 'unknown' && !isVSCodeRuntime(getRegisteredRuntimeAPIs());
   React.useEffect(() => {
-    if (!draft.open || !directory) return;
+    if (!draft.open || !directory || discoveryPending) return;
     let cancelled = false, request = 0;
     const check = async () => {
       const ticket = ++request;
@@ -51,7 +55,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     window.addEventListener(NATIVE_CREATION_INVALIDATED, invalidated);
     void check();
     return () => { cancelled = true; window.removeEventListener(NATIVE_CREATION_INVALIDATED, invalidated); };
-  }, [directory, draft.open, draft.draftId, runtimeKey, revision, catalogReady]);
+  }, [directory, draft.open, draft.draftId, runtimeKey, revision, catalogStatus, discoveryPending]);
 
   const mode = capability?.runtimeKey === runtimeKey && capability.directory === directory
     ? capability.mode : 'loading';
