@@ -203,10 +203,15 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
       syncTopFade(scrollContainerRef.current);
     }
   }, [enableStickyFade, hasProjectScroller, syncTopFade]);
+  // A shared checkout renders one top-level item per Herdr workspace; headers are keyed by item.
+  const renderItems = splitSectionsByWorkspace(renderedSections);
+  const itemProjectIds = new Map(renderItems.map((item) => [item.key, item.section.project.id]));
   let stuckProject: ProjectSection['project'] | null = null;
-  for (const section of model.projectSections) {
-    if (model.stuckProjectHeaders.has(section.project.id)) {
-      stuckProject = section.project;
+  let stuckLabel: string | null = null;
+  for (const item of renderItems) {
+    if (model.stuckProjectHeaders.has(item.key)) {
+      stuckProject = item.section.project;
+      stuckLabel = item.label ?? null;
     }
   }
   // The IntersectionObserver reports the stuck header asynchronously, a frame or
@@ -215,9 +220,11 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
   // replacement. Seed the overlay with the topmost rendered project so it is
   // ready in the same frame; the observer then corrects it. When shared sessions
   // lead the list, the Recent fallback below owns the top instead of a project.
-  const leadingProject =
-    stuckProject ?? (model.hasSharedSessions ? null : renderedSections[0]?.project ?? null);
-  const leadingProjectLabel = leadingProject ? getProjectLabel(leadingProject, view.homeDirectory) : null;
+  const leadingItem = stuckProject ? null : model.hasSharedSessions ? null : renderItems[0] ?? null;
+  const leadingProject = stuckProject ?? leadingItem?.section.project ?? null;
+  const leadingProjectLabel = leadingProject
+    ? (stuckProject ? stuckLabel : leadingItem?.label) ?? getProjectLabel(leadingProject, view.homeDirectory)
+    : null;
   const projectPickerOptions = React.useMemo(() => model.projectSections.map((section) => ({
     id: section.project.id,
     projectLabel: getProjectLabel(section.project, view.homeDirectory),
@@ -293,20 +300,24 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
             if (view.projectSortOrder !== 'manual') return;
             const { active, over } = event;
             if (!over || active.id === over.id) return;
-            const oldIndex = model.sectionsForRender.findIndex((section) => section.project.id === active.id);
-            const newIndex = model.sectionsForRender.findIndex((section) => section.project.id === over.id);
+            const activeProject = itemProjectIds.get(String(active.id)) ?? active.id;
+            const overProject = itemProjectIds.get(String(over.id)) ?? over.id;
+            const oldIndex = model.sectionsForRender.findIndex((section) => section.project.id === activeProject);
+            const newIndex = model.sectionsForRender.findIndex((section) => section.project.id === overProject);
             if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
             actions.reorderProjects(oldIndex, newIndex);
           }}
         >
-            <SortableContext items={renderedSections.map((section) => section.project.id)} strategy={verticalListSortingStrategy}>
-            {splitSectionsByWorkspace(renderedSections).map(({ key: renderKey, label: workspaceLabel, section, split }) => {
+            <SortableContext items={renderItems.map((item) => item.key)} strategy={verticalListSortingStrategy}>
+            {renderItems.map(({ key: renderKey, label: workspaceLabel, section, split }) => {
               const project = section.project;
-              // Actions act on the one OC project (one per checkout); collapse is per rendered workspace item.
+              // Actions and collapse act on the one OC project (one per checkout): collapsing any of a shared
+              // checkout's workspace items collapses all of them, so persistence and load priority stay per project.
               const projectKey = project.id;
+              const extraWorkspaceItem = split && renderKey !== projectKey;
               const projectLabel = workspaceLabel ?? getProjectLabel(project, view.homeDirectory);
               const projectDescription = formatPathForDisplay(project.normalizedPath, view.homeDirectory);
-              const isCollapsed = model.singleProjectMode ? false : view.collapsedProjects.has(renderKey);
+              const isCollapsed = model.singleProjectMode ? false : view.collapsedProjects.has(projectKey);
               const isRepo = model.projectRepoStatus.get(projectKey);
 
               return (
@@ -332,7 +343,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                   setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey}
                   projectPickerOptions={model.singleProjectMode ? projectPickerOptions : undefined}
                   onProjectSelect={model.singleProjectMode ? actions.setSingleProjectId : undefined}
-                  onToggle={() => { if (!model.singleProjectMode) actions.toggleProject(renderKey); }}
+                  onToggle={() => { if (!model.singleProjectMode) actions.toggleProject(projectKey); }}
                   onNewSession={() => {
                     if (projectKey !== model.activeProjectId) actions.setActiveProjectIdOnly(projectKey);
                     if (view.mobileVariant) actions.setSessionSwitcherOpen(false);
@@ -346,8 +357,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                     actions.openNewWorktreeDialog();
                   }}
                   onManageWorktrees={() => actions.openWorktreesPage(projectKey)}
-                  onRenameStart={() => actions.openProjectEditDialog(projectKey)}
-                  onClose={() => actions.removeProject(projectKey)}
+                  onRenameStart={extraWorkspaceItem ? undefined : () => actions.openProjectEditDialog(projectKey)}
+                  onClose={extraWorkspaceItem ? undefined : () => actions.removeProject(projectKey)}
                   sentinelRef={(el) => { model.projectHeaderSentinelRefs.current.set(renderKey, el); }}
                   showCreateButtons
                  >
