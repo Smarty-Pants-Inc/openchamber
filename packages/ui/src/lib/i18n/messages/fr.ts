@@ -1648,6 +1648,7 @@ export const dict = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': 'Desktop n\'a pas pu accorder l\'accès aux fichiers.',
   'directoryExplorerDialog.toast.addedProjects': '{count} projet(s) ajouté(s)',
   'directoryExplorerDialog.toast.failedToAddProject': 'Échec de l\'ajout du projet',
+  'projects.managedCatalog.staleSelection': 'Le projet enregistré {saved} ne figure pas dans le catalogue actif. Affichage de {shown}.',
   'directoryExplorerDialog.toast.cloneUrlRequired': 'Entrez dans un dépôt URL avant le clonage.',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': 'Veuillez sélectionner un chemin de répertoire valide.',
   'directoryExplorerDialog.toast.failedToSelectDirectory': 'Échec de la sélection du répertoire',

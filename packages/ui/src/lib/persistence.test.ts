@@ -960,7 +960,7 @@ describe('updateDesktopSettings', () => {
       if (writeInFlight) readsDuringWrite += 1;
       return { settings: structuredClone(server), source: 'web', revision };
     });
-    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [] });
+    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [], managedCatalogStatus: 'stock' });
     useDirectoryStore.setState({ currentDirectory: home.path, homeDirectory: home.path });
     opencodeClient.setDirectory(home.path);
     const transitions: string[] = [];
@@ -1033,7 +1033,7 @@ describe('updateDesktopSettings', () => {
       }
       return { settings, source: 'web', revision: '"before"' };
     });
-    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [] });
+    useProjectsStore.setState({ projects: [home], activeProjectId: home.id, manualProjectOrder: [], managedCatalogStatus: 'stock' });
     useDirectoryStore.setState({ currentDirectory: home.path, homeDirectory: home.path });
     opencodeClient.setDirectory(home.path);
     const transitions: string[] = [];

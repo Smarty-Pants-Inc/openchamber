@@ -40,5 +40,6 @@ test('actual SDK preserves the unqualified catalog marker; marked empty and fail
   await refreshManagedProjects(true);
   expect(useProjectsStore.getState().managedCatalogStatus).toBe('unavailable');
   expect(useProjectsStore.getState().managedRows).toEqual([]);
-  expect(paths).toEqual(['/project', '/experimental/session', '/project']);
+  // A failed catalog read is retried twice before it counts as unavailable (#126 item 12).
+  expect(paths).toEqual(['/project', '/experimental/session', '/project', '/project', '/project']);
 });

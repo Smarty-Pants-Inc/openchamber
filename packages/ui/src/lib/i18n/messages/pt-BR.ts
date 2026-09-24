@@ -1869,6 +1869,7 @@ export const dict: Record<I18nKey, string> = {
   "directoryExplorerDialog.toast.desktopCouldNotGrantAccess": "O desktop não pôde conceder acesso ao arquivo.",
   "directoryExplorerDialog.toast.addedProjects": "Foram adicionados {count} projeto(s)",
   "directoryExplorerDialog.toast.failedToAddProject": "Não foi possível adicionar o projeto",
+  "projects.managedCatalog.staleSelection": "O projeto salvo {saved} não está no catálogo ativo. Exibindo {shown}.",
   "directoryExplorerDialog.toast.cloneUrlRequired": "Insira uma URL de repositório antes de clonar.",
   "directoryExplorerDialog.toast.selectValidDirectoryPath": "Selecione um caminho de diretório válido.",
   "directoryExplorerDialog.toast.failedToSelectDirectory": "Não foi possível selecionar o diretório",

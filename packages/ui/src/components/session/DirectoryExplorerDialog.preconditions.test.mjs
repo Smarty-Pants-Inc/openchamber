@@ -56,7 +56,9 @@ async function mount(home, member) {
   await act(async () => { root.render(null); await tick(); });
   filesystemHome = home;
   useDirectoryStore.setState({ homeDirectory: home, currentDirectory: '', isHomeReady: Boolean(home), hasPersistedDirectory: false });
-  useProjectsStore.setState({ projects: member ? [{ id: 'owned', path: owned, label: 'Owned', addedAt: 1 }] : [], activeProjectId: null });
+  // A stock (unmanaged) catalog: the only mode that offers this dialog (smarty-code#126 item 8).
+  useProjectsStore.setState({ projects: member ? [{ id: 'owned', path: owned, label: 'Owned', addedAt: 1 }] : [], activeProjectId: null,
+    managedCatalogStatus: 'stock', managedCatalogAdmitted: false });
   await act(async () => { root.render(React.createElement(I18nProvider, null,
     React.createElement(DirectoryExplorerDialog, { open: true, onOpenChange() {} }))); await tick(); });
   await act(tick);

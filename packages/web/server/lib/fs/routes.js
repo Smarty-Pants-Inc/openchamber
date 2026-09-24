@@ -1,4 +1,5 @@
 import { createRealpathCache } from '../path-realpath-cache.js';
+import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-catalog-guard.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 
@@ -221,6 +222,9 @@ const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDi
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
+// The same inputs resolveProjectDirectory reads before it falls back to saved settings.
+const hasExplicitProjectDirectory = (req) => Boolean(req.get('x-opencode-directory') || req.query?.directory);
+
 /** Resolve the existing part of a target through realpath and keep the part not created yet. A dangling
  * link on the way is refused (null): it could be recreated to point anywhere. */
 const canonicalizeForCreate = async (target, { fsPromises, path }) => {
@@ -357,7 +361,7 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
-const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots }) => {
+const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots, worktrees = true }) => {
   const resolvedProject = await resolveProjectDirectory(req);
   if (!resolvedProject.directory) {
     return { ok: false, error: resolvedProject.error || 'Active workspace is required' };
@@ -399,6 +403,7 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
     }
   }
 
+  if (!worktrees) return resolved;
   return resolveWorkspacePathFromWorktrees({
     targetPath,
     baseDirectory: resolvedProject.directory,
@@ -632,6 +637,9 @@ export const registerFsRoutes = (app, dependencies) => {
     resolveGitBinaryForSpawn,
     openchamberUserConfigRoot,
     managedChatsRoot,
+    env = process.env,
+    // Managed only: is this directory a live catalog row? Throws when the catalog cannot be read.
+    isLiveManagedDirectory = async () => false,
   } = dependencies;
   if (typeof resolveGitBinaryForSpawn === 'function') gitBinaryForSpawn = resolveGitBinaryForSpawn;
   // Chat worktrees may live outside every project workspace; both managed
@@ -832,28 +840,46 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Path is required' });
       }
 
-      let resolvedPath = '', createPath = '';
       if (allowOutsideWorkspace) {
         console.warn('Rejected outside-workspace mkdir without trusted directory grant');
         return res.status(403).json({ error: 'Outside workspace directory creation requires a grant' });
-      } else {
-        const resolved = await resolveWorkspacePathFromContext({
+      }
+      // Managed catalog: only an explicit directory that is a live catalog row is a base, never the
+      // saved lastDirectory/activeProjectId fallback or a supplied header alone (#126 item 8). Chat
+      // creation sends no directory, so otherwise the chats root is the only valid target. A catalog
+      // read failure admits no base (fail closed). The project is resolved once: the admitted
+      // resolution is the one used below, and only it and the chats root are grants (no config root,
+      // no sibling worktree that was not itself checked).
+      const managed = isManagedCatalog(env);
+      const admitted = managed && hasExplicitProjectDirectory(req)
+        ? await resolveProjectDirectory(req)
+          .then(async (project) => (project.directory && await isLiveManagedDirectory(project.directory) ? project : null))
+          .catch(() => null)
+        : null;
+      const chatsOnly = managed && !admitted;
+      const roots = managed ? [chatsRoot] : managedRoots;
+      const resolved = chatsOnly
+        ? resolveWorkspacePath({ targetPath: dirPath, baseDirectory: chatsRoot, path, os, normalizeDirectoryPath, managedRoots: [] })
+        : await resolveWorkspacePathFromContext({
           req,
           targetPath: dirPath,
-          resolveProjectDirectory,
+          resolveProjectDirectory: admitted ? async () => admitted : resolveProjectDirectory,
           path,
           os,
           normalizeDirectoryPath,
-          managedRoots,
+          managedRoots: roots,
+          worktrees: !managed,
         });
-        if (!resolved.ok) {
-          return res.status(400).json({ error: resolved.error });
-        }
-        resolvedPath = resolved.resolved;
-        createPath = await containedPath(resolved, { fsPromises, path, os, managedRoots });
-        if (!createPath) {
-          return res.status(403).json({ error: LEAVES_WORKSPACE });
-        }
+      if (!resolved.ok) {
+        return chatsOnly
+          ? res.status(403).json({ error: MANAGED_CATALOG_REFUSAL })
+          : res.status(400).json({ error: resolved.error });
+      }
+      const resolvedPath = resolved.resolved;
+      const createPath = await containedPath(resolved, { fsPromises, path, os, managedRoots: roots });
+      if (!createPath) {
+        console.warn('Rejected mkdir that leaves its workspace through a symbolic link');
+        return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
 
       await fsPromises.mkdir(createPath, { recursive: true });

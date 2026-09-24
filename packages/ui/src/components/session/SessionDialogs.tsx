@@ -21,10 +21,11 @@ import { getWorktreeDisplayName, removeProjectWorktree } from '@/lib/worktrees/w
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { canAddProjects, useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { resolveProjectAddAllowed } from '@/lib/managed-project-add';
 import { useI18n } from '@/lib/i18n';
 import { isVSCodeRuntime } from '@/lib/desktop';
 
@@ -76,6 +77,8 @@ export const SessionDialogs: React.FC = () => {
     const projects = useProjectsStore(visibleProjects);
     // VS Code does not run managed catalog discovery; keep its existing empty prompt.
     const catalogResolved = useProjectsStore(s => s.managedCatalogStatus === 'stock' || s.managedCatalogStatus === 'ready') || isVSCodeRuntime();
+    // A live managed catalog is the only project source; adding a project is not offered (#126 item 8).
+    const managedCatalog = useProjectsStore(s => s.managedCatalogAdmitted);
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const useMobileOverlay = isMobile || isTablet || hasTouchInput;
@@ -118,7 +121,7 @@ export const SessionDialogs: React.FC = () => {
     // Session loading is handled by sync bootstrap — no manual loadSessions needed.
 
     React.useEffect(() => {
-        if (hasShownInitialDirectoryPrompt || !isHomeReady || !catalogResolved || projects.length > 0) {
+        if (hasShownInitialDirectoryPrompt || !isHomeReady || !catalogResolved || managedCatalog || projects.length > 0) {
             return;
         }
 
@@ -128,6 +131,7 @@ export const SessionDialogs: React.FC = () => {
     }, [
         hasShownInitialDirectoryPrompt,
         catalogResolved,
+        managedCatalog,
         isHomeReady,
         projects.length,
     ]);
@@ -206,9 +210,21 @@ export const SessionDialogs: React.FC = () => {
 
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {
-            setIsDirectoryDialogOpen(true);
+            // Only an affirmatively stock catalog (or VS Code) offers add; see canAddProjects (#126 item 8).
+            if (canAddProjects(useProjectsStore.getState())) {
+                setIsDirectoryDialogOpen(true);
+                return;
+            }
+            if (useProjectsStore.getState().managedCatalogAdmitted) return;
+            // Discovery is unresolved: retry it, then open only on a stock answer.
+            void resolveProjectAddAllowed().then((allowed) => {
+                if (allowed) setIsDirectoryDialogOpen(true);
+                else if (!useProjectsStore.getState().managedCatalogAdmitted) {
+                    toast.info(t('sessions.sidebar.dialogs.deleteResult.tryAgain'));
+                }
+            });
         });
-    }, []);
+    }, [t]);
 
     React.useEffect(() => {
         if (!deleteDialog) {

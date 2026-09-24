@@ -1893,6 +1893,7 @@ export const dict: Record<I18nKey, string> = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': '데스크톱에서 파일 접근 권한을 부여하지 못했습니다.',
   'directoryExplorerDialog.toast.addedProjects': '프로젝트 {count}개 추가됨',
   'directoryExplorerDialog.toast.failedToAddProject': '프로젝트 추가 실패',
+  'projects.managedCatalog.staleSelection': '저장된 프로젝트 {saved}이(가) 라이브 카탈로그에 없습니다. {shown}을(를) 표시합니다.',
   'directoryExplorerDialog.toast.cloneUrlRequired': '복제하기 전에 저장소 URL을 입력하세요.',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': '유효한 디렉터리 경로를 선택하세요.',
   'directoryExplorerDialog.toast.failedToSelectDirectory': '디렉터리 선택 실패',

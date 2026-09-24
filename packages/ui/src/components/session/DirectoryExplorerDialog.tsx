@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { canAddProjects, useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -144,7 +144,15 @@ const resolveFreshFilesystemHome = async (): Promise<string | null> => {
   return opencodeClient.getFilesystemHome().catch(() => null);
 };
 
-export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
+/** Browsing, folder creation and project add exist only on an affirmatively stock catalog (#126 item 8).
+ * Admission or a runtime reset closes an open dialog; its in-flight store add then refuses, and the
+ * managed server refuses folder creation (OPENCHAMBER_MANAGED_CATALOG). */
+export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (props) => {
+  const canAdd = useProjectsStore(canAddProjects);
+  return canAdd ? <StockDirectoryExplorerDialog {...props} /> : null;
+};
+
+const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
   open,
   onOpenChange,
 }) => {

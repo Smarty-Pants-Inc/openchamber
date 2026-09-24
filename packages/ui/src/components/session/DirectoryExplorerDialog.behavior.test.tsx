@@ -35,7 +35,7 @@ mock.module('@/components/ui/MobileOverlayPanel', () => ({ MobileOverlayPanel: p
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
 mock.module('@/components/views/git/GitHeader', () => ({ IdentityDropdown: () => null }));
 mock.module('@/stores/useDirectoryStore', () => ({ useDirectoryStore }));
-mock.module('@/stores/useProjectsStore', () => ({ useProjectsStore: selectProjectState }));
+mock.module('@/stores/useProjectsStore', () => ({ useProjectsStore: selectProjectState, canAddProjects: () => true }));
 mock.module('@/stores/useUIStore', () => ({ useUIStore: select }));
 mock.module('@/stores/useGitIdentitiesStore', () => ({ useGitIdentitiesStore: selectGitIdentity }));
 mock.module('@/sync/session-ui-store', () => ({ useSessionUIStore: selectSessionUi }));

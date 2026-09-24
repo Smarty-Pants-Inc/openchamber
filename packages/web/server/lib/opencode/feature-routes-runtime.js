@@ -26,6 +26,8 @@ import { registerPluginRoutes } from './plugin-routes.js';
 import { getNpmInfo, clearCache as clearNpmCache } from './npm-registry.js';
 import { parseNpmSpec, parsePathSpec, isExactSemver } from './plugin-spec.js';
 import { registerOpenCodeRoutes } from './routes.js';
+import { registerManagedCatalogGuard } from './managed-catalog-guard.js';
+import { createManagedCatalogReader } from './managed-catalog-reader.js';
 import { getProviderSources, removeProviderConfig, upsertProviderConfig } from './providers.js';
 import { getAgentSources, getAgentConfig, createAgent, updateAgent, deleteAgent } from './agents.js';
 import { getCommandSources, createCommand, updateCommand, deleteCommand } from './commands.js';
@@ -137,6 +139,10 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       permissionAutoAcceptRuntime,
       messageQueueRuntime,
     } = routeDependencies;
+
+    // First, so managed refusals precede the project, settings and filesystem routes below.
+    const managedCatalog = createManagedCatalogReader({ buildOpenCodeUrl, getOpenCodeAuthHeaders, fsPromises, path });
+    registerManagedCatalogGuard(app, { readSettingsFromDisk, sanitizeProjects, isLiveDirectory: managedCatalog.isLiveDirectory });
 
     registerSettingsUtilityRoutes(app, {
       readCustomThemesFromDisk,
@@ -335,6 +341,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       resolveGitBinaryForSpawn,
       openchamberUserConfigRoot,
       managedChatsRoot,
+      isLiveManagedDirectory: managedCatalog.isLiveDirectory,
     });
   };
 
