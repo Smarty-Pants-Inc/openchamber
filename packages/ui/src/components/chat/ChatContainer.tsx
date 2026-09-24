@@ -63,6 +63,7 @@ import {
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
+import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -1638,7 +1639,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         </div>
                     </>
                 )}
-                {promptReadOnly ? (
+                {sessionMessageLoadState.readOnly ? (
+                    <FleetViewOnlyBanner />
+                ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
                     <ChatInput

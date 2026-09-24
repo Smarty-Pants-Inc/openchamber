@@ -43,6 +43,8 @@ export type SessionMessageLoadState = {
   generation: number
   updatedAt: number | undefined
   ordinaryView?: string
+  /** Smarty gateway (#181): a fleet session shown view-only until it is enrolled. */
+  readOnly?: boolean
 }
 
 type LoaderEntry = {
@@ -65,6 +67,7 @@ type FetchedPage = {
   cursor: string | undefined
   complete: boolean
   ordinaryView?: string
+  readOnly: boolean
   viewEpoch: number
 }
 
@@ -705,7 +708,8 @@ export class SessionMessageLoader {
         throw new Error("Invalid ordinary history view")
       }
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
-      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, viewEpoch }
+      const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
+      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -768,7 +772,7 @@ export class SessionMessageLoader {
     if (mode !== "prepend") {
       entry.ordinary ||= page.ordinaryView !== undefined
       entry.resetHistory = false
-      this.patchEntry(entry, { ordinaryView: page.ordinaryView })
+      this.patchEntry(entry, { ordinaryView: page.ordinaryView, readOnly: page.readOnly })
     }
     return { messages: materialized.messages }
   }
