@@ -26,8 +26,10 @@ const TRANSIENT_MESSAGES = [
   "request timed out",
 ]
 
-function isTransientError(error: unknown): boolean {
+export function isTransientError(error: unknown): boolean {
   if (!error) return false
+  // A server that says the failure is not retryable is answered now, not after backoff.
+  if ((error as { retryable?: unknown }).retryable === false) return false
   const message = String(error instanceof Error ? error.message : error).toLowerCase()
   if (TRANSIENT_MESSAGES.some((m) => message.includes(m))) return true
   // Any HTTP 5xx is considered transient — server-side issues during warmup

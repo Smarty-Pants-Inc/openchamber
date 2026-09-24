@@ -94,14 +94,19 @@ const isUserMessage = (message: Message): boolean => {
 
 const hasUserMessage = (messages: Message[]): boolean => messages.some(isUserMessage)
 
+/** The server's own explanation, including the gateway's `{ name, data: { message } }` errors. */
+export const serverErrorMessage = (error: unknown): string | null => {
+  if (typeof error === "string") return error || null
+  if (!error || typeof error !== "object") return null
+  const record = error as { message?: unknown; data?: { message?: unknown } }
+  if (typeof record.data?.message === "string" && record.data.message) return record.data.message
+  if (typeof record.message === "string" && record.message) return record.message
+  return null
+}
+
 const formatSdkError = (error: unknown): string => {
   if (error instanceof Error) return error.message
-  if (typeof error === "string") return error
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message
-    if (typeof message === "string" && message) return message
-  }
-  return "Session messages could not be loaded"
+  return serverErrorMessage(error) ?? "Session messages could not be loaded"
 }
 
 const assertSdkSuccess = (result: {
@@ -111,8 +116,11 @@ const assertSdkSuccess = (result: {
   if (!result.error) return
   const status = result.response?.status
   const message = `${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`
-  const error = new Error(message) as Error & { status?: number }
+  const error = new Error(message) as Error & { status?: number; serverMessage?: string; retryable?: boolean }
   if (status !== undefined) error.status = status
+  const serverMessage = serverErrorMessage(result.error)
+  if (serverMessage) error.serverMessage = serverMessage
+  if ((result.error as { data?: { isRetryable?: unknown } } | null)?.data?.isRetryable === false) error.retryable = false
   throw error
 }
 
