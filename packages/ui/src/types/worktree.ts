@@ -14,6 +14,9 @@ export interface WorktreeMetadata {
 
   label: string;
 
+  /** Herdr workspace order of a managed catalog child (#126): Herdr lists a block's children in this order. */
+  herdrOrder?: number;
+
   /** SDK worktree name (slug), if available. */
   name?: string;
 

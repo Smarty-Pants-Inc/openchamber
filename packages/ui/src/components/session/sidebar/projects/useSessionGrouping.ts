@@ -2,6 +2,7 @@ import { matchesRankQuery } from '@/lib/search/fuzzySearch';
 import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
 import type { WorktreeMetadata } from '@/types/worktree';
+import { byHerdrOrder } from '@/lib/managed-project-catalog';
 import type { SessionGroup, SessionNode } from '../types';
 import {
   dedupeSessionsById,
@@ -205,6 +206,9 @@ export const useSessionGrouping = (args: Args) => {
 
       // Sort populated worktrees by shared session activity, then empty ones by label.
       const sortedWorktrees = [...availableWorktrees].sort((a, b) => {
+        // Managed catalog children keep Herdr's order (#126); other worktrees sort as before.
+        const herdr = byHerdrOrder(a, b);
+        if (herdr !== 0) return herdr;
         const aDir = normalizePath(a.path) ?? a.path;
         const bDir = normalizePath(b.path) ?? b.path;
         const aInfo = worktreeActivityInfo.get(aDir) ?? { hasActiveSession: false, lastUpdatedAt: 0 };

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { managedActiveProject, managedProjectView, nestManagedProjects, readManagedCatalog } from './managed-project-catalog';
+import { byHerdrOrder, managedActiveProject, managedProjectView, nestManagedProjects, readManagedCatalog } from './managed-project-catalog';
 
 const reply = (marked = true, status = 200) => new Response(null, {
   status, headers: marked ? { 'X-Smarty-Code-Catalog': 'managed-v1' } : {},
@@ -67,9 +67,16 @@ describe('managed-v1 nesting', () => {
     const nested = nestManagedProjects(view, discovered);
     expect(nested.topLevel.map(p => p.path)).toEqual(['/p/herdr']);
     expect(nested.worktreesByProject.get('/p/herdr')).toEqual([
-      { path: '/p/herdr/worktrees/upstream-0.9', projectDirectory: '/p/herdr', branch: 'upstream-0.9', label: 'herdr-upstream-0.9' },
+      { path: '/p/herdr/worktrees/upstream-0.9', projectDirectory: '/p/herdr', branch: 'upstream-0.9', label: 'herdr-upstream-0.9', herdrOrder: 0 },
     ]);
     expect(discovered.get('/p/herdr')![0]!.label).toBe('upstream-0.9');
     expect(nestManagedProjects(managedProjectView([root], []), new Map()).topLevel).toHaveLength(1);
+  });
+  test('children keep Herdr order ahead of other worktrees', () => {
+    const second = { id: 'c2', worktree: '/p/herdr/worktrees/a-second', name: 'a-second', parent: '/p/herdr' };
+    const nested = nestManagedProjects(managedProjectView([root, child, second], []), new Map([['/p/herdr',
+      [{ path: '/p/herdr/worktrees/unpublished', projectDirectory: '/p/herdr', branch: 'x', label: 'aaa' }]]]));
+    const sorted = [...nested.worktreesByProject.get('/p/herdr')!].sort(byHerdrOrder).map(meta => meta.label);
+    expect(sorted).toEqual(['herdr-upstream-0.9', 'a-second', 'aaa']);
   });
 });
