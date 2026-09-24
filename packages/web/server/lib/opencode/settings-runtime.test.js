@@ -445,4 +445,24 @@ describe('settings runtime', () => {
       await cleanup();
     }
   });
+
+  it('keeps a saved bookmark whose folder is briefly absent across an unrelated edit; only omission removes it', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime({ mergePersistedSettings: (current, changes) => ({ ...current, ...changes }) });
+    try {
+      const [a, b] = ['a', 'b'].map((name) => path.join(tempRoot, name));
+      await fsPromises.mkdir(a); await fsPromises.mkdir(b);
+      const project = (dir, label) => ({ id: createProjectIdFromPath(dir), path: dir, label });
+      await runtime.persistSettings({ projects: [project(a, 'A'), project(b, 'B')], activeProjectId: project(a).id });
+      await fsPromises.rm(b, { recursive: true }); // B's worktree is being recreated.
+      await runtime.persistSettings({ projects: [project(a, 'Renamed A'), project(b, 'B')] });
+      expect((await runtime.readSettingsFromDisk()).projects.map((entry) => entry.label)).toEqual(['Renamed A', 'B']);
+      const missingNew = path.join(tempRoot, 'never-created'); // A new path must still exist to be added.
+      await runtime.persistSettings({ projects: [project(a, 'Renamed A'), project(b, 'B'), project(missingNew, 'N')] });
+      expect((await runtime.readSettingsFromDisk()).projects.map((entry) => entry.label)).toEqual(['Renamed A', 'B']);
+      await runtime.persistSettings({ projects: [project(a, 'Renamed A')] }); // Explicit removal.
+      expect((await runtime.readSettingsFromDisk()).projects.map((entry) => entry.label)).toEqual(['Renamed A']);
+    } finally {
+      await cleanup();
+    }
+  });
 });
