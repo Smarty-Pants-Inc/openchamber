@@ -29,6 +29,16 @@ describe('managed Chats runtime visibility', () => {
 })
 
 describe('listGlobalSessionPages', () => {
+  test('a superseded read stops before its next page', async () => {
+    let calls = 0, current = true
+    const page = (n: number) => Array.from({ length: 2 }, (_, i) => ({ id: `ses_${n}_${i}`, directory: '/repo', title: 't', time: { created: 1, updated: 10 - n } }))
+    const apiClient = { experimental: { session: { list: async () => {
+      calls += 1; current = false
+      return { data: page(calls), response: new Response('[]') }
+    } } } } as unknown as OpencodeClient
+    await expect(listGlobalSessionPages(apiClient, { archived: false, pageSize: 2, ungated: true, isCurrent: () => current })).rejects.toThrow('Superseded')
+    expect(calls).toBe(1)
+  })
   test('an ungated bootstrap list does not wait behind saturated background work', async () => {
     expect(getBackgroundNetworkState().active).toBe(0)
     const releases: Array<() => void> = []

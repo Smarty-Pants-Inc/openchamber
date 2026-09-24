@@ -38,7 +38,8 @@ mock.module('@/stores/useProjectsStore', () => ({
 mock.module('@/stores/useGlobalSessionsStore', () => ({ useGlobalSessionsStore: {
   getState: () => ({ applyManagedSessions: () => { sessionsPublished++; } }),
 } }));
-mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: () => sessionRead() }));
+let sessionReadOptions: unknown;
+mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: (_sdk: unknown, options: unknown) => { sessionReadOptions = options; return sessionRead(); } }));
 mock.module('@/stores/utils/vscodeRuntime', () => ({ isVSCodeRuntime: () => false }));
 const { refreshManagedProjects } = await import('./managed-project-refresh');
 const { resolveProjectAddAllowed } = await import('./managed-project-add');
@@ -56,6 +57,11 @@ test('success publishes, lost marker preserves membership as unavailable', async
   await refreshManagedProjects();
   expect(status).toBe('unavailable'); expect(publications).toEqual([[row]]);
   expect(sessionsPublished).toBe(1);
+});
+
+test('the membership read does not wait behind background polls', async () => {
+  await refreshManagedProjects(true);
+  expect(sessionReadOptions).toMatchObject({ archived: true, ungated: true });
 });
 
 test('successful empty publishes only after a successful global read', async () => {
