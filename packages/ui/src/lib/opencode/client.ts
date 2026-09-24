@@ -979,9 +979,11 @@ class OpencodeService {
     const viewTarget = { directory: requestDirectory ?? '', sessionID: params.id };
     let ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
     // Each send revokes the view, and the reply's session.idle refreshes it. A send before that read lands would go
-    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first.
+    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first, at most 5 s;
+    // a slower read still ends in the honest 409 rather than a send stuck in "sending".
     if (!ordinaryView && viewLoader?.isOrdinary(viewTarget, viewRuntimeKey)) {
-      await viewLoader.refreshOrdinaryView(viewTarget).catch(() => undefined);
+      await Promise.race([viewLoader.refreshOrdinaryView(viewTarget).catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, 5_000))]);
       ordinaryView = viewLoader.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
     }
     const displayName = params.displayName === undefined ? undefined : displayNameSchema.parse(params.displayName);
