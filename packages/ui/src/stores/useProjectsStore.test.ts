@@ -96,10 +96,11 @@ describe("bootstrap active pointer while discovery is pending", () => {
 })
 
 describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
-  const hold = () => {
+  const hold = (remembered?: string) => {
     useProjectsStore.getState().resetManagedCatalog()
     useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
-    getDeferredSafeStorage().removeItem("oc.browser.lastDirectory")
+    if (remembered) getDeferredSafeStorage().setItem("oc.browser.lastDirectory", remembered)
+    else getDeferredSafeStorage().removeItem("oc.browser.lastDirectory")
     const raw = { projects: [{ path: "/repo-a" }, { path: "/repo-b" }] } as DesktopSettings
     useProjectsStore.getState().synchronizeFromSettings(raw, { adoptActiveProject: false })
     const [first, second] = useProjectsStore.getState().projects
@@ -112,6 +113,18 @@ describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
       const { second } = hold()
       if (choice === "setActiveProject") useProjectsStore.getState().setActiveProject(second.id)
       else { useDirectoryStore.getState().setDirectory(second.path); useProjectsStore.setState({ activeProjectId: second.id }) }
+      useProjectsStore.setState({ managedCatalogStatus: "stock" })
+      expect(useProjectsStore.getState().activeProjectId).toBe(second.id)
+    } finally { save.mockRestore(); useProjectsStore.getState().resetManagedCatalog() }
+  })
+  test("choosing the directory already shown still discards the held pointer", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      // This browser already remembered /repo-b when the bootstrap held A's pointer.
+      const { second } = hold("/repo-b")
+      // The user explicitly chooses that same directory: the remembered path does not change, the choice still counts.
+      useDirectoryStore.getState().setDirectory(second.path)
+      useProjectsStore.setState({ activeProjectId: second.id })
       useProjectsStore.setState({ managedCatalogStatus: "stock" })
       expect(useProjectsStore.getState().activeProjectId).toBe(second.id)
     } finally { save.mockRestore(); useProjectsStore.getState().resetManagedCatalog() }

@@ -11,7 +11,7 @@ import type { DesktopSettings } from '@/lib/desktop';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { getDeferredSafeStorage } from './utils/safeStorage';
-import { BROWSER_LAST_DIRECTORY_KEY, useDirectoryStore } from './useDirectoryStore';
+import { BROWSER_LAST_DIRECTORY_KEY, getExplicitDirectoryChoices, useDirectoryStore } from './useDirectoryStore';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -91,7 +91,7 @@ interface ProjectsStore {
 // A bootstrap's shared active pointer held while discovery is pending: a one-shot for the runtime and the
 // local choice it was held under. A stock answer, or a discovery failure (the stock rule), adopts it; a managed
 // catalog, any newer explicit selection and a runtime reset discard it (review/astra on OC#159).
-type HeldBootstrapPointer = { id: string | null; runtimeKey: string; browserChoice: string | null };
+type HeldBootstrapPointer = { id: string | null; runtimeKey: string; explicitChoices: number };
 let heldBootstrapPointer: HeldBootstrapPointer | null = null;
 const discardHeldBootstrapPointer = (): void => { heldBootstrapPointer = null; };
 
@@ -1184,7 +1184,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       // stock answer; a managed catalog selects its remembered project on admission instead.
       if (adoptActiveProject && current.managedCatalogStatus === 'unknown') {
         heldBootstrapPointer = { id: incomingActive, runtimeKey: getRuntimeKey(),
-          browserChoice: safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY) };
+          explicitChoices: getExplicitDirectoryChoices() };
         // A pointer to a project no longer listed is dropped, never replaced by the held shared one.
         const keptActive = current.activeProjectId && incomingIds.has(current.activeProjectId) ? current.activeProjectId : null;
         const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
@@ -1283,7 +1283,7 @@ useProjectsStore.subscribe((state, previous) => {
   heldBootstrapPointer = null;
   // Only for the runtime that held it, and only if this browser made no explicit choice since.
   if (pointer.runtimeKey !== getRuntimeKey()
-    || pointer.browserChoice !== safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY)) return;
+    || pointer.explicitChoices !== getExplicitDirectoryChoices()) return;
   const held = pointer.id;
   if (state.managedCatalogAdmitted || !held || held === state.activeProjectId) return;
   const project = state.projects.find((entry) => entry.id === held);

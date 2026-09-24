@@ -40,6 +40,10 @@ const safeStorage = getDeferredSafeStorage();
  */
 export const BROWSER_LAST_DIRECTORY_KEY = 'oc.browser.lastDirectory';
 
+// Counts explicit directory choices in this page, including choosing the directory already shown.
+let explicitDirectoryChoices = 0;
+export const getExplicitDirectoryChoices = (): number => explicitDirectoryChoices;
+
 /**
  * A browser upgrading from a release without the key keeps its proven local intent: seed the key, before any settings
  * sync runs, from the remembered draft target (a project target), else the local `lastDirectory`. Never from shared
@@ -315,6 +319,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
           if (remember) {
             safeStorage.setItem('lastDirectory', resolvedPath);
             safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, resolvedPath);
+            explicitDirectoryChoices += 1;
             void updateDesktopSettings({ lastDirectory: resolvedPath });
           }
 
@@ -343,6 +348,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
           safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
 
+          explicitDirectoryChoices += 1;
+
           void updateDesktopSettings({ lastDirectory: newDirectory });
 
           set({
@@ -368,6 +375,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
           safeStorage.setItem('lastDirectory', newDirectory);
 
           safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
+
+          explicitDirectoryChoices += 1;
 
           void updateDesktopSettings({ lastDirectory: newDirectory });
 
