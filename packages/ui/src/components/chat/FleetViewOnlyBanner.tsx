@@ -10,7 +10,7 @@ export const FleetViewOnlyBanner: React.FC = () => {
             <div className="chat-input-column">
                 <div className="rounded-2xl border border-border/70 bg-[var(--surface-background)] px-4 py-3 text-center typography-ui-label text-muted-foreground">
                     {t('chat.fleetView.banner')}{' '}
-                    <a className="text-primary underline underline-offset-2" href={FLEET_ENROLLMENT_URL} target="_blank" rel="noreferrer">
+                    <a className="text-primary underline underline-offset-2" href={FLEET_ENROLLMENT_URL} target="_blank" rel="noopener noreferrer">
                         {t('chat.fleetView.enroll')}
                     </a>
                 </div>

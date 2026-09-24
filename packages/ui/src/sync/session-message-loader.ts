@@ -465,7 +465,8 @@ export class SessionMessageLoader {
     this.bumpGeneration(entry)
     entry.inflight = null
     entry.optimistic.clear()
-    entry.snapshot = createDefaultState(entry.snapshot.generation)
+    // Keep the last known read-only marker until a fresh newest page replaces it.
+    entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
     entry.resetHistory = entry.ordinary
     clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     this.notify(entry)
@@ -778,7 +779,8 @@ export class SessionMessageLoader {
   }
 
   private persistCoverage(target: SessionMessageTarget, state: SessionMessageLoadState): void {
-    if (this.entries.get(this.keyFor(target))?.ordinary) {
+    // A read-only view must be re-fetched (not rebuilt from coverage) so its marker is never lost.
+    if (this.entries.get(this.keyFor(target))?.ordinary || state.readOnly) {
       clearSessionPrefetch(target.directory, [target.sessionID], this.runtimeKey)
       return
     }
