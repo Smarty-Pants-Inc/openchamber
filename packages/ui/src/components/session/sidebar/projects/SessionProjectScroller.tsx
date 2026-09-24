@@ -362,7 +362,9 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                          const orderedGroups = section.groups;
                         const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
                         // Root groups: the header's own rows, then a shared checkout's other workspaces (labelled, never sortable).
-                        const roots = orderedGroups.filter((group) => group.isMain);
+                        // The unlabelled head comes first even if a saved order moved it.
+                        const roots = [...orderedGroups.filter((group) => group.isMain && !group.workspaceId),
+                          ...orderedGroups.filter((group) => group.isMain && group.workspaceId)];
                         const nestedGroups = rootGroup
                           ? orderedGroups.filter((group) => !group.isMain)
                           : orderedGroups;
@@ -379,7 +381,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                               if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
                               const nextNested = arrayMove(nestedGroups, oldIndex, newIndex).map((item) => item.id);
                               // Workspace roots keep Herdr's order; only worktree groups are saved as sortable.
-                              const next = rootGroup && !rootGroup.workspaceId ? [rootGroup.id, ...nextNested] : nextNested;
+                              const next = roots.length === 1 && !roots[0]!.workspaceId ? [roots[0]!.id, ...nextNested] : nextNested;
                                  actions.setGroupOrderByProject((prev) => {
                                 const map = new Map(prev);
                                 map.set(projectKey, next);

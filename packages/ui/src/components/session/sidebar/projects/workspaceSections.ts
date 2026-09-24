@@ -17,13 +17,17 @@ export type WorkspaceRenderItem<P> = {
  * own rows; the other workspaces stay labelled child groups, before the linked worktree groups.
  * ponytail: the catalog gives Herdr order within a checkout (`workspaces`) and across rows, not one order across
  * both, so the checkout's other workspaces are placed before its worktrees. That matches Herdr while they were
- * opened first (true for smarty-dev today); revisit if the catalog publishes a block-wide order.
+ * opened first (true for smarty-dev today); revisit if the catalog publishes a block-wide order. The main-workspace-only
+ * view keeps every workspace as a labelled group.
  */
 export function nestSharedCheckout<P extends { id: string }>(sections: readonly Section<P>[]): WorkspaceRenderItem<P>[] {
   return sections.map((section): WorkspaceRenderItem<P> => {
     const workspaceGroups = section.groups.filter((group) => group.isMain && group.workspaceId);
     if (workspaceGroups.length < 2) return { key: section.project.id, section };
-    const head = workspaceGroups[0]!;
+    // Marked where the split is made, so a saved group order or a search filter cannot change the head.
+    // A search that filters the head out keeps the project label, with every workspace labelled.
+    const head = workspaceGroups.find((group) => group.isWorkspaceHead);
+    if (!head) return { key: section.project.id, section };
     return {
       key: section.project.id,
       label: head.label,
