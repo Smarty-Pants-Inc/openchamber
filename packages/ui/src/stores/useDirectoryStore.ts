@@ -18,6 +18,8 @@ interface DirectoryStore {
   hasPersistedDirectory: boolean;
   isHomeReady: boolean;
   isSwitchingDirectory: boolean;
+  /** Live managed catalog rows, published by the projects store; null outside an admitted managed catalog. */
+  managedDirectories: string[] | null;
 
   setDirectory: (path: string, options?: { showOverlay?: boolean }) => void;
   goBack: () => void;
@@ -75,6 +77,12 @@ const resolveDirectoryPath = (path: string, homeDir?: string | null): string => 
   const expanded = resolveTildePath(path, homeDir);
   return normalizeDirectoryPath(expanded);
 };
+
+// While the managed catalog is admitted, restoration or navigation never selects or persists a
+// directory outside its live rows; the catalog keeps its own fallback selection (#126 item 8).
+const isOutsideManagedCatalog = (state: { managedDirectories: string[] | null }, path: string): boolean =>
+  state.managedDirectories !== null
+  && !state.managedDirectories.some((directory) => normalizeDirectoryPath(directory) === path);
 
 const getStoredHomeDirectory = (): string | null => {
   const raw = safeStorage.getItem('homeDirectory');
@@ -262,12 +270,13 @@ export const useDirectoryStore = create<DirectoryStore>()(
       hasPersistedDirectory: initialHasPersistedDirectory,
       isHomeReady: initialIsHomeReady,
       isSwitchingDirectory: false,
+      managedDirectories: null,
 
       setDirectory: (path: string, options?: { showOverlay?: boolean }) => {
         void options;
         const homeDir = cachedHomeDirectory || get().homeDirectory || safeStorage.getItem('homeDirectory');
         const resolvedPath = resolveDirectoryPath(path, homeDir);
-        if (!resolvedPath) return;
+        if (!resolvedPath || isOutsideManagedCatalog(get(), resolvedPath)) return;
         if (streamDebugEnabled()) {
           console.log('[DirectoryStore] setDirectory called with path:', resolvedPath);
         }
@@ -297,6 +306,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
         if (state.historyIndex > 0) {
           const newIndex = state.historyIndex - 1;
           const newDirectory = state.directoryHistory[newIndex];
+          if (isOutsideManagedCatalog(state, newDirectory)) return;
 
           opencodeClient.setDirectory(newDirectory);
           invalidateFileSearchCache();
@@ -320,6 +330,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
         if (state.historyIndex < state.directoryHistory.length - 1) {
           const newIndex = state.historyIndex + 1;
           const newDirectory = state.directoryHistory[newIndex];
+          if (isOutsideManagedCatalog(state, newDirectory)) return;
 
           opencodeClient.setDirectory(newDirectory);
           invalidateFileSearchCache();
@@ -378,6 +389,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
         const savedLastDirectory = safeStorage.getItem('lastDirectory');
         const hasSavedLastDirectory = typeof savedLastDirectory === 'string' && savedLastDirectory.length > 0;
         const shouldReplaceCurrent =
+          state.managedDirectories === null &&
           !hasSavedLastDirectory &&
           (
             state.currentDirectory === '/' ||

@@ -118,6 +118,7 @@ export const CommandPalette: React.FC = () => {
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
   const projects = useProjectsStore(selectVisibleProjects);
+  const managedCatalog = useProjectsStore((s) => s.managedCatalogAdmitted);
   const effectiveDirectory = useEffectiveDirectory();
   const searchFiles = useFileSearchStore((s) => s.searchFiles);
   const { files: filesApi, git: gitApi } = useRuntimeAPIs();
@@ -193,7 +194,8 @@ export const CommandPalette: React.FC = () => {
           void createWorktreeSession();
         }),
       },
-      {
+      // A live managed catalog is the only project source (#126 item 8).
+      ...(managedCatalog ? [] : [{
         id: 'add-project',
         title: t('commandPalette.item.addProject'),
         icon: <Icon name="folder-add" className="mr-2 h-4 w-4" />,
@@ -201,7 +203,7 @@ export const CommandPalette: React.FC = () => {
         onSelect: run(() => {
           sessionEvents.requestDirectoryDialog();
         }),
-      },
+      }]),
       {
         id: 'toggle-sidebar',
         title: isMobile
@@ -382,6 +384,7 @@ export const CommandPalette: React.FC = () => {
   }, [
     t,
     run,
+    managedCatalog,
     isMobile,
         setSessionSwitcherOpen,
     openNewSessionDraft,

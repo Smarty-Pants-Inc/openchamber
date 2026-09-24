@@ -54,6 +54,20 @@ describe('settings runtime', () => {
     }
   });
 
+  // #126 item 8: a managed catalog never turns a saved lastDirectory into a project.
+  for (const [mode, env, count] of [['stock', {}, 1], ['managed', { OPENCHAMBER_MANAGED_CATALOG: '1' }, 0]]) {
+    it(`legacy lastDirectory migration registers ${count} project(s) in ${mode} mode`, async () => {
+      const { runtime, settingsFilePath, tempRoot, cleanup } = await createRuntime({ env });
+      try {
+        await fsPromises.writeFile(settingsFilePath, JSON.stringify({ lastDirectory: tempRoot }), 'utf8');
+        const settings = await runtime.readSettingsFromDiskMigrated();
+        expect(settings.projects ?? []).toHaveLength(count);
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+
   it('preserves existing theme preferences during theme migration', async () => {
     const { runtime, settingsFilePath, cleanup } = await createRuntime();
     try {
@@ -461,6 +475,28 @@ describe('settings runtime', () => {
       expect((await runtime.readSettingsFromDisk()).projects.map((entry) => entry.label)).toEqual(['Renamed A', 'B']);
       await runtime.persistSettings({ projects: [project(a, 'Renamed A')] }); // Explicit removal.
       expect((await runtime.readSettingsFromDisk()).projects.map((entry) => entry.label)).toEqual(['Renamed A']);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('managed: a missing active project is cleared, never replaced by the first saved bookmark', async () => {
+    const env = { OPENCHAMBER_MANAGED_CATALOG: '1' };
+    const { runtime, tempRoot, cleanup } = await createRuntime({ env, mergePersistedSettings: (current, changes) => ({ ...current, ...changes }) });
+    try {
+      const [stale, live] = ['stale', 'live'].map((name) => path.join(tempRoot, name));
+      await fsPromises.mkdir(stale); await fsPromises.mkdir(live);
+      const project = (dir) => ({ id: createProjectIdFromPath(dir), path: dir });
+      await runtime.persistSettings({ projects: [project(stale), project(live)], activeProjectId: project(live).id });
+      await runtime.persistSettings({ activeProjectId: ` ${project(live).id} ` });
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
+      await runtime.persistSettings({ activeProjectId: project(live).id });
+      await runtime.persistSettings({ projects: [project(stale)] }); // The active bookmark is removed.
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
+      // The deterministic-id migration of a legacy bookmark makes up no pointer either.
+      await runtime.writeSettingsToDisk({ projects: [{ id: 'legacy-id', path: stale }] });
+      expect((await runtime.readSettingsFromDiskMigrated()).activeProjectId).toBeUndefined();
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
     } finally {
       await cleanup();
     }

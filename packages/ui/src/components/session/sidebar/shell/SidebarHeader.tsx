@@ -15,6 +15,7 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
 import { updateDesktopSettings } from '@/lib/persistence';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 
 type Props = {
   hideDirectoryControls: boolean;
@@ -76,6 +77,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
   const projectDisplayMode = useSessionDisplayStore((state) => state.projectDisplayMode);
   const setProjectDisplayMode = useSessionDisplayStore((state) => state.setProjectDisplayMode);
   const isSingleProjectMode = showProjectDisplayControls && projectDisplayMode === 'single';
+  const managedCatalog = useProjectsStore((state) => state.managedCatalogAdmitted);
 
   if (hideDirectoryControls) {
     return null;
@@ -90,7 +92,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
               icon inset inside the 24px buttons so the first glyph lines up
               with the New-session icon above (16px from the sidebar edge). */}
           <div className="ml-[3px] flex items-center gap-1.5">
-            <Tooltip>
+            {!managedCatalog && (<Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
@@ -102,7 +104,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
-            </Tooltip>
+            </Tooltip>)}
 
             <Tooltip>
               <TooltipTrigger asChild>

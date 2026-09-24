@@ -1690,6 +1690,7 @@ export const dict = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': 'Desktop konnte keinen Dateizugriff gewähren.',
   'directoryExplorerDialog.toast.addedProjects': '{count} Projekt(e) hinzugefügt',
   'directoryExplorerDialog.toast.failedToAddProject': 'Fehler beim Hinzufügen des Projekts',
+  'projects.managedCatalog.staleSelection': 'Das gespeicherte Projekt {saved} ist nicht im Live-Katalog. {shown} wird angezeigt.',
   'directoryExplorerDialog.toast.cloneUrlRequired': 'Geben Sie eine Repository-URL ein, bevor Sie klonen.',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': 'Bitte wählen Sie einen gültigen Verzeichnispfad aus.',
   'directoryExplorerDialog.toast.failedToSelectDirectory': 'Fehler beim Auswählen des Verzeichnisses',

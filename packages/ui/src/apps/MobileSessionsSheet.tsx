@@ -1468,7 +1468,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       </Button>
     ) : null;
 
-  const addProjectButton = !editingOrder ? (
+  const addProjectButton = !editingOrder && !managed ? (
     <Button
       type="button"
       variant="chip"
@@ -1526,7 +1526,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             <MobileSessionsEmpty
               title={t('mobile.sessions.empty.noProjectsTitle')}
               description={t('mobile.sessions.empty.noProjectsDescription')}
-              action={
+              action={managed ? undefined : (
                 <button
                   type="button"
                   className="flex items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 typography-ui-label text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -1535,7 +1535,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                   <RiFolderAddLine className="size-4" />
                   {t('sessions.sidebar.header.actions.addProject')}
                 </button>
-              }
+              )}
             />
           ) : hasNoMatches ? (
             <MobileSessionsEmpty

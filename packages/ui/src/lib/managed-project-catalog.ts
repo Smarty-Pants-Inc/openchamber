@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ProjectEntry } from '@/lib/api/types';
 import { createProjectIdFromPath } from '@/lib/projectId';
+import { formatMessage, useI18nStore } from '@/lib/i18n';
+import { toast } from '@/components/ui';
 import type { WorktreeMetadata } from '@/types/worktree';
 
 export const MANAGED_CATALOG_HEADER = 'x-smarty-code-catalog';
@@ -70,4 +72,47 @@ export function nestManagedProjects<P extends Pick<ProjectEntry, 'path' | 'label
 
 export function managedActiveProject(projects: readonly ProjectEntry[], active: string | null): string | null {
   return projects.some(project => project.id === active) ? active : projects[0]?.id ?? null;
+}
+
+const trimSlashes = (path: string) => path.length > 1 ? path.replace(/\/+$/, '') : path;
+
+/** A saved selection the live catalog does not admit: its identities and a display name. */
+type StaleManagedSelection = { identities: string[]; name: string };
+
+// One saved selection may arrive as a cached path first and as a settings project id later, so
+// it is keyed by its saved path (and that path's derived id) whenever the path is known.
+const pathIdentities = (path: string) => [`path:${path}`, `project:${createProjectIdFromPath(path)}`];
+
+/** Check the saved pointers (active project, else last directory), never the presentation selection. */
+export function staleManagedSelection(live: readonly ProjectEntry[], saved: readonly ProjectEntry[],
+  activeProjectId: string | null, lastDirectory: string | null): StaleManagedSelection | null {
+  if (activeProjectId && !live.some(project => project.id === activeProjectId)) {
+    const project = saved.find(entry => entry.id === activeProjectId);
+    const identities = project ? [`project:${activeProjectId}`, ...pathIdentities(trimSlashes(project.path))]
+      : [`project:${activeProjectId}`];
+    return { identities, name: project?.label || project?.path || activeProjectId };
+  }
+  if (!lastDirectory) return null;
+  const path = trimSlashes(lastDirectory);
+  if (live.some(project => trimSlashes(project.path) === path)) return null;
+  const project = saved.find(entry => trimSlashes(entry.path) === path);
+  return { identities: pathIdentities(path), name: project?.label || path };
+}
+
+const notedStaleSelections = new Set<string>();
+/** Tell the user once per runtime and saved identity that the view fell back; nothing is written.
+ * The note waits for the current turn so it names the final selection (session restoration included). */
+export function noteStaleManagedSelection(runtime: string, stale: StaleManagedSelection | null,
+  shown: () => ProjectEntry | undefined) {
+  if (!stale) return;
+  const keys = stale.identities.map(identity => `${runtime}\n${identity}`);
+  if (keys.some(key => notedStaleSelections.has(key))) return;
+  for (const key of keys) notedStaleSelections.add(key);
+  queueMicrotask(() => {
+    const project = shown();
+    // Nothing shown (empty catalog): no truthful note yet; a later publication may give one.
+    if (!project) { for (const key of keys) notedStaleSelections.delete(key); return; }
+    toast.info(formatMessage(useI18nStore.getState().dictionary, 'projects.managedCatalog.staleSelection',
+      { saved: stale.name, shown: project.label || project.path }));
+  });
 }

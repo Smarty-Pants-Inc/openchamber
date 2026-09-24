@@ -1887,6 +1887,7 @@ export const dict: Record<I18nKey, string> = {
   'directoryExplorerDialog.toast.desktopCouldNotGrantAccess': 'デスクトップがファイルアクセスを許可できませんでした。',
   'directoryExplorerDialog.toast.addedProjects': '{count}件のプロジェクトを追加しました',
   'directoryExplorerDialog.toast.failedToAddProject': 'プロジェクトの追加に失敗しました',
+  'projects.managedCatalog.staleSelection': '保存済みのプロジェクト {saved} はライブカタログにありません。{shown} を表示しています。',
   'directoryExplorerDialog.toast.cloneUrlRequired': 'クローンする前にリポジトリURLを入力してください。',
   'directoryExplorerDialog.toast.selectValidDirectoryPath': '有効なディレクトリパスを選択してください。',
   'directoryExplorerDialog.toast.failedToSelectDirectory': 'ディレクトリの選択に失敗しました',

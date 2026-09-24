@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,20 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // smarty-code#126 item 8 adds one copy key to the locale outputs; it is the newest layer, so unwind it first.
+  const managedAdds = historical.files.filter(entry => entry.managedAddSha256);
+  assert.deepEqual(managedAdds.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
+  assert.equal(historical.managedAddSource, 'a5104366fda151b13a679566c9d411e3005f942f');
+  delete historical.managedAddSource;
+  for (const entry of managedAdds) {
+    assert.equal(entry.managedAddSha256, entry.combinedSha256);
+    assert.match(entry.preManagedAddCombinedSha256, /^[a-f0-9]{64}$/);
+    assert.ok(entry.managedAddNote);
+    entry.combinedSha256 = entry.preManagedAddCombinedSha256;
+    delete entry.preManagedAddCombinedSha256;
+    delete entry.managedAddSha256;
+    delete entry.managedAddNote;
+  }
   // The Stop wording change (smarty-code#122) is the newest layer: strip it first, restoring the prior ledger exactly.
   const stopWording = historical.files.filter(entry => entry.stopWordingSha256);
   assert.deepEqual(stopWording.map(entry => entry.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);

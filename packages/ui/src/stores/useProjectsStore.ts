@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import { managedActiveProject, managedProjectView, type ManagedProject, type ManagedCatalogStatus } from '@/lib/managed-project-catalog';
+import {
+  managedActiveProject, managedProjectView, noteStaleManagedSelection, staleManagedSelection,
+  type ManagedProject, type ManagedCatalogStatus,
+} from '@/lib/managed-project-catalog';
 import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -88,6 +91,11 @@ interface ProjectsStore {
 const emptyManagedProjects: ProjectEntry[] = [];
 export const visibleProjects = (state: ProjectsStore): ProjectEntry[] => state.managedCatalogAdmitted
   ? state.managedProjects ?? emptyManagedProjects : state.projects;
+
+/** Add only on an affirmatively stock catalog. Until discovery answers the runtime may be managed.
+ * VS Code never runs catalog discovery and keeps its workspace-folder add (#126 item 8). */
+export const canAddProjects = (state: ProjectsStore): boolean => isVSCodeProjectsRuntime
+  || (!state.managedCatalogAdmitted && state.managedCatalogStatus === 'stock');
 
 // Presentation selection only. setDirectory() would persist settings and is not suitable here.
 function selectManagedDirectory(project: ProjectEntry | undefined) {
@@ -405,21 +413,41 @@ const cacheActiveProjectId = (activeProjectId: string | null) => {
   }
 };
 
-const cacheProjects = (projects: ProjectEntry[], activeProjectId: string | null) => {
+/** `undefined` leaves the cached active pointer untouched. */
+const cacheProjects = (projects: ProjectEntry[], activeProjectId: string | null | undefined) => {
   try {
     safeStorage.setItem(getProjectsStorageKey(), JSON.stringify(projects));
   } catch {
     // ignored
   }
-  cacheActiveProjectId(activeProjectId);
+  if (activeProjectId !== undefined) cacheActiveProjectId(activeProjectId);
 };
 
 const persistProjects = (projects: ProjectEntry[], activeProjectId: string | null, expectedProjects: ProjectEntry[], manualOrder?: string[]) => {
-  cacheProjects(projects, activeProjectId);
   if (manualOrder) {
     persistManualProjectOrder(manualOrder);
   }
+  if (useProjectsStore.getState().managedCatalogAdmitted) {
+    // The managed active project is presentation only; the saved pointer stays as it is (#126 item 8).
+    cacheProjects(projects, undefined);
+    void updateDesktopSettings({ projects }, { expectedProjects });
+    return;
+  }
+  cacheProjects(projects, activeProjectId);
   void updateDesktopSettings({ projects, activeProjectId: activeProjectId ?? undefined }, { expectedProjects });
+};
+
+// Reconcile the saved pointers, not the presentation selection, against the live rows.
+const noteSavedManagedSelection = (activeProjectId: string | null, lastDirectory: string | null) => {
+  const { managedProjects, projects } = useProjectsStore.getState();
+  // The home fallback that the directory store records as lastDirectory is not a saved project.
+  const directory = lastDirectory === useDirectoryStore.getState().homeDirectory ? null : lastDirectory;
+  noteStaleManagedSelection(getProjectsStorageNamespace(),
+    staleManagedSelection(managedProjects ?? [], projects, activeProjectId, directory),
+    () => {
+      const state = useProjectsStore.getState();
+      return state.managedCatalogAdmitted ? state.managedProjects?.find(project => project.id === state.activeProjectId) : undefined;
+    });
 };
 
 const persistManualProjectOrder = (manualOrder: string[]) => {
@@ -607,14 +635,27 @@ export const useProjectsStore = create<ProjectsStore>()(
     managedCatalogStatus: 'unknown',
     managedRows: null,
     managedProjects: null,
-    admitManagedCatalog: () => set({ managedCatalogAdmitted: true }),
-    resetManagedCatalog: () => set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null }),
+    admitManagedCatalog: () => {
+      set({ managedCatalogAdmitted: true });
+      // First marker: deny every directory until rows are published, and leave the pre-discovery
+      // scope unselected. Later markers keep the rows already admitted (#126 item 8).
+      if (useDirectoryStore.getState().managedDirectories !== null) return;
+      useDirectoryStore.setState({ managedDirectories: [] });
+      if (useDirectoryStore.getState().currentDirectory) selectManagedDirectory(undefined);
+    },
+    resetManagedCatalog: () => {
+      set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
+      useDirectoryStore.setState({ managedDirectories: null });
+    },
     applyManagedCatalog: (rows) => {
       const state = get();
       const projects = managedProjectView(rows, state.projects);
       const activeProjectId = managedActiveProject(projects, state.activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
+      useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
       selectManagedDirectory(projects.find(project => project.id === activeProjectId));
+      // Saved settings stay untouched; the live view falls back visibly instead of 403ing (#126 item 8).
+      noteSavedManagedSelection(readPersistedActiveProjectId(), safeStorage.getItem('lastDirectory'));
     },
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
@@ -633,6 +674,8 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     addProject: async (path: string, options?: { label?: string; id?: string }) => {
+      // The live managed catalog is the only project source: no bookmark write, no folder creation.
+      if (!canAddProjects(get())) return null;
       if (isVSCodeProjectsRuntime) {
         // Projects are scoped to VS Code workspace folders in this runtime.
         // Adding a folder through the extension host makes the project appear
@@ -696,6 +739,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     addProjects: async (paths: string[]) => {
+      if (!canAddProjects(get())) return [];
       if (isVSCodeProjectsRuntime) {
         // VS Code paths are added via runtimeApis.vscode.addWorkspaceFolder,
         // which is reached only by addProject. Iterate so valid selections
@@ -1069,6 +1113,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         ? activeProjectId
         : projects[0]?.id ?? null;
       set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
+      useDirectoryStore.setState({ managedDirectories: null });
     },
 
     synchronizeFromSettings: (settings: DesktopSettings, options?: { adoptActiveProject?: boolean }) => {
@@ -1092,6 +1137,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         set({ projects: incomingProjects, managedProjects, activeProjectId });
         cacheProjects(incomingProjects, incomingActive);
         if (managedProjects) selectManagedDirectory(managedProjects.find(project => project.id === activeProjectId));
+        noteSavedManagedSelection(incomingActive, settings.lastDirectory ?? null);
         return;
       }
       const incomingIds = new Set(incomingProjects.map((p) => p.id));
