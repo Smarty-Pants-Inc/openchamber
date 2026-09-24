@@ -36,18 +36,22 @@ export const registerManagedCatalogGuard = (app, {
     if (!projects && !lastDirectory && !activeProjectId) return next();
     try {
       const saved = sanitizeProjects((await readSettingsFromDisk()).projects) || [];
-      if (projects) {
+      const checked = projects ? sanitizeProjects(projects) || [] : null;
+      if (checked) {
         // Each bookmark keeps its saved id and path together: an id cannot be moved onto another saved path.
         const savedIds = new Map(saved.map((project) => [project.path, project.id]));
-        if ((sanitizeProjects(projects) || []).some((project) => savedIds.get(project.path) !== project.id)) return refuse(res);
+        if (checked.some((project) => savedIds.get(project.path) !== project.id)) return refuse(res);
       }
       if (lastDirectory && !(await isLiveDirectory(lastDirectory))) return refuse(res);
       if (activeProjectId) {
         // It must name a bookmark that stays in the list this update leaves, and that bookmark must be live.
-        const kept = projects ? new Set((sanitizeProjects(projects) || []).map((project) => project.id)) : null;
+        const kept = checked ? new Set(checked.map((project) => project.id)) : null;
         const bookmark = saved.find((project) => project.id === activeProjectId && (!kept || kept.has(project.id)));
         if (!bookmark || !(await isLiveDirectory(bookmark.path))) return refuse(res);
       }
+      // Persist exactly the checked (canonical) paths: an alias in the request could be retargeted
+      // while the catalog was read, and must not be resolved again.
+      if (checked) req.body = { ...body, projects: checked };
       return next();
     } catch (error) {
       console.error('[managed-catalog] Failed to check a settings update against the catalog:', error);

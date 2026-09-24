@@ -18,7 +18,7 @@ const gateway = (rows) => vi.fn(async () => (rows === null
   ? new Response('down', { status: 502 })
   : Response.json(rows.map((worktree) => ({ id: worktree, worktree })), { headers: { 'x-smarty-code-catalog': 'managed-v1' } })));
 
-const createApp = (env, liveRows = [liveProject.path]) => {
+const createApp = (env, liveRows = [liveProject.path], overrides = {}) => {
   const app = express();
   app.use(express.json());
   const fsPromises = {
@@ -29,9 +29,9 @@ const createApp = (env, liveRows = [liveProject.path]) => {
   };
   const persistSettings = vi.fn(async (settings) => settings);
   const readSettingsFromDisk = vi.fn(async () => ({ projects: [savedProject, liveProject] }));
-  const sanitizeProjects = (projects) => projects;
+  const sanitizeProjects = overrides.sanitizeProjects ?? ((projects) => projects);
   const spawn = vi.fn();
-  const fetch = gateway(liveRows);
+  const fetch = overrides.fetch ?? gateway(liveRows);
   const { isLiveDirectory } = createManagedCatalogReader({
     buildOpenCodeUrl: (route) => `http://gateway${route}`, getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer test' }), fetch,
   });
@@ -121,6 +121,19 @@ describe('managed catalog server boundary', () => {
     await request(app).put('/api/config/settings').send({ lastDirectory: liveProject.path }).expect(503);
     await request(app).put('/api/config/settings').send({ activeProjectId: liveProject.id }).expect(503);
     expect(persistSettings).not.toHaveBeenCalled();
+  });
+
+  it('persists the checked canonical paths, not an alias retargeted during the catalog read', async () => {
+    let aliasTarget = liveProject.path; // `/alias` is a link to the live project until the read is pending.
+    const resolve = (target) => (target === '/alias' ? aliasTarget : target);
+    const sanitizeProjects = (projects) => projects.map((project) => ({ ...project, path: resolve(project.path) }));
+    const live = gateway([liveProject.path]);
+    const fetch = vi.fn(async (...args) => { aliasTarget = '/c'; return live(...args); });
+    const { app, persistSettings } = createApp(managed, undefined, { sanitizeProjects, fetch });
+    const alias = { ...liveProject, path: '/alias' };
+    await request(app).put('/api/config/settings').send({ projects: [savedProject, alias], activeProjectId: liveProject.id }).expect(200);
+    const persisted = persistSettings.mock.calls[0][0];
+    expect(persisted.projects.map((project) => project.path)).toEqual([savedProject.path, liveProject.path]);
   });
 
   it('the catalog reader fails closed on an unmarked or malformed response', async () => {
