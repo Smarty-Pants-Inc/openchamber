@@ -44,7 +44,11 @@ mock.module('@/stores/useProjectsStore', () => ({ useProjectsStore: selectProjec
 mock.module('@/stores/useUIStore', () => ({ useUIStore: select }));
 mock.module('@/stores/useGitIdentitiesStore', () => ({ useGitIdentitiesStore: selectGitIdentity }));
 mock.module('@/sync/session-ui-store', () => ({ useSessionUIStore: selectSessionUi }));
-mock.module('@/hooks/useFileSystemAccess', () => ({ useFileSystemAccess: () => ({ canRequestAccess: false }) }));
+let pickerResolvers: Array<(value: { success: boolean; path?: string }) => void> = [];
+const fileAccess = { canRequestAccess: false,
+  requestAccess: () => new Promise<{ success: boolean; path?: string }>((resolve) => pickerResolvers.push(resolve)),
+  startAccessing: async () => ({ success: true }) };
+mock.module('@/hooks/useFileSystemAccess', () => ({ useFileSystemAccess: () => fileAccess }));
 mock.module('@/lib/device', () => ({ useDeviceInfo: () => ({ isMobile: false }) }));
 mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: () => new Promise<Response>((resolve) => homeResolvers.push(resolve)) }));
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: { getFilesystemHome: async () => null, listLocalDirectory: async () => browseEntries,
@@ -184,6 +188,29 @@ describe('DirectoryExplorerDialog behavior', () => {
       await act(async () => { cloneResolvers[0]!({ path: '/initial-home/repo' }); await Promise.resolve(); });
       expect(added).toEqual([]); // Runtime A's clone is never registered in runtime B.
     } finally {
+      await act(async () => root.unmount());
+      dom.restore();
+    }
+  });
+
+  test('a native folder picker that settles after a runtime switch registers nothing', async () => {
+    const dom = installDom();
+    const root = createRoot(dom.container);
+    homeResolvers = []; pickerResolvers = []; added.length = 0; browseEntries = [];
+    fileAccess.canRequestAccess = true;
+    useDirectoryStore.setState({ homeDirectory: '/initial-home' });
+    try {
+      await act(async () => root.render(<I18nProvider><DirectoryExplorerDialog open onOpenChange={() => {}} /></I18nProvider>));
+      await act(async () => { resolveHomes('/initial-home'); await Promise.resolve(); dom.flushFrames(); });
+      const finder = [...dom.container.querySelectorAll('button')].find((node) => node.textContent === 'Open in Finder');
+      if (!finder) throw new Error('Expected the native picker button');
+      await act(async () => finder.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+      expect(pickerResolvers).toHaveLength(1);
+      await act(async () => { runtimeGeneration++; willChange.forEach((callback) => callback()); });
+      await act(async () => { pickerResolvers[0]!({ success: true, path: '/initial-home/picked' }); await Promise.resolve(); });
+      expect(added).toEqual([]);
+    } finally {
+      fileAccess.canRequestAccess = false;
       await act(async () => root.unmount());
       dom.restore();
     }

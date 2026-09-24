@@ -560,6 +560,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
   const handleOpenInFinder = React.useCallback(async () => {
     if (!canRequestAccess || isOpeningFinder) return;
     setIsOpeningFinder(true);
+    const scope = captureRuntimeRequestScope(); // The native picker can outlive a runtime switch.
     try {
       const result = await requestAccess(targetPath);
       if (!result.success || !result.path) {
@@ -582,6 +583,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       // Clear pending selections so the Finder-sourced target is honored
       // instead of silently being absorbed by the batch branch.
       setSelectedPaths([]);
+      assertRuntimeRequestScope(scope);
       await finalizeSelection(result.path);
     } catch (error) {
       toast.error(t('directoryExplorerDialog.toast.failedToSelectDirectory'), {

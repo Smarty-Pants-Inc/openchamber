@@ -16,7 +16,7 @@ import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { getVSCodeBootstrapConfig } from '@/lib/vscodeBootstrap';
 import { isVSCodeRuntime } from './utils/vscodeRuntime';
 
@@ -1043,6 +1043,8 @@ export const useProjectsStore = create<ProjectsStore>()(
         return { ok: false, error: 'Custom icons are not supported in this runtime' };
       }
 
+      // The response carries that runtime's settings; after a switch it must not replace another runtime's list.
+      const scope = captureRuntimeRequestScope();
       try {
         const response = await runtimeFetch(`/api/projects/${encodeURIComponent(id)}/icon/discover`, {
           method: 'POST',
@@ -1063,6 +1065,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (!response.ok) {
           return { ok: false, error: payload?.error || 'Failed to discover project icon' };
         }
+        if (!isRuntimeRequestScopeCurrent(scope)) return { ok: false, error: 'Runtime request is stale' };
 
         if (payload?.settings) {
           get().synchronizeFromSettings(payload.settings, { adoptActiveProject: false });
