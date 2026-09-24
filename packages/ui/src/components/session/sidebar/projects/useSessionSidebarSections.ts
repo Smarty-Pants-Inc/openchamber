@@ -6,6 +6,7 @@ import { dedupeSessionsById, normalizePath } from '../utils';
 import type { WorktreeMetadata } from '@/types/worktree';
 import type { SessionFoldersMap } from '@/stores/useSessionFoldersStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
+import { splitRootGroupByWorkspace } from './workspaceGroups';
 
 type ProjectItem = {
   id: string;
@@ -16,6 +17,7 @@ type ProjectItem = {
   color?: string;
   iconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' };
   iconBackground?: string;
+  workspaces?: { id: string; label: string }[];
 };
 
 type ProjectSection = {
@@ -168,13 +170,13 @@ export const useSessionSidebarSections = (args: Args) => {
         streamPerfCount(`ui.sidebar.project_section.rebuilt_reason.${reason}`);
       }
       const projectSessions = dedupeSessionsById([...activeSessions, ...archivedSessions]);
-      const groups = buildGroupedSessions(
+      const groups = splitRootGroupByWorkspace(buildGroupedSessions(
         projectSessions,
         project.normalizedPath,
         worktreesForProject,
         rootBranch,
         isRepo,
-      );
+      ), project.workspaces);
       const section = { project, groups };
       nextCache.set(project.id, {
         project,
@@ -291,7 +293,9 @@ export const useSessionSidebarSections = (args: Args) => {
           scopeKey: group.folderScopeKey ?? normalizePath(group.directory ?? null),
           directory: group.directory ?? null,
         }))
-        .filter((scope): scope is { scopeKey: string; directory: string | null } => Boolean(scope.scopeKey));
+        .filter((scope): scope is { scopeKey: string; directory: string | null } => Boolean(scope.scopeKey))
+        // Workspace sub-groups of one checkout share its scope; list each scope once.
+        .filter((scope, index, all) => all.findIndex((other) => other.scopeKey === scope.scopeKey) === index);
       const rootGroup = nonArchivedGroups.find((group) => group.isMain) ?? null;
 
       const flatGroup: SessionGroup = {

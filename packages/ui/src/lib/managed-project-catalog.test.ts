@@ -59,6 +59,7 @@ describe('managed-v1 nesting', () => {
     const parsed = readManagedCatalog(reply(), [root, child, orphan], true)!;
     const view = managedProjectView(parsed, []);
     expect(view.map(p => [p.label, p.parent])).toEqual([['Herdr', undefined], ['herdr-upstream-0.9', '/p/herdr'], ['other', undefined]]);
+    expect(view[0]?.workspaces).toEqual([{ id: 'w4H', label: 'Herdr' }]);
   });
   test('linked worktrees render as worktree groups of their root, not top-level projects', () => {
     const view = managedProjectView([root, child], []);
