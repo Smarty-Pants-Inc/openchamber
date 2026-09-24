@@ -312,6 +312,7 @@ export class ChildStoreManager {
   private isBooting?: (directory: string) => boolean
   private isLoadingSessions?: (directory: string) => boolean
   private bootstrapConcurrency = 2
+  private bootstrapGate: ((directory: string) => "allow" | "wait" | "deny") | null = null
   private bootstrapTimeoutMs = DEFAULT_BOOTSTRAP_TIMEOUT_MS
   private bootstrapGeneration = 0
   private bootstrapSequence = 0
@@ -588,12 +589,29 @@ export class ChildStoreManager {
     ))
   }
 
+  /**
+   * Which queued directories may bootstrap. "wait" holds the queue (a managed catalog is still being discovered);
+   * "deny" drops the directory's queued run and manual demand (not admitted by the managed gateway, #126).
+   */
+  setBootstrapGate(gate: ((directory: string) => "allow" | "wait" | "deny") | null): void {
+    this.bootstrapGate = gate
+    this.pumpBootstrapQueue()
+  }
+
   private pumpBootstrapQueue(): void {
     if (!this.onBootstrap || this.disposed) return
     while (this.runningBootstraps.size < this.bootstrapConcurrency) {
       const next = this.nextBootstrap()
       if (!next) return
+      const verdict = this.bootstrapGate?.(next.directory) ?? "allow"
+      if (verdict === "wait") return
       this.bootstrapQueue.delete(next.directory)
+      if (verdict === "deny") {
+        this.manualBootstrapDemands.delete(next.directory)
+        this.bootstrapStates.delete(next.directory)
+        this.notifyBootstrapSubscribers()
+        continue
+      }
       const token = {}
       const running: RunningBootstrap = {
         ...next,

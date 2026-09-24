@@ -34,9 +34,12 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
   const sample = async () => {
     // This SDK is runtime-scoped, NOT directory-scoped: no directory query/header.
     const sdk = opencodeClient.getSdkClient();
-    // Bounded: startup scoped reads wait for this answer, so a hung read must end as "unavailable", not "unknown".
-    const result = await Promise.race([sdk.project.list(), new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Project catalog read timed out')), DISCOVERY_TIMEOUT_MS))]);
+    // Bounded only for first discovery: startup scoped reads wait for it, so a hung read must end as "unavailable",
+    // not "unknown". A later refresh keeps the published rows while it waits (a slow read is not an outage).
+    const list = sdk.project.list();
+    const result = useProjectsStore.getState().managedCatalogStatus !== 'unknown' ? await list
+      : await Promise.race([list, new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Project catalog read timed out')), DISCOVERY_TIMEOUT_MS))]);
     if (!current()) return;
     if (result.response.ok && result.response.headers.get(MANAGED_CATALOG_HEADER) === MANAGED_CATALOG_VERSION) {
       useProjectsStore.getState().admitManagedCatalog();
