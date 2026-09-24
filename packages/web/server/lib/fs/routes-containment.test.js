@@ -362,3 +362,30 @@ describe('pass-6: batch-file Git overrides', () => {
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 });
+
+describe('pass-7: native .com Git overrides', () => {
+  it('a native .com override without an adjacent .exe runs itself', async () => {
+    const fs = (await import('node:fs/promises')).default, os = await import('node:os');
+    const { execFile, execFileSync } = await import('node:child_process');
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-contain9-')));
+    try {
+      const git = (cwd, ...args) => new Promise((resolve, reject) => execFile('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd },
+        (error) => (error ? reject(error) : resolve())));
+      const repo = path.join(root, 'repo'); await fs.mkdir(repo);
+      await git(repo, 'init', '-q'); await git(repo, 'commit', '-q', '--allow-empty', '-m', 'x');
+      await git(repo, 'worktree', 'add', '-q', path.join(root, 'wt'));
+      const real = execFileSync('sh', ['-c', 'command -v git']).toString().trim(), log = path.join(root, 'used');
+      const shim = path.join(root, 'git-shim.com');
+      await fs.writeFile(shim, `#!/bin/sh\necho com >> ${log}\nexec ${real} "$@"\n`, { mode: 0o755 });
+      const { app, route } = registry();
+      registerFsRoutes(app, {
+        os: { homedir: () => root }, path, fsPromises: fs, spawn: vi.fn(), crypto: { randomUUID: () => 'id-0' },
+        normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: repo }),
+        resolveGitBinaryForSpawn: () => shim, openchamberUserConfigRoot: path.join(root, 'config'),
+      });
+      const res = response(); await route('/api/fs/write')({ body: { path: path.join(root, 'wt', 'ok.txt'), content: 'x' }, query: {}, get: () => null }, res);
+      expect(res.statusCode).toBe(200);
+      expect((await fs.readFile(log, 'utf8')).trim()).toBe('com');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+});

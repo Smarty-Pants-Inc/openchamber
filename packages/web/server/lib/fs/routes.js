@@ -272,15 +272,16 @@ const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
 // The Git executable the server resolved (OPENCHAMBER_GIT_BINARY on Windows); set when the routes are registered.
 let gitBinaryForSpawn = () => 'git';
-/** As the Git service does: a Windows .cmd/.bat/.com override runs through its adjacent .exe (execFile cannot run a batch
- * file), else through PATH's git. */
+/** As the Git service does: a Windows .cmd/.bat/.com override runs through its adjacent .exe; without one, a native .com
+ * runs itself and a batch file (which execFile cannot run) falls back to PATH's git. */
 const gitExecutable = async (path) => {
   const binary = gitBinaryForSpawn();
   const ext = path.extname(binary).toLowerCase();
   if (!['.cmd', '.bat', '.com'].includes(ext)) return binary;
   const exe = binary.slice(0, -ext.length) + '.exe';
   const fs = (await import('node:fs/promises')).default;
-  return await fs.access(exe).then(() => exe, () => 'git');
+  // A native .com runs directly when it has no adjacent .exe (as the Git service keeps it); a batch file cannot.
+  return await fs.access(exe).then(() => exe, () => (ext === '.com' ? binary : 'git'));
 };
 const gitCommonDir = async (directory, path) => {
   const { execFile } = await import('node:child_process');
