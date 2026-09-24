@@ -65,7 +65,8 @@ interface ProjectsStore {
   addProject: (path: string, options?: { label?: string; id?: string }) => Promise<ProjectEntry | null>;
   addProjects: (paths: string[]) => Promise<ProjectEntry[]>;
   removeProject: (id: string) => void;
-  setActiveProject: (id: string, options?: { expectedProjects: ProjectEntry[] }) => void;
+  /** `remember: false` selects without saving lastDirectory: restoring a local choice is not a new one (#113). */
+  setActiveProject: (id: string, options?: { expectedProjects?: ProjectEntry[]; remember?: boolean }) => void;
   setActiveProjectIdOnly: (id: string) => void;
   renameProject: (id: string, label: string) => void;
   updateProjectMeta: (id: string, meta: {
@@ -854,11 +855,12 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
     },
 
-    setActiveProject: (id: string, options?: { expectedProjects: ProjectEntry[] }) => {
+    setActiveProject: (id: string, options?: { expectedProjects?: ProjectEntry[]; remember?: boolean }) => {
       if (get().managedCatalogAdmitted) {
         const target = get().managedProjects?.find(project => project.id === id);
         if (!target) return;
         set({ activeProjectId: id }); selectManagedDirectory(target);
+        if (options?.remember === false) return;
         // Remember the explicit choice: the next bootstrap restores the project at lastDirectory.
         safeStorage.setItem('lastDirectory', target.path); void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
         return;
@@ -1147,7 +1149,10 @@ export const useProjectsStore = create<ProjectsStore>()(
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.
         // The remembered directory wins over the active pointer, which is not saved while the catalog is managed.
-        const rememberedByDirectory = adoptActiveProject ? managedProjectAt(managedProjects ?? [], settings.lastDirectory) : undefined;
+        // This browser's own remembered directory first (local storage); the shared one only when it has none (#113).
+        const rememberedByDirectory = adoptActiveProject
+          ? managedProjectAt(managedProjects ?? [], safeStorage.getItem('lastDirectory')) ?? managedProjectAt(managedProjects ?? [], settings.lastDirectory)
+          : undefined;
         const remembered = rememberedByDirectory ?? (adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
           ? incomingActive : current.activeProjectId);
         const activeProjectId = managedActiveProject(managedProjects ?? [], remembered);

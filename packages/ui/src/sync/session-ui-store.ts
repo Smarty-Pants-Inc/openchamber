@@ -1381,7 +1381,18 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       : null
     const persistedProjectByDir = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, persistedTarget?.directory ?? null)
     const currentDirProject = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, currentDirectory)
-    const persistedProject = persistedProjectById ?? persistedProjectByDir
+    // Before managed discovery answers, a remembered project resolves only by its exact id. The cached view holds
+    // bookmarks, where a nested catalog worktree resolves to its parent by path, so the draft opened on the parent
+    // and then recorded it over the remembered target (smarty-code#113, R3.12). The catalog transfer below
+    // resolves the remembered target among all published rows, children included.
+    const catalogPending = !isVSCodeRuntime() && projectsState.managedCatalogStatus === "unknown"
+    const persistedProject = persistedProjectById ?? (catalogPending ? null : persistedProjectByDir)
+    const implicitOpen = !options?.target && options?.selectedProjectId === undefined
+      && options?.directoryOverride === undefined && !options?.parentID && !options?.bootstrapPendingDirectory
+      && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
+    // Such an open waits for the catalog on the Chat side, even when the catalog is admitted but not yet published.
+    const waitsForRememberedProject = implicitOpen && catalogPending
+      && persistedTarget?.target === "project" && persistedProject === null
 
     // Nothing explicit was asked for: reopen on the side the user last worked
     // on. Only a recorded project target that still resolves to an existing
@@ -1399,7 +1410,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       const hasExplicitProjectTarget = (options?.directoryOverride !== undefined && !explicitDirectoryIsChat)
         || (options?.selectedProjectId !== undefined && options.selectedProjectId !== CHAT_DRAFT_PROJECT_ID)
         || isVSCodeRuntime()
-      target = options?.selectedProjectId === CHAT_DRAFT_PROJECT_ID
+      target = options?.selectedProjectId === CHAT_DRAFT_PROJECT_ID || waitsForRememberedProject
         ? "chat"
         : hasExplicitProjectTarget || restoresProjectTarget || projectsState.managedCatalogAdmitted
           ? "project"
@@ -1450,11 +1461,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // and let the catalog transfer below decide, instead of replacing it with this Chat fallback.
     // Only an open that names no target (automatic or a plain "new session") waits for the catalog;
     // an explicit choice (for example New Chat) is recorded now.
-    const implicitCatalogOpen = !options?.target && options?.selectedProjectId === undefined
-      && options?.directoryOverride === undefined && target === "chat"
-      && !options?.parentID && !options?.bootstrapPendingDirectory
-      && !options?.pendingWorktreeRequestId && !options?.preserveDirectoryOverride
-      && projectsState.managedCatalogStatus === "unknown"
+    const implicitCatalogOpen = implicitOpen && target === "chat" && projectsState.managedCatalogStatus === "unknown"
     const awaitingRememberedProject = implicitCatalogOpen && persistedTarget?.target === "project"
       && persistedProject === null ? persistedTarget : undefined
     if (!awaitingRememberedProject) persistDraftTarget({ projectId: selectedProject?.id ?? null, directory, target })
@@ -2552,10 +2559,10 @@ function observeGlobalDraftCatalog() {
     // applyManagedCatalog publishes the active project's directory. A remembered project
     // selects itself afterwards so the app follows the draft (local, managed branch).
     if (project && project.id !== projects.activeProjectId) {
-      queueMicrotask(() => useProjectsStore.getState().setActiveProject(project.id))
+      queueMicrotask(() => useProjectsStore.getState().setActiveProject(project.id, { remember: false }))
     }
     if (to && project && to !== normalizePath(project.path)) {
-      queueMicrotask(() => { if (to !== useDirectoryStore.getState().currentDirectory) useDirectoryStore.getState().setDirectory(to) })
+      queueMicrotask(() => { if (to !== useDirectoryStore.getState().currentDirectory) useDirectoryStore.getState().setDirectory(to, { remember: false }) })
     }
   })
 }

@@ -113,6 +113,38 @@ test('reload before catalog: automatic open returns to the remembered project th
   expect(mounted.prompts()).toHaveLength(0);
 });
 
+// smarty-code#113 (Release 3.12): the remembered project is a NESTED catalog worktree whose parent is a cached
+// bookmark. Before discovery the cached view resolved the worktree to its parent by path, opened the draft there
+// and recorded the parent over the remembered target. It must wait for the catalog and return to the child.
+for (const admitted of [false, true]) test(`reload before catalog: a remembered nested worktree is restored, not its parent (admitted early: ${admitted})`, async () => {
+  const child = { id: createProjectIdFromPath('/projects/net/.worktrees/child'), path: '/projects/net/.worktrees/child' };
+  const remembered = JSON.stringify({ projectId: child.id, directory: child.path, target: 'project' });
+  mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.setState({ projects: [net], activeProjectId: net.id, managedCatalogStatus: 'unknown' });
+    if (admitted) useProjectsStore.getState().admitManagedCatalog();
+    useSessionUIStore.getState().closeNewSessionDraft();
+    getDeferredSafeStorage().setItem(key, remembered);
+    const slot = createChatDraftIdentity(getRuntimeKey(), child.path, null, -1131);
+    claimChatDraftOwnership(slot); writeChatDraft(slot, 'unsent nested text', []);
+    useDirectoryStore.setState({ currentDirectory: net.path });
+    opencodeClient.setDirectory(net.path);
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  expect(getDeferredSafeStorage().getItem(key)).toBe(remembered);
+  expect(useSessionUIStore.getState().newSessionDraft.selectedProjectId).not.toBe(net.id);
+  await act(async () => useProjectsStore.getState().applyManagedCatalog([
+    { id: 'gateway-net', worktree: net.path }, { id: 'gateway-child', worktree: child.path, parent: net.path },
+  ]));
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  expect({ projectId: draft.selectedProjectId, directory: draft.directoryOverride, target: draft.target })
+    .toEqual({ projectId: child.id, directory: child.path, target: 'project' });
+  expect(JSON.parse(getDeferredSafeStorage().getItem(key)!)).toEqual(JSON.parse(remembered));
+  expect(mounted.text()).toBe('unsent nested text');
+  expect(mounted.creates()).toHaveLength(0);
+  expect(mounted.prompts()).toHaveLength(0);
+});
+
 for (const outcome of ['not admitted', 'stock'] as const) test(`reload before catalog: remembered project ${outcome} falls back to the previous rule`, async () => {
   mounted = await mountedNativeComposer(true, undefined, undefined, parent, () => {
     useProjectsStore.getState().resetManagedCatalog();
