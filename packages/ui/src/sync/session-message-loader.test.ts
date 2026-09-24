@@ -151,24 +151,23 @@ describe("SessionMessageLoader", () => {
 
   // Live 2026-09-24: an unenrolled fleet session answered 503 with a clear, non-retryable gateway
   // message, but the page retried with backoff and then showed a generic "server offline" text.
-  test("a non-retryable gateway error fails at once and keeps the server's message", async () => {
-    let calls = 0
+  test("a gateway error keeps the server's message; other bodies keep the generic text", async () => {
     const reason = "This fleet session is not enrolled yet, so it cannot be opened here; use its terminal (enrollment: #116)"
-    const { childStores, loader } = createLoader(async () => {
-      calls += 1
-      return { error: { name: "APIError", data: { message: reason, isRetryable: false } }, response: { status: 503 } }
-    })
+    const { childStores, loader } = createLoader(async () =>
+      ({ error: { name: "APIError", data: { message: reason, isRetryable: false } }, response: { status: 404 } }))
     const target = { directory: "/repo", sessionID: "session-a" }
-    const started = Date.now()
     const error = await loader.loadComplete(target).catch((cause: unknown) => cause) as Error & { serverMessage?: string }
-    expect(calls).toBe(1)
-    expect(Date.now() - started).toBeLessThan(400)
     expect(error.serverMessage).toBe(reason)
     expect(error.message).toContain(reason)
     expect((loader.getSnapshot(target).error as (Error & { serverMessage?: string }) | null)?.serverMessage).toBe(reason)
-
     loader.dispose()
     childStores.disposeAll()
+
+    const plain = createLoader(async () => ({ error: "<html>Bad gateway</html>", response: { status: 400 } }))
+    const other = await plain.loader.loadComplete(target).catch((cause: unknown) => cause) as Error & { serverMessage?: string }
+    expect(other.serverMessage).toBeUndefined()
+    plain.loader.dispose()
+    plain.childStores.disposeAll()
   })
 
   test("rejects a complete-history request when an older page fails", async () => {

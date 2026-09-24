@@ -94,19 +94,26 @@ const isUserMessage = (message: Message): boolean => {
 
 const hasUserMessage = (messages: Message[]): boolean => messages.some(isUserMessage)
 
-/** The server's own explanation, including the gateway's `{ name, data: { message } }` errors. */
-export const serverErrorMessage = (error: unknown): string | null => {
-  if (typeof error === "string") return error || null
-  if (!error || typeof error !== "object") return null
-  const record = error as { message?: unknown; data?: { message?: unknown } }
-  if (typeof record.data?.message === "string" && record.data.message) return record.data.message
-  if (typeof record.message === "string" && record.message) return record.message
-  return null
+/**
+ * The Smarty gateway's deliberate recovery message (`{ name: 'APIError', data: { message } }`), the same
+ * shape native creation trusts. Other bodies (proxy HTML, plain errors) are never shown to the user.
+ */
+export const gatewayRecoveryMessage = (error: unknown): string | null => {
+  const record = error as { name?: unknown; data?: { message?: unknown } } | null
+  return record && typeof record === "object" && record.name === "APIError"
+    && typeof record.data?.message === "string" && record.data.message ? record.data.message : null
 }
 
 const formatSdkError = (error: unknown): string => {
   if (error instanceof Error) return error.message
-  return serverErrorMessage(error) ?? "Session messages could not be loaded"
+  if (typeof error === "string") return error
+  const recovery = gatewayRecoveryMessage(error)
+  if (recovery) return recovery
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
+  }
+  return "Session messages could not be loaded"
 }
 
 const assertSdkSuccess = (result: {
@@ -116,11 +123,12 @@ const assertSdkSuccess = (result: {
   if (!result.error) return
   const status = result.response?.status
   const message = `${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`
-  const error = new Error(message) as Error & { status?: number; serverMessage?: string; retryable?: boolean }
+  const error = new Error(message) as Error & { status?: number; serverMessage?: string }
   if (status !== undefined) error.status = status
-  const serverMessage = serverErrorMessage(result.error)
+  // ponytail: the gateway marks every error isRetryable:false, so retry policy stays unchanged here;
+  // only its explanation is kept. Terminal-vs-transient needs an accurate gateway signal first.
+  const serverMessage = gatewayRecoveryMessage(result.error)
   if (serverMessage) error.serverMessage = serverMessage
-  if ((result.error as { data?: { isRetryable?: unknown } } | null)?.data?.isRetryable === false) error.retryable = false
   throw error
 }
 
