@@ -650,7 +650,11 @@ export const useProjectsStore = create<ProjectsStore>()(
     applyManagedCatalog: (rows) => {
       const state = get();
       const projects = managedProjectView(rows, state.projects);
-      const activeProjectId = managedActiveProject(projects, state.activeProjectId);
+      // First admission: the remembered directory (shared lastDirectory, mirrored locally) names the project
+      // the user last worked in; the active pointer is not saved while the catalog is managed, so it can be stale.
+      const rememberedDirectory = state.managedCatalogAdmitted ? null : safeStorage.getItem('lastDirectory');
+      const remembered = rememberedDirectory ? projects.find(project => project.path === rememberedDirectory)?.id : undefined;
+      const activeProjectId = managedActiveProject(projects, remembered ?? state.activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
       useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
       selectManagedDirectory(projects.find(project => project.id === activeProjectId));
@@ -1131,8 +1135,11 @@ export const useProjectsStore = create<ProjectsStore>()(
         // A settings echo cannot restore retired membership or a stale active pointer.
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.
-        const remembered = adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
-          ? incomingActive : current.activeProjectId;
+        // The remembered directory wins over the active pointer, which is not saved while the catalog is managed.
+        const rememberedByDirectory = adoptActiveProject && settings.lastDirectory
+          ? managedProjects?.find(project => project.path === settings.lastDirectory)?.id : undefined;
+        const remembered = rememberedByDirectory ?? (adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
+          ? incomingActive : current.activeProjectId);
         const activeProjectId = managedActiveProject(managedProjects ?? [], remembered);
         set({ projects: incomingProjects, managedProjects, activeProjectId });
         cacheProjects(incomingProjects, incomingActive);

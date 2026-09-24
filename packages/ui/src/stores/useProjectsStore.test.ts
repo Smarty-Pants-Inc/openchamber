@@ -146,6 +146,24 @@ describe("managed catalog default project", () => {
   })
 })
 
+describe("managed catalog remembered directory", () => {
+  // R3.4 gate: shared lastDirectory named the smarty-dev checkout, but the stale active pointer selected smarty-code.
+  test("a bootstrap sync prefers the remembered directory over a stale active pointer", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-dev", worktree: "/p/dev" }, { id: "g-code", worktree: "/p/code" }])
+      const [dev, code] = useProjectsStore.getState().managedProjects!
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [], activeProjectId: code!.id, lastDirectory: "/p/dev" } as DesktopSettings, { adoptActiveProject: true })
+      expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
+    } finally {
+      save.mockRestore()
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+})
+
 describe("useProjectsStore.addProjects", () => {
   const resetProjects = () => {
     // Add requires an affirmatively stock catalog (#126 item 8).
