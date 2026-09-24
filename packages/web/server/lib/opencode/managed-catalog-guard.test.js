@@ -99,7 +99,10 @@ describe('managed catalog server boundary', () => {
       { activeProjectId: savedProject.id }, { activeProjectId: 'unknown' },
       { projects: [savedProject, liveProject], activeProjectId: savedProject.id },
       // Persistence stores the raw value, and a pointer to a bookmark this update removes names nothing.
-      { activeProjectId: ` ${liveProject.id} ` }, { projects: [savedProject], activeProjectId: liveProject.id }]) {
+      { activeProjectId: ` ${liveProject.id} ` }, { projects: [savedProject], activeProjectId: liveProject.id },
+      // A live id moved onto a saved but unadmitted path, with or without naming it active.
+      { projects: [{ ...liveProject, path: savedProject.path }], activeProjectId: liveProject.id },
+      { projects: [{ ...liveProject, path: savedProject.path }] }]) {
       const response = await request(app).put('/api/config/settings').send(body).expect(403);
       expect(response.body.error).toContain('managed project catalog');
     }

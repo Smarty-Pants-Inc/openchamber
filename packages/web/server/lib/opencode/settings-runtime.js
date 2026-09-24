@@ -338,7 +338,9 @@ export const createSettingsRuntime = (deps) => {
     }
 
     const currentActiveId = typeof settings.activeProjectId === 'string' ? settings.activeProjectId : '';
-    const nextActiveProjectId = projectIdMap.get(currentActiveId) || currentActiveId || nextProjects[0]?.id;
+    // Explicit ids are remapped; managed mode makes up no first-bookmark pointer (#126 item 8).
+    const nextActiveProjectId = projectIdMap.get(currentActiveId) || currentActiveId
+      || (isManagedCatalog(env) ? undefined : nextProjects[0]?.id);
 
     return {
       settings: {

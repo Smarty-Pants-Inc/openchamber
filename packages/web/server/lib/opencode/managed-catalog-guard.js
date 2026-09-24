@@ -37,8 +37,9 @@ export const registerManagedCatalogGuard = (app, {
     try {
       const saved = sanitizeProjects((await readSettingsFromDisk()).projects) || [];
       if (projects) {
-        const savedPaths = new Set(saved.map((project) => project.path));
-        if ((sanitizeProjects(projects) || []).some((project) => !savedPaths.has(project.path))) return refuse(res);
+        // Each bookmark keeps its saved id and path together: an id cannot be moved onto another saved path.
+        const savedIds = new Map(saved.map((project) => [project.path, project.id]));
+        if ((sanitizeProjects(projects) || []).some((project) => savedIds.get(project.path) !== project.id)) return refuse(res);
       }
       if (lastDirectory && !(await isLiveDirectory(lastDirectory))) return refuse(res);
       if (activeProjectId) {

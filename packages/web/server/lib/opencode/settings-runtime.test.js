@@ -493,6 +493,10 @@ describe('settings runtime', () => {
       await runtime.persistSettings({ activeProjectId: project(live).id });
       await runtime.persistSettings({ projects: [project(stale)] }); // The active bookmark is removed.
       expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
+      // The deterministic-id migration of a legacy bookmark makes up no pointer either.
+      await runtime.writeSettingsToDisk({ projects: [{ id: 'legacy-id', path: stale }] });
+      expect((await runtime.readSettingsFromDiskMigrated()).activeProjectId).toBeUndefined();
+      expect((await runtime.readSettingsFromDisk()).activeProjectId).toBeUndefined();
     } finally {
       await cleanup();
     }
