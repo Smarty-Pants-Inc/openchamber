@@ -11,6 +11,10 @@ import { readManagedCatalog, MANAGED_CATALOG_HEADER, MANAGED_CATALOG_VERSION } f
 const REFRESH_RETRIES = 2;
 const REFRESH_RETRY_DELAY_MS = 150;
 const DISCOVERY_TIMEOUT_MS = 10_000;
+const REFRESH_TIMEOUT_MS = 30_000;
+class SlowRefresh extends Error {
+  constructor(readonly first: boolean) { super(first ? 'Project catalog read timed out' : 'Project catalog refresh timed out'); }
+}
 let revision = 0;
 let pending: Promise<void> | undefined;
 let pendingScope: ReturnType<typeof captureRuntimeRequestScope> | undefined;
@@ -34,12 +38,7 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
   const sample = async () => {
     // This SDK is runtime-scoped, NOT directory-scoped: no directory query/header.
     const sdk = opencodeClient.getSdkClient();
-    // Bounded only for first discovery: startup scoped reads wait for it, so a hung read must end as "unavailable",
-    // not "unknown". A later refresh keeps the published rows while it waits (a slow read is not an outage).
-    const list = sdk.project.list();
-    const result = useProjectsStore.getState().managedCatalogStatus !== 'unknown' ? await list
-      : await Promise.race([list, new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Project catalog read timed out')), DISCOVERY_TIMEOUT_MS))]);
+    const result = await sdk.project.list();
     if (!current()) return;
     if (result.response.ok && result.response.headers.get(MANAGED_CATALOG_HEADER) === MANAGED_CATALOG_VERSION) {
       useProjectsStore.getState().admitManagedCatalog();
@@ -72,9 +71,19 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
       // bounded number of times before the status becomes unavailable (#126 item 12). Rows
       // already applied are never cleared on failure.
       for (let attempt = 0; ; attempt++) {
-        try { await sample(); return; } catch (error) {
-          if (!current() || attempt >= REFRESH_RETRIES) throw error;
-        }
+        // Bounded: startup scoped reads wait for first discovery, so a hung sample must end as "unavailable", not
+        // "unknown"; a later sample that hangs ends too (callers await it) but keeps its status and published rows.
+        const first = useProjectsStore.getState().managedCatalogStatus === 'unknown';
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([sample(), new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new SlowRefresh(first)), first ? DISCOVERY_TIMEOUT_MS : REFRESH_TIMEOUT_MS);
+          })]);
+          return;
+        } catch (error) {
+          if (error instanceof SlowRefresh && !error.first) { console.warn('[managed-catalog] refresh is slow; keeping the published catalog'); return; }
+          if (!current() || attempt >= REFRESH_RETRIES || error instanceof SlowRefresh) throw error;
+        } finally { clearTimeout(timer); }
         await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_DELAY_MS * (attempt + 1)));
         if (!current()) return;
       }
