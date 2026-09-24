@@ -30,7 +30,9 @@ export const registerManagedCatalogGuard = (app, {
     if (!isManagedCatalog(env)) return next();
     const body = req.body ?? {};
     const projects = Array.isArray(body.projects) ? body.projects : null;
-    const lastDirectory = text(body.lastDirectory);
+    // Canonical once, by the bookmark path rules (realpath); the checked value is the one persisted.
+    const canonical = (directory) => sanitizeProjects([{ id: 'pointer', path: directory }])?.[0]?.path || directory;
+    const lastDirectory = text(body.lastDirectory) ? canonical(text(body.lastDirectory)) : '';
     // The raw value is what persistence stores, so it is what is checked (no trimming).
     const activeProjectId = typeof body.activeProjectId === 'string' ? body.activeProjectId : text(body.activeProjectId);
     if (!projects && !lastDirectory && !activeProjectId) return next();
@@ -49,9 +51,9 @@ export const registerManagedCatalogGuard = (app, {
         const bookmark = saved.find((project) => project.id === activeProjectId && (!kept || kept.has(project.id)));
         if (!bookmark || !(await isLiveDirectory(bookmark.path))) return refuse(res);
       }
-      // Persist exactly the checked (canonical) paths: an alias in the request could be retargeted
-      // while the catalog was read, and must not be resolved again.
-      if (checked) req.body = { ...body, projects: checked };
+      // Persist exactly the checked (canonical) paths and pointer: an alias in the request could be
+      // retargeted while the catalog was read, and must not be resolved again.
+      req.body = { ...body, ...(checked ? { projects: checked } : {}), ...(lastDirectory ? { lastDirectory } : {}) };
       return next();
     } catch (error) {
       console.error('[managed-catalog] Failed to check a settings update against the catalog:', error);

@@ -134,6 +134,9 @@ describe('managed catalog server boundary', () => {
     await request(app).put('/api/config/settings').send({ projects: [savedProject, alias], activeProjectId: liveProject.id }).expect(200);
     const persisted = persistSettings.mock.calls[0][0];
     expect(persisted.projects.map((project) => project.path)).toEqual([savedProject.path, liveProject.path]);
+    aliasTarget = liveProject.path; // The same for lastDirectory, retargeted between its check and the next one.
+    await request(app).put('/api/config/settings').send({ lastDirectory: '/alias', activeProjectId: liveProject.id }).expect(200);
+    expect(persistSettings.mock.calls[1][0].lastDirectory).toBe(liveProject.path);
   });
 
   it('the catalog reader fails closed on an unmarked or malformed response', async () => {
