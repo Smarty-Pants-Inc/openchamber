@@ -1185,7 +1185,8 @@ export const useProjectsStore = create<ProjectsStore>()(
         const activeProject = incomingProjects.find((project) => project.id === nextActive);
         if (activeProject) {
           opencodeClient.setDirectory(activeProject.path);
-          useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });
+          // Adopting the shared active project is not a new choice: do not publish it as lastDirectory (#117).
+          useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false, remember: false });
         }
       }
     },

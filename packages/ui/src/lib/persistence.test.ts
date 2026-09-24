@@ -1276,7 +1276,8 @@ describe('updateDesktopSettings', () => {
       const migrationStarted = deferred<void>();
       const releaseMigration = deferred<void>();
       registerSettingsApi(async (changes) => {
-        if (changes.autoSaveEnabled !== undefined) {
+        // The draft-starter migration (the server lacks its flags); a default seed is no longer written (#117).
+        if (changes.draftStartersCraftGoalAdded !== undefined) {
           migrationStarted.resolve();
           await releaseMigration.promise;
         }

@@ -21,7 +21,8 @@ interface DirectoryStore {
   /** Live managed catalog rows, published by the projects store; null outside an admitted managed catalog. */
   managedDirectories: string[] | null;
 
-  setDirectory: (path: string, options?: { showOverlay?: boolean }) => void;
+  /** `remember: false` selects without publishing lastDirectory: adopting or restoring is not a new choice. */
+  setDirectory: (path: string, options?: { showOverlay?: boolean; remember?: boolean }) => void;
   goBack: () => void;
   goForward: () => void;
   goToParent: () => void;
@@ -272,8 +273,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
       isSwitchingDirectory: false,
       managedDirectories: null,
 
-      setDirectory: (path: string, options?: { showOverlay?: boolean }) => {
-        void options;
+      setDirectory: (path: string, options?: { showOverlay?: boolean; remember?: boolean }) => {
+        const remember = options?.remember !== false;
         const homeDir = cachedHomeDirectory || get().homeDirectory || safeStorage.getItem('homeDirectory');
         const resolvedPath = resolveDirectoryPath(path, homeDir);
         if (!resolvedPath || isOutsideManagedCatalog(get(), resolvedPath)) return;
@@ -287,8 +288,10 @@ export const useDirectoryStore = create<DirectoryStore>()(
         set((state) => {
           const newHistory = [...state.directoryHistory.slice(0, state.historyIndex + 1), resolvedPath];
 
-          safeStorage.setItem('lastDirectory', resolvedPath);
-          void updateDesktopSettings({ lastDirectory: resolvedPath });
+          if (remember) {
+            safeStorage.setItem('lastDirectory', resolvedPath);
+            void updateDesktopSettings({ lastDirectory: resolvedPath });
+          }
 
           return {
             currentDirectory: resolvedPath,
