@@ -1162,7 +1162,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
                   {worktreeMissingIndicator}
                   {groupActivityIndicator}
                 </span>
-              ) : (!group.isMain || group.worktree) ? (
+              ) : (!group.isMain || group.worktree || group.workspaceId) ? (
                 // Worktree sub-header in the flat visual language: slim
                 // folder-style row with a PR-tinted branch icon and PR badge.
                 <span className="flex w-full min-w-0 items-center gap-1.5">

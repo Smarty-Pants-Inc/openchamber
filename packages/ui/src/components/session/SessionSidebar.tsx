@@ -428,6 +428,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         lastOpenedAt: project.lastOpenedAt,
         sidebarCollapsed: project.sidebarCollapsed,
         parent: normalizePath(project.parent ?? null) ?? undefined,
+        workspaces: project.workspaces,
       }];
     });
   }, [projects]);

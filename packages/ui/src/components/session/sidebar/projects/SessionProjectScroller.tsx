@@ -354,8 +354,10 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                       {(() => {
                          const orderedGroups = section.groups;
                         const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
+                        // A shared checkout's workspace groups are all root groups, labelled, never sortable.
+                        const workspaceRoots = orderedGroups.filter((group) => group.isMain && group.workspaceId);
                         const nestedGroups = rootGroup
-                          ? orderedGroups.filter((group) => group.id !== rootGroup.id)
+                          ? orderedGroups.filter((group) => !group.isMain)
                           : orderedGroups;
                         return (
                           <DndContext
@@ -369,7 +371,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                               const newIndex = nestedGroups.findIndex((item) => item.id === over.id);
                               if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
                               const nextNested = arrayMove(nestedGroups, oldIndex, newIndex).map((item) => item.id);
-                              const next = rootGroup ? [rootGroup.id, ...nextNested] : nextNested;
+                              // Workspace roots keep Herdr's order; only worktree groups are saved as sortable.
+                              const next = rootGroup && !rootGroup.workspaceId ? [rootGroup.id, ...nextNested] : nextNested;
                                  actions.setGroupOrderByProject((prev) => {
                                 const map = new Map(prev);
                                 map.set(projectKey, next);
@@ -380,7 +383,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                             {/* Root/flat sessions render directly under the
                                 project zone header; worktree and archived
                                 groups keep their own slim sortable sub-header. */}
-                              {rootGroup ? <SessionGroupSection {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={rootGroup} groupKey={`${projectKey}:${rootGroup.id}`} projectId={projectKey} hideGroupLabel visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${rootGroup.id}`)} scrollContainerRef={scrollContainerRef} /> : null}
+                              {(workspaceRoots.length > 0 ? workspaceRoots : rootGroup ? [rootGroup] : []).map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} hideGroupLabel={!root.workspaceId} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
                             <SortableContext items={nestedGroups.map((group) => group.id)} strategy={verticalListSortingStrategy}>
                               {nestedGroups.map((group) => {
                                 const groupKey = `${projectKey}:${group.id}`;

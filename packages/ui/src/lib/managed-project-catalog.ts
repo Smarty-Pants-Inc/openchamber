@@ -41,6 +41,7 @@ export function managedProjectView(rows: readonly ManagedProject[], bookmarks: r
     // The catalog's name is the Herdr workspace label: it wins over a saved bookmark label.
     if (row.name) project.label = row.name;
     if (row.parent && row.parent !== row.worktree && members.has(row.parent)) project.parent = row.parent;
+    if (row.workspaces && row.workspaces.length > 0) project.workspaces = row.workspaces.map(workspace => ({ ...workspace }));
     return project;
   });
 }
