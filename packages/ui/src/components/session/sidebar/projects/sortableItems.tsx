@@ -115,8 +115,9 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   onNewSession: () => void;
   onNewWorktreeSession?: () => void;
   onManageWorktrees?: () => void;
-  onRenameStart: () => void;
-  onClose: () => void;
+  /** Absent for a workspace item of a shared checkout: renaming or closing would act on the whole checkout. */
+  onRenameStart?: () => void;
+  onClose?: () => void;
   sentinelRef: (el: HTMLDivElement | null) => void;
   children?: React.ReactNode;
   showCreateButtons?: boolean;
@@ -196,14 +197,14 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
           {t('sessions.sidebar.project.actions.manageWorktrees')}
         </Item>
       )}
-      <Item onClick={onRenameStart}>
+      {onRenameStart ? <Item onClick={onRenameStart}>
         <Icon name="pencil-ai" className="mr-1.5 h-4 w-4" />
         {t('sessions.sidebar.project.actions.edit')}
-      </Item>
-      <Item onClick={onClose} className="text-destructive focus:text-destructive">
+      </Item> : null}
+      {onClose ? <Item onClick={onClose} className="text-destructive focus:text-destructive">
         <Icon name="close" className="mr-1.5 h-4 w-4" />
         {t('sessions.sidebar.project.actions.closeProject')}
-      </Item>
+      </Item> : null}
     </>
   );
 
