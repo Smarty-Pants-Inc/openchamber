@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
+import { showsChatGroup } from './chatGroupVisibility';
 
 describe('SessionProjectCollection', () => {
   test('preserves authoritative background demand when its visible rows are absent', () => {
@@ -18,4 +19,12 @@ describe('SessionProjectCollection', () => {
     expect(demands[1]?.priority).toBe('background');
   });
 
+  // Sidebar audit 2026-09-23: the managed catalog admits no Chat target; its empty "chats" block
+  // sat above the fleet's projects. Stock and chats-present cases keep the group.
+  test('hides the empty chats group under a managed catalog only', () => {
+    expect(showsChatGroup({ isVSCode: false, managedCatalog: true, chatSessionCount: 0 })).toBe(false);
+    expect(showsChatGroup({ isVSCode: false, managedCatalog: true, chatSessionCount: 2 })).toBe(true);
+    expect(showsChatGroup({ isVSCode: false, managedCatalog: false, chatSessionCount: 0 })).toBe(true);
+    expect(showsChatGroup({ isVSCode: true, managedCatalog: false, chatSessionCount: 3 })).toBe(false);
+  });
 });

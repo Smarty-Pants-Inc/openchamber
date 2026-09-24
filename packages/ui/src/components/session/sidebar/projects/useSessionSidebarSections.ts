@@ -76,6 +76,8 @@ type Args = {
    * chat vanish the moment a query was typed.
    */
   standaloneGroups: SessionGroup[];
+  /** Managed catalog: linked worktrees are their own projects and render only in their own section. */
+  excludeWorktreeProjects?: boolean;
 };
 
 export const useSessionSidebarSections = (args: Args) => {
@@ -95,8 +97,13 @@ export const useSessionSidebarSections = (args: Args) => {
     buildGroupSearchText,
     foldersMap,
     standaloneGroups,
+    excludeWorktreeProjects = false,
   } = args;
   const projectSectionCacheRef = React.useRef<Map<string, ProjectSectionCacheEntry>>(new Map());
+  // Under a managed catalog a worktree that is also its own project renders only in its own section.
+  // Folding it into the parent queued a scope bootstrap the gateway refuses and left the parent
+  // spinning. Stock OC keeps its worktree groups. Cached per input array and excluded paths.
+  const ownWorktreesCacheRef = React.useRef<WeakMap<WorktreeMetadata[], { key: string; value: WorktreeMetadata[] }>>(new WeakMap());
 
   const projectSections = React.useMemo<ProjectSection[]>(() => {
     const previousCache = projectSectionCacheRef.current;
@@ -107,10 +114,23 @@ export const useSessionSidebarSections = (args: Args) => {
       left.length === right.length && left.every((session, index) => session === right[index])
     );
 
+    const projectPaths = new Set(normalizedProjects.map((project) => project.normalizedPath));
+    const worktreesOwnedBy = (projectPath: string): WorktreeMetadata[] => {
+      const all = availableWorktreesByProject.get(projectPath) ?? EMPTY_WORKTREES;
+      if (!excludeWorktreeProjects) return all;
+      const excluded = all.map((meta) => normalizePath(meta.path) ?? meta.path).filter((path) => projectPaths.has(path));
+      if (excluded.length === 0) return all;
+      const key = excluded.join('\u0000');
+      const cached = ownWorktreesCacheRef.current.get(all);
+      if (cached?.key === key) return cached.value;
+      const value = all.filter((meta) => !projectPaths.has(normalizePath(meta.path) ?? meta.path));
+      ownWorktreesCacheRef.current.set(all, { key, value });
+      return value;
+    };
     const sections = normalizedProjects.map((project) => {
       const activeSessions = getSessionsForProject(project.id);
       const archivedSessions = getArchivedSessionsForProject(project.id);
-      const worktreesForProject = availableWorktreesByProject.get(project.normalizedPath) ?? EMPTY_WORKTREES;
+      const worktreesForProject = worktreesOwnedBy(project.normalizedPath);
       const isRepo = projectRepoStatus.has(project.id)
         ? Boolean(projectRepoStatus.get(project.id))
         : lastRepoStatus;
@@ -183,6 +203,7 @@ export const useSessionSidebarSections = (args: Args) => {
     buildGroupedSessions,
     projectRootBranches,
     gitBranches,
+    excludeWorktreeProjects,
   ]);
 
   const visibleProjectSections = React.useMemo(() => {

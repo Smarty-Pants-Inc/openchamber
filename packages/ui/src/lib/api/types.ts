@@ -695,6 +695,8 @@ export interface ProjectEntry {
   addedAt?: number;
   lastOpenedAt?: number;
   sidebarCollapsed?: boolean;
+  /** Managed catalog only (never persisted): the published repository root of a linked worktree. */
+  parent?: string;
 }
 
 export interface SettingsPayload {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { managedActiveProject, managedProjectView, readManagedCatalog } from './managed-project-catalog';
+import { managedActiveProject, managedProjectView, nestManagedProjects, readManagedCatalog } from './managed-project-catalog';
 
 const reply = (marked = true, status = 200) => new Response(null, {
   status, headers: marked ? { 'X-Smarty-Code-Catalog': 'managed-v1' } : {},
@@ -36,15 +36,39 @@ describe('managed project authority, not bookmark admission', () => {
   });
   test('metadata overlays live membership and return reuses bookmark identity', () => {
     const view = managedProjectView([a, b], bookmarks);
-    expect(view[0]).toEqual(bookmarks[0]);
+    // Bookmark identity and metadata are kept; the catalog name (the Herdr label) is shown as-is.
+    expect(view[0]).toEqual({ ...bookmarks[0], label: 'A' });
     expect(view[0]).not.toBe(bookmarks[0]);
     expect(view[1]?.id).not.toBe(b.id);
-    expect(managedProjectView([a], bookmarks)[0]?.label).toBe('My A');
+    expect(managedProjectView([b], [{ id: 'saved-b', path: '/allowed/b', label: 'My B' }])[0]?.label).toBe('My B');
   });
   test('retired active selection falls back to live member, then null', () => {
     const view = managedProjectView([b], bookmarks);
     expect(managedActiveProject(view, 'saved-a')).toBe(view[0]?.id ?? null);
     expect(managedActiveProject(view, view[0]?.id ?? null)).toBe(view[0]?.id ?? null);
     expect(managedActiveProject([], 'saved-a')).toBeNull();
+  });
+});
+
+// smarty-code#126 grouping parity: mirror Herdr's tree (root -> linked worktree workspaces).
+describe('managed-v1 nesting', () => {
+  const root = { id: 'r', worktree: '/p/herdr', name: 'Herdr', workspaces: [{ id: 'w4H', label: 'Herdr' }] };
+  const child = { id: 'c', worktree: '/p/herdr/worktrees/upstream-0.9', name: 'herdr-upstream-0.9', parent: '/p/herdr' };
+  const orphan = { id: 'o', worktree: '/p/other', name: 'other', parent: '/p/missing' };
+  test('parses the grouping fields and keeps parent only for a published root', () => {
+    const parsed = readManagedCatalog(reply(), [root, child, orphan], true)!;
+    const view = managedProjectView(parsed, []);
+    expect(view.map(p => [p.label, p.parent])).toEqual([['Herdr', undefined], ['herdr-upstream-0.9', '/p/herdr'], ['other', undefined]]);
+  });
+  test('linked worktrees render as worktree groups of their root, not top-level projects', () => {
+    const view = managedProjectView([root, child], []);
+    const discovered = new Map([['/p/herdr', [{ path: '/p/herdr/worktrees/upstream-0.9', projectDirectory: '/p/herdr', branch: 'upstream-0.9', label: 'upstream-0.9' }]]]);
+    const nested = nestManagedProjects(view, discovered);
+    expect(nested.topLevel.map(p => p.path)).toEqual(['/p/herdr']);
+    expect(nested.worktreesByProject.get('/p/herdr')).toEqual([
+      { path: '/p/herdr/worktrees/upstream-0.9', projectDirectory: '/p/herdr', branch: 'upstream-0.9', label: 'herdr-upstream-0.9' },
+    ]);
+    expect(discovered.get('/p/herdr')![0]!.label).toBe('upstream-0.9');
+    expect(nestManagedProjects(managedProjectView([root], []), new Map()).topLevel).toHaveLength(1);
   });
 });
