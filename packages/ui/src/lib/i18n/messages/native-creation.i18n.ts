@@ -7,6 +7,8 @@ const firstUse = ([operation, trustNotice, trust, deny, ready, cancel, reread, r
 });
 export const nativeCreationI18n = {
   en: {
+    'chat.fleetView.banner': 'View only. This fleet session is not enrolled yet, so it cannot be sent to from here.',
+    'chat.fleetView.enroll': 'Enroll (#116)',
     ...firstUse(['Native creation {id}: {phase}. No prompt has been sent.',
       'Allow Pi to load this project for this session only? This does not remember trust or enable input.',
       'Trust for this session', 'Deny trust', 'Enable initial browser input', 'Cancel creation', 'Read current creation status',
@@ -27,6 +29,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Check connection',
   },
   de: {
+    'chat.fleetView.banner': 'Nur ansehen. Diese Fleet-Sitzung ist noch nicht registriert und kann von hier nicht beschrieben werden.',
+    'chat.fleetView.enroll': 'Registrieren (#116)',
     ...firstUse(['Native Erstellung {id}: {phase}. Es wurde kein Prompt gesendet.',
       'Darf Pi dieses Projekt nur für diese Sitzung laden? Das Vertrauen wird nicht gespeichert und die Eingabe nicht aktiviert.',
       'Für diese Sitzung vertrauen', 'Vertrauen verweigern', 'Erste Browsereingabe aktivieren', 'Erstellung abbrechen', 'Aktuellen Erstellungsstatus lesen',
@@ -47,6 +51,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verbindung prüfen',
   },
   es: {
+    'chat.fleetView.banner': 'Solo lectura. Esta sesión de la flota aún no está inscrita, así que no se puede enviar desde aquí.',
+    'chat.fleetView.enroll': 'Inscribir (#116)',
     ...firstUse(['Creación nativa {id}: {phase}. No se envió ningún mensaje.',
       '¿Permitir que Pi cargue este proyecto solo durante esta sesión? No se recordará la confianza ni se habilitará la entrada.',
       'Confiar durante esta sesión', 'Denegar confianza', 'Habilitar entrada inicial del navegador', 'Cancelar creación', 'Consultar estado actual de creación',
@@ -67,6 +73,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Comprobar conexión',
   },
   fr: {
+    'chat.fleetView.banner': 'Lecture seule. Cette session de la flotte n’est pas encore inscrite ; impossible d’envoyer depuis ici.',
+    'chat.fleetView.enroll': 'Inscrire (#116)',
     ...firstUse(['Création native {id} : {phase}. Aucun message envoyé.',
       'Autoriser Pi à charger ce projet pour cette session seulement ? La confiance ne sera pas mémorisée et la saisie ne sera pas activée.',
       'Faire confiance pour cette session', 'Refuser la confiance', 'Activer la saisie initiale du navigateur', 'Annuler la création', 'Lire le statut actuel de création',
@@ -87,6 +95,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Vérifier la connexion',
   },
   ja: {
+    'chat.fleetView.banner': '表示のみ。このフリートセッションはまだ登録されていないため、ここから送信できません。',
+    'chat.fleetView.enroll': '登録する (#116)',
     ...firstUse(['ネイティブ作成 {id}: {phase}。プロンプトは送信されていません。',
       'このセッションに限り、Piによるこのプロジェクトの読み込みを許可しますか？信頼は記憶されず、入力も有効になりません。',
       'このセッションのみ信頼', '信頼を拒否', 'ブラウザーの初回入力を有効化', '作成をキャンセル', '現在の作成状態を確認',
@@ -107,6 +117,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '接続を確認',
   },
   ko: {
+    'chat.fleetView.banner': '보기 전용입니다. 이 플릿 세션은 아직 등록되지 않아 여기서 보낼 수 없습니다.',
+    'chat.fleetView.enroll': '등록 (#116)',
     ...firstUse(['네이티브 생성 {id}: {phase}. 프롬프트를 보내지 않았습니다.',
       '이 세션에서만 Pi가 이 프로젝트를 읽도록 허용할까요? 신뢰를 기억하거나 입력을 활성화하지 않습니다.',
       '이 세션에서만 신뢰', '신뢰 거부', '브라우저 최초 입력 활성화', '생성 취소', '현재 생성 상태 읽기',
@@ -127,6 +139,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '연결 확인',
   },
   pl: {
+    'chat.fleetView.banner': 'Tylko podgląd. Ta sesja floty nie jest jeszcze zarejestrowana, więc nie można z niej wysyłać.',
+    'chat.fleetView.enroll': 'Zarejestruj (#116)',
     ...firstUse(['Tworzenie natywne {id}: {phase}. Nie wysłano polecenia.',
       'Zezwolić Pi na wczytanie projektu tylko w tej sesji? Zaufanie nie zostanie zapamiętane, a wprowadzanie tekstu nie zostanie włączone.',
       'Zaufaj w tej sesji', 'Odmów zaufania', 'Włącz pierwsze wprowadzanie z przeglądarki', 'Anuluj tworzenie', 'Odczytaj aktualny stan tworzenia',
@@ -147,6 +161,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Sprawdź połączenie',
   },
   'pt-BR': {
+    'chat.fleetView.banner': 'Somente visualização. Esta sessão da frota ainda não está inscrita, então não é possível enviar daqui.',
+    'chat.fleetView.enroll': 'Inscrever (#116)',
     ...firstUse(['Criação nativa {id}: {phase}. Nenhuma mensagem foi enviada.',
       'Permitir que o Pi carregue este projeto apenas nesta sessão? A confiança não será lembrada e a entrada não será ativada.',
       'Confiar nesta sessão', 'Negar confiança', 'Ativar entrada inicial do navegador', 'Cancelar criação', 'Ler estado atual da criação',
@@ -167,6 +183,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verificar conexão',
   },
   tr: {
+    'chat.fleetView.banner': 'Yalnızca görüntüleme. Bu filo oturumu henüz kayıtlı değil, buradan gönderilemez.',
+    'chat.fleetView.enroll': 'Kaydet (#116)',
     ...firstUse(['Yerel oluşturma {id}: {phase}. İstem gönderilmedi.',
       'Pi bu projeyi yalnızca bu oturum için yüklesin mi? Güven kararı kaydedilmez ve giriş etkinleştirilmez.',
       'Bu oturum için güven', 'Güveni reddet', 'İlk tarayıcı girişini etkinleştir', 'Oluşturmayı iptal et', 'Güncel oluşturma durumunu oku',
@@ -187,6 +205,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Bağlantıyı kontrol et',
   },
   uk: {
+    'chat.fleetView.banner': 'Лише перегляд. Цей сеанс флоту ще не зареєстровано, тож надсилати звідси не можна.',
+    'chat.fleetView.enroll': 'Зареєструвати (#116)',
     ...firstUse(['Нативне створення {id}: {phase}. Запит не надіслано.',
       'Дозволити Pi завантажити цей проєкт лише для цього сеансу? Довіру не буде збережено, а введення не буде увімкнено.',
       'Довіряти в цьому сеансі', 'Відхилити довіру', 'Увімкнути початкове введення з браузера', 'Скасувати створення', 'Прочитати поточний стан створення',
@@ -207,6 +227,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Перевірити з’єднання',
   },
   'zh-CN': {
+    'chat.fleetView.banner': '仅查看。此舰队会话尚未注册，无法从这里发送。',
+    'chat.fleetView.enroll': '注册 (#116)',
     ...firstUse(['原生创建 {id}：{phase}。尚未发送提示。',
       '仅在此会话中允许 Pi 加载此项目？不会记住信任，也不会启用输入。',
       '仅信任此会话', '拒绝信任', '启用浏览器首次输入', '取消创建', '读取当前创建状态',
@@ -227,6 +249,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '检查连接',
   },
   'zh-TW': {
+    'chat.fleetView.banner': '僅檢視。此艦隊工作階段尚未註冊，無法從這裡傳送。',
+    'chat.fleetView.enroll': '註冊 (#116)',
     ...firstUse(['原生建立 {id}：{phase}。尚未傳送提示。',
       '僅在此工作階段中允許 Pi 載入此專案？不會記住信任，也不會啟用輸入。',
       '僅信任此工作階段', '拒絕信任', '啟用瀏覽器首次輸入', '取消建立', '讀取目前建立狀態',
