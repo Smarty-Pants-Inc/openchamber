@@ -40,7 +40,11 @@ export const useSessionListSync = ({
   const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
   const bootstrapDemandOwner = `session-list-sync:${React.useId()}`;
 
+  // Until discovery answers, the directories in hand (home fallback, saved bookmarks) may not be admitted by a
+  // managed gateway, which refuses them with 403 (#126 startup 403s). Stock discovery answers within a request.
+  const discoveryPending = !isVSCode && catalogStatus === 'unknown';
   React.useEffect(() => {
+    if (discoveryPending) return;
     childStores.setBootstrapDemand(bootstrapDemandOwner, buildSessionBootstrapDemands({
       knownDirectories,
       activeProjectDirectory: normalizePath(projects.find((project) => project.id === activeProjectId)?.path ?? null),
@@ -51,7 +55,7 @@ export const useSessionListSync = ({
       currentSessionDirectory,
     }));
     return () => childStores.clearBootstrapDemand(bootstrapDemandOwner);
-  }, [activeProjectId, bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, knownDirectories, projects]);
+  }, [activeProjectId, bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, discoveryPending, knownDirectories, projects]);
 
   const knownProjectSessionDirectoriesRef = React.useRef<Set<string> | null>(null);
   React.useEffect(() => {

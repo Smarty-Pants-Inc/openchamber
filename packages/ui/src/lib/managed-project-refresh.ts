@@ -5,6 +5,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { listGlobalSessionPages } from '@/stores/globalSessions';
 import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import { warmChatsRootDirectory } from './chatDirectories';
 import { readManagedCatalog, MANAGED_CATALOG_HEADER, MANAGED_CATALOG_VERSION } from './managed-project-catalog';
 
 const REFRESH_RETRIES = 2;
@@ -53,6 +54,7 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
     const allowed = new Set(rows.map(row => row.worktree));
     if (sessions.some(session => !allowed.has(session.directory))) throw new Error('Catalog changed during session read');
     useProjectsStore.getState().applyManagedCatalog(rows);
+    void warmChatsRootDirectory();
     if (!current()) return;
     useGlobalSessionsStore.getState().applyManagedSessions(sessions, baselineRevision, allowed);
   };
