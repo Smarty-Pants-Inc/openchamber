@@ -7,6 +7,7 @@ const firstUse = ([operation, trustNotice, trust, deny, ready, cancel, reread, r
 });
 export const nativeCreationI18n = {
   en: {
+    'chat.ordinary.sendUnavailable': 'This session is unavailable right now, so nothing was sent. Your message stays in the composer.',
     'chat.fleetView.banner': 'View only. This fleet session is not enrolled yet, so it cannot be sent to from here.',
     'chat.fleetView.enroll': 'Enroll (#116)',
     ...firstUse(['Native creation {id}: {phase}. No prompt has been sent.',
@@ -29,6 +30,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Check connection',
   },
   de: {
+    'chat.ordinary.sendUnavailable': 'Diese Sitzung ist gerade nicht verfügbar, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld.',
     'chat.fleetView.banner': 'Nur ansehen. Diese Fleet-Sitzung ist noch nicht registriert und kann von hier nicht beschrieben werden.',
     'chat.fleetView.enroll': 'Registrieren (#116)',
     ...firstUse(['Native Erstellung {id}: {phase}. Es wurde kein Prompt gesendet.',
@@ -51,6 +53,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verbindung prüfen',
   },
   es: {
+    'chat.ordinary.sendUnavailable': 'Esta sesión no está disponible ahora, así que no se envió nada. Tu mensaje sigue en el editor.',
     'chat.fleetView.banner': 'Solo lectura. Esta sesión de la flota aún no está inscrita, así que no se puede enviar desde aquí.',
     'chat.fleetView.enroll': 'Inscribir (#116)',
     ...firstUse(['Creación nativa {id}: {phase}. No se envió ningún mensaje.',
@@ -73,6 +76,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Comprobar conexión',
   },
   fr: {
+    'chat.ordinary.sendUnavailable': 'Cette session est indisponible pour le moment : rien n’a été envoyé. Votre message reste dans la zone de saisie.',
     'chat.fleetView.banner': 'Lecture seule. Cette session de la flotte n’est pas encore inscrite ; impossible d’envoyer depuis ici.',
     'chat.fleetView.enroll': 'Inscrire (#116)',
     ...firstUse(['Création native {id} : {phase}. Aucun message envoyé.',
@@ -95,6 +99,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Vérifier la connexion',
   },
   ja: {
+    'chat.ordinary.sendUnavailable': 'このセッションは現在利用できないため、何も送信されませんでした。メッセージは入力欄に残っています。',
     'chat.fleetView.banner': '表示のみ。このフリートセッションはまだ登録されていないため、ここから送信できません。',
     'chat.fleetView.enroll': '登録する (#116)',
     ...firstUse(['ネイティブ作成 {id}: {phase}。プロンプトは送信されていません。',
@@ -117,6 +122,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '接続を確認',
   },
   ko: {
+    'chat.ordinary.sendUnavailable': '이 세션은 지금 사용할 수 없어 아무것도 보내지 않았습니다. 메시지는 입력창에 남아 있습니다.',
     'chat.fleetView.banner': '보기 전용입니다. 이 플릿 세션은 아직 등록되지 않아 여기서 보낼 수 없습니다.',
     'chat.fleetView.enroll': '등록 (#116)',
     ...firstUse(['네이티브 생성 {id}: {phase}. 프롬프트를 보내지 않았습니다.',
@@ -139,6 +145,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '연결 확인',
   },
   pl: {
+    'chat.ordinary.sendUnavailable': 'Ta sesja jest teraz niedostępna, więc nic nie zostało wysłane. Wiadomość pozostaje w polu edycji.',
     'chat.fleetView.banner': 'Tylko podgląd. Ta sesja floty nie jest jeszcze zarejestrowana, więc nie można z niej wysyłać.',
     'chat.fleetView.enroll': 'Zarejestruj (#116)',
     ...firstUse(['Tworzenie natywne {id}: {phase}. Nie wysłano polecenia.',
@@ -161,6 +168,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Sprawdź połączenie',
   },
   'pt-BR': {
+    'chat.ordinary.sendUnavailable': 'Esta sessão está indisponível no momento, então nada foi enviado. Sua mensagem continua no editor.',
     'chat.fleetView.banner': 'Somente visualização. Esta sessão da frota ainda não está inscrita, então não é possível enviar daqui.',
     'chat.fleetView.enroll': 'Inscrever (#116)',
     ...firstUse(['Criação nativa {id}: {phase}. Nenhuma mensagem foi enviada.',
@@ -183,6 +191,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Verificar conexão',
   },
   tr: {
+    'chat.ordinary.sendUnavailable': 'Bu oturum şu anda kullanılamıyor, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor.',
     'chat.fleetView.banner': 'Yalnızca görüntüleme. Bu filo oturumu henüz kayıtlı değil, buradan gönderilemez.',
     'chat.fleetView.enroll': 'Kaydet (#116)',
     ...firstUse(['Yerel oluşturma {id}: {phase}. İstem gönderilmedi.',
@@ -205,6 +214,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Bağlantıyı kontrol et',
   },
   uk: {
+    'chat.ordinary.sendUnavailable': 'Цей сеанс зараз недоступний, тому нічого не надіслано. Ваше повідомлення лишається в полі введення.',
     'chat.fleetView.banner': 'Лише перегляд. Цей сеанс флоту ще не зареєстровано, тож надсилати звідси не можна.',
     'chat.fleetView.enroll': 'Зареєструвати (#116)',
     ...firstUse(['Нативне створення {id}: {phase}. Запит не надіслано.',
@@ -227,6 +237,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': 'Перевірити з’єднання',
   },
   'zh-CN': {
+    'chat.ordinary.sendUnavailable': '此会话当前不可用，因此未发送任何内容。你的消息仍保留在输入框中。',
     'chat.fleetView.banner': '仅查看。此舰队会话尚未注册，无法从这里发送。',
     'chat.fleetView.enroll': '注册 (#116)',
     ...firstUse(['原生创建 {id}：{phase}。尚未发送提示。',
@@ -249,6 +260,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.check': '检查连接',
   },
   'zh-TW': {
+    'chat.ordinary.sendUnavailable': '此工作階段目前無法使用，因此未傳送任何內容。你的訊息仍保留在輸入框中。',
     'chat.fleetView.banner': '僅檢視。此艦隊工作階段尚未註冊，無法從這裡傳送。',
     'chat.fleetView.enroll': '註冊 (#116)',
     ...firstUse(['原生建立 {id}：{phase}。尚未傳送提示。',
