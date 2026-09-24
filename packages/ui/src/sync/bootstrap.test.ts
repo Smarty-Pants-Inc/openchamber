@@ -3,7 +3,7 @@ import type { OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
 import { bootstrapDirectory } from "./bootstrap"
 import { INITIAL_STATE, type State } from "./types"
 
-const createSdk = (options?: { commandList?: () => Promise<{ data: unknown[] }>; sessionStatus?: () => Promise<{ data: State['session_status'] }> }) => ({
+const createSdk = (options?: { commandList?: () => Promise<{ data: unknown[] }>; sessionStatus?: (options?: { directory?: string }) => Promise<{ data: State['session_status'] }> }) => ({
   project: { current: async () => ({ data: { id: "project-a" } }) },
   config: { get: async () => ({ data: {} }) },
   path: { get: async () => ({ data: { state: "", config: "", worktree: "/repo", directory: "/repo", home: "/home" } }) },
@@ -25,6 +25,15 @@ const createState = (): State => ({
 const project = { id: "project-a", worktree: "/repo" } as Project
 
 describe("bootstrapDirectory", () => {
+  test("reads the session status map for its own directory", async () => {
+    const calls: unknown[] = []
+    let state = createState()
+    const sdk = createSdk({ sessionStatus: async (options) => { calls.push(options); return { data: {} } } })
+    await bootstrapDirectory({ directory: "/repo", sdk, getState: () => state, set: (patch) => { state = { ...state, ...patch } },
+      global: { config: {}, projects: [project] }, loadSessions: async () => {} })
+    expect(calls).toEqual([{ directory: "/repo" }])
+  })
+
   test("prioritizes session loading without waiting for deferred fields", async () => {
     let state = createState()
     let deferredStarted = false
