@@ -355,6 +355,13 @@ export class SessionMessageLoader {
     return entry?.snapshot.status === "ready" ? entry.snapshot.ordinaryView : undefined
   }
 
+  /** True once this session's history was served as an ordinary (view-guarded) transcript. */
+  isOrdinary(target: SessionMessageTarget, runtimeKey: string): boolean {
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return false
+    return this.entries.get(this.keyFor(normalized))?.ordinary === true
+  }
+
   invalidateOrdinaryView(target: SessionMessageTarget, resetHistory = false): boolean {
     const normalized = this.normalizeTarget(target)
     const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined

@@ -977,7 +977,13 @@ class OpencodeService {
     const viewRuntimeKey = params.runtimeKey ?? getRuntimeKey();
     const viewLoader = getImperativeSessionMessageLoader();
     const viewTarget = { directory: requestDirectory ?? '', sessionID: params.id };
-    const ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
+    let ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
+    // Each send revokes the view, and the reply's session.idle refreshes it. A send before that read lands would go
+    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first.
+    if (!ordinaryView && viewLoader?.isOrdinary(viewTarget, viewRuntimeKey)) {
+      await viewLoader.refreshOrdinaryView(viewTarget).catch(() => undefined);
+      ordinaryView = viewLoader.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
+    }
     const displayName = params.displayName === undefined ? undefined : displayNameSchema.parse(params.displayName);
     const displayNameRuntimeKey = params.runtimeKey ?? getRuntimeKey();
 
