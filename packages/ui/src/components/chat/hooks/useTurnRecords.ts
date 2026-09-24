@@ -9,6 +9,7 @@ interface UseTurnRecordsOptions {
     showTextJustificationActivity: boolean;
     showTurnChangedFiles: boolean;
     planModeEnabled: boolean;
+    showLeadingOrphans?: boolean;
 }
 
 export interface TurnRecordsResult {
@@ -52,7 +53,7 @@ export const useTurnRecords = (
 
     const projection = React.useMemo(() => {
         const sessionKey = options.sessionKey ?? '';
-        const mergeKey = options.planModeEnabled ? 'merge:plan' : 'merge';
+        const mergeKey = (options.planModeEnabled ? 'merge:plan' : 'merge') + (options.showLeadingOrphans ? ':leading' : '');
         const cacheKey = buildProjectionCacheKey(
             sessionKey,
             messages,
@@ -72,6 +73,7 @@ export const useTurnRecords = (
                 showTextJustificationActivity: options.showTextJustificationActivity,
                 showTurnChangedFiles: options.showTurnChangedFiles,
                 mergeHiddenUserTurns: { planModeEnabled: options.planModeEnabled },
+                showLeadingOrphans: options.showLeadingOrphans,
             });
             previousProjectionRef.current = nextProjection;
 
@@ -79,7 +81,7 @@ export const useTurnRecords = (
 
             return nextProjection;
         });
-    }, [messages, options.showTextJustificationActivity, options.showTurnChangedFiles, options.sessionKey, options.planModeEnabled]);
+    }, [messages, options.showTextJustificationActivity, options.showTurnChangedFiles, options.sessionKey, options.planModeEnabled, options.showLeadingOrphans]);
 
     const staticTurns = React.useMemo(() => {
         const nextStatic = projection.turns.length <= 1

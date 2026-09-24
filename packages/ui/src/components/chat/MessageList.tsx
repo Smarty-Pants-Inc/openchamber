@@ -316,6 +316,8 @@ interface MessageListProps {
         fallbackTimestamp?: number;
     } | null;
     isLoadingOlder: boolean;
+    /** Older history exists above the loaded window (its leading assistant messages then render). */
+    hasOlderHistory?: boolean;
     scrollToBottom?: () => void;
     directory?: string;
     // The list owns its scroll container; the timeline scroll hook drives it
@@ -350,15 +352,7 @@ export interface MessageListHandle {
     scrollToBottom: () => void;
 }
 
-type RenderEntry =
-    | {
-        kind: 'ungrouped';
-        key: string;
-        message: ChatMessageEntry;
-        previousMessage?: ChatMessageEntry;
-        nextMessage?: ChatMessageEntry;
-    }
-    | { kind: 'turn'; key: string; turn: TurnRecord; isLastTurn: boolean; nextEntryFirstMessage?: ChatMessageEntry };
+import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };
 
@@ -1179,6 +1173,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     activeStreamingMessageId = null,
     activeStreamingPhase = null,
     retryOverlay = null,
+    hasOlderHistory = false,
     scrollToBottom,
     directory,
     registerList,
@@ -1312,50 +1307,14 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
         planModeEnabled,
+        showLeadingOrphans: hasOlderHistory,
     });
     const hasUngroupedStaticEntries = projection.ungroupedMessageIds.size > 0;
     const staticEntryMessages = hasUngroupedStaticEntries ? displayMessages : EMPTY_STATIC_ENTRY_MESSAGES;
     const staticEntryUngroupedIds = hasUngroupedStaticEntries ? projection.ungroupedMessageIds : EMPTY_UNGROUPED_MESSAGE_IDS;
-    const staticRenderEntries = React.useMemo<RenderEntry[]>(() => streamPerfMeasure('ui.message_list.render_entries_ms', () => {
-        const turnEntries = staticTurns.map((turn) => ({
-            kind: 'turn' as const,
-            key: `turn:${turn.turnId}`,
-            turn,
-            isLastTurn: turn.turnId === projection.lastTurnId,
-        }));
-
-        if (staticEntryUngroupedIds.size === 0) {
-            return turnEntries;
-        }
-
-        const turnEntryByUserMessageId = new Map<string, RenderEntry>();
-        turnEntries.forEach((entry) => {
-            turnEntryByUserMessageId.set(entry.turn.userMessage.info.id, entry);
-        });
-
-        const orderedEntries: RenderEntry[] = [];
-        staticEntryMessages.forEach((message, index) => {
-            const turnEntry = turnEntryByUserMessageId.get(message.info.id);
-            if (turnEntry) {
-                orderedEntries.push(turnEntry);
-                return;
-            }
-
-            if (!staticEntryUngroupedIds.has(message.info.id)) {
-                return;
-            }
-
-            orderedEntries.push({
-                kind: 'ungrouped',
-                key: `msg:${message.info.id}`,
-                message,
-                previousMessage: index > 0 ? staticEntryMessages[index - 1] : undefined,
-                nextMessage: index < staticEntryMessages.length - 1 ? staticEntryMessages[index + 1] : undefined,
-            });
-        });
-
-        return orderedEntries;
-    }), [projection.lastTurnId, staticEntryMessages, staticEntryUngroupedIds, staticTurns]);
+    const staticRenderEntries = React.useMemo<RenderEntry[]>(() => streamPerfMeasure('ui.message_list.render_entries_ms',
+        () => buildStaticRenderEntries(staticTurns, projection.lastTurnId, staticEntryMessages, staticEntryUngroupedIds),
+    ), [projection.lastTurnId, staticEntryMessages, staticEntryUngroupedIds, staticTurns]);
 
     const trailingStreamingEntry = React.useMemo<RenderEntry | undefined>(() => {
         if (streamingTurn) {
@@ -1367,22 +1326,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             } satisfies RenderEntry;
         }
 
-        if (projection.ungroupedMessageIds.size === 0) {
-            return undefined;
-        }
-
-        const lastMessage = displayMessages[displayMessages.length - 1];
-        if (!lastMessage || !projection.ungroupedMessageIds.has(lastMessage.info.id)) {
-            return undefined;
-        }
-
-        return {
-            kind: 'ungrouped',
-            key: `msg:${lastMessage.info.id}`,
-            message: lastMessage,
-            previousMessage: displayMessages.length > 1 ? displayMessages[displayMessages.length - 2] : undefined,
-            nextMessage: undefined,
-        } satisfies RenderEntry;
+        return buildTrailingUngroupedEntry(displayMessages, projection.ungroupedMessageIds);
     }, [displayMessages, projection.lastTurnId, projection.ungroupedMessageIds, streamingTurn]);
 
     if (trailingStreamingEntry) {
@@ -1421,9 +1365,10 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         registerList?.(list);
     }, [registerList]);
 
-    const allEntries = React.useMemo(() => {
-        return trailingStreamingEntry ? [...historyEntries, trailingStreamingEntry] : historyEntries;
-    }, [historyEntries, trailingStreamingEntry]);
+    const allEntries = React.useMemo(
+        () => assembleRenderEntries(historyEntries, trailingStreamingEntry),
+        [historyEntries, trailingStreamingEntry],
+    );
 
     // Stable identities: these reach the list, where a changing callback would
     // re-render every mounted row.
