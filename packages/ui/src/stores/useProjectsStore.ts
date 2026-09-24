@@ -11,7 +11,7 @@ import type { DesktopSettings } from '@/lib/desktop';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { getDeferredSafeStorage } from './utils/safeStorage';
-import { useDirectoryStore } from './useDirectoryStore';
+import { BROWSER_LAST_DIRECTORY_KEY, useDirectoryStore } from './useDirectoryStore';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -659,7 +659,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       const projects = managedProjectView(rows, state.projects);
       // First admission: the remembered directory (shared lastDirectory, mirrored locally) names the project
       // the user last worked in; the active pointer is not saved while the catalog is managed, so it can be stale.
-      const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
+      const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY))
+        ?? managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
       const activeProjectId = managedActiveProject(projects, remembered ?? state.activeProjectId);
       set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
       useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
@@ -862,7 +863,8 @@ export const useProjectsStore = create<ProjectsStore>()(
         set({ activeProjectId: id }); selectManagedDirectory(target);
         if (options?.remember === false) return;
         // Remember the explicit choice: the next bootstrap restores the project at lastDirectory.
-        safeStorage.setItem('lastDirectory', target.path); void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
+        safeStorage.setItem('lastDirectory', target.path); safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, target.path);
+        void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
         return;
       }
       if (isVSCodeProjectsRuntime) {
@@ -1149,9 +1151,11 @@ export const useProjectsStore = create<ProjectsStore>()(
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.
         // The remembered directory wins over the active pointer, which is not saved while the catalog is managed.
-        // This browser's own remembered directory first (local storage); the shared one only when it has none (#113).
+        // This browser's own last choice first; the shared one only when it has none (#113). The local
+        // `lastDirectory` is not used here: this same sync has already mirrored the shared value into it.
         const rememberedByDirectory = adoptActiveProject
-          ? managedProjectAt(managedProjects ?? [], safeStorage.getItem('lastDirectory')) ?? managedProjectAt(managedProjects ?? [], settings.lastDirectory)
+          ? managedProjectAt(managedProjects ?? [], safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY))
+            ?? managedProjectAt(managedProjects ?? [], settings.lastDirectory)
           : undefined;
         const remembered = rememberedByDirectory ?? (adoptActiveProject && incomingActive && managedProjects?.some(project => project.id === incomingActive)
           ? incomingActive : current.activeProjectId);

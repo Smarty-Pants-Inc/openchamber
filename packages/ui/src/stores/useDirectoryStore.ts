@@ -33,6 +33,13 @@ interface DirectoryStore {
 let cachedHomeDirectory: string | null = null;
 let homeResolveGeneration = 0;
 const safeStorage = getDeferredSafeStorage();
+/**
+ * This browser's own last directory choice (smarty-code#113). `lastDirectory` in local storage mirrors the shared
+ * settings on every settings sync, so it cannot tell this browser's choice from another browser's. This key is
+ * written only by an explicit choice in this browser and is never mirrored from shared settings.
+ */
+export const BROWSER_LAST_DIRECTORY_KEY = 'oc.browser.lastDirectory';
+
 const persistedLastDirectory = safeStorage.getItem('lastDirectory');
 const initialHasPersistedDirectory =
   typeof persistedLastDirectory === 'string' && persistedLastDirectory.length > 0;
@@ -290,6 +297,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
           if (remember) {
             safeStorage.setItem('lastDirectory', resolvedPath);
+            safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, resolvedPath);
             void updateDesktopSettings({ lastDirectory: resolvedPath });
           }
 
@@ -316,6 +324,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
           safeStorage.setItem('lastDirectory', newDirectory);
 
+          safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
+
           void updateDesktopSettings({ lastDirectory: newDirectory });
 
           set({
@@ -339,6 +349,8 @@ export const useDirectoryStore = create<DirectoryStore>()(
           invalidateFileSearchCache();
 
           safeStorage.setItem('lastDirectory', newDirectory);
+
+          safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, newDirectory);
 
           void updateDesktopSettings({ lastDirectory: newDirectory });
 
