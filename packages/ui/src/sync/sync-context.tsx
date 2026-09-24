@@ -2325,6 +2325,7 @@ export function SyncProvider(props: {
                 archived: false,
                 roots: true,
                 pageSize: 500,
+                ungated: true,
               }))
                 .filter((s) => !!s?.id)
                 .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -2338,6 +2339,7 @@ export function SyncProvider(props: {
                   archived: false,
                   roots: false,
                   pageSize: 500,
+                  ungated: true,
                 })
               } catch {
                 // Child load is best-effort; fall back to roots only.
