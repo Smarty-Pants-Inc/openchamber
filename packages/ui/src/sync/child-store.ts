@@ -581,8 +581,10 @@ export class ChildStoreManager {
     const lowPriorityRunning = [...this.runningBootstraps.values()].filter(
       (entry) => BOOTSTRAP_PRIORITY[entry.priority] >= BOOTSTRAP_PRIORITY.visible,
     ).length
+    // Low-priority scopes may use all but two slots (one with upstream's two), keeping room for foreground work.
+    const lowPrioritySlots = Math.max(1, this.bootstrapConcurrency - 2)
     return candidates.find((entry) => (
-      BOOTSTRAP_PRIORITY[entry.priority] < BOOTSTRAP_PRIORITY.visible || lowPriorityRunning === 0
+      BOOTSTRAP_PRIORITY[entry.priority] < BOOTSTRAP_PRIORITY.visible || lowPriorityRunning < lowPrioritySlots
     ))
   }
 

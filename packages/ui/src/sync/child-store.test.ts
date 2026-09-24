@@ -418,6 +418,34 @@ describe('ChildStoreManager directory bootstrap scheduler', () => {
     manager.disposeAll();
   });
 
+  test('with six slots, background scopes use four and leave two for foreground work', async () => {
+    const manager = new ChildStoreManager();
+    const tasks = new Map<string, ReturnType<typeof deferred>>();
+    manager.setBootstrapDemand('sidebar', Array.from({ length: 8 }, (_, index) => ({
+      directory: `/background-${index}`, priority: 'background' as const, reason: 'known-worktree' as const,
+    })));
+    const cleanup = manager.configure({
+      bootstrapConcurrency: 6,
+      onBootstrap: ({ directory }) => {
+        const task = deferred();
+        tasks.set(directory, task);
+        return task.promise.finally(() => tasks.delete(directory));
+      },
+    });
+    await settle();
+    expect(tasks.size).toBe(4);
+    manager.setBootstrapDemand('focus', [
+      { directory: '/selected', priority: 'selected', reason: 'current-directory' },
+      { directory: '/expanded', priority: 'expanded', reason: 'project-expanded' },
+    ]);
+    await settle();
+    expect(tasks.has('/selected') && tasks.has('/expanded') && tasks.size === 6).toBe(true);
+    for (const task of tasks.values()) task.resolve();
+    await settle();
+    cleanup();
+    manager.disposeAll();
+  });
+
   test('reserves capacity for foreground work while background refresh drains', async () => {
     const manager = new ChildStoreManager();
     const tasks = new Map<string, ReturnType<typeof deferred>>();
