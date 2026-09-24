@@ -24,6 +24,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
 import { opencodeClient } from '@/lib/opencode/client';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { useI18n } from '@/lib/i18n';
 import { formatShortcutForDisplay } from '@/lib/shortcuts';
 import {
@@ -198,6 +199,9 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       .map((project) => normalizeDirectoryPath(project.path))
       .filter((path): path is string => Boolean(path))
   ), [projects]);
+
+  // Browse results and selections belong to the runtime that listed them: a switch closes the dialog (smarty-code#155).
+  React.useEffect(() => (open ? subscribeRuntimeEndpointWillChange(() => onOpenChange(false)) : undefined), [open, onOpenChange]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -481,6 +485,8 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       });
     if (selectionToAdd.length === 0 && (!target || (normalized && addedProjectPaths.has(normalized)))) return;
     let selectedTarget = target;
+    // A clone or folder creation may settle after a runtime switch; nothing from runtime A is registered in B.
+    const scope = captureRuntimeRequestScope();
 
     setIsConfirming(true);
     try {
@@ -501,6 +507,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
         // Batch path wins over single-target create: with checkboxes ticked,
         // the user wants the selections added, not a fresh directory created
         // for whatever happens to be typed in the filter.
+        assertRuntimeRequestScope(scope);
         const added = await addProjects(selectionToAdd);
         if (added.length === 0) {
           toast.error(t('directoryExplorerDialog.toast.failedToAddProject'), {
@@ -515,6 +522,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       } else if (shouldCreateSelection) {
         await opencodeClient.createDirectory(target, { asProject: true });
       }
+      assertRuntimeRequestScope(scope);
       const project = await addProject(selectedTarget);
       if (!project) {
         toast.error(t('directoryExplorerDialog.toast.failedToAddProject'), {
@@ -552,6 +560,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
   const handleOpenInFinder = React.useCallback(async () => {
     if (!canRequestAccess || isOpeningFinder) return;
     setIsOpeningFinder(true);
+    const scope = captureRuntimeRequestScope(); // The native picker can outlive a runtime switch.
     try {
       const result = await requestAccess(targetPath);
       if (!result.success || !result.path) {
@@ -574,6 +583,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       // Clear pending selections so the Finder-sourced target is honored
       // instead of silently being absorbed by the batch branch.
       setSelectedPaths([]);
+      assertRuntimeRequestScope(scope);
       await finalizeSelection(result.path);
     } catch (error) {
       toast.error(t('directoryExplorerDialog.toast.failedToSelectDirectory'), {
