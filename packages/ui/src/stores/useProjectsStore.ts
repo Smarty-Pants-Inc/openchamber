@@ -88,6 +88,9 @@ interface ProjectsStore {
   getActiveProject: () => ProjectEntry | null;
 }
 
+// A bootstrap's shared active pointer held while discovery is pending; applied only if the catalog is stock.
+let deferredBootstrapActiveProjectId: string | null | undefined;
+
 /** Stable selector: never creates a fresh array during a Zustand snapshot read. */
 const emptyManagedProjects: ProjectEntry[] = [];
 export const visibleProjects = (state: ProjectsStore): ProjectEntry[] => state.managedCatalogAdmitted
@@ -1168,6 +1171,22 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
       const incomingIds = new Set(incomingProjects.map((p) => p.id));
 
+      // While discovery has not answered, the runtime may be managed: its shared active pointer is not saved there
+      // and can be stale (3.13: a fresh browser opened on smarty-code, not the remembered smarty-dev). Keep it for a
+      // stock answer; a managed catalog selects its remembered project on admission instead.
+      if (adoptActiveProject && current.managedCatalogStatus === 'unknown') {
+        deferredBootstrapActiveProjectId = incomingActive;
+        // A pointer to a project no longer listed is dropped, never replaced by the held shared one.
+        const keptActive = current.activeProjectId && incomingIds.has(current.activeProjectId) ? current.activeProjectId : null;
+        const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
+        if (!projectsChanged && keptActive === current.activeProjectId) return;
+        const cleanedOrder = get().manualProjectOrder.filter((id) => incomingIds.has(id));
+        set({ projects: incomingProjects, activeProjectId: keptActive, manualProjectOrder: cleanedOrder });
+        cacheProjects(incomingProjects, keptActive);
+        persistManualProjectOrder(cleanedOrder);
+        return;
+      }
+
       // The settings document is shared by every window on this server, so
       // outside a bootstrap sync the incoming active pointer is just another
       // window's choice — the project LIST still reconciles, but this
@@ -1246,6 +1265,21 @@ export const useProjectsStore = create<ProjectsStore>()(
 
   }), { name: 'projects-store' })
 );
+
+// A stock answer adopts the bootstrap's held shared active pointer, as a bootstrap sync would have (no settings write).
+useProjectsStore.subscribe((state, previous) => {
+  if (state.managedCatalogStatus === previous.managedCatalogStatus || deferredBootstrapActiveProjectId === undefined) return;
+  if (state.managedCatalogStatus === 'unknown') return;
+  const held = deferredBootstrapActiveProjectId;
+  deferredBootstrapActiveProjectId = undefined;
+  if (state.managedCatalogStatus !== 'stock' || state.managedCatalogAdmitted || !held || held === state.activeProjectId) return;
+  const project = state.projects.find((entry) => entry.id === held);
+  if (!project) return;
+  useProjectsStore.setState({ activeProjectId: held });
+  cacheProjects(state.projects, held);
+  opencodeClient.setDirectory(project.path);
+  useDirectoryStore.getState().setDirectory(project.path, { showOverlay: false, remember: false });
+});
 
 if (typeof window !== 'undefined') {
   window.addEventListener('openchamber:settings-synced', (event: Event) => {

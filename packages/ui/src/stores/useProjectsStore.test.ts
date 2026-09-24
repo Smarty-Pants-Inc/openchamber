@@ -23,6 +23,7 @@ describe("useProjectsStore settings synchronization", () => {
   })
 
   test("a reconcile sync never adopts another window's active project", () => {
+    useProjectsStore.setState({ managedCatalogStatus: "stock" })
     // Ids are path-derived inside the store's sanitizer, so seed real ones by
     // bootstrapping once and reading them back.
     const raw = { projects: [{ path: "/repo-a" }, { path: "/repo-b" }] } as DesktopSettings
@@ -53,6 +54,44 @@ describe("useProjectsStore settings synchronization", () => {
       { ...raw, activeProjectId: second.id } as DesktopSettings,
     )
     expect(useProjectsStore.getState().activeProjectId).toBe(second.id)
+  })
+})
+
+describe("bootstrap active pointer while discovery is pending", () => {
+  // 3.13: a fresh browser's bootstrap adopted the shared active pointer (smarty-code) before managed discovery,
+  // so it opened there instead of the remembered lastDirectory (smarty-dev).
+  test("a managed catalog selects the remembered directory, not the held shared pointer", () => {
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    try {
+      useProjectsStore.getState().resetManagedCatalog()
+      useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+      getDeferredSafeStorage().setItem("lastDirectory", "/p/dev")
+      getDeferredSafeStorage().removeItem("oc.browser.lastDirectory")
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [{ path: "/p/code" }] as never, activeProjectId: "path_L3AvY29kZQ",
+        lastDirectory: "/p/dev" } as DesktopSettings, { adoptActiveProject: true })
+      expect(useProjectsStore.getState().activeProjectId).toBe(null)
+      useProjectsStore.getState().admitManagedCatalog()
+      useProjectsStore.getState().applyManagedCatalog([{ id: "g-code", worktree: "/p/code" }, { id: "g-dev", worktree: "/p/dev" }])
+      const dev = useProjectsStore.getState().managedProjects!.find(project => project.path === "/p/dev")
+      expect(useProjectsStore.getState().activeProjectId).toBe(dev!.id)
+      expect(save).not.toHaveBeenCalled()
+    } finally {
+      save.mockRestore()
+      getDeferredSafeStorage().removeItem("lastDirectory")
+      useProjectsStore.getState().resetManagedCatalog()
+    }
+  })
+  test("a stock answer adopts the held shared pointer", () => {
+    useProjectsStore.getState().resetManagedCatalog()
+    useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
+    const raw = { projects: [{ path: "/repo-a" }, { path: "/repo-b" }] } as DesktopSettings
+    useProjectsStore.getState().synchronizeFromSettings(raw, { adoptActiveProject: false })
+    const [, second] = useProjectsStore.getState().projects
+    useProjectsStore.getState().synchronizeFromSettings({ ...raw, activeProjectId: second!.id } as DesktopSettings)
+    expect(useProjectsStore.getState().activeProjectId).toBe(null)
+    useProjectsStore.setState({ managedCatalogStatus: "stock" })
+    expect(useProjectsStore.getState().activeProjectId).toBe(second!.id)
+    useProjectsStore.getState().resetManagedCatalog()
   })
 })
 
