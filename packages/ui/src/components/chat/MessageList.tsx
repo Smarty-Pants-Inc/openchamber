@@ -316,6 +316,8 @@ interface MessageListProps {
         fallbackTimestamp?: number;
     } | null;
     isLoadingOlder: boolean;
+    /** Older history exists above the loaded window (its leading assistant messages then render). */
+    hasOlderHistory?: boolean;
     scrollToBottom?: () => void;
     directory?: string;
     // The list owns its scroll container; the timeline scroll hook drives it
@@ -1179,6 +1181,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     activeStreamingMessageId = null,
     activeStreamingPhase = null,
     retryOverlay = null,
+    hasOlderHistory = false,
     scrollToBottom,
     directory,
     registerList,
@@ -1312,6 +1315,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
         planModeEnabled,
+        showLeadingOrphans: hasOlderHistory,
     });
     const hasUngroupedStaticEntries = projection.ungroupedMessageIds.size > 0;
     const staticEntryMessages = hasUngroupedStaticEntries ? displayMessages : EMPTY_STATIC_ENTRY_MESSAGES;

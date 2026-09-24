@@ -715,6 +715,12 @@ export const useChatTimelineController = ({
                 if (!historySignalsRef.current.hasMoreAboveTurns) {
                     return true;
                 }
+                // New rows that fill the viewport are enough; keep paging only while it is underfilled. Paging until a
+                // user turn downloaded 15 MB of tool output for a tool-heavy session (smarty-code#116 pilot).
+                const filled = scrollRef.current;
+                if (filled && filled.scrollHeight > filled.clientHeight) {
+                    return true;
+                }
 
                 loadedMessageCount = afterMessageCount;
                 loadedOldestMessageId = afterOldestMessageId;
