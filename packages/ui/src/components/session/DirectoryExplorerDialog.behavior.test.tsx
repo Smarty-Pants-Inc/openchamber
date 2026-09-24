@@ -4,7 +4,12 @@ import { Window } from 'happy-dom';
 import { create } from 'zustand';
 
 const useDirectoryStore = create<{ homeDirectory: string }>(() => ({ homeDirectory: '/initial-home' }));
-const projectState = { projects: [], addProject: async () => null, addProjects: async () => [] };
+const added: string[] = [];
+const projectState = { projects: [], addProject: async (path: string) => { added.push(path); return null; }, addProjects: async () => [] };
+// A runtime switch: every captured scope goes stale and will-change listeners fire (smarty-code#155 item 1).
+let runtimeGeneration = 0;
+const willChange = new Set<() => void>();
+let cloneResolvers: Array<(value: { path: string }) => void> = [];
 const selectProjectState = <T,>(selector: (state: typeof projectState) => T): T => selector(projectState);
 const uiState = { setSessionSwitcherOpen: () => {} };
 const select = <T,>(selector: (state: typeof uiState) => T): T => selector(uiState);
@@ -42,7 +47,17 @@ mock.module('@/sync/session-ui-store', () => ({ useSessionUIStore: selectSession
 mock.module('@/hooks/useFileSystemAccess', () => ({ useFileSystemAccess: () => ({ canRequestAccess: false }) }));
 mock.module('@/lib/device', () => ({ useDeviceInfo: () => ({ isMobile: false }) }));
 mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: () => new Promise<Response>((resolve) => homeResolvers.push(resolve)) }));
-mock.module('@/lib/opencode/client', () => ({ opencodeClient: { getFilesystemHome: async () => null, listLocalDirectory: async () => browseEntries } }));
+mock.module('@/lib/opencode/client', () => ({ opencodeClient: { getFilesystemHome: async () => null, listLocalDirectory: async () => browseEntries,
+  cloneRepository: () => new Promise((resolve) => cloneResolvers.push(resolve)) } }));
+const runtimeSwitch = { ...(await import('@/lib/runtime-switch')) };
+mock.module('@/lib/runtime-switch', () => ({
+  ...runtimeSwitch,
+  captureRuntimeRequestScope: () => ({ runtimeGeneration }),
+  assertRuntimeRequestScope: (scope: { runtimeGeneration: number }) => {
+    if (scope.runtimeGeneration !== runtimeGeneration) throw new Error('Runtime request is stale');
+  },
+  subscribeRuntimeEndpointWillChange: (callback: () => void) => { willChange.add(callback); return () => willChange.delete(callback); },
+}));
 mock.module('@/lib/api/files-errors', () => ({ isFilesystemError: () => false }));
 
 const bootstrapWindow = new Window({ url: 'http://localhost' });
@@ -139,6 +154,35 @@ describe('DirectoryExplorerDialog behavior', () => {
       await act(async () => child.dispatchEvent(new MouseEvent('click', { bubbles: true })));
       expect(input.value).toBe('~/child/');
       expect(document.activeElement).toBe(input);
+    } finally {
+      await act(async () => root.unmount());
+      dom.restore();
+    }
+  });
+
+  test('a runtime switch closes the dialog, and a clone that settles afterwards registers nothing', async () => {
+    const dom = installDom();
+    const root = createRoot(dom.container);
+    const closed: boolean[] = [];
+    homeResolvers = []; cloneResolvers = []; added.length = 0;
+    browseEntries = [];
+    useDirectoryStore.setState({ homeDirectory: '/initial-home' });
+    try {
+      await act(async () => root.render(<I18nProvider><DirectoryExplorerDialog open onOpenChange={(open) => closed.push(open)} /></I18nProvider>));
+      await act(async () => { resolveHomes('/initial-home'); await Promise.resolve(); dom.flushFrames(); });
+      const button = (label: string) => [...dom.container.querySelectorAll('button')].find((node) => node.textContent === label);
+      await act(async () => button('Clone repository')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+      const [url, path] = [...dom.container.querySelectorAll<HTMLInputElement>('input')];
+      if (!url || !path) throw new Error('Expected clone URL and path inputs');
+      await act(async () => { edit(url, 'https://example.invalid/repo.git'); edit(path, '/initial-home/repo'); });
+      const submit = button('Clone & add');
+      if (!submit || submit.disabled) throw new Error('Expected an enabled clone button');
+      await act(async () => submit.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+      expect(cloneResolvers).toHaveLength(1);
+      await act(async () => { runtimeGeneration++; willChange.forEach((callback) => callback()); }); // Switch to runtime B.
+      expect(closed).toEqual([false]);
+      await act(async () => { cloneResolvers[0]!({ path: '/initial-home/repo' }); await Promise.resolve(); });
+      expect(added).toEqual([]); // Runtime A's clone is never registered in runtime B.
     } finally {
       await act(async () => root.unmount());
       dom.restore();
