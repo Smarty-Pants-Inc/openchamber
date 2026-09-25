@@ -20,14 +20,33 @@ export function useNativeDraftStarting(): boolean {
 }
 
 /**
- * This tab's outstanding create request id (smarty-code#126, OC#167 review): sessionStorage, so another window never
+ * The draft's identity across a reload (#304/OC#182 review). draftId is a page-local counter, so each draft gets a
+ * token instead. The token of the latest draft per runtime and project is kept in sessionStorage. After a reload, the
+ * first draft this page opens for that project is the same draft (its text is restored with it) and takes the token.
+ * Any other draft, such as an explicit New session, gets a new token, so it never takes over the earlier draft's start.
+ */
+const pageTokens = new Map<string, string>(), claimed = new Set<string>();
+function draftToken(draft: NewSessionDraftState, runtimeKey: string): string {
+  const page = JSON.stringify([runtimeKey, draft.draftId, draft.directoryOverride]);
+  const known = pageTokens.get(page);
+  if (known) return known;
+  const slot = `oc.nativeCreation.draft:${JSON.stringify([runtimeKey, draft.directoryOverride])}`;
+  let token: string | undefined;
+  try { token = claimed.has(slot) ? undefined : sessionStorage.getItem(slot) ?? undefined; } catch { /* no storage */ }
+  token ??= crypto.randomUUID();
+  try { sessionStorage.setItem(slot, token); } catch { /* no storage: the token still separates drafts in this page */ }
+  claimed.add(slot); pageTokens.set(page, token);
+  return token;
+}
+/** A page load starts with no claimed drafts; tests call this to model a reload of the same tab. */
+export function resetNativeDraftPage(): void { pageTokens.clear(); claimed.clear(); }
+
+/**
+ * This draft's outstanding create request id (smarty-code#126, OC#167 review): sessionStorage, so another window never
  * shares it and a reload of this tab keeps it. A lost create response is recovered only by an exact match on it.
- * Keyed by runtime and project directory, which survive a reload; the draft id is a page-local counter and does not
- * (#304 review). ponytail: one outstanding start per project per tab, as the server allows one pending start per
- * person and project; a new draft there meets the same unknown outcome and its "start anyway" escape.
  */
 const requestKey = (draft: NewSessionDraftState, runtimeKey: string) =>
-  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.directoryOverride])}`;
+  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.directoryOverride, draftToken(draft, runtimeKey)])}`;
 const storedRequestId = (key: string) => { try { return sessionStorage.getItem(key) ?? undefined; } catch { return undefined; } };
 function newRequestId(key: string): string {
   const id = crypto.randomUUID();
