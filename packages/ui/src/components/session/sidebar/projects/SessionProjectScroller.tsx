@@ -14,13 +14,14 @@ import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import type { SessionGroup } from '../types';
 import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { SessionGroupSection, type SessionGroupSectionProps } from './SessionGroupSection';
-import { nestSharedCheckout } from './workspaceSections';
+import { nestSharedCheckout, splitHerdrChildren } from './workspaceSections';
 import { buildGroupRenderDescriptors, resolveSearchResultPlacement, selectRenderedProjectSections, type ProjectSection } from './sessionProjectRender';
 import { formatProjectLabel } from '../utils';
 import { useI18n } from '@/lib/i18n';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { Icon } from '@/components/icon/Icon';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { DirectoryActionIndicator } from '../sessions/DirectoryActionIndicator';
 
 type SessionProjectScrollerState = Pick<SessionGroupSectionProps,
@@ -205,6 +206,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
   }, [enableStickyFade, hasProjectScroller, syncTopFade]);
   // A shared checkout renders as one Herdr block headed by its first workspace.
   const renderItems = nestSharedCheckout(renderedSections);
+  const herdrSidebar = useProjectsStore((state) => state.managedCatalogAdmitted);
   let stuckProject: ProjectSection['project'] | null = null;
   let stuckLabel: string | null = null;
   for (const item of renderItems) {
@@ -392,7 +394,11 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                             {/* Root/flat sessions render directly under the
                                 project zone header; worktree and archived
                                 groups keep their own slim sortable sub-header. */}
-                              {roots.map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} hideGroupLabel={!root.workspaceId} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
+                              {splitHerdrChildren(roots, herdrSidebar).heads.map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} hideGroupLabel={!root.workspaceId} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
+                            {/* Herdr draws a block's other members indented under its head (smarty-code#126): the checkout's
+                                other workspaces, then its worktrees. Stock keeps its flat layout. */}
+                            <div className={herdrSidebar ? 'ml-3 border-l border-border/60 pl-1' : undefined} data-herdr-children={herdrSidebar ? '' : undefined}>
+                            {splitHerdrChildren(roots, herdrSidebar).indented.map((root) => <SessionGroupSection key={root.id} {...model.groupProps} {...actions.group} editingId={model.state.editingId} openSidebarMenuKey={model.state.openSidebarMenuKey} setOpenSidebarMenuKey={model.state.setOpenSidebarMenuKey} group={root} groupKey={`${projectKey}:${root.id}`} projectId={projectKey} visibleSessionCount={model.state.visibleSessionCountByGroup.get(`${projectKey}:${root.id}`)} scrollContainerRef={scrollContainerRef} />)}
                             <SortableContext items={nestedGroups.map((group) => group.id)} strategy={verticalListSortingStrategy}>
                               {nestedGroups.map((group) => {
                                 const groupKey = `${projectKey}:${group.id}`;
@@ -403,6 +409,7 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                                 );
                               })}
                             </SortableContext>
+                            </div>
                             <DragOverlay dropAnimation={null} />
                           </DndContext>
                         );

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { SessionGroup } from '../types';
-import { nestSharedCheckout } from './workspaceSections';
+import { nestSharedCheckout, splitHerdrChildren } from './workspaceSections';
 
 const group = (id: string, label: string, extra: Partial<SessionGroup> = {}): SessionGroup => ({ id, label, branch: null,
   description: null, isMain: false, isArchivedBucket: false, worktree: null, directory: '/p/smarty-dev', folderScopeKey: '/p/smarty-dev', sessions: [], ...extra });
@@ -31,4 +31,10 @@ describe('Herdr block nesting for a shared checkout', () => {
     const sections = [{ project, groups: [group('root', 'x', { isMain: true })] }];
     expect(nestSharedCheckout(sections)).toEqual([{ key: 'dev', section: sections[0] }]);
   });
+});
+
+test('Herdr indents a block\'s other workspaces under its head; stock stays flat (smarty-code#126)', () => {
+  const head: { id: string; workspaceId?: string } = { id: 'smarty-org' }, other = { id: 'smarty-dev', workspaceId: 'w2' };
+  expect(splitHerdrChildren([head, other], true)).toEqual({ heads: [head], indented: [other] });
+  expect(splitHerdrChildren([head, other], false)).toEqual({ heads: [head, other], indented: [] });
 });
