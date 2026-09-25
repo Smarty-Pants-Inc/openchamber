@@ -3,7 +3,7 @@ import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
-import { nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
+import { sessionVoiceSchema, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
   nativeCreationListSchema, type NativeCreationResult, type NativeCreationReply } from './nativeCreation';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
@@ -658,12 +658,28 @@ class OpencodeService {
     return { mode, clientRequestId: capabilities?.creationClientRequestId === 1 };
   }
 
-  /** True only when this directory's gateway advertises session voice calls (Smarty Code `sessionVoice`). */
-  async supportsSessionVoice(directory: string): Promise<boolean> {
+  /**
+   * Whether this session takes voice calls. A gateway with `sessionVoiceStatus` answers per session, with one plain
+   * reason when not (smarty-code#126); a failed status read has no reason (the caller shows a generic one). An older
+   * gateway answers per directory with `sessionVoice`.
+   */
+  async sessionVoiceAvailability(sessionId: string, directory: string): Promise<{ available: boolean; reason?: string }> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
-    return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.sessionVoice === 1;
+    const capabilities = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities;
+    if (capabilities?.sessionVoiceStatus !== 1) return capabilities?.sessionVoice === 1 ? { available: true } : { available: false };
+    try {
+      const scope = captureRuntimeRequestScope();
+      const status = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/voice`, { query: { directory } });
+      const body: unknown = await status.json();
+      assertRuntimeRequestScope(scope);
+      if (!status.ok) return { available: false };
+      return sessionVoiceSchema.parse(body);
+    } catch {
+      this.assertRuntimeUnchanged(runtimeKey);
+      return { available: false };
+    }
   }
 
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
