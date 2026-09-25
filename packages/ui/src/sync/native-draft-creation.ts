@@ -110,7 +110,7 @@ export async function recheckNativeDraft(): Promise<boolean> {
   }
 }
 
-/** Guard the send/materialization boundary too, not only the button. Never create from an ordinary Send. */
+/** Guard the send/materialization boundary: Send starts the session first (native-draft-start); a draft without one is refused. */
 export async function preparedNativeDraft(draft: NewSessionDraftState): Promise<NativeCreatedSession | null> {
   const store = useSessionUIStore.getState(), runtimeKey = getRuntimeKey();
   assertManagedDraftTarget(draft);

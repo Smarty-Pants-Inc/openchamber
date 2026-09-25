@@ -22,11 +22,16 @@ let operation: NativeCreationState, listed: NativeCreationState[];
 let detail: () => Promise<Response>, reply: (body: NativeCreationReply) => Promise<Response>;
 const operationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', endpoint = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const generation = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+let sendResult: Promise<unknown> | undefined;
+/** The notice, plus the composer's Send reduced to its first step (ChatInput calls beforeSend, then sends). */
 function Caller() {
   const draft = useSessionUIStore(state => state.newSessionDraft);
   const selected = useSessionUIStore(state => state.currentSessionId);
   const native = useNativeCreation(draft, selected, '/wrong-default', getRuntimeKey());
-  return <NativeCreationNotice native={native} draftOpen={draft.open} />;
+  return <>
+    <NativeCreationNotice native={native} draftOpen={draft.open} />
+    <button type="button" onClick={() => { sendResult = native.beforeSend(); sendResult.catch(() => undefined); }}>Send</button>
+  </>;
 }
 const button = (label: string) => [...dom.container.querySelectorAll('button')].find(b => b.textContent === label)!;
 async function click(label: string) {
@@ -81,125 +86,59 @@ afterEach(async () => {
 });
 afterAll(() => dom.restore());
 
-test('actual notice clicks traverse hook/client: 202, session-only trust, explicit ready, exact native GET before materialization', async () => {
+// smarty-code#126: a person never sees a separate create, trust or first-input step, or native jargon.
+test('Send starts the session with no separate step; the notice only says it is starting and offers Cancel', async () => {
   await setup();
-  await click('Create native Pi session');
-  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0);
-  expect(button('Enable initial browser input')).toBeUndefined();
-  expect(dom.container.textContent).toContain('this session only');
-  await click('Trust for this session');
-  expect(await replies()[0].clone().json()).toEqual({ action: 'trust', generation: endpoint, revision: 1 });
-  expect(replies()).toHaveLength(1); expect(button('Enable initial browser input')).toBeDefined();
-  const held = deferred<Response>(); detail = () => held.promise;
-  await click('Enable initial browser input');
+  expect(dom.container.textContent).toBe('Send');
+  const held = deferred<Response>(); const answered = reply; reply = () => held.promise;
+  await click('Send');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(1);
+  expect(dom.container.textContent).toContain('Starting a new session in this project');
+  expect(button('Send')).toBeDefined();
+  reply = answered;
+  await act(async () => { held.resolve(await answered({ action: 'trust', generation: endpoint, revision: 1 })); await sendResult; });
+  expect(replies()).toHaveLength(2);
   expect(await replies()[1].clone().json()).toEqual({ action: 'ready', generation: endpoint, revision: 2, native: { id: session.id, generation } });
-  expect([...useSessionUIStore.getState().nativeDraftCreations.values()][0].status).toBe('pending');
-  expect(useSessionUIStore.getState().currentSessionId).toBeNull();
-  expect((useGlobalSessionsStore.getState().sessionsByDirectory.get(directory) ?? []).some(row => row.id === session.id)).toBe(false);
-  await act(async () => held.resolve(Response.json({ ...session, nativeCreation: undefined,
-    ordinary: { generation, sequence: 2, model: { providerID: 'cliproxyapi', modelID: 'gpt-6-astra', name: 'GPT-6 Astra' }, thinkingLevel: 'medium' } })));
-  expect(dom.container.textContent).toContain('cliproxyapi/gpt-6-astra');
-  expect(dom.container.textContent).toContain('Use Send explicitly');
-  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(0);
+  expect(dom.container.textContent).toBe('Send');
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
+  expect(useSessionUIStore.getState().newSessionDraft.initialPrompt).toBe('Keep @notes.md');
+  expect(/native|trust|\/code-ready|Herdr/i.test(dom.container.textContent ?? '')).toBe(false);
+});
+
+test('Cancel while starting stops the start; nothing is sent and the draft stays', async () => {
+  await setup();
+  // The session is still starting (no trust question yet): Send waits and re-reads.
+  fixture.handlers.create = async () => { operation = { ...operation, phase: 'starting' }; listed = [operation];
+    return Response.json({ nativeCreation: operation }, { status: 202 }); };
+  await click('Send');
+  await click('Cancel');
+  await act(async () => { await sendResult?.catch(() => undefined); });
+  expect(await replies()[0].clone().json()).toEqual({ action: 'cancel', generation: endpoint, revision: 1 });
+  expect(await sendResult?.then(() => 'resolved', (error: { code?: string }) => error.code)).toBe('stopped');
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   expect(useSessionUIStore.getState().newSessionDraft.initialPrompt).toBe('Keep @notes.md');
 });
 
-test('reopen discovers owned operation through list/read; invalidation re-reads without Create or reply', async () => {
+test('an earlier start still running here is named in plain words; Send continues it without a new create', async () => {
   await setup();
   listed = [operation];
   await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
     { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  await click(`${operationId} · awaiting-trust`);
-  expect(button('Trust for this session')).toBeDefined();
-  await act(async () => { operation = { ...operation, revision: 2, phase: 'denied' };
-    window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { directory, runtimeKey: fixture.runtimeA } })); });
-  expect(dom.container.textContent).toContain('denied');
-  expect(button('Trust for this session')).toBeUndefined();
-  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  expect(dom.container.textContent).toContain('has not finished starting. Press Send to continue');
+  await click('Send');
+  await act(async () => { await sendResult; });
+  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(0);
 });
 
-for (const action of ['Deny trust', 'Cancel creation']) test(`explicit ${action} has no ready or prompt side effect`, async () => {
-  await setup(); await click('Create native Pi session'); await click(action);
-  expect(replies()).toHaveLength(1); expect(button('Enable initial browser input')).toBeUndefined();
-  expect([...useSessionUIStore.getState().nativeDraftCreations.values()][0].status).toBe('pending');
-  expect(fixture.prompts()).toHaveLength(0);
-});
-
-test('stale/unknown reply is not replayed; only an explicit read restores choice', async () => {
-  await setup(); await click('Create native Pi session');
-  reply = async () => Response.json({ name: 'APIError', data: { message: 'Changed' } }, { status: 409 });
-  await click('Trust for this session');
-  expect(replies()).toHaveLength(1); expect(button('Trust for this session').disabled).toBe(true);
-  await click('Read current creation status');
-  expect(replies()).toHaveLength(1); expect(button('Trust for this session').disabled).toBe(false);
-  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
-});
-
-test('ready ACK with mismatched native generation cannot index or select a session', async () => {
-  await setup(); await click('Create native Pi session'); await click('Trust for this session');
-  detail = async () => Response.json({ ...session, ordinary: { generation: endpoint, sequence: 1,
-    model: { providerID: 'p', modelID: 'm', name: 'Wrong' }, thinkingLevel: 'medium' } });
-  await click('Enable initial browser input');
-  expect([...useSessionUIStore.getState().nativeDraftCreations.values()][0].status).toBe('pending');
-  expect(useSessionUIStore.getState().currentSessionId).toBeNull();
-  expect((useGlobalSessionsStore.getState().sessionsByDirectory.get(directory) ?? []).some(row => row.id === session.id)).toBe(false);
-  expect(fixture.prompts()).toHaveLength(0);
-});
-
-for (const boundary of ['reply', 'native GET']) for (const change of ['runtime', 'draft', 'project']) {
-  test(`${change} change while ${boundary} is held cannot materialize or select`, async () => {
-    await setup(); await click('Create native Pi session');
-    const held = deferred<Response>();
-    if (boundary === 'native GET') { await click('Trust for this session'); detail = () => held.promise; }
-    else reply = () => held.promise;
-    await click(boundary === 'reply' ? 'Trust for this session' : 'Enable initial browser input');
-    await act(async () => {
-      if (change === 'runtime') fixture.switchRuntime('other-runtime');
-      else if (change === 'draft') fixture.target('b', '/native-project-b');
-      else useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'unavailable' });
-      held.resolve(boundary === 'reply' ? Response.json({ nativeCreation: { ...operation,
-        revision: operation.revision + 1, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: true } })
-        : Response.json({ ...session, ordinary: { generation, sequence: 1, model: { providerID: 'p', modelID: 'm', name: 'Native' }, thinkingLevel: 'medium' } }));
-    });
-    expect(useSessionUIStore.getState().currentSessionId).toBeNull();
-    expect((useGlobalSessionsStore.getState().sessionsByDirectory.get(directory) ?? []).some(row => row.id === session.id)).toBe(false);
-    expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
-    expect(replies()).toHaveLength(boundary === 'reply' ? 1 : 2);
-  });
-}
-
-test('two actual clicks while trust is held produce one reply and no replay', async () => {
-  await setup(); await click('Create native Pi session');
-  const held = deferred<Response>(); reply = () => held.promise;
-  const trust = button('Trust for this session');
-  await act(async () => { trust.click(); trust.click(); });
-  expect(replies()).toHaveLength(1);
-  await act(async () => held.resolve(Response.json({ nativeCreation: { ...operation, revision: 2, phase: 'denied' } })));
-  expect(replies()).toHaveLength(1); expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
-});
-
-
-test('fresh draft can explicitly create once while owned list retains a settled ready operation', async () => {
+test('an unknown outcome says so in plain words, and Send never creates again', async () => {
   await setup();
-  listed = [{ ...operation, phase: 'ready', native: { id: session.id, generation } }];
-  await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
-    { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0);
-  const nextId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-  fixture.handlers.create = async () => Response.json({ nativeCreation: { ...operation, operationId: nextId } }, { status: 202 });
-  await click('Create native Pi session');
-  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  reply = async () => Response.json({ name: 'APIError', data: { message: 'Changed' } }, { status: 409 });
+  await click('Send');
+  await act(async () => { await sendResult?.catch(() => undefined); });
+  expect(dom.container.querySelector('[role="alert"]')).not.toBeNull();
+  await click('Send');
+  await act(async () => { await sendResult?.catch(() => undefined); });
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
-  const record = [...useSessionUIStore.getState().nativeDraftCreations.values()][0];
-  expect(record.status).toBe('pending');
-  if (record.status === 'pending') expect(record.operation.operationId).toBe(nextId);
   expect((useGlobalSessionsStore.getState().sessionsByDirectory.get(directory) ?? []).some(row => row.id === session.id)).toBe(false);
-});
-
-for (const phase of ['awaiting-trust', 'unavailable'] as const) test(`fresh draft still blocks Create for retained ${phase} operation`, async () => {
-  await setup(); listed = [{ ...operation, phase }];
-  await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
-    { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  expect(button('Create native Pi session')).toBeUndefined();
-  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
 });
