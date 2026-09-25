@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
-import { nextStockConfirmed, showsActivitySections, showsChatGroup } from './chatGroupVisibility';
+import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
+import { nextStockConfirmed } from '@/lib/stock-confirmation';
 
 describe('SessionProjectCollection', () => {
   test('preserves authoritative background demand when its visible rows are absent', () => {

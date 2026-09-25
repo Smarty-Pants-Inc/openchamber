@@ -29,7 +29,7 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import type { useSessionProjectViewState } from '../projects/useSessionProjectViewState';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { nextStockConfirmed, showsActivitySections, showsChatGroup } from './chatGroupVisibility';
+import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
 import { useExpandedParents } from '../sessions/useExpandedParents';
 import { SessionGroupSection } from '../projects/SessionGroupSection';
@@ -198,11 +198,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   // for every group the sidebar renders — the chats group included. A group the
   // hook never sees renders an empty list while a search is active.
   const managedCatalog = useProjectsStore((state) => state.managedCatalogAdmitted);
-  const catalogStatus = useProjectsStore((state) => state.managedCatalogStatus);
-  // Also gates the chats group here, so a hidden section never counts in search.
-  const stockConfirmed = React.useRef(false);
-  stockConfirmed.current = nextStockConfirmed(stockConfirmed.current, { managedCatalog, catalogStatus });
-  const activitySections = showsActivitySections({ isVSCode: topology.isVSCode, stockConfirmed: stockConfirmed.current });
+  // The runtime's own stock answer, kept in its discovery state so closing the sidebar never forgets it. Also gates the
+  // chats group here, so a hidden section never counts in search.
+  const stockConfirmed = useProjectsStore((state) => state.managedCatalogStockConfirmed);
+  const activitySections = showsActivitySections({ isVSCode: topology.isVSCode, stockConfirmed });
   const chatGroup = React.useMemo<SessionGroup | null>(() => {
     if (!activitySections || !showsChatGroup({ isVSCode: topology.isVSCode, managedCatalog, chatSessionCount: collection.chatSessions.length })) return null;
     const chatsRoot = getReportedChatsRoot()
