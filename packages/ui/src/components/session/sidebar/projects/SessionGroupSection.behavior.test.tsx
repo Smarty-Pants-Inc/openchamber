@@ -222,6 +222,7 @@ describe('SessionGroupSection public behavior', () => {
     for (const name of names) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
     const container = window.document.createElement('div');
     window.document.body.appendChild(container);
+    // SAFETY: happy-dom's element implements the DOM Element interface React renders into; only its types differ.
     const root = createRoot(container as unknown as Element);
     const original = useProjectsStore.getState(), originalSessions = useGlobalSessionsStore.getState();
     try {

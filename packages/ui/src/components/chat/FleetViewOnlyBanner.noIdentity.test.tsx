@@ -3,6 +3,7 @@ import { expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sidebarHerdrI18n } from '@/lib/i18n/messages/sidebar-herdr.i18n';
 
+// SAFETY: every key the banner asks for is a string entry of the English sidebar messages.
 mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => (sidebarHerdrI18n.en as Record<string, string>)[key] ?? key }) }));
 const { FleetViewOnlyBanner } = await import('./FleetViewOnlyBanner');
 

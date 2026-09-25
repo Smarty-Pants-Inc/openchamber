@@ -62,6 +62,7 @@ import type { WorktreeMetadata } from '@/types/worktree';
 import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
 import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import { rowActivity } from './rowActivity';
+import { HerdrStateText } from './HerdrStateText';
 import {
   getSessionWorktreeMenuState,
   type SessionWorktreeMenuTarget,
@@ -730,7 +731,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     hideOnHoverClass,
   });
   const herdrState = readHerdrState(session);
-  const { showUnreadStatus, showStatusMarker, showActivityDuration } = rowActivity({
+  const { showStatusMarker, showActivityDuration } = rowActivity({
     herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration,
   });
   // Both states are the same static dot; only the color separates "running"
@@ -1423,6 +1424,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     )}
                   >
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden">
+                      <HerdrStateText label={herdrState ? statusMarkerLabel : null} />
                       {/* Unread emphasis is color-only: a font-weight change
                           would reflow the truncated title and cause a micro
                           horizontal shift when the status flips. */}
