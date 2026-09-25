@@ -1,4 +1,6 @@
 import React from 'react';
+import { SystemNoteLine } from './message/SystemNoteLine';
+import { isSystemNoteMessage } from './message/systemNote';
 import type { Part } from '@opencode-ai/sdk/v2';
 import { LegendList, type LegendListRef } from '@legendapp/list/react';
 
@@ -759,6 +761,7 @@ const UngroupedMessageRow = React.memo(({
     activeStreamingPhase,
     reviewTransferDirection,
 }: UngroupedMessageRowProps) => {
+    if (isSystemNoteMessage(message.info)) return <SystemNoteLine message={message} />;
     return (
         <MessageRow
             message={message}
