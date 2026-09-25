@@ -81,8 +81,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   const catalogReloads = historical.files.filter(entry => entry.catalogReloadSha256);
   assert.deepEqual(catalogReloads.map(entry => entry.path), ['packages/ui/src/sync/session-ui-store.ts']);
   for (const entry of catalogReloads) {
-    assert.equal(entry.catalogReloadSource, 'c9b6420701af8cf4e038aba9bfb59a0e1359690d');
-    assert.equal(entry.catalogReloadSha256, 'da0d3a5fcae66f63619948616826d0688c7ed3c5caff735514e8b3ed4b6a52dc');
+    assert.equal(entry.catalogReloadSource, 'b4b815b491de25924df4a9a33554427efff10898');
+    assert.equal(entry.catalogReloadSha256, '8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b');
     assert.equal(entry.preCatalogReloadCombinedSha256, entry.persistedTargetSha256);
     assert.ok(entry.catalogReloadNote);
     entry.combinedSha256 = entry.preCatalogReloadCombinedSha256;
