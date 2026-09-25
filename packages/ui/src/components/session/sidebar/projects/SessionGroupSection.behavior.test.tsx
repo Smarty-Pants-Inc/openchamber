@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nProvider } from '@/lib/i18n';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import type { Session } from '@opencode-ai/sdk/v2';
 import type { SessionGroupSectionProps } from './SessionGroupSection';
@@ -206,6 +207,33 @@ describe('SessionGroupSection public behavior', () => {
       await act(async () => root.unmount());
       rowPropsCapture = null;
       dom.restore();
+    }
+  });
+
+  test('an empty workspace says "No agent sessions" in Smarty Code, and keeps its stock wording otherwise (smarty-code#126)', async () => {
+    const { Window } = await import('happy-dom');
+    const window = new Window({ url: 'http://localhost' });
+    const names = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+    const previous = names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+    const values = { window, document: window.document, navigator: window.navigator, Node: window.Node, Element: window.Element,
+      HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+    for (const name of names) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
+    const container = window.document.createElement('div');
+    window.document.body.appendChild(container);
+    const root = createRoot(container as unknown as Element);
+    const original = useProjectsStore.getState();
+    try {
+      for (const [admitted, expected] of [[true, 'No agent sessions'], [false, 'No sessions in this workspace yet.']] as const) {
+        useProjectsStore.setState({ managedCatalogAdmitted: admitted });
+        await act(async () => root.render(<I18nProvider><SessionGroupSection {...createProps()} /></I18nProvider>));
+        expect(container.textContent).toContain(expected);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      useProjectsStore.setState(original, true);
+      for (const [name, descriptor] of previous) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name);
+      }
     }
   });
 });
