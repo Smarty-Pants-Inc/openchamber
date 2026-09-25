@@ -1343,6 +1343,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             toast.error(t('chat.displayName.plainOnly')); return;
         }
         let nativeIntent: NativeDraftSend | undefined;
+        // Nothing to send starts nothing: Enter reaches here without the Send button's content check (#126).
+        if (newSessionDraftOpen && !queuedOnly && !inputSnapshot.hasContent && !hasQueuedMessages) return;
         if (newSessionDraftOpen) {
             try { nativeIntent = await nativeCreation.beforeSend(); }
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }

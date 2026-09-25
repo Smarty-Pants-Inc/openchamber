@@ -32,7 +32,7 @@ test('a failed start says what happened and what to do in plain words, with one 
     expect(html).toContain('role="alert"');
     expect(html).toContain('Nothing was sent, and your message is still here.');
     expect(html).toContain('Check again');
-    expect(html).not.toMatch(/native|\/code-ready|Inspect Herdr|admitted|create-only/i);
+    expect(/native|\/code-ready|Inspect Herdr|admitted|create-only/i.test(html)).toBe(false);
   }
 });
 
@@ -44,6 +44,6 @@ test('while the session is starting the line says so; an unreachable server says
 
 test('every plain-language string avoids the old jargon', () => {
   for (const [locale, strings] of Object.entries(nativeCreationI18n)) {
-    for (const text of Object.values(strings)) expect(`${locale}: ${text}`).not.toMatch(/native|\/code-ready|admitted|create-only|Inspect Herdr/i);
+    for (const text of Object.values(strings)) expect(`${locale}: ${/native|\/code-ready|admitted|create-only|Inspect Herdr/i.test(text)}`).toBe(`${locale}: false`);
   }
 });

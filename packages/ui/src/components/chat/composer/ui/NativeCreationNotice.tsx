@@ -16,7 +16,11 @@ export function NativeCreationNotice({ native, draftOpen }: {
   const starting = useNativeDraftStarting();
   const creation = native.creation;
   if (!draftOpen || native.session) return null;
-  const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
+  const running = native.operations.filter(operation => CANCELLABLE.includes(operation.phase));
+  // A lost create response with exactly one start still running here: Send continues it (native-draft-start).
+  const recoverable = creation?.status === 'failed' && creation.submitted && running.length === 1;
+  const failure = recoverable ? undefined
+    : creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   if (failure) return <div className="mb-2 space-y-1">
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failure)}</p>
     <Button type="button" variant="outline" size="sm" onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
@@ -28,7 +32,7 @@ export function NativeCreationNotice({ native, draftOpen }: {
         disabled={creation.busy} onClick={() => { void native.cancel(); }}>{t('chat.nativeCreation.cancel')}</Button> : null}
     </div>;
   }
-  if (creation?.status === 'pending' || native.operations.some(operation => CANCELLABLE.includes(operation.phase))) {
+  if (recoverable || creation?.status === 'pending' || running.length > 0) {
     return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>;
   }
   if (native.mode === 'unavailable') return <div className="mb-2 space-y-1">

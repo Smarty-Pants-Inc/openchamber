@@ -33,3 +33,16 @@ for (const outcome of ['refused', 'unknown'] as const) test(`a ${outcome} start 
   expect(c.text()).toBe('Keep this text');
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
 });
+
+test('Enter on an empty or blank new draft starts no session and sends nothing', async () => {
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, cold);
+  const { useInputStore } = await import('@/sync/input-store');
+  await act(async () => { useInputStore.setState({ attachedFiles: [], pendingSyntheticParts: null }); });
+  for (const text of ['', '   \n ']) {
+    await c.replace(text);
+    await act(async () => { c.editor().contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+    await c.submit(); await settle();
+  }
+  expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(0);
+  expect(c.requests.filter(request => new URL(request.url).pathname.includes('/creation'))).toHaveLength(0);
+});

@@ -19,6 +19,8 @@ const replies = () => fixture.requests.filter(r => new URL(r.url).pathname.endsW
 const record = () => nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations,
   useSessionUIStore.getState().newSessionDraft, fixture.runtimeA);
 const noWait = async () => {};
+/** The rejection's code, or 'resolved' (the repo's expect type declares no rejects.toMatchObject). */
+const failure = (promise: Promise<unknown>) => promise.then(() => 'resolved', (error: { code?: string }) => error.code ?? String(error));
 const send = () => {
   const created = record(), input = useInputStore.getState();
   const model = created?.status === 'created' ? created.session.nativeCreation.model : ordinary.model;
@@ -80,7 +82,7 @@ test('a session that starts ready at once (create-only server) is sent to once, 
 test('a start refused before the create request sends nothing, keeps the message, and Send may start it later', async () => {
   fixture = nativeDraftFixture(); listed = [];
   fixture.handlers.health = async () => Response.json({ message: 'down' }, { status: 503 });
-  await expect(startNativeDraft([], noWait)).rejects.toMatchObject({ code: 'unavailable' });
+  expect(await failure(startNativeDraft([], noWait))).toBe('unavailable');
   expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   expect(useInputStore.getState().pendingInputText).toBe('Keep @notes.md');
   fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1 } });
@@ -92,7 +94,7 @@ test('an unknown start outcome sends nothing and is never created or sent again'
   fixture = nativeDraftFixture(); listed = [];
   fixture.handlers.create = async () => { throw new Error('connection reset after the request'); };
   for (let attempt = 0; attempt < 2; attempt++) {
-    await expect(startNativeDraft([], noWait)).rejects.toMatchObject({ code: 'unknown' });
+    expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
   }
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
@@ -101,7 +103,7 @@ test('an unknown start outcome sends nothing and is never created or sent again'
 
 test('a declined start sends nothing; the next Send starts a new session once', async () => {
   interactive(); afterTrust = 'denied';
-  await expect(startNativeDraft(listed, noWait)).rejects.toMatchObject({ code: 'stopped' });
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('stopped');
   expect(fixture.prompts()).toHaveLength(0);
   afterTrust = 'ready-required';
   operation = { ...operation, phase: 'awaiting-trust', revision: 1, native: undefined, canInitialReady: false };
@@ -113,7 +115,7 @@ test('a session that cannot take first input from the browser sends nothing', as
   interactive();
   reply = async () => { operation = { ...operation, revision: 2, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: false };
     return Response.json({ nativeCreation: operation }); };
-  await expect(startNativeDraft(listed, noWait)).rejects.toMatchObject({ code: 'notReady' });
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('notReady');
   expect(replies()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
 });
 
@@ -121,7 +123,7 @@ test('a second Send while the first is starting is refused; one create, one repl
   interactive();
   const held = deferred<Response>(); reply = () => held.promise;
   const first = startNativeDraft(listed, noWait);
-  await expect(startNativeDraft(listed, noWait)).rejects.toMatchObject({ code: 'sending' });
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('sending');
   while (replies().length === 0) await new Promise(resolve => setTimeout(resolve, 1));
   operation = { ...operation, revision: 2, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: true };
   held.resolve(Response.json({ nativeCreation: operation }));
@@ -141,7 +143,7 @@ test('a start that is still running after the time limit sends nothing; a later 
   reply = async () => { operation = { ...operation, revision: 2, phase: 'starting' }; return Response.json({ nativeCreation: operation }); };
   const now = Date.now; let clock = now();
   Date.now = () => (clock += 30_000);
-  try { await expect(startNativeDraft(listed, noWait)).rejects.toMatchObject({ code: 'required' }); } finally { Date.now = now; }
+  try { expect(await failure(startNativeDraft(listed, noWait))).toBe('required'); } finally { Date.now = now; }
   expect(fixture.prompts()).toHaveLength(0); expect(record()?.status).toBe('pending');
   operation = { ...operation, revision: 3, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: true };
   reply = async () => { operation = { ...operation, revision: 4, phase: 'ready' }; return Response.json({ nativeCreation: operation }); };
@@ -160,7 +162,7 @@ for (const change of ['runtime', 'draft', 'project'] as const) {
     else useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'unavailable' });
     held.resolve(Response.json({ nativeCreation: { ...operation, revision: 2, phase: 'ready-required',
       native: { id: session.id, generation }, canInitialReady: true } }));
-    await expect(pending).rejects.toBeDefined();
+    expect(await failure(pending)).not.toBe('resolved');
     expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
     expect(useSessionUIStore.getState().currentSessionId).toBeNull();
   });
@@ -171,4 +173,23 @@ test('a stock server (no session start) leaves Send to its ordinary path', async
   fixture.handlers.health = async () => Response.json({ healthy: true });
   await startNativeDraft([], noWait);
   expect(fixture.creates()).toHaveLength(0); expect(record()).toBeNull();
+});
+
+test('a lost create response is continued once a fresh read shows its start still running; one create, one prompt', async () => {
+  interactive();
+  const created = fixture.handlers.create;
+  fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0);
+  // Check again re-reads the list: the server shows the start it received. The next Send continues it.
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
+});
+
+test('a lost create response with no start to continue stays refused and is never created again', async () => {
+  interactive();
+  fixture.handlers.create = async () => { throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
 });

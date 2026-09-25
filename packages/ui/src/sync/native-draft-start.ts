@@ -9,6 +9,7 @@ import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store
 
 /** Phases known to have started nothing that could take this message. */
 const STOPPED = ['denied', 'cancelled', 'expired'];
+const RUNNING = ['starting', 'awaiting-trust', 'ready-required'];
 const POLL_MS = 1000, LIMIT_MS = 120_000;
 let running = false;
 const listeners = new Set<() => void>();
@@ -43,9 +44,17 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     if (getRuntimeKey() !== runtimeKey || !sameDraft(state.newSessionDraft, draft)) throw new NativeCreationError('stale');
     return nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
   };
+  const open = operations.filter(operation => operation.directory === draft.directoryOverride
+    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase));
+  const running = open.filter(operation => RUNNING.includes(operation.phase));
   const first = record();
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);
+  } else if (first?.status === 'failed' && running.length === 1) {
+    // The create response was lost, and a fresh read shows exactly one start still running here: continue it.
+    // It is the server's own record, read, not replayed; nothing is created again.
+    await resumeNativeCreation(running[0]);
+    return await settle(record, wait);
   } else if (first) {
     return await settle(record, wait);
   }
@@ -57,9 +66,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   if (!isNativeDraftTarget(draft)) throw new NativeCreationError('target');
   record();
   // An earlier start in this project that is still running is continued, not started again.
-  const open = operations.find(operation => operation.directory === draft.directoryOverride
-    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase));
-  if (open) await resumeNativeCreation(open); else await prepareNativeDraft();
+  if (open.length > 0) await resumeNativeCreation(open[0]); else await prepareNativeDraft();
   await settle(record, wait);
 }
 

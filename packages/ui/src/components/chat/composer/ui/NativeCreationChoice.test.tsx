@@ -102,7 +102,7 @@ test('Send starts the session with no separate step; the notice only says it is 
   expect(dom.container.textContent).toBe('Send');
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   expect(useSessionUIStore.getState().newSessionDraft.initialPrompt).toBe('Keep @notes.md');
-  expect(dom.container.textContent).not.toMatch(/native|trust|\/code-ready|Herdr/i);
+  expect(/native|trust|\/code-ready|Herdr/i.test(dom.container.textContent ?? '')).toBe(false);
 });
 
 test('Cancel while starting stops the start; nothing is sent and the draft stays', async () => {
@@ -114,7 +114,7 @@ test('Cancel while starting stops the start; nothing is sent and the draft stays
   await click('Cancel');
   await act(async () => { await sendResult?.catch(() => undefined); });
   expect(await replies()[0].clone().json()).toEqual({ action: 'cancel', generation: endpoint, revision: 1 });
-  await expect(sendResult).rejects.toMatchObject({ code: 'stopped' });
+  expect(await sendResult?.then(() => 'resolved', (error: { code?: string }) => error.code)).toBe('stopped');
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   expect(useSessionUIStore.getState().newSessionDraft.initialPrompt).toBe('Keep @notes.md');
 });
