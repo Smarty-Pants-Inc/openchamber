@@ -28,7 +28,7 @@ afterEach(() => {
   }
 });
 
-async function render(directory: string, isVSCode = false) {
+async function render(directory: string, isVSCode = false, sessionId = 's1', names?: string[]) {
   const happy = new Window({ url: 'https://code.example.test' });
   const values = { window: happy, document: happy.document, navigator: happy.navigator, Node: happy.Node,
     Element: happy.Element, HTMLElement: happy.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
@@ -42,13 +42,14 @@ async function render(directory: string, isVSCode = false) {
     root.render(
       <I18nProvider>
         <RuntimeAPIContext.Provider value={runtime}>
-          <PiVoiceControl sessionId="s1" directory={directory} />
+          <PiVoiceControl sessionId={sessionId} directory={directory} />
         </RuntimeAPIContext.Provider>
       </I18nProvider>,
     );
     await new Promise(resolve => setTimeout(resolve, 10));
   });
   const buttons = container.querySelectorAll('button').length;
+  names?.push(...[...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label') ?? ''));
   act(() => root.unmount());
   return buttons;
 }
@@ -65,4 +66,18 @@ test('hidden in VS Code without asking the gateway', async () => {
   advertised.set('/with-voice', true);
   expect(await render('/with-voice', true)).toBe(0);
   expect(asked).toEqual([]);
+});
+
+test('a call bound to another session shows Move call here and End, not a second start', async () => {
+  const store = await import('@/lib/voice/piVoiceActiveCall');
+  const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
+  advertised.set('/with-voice', true);
+  const { driver } = fakePiVoiceDriver();
+  await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
+  const elsewhere: string[] = [], own: string[] = [];
+  expect(await render('/with-voice', false, 'lane', elsewhere)).toBe(2);
+  expect(elsewhere).toEqual(['Move call here', 'End voice call']);
+  expect(await render('/with-voice', false, 'org', own)).toBe(1);
+  expect(own).toEqual(['End voice call']);
+  store.endActivePiVoiceCall();
 });

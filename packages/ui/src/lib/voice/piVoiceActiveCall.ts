@@ -2,10 +2,10 @@ import React from 'react';
 import type { PiVoiceMedia, PiVoiceSocket, PiVoiceState } from './piVoiceCall';
 
 // The page's one voice call, bound to the session where it started. Browsing other sessions
-// neither moves nor ends it; moving it is the explicit movePiVoiceCallHere(). Leaving the page ends it.
+// neither moves nor ends it; moving it is an explicit start on another session. Leaving the page ends it.
 
-export type PiVoiceCallState = { status: 'starting' } | PiVoiceState;
-export type ActivePiVoiceCall = { sessionId: string; directory: string; state: PiVoiceCallState };
+type PiVoiceCallState = { status: 'starting' } | PiVoiceState;
+type ActivePiVoiceCall = { sessionId: string; directory: string; state: PiVoiceCallState };
 export type PiVoiceCallHooks = {
   /** Called with the reason when a started call ends on its own (not when the person ends or moves it). */
   onEnded(reason: string): void;
@@ -31,7 +31,7 @@ const publish = () => {
 };
 
 export function getActivePiVoiceCall() { return snapshot; }
-export function subscribeActivePiVoiceCall(listener: () => void) {
+function subscribeActivePiVoiceCall(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
@@ -91,11 +91,7 @@ export async function startPiVoiceCallFor(sessionId: string, directory: string, 
   }
 }
 
-/** Explicit move: the page's call ends on its session and starts on this one, in one click. */
-export const movePiVoiceCallHere = startPiVoiceCallFor;
 
 // A page that is unloaded (not merely backgrounded) ends its call. A page kept in the back/forward
 // cache loses its socket, and the call then ends with a reason rather than silently.
-if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', event => { if (!event.persisted) endActivePiVoiceCall(); });
-}
+globalThis.window?.addEventListener('pagehide', event => { if (!event.persisted) endActivePiVoiceCall(); });
