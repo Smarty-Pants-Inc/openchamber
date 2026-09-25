@@ -751,7 +751,8 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     return null;
   }
 
-  const showBranchSubtitle = !group.isMain && Boolean(group.branch);
+  // Herdr shows no branch under a workspace name, so Smarty Code does not either (smarty-code#126 F7, plain words).
+  const showBranchSubtitle = !herdrSidebar && !group.isMain && Boolean(group.branch);
   // SAFETY: null is the intentional no-color branch for a status line.
   const statusLine = group.branch && isBranchDifferentFromLabel(group.branch, group.label)
     ? { label: group.branch, color: null as string | null }
