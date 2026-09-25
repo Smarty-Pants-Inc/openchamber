@@ -105,6 +105,31 @@ test('a later explicit pick writes only its own fields, merged onto the shared c
   expect(JSON.stringify(sent).includes('restored')).toBe(false);
 });
 
+test('an explicit effort pick on a restored model writes only the picked effort', async () => {
+  useUIStore.setState({ recentModels: [], recentEfforts: {}, recentAgents: [] });
+  startBrowserAutoSave();
+  withoutSharingModelPrefs(() => useUIStore.getState().addRecentEffort('anthropic', 'm', 'low'));
+  useUIStore.getState().addRecentEffort('anthropic', 'm', 'high'); // local list is now ['high', 'low']
+  await wait(PREFS_FLUSH_MS);
+  expect(save.mock.calls).toHaveLength(1);
+  expect(save.mock.calls[0]?.[0]).toEqual({ recentEfforts: { 'anthropic/m': ['high'] } });
+});
+
+test('a server response keeps restored values out of the shared baseline; a later pick sends none of them', async () => {
+  useUIStore.setState({ recentModels: [], recentEfforts: {}, recentAgents: [] });
+  startBrowserAutoSave();
+  withoutSharingModelPrefs(() => useUIStore.getState().addRecentEffort('openai', 'b', 'low')); // restore B/low
+  useUIStore.getState().addRecentModel('anthropic', 'x'); // explicit pick X
+  await wait(PREFS_FLUSH_MS);
+  expect(save.mock.calls[0]?.[0]).toEqual({ recentModels: [{ providerID: 'anthropic', modelID: 'x' }] });
+  // The save's response is applied through the real server-settings path; it omits recentEfforts.
+  settings.applyServerUiPreferences({ recentModels: [{ providerID: 'anthropic', modelID: 'x' }, { providerID: 'server', modelID: 'y' }] });
+  useUIStore.getState().addRecentEffort('anthropic', 'c', 'high'); // a later explicit effort pick
+  await wait(PREFS_FLUSH_MS);
+  expect(save.mock.calls).toHaveLength(2);
+  expect(save.mock.calls[1]?.[0]).toEqual({ recentEfforts: { 'anthropic/c': ['high'] } });
+});
+
 test('an explicit project choice still publishes lastDirectory', () => {
   const path = '/sandbox/f6-project';
   const project: ProjectEntry = { id: createProjectIdFromPath(path), path, label: 'f6', addedAt: 1, lastOpenedAt: 1 };

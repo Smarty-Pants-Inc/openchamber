@@ -46,11 +46,27 @@ export function mergeExplicitChange(prev: ModelPrefs, next: ModelPrefs, shared: 
   if (efforts.length > 0) {
     const merged = { ...shared.recentEfforts };
     for (const model of efforts) {
-      if (next.recentEfforts[model]) merged[model] = next.recentEfforts[model].slice(); else delete merged[model];
+      const before = prev.recentEfforts[model] ?? [], after = next.recentEfforts[model];
+      if (!after) { delete merged[model]; continue; }
+      // Only the efforts this action added, onto the model's shared list: a restored effort on the same model stays
+      // local (OC#194 review).
+      const added = after.filter(variant => !before.includes(variant));
+      merged[model] = [...added, ...(merged[model] ?? []).filter(variant => !added.includes(variant))].slice(0, RECENT_LIMIT);
     }
     changes.recentEfforts = merged;
   }
   return changes;
+}
+
+/** The fields a server application changed: only those are the server's copy (it applies fields one at a time and
+ * leaves absent fields alone, so unchanged fields may still hold local restore values). */
+export function serverFields(prev: ModelPrefs, next: ModelPrefs): Partial<ModelPrefs> {
+  const changed: Partial<ModelPrefs> = {};
+  for (const field of Object.keys(next) as (keyof ModelPrefs)[]) {
+    // SAFETY: the same field of the same type is copied across.
+    if (prev[field] !== next[field]) (changed as Record<string, unknown>)[field] = copyModelPrefs(next)[field];
+  }
+  return changed;
 }
 
 export const copyModelPrefs = (prefs: ModelPrefs): ModelPrefs => ({

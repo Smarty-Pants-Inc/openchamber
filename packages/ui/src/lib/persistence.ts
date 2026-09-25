@@ -1871,7 +1871,8 @@ const areSettingsWritesDeferred = (context: SettingsRuntimeContext): boolean => 
 // materialized defaults, changing the shared settings and their etag).
 let _applyingServerSettings = 0;
 export const isApplyingServerSettings = (): boolean => _applyingServerSettings > 0;
-const applyServerUiPreferences = (settings: DesktopSettings): void => {
+/** Applies server settings to the stores as the server's own values (exported for the model-preferences tests). */
+export const applyServerUiPreferences = (settings: DesktopSettings): void => {
   _applyingServerSettings += 1;
   try { applyDesktopUiPreferences(settings); } finally { _applyingServerSettings -= 1; }
 };

@@ -2,7 +2,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { restoringModelPrefs } from '@/lib/modelPrefsRestore';
-import { copyModelPrefs, mergeExplicitChange } from '@/lib/modelPrefsShared';
+import { copyModelPrefs, mergeExplicitChange, serverFields } from '@/lib/modelPrefsShared';
 
 type ModelRef = { providerID: string; modelID: string };
 type ModelPrefsPayload = {
@@ -68,8 +68,8 @@ export const startModelPrefsAutoSave = () => {
 
   let timer: number | null = null;
   let scheduledRuntimeKey: string | null = null;
-  // The shared copy as last known: the values in the store when saving starts, then every server-applied value and
-  // every explicit change. A restore (or local rehydration) never enters it, so it never reaches the server (#126 F6).
+  // The shared copy as last known: the values in the store when saving starts, then each field the server applies and
+  // each explicit change. A restore (or local rehydration) never enters it, so it never reaches the server (#126 F6).
   let shared: ModelPrefsPayload = copyModelPrefs(snapshotModelPrefs());
   // Only the fields explicit choices changed, taken when they were made; a restore within the debounce never rides along.
   let pending: Partial<ModelPrefsPayload> = {};
@@ -116,7 +116,7 @@ export const startModelPrefsAutoSave = () => {
     };
     if (modelPrefsEqual(next, prev)) return;
     // Values the server sent are its copy; they are not sent back.
-    if (isApplyingServerSettings()) { shared = copyModelPrefs(next); return; }
+    if (isApplyingServerSettings()) { shared = { ...shared, ...serverFields(prev, next) }; return; }
     // Local rehydration and session restores are not user choices; they stay local.
     if (useUIStore.persist?.hasHydrated?.() === false || restoringModelPrefs()) return;
     const changes = mergeExplicitChange(prev, next, shared);
