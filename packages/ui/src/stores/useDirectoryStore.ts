@@ -22,7 +22,11 @@ interface DirectoryStore {
   /** Live managed catalog rows, published by the projects store; null outside an admitted managed catalog. */
   managedDirectories: string[] | null;
 
-  /** `remember: false` selects without publishing lastDirectory: adopting or restoring is not a new choice. */
+  /**
+   * Browser-local selection. `remember: false` also skips the local lastDirectory memory. It never writes the
+   * shared lastDirectory: session open and startup call it, and are not user choices (#117, #126 F6). An explicit
+   * project choice publishes lastDirectory in its owner (useProjectsStore.setActiveProject).
+   */
   setDirectory: (path: string, options?: { showOverlay?: boolean; remember?: boolean }) => void;
   goBack: () => void;
   goForward: () => void;
@@ -295,7 +299,6 @@ export const useDirectoryStore = create<DirectoryStore>()(
             safeStorage.setItem('lastDirectory', resolvedPath);
             safeStorage.setItem(BROWSER_LAST_DIRECTORY_KEY, resolvedPath);
             recordExplicitDirectoryChoice();
-            void updateDesktopSettings({ lastDirectory: resolvedPath });
           }
 
           return {
@@ -454,7 +457,6 @@ export const useDirectoryStore = create<DirectoryStore>()(
           opencodeClient.setDirectory(nextDirectory);
           invalidateFileSearchCache();
           safeStorage.setItem('lastDirectory', nextDirectory);
-          void updateDesktopSettings({ lastDirectory: nextDirectory });
 
         }
 

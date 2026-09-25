@@ -182,13 +182,18 @@ describe('updateDesktopSettings', () => {
   });
 
   test('waits for the debounced settings save to finish before resolving', async () => {
+    // Driven by the save's own start and a held finish, not by wall-clock sleeps (deterministic under load).
     let saveStarted = false;
     let saveFinished = false;
     let updateResolved = false;
+    let started!: () => void, finish!: () => void;
+    const whenStarted = new Promise<void>((resolve) => { started = resolve; });
+    const held = new Promise<void>((resolve) => { finish = resolve; });
 
     registerSettingsSave(async () => {
       saveStarted = true;
-      await delay(100);
+      started();
+      await held;
       saveFinished = true;
       return {};
     });
@@ -202,15 +207,16 @@ describe('updateDesktopSettings', () => {
       updateResolved = true;
     });
 
-    await delay(50);
-    expect(saveStarted).toBe(false);
+    await Promise.resolve();
+    expect(saveStarted).toBe(false); // debounced: nothing saved yet
     expect(updateResolved).toBe(false);
 
-    await delay(200);
-    expect(saveStarted).toBe(true);
+    await whenStarted;
+    for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
     expect(saveFinished).toBe(false);
-    expect(updateResolved).toBe(false);
+    expect(updateResolved).toBe(false); // still waiting for the save to finish
 
+    finish();
     await update;
     expect(saveFinished).toBe(true);
     expect(updateResolved).toBe(true);
@@ -1407,11 +1413,13 @@ describe('updateDesktopSettings', () => {
         recentEfforts: { 'openai/gpt-5': ['low'] },
       });
 
-      await delay(1500);
+      // Wait for the save itself (the debounce and the queued read), bounded, not a fixed sleep.
+      for (let waited = 0; saveCalls.length === 0 && waited < 10_000; waited += 20) await delay(20);
+      await delay(50); // a second save, if any, would follow within the same queue turn
 
+      // Each explicit change is written as exactly the keys it touched, onto the server's copy (smarty-code#126 F6).
       expect(saveCalls).toHaveLength(1);
       expect(saveCalls[0]).toEqual({
-        draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
         hiddenModels: [{ providerID: 'openai', modelID: 'gpt-5' }],
         collapsedModelProviders: ['openai'],

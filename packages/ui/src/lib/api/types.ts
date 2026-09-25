@@ -783,6 +783,8 @@ export interface SettingsLoadResult {
   /** Strong revision of this exact snapshot, only when conditional writes are supported. */
   revision?: string;
   source: 'desktop' | 'web';
+  /** True when the read failed and these are local defaults, not the stored settings: never a base for a write. */
+  fallback?: true;
 }
 
 export interface SettingsAPI {

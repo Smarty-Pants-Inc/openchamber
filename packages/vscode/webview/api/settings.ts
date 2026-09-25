@@ -28,6 +28,7 @@ export const createVSCodeSettingsAPI = (): SettingsAPI => ({
           lastDirectory: window.__VSCODE_CONFIG__?.workspaceFolder || '',
         },
         source: 'web',
+        fallback: true,
       };
     }
   },

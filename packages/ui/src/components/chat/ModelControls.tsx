@@ -46,6 +46,7 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import { markStartupTrace } from '@/lib/startupTrace';
+import { withoutSharingModelPrefs } from '@/lib/modelPrefsRestore';
 import {
     findLatestUserModelChoice,
     shouldPreserveManualModelOverride,
@@ -897,12 +898,12 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
             candidate: latestLoadedUserChoice,
         })) {
             if (savedSessionModel) {
-                applyModelSelectionWithVariant(
+                withoutSharingModelPrefs(() => applyModelSelectionWithVariant(
                     savedSessionModel.providerId,
                     savedSessionModel.modelId,
                     resolveModelVariantSelection(savedSessionModel.providerId, savedSessionModel.modelId),
                     currentAgentName || undefined,
-                );
+                ));
             }
             latestLoadedUserChoiceRestoreRef.current = restoreKey;
             return;
@@ -929,12 +930,14 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                 latestLoadedUserChoice.modelID,
             )
             : undefined);
-        const applyResult = applyModelSelectionWithVariant(
-            latestLoadedUserChoice.providerID,
-            latestLoadedUserChoice.modelID,
+        // Opening a session, or the echo of a send, restores its choice; that is not a new pick (#126 F6).
+        const { providerID: restoreProviderId, modelID: restoreModelId } = latestLoadedUserChoice;
+        const applyResult = withoutSharingModelPrefs(() => applyModelSelectionWithVariant(
+            restoreProviderId,
+            restoreModelId,
             restoredVariant,
             restoreAgentName,
-        );
+        ));
         if (applyResult !== 'applied') {
             return;
         }
