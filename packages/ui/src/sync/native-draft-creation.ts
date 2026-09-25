@@ -10,7 +10,12 @@ export type NativeDraftCreation = DraftTarget & (
   | { status: 'creating' | 'checking' }
   | { status: 'failed'; error: NativeCreationError; submitted: boolean }
   | { status: 'created'; session: NativeCreatedSession; inputAccepted?: true }
-  | { status: 'pending'; operation: NativeCreationState; busy?: boolean; error?: NativeCreationError }
+  | { status: 'pending'; operation: NativeCreationState; busy?: boolean; error?: NativeCreationError;
+      /** The last read answered 'unavailable' (its owner not readable yet), or showed no newer state than a reply
+       * already sent: re-read only, never answer (#126). */
+      unreadable?: boolean;
+      /** The revision this record last replied to; a reply is never sent again at or below it (no replay). */
+      answered?: number }
 );
 
 export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
