@@ -6,6 +6,7 @@ import {
   getRuntimeBearerTokenSync,
   refreshRuntimeUrlAuthToken,
   refreshLocalRuntimeUrlAuthToken,
+  resetRuntimeAuthGeneration,
   getLocalRuntimeUrlAuthTokenSync,
   setRuntimeAuthCredentialProvider,
   setRuntimeBearerToken,
@@ -114,6 +115,31 @@ describe('runtime auth headers', () => {
       globalThis.fetch = previousFetch;
       clearRuntimeUrlAuthToken();
       setRuntimeExtraHeaders(null);
+      clearRuntimeAuthCredentialProvider();
+    }
+  });
+
+  test('a human-auth server\'s 409 refusal is final: the URL token is not asked for again', async () => {
+    const previousFetch = globalThis.fetch;
+    let fetchCount = 0;
+    try {
+      clearRuntimeUrlAuthToken();
+      globalThis.fetch = (async () => {
+        fetchCount += 1;
+        return Response.json({ error: 'Sign in with Google. Existing device credentials are not human accounts.', humanAuthRequired: true }, { status: 409 });
+      }) as unknown as typeof fetch;
+      let first = '', second = '';
+      try { await refreshRuntimeUrlAuthToken('https://runtime.example'); } catch (error) { first = String(error); }
+      // Well after any retry backoff: a refusal that could change would be asked again by now.
+      const now = Date.now; Date.now = () => now() + 10 * 60_000;
+      try { await refreshRuntimeUrlAuthToken('https://runtime.example'); } catch (error) { second = String(error); }
+      finally { Date.now = now; }
+      expect(first).toContain('(409)');
+      expect(second).toContain('waiting for recovery');
+      expect(fetchCount).toBe(1);
+    } finally {
+      globalThis.fetch = previousFetch;
+      resetRuntimeAuthGeneration();
       clearRuntimeAuthCredentialProvider();
     }
   });
