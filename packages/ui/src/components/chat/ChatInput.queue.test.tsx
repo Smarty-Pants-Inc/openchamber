@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { mountedNativeComposer, shownActivity } from './composer/submit/__tests__/nativeComposer.fixture';
+import { errors, mountedNativeComposer, shownActivity } from './composer/submit/__tests__/nativeComposer.fixture';
 import { deferred, directory, session } from '@/sync/native-draft-fixture';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
@@ -142,7 +142,7 @@ test('an unknown queue admission keeps live input and a second submit cannot rep
 });
 
 // F11: a missed session.idle left the page 'working', so Send took the queue route for a session idle on the server.
-async function shownWorking(serverStatus: Record<string, unknown>) {
+async function shownWorking(serverStatus: Record<string, unknown> | (() => Promise<Response>)) {
     const c = await composer();
     await act(async () => {
         useAutoReviewStore.setState(initialAutoReview, true);
@@ -155,7 +155,10 @@ async function shownWorking(serverStatus: Record<string, unknown>) {
     const queueFetch = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
-        if (new URL(request.url).pathname.endsWith('/session/status')) { statusReads.push(request); return Response.json(serverStatus); }
+        if (new URL(request.url).pathname.endsWith('/session/status')) {
+            statusReads.push(request);
+            return typeof serverStatus === 'function' ? serverStatus() : Response.json(serverStatus);
+        }
         return queueFetch(input, init);
     };
     await act(async () => { c.rerender(); });
@@ -176,4 +179,46 @@ test('Send still queues when the server confirms the session is working', async 
     expect(statusReads).toHaveLength(1);
     expect(queue.map(request => request.method)).toEqual(['GET', 'POST']);
     expect(c.prompts()).toHaveLength(0);
+});
+
+// Review P1 on #221: the composer stays mounted across session selections, so a Send held on the status read must not
+// send or queue the NEXT session's draft (or queue it to the first session) once the read returns.
+const holds = { idle: () => Response.json({}), busy: () => Response.json({ [session.id]: { type: 'busy' } }),
+    failed: () => new Response('down', { status: 500 }) };
+for (const [name, reply] of Object.entries(holds)) {
+    test(`a session switch during a held status read (${name}) sends and queues nothing`, async () => {
+        const held = deferred<Response>();
+        const { c, queue, statusReads } = await shownWorking(() => held.promise);
+        errors.length = 0;
+        await c.submit();
+        expect(statusReads).toHaveLength(1);
+        await act(async () => { useSessionUIStore.setState({ currentSessionId: 'ses-b-other' }); });
+        await c.replace('B draft');
+        await act(async () => { held.resolve(reply()); await sleep(10); });
+        expect(c.prompts()).toHaveLength(0);
+        expect(queue.filter(request => request.method === 'POST')).toHaveLength(0);
+        expect(c.text()).toBe('B draft');
+        expect(errors.some(message => message.startsWith('Nothing was sent'))).toBe(true);
+    });
+}
+
+test('an edit during a held status read cancels the send; the edited text stays', async () => {
+    const held = deferred<Response>();
+    const { c, queue } = await shownWorking(() => held.promise);
+    await c.submit();
+    await c.replace('queue this, edited');
+    await act(async () => { held.resolve(Response.json({})); await sleep(10); });
+    expect(c.prompts()).toHaveLength(0);
+    expect(queue.filter(request => request.method === 'POST')).toHaveLength(0);
+    expect(c.text()).toBe('queue this, edited');
+});
+
+test('repeated Sends while the status read is held make one read and one send', async () => {
+    const held = deferred<Response>();
+    const { c, queue, statusReads } = await shownWorking(() => held.promise);
+    await c.submit(); await c.submit(); await c.submit();
+    expect(statusReads).toHaveLength(1);
+    await act(async () => { held.resolve(Response.json({})); await sleep(10); });
+    expect(c.prompts()).toHaveLength(1);
+    expect(queue).toHaveLength(0);
 });

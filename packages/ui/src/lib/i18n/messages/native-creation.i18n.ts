@@ -1,6 +1,7 @@
 export const nativeCreationI18n = {
   en: {
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
+    'chat.followUp.changedDuringCheck': "Nothing was sent: the chat or the message changed while Send checked whether the session is still working. Each chat keeps its own draft. Press Send again.",
     'chat.ordinary.sendUnavailable': 'This session is unavailable right now, so nothing was sent. Your message stays in the composer.',
     'chat.fleetView.banner': 'View only. This session was started in Herdr, so you can read it here but cannot send to it yet.',
     'chat.fleetView.enroll': 'Learn more',
@@ -26,6 +27,7 @@ export const nativeCreationI18n = {
   },
   de: {
     'chat.ordinary.viewMissing': "Der Verlauf dieses Chats ist noch nicht geladen, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld. Drücken Sie gleich noch einmal auf Senden.",
+    'chat.followUp.changedDuringCheck': "Nichts wurde gesendet: Der Chat oder die Nachricht hat sich geändert, während Senden prüfte, ob die Sitzung noch arbeitet. Jeder Chat behält seinen eigenen Entwurf. Drücken Sie erneut auf Senden.",
     'chat.ordinary.sendUnavailable': 'Diese Sitzung ist gerade nicht verfügbar, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld.',
     'chat.fleetView.banner': 'Nur ansehen. Diese Sitzung wurde in Herdr gestartet. Du kannst sie hier lesen, aber noch nichts an sie senden.',
     'chat.fleetView.enroll': 'Mehr erfahren',
@@ -51,6 +53,7 @@ export const nativeCreationI18n = {
   },
   es: {
     'chat.ordinary.viewMissing': "El historial de este chat aún no ha terminado de cargarse, así que no se envió nada. Tu mensaje sigue en el editor. Pulsa Enviar de nuevo en un momento.",
+    'chat.followUp.changedDuringCheck': "No se envió nada: el chat o el mensaje cambió mientras Enviar comprobaba si la sesión sigue trabajando. Cada chat conserva su propio borrador. Pulsa Enviar de nuevo.",
     'chat.ordinary.sendUnavailable': 'Esta sesión no está disponible ahora, así que no se envió nada. Tu mensaje sigue en el editor.',
     'chat.fleetView.banner': 'Solo lectura. Esta sesión se inició en Herdr, así que puedes leerla aquí, pero aún no puedes enviarle nada.',
     'chat.fleetView.enroll': 'Más información',
@@ -76,6 +79,7 @@ export const nativeCreationI18n = {
   },
   fr: {
     'chat.ordinary.viewMissing': "L'historique de cette discussion n'est pas encore chargé, donc rien n'a été envoyé. Votre message reste dans la zone de saisie. Appuyez à nouveau sur Envoyer dans un instant.",
+    'chat.followUp.changedDuringCheck': "Rien n'a été envoyé : la discussion ou le message a changé pendant qu'Envoyer vérifiait si la session travaille encore. Chaque discussion garde son propre brouillon. Appuyez de nouveau sur Envoyer.",
     'chat.ordinary.sendUnavailable': 'Cette session est indisponible pour le moment : rien n’a été envoyé. Votre message reste dans la zone de saisie.',
     'chat.fleetView.banner': 'Lecture seule. Cette session a été démarrée dans Herdr : vous pouvez la lire ici, mais pas encore lui envoyer de message.',
     'chat.fleetView.enroll': 'En savoir plus',
@@ -101,6 +105,7 @@ export const nativeCreationI18n = {
   },
   ja: {
     'chat.ordinary.viewMissing': "このチャットの履歴がまだ読み込まれていないため、何も送信されていません。メッセージは入力欄に残っています。少し待ってからもう一度送信してください。",
+    'chat.followUp.changedDuringCheck': "送信されませんでした: セッションがまだ動作中かを送信が確認している間に、チャットまたはメッセージが変わりました。各チャットの下書きはそのまま残ります。もう一度送信を押してください。",
     'chat.ordinary.sendUnavailable': 'このセッションは現在利用できないため、何も送信されませんでした。メッセージは入力欄に残っています。',
     'chat.fleetView.banner': '表示のみ。このセッションは Herdr で開始されたため、ここで読むことはできますが、まだ送信はできません。',
     'chat.fleetView.enroll': '詳細を見る',
@@ -126,6 +131,7 @@ export const nativeCreationI18n = {
   },
   ko: {
     'chat.ordinary.viewMissing': "이 채팅의 기록이 아직 로드되지 않아 아무것도 보내지 않았습니다. 메시지는 입력란에 그대로 있습니다. 잠시 후 다시 보내기를 누르세요.",
+    'chat.followUp.changedDuringCheck': "아무것도 보내지 않았습니다: 보내기가 세션이 아직 작업 중인지 확인하는 동안 채팅 또는 메시지가 바뀌었습니다. 각 채팅의 초안은 그대로 남아 있습니다. 보내기를 다시 누르세요.",
     'chat.ordinary.sendUnavailable': '이 세션은 지금 사용할 수 없어 아무것도 보내지 않았습니다. 메시지는 입력창에 남아 있습니다.',
     'chat.fleetView.banner': '보기 전용입니다. 이 세션은 Herdr에서 시작되었기 때문에 여기서 읽을 수는 있지만 아직 보낼 수는 없습니다.',
     'chat.fleetView.enroll': '자세히 알아보기',
@@ -151,6 +157,7 @@ export const nativeCreationI18n = {
   },
   pl: {
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
+    'chat.followUp.changedDuringCheck': "Nic nie zostało wysłane: czat lub wiadomość zmieniły się, gdy Wyślij sprawdzało, czy sesja nadal pracuje. Każdy czat zachowuje własny szkic. Naciśnij Wyślij ponownie.",
     'chat.ordinary.sendUnavailable': 'Ta sesja jest teraz niedostępna, więc nic nie zostało wysłane. Wiadomość pozostaje w polu edycji.',
     'chat.fleetView.banner': 'Tylko podgląd. Ta sesja została uruchomiona w Herdr, więc możesz ją tu czytać, ale nie możesz jeszcze nic do niej wysłać.',
     'chat.fleetView.enroll': 'Dowiedz się więcej',
@@ -176,6 +183,7 @@ export const nativeCreationI18n = {
   },
   'pt-BR': {
     'chat.ordinary.viewMissing': "O histórico deste chat ainda não terminou de carregar, então nada foi enviado. Sua mensagem continua no editor. Pressione Enviar novamente em instantes.",
+    'chat.followUp.changedDuringCheck': "Nada foi enviado: o chat ou a mensagem mudou enquanto Enviar verificava se a sessão ainda está trabalhando. Cada chat mantém o próprio rascunho. Pressione Enviar novamente.",
     'chat.ordinary.sendUnavailable': 'Esta sessão está indisponível no momento, então nada foi enviado. Sua mensagem continua no editor.',
     'chat.fleetView.banner': 'Somente visualização. Esta sessão foi iniciada no Herdr, então você pode lê-la aqui, mas ainda não pode enviar nada para ela.',
     'chat.fleetView.enroll': 'Saiba mais',
@@ -201,6 +209,7 @@ export const nativeCreationI18n = {
   },
   tr: {
     'chat.ordinary.viewMissing': "Bu sohbetin geçmişi henüz yüklenmedi, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor. Birazdan yeniden Gönder'e basın.",
+    'chat.followUp.changedDuringCheck': "Hiçbir şey gönderilmedi: Gönder, oturumun hâlâ çalışıp çalışmadığını denetlerken sohbet veya ileti değişti. Her sohbet kendi taslağını korur. Gönder'e yeniden basın.",
     'chat.ordinary.sendUnavailable': 'Bu oturum şu anda kullanılamıyor, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor.',
     'chat.fleetView.banner': 'Yalnızca görüntüleme. Bu oturum Herdr içinde başlatıldı; burada okuyabilirsiniz ancak henüz ona gönderemezsiniz.',
     'chat.fleetView.enroll': 'Daha fazla bilgi',
@@ -226,6 +235,7 @@ export const nativeCreationI18n = {
   },
   uk: {
     'chat.ordinary.viewMissing': "Історія цього чату ще не завантажилася, тому нічого не надіслано. Ваше повідомлення лишається в полі введення. Натисніть «Надіслати» ще раз за мить.",
+    'chat.followUp.changedDuringCheck': "Нічого не надіслано: чат або повідомлення змінилися, поки Надіслати перевіряло, чи сесія ще працює. Кожен чат зберігає власну чернетку. Натисніть Надіслати ще раз.",
     'chat.ordinary.sendUnavailable': 'Цей сеанс зараз недоступний, тому нічого не надіслано. Ваше повідомлення лишається в полі введення.',
     'chat.fleetView.banner': 'Лише перегляд. Цей сеанс запущено в Herdr, тому ви можете читати його тут, але поки не можете нічого йому надсилати.',
     'chat.fleetView.enroll': 'Докладніше',
@@ -251,6 +261,7 @@ export const nativeCreationI18n = {
   },
   'zh-CN': {
     'chat.ordinary.viewMissing': "此聊天的历史记录尚未加载完成，因此未发送任何内容。你的消息仍在输入框中。请稍后再次点击发送。",
+    'chat.followUp.changedDuringCheck': "未发送任何内容：在“发送”检查会话是否仍在工作时，聊天或消息发生了变化。每个聊天都保留自己的草稿。请再次按“发送”。",
     'chat.ordinary.sendUnavailable': '此会话当前不可用，因此未发送任何内容。你的消息仍保留在输入框中。',
     'chat.fleetView.banner': '仅查看。此会话是在 Herdr 中启动的，你可以在这里阅读，但暂时无法向它发送消息。',
     'chat.fleetView.enroll': '了解更多',
@@ -276,6 +287,7 @@ export const nativeCreationI18n = {
   },
   'zh-TW': {
     'chat.ordinary.viewMissing': "此聊天的歷史記錄尚未載入完成，因此未傳送任何內容。你的訊息仍在輸入框中。請稍後再次按下傳送。",
+    'chat.followUp.changedDuringCheck': "未傳送任何內容：在「傳送」檢查工作階段是否仍在進行時，聊天或訊息已變更。每個聊天都保留自己的草稿。請再按一次「傳送」。",
     'chat.ordinary.sendUnavailable': '此工作階段目前無法使用，因此未傳送任何內容。你的訊息仍保留在輸入框中。',
     'chat.fleetView.banner': '僅檢視。此工作階段是在 Herdr 中啟動的，你可以在這裡閱讀，但暫時無法傳送訊息給它。',
     'chat.fleetView.enroll': '了解更多',
