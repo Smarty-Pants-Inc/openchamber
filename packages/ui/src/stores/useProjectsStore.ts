@@ -1,3 +1,4 @@
+import { nextStockConfirmed } from '@/lib/stock-confirmation';
 import { create } from 'zustand';
 import {
   managedActiveProject, managedProjectView, noteStaleManagedSelection, staleManagedSelection,
@@ -55,6 +56,8 @@ interface ProjectsStore {
   projects: ProjectEntry[];
   managedCatalogAdmitted: boolean;
   managedCatalogStatus: ManagedCatalogStatus;
+  /** This runtime affirmatively answered "stock" (see nextStockConfirmed); derived, never set directly. */
+  managedCatalogStockConfirmed: boolean;
   managedRows: ManagedProject[] | null;
   managedProjects: ProjectEntry[] | null;
   admitManagedCatalog: () => void;
@@ -648,6 +651,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     projects: effectiveInitialProjects,
     managedCatalogAdmitted: false,
     managedCatalogStatus: 'unknown',
+    managedCatalogStockConfirmed: false,
     managedRows: null,
     managedProjects: null,
     admitManagedCatalog: () => {
@@ -1293,6 +1297,13 @@ useProjectsStore.subscribe((state, previous) => {
   cacheProjects(state.projects, held);
   opencodeClient.setDirectory(project.path);
   useDirectoryStore.getState().setDirectory(project.path, { showOverlay: false, remember: false });
+});
+
+// The stock answer belongs to the runtime's discovery state, not to a mounted sidebar (smarty-code#126 (c), OC#169).
+useProjectsStore.subscribe((state) => {
+  const confirmed = nextStockConfirmed(state.managedCatalogStockConfirmed,
+    { managedCatalog: state.managedCatalogAdmitted, catalogStatus: state.managedCatalogStatus });
+  if (confirmed !== state.managedCatalogStockConfirmed) useProjectsStore.setState({ managedCatalogStockConfirmed: confirmed });
 });
 
 if (typeof window !== 'undefined') {

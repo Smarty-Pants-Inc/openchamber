@@ -48,27 +48,29 @@ async function render(directory: string, isVSCode = false, sessionId = 's1', nam
     );
     await new Promise(resolve => setTimeout(resolve, 10));
   });
-  const buttons = container.querySelectorAll('button').length;
-  names?.push(...[...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label') ?? ''));
+  const buttons = [...container.querySelectorAll('button')];
+  names?.push(...buttons.map(button => button.getAttribute('aria-label') ?? ''));
+  const shown = buttons.length === 0 ? 'hidden' : buttons[0].disabled ? `disabled: ${buttons[0].getAttribute('aria-label')}` : buttons[0].textContent;
   act(() => root.unmount());
-  return buttons;
+  return shown;
 }
 
-test('hidden until the gateway advertises session voice for the directory', async () => {
+// smarty-code#126: the call control is labelled as a call, and a session without voice says why instead of hiding it.
+test('a labelled Voice call control; disabled with a plain reason where the gateway has no session voice', async () => {
   advertised.set('/with-voice', true);
-  expect(await render('/without-voice')).toBe(0);
-  expect(await render('/with-voice')).toBe(1);
+  expect(await render('/without-voice')).toBe('disabled: Voice call. Voice calls are not available in this session.');
+  expect(await render('/with-voice')).toBe('Voice call');
   expect(asked).toEqual(['/without-voice', '/with-voice']);
 });
 
 test('hidden in VS Code without asking the gateway', async () => {
   asked.length = 0;
   advertised.set('/with-voice', true);
-  expect(await render('/with-voice', true)).toBe(0);
+  expect(await render('/with-voice', true)).toBe('hidden');
   expect(asked).toEqual([]);
 });
 
-test('a call bound to another session shows Move call here, not a second start; its own session shows no start', async () => {
+test('a call bound to another session offers Move call here, not a second start; its own session shows no control', async () => {
   const store = await import('@/lib/voice/piVoiceActiveCall');
   const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
   advertised.set('/with-voice', true);
@@ -76,10 +78,9 @@ test('a call bound to another session shows Move call here, not a second start; 
   runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey(); // The page's runtime, as the control sees it.
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
   const elsewhere: string[] = [], own: string[] = [];
-  expect(await render('/with-voice', false, 'lane', elsewhere)).toBe(1);
+  expect(await render('/with-voice', false, 'lane', elsewhere)).toBe('Move call here');
   expect(elsewhere).toEqual(['Move call here']); // End is the call bar's, on every screen.
-  expect(await render('/with-voice', false, 'org', own)).toBe(0);
-  expect(own).toEqual([]);
+  expect(await render('/with-voice', false, 'org', own)).toBe('hidden');
   store.endActivePiVoiceCall();
 });
 
@@ -90,8 +91,6 @@ test('a call on another runtime is never shown as this session’s call, even wi
   const { driver, runtime } = fakePiVoiceDriver();
   runtime.key = 'another-instance';
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
-  const names: string[] = [];
-  expect(await render('/with-voice', false, 'org', names)).toBe(1);
-  expect(names).toEqual(['Move call here']);
+  expect(await render('/with-voice', false, 'org')).toBe('Move call here');
   store.endActivePiVoiceCall();
 });

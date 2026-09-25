@@ -67,7 +67,7 @@
       "path": "packages/ui/src/lib/i18n/messages/de.ts",
       "brandingSha256": "f24b358ffa67700abc96b687682a30aa9298f77af43bb9ca4a5c2fa50d6673b2",
       "behaviorSha256": "c9a16f5ebe7a11aa345b0ddd64391c83e726a1b3025c59343ced92632b1b969a",
-      "combinedSha256": "eae9c6cd87023a5e90ddec5375330273ece3d07a54beac7ff7b407923555c421",
+      "combinedSha256": "3a55c41a35fb9d03d84003b50be581002aad3a6786e80fead4b5051a94e9a6f0",
       "nativeCreationSha256": "8a05a516720ee0bd082756b85d4041b8016ef6712ba5eb1baa4a69d6736a3e0d",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -78,13 +78,16 @@
       "sessionVoiceSha256": "b0588a4e97ac4e4ed66754340939e6eb1813c8afc29c1ff57a21cc02a92bfaa6",
       "preManagedAddCombinedSha256": "b0588a4e97ac4e4ed66754340939e6eb1813c8afc29c1ff57a21cc02a92bfaa6",
       "managedAddSha256": "eae9c6cd87023a5e90ddec5375330273ece3d07a54beac7ff7b407923555c421",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "eae9c6cd87023a5e90ddec5375330273ece3d07a54beac7ff7b407923555c421",
+      "sidebarHerdrSha256": "3a55c41a35fb9d03d84003b50be581002aad3a6786e80fead4b5051a94e9a6f0",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/en.ts",
       "brandingSha256": "17c9771516e54f2b832631823f986e5da195944d1d08e0b0b07a19e336dcfda5",
       "behaviorSha256": "8741de7c0513f1593a645928c34ee0c862ad25748430ce15405087b220f1be89",
-      "combinedSha256": "a928ab37b1a1c16f550641a5a570d305a65e7539c3e5cd04ecfd3a6314c4921e",
+      "combinedSha256": "d2dafc3b63ddc992f1644a4cb672d683f33889aeca0fa2407c2b493959f1accb",
       "nativeCreationSha256": "a86429d854295c906fc64d9a4c2ecfb07a75e81fdc5b40f08a6ff85a0e392713",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -95,13 +98,16 @@
       "sessionVoiceSha256": "93a308c39a68dfc6c45b619269e5a98e9dac9cd506a2db56d1fe4acd879edea5",
       "preManagedAddCombinedSha256": "93a308c39a68dfc6c45b619269e5a98e9dac9cd506a2db56d1fe4acd879edea5",
       "managedAddSha256": "a928ab37b1a1c16f550641a5a570d305a65e7539c3e5cd04ecfd3a6314c4921e",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "a928ab37b1a1c16f550641a5a570d305a65e7539c3e5cd04ecfd3a6314c4921e",
+      "sidebarHerdrSha256": "d2dafc3b63ddc992f1644a4cb672d683f33889aeca0fa2407c2b493959f1accb",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/es.ts",
       "brandingSha256": "0606091c226d60ffb4a999037f432c41ab42ee2e7a3c5acaec6aa5682488f6be",
       "behaviorSha256": "4632e6c634b5cdb107c8b11d49385155de02d000e994e086d04874294190669d",
-      "combinedSha256": "99b322f95b161ca4630bb4f61adedc7267eda241fe14e504f66d7c08c3c5b073",
+      "combinedSha256": "6fe0a87091fd285b8d802e751de01fa989e543c1014a980dcb5a926d2e1a4d73",
       "nativeCreationSha256": "9ca217e2d77a162c516b2b8f32feb3ba558cb25411c132424e505788e3bb25d7",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -112,13 +118,16 @@
       "sessionVoiceSha256": "beb085dbe30a4a73e709a5827833a9e75326a88fe8c7064af7b2e5975a2aed77",
       "preManagedAddCombinedSha256": "beb085dbe30a4a73e709a5827833a9e75326a88fe8c7064af7b2e5975a2aed77",
       "managedAddSha256": "99b322f95b161ca4630bb4f61adedc7267eda241fe14e504f66d7c08c3c5b073",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "99b322f95b161ca4630bb4f61adedc7267eda241fe14e504f66d7c08c3c5b073",
+      "sidebarHerdrSha256": "6fe0a87091fd285b8d802e751de01fa989e543c1014a980dcb5a926d2e1a4d73",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/fr.ts",
       "brandingSha256": "205cde414f524e654423f6fbb2a8cb6aad1d3bee0d6509ca66afdcc20c9c5599",
       "behaviorSha256": "daa8f2f1379d3982502522eea575825614603fec8554a210f95fc2b55c44f7a1",
-      "combinedSha256": "d5a282608348cb045c3d9cf85022b6f14766c4041046acdceae906345ff90ebb",
+      "combinedSha256": "ed8653ab8def54a15a915c1545b92e6f4100f7601bf85561139a1f5ce4ec7655",
       "nativeCreationSha256": "d3403b6c4f7d8e139e73b98be10b1c7c28585e59aca18b7280c0696b535321bb",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -129,13 +138,16 @@
       "sessionVoiceSha256": "b12ac26bfc1d52406ca77e7a2bd1c1738a1a8e0b3689b092646baaed180ddd4c",
       "preManagedAddCombinedSha256": "b12ac26bfc1d52406ca77e7a2bd1c1738a1a8e0b3689b092646baaed180ddd4c",
       "managedAddSha256": "d5a282608348cb045c3d9cf85022b6f14766c4041046acdceae906345ff90ebb",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "d5a282608348cb045c3d9cf85022b6f14766c4041046acdceae906345ff90ebb",
+      "sidebarHerdrSha256": "ed8653ab8def54a15a915c1545b92e6f4100f7601bf85561139a1f5ce4ec7655",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ja.ts",
       "brandingSha256": "07739efd656730d7f72f3c3c51b2a19412577fcc6e8acf1e20fd9fb8c2309b16",
       "behaviorSha256": "e286c7415a535c839a633e1f24c2fb73dac9187fd1c7d6a6cfc06c1d027ab1b3",
-      "combinedSha256": "e2120927d1470ad4902f06f7f626bf3eb02dc6bea17418012f9b5145e9dbcc50",
+      "combinedSha256": "7f6d95d8ba3da053f54a8f4a031d6ec47dfcaf0088e4d08a5bbb6ce26868808e",
       "nativeCreationSha256": "87c95552bf95dad3b25a1327fe1257360702b2e8e820986fa68c5d0c96552801",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -146,13 +158,16 @@
       "sessionVoiceSha256": "c892525678fea1d3500f0828b544e1a589996cdb0c21fc6a1172f25a542e20ee",
       "preManagedAddCombinedSha256": "c892525678fea1d3500f0828b544e1a589996cdb0c21fc6a1172f25a542e20ee",
       "managedAddSha256": "e2120927d1470ad4902f06f7f626bf3eb02dc6bea17418012f9b5145e9dbcc50",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "e2120927d1470ad4902f06f7f626bf3eb02dc6bea17418012f9b5145e9dbcc50",
+      "sidebarHerdrSha256": "7f6d95d8ba3da053f54a8f4a031d6ec47dfcaf0088e4d08a5bbb6ce26868808e",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ko.ts",
       "brandingSha256": "c2cd7b668ba1f67d78d015bcd2c89fc36517ed678997258ce221082fc707301d",
       "behaviorSha256": "2b6727053aa7135958fd87d1e420327772bed38eff009b1db313377cd51594da",
-      "combinedSha256": "b7cbf723b185566e061a093046a5ec6ac4136e3128ac3517ba9ef2993e319ca6",
+      "combinedSha256": "2e60e2d525f55959309317297f99afdb0e6d43069aa0efa21d06e26d7bb2eb7b",
       "nativeCreationSha256": "e049a1a11f9903308d93865f3a4a5afb1396456b0617e54ac0c4fa09757b51d6",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -163,13 +178,16 @@
       "sessionVoiceSha256": "830109379eb28261edb179b9c4ddfbab05c4b16a29a9d9f6a16eb8bb0efcb5db",
       "preManagedAddCombinedSha256": "830109379eb28261edb179b9c4ddfbab05c4b16a29a9d9f6a16eb8bb0efcb5db",
       "managedAddSha256": "b7cbf723b185566e061a093046a5ec6ac4136e3128ac3517ba9ef2993e319ca6",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "b7cbf723b185566e061a093046a5ec6ac4136e3128ac3517ba9ef2993e319ca6",
+      "sidebarHerdrSha256": "2e60e2d525f55959309317297f99afdb0e6d43069aa0efa21d06e26d7bb2eb7b",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pl.ts",
       "brandingSha256": "5fdd40b1b19216c305d3d85a01880fe3f19afa88d59e4e279270765a14b04590",
       "behaviorSha256": "3e5dca1d51e428e5ab6f838bfcf3abd863899bf2395b2e5108c2718e2907fbf6",
-      "combinedSha256": "e3d1b7be0511c55101924730834e42c38a963a52e25f377a085bd30a099af2b0",
+      "combinedSha256": "63aaee66864f9ba3ff13fafb82c276c5406f04e285eee02a1119f87ca26a4525",
       "nativeCreationSha256": "bbff38094f3f0dd908dae8208b8cf0d9521d4f3c9c677394e0c4dae1633e4a0f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -180,13 +198,16 @@
       "sessionVoiceSha256": "35d670f45ea5627ec5f21668e9cd85230c09ca475634662f50f707d7c3429a09",
       "preManagedAddCombinedSha256": "35d670f45ea5627ec5f21668e9cd85230c09ca475634662f50f707d7c3429a09",
       "managedAddSha256": "e3d1b7be0511c55101924730834e42c38a963a52e25f377a085bd30a099af2b0",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "e3d1b7be0511c55101924730834e42c38a963a52e25f377a085bd30a099af2b0",
+      "sidebarHerdrSha256": "63aaee66864f9ba3ff13fafb82c276c5406f04e285eee02a1119f87ca26a4525",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pt-BR.ts",
       "brandingSha256": "cbdfad3514dcf1e82cb487da88108d27027d6436f775e5ac4ecf6e0009970ba0",
       "behaviorSha256": "91c380be5f9e821a5798c5b2a04709d9a14c8f0bf147886c9606a43e79156c0f",
-      "combinedSha256": "08f8ce5efba8f8ab5420478c1e95b620fb9a2631731d759f30a10860af543c3b",
+      "combinedSha256": "0f647e0459d71212285d0e6b017ffa45099794f1b66040d22689bdacb304ca0b",
       "nativeCreationSha256": "cefc79129c162faba2a7275e42c658c1f53c67255140f96b32a1adfd3a816286",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -197,13 +218,16 @@
       "sessionVoiceSha256": "e7c1eb4e5cd84085acf87b80ca9d9b41681885ba2f4c6dcb187b1888c60500dc",
       "preManagedAddCombinedSha256": "e7c1eb4e5cd84085acf87b80ca9d9b41681885ba2f4c6dcb187b1888c60500dc",
       "managedAddSha256": "08f8ce5efba8f8ab5420478c1e95b620fb9a2631731d759f30a10860af543c3b",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "08f8ce5efba8f8ab5420478c1e95b620fb9a2631731d759f30a10860af543c3b",
+      "sidebarHerdrSha256": "0f647e0459d71212285d0e6b017ffa45099794f1b66040d22689bdacb304ca0b",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/uk.ts",
       "brandingSha256": "0a8fce805ddcbff7234f2fafcb38401ac05e748ef6ad3ff8a6546161aa5a4944",
       "behaviorSha256": "a2c6f1ee0a882ff442bdc7f4836fc1382b9bdc90e8878d2e92107ee133575722",
-      "combinedSha256": "f3e3dfd439080da4fdacdb240c1de5952025855d49fe9c6defa23144152412a1",
+      "combinedSha256": "8ffcf40c98ef4d2dee49582ae952f687148bcaba3343c0275a68d51476a7d246",
       "nativeCreationSha256": "72f99c33aafb64f7385f809e934a37c409adc190e9a7fe3ba6cfd8f604defb03",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -214,13 +238,16 @@
       "sessionVoiceSha256": "a3b86a8ee47ef7772cb0c5438b619df30809f4a8f9c182baed88bf07a9c2d834",
       "preManagedAddCombinedSha256": "a3b86a8ee47ef7772cb0c5438b619df30809f4a8f9c182baed88bf07a9c2d834",
       "managedAddSha256": "f3e3dfd439080da4fdacdb240c1de5952025855d49fe9c6defa23144152412a1",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "f3e3dfd439080da4fdacdb240c1de5952025855d49fe9c6defa23144152412a1",
+      "sidebarHerdrSha256": "8ffcf40c98ef4d2dee49582ae952f687148bcaba3343c0275a68d51476a7d246",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-CN.ts",
       "brandingSha256": "471034a8f6cfab71f307693d0ba8ad5583ccb621177fad40a2c353d190a7b54b",
       "behaviorSha256": "ca1c20d8ef3c9590a6ba4a5d1cc0fc86565ebd72e12809c34253f0fdece2762a",
-      "combinedSha256": "3faed9504a6595c5da48b460053791e1d79d6dcf853391bd5a3ad9066b9ab24b",
+      "combinedSha256": "e71b0fba81f81edd13425763e5be65cc94933675d03ed8324a9076ebf8f20e59",
       "nativeCreationSha256": "27342a24a8139a3b9e96840218566d7d503473f7eed83773e0ad876d4e6a0837",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -231,13 +258,16 @@
       "sessionVoiceSha256": "67b43ba7371f582f04c04112d88e5bed87a673a37dc2c7435237bc2376be9501",
       "preManagedAddCombinedSha256": "67b43ba7371f582f04c04112d88e5bed87a673a37dc2c7435237bc2376be9501",
       "managedAddSha256": "3faed9504a6595c5da48b460053791e1d79d6dcf853391bd5a3ad9066b9ab24b",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "3faed9504a6595c5da48b460053791e1d79d6dcf853391bd5a3ad9066b9ab24b",
+      "sidebarHerdrSha256": "e71b0fba81f81edd13425763e5be65cc94933675d03ed8324a9076ebf8f20e59",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-TW.ts",
       "brandingSha256": "3af37b26f4055b3dd1264aa4ae6dc251fac6f9398b0f349f6c478c338191de5b",
       "behaviorSha256": "4af4bfd2dc1c985f45c4f5f88df6368a5ffad0a15756c7b3720798fc4ddbf199",
-      "combinedSha256": "9adcc551bfe3c5eb0da5e4272d68fc123b4402603a1531d3855fa92403c22a13",
+      "combinedSha256": "2e15160f28146cd18cf6732baff8a369ae3202fc33d479934acaa54c2bd3ba9b",
       "nativeCreationSha256": "22c9af32262a0635c1056abc7d1fa4e2f85d7f0656335af98533074652b4204f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -248,7 +278,10 @@
       "sessionVoiceSha256": "83e7ac1e79b7056f532b66235aab91fb0db494f8d0f1b6fd47f90fa4cd910386",
       "preManagedAddCombinedSha256": "83e7ac1e79b7056f532b66235aab91fb0db494f8d0f1b6fd47f90fa4cd910386",
       "managedAddSha256": "9adcc551bfe3c5eb0da5e4272d68fc123b4402603a1531d3855fa92403c22a13",
-      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)"
+      "managedAddNote": "smarty-code#126 item 8: managed stale-selection note copy (projects.managedCatalog.staleSelection)",
+      "preSidebarHerdrCombinedSha256": "9adcc551bfe3c5eb0da5e4272d68fc123b4402603a1531d3855fa92403c22a13",
+      "sidebarHerdrSha256": "2e15160f28146cd18cf6732baff8a369ae3202fc33d479934acaa54c2bd3ba9b",
+      "sidebarHerdrNote": "smarty-code#126 (c): sidebar parity with Herdr, import and spread of sidebar-herdr.i18n"
     },
     {
       "path": "packages/ui/src/sync/session-ui-store.ts",
@@ -428,5 +461,6 @@
   "managedCatalogNote": "Managed catalog extends eighteen donor overlaps, including eleven locale outputs. All earlier fields remain historical evidence; five newly overlaid consumers retain their protected predecessor hashes. Actual hosted availability also translates Turkish outside this donor overlap set. Source tests, independent review, owning CI and runtime acceptance are separate.",
   "sessionVoiceSource": "02e0e00b05a72bc9055f9363184dd28ff982682e",
   "sessionVoiceNote": "Session voice (Smarty Code #125) extends twelve managed-catalog overlaps: eleven locale outputs import and spread the pi-voice dictionary, and the web server attaches the signed-in session voice socket. Earlier fields remain historical evidence.",
-  "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f"
+  "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f",
+  "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a"
 }

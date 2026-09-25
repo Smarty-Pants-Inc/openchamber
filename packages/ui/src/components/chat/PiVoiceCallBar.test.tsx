@@ -42,7 +42,7 @@ async function view(viewedSessionId: string | null, width = 1280) {
   await act(async () => { root.render(<I18nProvider><PiVoiceCallBar /></I18nProvider>); });
   return { container, unmount: () => act(() => root.unmount()) };
 }
-const endButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>('button[aria-label="End voice call"]');
+const endButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>('button[aria-label="End the voice call"]');
 
 test('no call, no bar', async () => {
   const { container, unmount } = await view('org');

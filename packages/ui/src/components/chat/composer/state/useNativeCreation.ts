@@ -6,8 +6,9 @@ import { NativeCreationError, NATIVE_CREATION_INVALIDATED, type NativeCreationSt
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
-import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from '@/sync/native-draft-control';
+import { nativeCreationForDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
+import { refreshNativeCreation, replyNativeCreation } from '@/sync/native-draft-control';
+import { startNativeDraft } from '@/sync/native-draft-start';
 import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
 import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -75,8 +76,6 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const perform = async (action: () => Promise<void>) => {
     try { guard(); await action(); } catch (error) { toast.error(describeError(error)); }
   };
-  const canCreate = mode === 'ordinary' && !scoped && isNativeDraftTarget(draft)
-    && operations.every(operation => ['denied', 'cancelled', 'expired', 'ready'].includes(operation.phase));
   return {
     mode, session, creation: scoped, operations,
     refresh: () => perform(async () => {
@@ -84,16 +83,14 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       else if (scoped?.status === 'failed' && !scoped.submitted) await recheckNativeDraft();
       recheck();
     }),
-    resume: (operation: NativeCreationState) => perform(() => resumeNativeCreation(operation)),
-    reply: (action: Parameters<typeof replyNativeCreation>[0]) => perform(() => replyNativeCreation(action)),
-    canCreate, describeError,
-    create: () => perform(async () => {
-      if (!canCreate) throw new NativeCreationError('required');
-      await prepareNativeDraft();
-    }),
+    cancel: () => perform(() => replyNativeCreation('cancel')),
+    describeError,
+    /** Send on a new-session draft starts its session first (native-draft-start), then sends once. */
     beforeSend: async () => {
       guard();
       if (draft.open) {
+        await startNativeDraft(operations);
+        guard();
         const native = await preparedNativeDraft(draft);
         if (native) return prepareNativeDraftSend(draft, native);
       }

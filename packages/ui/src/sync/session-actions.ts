@@ -886,9 +886,9 @@ function getRequestReplyClient(
 // ---------------------------------------------------------------------------
 
 /** Create and index the attached native owner, leaving the user's draft and selection alone. */
-export async function createNativeSession(directory: string, runtimeKey: string) {
+export async function createNativeSession(directory: string, runtimeKey: string, clientRequestId?: string) {
   if (getRuntimeKey() !== runtimeKey) throw new NativeCreationError('stale');
-  const session = await opencodeClient.createNativeSession(directory);
+  const session = await opencodeClient.createNativeSession(directory, clientRequestId);
   if (!('id' in session)) {
     if (session.nativeCreation.directory !== directory) throw new NativeCreationError('unknown');
     return session;

@@ -21,19 +21,28 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   const { t } = useI18n();
   // VS Code, and surfaces rendered without a runtime provider, show no voice control.
   const unsupportedRuntime = React.useContext(RuntimeAPIContext)?.runtime.isVSCode !== false;
-  // Shown only when the gateway advertises session voice for this directory; unknown means hidden.
-  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string } | null>(null);
+  // Usable only when the gateway advertises session voice for this directory. A known "no" shows the control
+  // disabled with its reason, so a person sees the call feature exists (smarty-code#126); unknown stays hidden.
+  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string; supported: boolean } | null>(null);
   React.useEffect(() => {
     if (unsupportedRuntime || !supportsPiVoice()) return;
     let cancelled = false;
     const runtimeKey = getRuntimeKey();
     opencodeClient.supportsSessionVoice(directory).then(supported => {
-      if (!cancelled && supported && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory });
+      if (!cancelled && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory, supported });
     }, () => undefined);
     return () => { cancelled = true; };
   }, [directory, unsupportedRuntime]);
   const current = useActivePiVoiceCall();
   if (unsupportedRuntime || !supportsPiVoice() || advertised?.directory !== directory || advertised.runtimeKey !== getRuntimeKey()) return null;
+  if (!advertised.supported) {
+    const reason = t('chat.piVoice.unavailable');
+    return <span title={reason} className="inline-flex">
+      <Button type="button" variant="chip" size="xs" disabled aria-label={`${t('chat.piVoice.call')}. ${reason}`}>
+        <Icon name="phone" className="size-3.5" /><span>{t('chat.piVoice.call')}</span>
+      </Button>
+    </span>;
+  }
   const hooks = {
     onEnded: (reason: string) => { toast.error(t('chat.piVoice.ended', { reason })); },
     onFailed: (reason: string) => { toast.error(t('chat.piVoice.failed', { reason })); },
@@ -45,8 +54,8 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   return (
     <Button type="button" variant="chip" size="xs" aria-label={label} title={label}
       onClick={() => { void startPiVoiceCallFor(sessionId, directory, driver, hooks); }}>
-      <Icon name="mic" className="size-3.5" />
-      {current ? <span>{label}</span> : null}
+      <Icon name="phone" className="size-3.5" />
+      <span>{current ? label : t('chat.piVoice.call')}</span>
     </Button>
   );
 }
