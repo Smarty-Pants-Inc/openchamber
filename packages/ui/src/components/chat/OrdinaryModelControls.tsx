@@ -3,18 +3,15 @@ import { toast } from '@/components/ui';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { modelVariantNames } from '@/lib/modelVariants';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
+import { buildOrdinaryModelOptions, ordinaryOptionKey as optionKey } from './ordinaryModelOptions';
 import { PiVoiceControl } from './PiVoiceControl';
 
 export type OrdinaryModelTarget = { sessionId: string; directory: string };
-type Option = { key: string; providerID: string; modelID: string; name: string; levels: string[] };
-
-const optionKey = (providerID: string, modelID: string) => JSON.stringify([providerID, modelID]);
 
 /**
  * The selected native session's live model/effort. With a target, each choice asks the
@@ -28,10 +25,7 @@ export function OrdinaryModelControls({ state, target, className }: {
   const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));
   const loadProviders = useConfigStore(s => s.loadProviders);
   const [busy, setBusy] = React.useState(false);
-  const options = React.useMemo<Option[]>(() => providers.flatMap(provider => provider.models.map(model => ({
-    key: optionKey(provider.id, model.id), providerID: provider.id, modelID: model.id,
-    name: model.name || model.id, levels: modelVariantNames(model),
-  }))), [providers]);
+  const options = React.useMemo(() => buildOrdinaryModelOptions(providers), [providers]);
   const current = state.model;
   const selected = current ? options.find(option => option.key === optionKey(current.providerID, current.modelID)) : undefined;
   const directory = target?.directory;
@@ -46,6 +40,8 @@ export function OrdinaryModelControls({ state, target, className }: {
       aria-live="polite"><span>{t('common.unavailable')}</span></div>;
   }
   const effortLabel = formatEffortLabel(state.thinkingLevel ?? undefined);
+  // The picker shows only the model name; the provider stays available on hover.
+  const modelTitle = `${current.providerID} / ${current.modelID}`;
   const apply = async (change: Omit<OrdinaryModelChange, 'generation'>) => {
     if (!target || !state.generation || busy) return;
     setBusy(true);
@@ -71,21 +67,17 @@ export function OrdinaryModelControls({ state, target, className }: {
           if (next && next.key !== selected.key) void apply({ model: { providerID: next.providerID, modelID: next.modelID } });
         }}>
           <SelectTrigger size="sm" className="min-w-0 gap-1.5 px-2 py-1" aria-label={t('chat.modelControls.model')}>
-            <span className="truncate" title={current.providerID}>{current.providerID}</span>
-            <span className="model-controls__model-label min-w-0 truncate" title={current.modelID}>{current.name}</span>
+            <span className="model-controls__model-label min-w-0 truncate" title={modelTitle}>{current.name}</span>
           </SelectTrigger>
           <SelectContent align="end">
             {options.map(option => (
               <SelectItem key={option.key} value={option.key}>
-                <span className="truncate">{option.providerID} / {option.name}</span>
+                <span className="truncate" title={`${option.providerID} / ${option.modelID}`}>{option.label}</span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      ) : <>
-        <span className="truncate" title={current.providerID}>{current.providerID}</span>
-        <span className="model-controls__model-label min-w-0 truncate" title={current.modelID}>{current.name}</span>
-      </>}
+      ) : <span className="model-controls__model-label min-w-0 truncate" title={modelTitle}>{current.name}</span>}
       {target && selected && state.thinkingLevel && selected.levels.length > 1 ? (
         <Select value={state.thinkingLevel} disabled={busy} onValueChange={value => {
           if (value && value !== state.thinkingLevel) {

@@ -55,6 +55,7 @@ import {
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
+import { visibleFooterAgentName } from './footerAgent';
 import { isCapacitorMobileApp } from '@/apps/mobileNativeChrome';
 import { WorktreeRequiresGitRepositoryError } from '@/lib/worktrees/worktreeCreate';
 
@@ -2233,7 +2234,7 @@ const AssistantMessageBody = React.memo(({
                                 </span>
                             </span>
                         ) : null}
-                        {footerAgentName ? (
+                        {visibleFooterAgentName(footerAgentName) ? (
                             <span className="flex items-center gap-1">
                                 <Icon name="ai-agent" className="h-3.5 w-3.5 flex-shrink-0" />
                                 <span className="message-footer__label">{footerAgentName}</span>
