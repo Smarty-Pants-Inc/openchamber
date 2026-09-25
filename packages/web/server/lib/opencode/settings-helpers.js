@@ -695,6 +695,11 @@ export const createSettingsHelpers = (dependencies) => {
     const recentEfforts = sanitizeRecentEfforts(candidate.recentEfforts);
     if (recentEfforts) {
       result.recentEfforts = recentEfforts;
+    } else if (candidate.recentEfforts === null) {
+      // Smarty Code (smarty-code#126 F6): an explicit null clears the key. A PUT merges, and no other value could
+      // remove it, so a restore could never put back a state without it. Not {}: the model-preference autosave sends
+      // an unchanged empty map with other preferences, which must never erase history saved by another client.
+      result.recentEfforts = null;
     }
     if (typeof candidate.diffLayoutPreference === 'string') {
       const mode = candidate.diffLayoutPreference.trim();
@@ -942,6 +947,7 @@ export const createSettingsHelpers = (dependencies) => {
       ),
       typographySizes: nextTypographySizes
     };
+    if (changes.recentEfforts === null) delete next.recentEfforts; // The null clear above (smarty-code#126 F6).
 
     return next;
   };

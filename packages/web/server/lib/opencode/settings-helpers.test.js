@@ -599,6 +599,23 @@ describe('settings helpers', () => {
       });
     });
 
+    it('an explicit null recentEfforts clears the key, so a restore can put back a state without it (smarty-code#126 F6)', () => {
+      const helpers = createTestHelpersWithRealSanitizers();
+      const written = helpers.mergePersistedSettings({ theme: 'dark' },
+        helpers.sanitizeSettingsUpdate({ recentEfforts: { 'openai/gpt-5': ['low'] } }));
+      expect(written.recentEfforts).toEqual({ 'openai/gpt-5': ['low'] });
+      // The model-preference autosave sends an unchanged empty map with other preferences: it never erases history.
+      expect(helpers.mergePersistedSettings(written, helpers.sanitizeSettingsUpdate({ recentEfforts: {}, favoriteModels: [] }))
+        .recentEfforts).toEqual({ 'openai/gpt-5': ['low'] });
+      const restored = helpers.mergePersistedSettings(written, helpers.sanitizeSettingsUpdate({ recentEfforts: null }));
+      expect('recentEfforts' in restored).toBe(false);
+      expect(restored.theme).toBe('dark');
+      expect('recentEfforts' in helpers.formatSettingsResponse(restored)).toBe(false);
+      // A value that only looks empty after sanitizing is still ignored, as before.
+      expect(helpers.mergePersistedSettings(written, helpers.sanitizeSettingsUpdate({ recentEfforts: { x: [] } })).recentEfforts)
+        .toEqual({ 'openai/gpt-5': ['low'] });
+    });
+
     it('round-trips recentEfforts as a Record<string, string[]>', () => {
       const helpers = createTestHelpersWithRealSanitizers();
       const input = {
@@ -645,7 +662,7 @@ describe('settings helpers', () => {
 
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: 'not-an-object' })).toEqual({});
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: [] })).toEqual({});
-      expect(helpers.sanitizeSettingsUpdate({ recentEfforts: null })).toEqual({});
+      expect(helpers.sanitizeSettingsUpdate({ recentEfforts: null })).toEqual({ recentEfforts: null }); // The F6 clear.
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: { 'anthropic/claude-opus-4': 'high' } })).toEqual({});
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: { '': ['high'] } })).toEqual({});
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: { 'anthropic/claude-opus-4': [] } })).toEqual({});
