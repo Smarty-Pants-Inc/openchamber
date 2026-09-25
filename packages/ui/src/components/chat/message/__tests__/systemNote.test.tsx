@@ -82,3 +82,11 @@ test('a call note after a real reply adds no notice', () => {
   expect(notice([user('ask', earlier), reply('reply', earlier + 1, earlier + 2),
     note('end', 'Voice call ended (reason: stopped by the attached page), after 42 s.', earlier + 3)])).toBe('');
 });
+
+test('a call note is never a turn summary, even when the reply has no finish yet', async () => {
+  const { projectTurnSummary } = await import('../../lib/turns/projectTurnSummary');
+  const replyText: Entry = { info: { id: 'reply', role: 'assistant', parentID: 'ask', time: { created: 1 } } as unknown as Message,
+    parts: [{ id: 'rp', sessionID: 's', messageID: 'reply', type: 'text', text: 'the answer' } as unknown as Part] };
+  expect(projectTurnSummary([replyText, note('end', 'Voice call ended (reason: x), after 3 s.', 2)]).text).toBe('the answer');
+  expect(projectTurnSummary([note('start', 'Voice call started (reason: attached page).', 1)])).toEqual({});
+});
