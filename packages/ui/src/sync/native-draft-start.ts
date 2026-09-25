@@ -9,7 +9,6 @@ import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store
 
 /** Phases known to have started nothing that could take this message. */
 const STOPPED = ['denied', 'cancelled', 'expired'];
-const RUNNING = ['starting', 'awaiting-trust', 'ready-required'];
 const POLL_MS = 1000, LIMIT_MS = 120_000;
 let running = false;
 const listeners = new Set<() => void>();
@@ -33,9 +32,19 @@ function newRequestId(key: string): string {
   return id;
 }
 const forgetRequestId = (key: string) => { try { sessionStorage.removeItem(key); } catch { /* no storage */ } };
-/** The start this tab's request made, by exact id; never inferred. */
-const ownStart = (operations: readonly NativeCreationState[], id: string | undefined) =>
-  id ? operations.find(operation => operation.clientRequestId === id && RUNNING.includes(operation.phase)) : undefined;
+/**
+ * A saved request id is an outstanding create whose outcome this tab does not know. It blocks any new create until a
+ * fresh read resolves it: an exact match still running (or ready) is continued; a match the server reports as
+ * stopped started nothing and clears the id. No match, including an empty list, proves nothing: the outcome stays
+ * unknown and nothing is created or sent. Starting a new session (a new draft) is the explicit way to start again.
+ */
+async function resolveSaved(directory: string, id: string, key: string): Promise<NativeCreationState | 'cleared'> {
+  const listed = await opencodeClient.listNativeCreations(directory).catch(cause => { throw new NativeCreationError('unknown', cause); });
+  const match = listed.find(operation => operation.clientRequestId === id && operation.directory === directory);
+  if (match && STOPPED.includes(match.phase)) { forgetRequestId(key); return 'cleared'; }
+  if (!match || match.phase === 'unavailable') throw new NativeCreationError('unknown');
+  return match;
+}
 
 const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftId === b.draftId
   && a.directoryOverride === b.directoryOverride && a.selectedProjectId === b.selectedProjectId;
@@ -68,13 +77,12 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);
   } else if (first?.status === 'failed') {
-    // The create response was lost. A fresh read (not a replay) may show the operation carrying this tab's exact
-    // request id; only that one is continued. No id, no match, or an older gateway: the outcome stays unknown.
-    const listed = requestId ? await opencodeClient.listNativeCreations(first.directory).catch(() => []) : [];
-    const own = ownStart(listed, requestId);
+    // The create response was lost: only this tab's exact request id can recover it (no id: an older gateway).
+    if (!requestId) throw first.error;
+    const saved = await resolveSaved(first.directory, requestId, key);
     record();
-    if (!own) throw first.error;
-    await resumeNativeCreation(own);
+    if (saved === 'cleared') { publishNativeCreation(first, null); throw new NativeCreationError('stopped'); }
+    await resumeNativeCreation(saved);
     return await finish(key, record, wait);
   } else if (first) {
     return await finish(key, record, wait);
@@ -84,14 +92,25 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   const supported = directory ? await opencodeClient.supportsNativeCreation(directory)
     .catch(cause => { throw new NativeCreationError('unavailable', cause); }) : false;
   if (!supported) return;
-  if (!isNativeDraftTarget(draft)) throw new NativeCreationError('target');
+  if (!isNativeDraftTarget(draft) || !draft.directoryOverride) throw new NativeCreationError('target');
   record();
-  // This tab's own start for this draft (after a reload, found by its exact request id) is continued. Any other start
-  // still running here (another window, device or draft) is never taken over; the server refuses a second meanwhile.
-  const own = ownStart(open, requestId);
-  if (own) await resumeNativeCreation(own);
-  else if (open.length > 0) throw new NativeCreationError('elsewhere');
-  else await prepareNativeDraft(newRequestId(key));
+  if (requestId) {
+    // After a reload the record is gone but the saved id is not: resolve it by a fresh read, never by the snapshot.
+    const saved = await resolveSaved(draft.directoryOverride, requestId, key);
+    record();
+    if (saved !== 'cleared') { await resumeNativeCreation(saved); return await finish(key, record, wait); }
+  }
+  // Any other start still running here (another window, device or draft) is never taken over; the server refuses a
+  // second start meanwhile.
+  if (open.length > 0) throw new NativeCreationError('elsewhere');
+  record();
+  try { await prepareNativeDraft(newRequestId(key)); }
+  catch (error) {
+    // A failure known to precede the create request sent nothing with this id.
+    const failed = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, runtimeKey);
+    if (failed?.status === 'failed' && !failed.submitted) forgetRequestId(key);
+    throw error;
+  }
   await finish(key, record, wait);
 }
 

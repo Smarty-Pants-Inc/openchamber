@@ -254,3 +254,40 @@ for (const change of ['runtime', 'draft', 'project'] as const) {
     expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   });
 }
+
+test('a saved id blocks a second create after a reload, even while the list is empty or fails; its exact match recovers later', async () => {
+  interactive();
+  // The create reached no list yet: its operation is not listed (the server has not recorded it, or the read lags).
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  const saved = [...tab.values()];
+  expect(saved).toHaveLength(1);
+  clearPage(); // reload: page memory gone, tab storage kept
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // empty list: not proof of anything
+  const inner = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => new URL(new Request(input, init).url).pathname.endsWith('/creation')
+    ? Response.json({ message: 'down' }, { status: 503 }) : inner(input, init)) as typeof fetch;
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // failed read: still no create
+  globalThis.fetch = inner;
+  expect(fixture.creates()).toHaveLength(1); expect([...tab.values()]).toEqual(saved);
+  listed = [operation]; // the server now lists the original start, with the original id
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(JSON.parse(await fixture.creates()[0].clone().text()).clientRequestId).toBe(saved[0]);
+});
+
+test('a saved id whose start the server reports stopped is cleared; the next Send starts once with a new id', async () => {
+  interactive(); loseResponse();
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  listed = [{ ...operation, phase: 'expired' }];
+  clearPage();
+  operation = { ...operation, phase: 'awaiting-trust', clientRequestId: undefined };
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; listed = [operation];
+    return Response.json({ nativeCreation: operation }, { status: 202 }); };
+  await startNativeDraft([], noWait); await send();
+  expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
+  const [first, second] = await sentIds();
+  expect(first).not.toBe(second);
+});
