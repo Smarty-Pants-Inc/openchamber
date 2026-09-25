@@ -4,6 +4,7 @@ import { ChatView } from '@/components/views/ChatView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 import { Toaster } from '@/components/ui/sonner';
+import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { Button } from '@/components/ui/button';
 import { MemoryDebugPanel } from '@/components/ui/MemoryDebugPanel';
 import { setStreamPerfEnabled } from '@/stores/utils/streamDebug';
@@ -222,6 +223,7 @@ const EmbeddedSessionChatContent: React.FC<{
         initialAllowPromptingSubagentSessions={embeddedSessionChat.allowPromptingSubagentSessions}
       />
       <Toaster />
+      <PiVoiceCallBar />
     </>
   );
 };
@@ -956,6 +958,7 @@ function App({ apis }: AppProps) {
                   <OpenCodeUpdateToast />
                   <MainLayout />
                   <Toaster />
+                  <PiVoiceCallBar />
                   <AppLinkConfirmDialog />
                   {!isBootShell && (
                     <>
