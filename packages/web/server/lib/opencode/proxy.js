@@ -228,6 +228,10 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   'share',
   'metadata',
   'project',
+  // Smarty Code: Herdr's state for the row and the no-identity mark (smarty-code#126 F4). Without them the sidebar
+  // showed OpenCode's activity instead of Herdr's words until each row's next live update.
+  'herdrState',
+  'herdrNoIdentity',
 ];
 
 const sanitizeSessionListItem = (session) => {

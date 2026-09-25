@@ -364,6 +364,8 @@ describe('OpenCode proxy SSE forwarding', () => {
           slug: 'alpha',
           projectID: 'proj_1',
           workspaceID: 'ws_1',
+          herdrState: 'blocked',
+          herdrNoIdentity: true,
           directory: '/repo/app',
           path: '/repo/app',
           parentID: 'ses_parent',
@@ -435,6 +437,9 @@ describe('OpenCode proxy SSE forwarding', () => {
         slug: 'alpha',
         projectID: 'proj_1',
         workspaceID: 'ws_1',
+        // Smarty Code: Herdr's own state for the row (smarty-code#126 F4); the sidebar shows it from the first list.
+        herdrState: 'blocked',
+        herdrNoIdentity: true,
         directory: '/repo/app',
         path: '/repo/app',
         parentID: 'ses_parent',
