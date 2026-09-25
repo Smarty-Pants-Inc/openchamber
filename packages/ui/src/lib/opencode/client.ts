@@ -34,6 +34,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
+import { runtimeAnsweredRecently } from "@/lib/runtime-reachability";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
@@ -50,7 +51,8 @@ import {
 // Can be overridden with VITE_OPENCODE_URL for absolute URLs in special deployments
 const DEFAULT_BASE_URL = import.meta.env.VITE_OPENCODE_URL || "/api";
 const CONFIG_CACHE_TTL_MS = 10_000;
-const OPENCODE_HEALTH_TIMEOUT_MS = 4_000;
+// A loaded server answered the probe in 1.2-2 s and beyond 4 s under load (smarty-code#126 F9): allow 15 s.
+const OPENCODE_HEALTH_TIMEOUT_MS = 15_000;
 
 /**
  * Render an SDK error payload into a short string for Error messages.
@@ -1873,7 +1875,8 @@ class OpencodeService {
 
       return healthData?.healthy === true;
     } catch {
-      return false;
+      // A probe that timed out or failed in transit is not proof of an outage while other reads succeed (#126 F9).
+      return runtimeAnsweredRecently();
     }
   }
 

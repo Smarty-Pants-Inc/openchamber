@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { StoreApi, UseBoundStore } from "zustand";
+import { runtimeAnsweredRecently } from '@/lib/runtime-reachability';
 import { devtools, persist } from "zustand/middleware";
 import type { Provider, Agent, Config } from "@opencode-ai/sdk/v2";
 import { opencodeClient } from "@/lib/opencode/client";
@@ -685,7 +686,8 @@ const CONNECTION_PROBE_TIMEOUT_MS = 800;
 const probeOpenCodeHealth = async (timeoutMs = CONNECTION_PROBE_TIMEOUT_MS): Promise<boolean> => {
     return Promise.race([
         opencodeClient.checkHealth().catch(() => false),
-        sleep(Math.max(1, timeoutMs)).then(() => false),
+        // A slow probe is not an outage while the runtime answers other reads (smarty-code#126 F9).
+        sleep(Math.max(1, timeoutMs)).then(() => runtimeAnsweredRecently()),
     ]);
 };
 
