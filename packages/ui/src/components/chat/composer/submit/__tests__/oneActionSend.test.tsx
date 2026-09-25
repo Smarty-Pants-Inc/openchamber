@@ -11,10 +11,12 @@ let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 afterEach(async () => { await mounted?.dispose(); mounted = undefined; });
 const settle = () => act(async () => { for (let i = 0; i < 20; i++) await sleep(1); });
 const cold = () => undefined;
+// A create-only fixture session that already takes input (one that does not is not sent to by the Send that made it).
+const ready = async () => Response.json({ ...session, nativeCreation: { ...session.nativeCreation, inputReady: true } });
 
 test('typing and pressing Send on a new draft starts the session and sends the text once', async () => {
   const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, cold);
-  expect(c.creates()).toHaveLength(0);
+  expect(c.creates()).toHaveLength(0); c.handlers.create = ready;
   await c.replace('Hello from a new session'); await c.submit(); await settle();
   expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(1);
   const body = await c.prompts()[0].json();
@@ -53,7 +55,7 @@ test('an unknown start is never a dead end: Start a new session anyway starts on
   await c.replace('Keep this text'); await c.submit(); await settle();
   expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(0);
   expect(c.dom.container.textContent).toContain('If a session was started, you will see it in the sidebar.');
-  c.handlers.create = async () => Response.json(session);
+  c.handlers.create = ready;
   const escape = [...c.dom.container.querySelectorAll('button')].find(button => button.textContent === 'Start a new session anyway');
   expect(escape).toBeDefined();
   await act(async () => { escape?.click(); }); await settle();
