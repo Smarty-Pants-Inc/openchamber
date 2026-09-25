@@ -49,6 +49,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { RuntimeSyncProvider } from '@/sync/sync-context';
+import { useStartRetry } from '@/hooks/useStartRetry';
 
 import { SyncAppEffects } from './AppEffects';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
@@ -954,6 +955,9 @@ export function MobileApp({ apis }: MobileAppProps) {
     if (isNativeMobileApp && !getRuntimeApiBaseUrl()) return;
     void initializeApp();
   }, [connectionEpoch, initializeApp, isNativeMobileApp]);
+
+  // Browser: keep retrying a start whose health probe failed, until it connects (smarty-code#302).
+  useStartRetry(!isNativeMobileApp, connectionEpoch);
 
   React.useEffect(() => {
     if (!isConnected) return;
