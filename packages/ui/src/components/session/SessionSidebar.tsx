@@ -119,6 +119,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const projects = useProjectsStore(visibleProjects);
   const managedCatalogStatus = useProjectsStore(state => state.managedCatalogStatus);
   const managed = useProjectsStore(state => state.managedCatalogAdmitted);
+  const stockConfirmed = useProjectsStore(state => state.managedCatalogStockConfirmed);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const removeProject = useProjectsStore((state) => state.removeProject);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
@@ -402,8 +403,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     setSettingsDialogOpen(true);
   }, [mobileVariant, setSessionSwitcherOpen, setSettingsDialogOpen]);
 
+  // The pill self-updates OpenChamber (web: package-manager install and restart). A managed Smarty Code install is
+  // the operator's, so show it only on a runtime confirmed stock (smarty-code#126 F7 (e)).
   const showSidebarUpdateButton =
-    updateStore.available &&
+    updateStore.available && stockConfirmed &&
     (updateStore.runtimeType === 'desktop' || updateStore.runtimeType === 'web');
 
   const handleOpenDirectoryDialog = React.useCallback(() => {

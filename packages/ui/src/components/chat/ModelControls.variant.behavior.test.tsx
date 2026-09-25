@@ -497,7 +497,8 @@ describe('ordinary selected-session controls', () => {
       }] });
       const { dom, cleanup } = await renderModelControls();
       try {
-        expect(dom.container.textContent).toContain('fixture-b');
+        // smarty-code#126 F7 (a): the provider is in the title, not the visible text.
+        expect(dom.container.querySelector('.model-controls__model-label')?.getAttribute('title')).toBe('fixture-b / live-b');
         expect(dom.container.querySelector('.model-controls__model-label')?.textContent).toBe('live-b');
         expect(dom.container.querySelector('.model-controls__variant-label')?.textContent).toBe('High');
         expect(dom.container.querySelector('button')).toBeNull();
