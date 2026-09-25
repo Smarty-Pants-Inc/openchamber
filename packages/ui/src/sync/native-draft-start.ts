@@ -135,6 +135,10 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     if (failed?.status === 'failed' && !failed.submitted) forgetRequestId(key);
     throw error;
   }
+  // A create-only server returns the session before it takes input (its readiness belongs to its own terminal). This
+  // Send made it, so it sends nothing: a message is never a readiness probe. A later Send sends to it once it is ready.
+  const made = record();
+  if (made?.status === 'created' && !made.session.nativeCreation.inputReady) { forgetRequestId(key); throw new NativeCreationError('notReady'); }
   await finish(key, record, wait);
 }
 
