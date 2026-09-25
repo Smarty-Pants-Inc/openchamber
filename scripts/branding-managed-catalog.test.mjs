@@ -36,6 +36,17 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The model-prefs unload flush (smarty-code#126 F6) is the newest layer, so unwind it first.
+  assert.match(historical.modelPrefsUnloadSource, /^[a-f0-9]{40}$/);
+  delete historical.modelPrefsUnloadSource;
+  for (const entry of historical.files.filter(file => file.modelPrefsUnloadSha256)) {
+    assert.equal(entry.modelPrefsUnloadSha256, entry.combinedSha256);
+    assert.ok(entry.modelPrefsUnloadNote);
+    entry.combinedSha256 = entry.preModelPrefsUnloadCombinedSha256;
+    delete entry.preModelPrefsUnloadCombinedSha256;
+    delete entry.modelPrefsUnloadSha256;
+    delete entry.modelPrefsUnloadNote;
+  }
   // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; it is the newest layer, so unwind it first.
   assert.equal(historical.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   delete historical.herdrListSource;

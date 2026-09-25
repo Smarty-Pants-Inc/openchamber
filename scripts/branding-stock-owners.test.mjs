@@ -206,3 +206,12 @@ test('the session-list allowlist layer binds its exact commit over the reviewed 
   assert.ok(entry.herdrListNote);
   assert.deepEqual(overlay.files.filter(file => file.herdrListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
 });
+
+test('the model-prefs unload flush binds its exact fix commit over the settings client only (smarty-code#126 F6)', () => {
+  assert.match(overlay.modelPrefsUnloadSource, /^[a-f0-9]{40}$/);
+  assert.deepEqual(overlay.files.filter(file => file.modelPrefsUnloadSha256).map(file => file.path), ['packages/web/src/api/settings.ts']);
+  const entry = overlays.get('packages/web/src/api/settings.ts');
+  assert.equal(entry.modelPrefsUnloadSha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.match(entry.preModelPrefsUnloadCombinedSha256, /^[a-f0-9]{64}$/);
+});
