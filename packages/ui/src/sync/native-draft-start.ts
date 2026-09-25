@@ -3,8 +3,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
-import { detachNativeStart, isDetachedNativeStart, isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft,
-  publishNativeCreation } from './native-draft-creation';
+import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation } from './native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
@@ -76,9 +75,7 @@ export function startNativeDraftAgain(): void {
   const state = useSessionUIStore.getState(), draft = state.newSessionDraft, runtimeKey = getRuntimeKey();
   if (running) return;
   const record = nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
-  // An unreadable start left behind is detached, so the next Send starts a new one and never settles or sends to it.
-  if (record?.status === 'pending') detachNativeStart(record.operation.operationId);
-  if (record?.status === 'failed' || record?.status === 'pending') publishNativeCreation(record, null);
+  if (record?.status === 'failed') publishNativeCreation(record, null);
   forgetRequestId(requestKey(draft, runtimeKey));
 }
 /**
@@ -89,8 +86,7 @@ export function startNativeDraftAgain(): void {
  */
 async function resolveSaved(directory: string, id: string, key: string): Promise<NativeCreationState | 'cleared'> {
   const listed = await opencodeClient.listNativeCreations(directory).catch(cause => { throw new NativeCreationError('unknown', cause); });
-  const match = listed.find(operation => operation.clientRequestId === id && operation.directory === directory
-    && !isDetachedNativeStart(operation.operationId));
+  const match = listed.find(operation => operation.clientRequestId === id && operation.directory === directory);
   if (match && STOPPED.includes(match.phase)) { forgetRequestId(key); return 'cleared'; }
   if (!match) throw new NativeCreationError('unknown');
   return match; // An 'unavailable' match is continued too: settle() re-reads it until its limit.
@@ -122,7 +118,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   };
   const key = requestKey(draft, runtimeKey), requestId = storedRequestId(key);
   const open = operations.filter(operation => operation.directory === draft.directoryOverride
-    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase) && !isDetachedNativeStart(operation.operationId));
+    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase));
   const first = record();
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);

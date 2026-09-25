@@ -133,22 +133,3 @@ export async function preparedNativeDraft(draft: NewSessionDraftState): Promise<
   assertManagedDraftTarget(draft);
   return null;
 }
-
-/**
- * Starts the person explicitly left behind with "start a new session anyway" (smarty-code#126, OC#207): kept for this
- * tab (sessionStorage, so a reload keeps them) and never resumed, adopted or sent to, even when one turns ready later.
- */
-const DETACHED_KEY = 'oc.nativeCreation.detached';
-export function isDetachedNativeStart(operationId: string): boolean {
-  try {
-    const ids: unknown = JSON.parse(sessionStorage.getItem(DETACHED_KEY) ?? '[]');
-    return Array.isArray(ids) && ids.includes(operationId);
-  } catch { return false; }
-}
-export function detachNativeStart(operationId: string): void {
-  let ids: unknown[] = [];
-  try { const stored: unknown = JSON.parse(sessionStorage.getItem(DETACHED_KEY) ?? '[]'); if (Array.isArray(stored)) ids = stored; }
-  catch { /* unreadable: start over */ }
-  try { sessionStorage.setItem(DETACHED_KEY, JSON.stringify([...ids.filter(id => id !== operationId), operationId].slice(-32))); }
-  catch { /* no storage: the record is still removed from this page */ }
-}

@@ -4,8 +4,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useInputStore } from './input-store';
 import { nativeCreationForDraft } from './native-draft-creation';
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
-import { resetNativeDraftPage, startNativeDraft, startNativeDraftAgain } from './native-draft-start';
-import { resumeNativeCreation } from './native-draft-control';
+import { resetNativeDraftPage, startNativeDraft } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
 
 // Bun has no sessionStorage; the start keeps this tab's create request id there.
@@ -61,7 +60,7 @@ function interactive(first: () => NativeCreationState) {
       fixture.requests.push(request.clone());
       if (path.endsWith('/creation')) return Response.json({ nativeCreations: [operation] });
       if (path.endsWith('/reply')) return Response.json({ nativeCreation: reply(await request.json()) });
-      if (path.endsWith(`/creation/${operation.operationId}`)) return Response.json({ nativeCreation: reads.shift() ?? operation });
+      if (path.endsWith(`/creation/${operationId}`)) return Response.json({ nativeCreation: reads.shift() ?? operation });
       return Response.json({ ...session, nativeCreation: undefined, ordinary });
     }
     return inner(input, init);
@@ -119,29 +118,3 @@ for (const action of ['trust', 'ready'] as const) {
     expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
   });
 }
-
-test('"Start a new session anyway" detaches the unreadable start: Send starts a new one and sends once; the old never sends', async () => {
-  interactive(unavailable);
-  reads = Array.from({ length: 1000 }, unavailable);
-  const now = Date.now; let clock = now();
-  Date.now = () => (clock += 30_000);
-  try { expect(await failure(startNativeDraft([], async () => {}))).toBe('unknown'); } finally { Date.now = now; }
-  const old = { ...operation };
-  startNativeDraftAgain();
-  expect(record()).toBeNull();
-  // A new start: a new operation and request id. The old one is still listed as running by the server.
-  reads = [];
-  operation = { ...operation, operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', revision: 1, phase: 'awaiting-trust', clientRequestId: undefined };
-  fixture.handlers.create = async request => {
-    operation = { ...operation, clientRequestId: JSON.parse(await request.clone().text()).clientRequestId };
-    return Response.json({ nativeCreation: operation }, { status: 202 });
-  };
-  await startNativeDraft([{ ...old, phase: 'starting' }], async () => {}); await send();
-  const ids = await Promise.all(fixture.creates().map(async request => JSON.parse(await request.clone().text()).clientRequestId));
-  expect(ids).toHaveLength(2); expect(ids[0]).not.toBe(ids[1]);
-  expect(fixture.prompts()).toHaveLength(1);
-  // A late 'ready' for the old start is never adopted or sent to.
-  const late = { ...old, revision: 9, phase: 'ready' as const, native: { id: session.id, generation } };
-  expect(await failure(resumeNativeCreation(late))).toBe('stale');
-  expect(fixture.prompts()).toHaveLength(1);
-});
