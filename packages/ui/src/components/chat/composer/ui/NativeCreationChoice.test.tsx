@@ -81,7 +81,7 @@ async function setup() {
 }
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
-  restoreFetch?.(); fixture?.dispose(); localStorage.removeItem('oc.nativeCreation.mine');
+  restoreFetch?.(); fixture?.dispose();
   globalThis.fetch = async () => { throw new Error('Native choice fixture network denied after teardown'); };
 });
 afterAll(() => dom.restore());
@@ -124,7 +124,7 @@ test('a start from another window is named in plain words and never taken over b
   listed = [operation];
   await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
     { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  expect(dom.container.textContent).toContain('another window or on another device');
+  expect(dom.container.textContent).toContain('Another new session in this project is still starting');
   await click('Send');
   await act(async () => { await sendResult?.catch(() => undefined); });
   expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);

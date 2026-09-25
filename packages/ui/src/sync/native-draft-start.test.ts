@@ -8,11 +8,12 @@ import { startNativeDraft } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
 import { opencodeClient } from '@/lib/opencode/client';
 
-// Bun has no localStorage; the start remembers its own operations there.
-const stored = new Map<string, string>();
-if (typeof globalThis.localStorage === 'undefined') Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
-  getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); },
-  removeItem: (key: string) => { stored.delete(key); } } });
+// Bun has no sessionStorage; the start keeps this tab's create request id there. clear() models another window.
+const tab = new Map<string, string>();
+if (typeof globalThis.sessionStorage === 'undefined') Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+  getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => { tab.set(key, value); },
+  removeItem: (key: string) => { tab.delete(key); }, clear: () => { tab.clear(); } } });
+
 
 // smarty-code#126 (Paul's 2026-09-25 attempt): Send on a new-session draft starts the session, waits until it takes
 // input and then sends once. A failed or unknown start sends nothing and keeps the message; nothing is sent twice.
@@ -43,8 +44,12 @@ function interactive() {
   useProjectsStore.setState({ managedCatalogStatus: 'stock' });
   operation = { operationId, directory, generation: endpoint, revision: 1, phase: 'awaiting-trust', expiresAt: Date.now() + 60_000, canInitialReady: false };
   listed = []; afterTrust = 'ready-required';
-  fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryInteractiveCreate: 1 } });
-  fixture.handlers.create = async () => { listed = [operation]; return Response.json({ nativeCreation: operation }, { status: 202 }); };
+  fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryInteractiveCreate: 1, creationClientRequestId: 1 } });
+  fixture.handlers.create = async request => {
+    const sent = await request.clone().text();
+    operation = { ...operation, ...(sent ? { clientRequestId: JSON.parse(sent).clientRequestId } : {}) };
+    listed = [operation]; return Response.json({ nativeCreation: operation }, { status: 202 });
+  };
   detail = async () => Response.json({ ...session, nativeCreation: undefined, ordinary });
   reply = async body => {
     operation = { ...operation, revision: operation.revision + 1,
@@ -66,7 +71,7 @@ function interactive() {
     return inner(input, init);
   }) as typeof fetch;
 }
-afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); localStorage.removeItem('oc.nativeCreation.mine'); });
+afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); sessionStorage.clear(); });
 
 test('one Send starts the session (trust and first input answered), then sends the message once', async () => {
   interactive();
@@ -139,14 +144,7 @@ test('a second Send while the first is starting is refused; one create, one repl
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
 });
 
-test('this browser\'s earlier start that is still running is continued, not created again', async () => {
-  interactive(); listed = [operation];
-  localStorage.setItem('oc.nativeCreation.mine', JSON.stringify([operationId]));
-  await sendOnce();
-  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
-});
-
-test('a start this browser did not make (another window or device) is never taken over', async () => {
+test('another start in this project (another window, device or draft) is never taken over', async () => {
   interactive(); listed = [operation];
   expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
   expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
@@ -189,35 +187,70 @@ test('a stock server (no session start) leaves Send to its ordinary path', async
   expect(fixture.creates()).toHaveLength(0); expect(record()).toBeNull();
 });
 
-test('a lost create response: Check again reads only; the next Send continues the ORIGINAL operation; one create', async () => {
-  interactive();
-  const created = fixture.handlers.create;
-  fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); };
+const clearPage = () => useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+const loseResponse = () => { const created = fixture.handlers.create;
+  fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); }; };
+const sentIds = async () => Promise.all(fixture.creates().map(async request => (await request.clone().text()) || 'none'));
+
+test('a lost create response: Check again only reads; Send continues the operation with this tab\'s exact id; one create', async () => {
+  interactive(); loseResponse();
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
-  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0);
-  // Check again: the hook re-reads the list. That read sends no choice and no message.
-  const read = await opencodeClient.listNativeCreations(directory);
-  expect(read.map(entry => entry.operationId)).toEqual([operationId]);
+  const id = JSON.parse((await sentIds())[0]).clientRequestId;
+  expect(typeof id).toBe('string');
+  // Check again re-reads the list, which shows the operation with this id. The read sends no choice and no message.
+  expect((await opencodeClient.listNativeCreations(directory)).map(entry => entry.clientRequestId)).toEqual([id]);
   expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   await sendOnce();
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
   expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });
 
-test('a lost create response does not bind a start that was already listed before this browser\'s request', async () => {
+test('a lost create response with no id match (a competing client\'s start) is never adopted', async () => {
   interactive();
-  const other = { ...operation, operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', phase: 'denied' as const };
-  listed = [other];
-  fixture.handlers.create = async () => { listed = [{ ...other, phase: 'starting' }]; throw new Error('response lost'); };
+  fixture.handlers.create = async () => { listed = [{ ...operation, clientRequestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }];
+    throw new Error('response lost'); };
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+});
+
+test('a gateway without the request id gets no id and a lost create is never adopted', async () => {
+  interactive(); loseResponse();
+  fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryInteractiveCreate: 1 } });
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(await sentIds()).toEqual(['none']);
   expect(await failure(startNativeDraft(listed, noWait))).toBe('unknown');
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
 });
 
-test('a lost create response with no start to continue stays refused and is never created again', async () => {
-  interactive();
-  fixture.handlers.create = async () => { throw new Error('response lost'); };
+test('two windows: B never resumes A\'s start; a reload of A continues it by its exact id', async () => {
+  interactive(); loseResponse();
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
-  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
-  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
+  const aTab = new Map(tab);
+  // Window B: same origin, its own sessionStorage and page memory.
+  sessionStorage.clear(); clearPage();
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // Window A reloads: page memory is gone, its tab storage stays.
+  for (const [key, value] of aTab) sessionStorage.setItem(key, value);
+  clearPage();
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });
+
+for (const change of ['runtime', 'draft', 'project'] as const) {
+  test(`a ${change} change while the capability read is held creates nothing`, async () => {
+    fixture = nativeDraftFixture(); listed = [];
+    const held = deferred<Response>(); fixture.handlers.health = () => held.promise;
+    const pending = startNativeDraft([], noWait);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    if (change === 'runtime') fixture.switchRuntime('other-runtime');
+    else if (change === 'draft') fixture.target('b', '/native-project-b');
+    else useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'unavailable' });
+    held.resolve(Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1 } }));
+    expect(await failure(pending)).not.toBe('resolved');
+    expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  });
+}

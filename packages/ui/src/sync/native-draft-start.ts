@@ -9,6 +9,7 @@ import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store
 
 /** Phases known to have started nothing that could take this message. */
 const STOPPED = ['denied', 'cancelled', 'expired'];
+const RUNNING = ['starting', 'awaiting-trust', 'ready-required'];
 const POLL_MS = 1000, LIMIT_MS = 120_000;
 let running = false;
 const listeners = new Set<() => void>();
@@ -19,29 +20,22 @@ export function useNativeDraftStarting(): boolean {
     () => running, () => false);
 }
 
-// Operations this browser started: ids from its create responses, or bound after a lost response (below).
-// ponytail: localStorage, not a server request id. The gateway's create takes no client id; one would let a lost
-// response bind by id instead of by the list difference.
-const MINE_KEY = 'oc.nativeCreation.mine';
-const mine = (): string[] => {
-  try { const ids: unknown = JSON.parse(localStorage.getItem(MINE_KEY) ?? '[]'); return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : []; }
-  catch { return []; }
-};
-const remember = (id: string) => {
-  try { localStorage.setItem(MINE_KEY, JSON.stringify([...mine().filter(known => known !== id), id].slice(-20))); } catch { /* unavailable storage */ }
-};
-export const isOwnNativeCreation = (operationId: string) => mine().includes(operationId);
-/** Per draft, the operations listed just before its create request: a lost response binds only a start new since. */
-const listedBefore = new Map<string, Set<string>>();
-const draftKey = (draft: NewSessionDraftState, runtimeKey: string) => JSON.stringify([runtimeKey, draft.draftId, draft.directoryOverride]);
-const RUNNING_PHASES = ['starting', 'awaiting-trust', 'ready-required'];
-/** After a lost create response: the one start in this project that is new since this browser's create request. */
-export function lostNativeStart(draft: NewSessionDraftState, runtimeKey: string, operations: readonly NativeCreationState[]) {
-  const before = listedBefore.get(draftKey(draft, runtimeKey));
-  const fresh = before ? operations.filter(operation => operation.directory === draft.directoryOverride
-    && RUNNING_PHASES.includes(operation.phase) && !before.has(operation.operationId)) : [];
-  return fresh.length === 1 ? fresh[0] : undefined;
+/**
+ * This tab's create request id for a draft (smarty-code#126, OC#167 review): sessionStorage, so another window never
+ * shares it and a reload of this tab keeps it. A lost create response is recovered only by an exact match on it.
+ */
+const requestKey = (draft: NewSessionDraftState, runtimeKey: string) =>
+  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.draftId, draft.directoryOverride])}`;
+const storedRequestId = (key: string) => { try { return sessionStorage.getItem(key) ?? undefined; } catch { return undefined; } };
+function newRequestId(key: string): string {
+  const id = crypto.randomUUID();
+  try { sessionStorage.setItem(key, id); } catch { /* no storage: the id still correlates within this page */ }
+  return id;
 }
+const forgetRequestId = (key: string) => { try { sessionStorage.removeItem(key); } catch { /* no storage */ } };
+/** The start this tab's request made, by exact id; never inferred. */
+const ownStart = (operations: readonly NativeCreationState[], id: string | undefined) =>
+  id ? operations.find(operation => operation.clientRequestId === id && RUNNING.includes(operation.phase)) : undefined;
 
 const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftId === b.draftId
   && a.directoryOverride === b.directoryOverride && a.selectedProjectId === b.selectedProjectId;
@@ -67,22 +61,23 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     if (getRuntimeKey() !== runtimeKey || !sameDraft(state.newSessionDraft, draft)) throw new NativeCreationError('stale');
     return nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
   };
+  const key = requestKey(draft, runtimeKey), requestId = storedRequestId(key);
   const open = operations.filter(operation => operation.directory === draft.directoryOverride
     && operation.phase !== 'ready' && !STOPPED.includes(operation.phase));
   const first = record();
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);
   } else if (first?.status === 'failed') {
-    // The create response was lost. A fresh read (not a replay) may show the start this browser's request made:
-    // exactly one running start that was not listed before the request. Continue it; never create again.
-    const listed = await opencodeClient.listNativeCreations(first.directory).catch(() => []);
-    const lost = lostNativeStart(draft, runtimeKey, listed);
-    if (!lost) throw first.error;
-    remember(lost.operationId);
-    await resumeNativeCreation(lost);
-    return await settle(record, wait);
+    // The create response was lost. A fresh read (not a replay) may show the operation carrying this tab's exact
+    // request id; only that one is continued. No id, no match, or an older gateway: the outcome stays unknown.
+    const listed = requestId ? await opencodeClient.listNativeCreations(first.directory).catch(() => []) : [];
+    const own = ownStart(listed, requestId);
+    record();
+    if (!own) throw first.error;
+    await resumeNativeCreation(own);
+    return await finish(key, record, wait);
   } else if (first) {
-    return await settle(record, wait);
+    return await finish(key, record, wait);
   }
   const directory = draft.directoryOverride ?? visibleProjects(useProjectsStore.getState())
     .find(project => project.id === draft.selectedProjectId)?.path ?? opencodeClient.getDirectory();
@@ -91,19 +86,22 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   if (!supported) return;
   if (!isNativeDraftTarget(draft)) throw new NativeCreationError('target');
   record();
-  // This browser's earlier start that is still running is continued. Someone else's start (another window or
-  // device of the same account) is never taken over; the server refuses a second start meanwhile.
-  const own = open.find(operation => isOwnNativeCreation(operation.operationId));
+  // This tab's own start for this draft (after a reload, found by its exact request id) is continued. Any other start
+  // still running here (another window, device or draft) is never taken over; the server refuses a second meanwhile.
+  const own = ownStart(open, requestId);
   if (own) await resumeNativeCreation(own);
   else if (open.length > 0) throw new NativeCreationError('elsewhere');
-  else {
-    const before = draft.directoryOverride ? await opencodeClient.listNativeCreations(draft.directoryOverride).catch(() => null) : null;
-    if (before) listedBefore.set(draftKey(draft, runtimeKey), new Set(before.map(operation => operation.operationId)));
-    await prepareNativeDraft();
-    const started = record();
-    if (started?.status === 'pending') remember(started.operation.operationId);
+  else await prepareNativeDraft(newRequestId(key));
+  await finish(key, record, wait);
+}
+
+/** A settled start (or one known to have started nothing) needs no recovery id; an unknown one keeps it. */
+async function finish(key: string, record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {
+  try { await settle(record, wait); forgetRequestId(key); }
+  catch (error) {
+    if (error instanceof NativeCreationError && ['stopped', 'notReady'].includes(error.code)) forgetRequestId(key);
+    throw error;
   }
-  await settle(record, wait);
 }
 
 async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {

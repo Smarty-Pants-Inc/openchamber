@@ -1,8 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
-import { getRuntimeKey } from '@/lib/runtime-switch';
-import { useSessionUIStore } from '@/sync/session-ui-store';
-import { isOwnNativeCreation, lostNativeStart, useNativeDraftStarting } from '@/sync/native-draft-start';
+import { useNativeDraftStarting } from '@/sync/native-draft-start';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
@@ -16,14 +14,10 @@ export function NativeCreationNotice({ native, draftOpen }: {
 }) {
   const { t } = useI18n();
   const starting = useNativeDraftStarting();
-  const draft = useSessionUIStore(state => state.newSessionDraft);
   const creation = native.creation;
   if (!draftOpen || native.session) return null;
   const running = native.operations.filter(operation => CANCELLABLE.includes(operation.phase));
-  // A lost create response whose start a fresh read now shows (Check again): Send continues it (native-draft-start).
-  const recoverable = creation?.status === 'failed' && creation.submitted && Boolean(lostNativeStart(draft, getRuntimeKey(), running));
-  const failure = recoverable ? undefined
-    : creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
+  const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   if (failure) return <div className="mb-2 space-y-1">
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failure)}</p>
     <Button type="button" variant="outline" size="sm" onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
@@ -35,7 +29,7 @@ export function NativeCreationNotice({ native, draftOpen }: {
         disabled={creation.busy} onClick={() => { void native.cancel(); }}>{t('chat.nativeCreation.cancel')}</Button> : null}
     </div>;
   }
-  if (recoverable || creation?.status === 'pending' || running.some(operation => isOwnNativeCreation(operation.operationId))) {
+  if (creation?.status === 'pending') {
     return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>;
   }
   if (running.length > 0) return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.elsewhere')}</p>;

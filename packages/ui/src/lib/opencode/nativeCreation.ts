@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const nativeCreationHealthSchema = z.object({
   healthy: z.literal(true),
   capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional(),
-    sessionVoice: z.literal(1).optional() }).optional(),
+    sessionVoice: z.literal(1).optional(), creationClientRequestId: z.literal(1).optional() }).optional(),
 });
 // Public creation-contract.ts; endpoint and native generations are distinct.
 const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
@@ -14,6 +14,8 @@ const nativeCreationStateSchema = z.object({
   phase: z.enum(['awaiting-trust', 'starting', 'denied', 'cancelled', 'expired', 'ready-required', 'ready', 'unavailable']),
   expiresAt: z.number(), native: z.object({ id: creationUUID, generation: creationUUID }).strict().optional(),
   canInitialReady: z.boolean(),
+  // The id this browser sent with its create request, echoed so a lost create response can be recovered exactly.
+  clientRequestId: creationUUID.optional(),
 }).strict();
 export const nativeCreationResponseSchema = z.object({ nativeCreation: nativeCreationStateSchema }).strict();
 export const nativeCreationListSchema = z.object({ nativeCreations: z.array(nativeCreationStateSchema) }).strict();
