@@ -17,6 +17,7 @@ import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { SessionFolderItem } from '../../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
 import { DroppableFolderWrapper, SessionFolderDndScope } from '../folders/sessionFolderDnd';
@@ -328,6 +329,8 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   const groupPrSummary = usePrVisualSummary(groupPrKey);
   const groupPrColor = groupPrSummary ? `var(--pr-${groupPrSummary.visualState})` : undefined;
   const childStores = useChildStoreManager();
+  // A Herdr workspace with no agent (shells only) says so plainly (smarty-code#126); stock keeps its wording.
+  const herdrSidebar = useProjectsStore((state) => state.managedCatalogAdmitted);
   const bootstrapDirectories = React.useMemo(() => {
     const directories = group.folderScopes?.map((scope) => normalizePath(scope.directory))
       ?? [normalizePath(group.directory ?? null)];
@@ -1067,7 +1070,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               )
               : bootstrapFailureNotice
                 ? bootstrapFailureNotice
-            : group.emptyMessage ?? t('sessions.sidebar.group.empty.noSessionsInWorkspace')}
+            : group.emptyMessage ?? (herdrSidebar ? t('sessions.sidebar.herdr.noAgentSessions') : t('sessions.sidebar.group.empty.noSessionsInWorkspace'))}
         </div>
       ) : null}
       {totalSessions > 0 && bootstrapFailureNotice ? (

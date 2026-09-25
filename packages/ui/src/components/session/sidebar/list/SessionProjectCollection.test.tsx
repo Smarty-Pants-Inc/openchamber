@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
-import { showsChatGroup } from './chatGroupVisibility';
+import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
+import { nextStockConfirmed } from '@/lib/stock-confirmation';
 
 describe('SessionProjectCollection', () => {
   test('preserves authoritative background demand when its visible rows are absent', () => {
@@ -26,5 +27,20 @@ describe('SessionProjectCollection', () => {
     expect(showsChatGroup({ isVSCode: false, managedCatalog: true, chatSessionCount: 2 })).toBe(true);
     expect(showsChatGroup({ isVSCode: false, managedCatalog: false, chatSessionCount: 0 })).toBe(true);
     expect(showsChatGroup({ isVSCode: true, managedCatalog: false, chatSessionCount: 3 })).toBe(false);
+  });
+  test('Smarty Code shows no "chats" or "recent" sections at any point; stock shows them once it answers (smarty-code#126)', () => {
+    const shown = (steps: [managedCatalog: boolean, catalogStatus: string][]) => {
+      let confirmed = false;
+      return steps.map(([managedCatalog, catalogStatus]) => {
+        confirmed = nextStockConfirmed(confirmed, { managedCatalog, catalogStatus });
+        return showsActivitySections({ isVSCode: false, stockConfirmed: confirmed });
+      });
+    };
+    // Managed: the first discovery fails before the marker, then a later managed answer succeeds (code-lead, OC#169).
+    expect(shown([[false, 'unknown'], [false, 'unavailable'], [true, 'unknown'], [true, 'ready'], [true, 'unavailable']]))
+      .toEqual([false, false, false, false, false]);
+    // Stock: hidden until it answers, then kept when a later refresh fails.
+    expect(shown([[false, 'unknown'], [false, 'stock'], [false, 'unavailable'], [false, 'stock']])).toEqual([false, true, true, true]);
+    expect(showsActivitySections({ isVSCode: true, stockConfirmed: true })).toBe(false);
   });
 });
