@@ -26,9 +26,33 @@ function mergeList(field: ListField, prev: readonly Item[], next: readonly Item[
     if (!picked || (prev[0] && key(prev[0]) === key(picked))) return [...shared];
     return [picked, ...shared.filter(entry => key(entry) !== key(picked))].slice(0, RECENT_LIMIT);
   }
-  // Favourites, hidden models and collapsed providers change only by the user's own edits (never by a restore), and
-  // their order is the user's (a drag, or a new favourite inserted first): write the list as the user left it.
-  return [...next];
+  return replayOperations(prev, next, shared);
+}
+
+const indexOf = (list: readonly Item[], item: Item) => list.findIndex(entry => key(entry) === key(item));
+
+/**
+ * Favourites, hidden models and collapsed providers: the user's action as operations (add x, remove x, move x before
+ * its new successor), replayed onto the server's list (OC#194 review). Entries only the server has are kept; an add
+ * of a present entry or a remove of an absent one is a no-op. x goes before the first of its new successors that the
+ * server list has, else to the end.
+ */
+function replayOperations(prev: readonly Item[], next: readonly Item[], shared: readonly Item[]): Item[] {
+  let result = shared.filter(entry => indexOf(next, entry) >= 0 || indexOf(prev, entry) < 0); // removals
+  const place = (item: Item) => {
+    result = result.filter(entry => key(entry) !== key(item));
+    const successors = next.slice(indexOf(next, item) + 1);
+    const at = successors.map(successor => indexOf(result, successor)).find(position => position >= 0);
+    result = at === undefined ? [...result, item] : [...result.slice(0, at), item, ...result.slice(at)];
+  };
+  for (const item of next) if (indexOf(prev, item) < 0 && indexOf(result, item) < 0) place(item); // adds
+  // A move: the one common entry whose removal makes the old and new orders agree (a drag moves one entry).
+  const common = next.filter(item => indexOf(prev, item) >= 0), before = prev.filter(item => indexOf(next, item) >= 0);
+  if (!same(common, before)) {
+    const moved = common.find(item => same(common.filter(entry => key(entry) !== key(item)), before.filter(entry => key(entry) !== key(item))));
+    for (const item of moved ? [moved] : common) place(item); // not a single move: follow the user's order
+  }
+  return result;
 }
 
 /**
