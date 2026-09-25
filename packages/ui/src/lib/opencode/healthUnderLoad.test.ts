@@ -53,3 +53,23 @@ for (const [name, answer] of [
     expect(await opencodeClient.checkHealth()).toBe(true); // healthy again, and other reads succeed
   });
 }
+
+test('a late unhealthy answer from the previous runtime does not mark the new runtime unhealthy', async () => {
+  let release!: () => void;
+  const held = new Promise<void>(done => { release = done; });
+  // Headers arrive on A at once; the body (unhealthy) arrives only after the switch.
+  let reply: () => Promise<Response> = async () => new Response(new ReadableStream<Uint8Array>({ async start(controller) {
+    await held; controller.enqueue(new TextEncoder().encode('{"healthy":false}')); controller.close();
+  } }), { headers: { 'content-type': 'application/json' } });
+  server(() => reply());
+  const probeA = opencodeClient.checkHealth(); // slow, on runtime A
+  await new Promise(resolve => setTimeout(resolve, 10));
+  fixture.switchRuntime('runtime-b-health');
+  reply = async () => { throw new TypeError('network error'); };
+  release(); // A's unhealthy answer arrives after the switch
+  expect(await probeA).toBe(false);
+  expect((await runtimeFetch('/api/config/settings')).ok).toBe(true); // B answers reads
+  expect(opencodeClient.getLastHealthOutcome()).not.toBe('unhealthy'); // A's answer did not become B's state
+  expect(await opencodeClient.checkHealth()).toBe(true); // B was not marked unhealthy by A
+  expect(opencodeClient.getLastHealthOutcome()).toBe('healthy');
+});

@@ -1861,6 +1861,9 @@ class OpencodeService {
   getLastHealthOutcome() { return this.lastHealthOutcome; }
 
   async checkHealth(): Promise<boolean> {
+    // A probe belongs to the runtime it started in. A completion after a runtime switch (success, unhealthy or
+    // timeout) says nothing about the new runtime and must not touch its health state (OC#197 review).
+    const scope = captureRuntimeRequestScope();
     try {
       const normalizedBase = this.baseUrl.endsWith('/') ? this.baseUrl.replace(/\/+$/, '') : this.baseUrl;
       const healthUrl = normalizedBase === '/api' || normalizedBase.endsWith('/api')
@@ -1875,10 +1878,12 @@ class OpencodeService {
       const healthData: unknown = response.ok ? await response.json().catch(() => undefined) : undefined;
       const healthy = (healthData as { healthy?: unknown } | undefined)?.healthy === true;
       markStartupTrace('opencodeClient.checkHealth:result', { healthy });
+      if (!isRuntimeRequestScopeCurrent(scope)) return false;
       noteRuntimeHealth(healthy);
       this.lastHealthOutcome = healthy ? 'healthy' : 'unhealthy';
       return healthy;
     } catch {
+      if (!isRuntimeRequestScopeCurrent(scope)) return false;
       // No answer (timeout or transport failure) is not an outage while other reads succeed (#126 F9).
       const reachable = runtimeAnsweredRecently();
       this.lastHealthOutcome = reachable ? 'healthy' : 'unreachable';
