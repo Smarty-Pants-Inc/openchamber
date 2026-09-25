@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { Window } from "happy-dom"
-import { clearLastActiveSession, isLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
+import { clearLastActiveSession, isLastActiveSession, persistLastActiveSession, readLastActiveSession, setShownSessionProbe } from "./last-session-cache"
 
 class TestStorage implements Storage {
   readonly values = new Map<string, string>()
@@ -67,12 +67,14 @@ describe("last active session persistence", () => {
 
 // smarty-code#113: a draft action clears the pointer; the address bar must not keep that session for a reload to restore.
 describe("clearing the pointer and the address bar", () => {
-  const withWindow = (href: string, run: (win: Window) => void) => {
+  const withWindow = (href: string, run: (win: Window) => void, shown: string | null = null) => {
     const win = new Window({ url: href })
+    setShownSessionProbe(() => shown)
     const previous = Object.getOwnPropertyDescriptor(globalThis, "window")
     Object.defineProperty(globalThis, "window", { configurable: true, value: win })
     try { run(win) } finally {
       if (previous) Object.defineProperty(globalThis, "window", previous); else Reflect.deleteProperty(globalThis, "window")
+      setShownSessionProbe(undefined)
       void win.happyDOM.close()
     }
   }
@@ -98,4 +100,22 @@ describe("clearing the pointer and the address bar", () => {
     clearLastActiveSession("runtime-a", storage) // A draft action while the snapshot loaded.
     expect(isLastActiveSession("runtime-a", "ses-a", storage)).toBe(false)
   })
+})
+
+test("leaving a session the page shows is the router's navigation: the address is not replaced (Back returns to it)", () => {
+  const win = new Window({ url: "https://code.example/?session=ses-b" })
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "window")
+  Object.defineProperty(globalThis, "window", { configurable: true, value: win })
+  try {
+    for (const shown of ["ses-b", undefined]) {
+      setShownSessionProbe(shown === undefined ? undefined : () => shown)
+      persistLastActiveSession("runtime-a", { sessionId: "ses-b", directory: null }, storage)
+      clearLastActiveSession("runtime-a", storage)
+      expect(win.location.search).toBe("?session=ses-b")
+    }
+  } finally {
+    setShownSessionProbe(undefined)
+    if (previous) Object.defineProperty(globalThis, "window", previous); else Reflect.deleteProperty(globalThis, "window")
+    void win.happyDOM.close()
+  }
 })

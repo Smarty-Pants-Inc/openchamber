@@ -92,18 +92,24 @@ export function clearLastActiveSession(
   dropSessionRoute(cleared.sessionId)
 }
 
+/** The session the page shows now, when a router registered one (web only). */
+let shownSession: (() => string | null) | undefined
+export function setShownSessionProbe(probe: (() => string | null) | undefined): void { shownSession = probe }
+
 /**
  * The address bar must not keep what the pointer no longer means (smarty-code#113): a draft action clears the pointer,
- * but a pending restore's `?session=` stayed, and a reload restored that session over the draft. Only that exact
- * session parameter goes; an embedded session chat (`ocPanel`) keeps its fixed identity.
+ * but a pending restore's `?session=` stayed, and a reload restored that session over the draft. Only a session the
+ * page does not show is dropped (its restore is cancelled); leaving a shown session is the router's own navigation,
+ * with its history entry. An embedded session chat (`ocPanel`) keeps its fixed identity.
  */
 function dropSessionRoute(sessionId: string): void {
-  if (typeof window === "undefined" || !window.history?.replaceState) return
+  const win = globalThis.window
+  if (!shownSession || !win?.history?.replaceState || shownSession() === sessionId) return
   try {
-    const url = new URL(window.location.href)
+    const url = new URL(win.location.href)
     if (url.searchParams.has("ocPanel") || url.searchParams.get("session") !== sessionId) return
     url.searchParams.delete("session")
-    window.history.replaceState(window.history.state, "", url)
+    win.history.replaceState(win.history.state, "", url)
   } catch { /* the address is best effort */ }
 }
 

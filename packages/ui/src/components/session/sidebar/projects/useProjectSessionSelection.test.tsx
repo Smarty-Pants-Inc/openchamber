@@ -68,8 +68,7 @@ test('at startup without a last-session pointer no session is selected over the 
         openNewSessionDraft: () => undefined, setSessionSwitcherOpen: () => undefined } as never);
       return null;
     };
-    // SAFETY: happy-dom's element implements the DOM Element interface React renders into; only its types differ.
-    const root = createRoot(win.document.createElement('div') as unknown as Element);
+    const root = createRoot(document.createElement('div'));
     await act(async () => root.render(<Probe />));
     expect(selected).toEqual(expected);
     active = 'dev';

@@ -30,7 +30,8 @@ import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint, MOBILE_DISCONNECTED_RUNTIME_KEY } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
-import { clearLastActiveSession, isLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
+import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
+import { lastSessionRestoreStep } from './lastSessionRestore';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -1005,23 +1006,13 @@ export function MobileApp({ apis }: MobileAppProps) {
         return;
       }
       lastSessionRestoreDoneRef.current = true;
-      const session = snapshot.activeSessions.find((entry) => entry.id === persisted.sessionId);
-      if (!session) {
-        // Authoritative snapshot says the session is gone (deleted/archived) —
-        // drop the stale pointer instead of retrying it on every launch.
-        clearLastActiveSession(runtimeKey);
-        setLastSessionRestorePending(false);
-        return;
-      }
       const latest = useSessionUIStore.getState();
-      // A draft action while the snapshot loaded (New session, or typing in the draft) cleared the pointer: the draft
-      // is the person's newer choice, so nothing is restored over it (smarty-code#113).
-      const intended = getRuntimeKey() === runtimeKey && isLastActiveSession(runtimeKey, persisted.sessionId);
-      if (intended && !latest.currentSessionId) {
-        void latest.setCurrentSession(
-          session.id,
-          resolveGlobalSessionDirectory(session) ?? persisted.directory ?? undefined,
-        );
+      const step = lastSessionRestoreStep({ capturedRuntime: runtimeKey, currentRuntime: getRuntimeKey(), persisted,
+        activeSessions: snapshot.activeSessions, currentSessionId: latest.currentSessionId });
+      if (step.kind === 'clear') clearLastActiveSession(runtimeKey);
+      if (step.kind === 'restore') {
+        void latest.setCurrentSession(step.session.id,
+          resolveGlobalSessionDirectory(step.session) ?? persisted.directory ?? undefined);
       }
       setLastSessionRestorePending(false);
     })();

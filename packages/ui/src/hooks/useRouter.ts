@@ -8,7 +8,7 @@ import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { readLastActiveSession } from '@/sync/last-session-cache';
+import { readLastActiveSession, setShownSessionProbe } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 /**
@@ -180,6 +180,8 @@ export function useRouter(): void {
     if (isVSCode || isEmbeddedChat) {
       return;
     }
+    // A cleared restore pointer may drop its pending ?session= only while the page does not show that session (#113).
+    setShownSessionProbe(() => useSessionUIStore.getState().currentSessionId);
 
     let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId;
 
@@ -195,7 +197,7 @@ export function useRouter(): void {
       syncURLFromState();
     });
 
-    return unsubscribe;
+    return () => { unsubscribe(); setShownSessionProbe(undefined); };
   }, [isVSCode, isEmbeddedChat, syncURLFromState]);
 
   // Subscribe to UI store changes (view, settings)
