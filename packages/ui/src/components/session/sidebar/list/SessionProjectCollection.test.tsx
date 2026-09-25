@@ -28,8 +28,14 @@ describe('SessionProjectCollection', () => {
     expect(showsChatGroup({ isVSCode: true, managedCatalog: false, chatSessionCount: 3 })).toBe(false);
   });
   test('Smarty Code shows no "chats" or "recent" sections, not even before the catalog is known (smarty-code#126)', () => {
-    for (const catalogStatus of ['unknown', 'ready', 'unavailable']) expect(showsActivitySections({ isVSCode: false, catalogStatus })).toBe(false);
-    expect(showsActivitySections({ isVSCode: false, catalogStatus: 'stock' })).toBe(true);
-    expect(showsActivitySections({ isVSCode: true, catalogStatus: 'stock' })).toBe(false);
+    for (const catalogStatus of ['unknown', 'ready', 'unavailable']) {
+      expect(showsActivitySections({ isVSCode: false, managedCatalog: true, catalogStatus })).toBe(false);
+    }
+    expect(showsActivitySections({ isVSCode: false, managedCatalog: false, catalogStatus: 'unknown' })).toBe(false);
+    // Stock keeps them, also when a later refresh fails.
+    for (const catalogStatus of ['stock', 'unavailable']) {
+      expect(showsActivitySections({ isVSCode: false, managedCatalog: false, catalogStatus })).toBe(true);
+    }
+    expect(showsActivitySections({ isVSCode: true, managedCatalog: false, catalogStatus: 'stock' })).toBe(false);
   });
 });

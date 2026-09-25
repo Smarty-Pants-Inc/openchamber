@@ -39,7 +39,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   // smarty-code#126 (c) imports the sidebar wording into the locale outputs; it is the newest layer, so unwind it first.
   const sidebarHerdr = historical.files.filter(entry => entry.sidebarHerdrSha256);
   assert.deepEqual(sidebarHerdr.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
-  assert.equal(historical.sidebarHerdrSource, 'smarty-code#126-c');
+  assert.equal(historical.sidebarHerdrSource, 'e5aff1279a1a9c13e4fabfde34be79de19c9229a');
   delete historical.sidebarHerdrSource;
   for (const entry of sidebarHerdr) {
     assert.equal(entry.sidebarHerdrSha256, entry.combinedSha256);

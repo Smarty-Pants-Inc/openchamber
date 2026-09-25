@@ -9,8 +9,10 @@ export const showsChatGroup = ({ isVSCode, managedCatalog, chatSessionCount }:
 
 /**
  * Smarty Code mirrors Herdr, which has no "chats" or "recent" sections (smarty-code#126, Paul's Mac view). They are
- * hidden until the catalog is known to be stock, so a managed sidebar never flashes them.
+ * hidden until discovery has answered without admitting a managed catalog, so a managed sidebar never flashes them,
+ * and a stock one keeps them when a later refresh fails.
  */
-export const showsActivitySections = ({ isVSCode, catalogStatus }: { isVSCode: boolean; catalogStatus: string }): boolean => (
-  !isVSCode && catalogStatus === 'stock'
+export const showsActivitySections = ({ isVSCode, managedCatalog, catalogStatus }:
+  { isVSCode: boolean; managedCatalog: boolean; catalogStatus: string }): boolean => (
+  !isVSCode && !managedCatalog && catalogStatus !== 'unknown'
 );
