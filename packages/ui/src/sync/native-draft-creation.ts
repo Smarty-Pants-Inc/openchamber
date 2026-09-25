@@ -60,7 +60,8 @@ export function applyNativeDraftModel(created: NativeCreatedSession, model: { pr
   });
 }
 
-export async function prepareNativeDraft(): Promise<void> {
+/** Starts this draft's session once. A client request id is sent only where the gateway accepts it. */
+export async function prepareNativeDraft(clientRequestId?: string): Promise<void> {
   const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
   assertManagedDraftTarget(draft);
   if (nativeCreationForDraft(store.nativeDraftCreations, draft, runtimeKey)) return;
@@ -71,14 +72,15 @@ export async function prepareNativeDraft(): Promise<void> {
   publishNativeCreation(pending, pending);
   let submitted = false;
   try {
-    if (!await opencodeClient.supportsNativeCreation(pending.directory)) throw new NativeCreationError('unsupported');
+    const support = await opencodeClient.nativeCreationSupport(pending.directory);
+    if (support.mode === 'legacy') throw new NativeCreationError('unsupported');
     const current = useSessionUIStore.getState();
     if (nativeCreationForDraft(current.nativeDraftCreations, current.newSessionDraft, getRuntimeKey()) !== pending) {
       throw new NativeCreationError('stale');
     }
     assertManagedDraftTarget(draft);
     submitted = true;
-    const session = await createNativeSession(pending.directory, runtimeKey);
+    const session = await createNativeSession(pending.directory, runtimeKey, support.clientRequestId ? clientRequestId : undefined);
     publishNativeCreation(pending, 'id' in session
       ? { ...pending, status: 'created', session }
       : { ...pending, status: 'pending', operation: session.nativeCreation });
@@ -110,7 +112,7 @@ export async function recheckNativeDraft(): Promise<boolean> {
   }
 }
 
-/** Guard the send/materialization boundary too, not only the button. Never create from an ordinary Send. */
+/** Guard the send/materialization boundary: Send starts the session first (native-draft-start); a draft without one is refused. */
 export async function preparedNativeDraft(draft: NewSessionDraftState): Promise<NativeCreatedSession | null> {
   const store = useSessionUIStore.getState(), runtimeKey = getRuntimeKey();
   assertManagedDraftTarget(draft);
