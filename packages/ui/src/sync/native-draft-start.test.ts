@@ -6,6 +6,13 @@ import { nativeCreationForDraft } from './native-draft-creation';
 import { deferred, directory, nativeDraftFixture, session } from './native-draft-fixture';
 import { startNativeDraft } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
+import { opencodeClient } from '@/lib/opencode/client';
+
+// Bun has no localStorage; the start remembers its own operations there.
+const stored = new Map<string, string>();
+if (typeof globalThis.localStorage === 'undefined') Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+  getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); },
+  removeItem: (key: string) => { stored.delete(key); } } });
 
 // smarty-code#126 (Paul's 2026-09-25 attempt): Send on a new-session draft starts the session, waits until it takes
 // input and then sends once. A failed or unknown start sends nothing and keeps the message; nothing is sent twice.
@@ -59,7 +66,7 @@ function interactive() {
     return inner(input, init);
   }) as typeof fetch;
 }
-afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); });
+afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); localStorage.removeItem('oc.nativeCreation.mine'); });
 
 test('one Send starts the session (trust and first input answered), then sends the message once', async () => {
   interactive();
@@ -132,10 +139,17 @@ test('a second Send while the first is starting is refused; one create, one repl
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
 });
 
-test('an earlier start in this project that is still running is continued, not created again', async () => {
+test('this browser\'s earlier start that is still running is continued, not created again', async () => {
   interactive(); listed = [operation];
+  localStorage.setItem('oc.nativeCreation.mine', JSON.stringify([operationId]));
   await sendOnce();
   expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
+});
+
+test('a start this browser did not make (another window or device) is never taken over', async () => {
+  interactive(); listed = [operation];
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
 });
 
 test('a start that is still running after the time limit sends nothing; a later Send continues it', async () => {
@@ -175,15 +189,29 @@ test('a stock server (no session start) leaves Send to its ordinary path', async
   expect(fixture.creates()).toHaveLength(0); expect(record()).toBeNull();
 });
 
-test('a lost create response is continued once a fresh read shows its start still running; one create, one prompt', async () => {
+test('a lost create response: Check again reads only; the next Send continues the ORIGINAL operation; one create', async () => {
   interactive();
   const created = fixture.handlers.create;
   fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); };
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0);
-  // Check again re-reads the list: the server shows the start it received. The next Send continues it.
+  // Check again: the hook re-reads the list. That read sends no choice and no message.
+  const read = await opencodeClient.listNativeCreations(directory);
+  expect(read.map(entry => entry.operationId)).toEqual([operationId]);
+  expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   await sendOnce();
-  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
+});
+
+test('a lost create response does not bind a start that was already listed before this browser\'s request', async () => {
+  interactive();
+  const other = { ...operation, operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', phase: 'denied' as const };
+  listed = [other];
+  fixture.handlers.create = async () => { listed = [{ ...other, phase: 'starting' }]; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
 });
 
 test('a lost create response with no start to continue stays refused and is never created again', async () => {

@@ -81,7 +81,7 @@ async function setup() {
 }
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
-  restoreFetch?.(); fixture?.dispose();
+  restoreFetch?.(); fixture?.dispose(); localStorage.removeItem('oc.nativeCreation.mine');
   globalThis.fetch = async () => { throw new Error('Native choice fixture network denied after teardown'); };
 });
 afterAll(() => dom.restore());
@@ -119,15 +119,15 @@ test('Cancel while starting stops the start; nothing is sent and the draft stays
   expect(useSessionUIStore.getState().newSessionDraft.initialPrompt).toBe('Keep @notes.md');
 });
 
-test('an earlier start still running here is named in plain words; Send continues it without a new create', async () => {
+test('a start from another window is named in plain words and never taken over by Send', async () => {
   await setup();
   listed = [operation];
   await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
     { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  expect(dom.container.textContent).toContain('has not finished starting. Press Send to continue');
+  expect(dom.container.textContent).toContain('another window or on another device');
   await click('Send');
-  await act(async () => { await sendResult; });
-  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(0);
+  await act(async () => { await sendResult?.catch(() => undefined); });
+  expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
 });
 
 test('an unknown outcome says so in plain words, and Send never creates again', async () => {

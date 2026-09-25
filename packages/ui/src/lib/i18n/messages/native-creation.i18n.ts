@@ -19,6 +19,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Use the model shown for this session. Nothing was sent, and your message is still here.',
     'chat.nativeCreation.stopped': 'The session did not start. Nothing was sent, and your message is still here. Press Send to try again.',
     'chat.nativeCreation.notReady': 'The session started but is not ready for messages yet. Nothing was sent, and your message is still here. Open the session from the list to continue.',
+    'chat.nativeCreation.elsewhere': 'Another new session in this project is still starting in another window or on another device. Finish or cancel it there, then press Send again. Nothing was sent, and your message is still here.',
   },
   de: {
     'chat.ordinary.sendUnavailable': 'Diese Sitzung ist gerade nicht verfügbar, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld.',
@@ -40,6 +41,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Verwende das Modell, das für diese Sitzung angezeigt wird. Es wurde nichts gesendet, und deine Nachricht ist noch da.',
     'chat.nativeCreation.stopped': 'Die Sitzung wurde nicht gestartet. Es wurde nichts gesendet, und deine Nachricht ist noch da. Klicke auf Senden, um es erneut zu versuchen.',
     'chat.nativeCreation.notReady': 'Die Sitzung wurde gestartet, ist aber noch nicht bereit für Nachrichten. Es wurde nichts gesendet, und deine Nachricht ist noch da. Öffne die Sitzung in der Liste, um fortzufahren.',
+    'chat.nativeCreation.elsewhere': 'Eine andere neue Sitzung in diesem Projekt startet noch, in einem anderen Fenster oder auf einem anderen Gerät. Schließe sie dort ab oder brich sie ab, und klicke dann erneut auf Senden. Es wurde nichts gesendet, deine Nachricht ist noch da.',
   },
   es: {
     'chat.ordinary.sendUnavailable': 'Esta sesión no está disponible ahora, así que no se envió nada. Tu mensaje sigue en el editor.',
@@ -61,6 +63,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Usa el modelo que se muestra para esta sesión. No se envió nada y tu mensaje sigue aquí.',
     'chat.nativeCreation.stopped': 'La sesión no se inició. No se envió nada y tu mensaje sigue aquí. Pulsa Enviar para intentarlo de nuevo.',
     'chat.nativeCreation.notReady': 'La sesión se inició, pero aún no está lista para recibir mensajes. No se envió nada y tu mensaje sigue aquí. Abre la sesión desde la lista para continuar.',
+    'chat.nativeCreation.elsewhere': 'Otra sesión nueva de este proyecto todavía se está iniciando en otra ventana u otro dispositivo. Termínala o cancélala allí y vuelve a pulsar Enviar. No se envió nada y tu mensaje sigue aquí.',
   },
   fr: {
     'chat.ordinary.sendUnavailable': 'Cette session est indisponible pour le moment : rien n’a été envoyé. Votre message reste dans la zone de saisie.',
@@ -82,6 +85,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Utilisez le modèle affiché pour cette session. Rien n’a été envoyé et votre message est toujours là.',
     'chat.nativeCreation.stopped': 'La session n’a pas démarré. Rien n’a été envoyé et votre message est toujours là. Cliquez sur Envoyer pour réessayer.',
     'chat.nativeCreation.notReady': 'La session a démarré, mais elle n’est pas encore prête à recevoir des messages. Rien n’a été envoyé et votre message est toujours là. Ouvrez la session depuis la liste pour continuer.',
+    'chat.nativeCreation.elsewhere': 'Une autre nouvelle session de ce projet est encore en cours de démarrage dans une autre fenêtre ou sur un autre appareil. Terminez-la ou annulez-la là-bas, puis appuyez de nouveau sur Envoyer. Rien n’a été envoyé et votre message est toujours là.',
   },
   ja: {
     'chat.ordinary.sendUnavailable': 'このセッションは現在利用できないため、何も送信されませんでした。メッセージは入力欄に残っています。',
@@ -103,6 +107,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'このセッションに表示されているモデルを使ってください。何も送信されておらず、メッセージはそのまま残っています。',
     'chat.nativeCreation.stopped': 'セッションを開始できませんでした。何も送信されておらず、メッセージはそのまま残っています。もう一度試すには送信を押してください。',
     'chat.nativeCreation.notReady': 'セッションは開始されましたが、まだメッセージを受け付けられません。何も送信されておらず、メッセージはそのまま残っています。続けるには一覧からセッションを開いてください。',
+    'chat.nativeCreation.elsewhere': 'このプロジェクトの別の新しいセッションが、別のウィンドウまたは別のデバイスでまだ起動中です。そちらで完了するかキャンセルしてから、もう一度送信を押してください。何も送信されておらず、メッセージはそのまま残っています。',
   },
   ko: {
     'chat.ordinary.sendUnavailable': '이 세션은 지금 사용할 수 없어 아무것도 보내지 않았습니다. 메시지는 입력창에 남아 있습니다.',
@@ -124,6 +129,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': '이 세션에 표시된 모델을 사용하세요. 아무것도 보내지 않았으며 메시지는 그대로 남아 있습니다.',
     'chat.nativeCreation.stopped': '세션이 시작되지 않았습니다. 아무것도 보내지 않았으며 메시지는 그대로 남아 있습니다. 다시 시도하려면 보내기를 누르세요.',
     'chat.nativeCreation.notReady': '세션이 시작되었지만 아직 메시지를 받을 준비가 되지 않았습니다. 아무것도 보내지 않았으며 메시지는 그대로 남아 있습니다. 계속하려면 목록에서 세션을 여세요.',
+    'chat.nativeCreation.elsewhere': '이 프로젝트의 다른 새 세션이 다른 창이나 다른 기기에서 아직 시작 중입니다. 그곳에서 완료하거나 취소한 다음 보내기를 다시 누르세요. 아무것도 보내지 않았으며 메시지는 그대로 남아 있습니다.',
   },
   pl: {
     'chat.ordinary.sendUnavailable': 'Ta sesja jest teraz niedostępna, więc nic nie zostało wysłane. Wiadomość pozostaje w polu edycji.',
@@ -145,6 +151,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Użyj modelu pokazanego dla tej sesji. Nic nie zostało wysłane, a wiadomość nadal tu jest.',
     'chat.nativeCreation.stopped': 'Sesja się nie uruchomiła. Nic nie zostało wysłane, a wiadomość nadal tu jest. Naciśnij Wyślij, aby spróbować ponownie.',
     'chat.nativeCreation.notReady': 'Sesja się uruchomiła, ale nie jest jeszcze gotowa na wiadomości. Nic nie zostało wysłane, a wiadomość nadal tu jest. Otwórz sesję z listy, aby kontynuować.',
+    'chat.nativeCreation.elsewhere': 'Inna nowa sesja w tym projekcie wciąż się uruchamia w innym oknie lub na innym urządzeniu. Dokończ ją tam albo anuluj, a potem ponownie naciśnij Wyślij. Nic nie zostało wysłane, a Twoja wiadomość nadal tu jest.',
   },
   'pt-BR': {
     'chat.ordinary.sendUnavailable': 'Esta sessão está indisponível no momento, então nada foi enviado. Sua mensagem continua no editor.',
@@ -166,6 +173,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Use o modelo mostrado para esta sessão. Nada foi enviado, e sua mensagem continua aqui.',
     'chat.nativeCreation.stopped': 'A sessão não foi iniciada. Nada foi enviado, e sua mensagem continua aqui. Clique em Enviar para tentar novamente.',
     'chat.nativeCreation.notReady': 'A sessão foi iniciada, mas ainda não está pronta para receber mensagens. Nada foi enviado, e sua mensagem continua aqui. Abra a sessão na lista para continuar.',
+    'chat.nativeCreation.elsewhere': 'Outra sessão nova deste projeto ainda está iniciando em outra janela ou outro dispositivo. Conclua ou cancele por lá e pressione Enviar novamente. Nada foi enviado e sua mensagem continua aqui.',
   },
   tr: {
     'chat.ordinary.sendUnavailable': 'Bu oturum şu anda kullanılamıyor, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor.',
@@ -187,6 +195,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Bu oturum için gösterilen modeli kullanın. Hiçbir şey gönderilmedi, mesajınız hâlâ burada.',
     'chat.nativeCreation.stopped': 'Oturum başlamadı. Hiçbir şey gönderilmedi, mesajınız hâlâ burada. Yeniden denemek için Gönder düğmesine basın.',
     'chat.nativeCreation.notReady': 'Oturum başladı ancak henüz mesajlara hazır değil. Hiçbir şey gönderilmedi, mesajınız hâlâ burada. Devam etmek için oturumu listeden açın.',
+    'chat.nativeCreation.elsewhere': 'Bu projedeki başka bir yeni oturum, başka bir pencerede veya cihazda hâlâ başlatılıyor. Onu orada tamamlayın ya da iptal edin, sonra Gönder\'e yeniden basın. Hiçbir şey gönderilmedi, mesajınız hâlâ burada.',
   },
   uk: {
     'chat.ordinary.sendUnavailable': 'Цей сеанс зараз недоступний, тому нічого не надіслано. Ваше повідомлення лишається в полі введення.',
@@ -208,6 +217,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': 'Використовуйте модель, показану для цього сеансу. Нічого не надіслано, ваше повідомлення досі тут.',
     'chat.nativeCreation.stopped': 'Сеанс не запустився. Нічого не надіслано, ваше повідомлення досі тут. Натисніть Надіслати, щоб спробувати знову.',
     'chat.nativeCreation.notReady': 'Сеанс запущено, але він ще не готовий приймати повідомлення. Нічого не надіслано, ваше повідомлення досі тут. Відкрийте сеанс зі списку, щоб продовжити.',
+    'chat.nativeCreation.elsewhere': 'Інший новий сеанс у цьому проєкті ще запускається в іншому вікні або на іншому пристрої. Завершіть або скасуйте його там, а потім знову натисніть «Надіслати». Нічого не надіслано, ваше повідомлення залишилося тут.',
   },
   'zh-CN': {
     'chat.ordinary.sendUnavailable': '此会话当前不可用，因此未发送任何内容。你的消息仍保留在输入框中。',
@@ -229,6 +239,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': '请使用此会话显示的模型。未发送任何内容，你的消息仍在这里。',
     'chat.nativeCreation.stopped': '会话未能启动。未发送任何内容，你的消息仍在这里。点击发送以重试。',
     'chat.nativeCreation.notReady': '会话已启动，但还不能接收消息。未发送任何内容，你的消息仍在这里。请从列表中打开该会话以继续。',
+    'chat.nativeCreation.elsewhere': '此项目中另一个新会话仍在其他窗口或设备上启动。请在那里完成或取消它，然后再次点击发送。未发送任何内容，你的消息仍在这里。',
   },
   'zh-TW': {
     'chat.ordinary.sendUnavailable': '此工作階段目前無法使用，因此未傳送任何內容。你的訊息仍保留在輸入框中。',
@@ -250,5 +261,6 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.model': '請使用此工作階段顯示的模型。未傳送任何內容，你的訊息仍在這裡。',
     'chat.nativeCreation.stopped': '工作階段未能啟動。未傳送任何內容，你的訊息仍在這裡。點選傳送即可重試。',
     'chat.nativeCreation.notReady': '工作階段已啟動，但還無法接收訊息。未傳送任何內容，你的訊息仍在這裡。請從清單中開啟該工作階段以繼續。',
+    'chat.nativeCreation.elsewhere': '此專案中另一個新工作階段仍在其他視窗或裝置上啟動。請在那裡完成或取消它，然後再次點選傳送。尚未傳送任何內容，你的訊息仍在這裡。',
   },
 };
