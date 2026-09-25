@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
-import { showsChatGroup } from './chatGroupVisibility';
+import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
 
 describe('SessionProjectCollection', () => {
   test('preserves authoritative background demand when its visible rows are absent', () => {
@@ -26,5 +26,10 @@ describe('SessionProjectCollection', () => {
     expect(showsChatGroup({ isVSCode: false, managedCatalog: true, chatSessionCount: 2 })).toBe(true);
     expect(showsChatGroup({ isVSCode: false, managedCatalog: false, chatSessionCount: 0 })).toBe(true);
     expect(showsChatGroup({ isVSCode: true, managedCatalog: false, chatSessionCount: 3 })).toBe(false);
+  });
+  test('Smarty Code shows no "chats" or "recent" sections, not even before the catalog is known (smarty-code#126)', () => {
+    for (const catalogStatus of ['unknown', 'ready', 'unavailable']) expect(showsActivitySections({ isVSCode: false, catalogStatus })).toBe(false);
+    expect(showsActivitySections({ isVSCode: false, catalogStatus: 'stock' })).toBe(true);
+    expect(showsActivitySections({ isVSCode: true, catalogStatus: 'stock' })).toBe(false);
   });
 });

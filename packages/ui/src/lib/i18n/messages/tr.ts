@@ -1,6 +1,7 @@
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
+import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { settingsDict } from './tr.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -11,6 +12,7 @@ export const dict = {
   ...displayNameI18n.tr,
   ...nativeCreationI18n.tr,
   ...piVoiceI18n.tr,
+  ...sidebarHerdrI18n.tr,
   ...linearIssuePickerI18n.tr,
   ...linearPanelI18n.tr,
   'terminalView.actions.attachSelection': 'Seçili çıktıyı ekle',

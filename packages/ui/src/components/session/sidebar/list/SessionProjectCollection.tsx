@@ -29,7 +29,7 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import type { useSessionProjectViewState } from '../projects/useSessionProjectViewState';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { showsChatGroup } from './chatGroupVisibility';
+import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
 import { useExpandedParents } from '../sessions/useExpandedParents';
 import { SessionGroupSection } from '../projects/SessionGroupSection';
@@ -461,8 +461,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     if (view.mobileVariant) scrollerActions.setSessionSwitcherOpen(false);
     scrollerActions.openNewSessionDraft({ selectedProjectId: CHAT_DRAFT_PROJECT_ID, directoryOverride: null });
   }, [scrollerActions, view.mobileVariant]);
+  const catalogStatus = useProjectsStore((state) => state.managedCatalogStatus);
+  const activitySections = showsActivitySections({ isVSCode: topology.isVSCode, catalogStatus });
   const recentSection = React.useMemo(() => (
-    !topology.isVSCode ? <RecentSessionSection
+    activitySections ? <RecentSessionSection
       projects={topology.projects}
       availableWorktreesByProject={topology.availableWorktreesByProject}
       gitBranches={topology.gitBranches}
@@ -519,6 +521,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     showRecentSection,
     singleProjectMode,
     handleOpenNewChat,
+    activitySections,
     renderChatsSection,
     startFolderRename,
     toggleParent,
