@@ -16,7 +16,8 @@
     "baseUrl": "./src",
     "paths": {
       "@/*": ["./*"],
-      "@openchamber/ui/*": ["./*"]
+      "@openchamber/ui/*": ["./*"],
+      "bun": ["./types/bun-module.d.ts"]
     }
   },
   "include": ["src"]
