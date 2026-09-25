@@ -599,6 +599,20 @@ describe('settings helpers', () => {
       });
     });
 
+    it('an empty recentEfforts clears the key, so a restore can put back a state without it (smarty-code#126 F6)', () => {
+      const helpers = createTestHelpersWithRealSanitizers();
+      const written = helpers.mergePersistedSettings({ theme: 'dark' },
+        helpers.sanitizeSettingsUpdate({ recentEfforts: { 'openai/gpt-5': ['low'] } }));
+      expect(written.recentEfforts).toEqual({ 'openai/gpt-5': ['low'] });
+      const restored = helpers.mergePersistedSettings(written, helpers.sanitizeSettingsUpdate({ recentEfforts: {} }));
+      expect('recentEfforts' in restored).toBe(false);
+      expect(restored.theme).toBe('dark');
+      expect('recentEfforts' in helpers.formatSettingsResponse(restored)).toBe(false);
+      // A value that only looks empty after sanitizing is still ignored, as before.
+      expect(helpers.mergePersistedSettings(written, helpers.sanitizeSettingsUpdate({ recentEfforts: { x: [] } })).recentEfforts)
+        .toEqual({ 'openai/gpt-5': ['low'] });
+    });
+
     it('round-trips recentEfforts as a Record<string, string[]>', () => {
       const helpers = createTestHelpersWithRealSanitizers();
       const input = {
