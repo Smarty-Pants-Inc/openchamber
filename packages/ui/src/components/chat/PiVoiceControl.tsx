@@ -5,12 +5,16 @@ import { toast } from '@/components/ui';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { endActivePiVoiceCall, startPiVoiceCallFor, useActivePiVoiceCall, type PiVoiceCallDriver } from '@/lib/voice/piVoiceActiveCall';
 import { browserPiVoiceMedia, supportsPiVoice } from '@/lib/voice/piVoiceMedia';
 
 // Loaded on first use: the call module brings the runtime socket, not needed to render the chip.
-const driver: PiVoiceCallDriver = { media: browserPiVoiceMedia, load: () => import('@/lib/voice/piVoiceCall') };
+const driver: PiVoiceCallDriver = {
+  // The runtime scope is captured in the click: the call connects only through the runtime it started in.
+  scope: () => { const scope = captureRuntimeRequestScope(); return { key: scope.runtimeKey, current: () => isRuntimeRequestScopeCurrent(scope) }; },
+  media: browserPiVoiceMedia, load: () => import('@/lib/voice/piVoiceCall'),
+};
 const PHASES = ['connecting', 'listening', 'working', 'speaking', 'muted'] as const;
 const knownPhase = (value: string | undefined) => PHASES.find(phase => phase === value);
 
@@ -36,7 +40,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     onEnded: (reason: string) => { toast.error(t('chat.piVoice.ended', { reason })); },
     onFailed: (reason: string) => { toast.error(t('chat.piVoice.failed', { reason })); },
   };
-  const here = current?.sessionId === sessionId && current.directory === directory;
+  const here = current?.runtimeKey === getRuntimeKey() && current.sessionId === sessionId && current.directory === directory;
   // A call bound to another session: browsing here leaves it running; moving it is explicit.
   if (current && !here) {
     return (
@@ -46,7 +50,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
           <Icon name="mic" className="size-3.5" /><span>{t('chat.piVoice.moveHere')}</span>
         </Button>
         <Button type="button" variant="chip" size="xs" aria-label={t('chat.piVoice.end')} title={t('chat.piVoice.end')}
-          onClick={endActivePiVoiceCall}>
+          onClick={() => endActivePiVoiceCall()}>
           <Icon name="close" className="size-3.5" />
         </Button>
       </span>
