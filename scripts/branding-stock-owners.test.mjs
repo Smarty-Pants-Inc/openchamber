@@ -169,7 +169,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);
@@ -196,4 +196,13 @@ test('every donor file/hunk has a disposition and the reviewed output has not dr
     assert.equal(exists ? sha256(read(entry.path)) : null,
       overlays.get(entry.path)?.combinedSha256 ?? entry.outputSha256, entry.path);
   }
+});
+
+test('the session-list allowlist layer binds its exact commit over the reviewed proxy behavior (smarty-code#126 F4)', () => {
+  const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
+  assert.equal(overlay.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
+  assert.equal(entry.preHerdrListCombinedSha256, entry.behaviorSha256);
+  assert.equal(entry.herdrListSha256, entry.combinedSha256);
+  assert.ok(entry.herdrListNote);
+  assert.deepEqual(overlay.files.filter(file => file.herdrListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
 });

@@ -377,9 +377,12 @@
       "path": "packages/web/server/lib/opencode/proxy.js",
       "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
       "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
-      "combinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
+      "combinedSha256": "d80fa21ca40c93795677606738814c9be1d9acf314f13f9ea422ee20a63134b1",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication."
+      "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication.",
+      "preHerdrListCombinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
+      "herdrListSha256": "d80fa21ca40c93795677606738814c9be1d9acf314f13f9ea422ee20a63134b1",
+      "herdrListNote": "smarty-code#126 F4: the session-list allowlist keeps herdrState and herdrNoIdentity"
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
@@ -462,5 +465,6 @@
   "sessionVoiceSource": "02e0e00b05a72bc9055f9363184dd28ff982682e",
   "sessionVoiceNote": "Session voice (Smarty Code #125) extends twelve managed-catalog overlaps: eleven locale outputs import and spread the pi-voice dictionary, and the web server attaches the signed-in session voice socket. Earlier fields remain historical evidence.",
   "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f",
-  "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a"
+  "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a",
+  "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38"
 }
