@@ -1,4 +1,5 @@
 import type { SessionStatus } from '@opencode-ai/sdk/v2/client'
+import { herdrSignature } from '@/lib/herdrSession'
 import type { Session } from '@opencode-ai/sdk/v2'
 import type { State } from './types'
 import { countSyncPerformance } from './performance-diagnostics'
@@ -27,6 +28,7 @@ const getSessionSignature = (session: Session): string => {
     directory,
     parentID,
     session.share?.url ?? '',
+    herdrSignature(session),
   ].join('|')
 }
 

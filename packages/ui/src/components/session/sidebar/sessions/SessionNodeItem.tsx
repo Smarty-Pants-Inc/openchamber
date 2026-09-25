@@ -60,6 +60,7 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
+import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import {
   getSessionWorktreeMenuState,
   type SessionWorktreeMenuTarget,
@@ -1756,16 +1757,6 @@ const hasExpansionMembershipChange = (prev: SessionNodeItemProps, next: SessionN
   );
 };
 
-const areSessionRenderSemanticsEqual = (prev: Session, next: Session): boolean => (
-  prev.id === next.id
-  && prev.title === next.title
-  && prev.directory === next.directory
-  && prev.parentID === next.parentID
-  && prev.share?.url === next.share?.url
-  && prev.time?.created === next.time?.created
-  && prev.time?.updated === next.time?.updated
-  && prev.time?.archived === next.time?.archived
-);
 
 // Returns the name of the first prop whose change requires a render, or null
 // when the row can skip it. The name feeds the stream perf counters so sidebar

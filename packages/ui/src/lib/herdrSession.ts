@@ -24,3 +24,7 @@ export const HERDR_STATE_DOT: Record<HerdrState, string> = {
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>
   (session as { herdrNoIdentity?: unknown } | null | undefined)?.herdrNoIdentity === true;
+
+/** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
+export const herdrSignature = (session: unknown): string =>
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}`;
