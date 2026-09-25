@@ -34,6 +34,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     'packages/web/server/lib/opencode/static-routes-runtime.js',
     ...attributionPaths,
     ...overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.systemNoteAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -205,4 +206,14 @@ test('the session-list allowlist layer binds its exact commit over the reviewed 
   assert.equal(entry.herdrListSha256, entry.combinedSha256);
   assert.ok(entry.herdrListNote);
   assert.deepEqual(overlay.files.filter(file => file.herdrListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
+});
+
+test('voice call notes: session assist binds its exact fix commit as a new overlay entry (system notes)', () => {
+  assert.match(overlay.systemNoteSource, /^[a-f0-9]{40}$/);
+  const added = overlay.files.filter(entry => entry.systemNoteAdded);
+  assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/session-assist/runtime.js']);
+  for (const entry of added) {
+    assert.equal(entry.systemNoteSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  }
 });

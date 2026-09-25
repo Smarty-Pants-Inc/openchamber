@@ -456,6 +456,15 @@
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "671d427d831007ac642a2bce77218554e8ecc31db62348a932e753adcd591e82",
       "managedCatalogSha256": "9f4d23bcb855996fad9e048c4be13d5f457ef1da14810db1c727e87376820988"
+    },
+    {
+      "path": "packages/web/server/lib/session-assist/runtime.js",
+      "brandingSha256": "8eb38925365c5a8cc6db0b59b50583c4443436b092094b4542cb1ac0205ff07d",
+      "behaviorSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853",
+      "combinedSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853",
+      "reason": "Session assist skips voice call notes (clientRole system-note) when it reads the agent reply; the branded Engine label is unchanged.",
+      "systemNoteAdded": true,
+      "systemNoteSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -466,5 +475,6 @@
   "sessionVoiceNote": "Session voice (Smarty Code #125) extends twelve managed-catalog overlaps: eleven locale outputs import and spread the pi-voice dictionary, and the web server attaches the signed-in session voice socket. Earlier fields remain historical evidence.",
   "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f",
   "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a",
-  "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38"
+  "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
+  "systemNoteSource": "a0bd95d33923212ed37fc4321c60ea86ef2b7b2a"
 }
