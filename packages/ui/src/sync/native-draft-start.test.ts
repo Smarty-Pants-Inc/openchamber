@@ -85,10 +85,21 @@ test('one Send starts the session (trust and first input answered), then sends t
   expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
 });
 
+const readyAtOnce = () => { fixture.handlers.create = async () => Response.json({ ...session, nativeCreation: { ...session.nativeCreation, inputReady: true } }); };
+
 test('a session that starts ready at once (create-only server) is sent to once, with no replies', async () => {
-  fixture = nativeDraftFixture(); listed = [];
+  fixture = nativeDraftFixture(); listed = []; readyAtOnce();
   await startNativeDraft([], noWait); await send();
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(1);
+});
+
+test('a create-only session not yet ready is not sent to by the Send that made it; a later Send sends once', async () => {
+  fixture = nativeDraftFixture(); listed = [];
+  expect(await failure(startNativeDraft([], noWait))).toBe('notReady');
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
+  expect(record()?.status).toBe('created');
+  await startNativeDraft([], noWait); await send();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
 });
 
 test('a start refused before the create request sends nothing, keeps the message, and Send may start it later', async () => {
@@ -97,7 +108,7 @@ test('a start refused before the create request sends nothing, keeps the message
   expect(await failure(startNativeDraft([], noWait))).toBe('unavailable');
   expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   expect(useInputStore.getState().pendingInputText).toBe('Keep @notes.md');
-  fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1 } });
+  fixture.handlers.health = async () => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1 } }); readyAtOnce();
   await startNativeDraft([], noWait); await send();
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
 });
