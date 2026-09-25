@@ -16,6 +16,7 @@ import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
+import { SessionVoiceCall } from '@/components/chat/SessionVoiceCall';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
@@ -131,6 +132,9 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                                 : t('chat.chatInput.placeholder.selectSession')}
                     </span>
                 </button>
+                {/* A phone user starts a voice call without expanding the composer (smarty-code#302). The call
+                    lives in the page-level store, so this control can come and go with the pill. */}
+                {currentSessionId ? <SessionVoiceCall sessionId={currentSessionId} directory={directory} /> : null}
                 <button
                     type="button"
                     className={footerIconButtonClass}
