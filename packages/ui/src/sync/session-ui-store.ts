@@ -1384,6 +1384,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       : null
     const persistedProjectByDir = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, persistedTarget?.directory ?? null)
     const currentDirProject = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, currentDirectory)
+    // A plain New session the person asks for goes to the project they are in: the open session's project
+    // (smarty-code#126 F5: it went to the first workspace, or the last draft's, instead). The startup open keeps
+    // the remembered target (#113).
+    const openSessionDirectory = normalizePath(get().currentSessionId ? get().currentSessionDirectory : null)
+    const openSessionProject = !options?.automatic && openSessionDirectory && !isChatDirectoryPath(openSessionDirectory)
+      ? resolveDraftProjectForDirectory(projects, availableWorktreesByProject, openSessionDirectory)
+      : null
     // Before managed discovery answers, a remembered project resolves only by its exact id. The cached view holds
     // bookmarks, where a nested catalog worktree resolves to its parent by path, so the draft opened on the parent
     // and then recorded it over the remembered target (smarty-code#113, R3.12). The catalog transfer below
@@ -1434,7 +1441,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (explicitProject) return explicitProject
       if (explicitDirectory !== null) return inferredProjectFromDir
       // Managed catalogs exclude Chat and arbitrary current-directory fallbacks.
-      if (projectsState.managedCatalogAdmitted) return persistedProject ?? fallbackProject
+      if (projectsState.managedCatalogAdmitted) return (implicitOpen ? openSessionProject : null) ?? persistedProject ?? fallbackProject
       if (restoresProjectTarget) return persistedProject
       // A chat session leaves a managed scratch directory behind as the current
       // one; it owns no project, so it must not decide this draft's project —
