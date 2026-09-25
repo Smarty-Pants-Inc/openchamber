@@ -40,12 +40,12 @@ test('opening a session writes no shared settings', () => {
   // SAFETY: this test needs only the child-store manager; the fire-and-forget message fetch may fail harmlessly.
   setSyncRefs({} as never, new ChildStoreManager(), '/repo');
   useDirectoryStore.getState().setDirectory('/repo', { showOverlay: false, remember: false });
-  save.mockClear();
+  const before = save.mock.calls.length;
 
   useSessionUIStore.getState().setCurrentSession('ses_open_f6', '/repo/.worktrees/feature');
 
   expect(useDirectoryStore.getState().currentDirectory).toBe('/repo/.worktrees/feature');
-  expect(save).not.toHaveBeenCalled();
+  expect(save.mock.calls).toHaveLength(before);
   useSessionUIStore.getState().setCurrentSession(null);
 });
 
@@ -82,6 +82,27 @@ test('a restore within the debounce after an explicit pick is not published with
   const sent = save.mock.calls[0]?.[0];
   expect(sent?.recentModels?.[0]).toEqual({ providerID: 'anthropic', modelID: 'picked-first' });
   expect(JSON.stringify(sent).includes('restored-other')).toBe(false);
+});
+
+test('a later explicit pick writes only its own fields, merged onto the shared copy, with no restored recents', async () => {
+  useUIStore.setState({ recentModels: [{ providerID: 'anthropic', modelID: 'shared-a' }], recentEfforts: {}, recentAgents: [] });
+  startBrowserAutoSave(); // the shared copy is what the store holds now
+  // Another session opens: its model, effort and agent are restored locally.
+  withoutSharingModelPrefs(() => {
+    useUIStore.getState().addRecentModel('openai', 'restored-other');
+    useUIStore.getState().addRecentEffort('openai', 'restored-other', 'low');
+    useUIStore.getState().addRecentAgent('restored-agent');
+  });
+  await wait(PREFS_FLUSH_MS);
+  expect(save.mock.calls).toHaveLength(0);
+  // Later, Paul explicitly picks X.
+  useUIStore.getState().addRecentModel('anthropic', 'picked-x');
+  await wait(PREFS_FLUSH_MS);
+  expect(save.mock.calls).toHaveLength(1);
+  const sent = save.mock.calls[0]?.[0];
+  expect(Object.keys(sent ?? {})).toEqual(['recentModels']);
+  expect(sent?.recentModels).toEqual([{ providerID: 'anthropic', modelID: 'picked-x' }, { providerID: 'anthropic', modelID: 'shared-a' }]);
+  expect(JSON.stringify(sent).includes('restored')).toBe(false);
 });
 
 test('an explicit project choice still publishes lastDirectory', () => {

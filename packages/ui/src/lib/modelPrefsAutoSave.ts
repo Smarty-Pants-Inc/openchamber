@@ -2,6 +2,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { restoringModelPrefs } from '@/lib/modelPrefsRestore';
+import { copyModelPrefs, mergeExplicitChange } from '@/lib/modelPrefsShared';
 
 type ModelRef = { providerID: string; modelID: string };
 type ModelPrefsPayload = {
@@ -60,40 +61,24 @@ const modelPrefsEqual = (a: ModelPrefsPayload, b: ModelPrefsPayload): boolean =>
   recentEffortsEqual(a.recentEfforts, b.recentEfforts)
 );
 
-const cloneModelPrefs = (prefs: ModelPrefsPayload): ModelPrefsPayload => ({
-  favoriteModels: prefs.favoriteModels.slice(),
-  hiddenModels: prefs.hiddenModels.slice(),
-  collapsedModelProviders: prefs.collapsedModelProviders.slice(),
-  recentModels: prefs.recentModels.slice(),
-  recentAgents: prefs.recentAgents.slice(),
-  recentEfforts: Object.fromEntries(Object.entries(prefs.recentEfforts).map(([key, variants]) => [key, variants.slice()])),
-});
-
-
 export const startModelPrefsAutoSave = () => {
   if (typeof window === 'undefined') {
     return () => {};
   }
 
   let timer: number | null = null;
-  let lastSent: ModelPrefsPayload | null = null;
   let scheduledRuntimeKey: string | null = null;
-  // The values of the explicit choice, taken when it was made. A restore that lands within the debounce
-  // (another session's model or effort) must not ride along in the flush (#126 F6, OC#194 review).
-  let scheduledPayload: ModelPrefsPayload | null = null;
+  // The shared copy as last known: the values in the store when saving starts, then every server-applied value and
+  // every explicit change. A restore (or local rehydration) never enters it, so it never reaches the server (#126 F6).
+  let shared: ModelPrefsPayload = copyModelPrefs(snapshotModelPrefs());
+  // Only the fields explicit choices changed, taken when they were made; a restore within the debounce never rides along.
+  let pending: Partial<ModelPrefsPayload> = {};
 
   const flush = () => {
     timer = null;
-    const runtimeKey = scheduledRuntimeKey, payload = scheduledPayload;
-    scheduledRuntimeKey = null; scheduledPayload = null;
-    if (!runtimeKey || !payload || runtimeKey !== getRuntimeKey()) return;
-
-    if (lastSent && modelPrefsEqual(lastSent, payload)) {
-      return;
-    }
-
-    lastSent = cloneModelPrefs(payload);
-
+    const runtimeKey = scheduledRuntimeKey, payload = pending;
+    scheduledRuntimeKey = null; pending = {};
+    if (!runtimeKey || runtimeKey !== getRuntimeKey() || Object.keys(payload).length === 0) return;
     void updateDesktopSettings(payload).catch(() => {});
   };
 
@@ -102,7 +87,6 @@ export const startModelPrefsAutoSave = () => {
       window.clearTimeout(timer);
     }
     scheduledRuntimeKey = getRuntimeKey();
-    scheduledPayload = cloneModelPrefs(snapshotModelPrefs());
     timer = window.setTimeout(flush, 1200);
   };
 
@@ -110,8 +94,7 @@ export const startModelPrefsAutoSave = () => {
     if (timer !== null) window.clearTimeout(timer);
     timer = null;
     scheduledRuntimeKey = null;
-    scheduledPayload = null;
-    lastSent = null;
+    pending = {};
   });
 
   const unsubscribe = useUIStore.subscribe((state, prevState) => {
@@ -131,11 +114,14 @@ export const startModelPrefsAutoSave = () => {
       recentAgents: prevState.recentAgents,
       recentEfforts: prevState.recentEfforts,
     };
-    // Local rehydration, server values and session restores are not user choices; they stay local.
-    const hydrating = useUIStore.persist?.hasHydrated?.() === false;
-    if (modelPrefsEqual(next, prev) || hydrating || restoringModelPrefs() || isApplyingServerSettings()) {
-      return;
-    }
+    if (modelPrefsEqual(next, prev)) return;
+    // Values the server sent are its copy; they are not sent back.
+    if (isApplyingServerSettings()) { shared = copyModelPrefs(next); return; }
+    // Local rehydration and session restores are not user choices; they stay local.
+    if (useUIStore.persist?.hasHydrated?.() === false || restoringModelPrefs()) return;
+    const changes = mergeExplicitChange(prev, next, shared);
+    shared = { ...shared, ...changes };
+    pending = { ...pending, ...changes };
     schedule();
   });
 
