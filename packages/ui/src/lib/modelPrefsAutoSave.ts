@@ -54,8 +54,9 @@ const modelPrefsEqual = (a: ModelPrefsPayload, b: ModelPrefsPayload): boolean =>
 /** The shared settings as the server holds them now, and their revision. */
 export type ModelPrefsServer = {
   read(): Promise<{ prefs: ModelPrefs; etag: string | null }>;
-  /** Writes only these keys if the settings are still at `etag`; 'conflict' when they changed meanwhile. */
-  write(changes: Partial<ModelPrefs>, etag: string | null): Promise<'ok' | 'conflict'>;
+  /** Writes only these keys if the settings are still at `etag`; 'conflict' when they changed meanwhile.
+   * `keepalive` lets the request outlive the page (unload flush). */
+  write(changes: Partial<ModelPrefs>, etag: string | null, options?: { keepalive?: boolean }): Promise<'ok' | 'conflict'>;
 };
 
 /** A stored list, or none yet; anything else is not an authoritative read (OC#194 review). */
@@ -88,10 +89,10 @@ const runtimeServer: ModelPrefsServer = {
       collapsedModelProviders: list(body, 'collapsedModelProviders'), recentModels: list(body, 'recentModels'),
       recentAgents: list(body, 'recentAgents'), recentEfforts: (efforts ?? {}) as Record<string, string[]> } };
   },
-  async write(changes, etag) {
+  async write(changes, etag, options) {
     const api = getRegisteredRuntimeAPIs()?.settings;
     if (!api) throw new Error('No settings API');
-    try { await api.save(changes, etag ? { ifMatch: etag } : undefined); return 'ok'; }
+    try { await api.save(changes, { ...(etag ? { ifMatch: etag } : {}), ...(options?.keepalive ? { keepalive: true } : {}) }); return 'ok'; }
     catch (error) { if (error instanceof SettingsConflictError) return 'conflict'; throw error; }
   },
 };
@@ -112,10 +113,18 @@ export const startModelPrefsAutoSave = (server: ModelPrefsServer = runtimeServer
   let scheduledRuntimeKey: string | null = null;
   // Explicit changes waiting for the debounce, each as the user made it.
   let pending: Array<{ prev: ModelPrefs; next: ModelPrefs }> = [];
+  type Read = Awaited<ReturnType<ModelPrefsServer['read']>>;
+  type BatchRead = { runtimeKey: string; promise: Promise<Read>; result?: Read };
+  // The batch's first read starts at its first pick, so closing the page needs only the conditional write, which a
+  // keepalive request carries past unload (a read-then-write started at unload cannot finish). If-Match still
+  // refuses the write if the settings changed after this read.
+  let base: BatchRead | null = null;
+  let busy = 0;
 
-  const apply = async (changes: Array<{ prev: ModelPrefs; next: ModelPrefs }>, runtimeKey: string) => {
+  const apply = async (changes: Array<{ prev: ModelPrefs; next: ModelPrefs }>, runtimeKey: string,
+    first: BatchRead | null, keepalive: boolean) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const { prefs, etag } = await server.read();
+      const { prefs, etag } = attempt === 0 && first ? first.result ?? await first.promise : await server.read();
       if (runtimeKey !== getRuntimeKey()) return;
       let current = prefs, touched: Partial<ModelPrefs> = {};
       for (const change of changes) {
@@ -123,28 +132,43 @@ export const startModelPrefsAutoSave = (server: ModelPrefsServer = runtimeServer
         current = { ...current, ...delta }; touched = { ...touched, ...delta };
       }
       if (Object.keys(touched).length === 0) return;
-      if (await server.write(touched, etag) === 'ok') return;
+      if (await server.write(touched, etag, keepalive ? { keepalive } : undefined) === 'ok') return;
     }
   };
 
   // One save at a time, in the order the user acted: each batch waits for the previous one to finish, then applies
   // its own change onto a fresh read, so an older save can never land after (and undo) a newer choice.
   let queue: Promise<void> = Promise.resolve();
-  const flush = () => {
+  const flush = (keepalive = false) => {
     timer = null;
-    const runtimeKey = scheduledRuntimeKey, changes = pending;
-    scheduledRuntimeKey = null; pending = [];
+    const runtimeKey = scheduledRuntimeKey, changes = pending, first = base?.runtimeKey === runtimeKey ? base : null;
+    scheduledRuntimeKey = null; pending = []; base = null;
     if (!runtimeKey || runtimeKey !== getRuntimeKey() || changes.length === 0) return;
-    queue = queue.then(() => apply(changes, runtimeKey)).catch((error: unknown) => {
+    busy += 1;
+    queue = queue.then(() => apply(changes, runtimeKey, first, keepalive)).catch((error: unknown) => {
       console.warn('Model preferences were not saved:', error);
-    });
+    }).finally(() => { busy -= 1; });
   };
+
+  // Closing or hiding the page does not wait for the debounce (a pick then an immediate close was lost).
+  const flushNow = () => {
+    if (timer === null) return;
+    window.clearTimeout(timer);
+    flush(true);
+  };
+  const onVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
+  const hasLifecycleEvents = typeof document !== 'undefined' && typeof window.addEventListener === 'function';
+  if (hasLifecycleEvents) {
+    window.addEventListener('pagehide', flushNow);
+    document.addEventListener('visibilitychange', onVisibility);
+  }
 
   const unsubscribeRuntime = subscribeRuntimeEndpointWillChange(() => {
     if (timer !== null) window.clearTimeout(timer);
     timer = null;
     scheduledRuntimeKey = null;
     pending = [];
+    base = null;
   });
 
   const unsubscribe = useUIStore.subscribe((state, prevState) => {
@@ -170,12 +194,22 @@ export const startModelPrefsAutoSave = (server: ModelPrefsServer = runtimeServer
     pending.push({ prev, next });
     if (timer !== null) window.clearTimeout(timer);
     scheduledRuntimeKey = getRuntimeKey();
-    timer = window.setTimeout(flush, 1200);
+    // Only while no earlier save is in flight: a read taken then could not see that save.
+    if (!base && busy === 0) {
+      const read: BatchRead = { runtimeKey: scheduledRuntimeKey, promise: server.read() };
+      read.promise.then((result) => { read.result = result; }, () => { if (base === read) base = null; });
+      base = read;
+    }
+    timer = window.setTimeout(() => flush(), 1200);
   });
 
   return () => {
     unsubscribe();
     unsubscribeRuntime();
+    if (hasLifecycleEvents) {
+      window.removeEventListener('pagehide', flushNow);
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
     if (timer !== null) {
       window.clearTimeout(timer);
     }
