@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { isWebRuntime } from '@/lib/desktop';
 import { usePwaDetection } from '@/hooks/usePwaDetection';
 import { useI18n } from '@/lib/i18n';
-import { getDeferredSafeStorage, getSafeSessionStorage } from '@/stores/utils/safeStorage';
+import { getSafeStorage } from '@/stores/utils/safeStorage';
 import { shouldShowPwaInstallToast } from '@/components/update/openCodeUpdateDedup';
 
 type InstallPromptOutcome = 'accepted' | 'dismissed';
@@ -13,8 +13,10 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: InstallPromptOutcome }>;
 };
 
-const INSTALL_TOAST_SESSION_KEY = 'pwa-install-toast-shown';
-const INSTALL_TOAST_DISMISSED_KEY = 'pwa-install-toast-dismissed';
+// Shown, dismissed or installed: the toast never returns in this browser. The key keeps its old name so an
+// earlier dismissal still counts. Written immediately (not deferred) so a quick reload cannot lose it.
+const INSTALL_TOAST_SEEN_KEY = 'pwa-install-toast-dismissed';
+const markInstallToastSeen = () => getSafeStorage().setItem(INSTALL_TOAST_SEEN_KEY, 'true');
 
 export const usePwaInstallPrompt = () => {
   const { browserTab } = usePwaDetection();
@@ -66,18 +68,15 @@ export const usePwaInstallPrompt = () => {
       installEvent.preventDefault();
       deferredPrompt = installEvent;
 
-      const localStorage = getDeferredSafeStorage();
-      const sessionStorage = getSafeSessionStorage();
       const decision = shouldShowPwaInstallToast({
-        dismissed: localStorage.getItem(INSTALL_TOAST_DISMISSED_KEY),
-        sessionShown: sessionStorage.getItem(INSTALL_TOAST_SESSION_KEY),
+        seen: getSafeStorage().getItem(INSTALL_TOAST_SEEN_KEY),
         hasActiveToast: installToastId !== null,
       });
       if (!decision) {
         return;
       }
 
-      sessionStorage.setItem(INSTALL_TOAST_SESSION_KEY, 'true');
+      markInstallToastSeen();
 
       installToastId = toast.info(tRef.current('pwa.installPrompt.description'), {
         duration: Infinity,
@@ -90,7 +89,7 @@ export const usePwaInstallPrompt = () => {
         cancel: {
           label: tRef.current('pwa.installPrompt.dismiss'),
           onClick: () => {
-            getDeferredSafeStorage().setItem(INSTALL_TOAST_DISMISSED_KEY, 'true');
+            markInstallToastSeen();
             dismissInstallToast();
           },
         },
@@ -98,6 +97,7 @@ export const usePwaInstallPrompt = () => {
     };
 
     const onAppInstalled = () => {
+      markInstallToastSeen();
       deferredPrompt = null;
       dismissInstallToast();
       toast.success(tRef.current('pwa.installPrompt.installed'));

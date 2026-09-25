@@ -8,7 +8,9 @@ const { FleetViewOnlyBanner } = await import('./FleetViewOnlyBanner');
 
 test('a Pi without a session identity opens with its plain reason, not an enrollment link (smarty-code#126 (c)3)', () => {
   const html = renderToStaticMarkup(<FleetViewOnlyBanner noIdentity />);
-  expect(html).toContain('does not tell Herdr which session it is running');
+  expect(html).toContain('Code cannot show this session’s messages yet. Open it in its terminal.');
+  // smarty-code#126 F7 (c): plain words, no internal tool names.
+  expect(html).not.toContain('Herdr');
   expect(html).not.toContain('href=');
   expect(html).not.toContain('No sessions');
 });
