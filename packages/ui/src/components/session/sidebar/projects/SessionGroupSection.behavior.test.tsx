@@ -243,6 +243,14 @@ describe('SessionGroupSection public behavior', () => {
         await act(async () => root.render(<I18nProvider><SessionGroupSection {...createProps()} /></I18nProvider>));
         expect(container.textContent).toContain(expected);
       }
+      // F7: Herdr shows no branch under a workspace name; stock keeps its branch line.
+      bootstrapState = null;
+      const branched = { ...group, id: 'ci', label: 'ci-delivery', isMain: false, branch: 'ci/role-definition-successor-20260919' };
+      for (const [admitted, shown] of [[true, false], [false, true]] as const) {
+        useProjectsStore.setState({ managedCatalogAdmitted: admitted, managedCatalogStatus: admitted ? 'ready' : 'stock' });
+        await act(async () => root.render(<I18nProvider><SessionGroupSection {...createProps()} group={branched} hideGroupLabel={false} /></I18nProvider>));
+        expect(container.textContent?.includes('ci/role-definition-successor-20260919')).toBe(shown);
+      }
     } finally {
       bootstrapState = null;
       await act(async () => root.unmount());

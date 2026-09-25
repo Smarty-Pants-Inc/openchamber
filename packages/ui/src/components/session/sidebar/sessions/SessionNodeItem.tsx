@@ -61,6 +61,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
 import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
+import { rowActivity } from './rowActivity';
 import {
   getSessionWorktreeMenuState,
   type SessionWorktreeMenuTarget,
@@ -728,10 +729,10 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     menuOpen: isSessionMenuOpen,
     hideOnHoverClass,
   });
-  const showUnreadStatus = !isMovingToWorktree && !isStreaming && needsAttention && !isActive;
-  // A Smarty Code row carries Herdr's own state; its marker then shows that state, as Herdr does (smarty-code#126 (c)5).
   const herdrState = readHerdrState(session);
-  const showStatusMarker = isStreaming || showUnreadStatus || herdrState !== undefined;
+  const { showUnreadStatus, showStatusMarker, showActivityDuration } = rowActivity({
+    herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration,
+  });
   // Both states are the same static dot; only the color separates "running"
   // from "unread". The elapsed-turn readout on the right carries the motion
   // that a spinner used to, at one repaint per second instead of per frame.
@@ -751,7 +752,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   );
   // The settled duration lives exactly as long as the unread marker does, so a
   // session read (or watched) while it finishes never keeps a stale total.
-  const showActivityDuration = (isStreaming || showUnreadStatus) && hasActivityDuration;
   const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && (isMovingToWorktree || showStatusMarker || isPinnedSession);
   const showPinnedMarker = isPinnedSession && !isMovingToWorktree && !showStatusMarker;
   const pinnedMarkerContent = (
