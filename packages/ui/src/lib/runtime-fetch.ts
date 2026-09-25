@@ -244,7 +244,8 @@ const fetchRuntimeRequest = async (
 
   if (isRuntimeRequestScopeCurrent(scope)) {
     observeRuntimeAuthResponse(url, response.status, scope);
-    if (response.ok) noteRuntimeAnswered();
+    // The health probe's own answer is judged by its body in checkHealth, never taken as transport evidence here.
+    if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered();
   }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;

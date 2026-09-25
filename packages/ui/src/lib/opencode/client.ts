@@ -34,7 +34,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
-import { runtimeAnsweredRecently } from "@/lib/runtime-reachability";
+import { noteRuntimeHealth, runtimeAnsweredRecently } from "@/lib/runtime-reachability";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
@@ -1856,6 +1856,10 @@ class OpencodeService {
   }
 
   // Lightweight readiness check. Full diagnostics still live at /health.
+  private lastHealthOutcome: 'healthy' | 'unhealthy' | 'unreachable' | null = null;
+  /** The latest probe's outcome: healthy, answered but not OK, or no answer. */
+  getLastHealthOutcome() { return this.lastHealthOutcome; }
+
   async checkHealth(): Promise<boolean> {
     try {
       const normalizedBase = this.baseUrl.endsWith('/') ? this.baseUrl.replace(/\/+$/, '') : this.baseUrl;
@@ -1866,17 +1870,19 @@ class OpencodeService {
       const timeout = createTimeoutSignal(OPENCODE_HEALTH_TIMEOUT_MS);
       const response = await runtimeFetch(healthUrl, { signal: timeout.signal }).finally(timeout.cleanup);
       markStartupTrace('opencodeClient.checkHealth:response', { status: response.status });
-      if (!response.ok) {
-        return false;
-      }
-
-      const healthData = await response.json();
-      markStartupTrace('opencodeClient.checkHealth:result', { healthy: healthData?.healthy });
-
-      return healthData?.healthy === true;
+      // The server answered: only a parsed body that says healthy is healthy. A malformed or unhealthy answer is a
+      // server that is not OK (OC#197 review), never a transport timeout and never evidence of reachability.
+      const healthData: unknown = response.ok ? await response.json().catch(() => undefined) : undefined;
+      const healthy = (healthData as { healthy?: unknown } | undefined)?.healthy === true;
+      markStartupTrace('opencodeClient.checkHealth:result', { healthy });
+      noteRuntimeHealth(healthy);
+      this.lastHealthOutcome = healthy ? 'healthy' : 'unhealthy';
+      return healthy;
     } catch {
-      // A probe that timed out or failed in transit is not proof of an outage while other reads succeed (#126 F9).
-      return runtimeAnsweredRecently();
+      // No answer (timeout or transport failure) is not an outage while other reads succeed (#126 F9).
+      const reachable = runtimeAnsweredRecently();
+      this.lastHealthOutcome = reachable ? 'healthy' : 'unreachable';
+      return reachable;
     }
   }
 

@@ -33,3 +33,23 @@ test('a probe that fails in transit is not an outage while other reads succeed',
   expect((await runtimeFetch('/api/config/settings')).ok).toBe(true); // a real read succeeds
   expect(await opencodeClient.checkHealth()).toBe(true);
 });
+
+for (const [name, answer] of [
+  ['malformed (an HTML page from a proxy)', () => new Response('<html>proxy</html>', { status: 200, headers: { 'content-type': 'text/html' } })],
+  ['{ healthy: false }', () => Response.json({ healthy: false })],
+] as const) {
+  test(`a 2xx health answer that is ${name} is unhealthy, and is not turned healthy by a later transport failure`, async () => {
+    let reply: () => Promise<Response> = async () => answer();
+    server(() => reply());
+    expect(await opencodeClient.checkHealth()).toBe(false); // not reachability evidence on its own
+    expect(opencodeClient.getLastHealthOutcome()).toBe('unhealthy');
+    expect((await runtimeFetch('/api/config/settings')).ok).toBe(true); // other reads succeed
+    expect(await opencodeClient.checkHealth()).toBe(false); // still an explicit bad answer
+    reply = async () => { throw new TypeError('network error'); };
+    expect(await opencodeClient.checkHealth()).toBe(false); // no recovery was reported
+    reply = async () => healthy();
+    expect(await opencodeClient.checkHealth()).toBe(true);
+    reply = async () => { throw new TypeError('network error'); };
+    expect(await opencodeClient.checkHealth()).toBe(true); // healthy again, and other reads succeed
+  });
+}

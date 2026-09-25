@@ -3197,7 +3197,7 @@ export const useConfigStore = create<ConfigStore>()(
                     set({
                         isConnected: false,
                         connectionPhase: state.hasEverConnected ? "reconnecting" : "connecting",
-                        lastDisconnectReason: 'health_probe_unhealthy',
+                        lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_probe_unhealthy',
                     });
                     return false;
                 },
@@ -3221,7 +3221,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 set({
                                     isConnected: false,
                                     connectionPhase: hasEverConnected ? "reconnecting" : "connecting",
-                                    lastDisconnectReason: 'health_check_unhealthy',
+                                    lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_check_unhealthy',
                                 });
                                 attempt += 1;
                                 await sleep(400 * attempt);
@@ -3234,7 +3234,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 : {
                                     isConnected: false,
                                     connectionPhase: hasEverConnected ? "reconnecting" : "connecting",
-                                    lastDisconnectReason: 'health_check_unhealthy',
+                                    lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_check_unhealthy',
                                 });
                             markStartupTrace('checkConnection:end', { healthy: isHealthy, attempts: attempt + 1 });
                             return isHealthy;
