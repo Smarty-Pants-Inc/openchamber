@@ -56,9 +56,6 @@ export const createSettingsHelpers = (dependencies) => {
     return result;
   };
 
-  const isEmptyPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-    && Object.keys(value).length === 0;
-
   const sanitizeRecentEfforts = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return null;
@@ -698,10 +695,11 @@ export const createSettingsHelpers = (dependencies) => {
     const recentEfforts = sanitizeRecentEfforts(candidate.recentEfforts);
     if (recentEfforts) {
       result.recentEfforts = recentEfforts;
-    } else if (isEmptyPlainObject(candidate.recentEfforts)) {
-      // Smarty Code (smarty-code#126 F6): an explicit {} clears the key. A PUT merges, and no other value could
-      // remove it, so a restore could never put back a state without it.
-      result.recentEfforts = {};
+    } else if (candidate.recentEfforts === null) {
+      // Smarty Code (smarty-code#126 F6): an explicit null clears the key. A PUT merges, and no other value could
+      // remove it, so a restore could never put back a state without it. Not {}: the model-preference autosave sends
+      // an unchanged empty map with other preferences, which must never erase history saved by another client.
+      result.recentEfforts = null;
     }
     if (typeof candidate.diffLayoutPreference === 'string') {
       const mode = candidate.diffLayoutPreference.trim();
@@ -949,7 +947,7 @@ export const createSettingsHelpers = (dependencies) => {
       ),
       typographySizes: nextTypographySizes
     };
-    if (isEmptyPlainObject(changes.recentEfforts)) delete next.recentEfforts; // The {} clear above (smarty-code#126 F6).
+    if (changes.recentEfforts === null) delete next.recentEfforts; // The null clear above (smarty-code#126 F6).
 
     return next;
   };
