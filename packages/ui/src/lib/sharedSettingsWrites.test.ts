@@ -124,6 +124,36 @@ test('a conflict is retried once from a fresh read, keeping what changed meanwhi
     { providerID: 'p', modelID: 'other-client' }, { providerID: 'p', modelID: 'old' }] } });
 });
 
+test('saves run one at a time in the user\'s order: a later choice is never undone by an earlier save', async () => {
+  localPrefs();
+  const { state, server } = fakeServer();
+  let releaseFirst!: () => void;
+  const held = new Promise<void>(done => { releaseFirst = done; });
+  const write = server.write.bind(server);
+  server.write = async (changes, etag) => { if (state.writes.length === 0) await held; return write(changes, etag); };
+  startBrowserAutoSave(server);
+  useUIStore.getState().addRecentModel('anthropic', 'x'); // first choice: its save is held in flight
+  await wait(PREFS_FLUSH_MS);
+  useUIStore.getState().addRecentModel('anthropic', 'y'); // a later choice
+  await wait(PREFS_FLUSH_MS);
+  expect(state.reads).toBe(1); // the second save waits for the first
+  releaseFirst();
+  await wait(100);
+  expect(state.prefs.recentModels).toEqual([{ providerID: 'anthropic', modelID: 'y' }, { providerID: 'anthropic', modelID: 'x' }]);
+  expect(state.writes.map(entry => entry.etag)).toEqual(['v1', 'v2']);
+});
+
+test('a favourite drag is saved in the new order, and only that key', async () => {
+  const x = { providerID: 'anthropic', modelID: 'fav-x' }, z = { providerID: 'openai', modelID: 'fav-z' };
+  localPrefs(); useUIStore.setState({ favoriteModels: [x, z] });
+  const { state, server } = fakeServer({ favoriteModels: [x, z], recentModels: [{ providerID: 'p', modelID: 'kept' }] });
+  startBrowserAutoSave(server);
+  useUIStore.getState().reorderFavoriteModel('openai', 'fav-z', 'anthropic', 'fav-x');
+  await wait(PREFS_FLUSH_MS);
+  expect(state.writes.map(entry => entry.changes)).toEqual([{ favoriteModels: [z, x] }]);
+  expect(state.prefs.recentModels).toEqual([{ providerID: 'p', modelID: 'kept' }]);
+});
+
 test('an explicit project choice still publishes lastDirectory', () => {
   const path = '/sandbox/f6-project';
   const project: ProjectEntry = { id: createProjectIdFromPath(path), path, label: 'f6', addedAt: 1, lastOpenedAt: 1 };

@@ -16,18 +16,19 @@ const RECENT_LIMIT = 5;
 
 type Item = ModelRef | string;
 const key = (item: Item) => typeof item === 'string' ? item : `${item.providerID}\u0000${item.modelID}`;
-const has = (list: readonly Item[], item: Item) => list.some(entry => key(entry) === key(item));
 const same = (a: readonly Item[], b: readonly Item[]) => a.length === b.length && a.every((item, i) => key(item) === key(b[i]!));
 
-/** One list's explicit change, applied to the shared list. A recent list keeps its most recent pick first. */
+/** One list's explicit change, applied to the shared list. A recent list keeps its most recent pick first; restores add
+ * local recents, so only the pick itself goes onto the server's list. */
 function mergeList(field: ListField, prev: readonly Item[], next: readonly Item[], shared: readonly Item[]): Item[] {
   if (RECENTS.has(field)) {
     const picked = next[0];
     if (!picked || (prev[0] && key(prev[0]) === key(picked))) return [...shared];
     return [picked, ...shared.filter(entry => key(entry) !== key(picked))].slice(0, RECENT_LIMIT);
   }
-  const removed = prev.filter(item => !has(next, item)), added = next.filter(item => !has(prev, item));
-  return [...shared.filter(item => !has(removed, item)), ...added.filter(item => !has(shared, item))];
+  // Favourites, hidden models and collapsed providers change only by the user's own edits (never by a restore), and
+  // their order is the user's (a drag, or a new favourite inserted first): write the list as the user left it.
+  return [...next];
 }
 
 /**

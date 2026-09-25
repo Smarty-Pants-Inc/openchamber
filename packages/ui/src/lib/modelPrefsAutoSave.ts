@@ -58,18 +58,35 @@ export type ModelPrefsServer = {
   write(changes: Partial<ModelPrefs>, etag: string | null): Promise<'ok' | 'conflict'>;
 };
 
-const list = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
-/** The runtime's settings API: load with its revision, conditional save (a rejected condition throws a conflict). */
+/** A stored list, or none yet; anything else is not an authoritative read (OC#194 review). */
+const list = <T>(body: Record<string, unknown>, field: string): T[] => {
+  const value = body[field];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`Settings ${field} is not a list; nothing is written`);
+  return value as T[];
+};
+/**
+ * The runtime's settings API: load with its revision, conditional save (a rejected condition throws a conflict).
+ * A read that failed (VS Code's defaults fallback) or has an invalid shape is never a base: the save is abandoned,
+ * so existing preferences are never replaced by defaults. ponytail: VS Code's bridge has no revision, so its write is
+ * unconditional after a fresh authoritative read; the serialized queue keeps this page's own writes in order.
+ */
 const runtimeServer: ModelPrefsServer = {
   async read() {
     const api = getRegisteredRuntimeAPIs()?.settings;
     if (!api) throw new Error('No settings API');
-    const { settings, revision } = await api.load();
-    const body = settings as Record<string, unknown>;
-    const efforts = body.recentEfforts && typeof body.recentEfforts === 'object' ? body.recentEfforts as Record<string, string[]> : {};
-    return { etag: revision ?? null, prefs: { favoriteModels: list(body.favoriteModels), hiddenModels: list(body.hiddenModels),
-      collapsedModelProviders: list(body.collapsedModelProviders), recentModels: list(body.recentModels),
-      recentAgents: list(body.recentAgents), recentEfforts: efforts } };
+    const result = await api.load();
+    if (result.fallback || !result.settings || typeof result.settings !== 'object') {
+      throw new Error('The settings could not be read; nothing is written');
+    }
+    const body = result.settings as Record<string, unknown>;
+    const efforts = body.recentEfforts;
+    if (efforts !== undefined && (efforts === null || typeof efforts !== 'object' || Array.isArray(efforts))) {
+      throw new Error('Settings recentEfforts is not a map; nothing is written');
+    }
+    return { etag: result.revision ?? null, prefs: { favoriteModels: list(body, 'favoriteModels'), hiddenModels: list(body, 'hiddenModels'),
+      collapsedModelProviders: list(body, 'collapsedModelProviders'), recentModels: list(body, 'recentModels'),
+      recentAgents: list(body, 'recentAgents'), recentEfforts: (efforts ?? {}) as Record<string, string[]> } };
   },
   async write(changes, etag) {
     const api = getRegisteredRuntimeAPIs()?.settings;
@@ -110,12 +127,17 @@ export const startModelPrefsAutoSave = (server: ModelPrefsServer = runtimeServer
     }
   };
 
+  // One save at a time, in the order the user acted: each batch waits for the previous one to finish, then applies
+  // its own change onto a fresh read, so an older save can never land after (and undo) a newer choice.
+  let queue: Promise<void> = Promise.resolve();
   const flush = () => {
     timer = null;
     const runtimeKey = scheduledRuntimeKey, changes = pending;
     scheduledRuntimeKey = null; pending = [];
     if (!runtimeKey || runtimeKey !== getRuntimeKey() || changes.length === 0) return;
-    void apply(changes, runtimeKey).catch(() => {});
+    queue = queue.then(() => apply(changes, runtimeKey)).catch((error: unknown) => {
+      console.warn('Model preferences were not saved:', error);
+    });
   };
 
   const unsubscribeRuntime = subscribeRuntimeEndpointWillChange(() => {

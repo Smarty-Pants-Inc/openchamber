@@ -5,10 +5,11 @@ const a = { providerID: 'p', modelID: 'a' }, b = { providerID: 'p', modelID: 'b'
 const prefs = (over: Partial<ModelPrefs> = {}): ModelPrefs => ({ favoriteModels: [], hiddenModels: [], collapsedModelProviders: [],
   recentModels: [], recentAgents: [], recentEfforts: {}, ...over });
 
-test('a favourite toggle adds or removes only that model on the shared list; local-only entries stay local', () => {
-  const shared = prefs({ favoriteModels: [a] });
-  expect(mergeExplicitChange(prefs({ favoriteModels: [a, r] }), prefs({ favoriteModels: [a, r, b] }), shared)).toEqual({ favoriteModels: [a, b] });
-  expect(mergeExplicitChange(prefs({ favoriteModels: [a, r] }), prefs({ favoriteModels: [r] }), shared)).toEqual({ favoriteModels: [] });
+test('favourites are written in the user\'s order: a drag, a new favourite first, a removal', () => {
+  const shared = prefs({ favoriteModels: [a, b] });
+  expect(mergeExplicitChange(prefs({ favoriteModels: [a, b] }), prefs({ favoriteModels: [b, a] }), shared)).toEqual({ favoriteModels: [b, a] });
+  expect(mergeExplicitChange(prefs({ favoriteModels: [a, b] }), prefs({ favoriteModels: [r, a, b] }), shared)).toEqual({ favoriteModels: [r, a, b] });
+  expect(mergeExplicitChange(prefs({ favoriteModels: [a, b] }), prefs({ favoriteModels: [b] }), shared)).toEqual({ favoriteModels: [b] });
 });
 
 test('an effort pick writes only that model\'s effort; a restored model\'s effort is not included', () => {
