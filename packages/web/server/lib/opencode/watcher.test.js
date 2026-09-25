@@ -135,9 +135,8 @@ describe('createOpenCodeWatcherRuntime', () => {
     });
 
     await watcher.start();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-
-    expect(payloads).toEqual(['server.connected', 'session.updated']);
+    // Wait for the reconnect itself (stall timer, then a second stream), not a guess at how long it takes under load.
+    await vi.waitFor(() => expect(payloads).toEqual(['server.connected', 'session.updated']), { timeout: 10_000, interval: 2 });
     expect(fetchLastEventIds.slice(0, 2)).toEqual([null, 'evt-1']);
   });
 
