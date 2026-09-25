@@ -59,6 +59,8 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
+import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
+import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import {
   getSessionWorktreeMenuState,
   type SessionWorktreeMenuTarget,
@@ -727,19 +729,22 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     hideOnHoverClass,
   });
   const showUnreadStatus = !isMovingToWorktree && !isStreaming && needsAttention && !isActive;
-  const showStatusMarker = isStreaming || showUnreadStatus;
+  // A Smarty Code row carries Herdr's own state; its marker then shows that state, as Herdr does (smarty-code#126 (c)5).
+  const herdrState = readHerdrState(session);
+  const showStatusMarker = isStreaming || showUnreadStatus || herdrState !== undefined;
   // Both states are the same static dot; only the color separates "running"
   // from "unread". The elapsed-turn readout on the right carries the motion
   // that a spinner used to, at one repaint per second instead of per frame.
-  const statusMarkerLabel = isStreaming
+  const statusMarkerLabel = herdrState ? t(`sessions.sidebar.herdr.state.${herdrState}`) : isStreaming
     ? t('sessions.sidebar.session.status.active')
     : t('sessions.sidebar.session.status.unread');
   const statusMarkerContent = (
     <span
       className={cn(
         'h-1.5 w-1.5 rounded-full',
-        isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
+        herdrState ? HERDR_STATE_DOT[herdrState] : isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
       )}
+      data-herdr-state={herdrState}
       aria-label={statusMarkerLabel}
       title={statusMarkerLabel}
     />
@@ -1752,16 +1757,6 @@ const hasExpansionMembershipChange = (prev: SessionNodeItemProps, next: SessionN
   );
 };
 
-const areSessionRenderSemanticsEqual = (prev: Session, next: Session): boolean => (
-  prev.id === next.id
-  && prev.title === next.title
-  && prev.directory === next.directory
-  && prev.parentID === next.parentID
-  && prev.share?.url === next.share?.url
-  && prev.time?.created === next.time?.created
-  && prev.time?.updated === next.time?.updated
-  && prev.time?.archived === next.time?.archived
-);
 
 // Returns the name of the first prop whose change requires a render, or null
 // when the row can skip it. The name feeds the stream perf counters so sidebar
