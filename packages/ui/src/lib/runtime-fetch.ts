@@ -1,6 +1,7 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
+import { noteRuntimeAnswered } from './runtime-reachability';
 import { getRuntimeUrlResolver, type RuntimeUrlQuery } from './runtime-url';
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from './runtime-switch';
 
@@ -241,7 +242,11 @@ const fetchRuntimeRequest = async (
       ? new Request(resolvedInput, { ...requestInit, headers })
       : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
 
-  if (isRuntimeRequestScopeCurrent(scope)) observeRuntimeAuthResponse(url, response.status, scope);
+  if (isRuntimeRequestScopeCurrent(scope)) {
+    observeRuntimeAuthResponse(url, response.status, scope);
+    // The health probe's own answer is judged by its body in checkHealth, never taken as transport evidence here.
+    if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered(scope.runtimeKey);
+  }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;
   if (!isRuntimeRequestScopeCurrent(scope)) {

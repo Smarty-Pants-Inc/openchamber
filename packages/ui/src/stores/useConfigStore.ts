@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { StoreApi, UseBoundStore } from "zustand";
+import { runtimeAnsweredRecently } from '@/lib/runtime-reachability';
 import { devtools, persist } from "zustand/middleware";
 import type { Provider, Agent, Config } from "@opencode-ai/sdk/v2";
 import { opencodeClient } from "@/lib/opencode/client";
@@ -685,7 +686,8 @@ const CONNECTION_PROBE_TIMEOUT_MS = 800;
 const probeOpenCodeHealth = async (timeoutMs = CONNECTION_PROBE_TIMEOUT_MS): Promise<boolean> => {
     return Promise.race([
         opencodeClient.checkHealth().catch(() => false),
-        sleep(Math.max(1, timeoutMs)).then(() => false),
+        // A slow probe is not an outage while the runtime answers other reads (smarty-code#126 F9).
+        sleep(Math.max(1, timeoutMs)).then(() => runtimeAnsweredRecently()),
     ]);
 };
 
@@ -3195,7 +3197,7 @@ export const useConfigStore = create<ConfigStore>()(
                     set({
                         isConnected: false,
                         connectionPhase: state.hasEverConnected ? "reconnecting" : "connecting",
-                        lastDisconnectReason: 'health_probe_unhealthy',
+                        lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_probe_unhealthy',
                     });
                     return false;
                 },
@@ -3219,7 +3221,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 set({
                                     isConnected: false,
                                     connectionPhase: hasEverConnected ? "reconnecting" : "connecting",
-                                    lastDisconnectReason: 'health_check_unhealthy',
+                                    lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_check_unhealthy',
                                 });
                                 attempt += 1;
                                 await sleep(400 * attempt);
@@ -3232,7 +3234,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 : {
                                     isConnected: false,
                                     connectionPhase: hasEverConnected ? "reconnecting" : "connecting",
-                                    lastDisconnectReason: 'health_check_unhealthy',
+                                    lastDisconnectReason: opencodeClient.getLastHealthOutcome?.() === 'unhealthy' ? 'server_unhealthy' : 'health_check_unhealthy',
                                 });
                             markStartupTrace('checkConnection:end', { healthy: isHealthy, attempts: attempt + 1 });
                             return isHealthy;

@@ -34,6 +34,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
+import { noteRuntimeHealth, runtimeAnsweredRecently } from "@/lib/runtime-reachability";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
@@ -50,7 +51,8 @@ import {
 // Can be overridden with VITE_OPENCODE_URL for absolute URLs in special deployments
 const DEFAULT_BASE_URL = import.meta.env.VITE_OPENCODE_URL || "/api";
 const CONFIG_CACHE_TTL_MS = 10_000;
-const OPENCODE_HEALTH_TIMEOUT_MS = 4_000;
+// A loaded server answered the probe in 1.2-2 s and beyond 4 s under load (smarty-code#126 F9): allow 15 s.
+const OPENCODE_HEALTH_TIMEOUT_MS = 15_000;
 
 /**
  * Render an SDK error payload into a short string for Error messages.
@@ -1854,7 +1856,14 @@ class OpencodeService {
   }
 
   // Lightweight readiness check. Full diagnostics still live at /health.
+  private lastHealthOutcome: 'healthy' | 'unhealthy' | 'unreachable' | null = null;
+  /** The latest probe's outcome: healthy, answered but not OK, or no answer. */
+  getLastHealthOutcome() { return this.lastHealthOutcome; }
+
   async checkHealth(): Promise<boolean> {
+    // A probe belongs to the runtime it started in. A completion after a runtime switch (success, unhealthy or
+    // timeout) says nothing about the new runtime and must not touch its health state (OC#197 review).
+    const scope = captureRuntimeRequestScope();
     try {
       const normalizedBase = this.baseUrl.endsWith('/') ? this.baseUrl.replace(/\/+$/, '') : this.baseUrl;
       const healthUrl = normalizedBase === '/api' || normalizedBase.endsWith('/api')
@@ -1864,16 +1873,21 @@ class OpencodeService {
       const timeout = createTimeoutSignal(OPENCODE_HEALTH_TIMEOUT_MS);
       const response = await runtimeFetch(healthUrl, { signal: timeout.signal }).finally(timeout.cleanup);
       markStartupTrace('opencodeClient.checkHealth:response', { status: response.status });
-      if (!response.ok) {
-        return false;
-      }
-
-      const healthData = await response.json();
-      markStartupTrace('opencodeClient.checkHealth:result', { healthy: healthData?.healthy });
-
-      return healthData?.healthy === true;
+      // The server answered: only a parsed body that says healthy is healthy. A malformed or unhealthy answer is a
+      // server that is not OK (OC#197 review), never a transport timeout and never evidence of reachability.
+      const healthData: unknown = response.ok ? await response.json().catch(() => undefined) : undefined;
+      const healthy = (healthData as { healthy?: unknown } | undefined)?.healthy === true;
+      markStartupTrace('opencodeClient.checkHealth:result', { healthy });
+      if (!isRuntimeRequestScopeCurrent(scope)) return false;
+      noteRuntimeHealth(healthy, scope.runtimeKey);
+      this.lastHealthOutcome = healthy ? 'healthy' : 'unhealthy';
+      return healthy;
     } catch {
-      return false;
+      if (!isRuntimeRequestScopeCurrent(scope)) return false;
+      // No answer (timeout or transport failure) is not an outage while other reads succeed (#126 F9).
+      const reachable = runtimeAnsweredRecently();
+      this.lastHealthOutcome = reachable ? 'healthy' : 'unreachable';
+      return reachable;
     }
   }
 
