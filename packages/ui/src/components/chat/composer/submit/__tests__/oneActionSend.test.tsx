@@ -46,3 +46,17 @@ test('Enter on an empty or blank new draft starts no session and sends nothing',
   expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(0);
   expect(c.requests.filter(request => new URL(request.url).pathname.includes('/creation'))).toHaveLength(0);
 });
+
+test('an unknown start is never a dead end: Start a new session anyway starts once and sends the text once', async () => {
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, cold);
+  c.handlers.create = async () => { throw new Error('connection reset after the request'); };
+  await c.replace('Keep this text'); await c.submit(); await settle();
+  expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(0);
+  expect(c.dom.container.textContent).toContain('If a session was started, you will see it in the sidebar.');
+  c.handlers.create = async () => Response.json(session);
+  const escape = [...c.dom.container.querySelectorAll('button')].find(button => button.textContent === 'Start a new session anyway');
+  expect(escape).toBeDefined();
+  await act(async () => { escape?.click(); }); await settle();
+  expect(c.creates()).toHaveLength(2); expect(c.prompts()).toHaveLength(1);
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+});

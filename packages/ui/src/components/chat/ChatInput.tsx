@@ -3185,7 +3185,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
-                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} />
+                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} onSend={() => { void handleSubmit(); }} />
                 {draftEphemeralOnly ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-warning)]">
                         {t('chat.draft.ephemeralOnly')}

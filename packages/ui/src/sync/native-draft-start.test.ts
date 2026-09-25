@@ -4,7 +4,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useInputStore } from './input-store';
 import { nativeCreationForDraft } from './native-draft-creation';
 import { deferred, directory, nativeDraftFixture, session } from './native-draft-fixture';
-import { startNativeDraft } from './native-draft-start';
+import { startNativeDraft, startNativeDraftAgain } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
 import { opencodeClient } from '@/lib/opencode/client';
 
@@ -286,6 +286,25 @@ test('a saved id whose start the server reports stopped is cleared; the next Sen
   fixture.handlers.create = async request => { const sent = await request.clone().text();
     operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; listed = [operation];
     return Response.json({ nativeCreation: operation }, { status: 202 }); };
+  await startNativeDraft([], noWait); await send();
+  expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
+  const [first, second] = await sentIds();
+  expect(first).not.toBe(second);
+});
+
+test('the explicit escape from an unknown start clears the saved id and starts exactly one new session', async () => {
+  interactive();
+  fixture.handlers.create = async () => { throw new Error('response lost'); }; // never listed: the outcome stays unknown
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  clearPage();
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  startNativeDraftAgain();
+  expect(tab.size).toBe(0);
+  operation = { ...operation, phase: 'awaiting-trust', revision: 1, native: undefined, canInitialReady: false, clientRequestId: undefined };
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; listed = [operation];
+    return Response.json({ nativeCreation: operation }, { status: 202 }); };
+  listed = [];
   await startNativeDraft([], noWait); await send();
   expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
   const [first, second] = await sentIds();

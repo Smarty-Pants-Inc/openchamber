@@ -29,9 +29,33 @@ const storedRequestId = (key: string) => { try { return sessionStorage.getItem(k
 function newRequestId(key: string): string {
   const id = crypto.randomUUID();
   try { sessionStorage.setItem(key, id); } catch { /* no storage: the id still correlates within this page */ }
+  listeners.forEach(listener => listener());
   return id;
 }
-const forgetRequestId = (key: string) => { try { sessionStorage.removeItem(key); } catch { /* no storage */ } };
+const forgetRequestId = (key: string) => {
+  try { sessionStorage.removeItem(key); } catch { /* no storage */ }
+  listeners.forEach(listener => listener());
+};
+
+/** True while this draft has a create whose outcome is unknown (its saved id is unresolved). */
+export function useUnresolvedNativeStart(draft: NewSessionDraftState, runtimeKey: string): boolean {
+  const key = requestKey(draft, runtimeKey);
+  return React.useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    () => !running && storedRequestId(key) !== undefined, () => false);
+}
+
+/**
+ * The person's explicit escape from an unknown start (smarty-code#126: never a dead end): forget this draft's saved
+ * request and its unknown outcome, so the next Send starts exactly one new session. A session the lost request did
+ * start stays where it is, in the sidebar.
+ */
+export function startNativeDraftAgain(): void {
+  const state = useSessionUIStore.getState(), draft = state.newSessionDraft, runtimeKey = getRuntimeKey();
+  if (running) return;
+  const record = nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
+  if (record?.status === 'failed') publishNativeCreation(record, null);
+  forgetRequestId(requestKey(draft, runtimeKey));
+}
 /**
  * A saved request id is an outstanding create whose outcome this tab does not know. It blocks any new create until a
  * fresh read resolves it: an exact match still running (or ready) is continued; a match the server reports as
