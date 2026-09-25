@@ -77,13 +77,21 @@ test('on its own session the bar shows the phase and End, without naming the ses
   unmount();
 });
 
-test('the app shell mounts the call bar above every layout and view gate, and nothing else mounts it', async () => {
+test('every app shell that can hold a call mounts the call bar above its gates, and nothing gated mounts it', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = (path: string) => readFile(new URL(path, import.meta.url), 'utf8');
   const app = await source('../../App.tsx');
   // Both shells: the main app (beside MainLayout, not inside it) and the embedded session chat.
   expect(app.match(/<PiVoiceCallBar \/>/g)).toHaveLength(2);
   expect(app.indexOf('<PiVoiceCallBar />', app.indexOf('<MainLayout />'))).toBeGreaterThan(app.indexOf('<MainLayout />'));
+  // The dedicated mobile app (renderMobileApp → MobileApp) is its own tree: beside MobileShell, not inside it.
+  const mobile = await source('../../apps/MobileApp.tsx');
+  expect(mobile.match(/<PiVoiceCallBar \/>/g)).toHaveLength(1);
+  expect(mobile.indexOf('<PiVoiceCallBar />')).toBeGreaterThan(mobile.indexOf('<MobileShell '));
+  // Shells where no call can start mount nothing: VS Code and the desktop mini chat (supportsPiVoice is false).
+  for (const shell of ['../../apps/VSCodeApp.tsx', '../../apps/ElectronMiniChatApp.tsx']) {
+    expect(await source(shell)).not.toContain('PiVoiceCallBar');
+  }
   for (const gated of ['./composer/ui/ComposerFooter.tsx', './ChatContainer.tsx', './ChatInput.tsx', '../layout/MainLayout.tsx']) {
     expect(await source(gated)).not.toContain('PiVoiceCallBar');
   }
