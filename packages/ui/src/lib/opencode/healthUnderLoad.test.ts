@@ -73,3 +73,21 @@ test('a late unhealthy answer from the previous runtime does not mark the new ru
   expect(await opencodeClient.checkHealth()).toBe(true); // B was not marked unhealthy by A
   expect(opencodeClient.getLastHealthOutcome()).toBe('healthy');
 });
+
+test('A -> B -> A: B\'s healthy answers never revive A; A stays unhealthy until A itself answers healthy', async () => {
+  let reply: () => Promise<Response> = async () => Response.json({ healthy: false });
+  server(() => reply());
+  const runtimeA = fixture.runtimeA;
+  expect((await runtimeFetch('/api/config/settings')).ok).toBe(true); // A answers reads
+  expect(await opencodeClient.checkHealth()).toBe(false); // A: unhealthy
+  fixture.switchRuntime('runtime-b-revive');
+  reply = async () => healthy();
+  expect((await runtimeFetch('/api/config/settings')).ok).toBe(true);
+  expect(await opencodeClient.checkHealth()).toBe(true); // B: healthy
+  fixture.switchRuntime(runtimeA);
+  expect((await runtimeFetch('/api/config/settings')).ok).toBe(true); // A answers reads again
+  reply = async () => { throw new TypeError('network error'); };
+  expect(await opencodeClient.checkHealth()).toBe(false); // A is still unhealthy: B's verdict is not A's
+  reply = async () => healthy();
+  expect(await opencodeClient.checkHealth()).toBe(true); // A answered healthy itself
+});

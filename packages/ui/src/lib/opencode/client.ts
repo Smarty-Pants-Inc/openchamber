@@ -1879,7 +1879,7 @@ class OpencodeService {
       const healthy = (healthData as { healthy?: unknown } | undefined)?.healthy === true;
       markStartupTrace('opencodeClient.checkHealth:result', { healthy });
       if (!isRuntimeRequestScopeCurrent(scope)) return false;
-      noteRuntimeHealth(healthy);
+      noteRuntimeHealth(healthy, scope.runtimeKey);
       this.lastHealthOutcome = healthy ? 'healthy' : 'unhealthy';
       return healthy;
     } catch {
