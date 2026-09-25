@@ -192,7 +192,8 @@ const persistResolvedHome = (resolved: string) => {
   if (typeof window !== 'undefined') {
     safeStorage.setItem('homeDirectory', resolved);
   }
-  void updateDesktopSettings({ homeDirectory: resolved });
+  // Only the local cache: the server knows its own home directory, and loading a page is not a user choice, so it
+  // never writes the shared settings (#117, smarty-code#113).
   return resolved;
 };
 
@@ -460,7 +461,6 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
         }
 
-        void updateDesktopSettings({ homeDirectory: resolvedHome });
       }
     }),
     {
