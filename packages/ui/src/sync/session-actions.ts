@@ -234,7 +234,10 @@ export function getSessionLastAssistantModel(sessionId: string): { providerID: s
     const messages = store.getState().message[sessionId]
     if (!messages) return null
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const info = messages[i] as { role?: string; providerID?: string; modelID?: string }
+      const info = messages[i] as { role?: string; clientRole?: string; providerID?: string; modelID?: string }
+      // A voice call note or a messaging peer rides the assistant container with a placeholder model
+      // (pi-native/system-note, pi-native/peer-message): neither is the model that answered.
+      if (info?.clientRole === "system-note" || info?.clientRole === "native-peer") continue
       if (info?.role === "assistant" && typeof info.providerID === "string" && info.providerID
         && typeof info.modelID === "string" && info.modelID) {
         return { providerID: info.providerID, modelID: info.modelID }

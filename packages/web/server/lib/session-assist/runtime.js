@@ -145,6 +145,31 @@ const messagePartsToText = (message) => {
     .slice(0, TRANSCRIPT_PART_CHAR_LIMIT);
 };
 
+/** A system note (a voice call started or ended; the gateway marks it clientRole 'system-note') is not the agent's reply. */
+const isSystemNote = (info) => info?.clientRole === 'system-note';
+
+/** The last assistant reply in a transcript, skipping system notes. */
+export const lastAssistantReply = (messages) => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const info = messages[i]?.info;
+    if (isSystemNote(info)) continue;
+    if (info?.role === 'assistant') return messages[i];
+  }
+  return null;
+};
+
+/** The newest reply's id, or null once a person's message is newer than any reply (system notes are skipped). */
+export const latestReplyId = (messages) => {
+  if (!messages) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const info = messages[i]?.info;
+    if (isSystemNote(info)) continue;
+    if (info?.role === 'assistant') return info.id;
+    if (info?.role === 'user') return null;
+  }
+  return null;
+};
+
 export const createSessionAssistRuntime = ({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
@@ -214,14 +239,7 @@ export const createSessionAssistRuntime = ({
       return;
     }
 
-    let lastAssistant = null;
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const info = messages[i]?.info;
-      if (info?.role === 'assistant') {
-        lastAssistant = messages[i];
-        break;
-      }
-    }
+    const lastAssistant = lastAssistantReply(messages);
     const lastAssistantInfo = lastAssistant?.info;
     if (!lastAssistantInfo?.id) return;
 
@@ -295,15 +313,7 @@ export const createSessionAssistRuntime = ({
     // The session may have moved on while we generated — a stale patch would
     // flash outdated content, so re-check the tail before writing.
     const latest = await fetchRecentMessages(sessionId, directory);
-    const latestAssistantId = (() => {
-      if (!latest) return null;
-      for (let i = latest.length - 1; i >= 0; i -= 1) {
-        const info = latest[i]?.info;
-        if (info?.role === 'assistant') return info.id;
-        if (info?.role === 'user') return null;
-      }
-      return null;
-    })();
+    const latestAssistantId = latestReplyId(latest);
     if (latestAssistantId !== lastAssistantInfo.id) {
       console.log('[session-assist] tail moved on, dropping result');
       return;

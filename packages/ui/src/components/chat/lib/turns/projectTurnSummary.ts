@@ -1,3 +1,4 @@
+import { isSystemNoteMessage } from '../../message/systemNote';
 import type { ChatMessageEntry, TurnChangedFile, TurnDiffStats, TurnSummaryRecord } from './types';
 
 interface SummaryDiff {
@@ -55,6 +56,8 @@ export const projectTurnSummary = (assistantMessages: ChatMessageEntry[]): TurnS
         const assistantMessage = assistantMessages[messageIndex];
         if (!assistantMessage) continue;
         if (isCompactionSummaryMessage(assistantMessage)) continue;
+        // A voice call note (no finish) is never the turn's summary text.
+        if (isSystemNoteMessage(assistantMessage.info)) continue;
 
         for (let partIndex = assistantMessage.parts.length - 1; partIndex >= 0; partIndex -= 1) {
             const part = assistantMessage.parts[partIndex];

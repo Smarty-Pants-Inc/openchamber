@@ -36,6 +36,10 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Voice call notes (system notes) are the newest layer: they only add the session-assist entry, so unwind it first.
+  assert.match(historical.systemNoteSource, /^[a-f0-9]{40}$/);
+  delete historical.systemNoteSource;
+  historical.files = historical.files.filter(entry => !entry.systemNoteAdded);
   // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; it is the newest layer, so unwind it first.
   assert.equal(historical.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   delete historical.herdrListSource;
