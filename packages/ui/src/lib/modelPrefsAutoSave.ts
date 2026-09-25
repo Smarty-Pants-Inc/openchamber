@@ -78,13 +78,15 @@ export const startModelPrefsAutoSave = () => {
   let timer: number | null = null;
   let lastSent: ModelPrefsPayload | null = null;
   let scheduledRuntimeKey: string | null = null;
+  // The values of the explicit choice, taken when it was made. A restore that lands within the debounce
+  // (another session's model or effort) must not ride along in the flush (#126 F6, OC#194 review).
+  let scheduledPayload: ModelPrefsPayload | null = null;
 
   const flush = () => {
     timer = null;
-    const runtimeKey = scheduledRuntimeKey;
-    scheduledRuntimeKey = null;
-    if (!runtimeKey || runtimeKey !== getRuntimeKey()) return;
-    const payload = snapshotModelPrefs();
+    const runtimeKey = scheduledRuntimeKey, payload = scheduledPayload;
+    scheduledRuntimeKey = null; scheduledPayload = null;
+    if (!runtimeKey || !payload || runtimeKey !== getRuntimeKey()) return;
 
     if (lastSent && modelPrefsEqual(lastSent, payload)) {
       return;
@@ -100,6 +102,7 @@ export const startModelPrefsAutoSave = () => {
       window.clearTimeout(timer);
     }
     scheduledRuntimeKey = getRuntimeKey();
+    scheduledPayload = cloneModelPrefs(snapshotModelPrefs());
     timer = window.setTimeout(flush, 1200);
   };
 
@@ -107,6 +110,7 @@ export const startModelPrefsAutoSave = () => {
     if (timer !== null) window.clearTimeout(timer);
     timer = null;
     scheduledRuntimeKey = null;
+    scheduledPayload = null;
     lastSent = null;
   });
 

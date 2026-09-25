@@ -69,6 +69,21 @@ test('an explicit model pick still writes the shared model preferences', async (
   expect(save.mock.calls[0]?.[0].recentModels?.[0]).toEqual({ providerID: 'anthropic', modelID: 'picked-f6' });
 });
 
+test('a restore within the debounce after an explicit pick is not published with it', async () => {
+  startBrowserAutoSave();
+  useUIStore.getState().addRecentModel('anthropic', 'picked-first');
+  // Another session opens within the 1200 ms debounce and restores its own model and effort.
+  withoutSharingModelPrefs(() => {
+    useUIStore.getState().addRecentModel('openai', 'restored-other');
+    useUIStore.getState().addRecentEffort('openai', 'restored-other', 'low');
+  });
+  await wait(PREFS_FLUSH_MS);
+  expect(save).toHaveBeenCalledTimes(1);
+  const sent = save.mock.calls[0]?.[0];
+  expect(sent?.recentModels?.[0]).toEqual({ providerID: 'anthropic', modelID: 'picked-first' });
+  expect(JSON.stringify(sent).includes('restored-other')).toBe(false);
+});
+
 test('an explicit project choice still publishes lastDirectory', () => {
   const path = '/sandbox/f6-project';
   const project: ProjectEntry = { id: createProjectIdFromPath(path), path, label: 'f6', addedAt: 1, lastOpenedAt: 1 };
