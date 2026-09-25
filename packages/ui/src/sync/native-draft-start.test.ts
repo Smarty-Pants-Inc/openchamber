@@ -310,3 +310,18 @@ test('the explicit escape from an unknown start clears the saved id and starts e
   const [first, second] = await sentIds();
   expect(first).not.toBe(second);
 });
+
+test('a reload (a new draft id for the same project) still finds the saved id and creates no second session', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  // Reload: page memory is gone and the draft counter restarts, so the draft id differs; tab storage remains.
+  clearPage();
+  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, draftId: state.newSessionDraft.draftId + 1000 } }));
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1);
+  listed = [operation];
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+});

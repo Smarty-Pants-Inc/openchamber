@@ -20,11 +20,14 @@ export function useNativeDraftStarting(): boolean {
 }
 
 /**
- * This tab's create request id for a draft (smarty-code#126, OC#167 review): sessionStorage, so another window never
+ * This tab's outstanding create request id (smarty-code#126, OC#167 review): sessionStorage, so another window never
  * shares it and a reload of this tab keeps it. A lost create response is recovered only by an exact match on it.
+ * Keyed by runtime and project directory, which survive a reload; the draft id is a page-local counter and does not
+ * (#304 review). ponytail: one outstanding start per project per tab, as the server allows one pending start per
+ * person and project; a new draft there meets the same unknown outcome and its "start anyway" escape.
  */
 const requestKey = (draft: NewSessionDraftState, runtimeKey: string) =>
-  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.draftId, draft.directoryOverride])}`;
+  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.directoryOverride])}`;
 const storedRequestId = (key: string) => { try { return sessionStorage.getItem(key) ?? undefined; } catch { return undefined; } };
 function newRequestId(key: string): string {
   const id = crypto.randomUUID();
