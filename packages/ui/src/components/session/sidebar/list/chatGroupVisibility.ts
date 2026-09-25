@@ -7,12 +7,21 @@ export const showsChatGroup = ({ isVSCode, managedCatalog, chatSessionCount }:
   !isVSCode && (!managedCatalog || chatSessionCount > 0)
 );
 
+type CatalogView = { managedCatalog: boolean; catalogStatus: string };
+
 /**
- * Smarty Code mirrors Herdr, which has no "chats" or "recent" sections (smarty-code#126, Paul's Mac view). They are
- * hidden until discovery has answered without admitting a managed catalog, so a managed sidebar never flashes them,
- * and a stock one keeps them when a later refresh fails.
+ * Whether this runtime has AFFIRMATIVELY answered "stock": set by a 'stock' answer, kept across a later failed refresh
+ * ('unavailable'), cleared by managed admission. A failure with no prior stock answer (for example a managed runtime
+ * whose first discovery request fails) never confirms stock.
  */
-export const showsActivitySections = ({ isVSCode, managedCatalog, catalogStatus }:
-  { isVSCode: boolean; managedCatalog: boolean; catalogStatus: string }): boolean => (
-  !isVSCode && !managedCatalog && catalogStatus !== 'unknown'
+export const nextStockConfirmed = (confirmed: boolean, { managedCatalog, catalogStatus }: CatalogView): boolean => (
+  !managedCatalog && (catalogStatus === 'stock' || (confirmed && catalogStatus === 'unavailable'))
+);
+
+/**
+ * Smarty Code mirrors Herdr, which has no "chats" or "recent" sections (smarty-code#126, Paul's Mac view). They show
+ * only on a runtime confirmed stock, so a managed sidebar never flashes them (code-lead, OC#169).
+ */
+export const showsActivitySections = ({ isVSCode, stockConfirmed }: { isVSCode: boolean; stockConfirmed: boolean }): boolean => (
+  !isVSCode && stockConfirmed
 );

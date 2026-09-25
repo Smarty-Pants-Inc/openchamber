@@ -29,7 +29,7 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import type { useSessionProjectViewState } from '../projects/useSessionProjectViewState';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
+import { nextStockConfirmed, showsActivitySections, showsChatGroup } from './chatGroupVisibility';
 import type { DeleteSessionConfirmState } from '../sessions/useSessionActions';
 import { useExpandedParents } from '../sessions/useExpandedParents';
 import { SessionGroupSection } from '../projects/SessionGroupSection';
@@ -200,7 +200,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const managedCatalog = useProjectsStore((state) => state.managedCatalogAdmitted);
   const catalogStatus = useProjectsStore((state) => state.managedCatalogStatus);
   // Also gates the chats group here, so a hidden section never counts in search.
-  const activitySections = showsActivitySections({ isVSCode: topology.isVSCode, managedCatalog, catalogStatus });
+  const stockConfirmed = React.useRef(false);
+  stockConfirmed.current = nextStockConfirmed(stockConfirmed.current, { managedCatalog, catalogStatus });
+  const activitySections = showsActivitySections({ isVSCode: topology.isVSCode, stockConfirmed: stockConfirmed.current });
   const chatGroup = React.useMemo<SessionGroup | null>(() => {
     if (!activitySections || !showsChatGroup({ isVSCode: topology.isVSCode, managedCatalog, chatSessionCount: collection.chatSessions.length })) return null;
     const chatsRoot = getReportedChatsRoot()
