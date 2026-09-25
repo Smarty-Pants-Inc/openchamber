@@ -6,7 +6,7 @@ import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
-import { endActivePiVoiceCall, startPiVoiceCallFor, useActivePiVoiceCall, type PiVoiceCallDriver } from '@/lib/voice/piVoiceActiveCall';
+import { startPiVoiceCallFor, useActivePiVoiceCall, type PiVoiceCallDriver } from '@/lib/voice/piVoiceActiveCall';
 import { browserPiVoiceMedia, supportsPiVoice } from '@/lib/voice/piVoiceMedia';
 
 // Loaded on first use: the call module brings the runtime socket, not needed to render the chip.
@@ -15,10 +15,8 @@ const driver: PiVoiceCallDriver = {
   scope: () => { const scope = captureRuntimeRequestScope(); return { key: scope.runtimeKey, current: () => isRuntimeRequestScopeCurrent(scope) }; },
   media: browserPiVoiceMedia, load: () => import('@/lib/voice/piVoiceCall'),
 };
-const PHASES = ['connecting', 'listening', 'working', 'speaking', 'muted'] as const;
-const knownPhase = (value: string | undefined) => PHASES.find(phase => phase === value);
 
-/** The page's voice call, bound to the session where it started; the session's engine does the rest. */
+/** Starts a voice call with this session, or moves the page's call here; the session's engine does the rest. */
 export function PiVoiceControl({ sessionId, directory }: { sessionId: string; directory: string }) {
   const { t } = useI18n();
   // VS Code, and surfaces rendered without a runtime provider, show no voice control.
@@ -41,36 +39,14 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     onFailed: (reason: string) => { toast.error(t('chat.piVoice.failed', { reason })); },
   };
   const here = current?.runtimeKey === getRuntimeKey() && current.sessionId === sessionId && current.directory === directory;
-  // A call bound to another session: browsing here leaves it running; moving it is explicit.
-  if (current && !here) {
-    return (
-      <span className="inline-flex items-center gap-1">
-        <Button type="button" variant="chip" size="xs" aria-label={t('chat.piVoice.moveHere')}
-          onClick={() => { void startPiVoiceCallFor(sessionId, directory, driver, hooks); }}>
-          <Icon name="mic" className="size-3.5" /><span>{t('chat.piVoice.moveHere')}</span>
-        </Button>
-        <Button type="button" variant="chip" size="xs" aria-label={t('chat.piVoice.end')} title={t('chat.piVoice.end')}
-          onClick={() => endActivePiVoiceCall()}>
-          <Icon name="close" className="size-3.5" />
-        </Button>
-      </span>
-    );
-  }
-  const state = here ? current.state : undefined;
-  const active = Boolean(state);
-  const phase = state?.status === 'active' && state.muted ? 'muted'
-    : knownPhase(state?.status === 'active' ? state.phase : state?.status === 'starting' ? 'connecting' : undefined);
-  const label = active ? t('chat.piVoice.end') : t('chat.piVoice.start');
-  // The engine's latest line, with the same you:/agent: labels every voice surface shows.
-  const line = state?.status === 'active' && state.transcript
-    ? t(state.transcript.role === 'user' ? 'chat.piVoice.you' : 'chat.piVoice.agent', { text: state.transcript.text }) : undefined;
+  // The live call, its phase and End are PiVoiceCallBar's, on every screen; this control only starts or moves.
+  if (here) return null;
+  const label = current ? t('chat.piVoice.moveHere') : t('chat.piVoice.start');
   return (
-    <Button type="button" variant="chip" size="xs" aria-pressed={active} aria-label={label}
-      title={line ?? label}
-      disabled={state?.status === 'starting'}
-      onClick={() => { if (active) endActivePiVoiceCall(); else void startPiVoiceCallFor(sessionId, directory, driver, hooks); }}>
+    <Button type="button" variant="chip" size="xs" aria-label={label} title={label}
+      onClick={() => { void startPiVoiceCallFor(sessionId, directory, driver, hooks); }}>
       <Icon name="mic" className="size-3.5" />
-      {phase ? <span aria-live="polite">{t(`chat.piVoice.phase.${phase}`)}</span> : null}
+      {current ? <span>{label}</span> : null}
     </Button>
   );
 }

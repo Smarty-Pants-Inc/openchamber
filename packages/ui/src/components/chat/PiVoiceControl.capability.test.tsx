@@ -68,7 +68,7 @@ test('hidden in VS Code without asking the gateway', async () => {
   expect(asked).toEqual([]);
 });
 
-test('a call bound to another session shows Move call here and End, not a second start', async () => {
+test('a call bound to another session shows Move call here, not a second start; its own session shows no start', async () => {
   const store = await import('@/lib/voice/piVoiceActiveCall');
   const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
   advertised.set('/with-voice', true);
@@ -76,10 +76,10 @@ test('a call bound to another session shows Move call here and End, not a second
   runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey(); // The page's runtime, as the control sees it.
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
   const elsewhere: string[] = [], own: string[] = [];
-  expect(await render('/with-voice', false, 'lane', elsewhere)).toBe(2);
-  expect(elsewhere).toEqual(['Move call here', 'End voice call']);
-  expect(await render('/with-voice', false, 'org', own)).toBe(1);
-  expect(own).toEqual(['End voice call']);
+  expect(await render('/with-voice', false, 'lane', elsewhere)).toBe(1);
+  expect(elsewhere).toEqual(['Move call here']); // End is the call bar's, on every screen.
+  expect(await render('/with-voice', false, 'org', own)).toBe(0);
+  expect(own).toEqual([]);
   store.endActivePiVoiceCall();
 });
 
@@ -91,7 +91,7 @@ test('a call on another runtime is never shown as this session’s call, even wi
   runtime.key = 'another-instance';
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
   const names: string[] = [];
-  expect(await render('/with-voice', false, 'org', names)).toBe(2);
-  expect(names).toEqual(['Move call here', 'End voice call']);
+  expect(await render('/with-voice', false, 'org', names)).toBe(1);
+  expect(names).toEqual(['Move call here']);
   store.endActivePiVoiceCall();
 });
