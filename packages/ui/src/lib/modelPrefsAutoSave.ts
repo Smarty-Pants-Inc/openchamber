@@ -1,6 +1,7 @@
 import { useUIStore } from '@/stores/useUIStore';
-import { updateDesktopSettings } from '@/lib/persistence';
+import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
+import { restoringModelPrefs } from '@/lib/modelPrefsRestore';
 
 type ModelRef = { providerID: string; modelID: string };
 type ModelPrefsPayload = {
@@ -68,6 +69,7 @@ const cloneModelPrefs = (prefs: ModelPrefsPayload): ModelPrefsPayload => ({
   recentEfforts: Object.fromEntries(Object.entries(prefs.recentEfforts).map(([key, variants]) => [key, variants.slice()])),
 });
 
+
 export const startModelPrefsAutoSave = () => {
   if (typeof window === 'undefined') {
     return () => {};
@@ -75,7 +77,6 @@ export const startModelPrefsAutoSave = () => {
 
   let timer: number | null = null;
   let lastSent: ModelPrefsPayload | null = null;
-  let didSkipInitial = false;
   let scheduledRuntimeKey: string | null = null;
 
   const flush = () => {
@@ -95,10 +96,6 @@ export const startModelPrefsAutoSave = () => {
   };
 
   const schedule = () => {
-    if (!didSkipInitial) {
-      didSkipInitial = true;
-      return;
-    }
     if (timer !== null) {
       window.clearTimeout(timer);
     }
@@ -130,7 +127,9 @@ export const startModelPrefsAutoSave = () => {
       recentAgents: prevState.recentAgents,
       recentEfforts: prevState.recentEfforts,
     };
-    if (modelPrefsEqual(next, prev)) {
+    // Local rehydration, server values and session restores are not user choices; they stay local.
+    const hydrating = useUIStore.persist?.hasHydrated?.() === false;
+    if (modelPrefsEqual(next, prev) || hydrating || restoringModelPrefs() || isApplyingServerSettings()) {
       return;
     }
     schedule();

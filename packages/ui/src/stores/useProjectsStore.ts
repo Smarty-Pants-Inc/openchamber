@@ -903,6 +903,8 @@ export const useProjectsStore = create<ProjectsStore>()(
 
       opencodeClient.setDirectory(target.path);
       useDirectoryStore.getState().setDirectory(target.path, { showOverlay: false });
+      // The directory store no longer publishes lastDirectory (#126 F6); this explicit choice does.
+      if (options?.remember !== false) void updateDesktopSettings({ lastDirectory: target.path }).catch(() => {});
     },
 
     setActiveProjectIdOnly: (id: string) => {
