@@ -14,6 +14,7 @@
 import React from 'react';
 
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
+import { SessionVoiceCall } from '@/components/chat/SessionVoiceCall';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
@@ -163,6 +164,9 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
                             <div className="flex items-center gap-x-1 flex-shrink-0">
+                                {/* The model controls (and their Voice call) live in a hidden sheet host on mobile;
+                                    the call control sits beside dictation instead (smarty-code#126). */}
+                                {currentSessionId ? <SessionVoiceCall sessionId={currentSessionId} directory={directory} /> : null}
                                 <button
                                     type="button"
                                     className={footerIconButtonClass}
