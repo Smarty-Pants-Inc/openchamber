@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { SessionFolderItem } from '../../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
 import { DroppableFolderWrapper, SessionFolderDndScope } from '../folders/sessionFolderDnd';
@@ -349,7 +350,13 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     ),
     React.useCallback(() => '', []),
   );
-  const bootstrapLoading = bootstrapDirectories.some((directory) => {
+  // Smarty Code: the managed catalog's own session read lists every workspace, so once it has answered an empty
+  // workspace is known empty; its scope bootstrap may still wait in the queue (#126 (c)6: five empty workspaces showed
+  // "Loading sessions…" for 20 s in a fresh profile). Stock keeps the scope bootstrap as its authority.
+  const managedCatalogAnswered = useProjectsStore((state) => state.managedCatalogAdmitted && state.managedCatalogStatus !== 'unknown');
+  const globalSessionsLoaded = useGlobalSessionsStore((state) => state.hasLoaded);
+  const managedSessionsKnown = managedCatalogAnswered && globalSessionsLoaded;
+  const bootstrapLoading = !managedSessionsKnown && bootstrapDirectories.some((directory) => {
     const state = childStores.getBootstrapState(directory);
     return state === 'queued' || state === 'running';
   });

@@ -1,4 +1,5 @@
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
+import { herdrSignature } from '@/lib/herdrSession';
 import { useProjectsStore } from './useProjectsStore';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { create } from 'zustand';
@@ -131,6 +132,7 @@ const getSessionSignature = (session: Session): string => {
     session.share?.url ?? '',
     JSON.stringify((session as Session & { metadata?: unknown }).metadata ?? null),
     resolveGlobalSessionDirectory(session) ?? '',
+    herdrSignature(session),
   ].join(':');
 };
 
@@ -146,6 +148,7 @@ const getSessionStructuralSignature = (session: Session): string => {
     session.share?.url ?? '',
     JSON.stringify((session as Session & { metadata?: unknown }).metadata ?? null),
     resolveGlobalSessionDirectory(session) ?? '',
+    herdrSignature(session),
   ].join(':');
 };
 

@@ -64,6 +64,7 @@ import {
 import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
+import { isHerdrNoIdentity } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -1641,7 +1642,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     </>
                 )}
                 {sessionMessageLoadState.readOnly ? (
-                    <FleetViewOnlyBanner />
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (

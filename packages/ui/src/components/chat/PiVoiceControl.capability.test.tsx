@@ -6,10 +6,11 @@ import type { RuntimeAPIs } from '@/lib/api/types';
 
 // The voice control must stay hidden unless the gateway advertises session voice for the
 // session's directory: an OpenChamber build can ship before the gateway that serves the call.
-const advertised = new Map<string, boolean>();
+type Voice = { available: boolean; reason?: string };
+const advertised = new Map<string, Voice>();
 const asked: string[] = [];
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
-  supportsSessionVoice: async (directory: string) => { asked.push(directory); return advertised.get(directory) === true; },
+  sessionVoiceAvailability: async (sessionId: string, directory: string) => { asked.push(`${sessionId}@${directory}`); const voice = advertised.get(directory); if (!voice) throw new Error('health unreachable'); return voice; },
 } }));
 mock.module('@/lib/voice/piVoiceMedia', () => ({ supportsPiVoice: () => true, browserPiVoiceMedia: () => { throw new Error('not in this test'); } }));
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
@@ -55,17 +56,22 @@ async function render(directory: string, isVSCode = false, sessionId = 's1', nam
   return shown;
 }
 
-// smarty-code#126: the call control is labelled as a call, and a session without voice says why instead of hiding it.
-test('a labelled Voice call control; disabled with a plain reason where the gateway has no session voice', async () => {
-  advertised.set('/with-voice', true);
-  expect(await render('/without-voice')).toBe('disabled: Voice call. Voice calls are not available in this session.');
+// smarty-code#126: the call control is labelled as a call. A session without voice says why (the gateway's per-session
+// reason, verbatim; a generic one when the status read failed) instead of hiding it. Unknown (health unreachable): hidden.
+test('a labelled Voice call control, disabled with the session\'s own plain reason where it has no voice', async () => {
+  const herdr = 'Voice calls work in sessions started from Code. This session was started in Herdr.';
+  advertised.set('/with-voice', { available: true });
+  advertised.set('/herdr', { available: false, reason: herdr });
+  advertised.set('/status-failed', { available: false });
   expect(await render('/with-voice')).toBe('Voice call');
-  expect(asked).toEqual(['/without-voice', '/with-voice']);
+  expect(await render('/herdr')).toBe(`disabled: Voice call. ${herdr}`);
+  expect(await render('/status-failed')).toBe('disabled: Voice call. Voice calls are not available in this session.');
+  expect(await render('/unreachable')).toBe('hidden'); // unknown stays hidden
+  expect(asked).toEqual(['s1@/with-voice', 's1@/herdr', 's1@/status-failed', 's1@/unreachable']);
 });
 
 test('hidden in VS Code without asking the gateway', async () => {
   asked.length = 0;
-  advertised.set('/with-voice', true);
   expect(await render('/with-voice', true)).toBe('hidden');
   expect(asked).toEqual([]);
 });
@@ -73,7 +79,7 @@ test('hidden in VS Code without asking the gateway', async () => {
 test('a call bound to another session offers Move call here, not a second start; its own session shows no control', async () => {
   const store = await import('@/lib/voice/piVoiceActiveCall');
   const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
-  advertised.set('/with-voice', true);
+  advertised.set('/with-voice', { available: true });
   const { driver, runtime } = fakePiVoiceDriver();
   runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey(); // The page's runtime, as the control sees it.
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
@@ -87,7 +93,7 @@ test('a call bound to another session offers Move call here, not a second start;
 test('a call on another runtime is never shown as this session’s call, even with the same session ID', async () => {
   const store = await import('@/lib/voice/piVoiceActiveCall');
   const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
-  advertised.set('/with-voice', true);
+  advertised.set('/with-voice', { available: true });
   const { driver, runtime } = fakePiVoiceDriver();
   runtime.key = 'another-instance';
   await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
