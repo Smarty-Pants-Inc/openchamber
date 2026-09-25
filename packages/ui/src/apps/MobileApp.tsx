@@ -68,6 +68,7 @@ import { useDeepLinkHandlers, useDeepLinkSource } from './deepLinkNavigation';
 import { useEdgeSwipe } from './useEdgeSwipe';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
+import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
@@ -1284,6 +1285,7 @@ export function MobileApp({ apis }: MobileAppProps) {
               }} />
               <AppLinkConfirmDialog />
               <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
+              <PiVoiceCallBar />
               {isInitialized ? <ConfigUpdateOverlay /> : null}
             </div>
           </TooltipProvider>
