@@ -1,8 +1,11 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, mock, test } from 'bun:test';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
-import { useProjectSessionSelection } from './useProjectSessionSelection';
+let vscode = false;
+const desktop = await import('@/lib/desktop');
+mock.module('@/lib/desktop', () => ({ ...desktop, isVSCodeRuntime: () => vscode }));
+const { useProjectSessionSelection } = await import('./useProjectSessionSelection');
 import { clearLastActiveSession, persistLastActiveSession } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
@@ -47,8 +50,10 @@ test('the startup active project opens no draft; a later switch does', async () 
 const withSession = (id: string, sessionId: string) => ({ project: { id, normalizedPath: `/${id}` },
   groups: [{ id: `${id}-main`, label: id, directory: `/${id}`, sessions: [{ session: { id: sessionId, directory: `/${id}` }, children: [], worktree: null }] }] });
 test('at startup without a last-session pointer no session is selected over the draft; with one, or later, it is', async () => {
-  const cases: [pointer: boolean, expected: string[]][] = [[false, []], [true, ['code-lead']]];
-  for (const [pointer, expected] of cases) {
+  // VS Code keeps its stock startup selection (its compact layout opens on the session list, not a restored draft).
+  const cases: [pointer: boolean, inVSCode: boolean, expected: string[]][] = [[false, false, []], [true, false, ['code-lead']], [false, true, ['code-lead']]];
+  for (const [pointer, inVSCode, expected] of cases) {
+    vscode = inVSCode;
     const key = getRuntimeKey();
     clearLastActiveSession(key);
     if (pointer) persistLastActiveSession(key, { sessionId: 'code-lead', directory: '/code' });
@@ -73,4 +78,5 @@ test('at startup without a last-session pointer no session is selected over the 
     await act(async () => root.unmount());
     clearLastActiveSession(key);
   }
+  vscode = false;
 });

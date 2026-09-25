@@ -85,7 +85,29 @@ export function clearLastActiveSession(
 ): void {
   if (!runtimeKey) return
   const envelope = readEnvelope(storage)
-  if (!envelope.runtimes[runtimeKey]) return
+  const cleared = envelope.runtimes[runtimeKey]
+  if (!cleared) return
   delete envelope.runtimes[runtimeKey]
   writeEnvelope(storage, envelope)
+  dropSessionRoute(cleared.sessionId)
+}
+
+/**
+ * The address bar must not keep what the pointer no longer means (smarty-code#113): a draft action clears the pointer,
+ * but a pending restore's `?session=` stayed, and a reload restored that session over the draft. Only that exact
+ * session parameter goes; an embedded session chat (`ocPanel`) keeps its fixed identity.
+ */
+function dropSessionRoute(sessionId: string): void {
+  if (typeof window === "undefined" || !window.history?.replaceState) return
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has("ocPanel") || url.searchParams.get("session") !== sessionId) return
+    url.searchParams.delete("session")
+    window.history.replaceState(window.history.state, "", url)
+  } catch { /* the address is best effort */ }
+}
+
+/** The runtime's last active session is still `sessionId`: nothing (a draft action, another choice) replaced it. */
+export function isLastActiveSession(runtimeKey: string, sessionId: string, storage: Storage = getDeferredSafeStorage()): boolean {
+  return readLastActiveSession(runtimeKey, storage)?.sessionId === sessionId
 }

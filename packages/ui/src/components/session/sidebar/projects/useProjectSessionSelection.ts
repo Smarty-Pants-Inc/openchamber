@@ -6,6 +6,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { readLastActiveSession } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { isVSCodeRuntime } from '@/lib/desktop';
 
 type ProjectSection = {
   project: { id: string; normalizedPath: string };
@@ -227,7 +228,8 @@ export const useProjectSessionSelection = (args: Args): void => {
     // was a new-session draft (an explicit New session and typing clear it), which the automatic draft open restores
     // with its project and text. Selecting the project's latest session here replaced it with a fleet session. With a
     // pointer, the last view was a session and this default still applies.
-    if (initialObservation && !readLastActiveSession(getRuntimeKey())) return;
+    // VS Code keeps its stock startup: its compact layout opens on the session list, not a restored draft.
+    if (initialObservation && !isVSCodeRuntime() && !readLastActiveSession(getRuntimeKey())) return;
     const targetDirectory = projectMap?.get(selection.sessionId)?.directory ?? null;
     handleSessionSelect(selection.sessionId, targetDirectory);
   }, [

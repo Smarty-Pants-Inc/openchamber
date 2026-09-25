@@ -30,7 +30,7 @@ import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint, MOBILE_DISCONNECTED_RUNTIME_KEY } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
-import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
+import { clearLastActiveSession, isLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -1014,7 +1014,10 @@ export function MobileApp({ apis }: MobileAppProps) {
         return;
       }
       const latest = useSessionUIStore.getState();
-      if (!latest.currentSessionId) {
+      // A draft action while the snapshot loaded (New session, or typing in the draft) cleared the pointer: the draft
+      // is the person's newer choice, so nothing is restored over it (smarty-code#113).
+      const intended = getRuntimeKey() === runtimeKey && isLastActiveSession(runtimeKey, persisted.sessionId);
+      if (intended && !latest.currentSessionId) {
         void latest.setCurrentSession(
           session.id,
           resolveGlobalSessionDirectory(session) ?? persisted.directory ?? undefined,

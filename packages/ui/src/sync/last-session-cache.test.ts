@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
+import { Window } from "happy-dom"
+import { clearLastActiveSession, isLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 
 class TestStorage implements Storage {
   readonly values = new Map<string, string>()
@@ -61,5 +62,40 @@ describe("last active session persistence", () => {
     // Newest entries survive.
     expect(readLastActiveSession("runtime-9", storage)).not.toBeNull()
     expect(readLastActiveSession("runtime-0", storage)).toBeNull()
+  })
+})
+
+// smarty-code#113: a draft action clears the pointer; the address bar must not keep that session for a reload to restore.
+describe("clearing the pointer and the address bar", () => {
+  const withWindow = (href: string, run: (win: Window) => void) => {
+    const win = new Window({ url: href })
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "window")
+    Object.defineProperty(globalThis, "window", { configurable: true, value: win })
+    try { run(win) } finally {
+      if (previous) Object.defineProperty(globalThis, "window", previous); else Reflect.deleteProperty(globalThis, "window")
+      void win.happyDOM.close()
+    }
+  }
+  test("drops exactly the cleared session from ?session=, and keeps every other parameter", () => {
+    withWindow("https://code.example/?session=ses-a&tab=git", win => {
+      persistLastActiveSession("runtime-a", { sessionId: "ses-a", directory: null }, storage)
+      clearLastActiveSession("runtime-a", storage)
+      expect(win.location.search).toBe("?tab=git")
+    })
+  })
+  test("keeps a different session in the address, and an embedded session chat's identity", () => {
+    for (const href of ["https://code.example/?session=ses-other", "https://code.example/?ocPanel=1&session=ses-a"]) {
+      withWindow(href, win => {
+        persistLastActiveSession("runtime-a", { sessionId: "ses-a", directory: null }, storage)
+        clearLastActiveSession("runtime-a", storage)
+        expect(win.location.href).toBe(href)
+      })
+    }
+  })
+  test("a restore is still intended only while the pointer names the same session", () => {
+    persistLastActiveSession("runtime-a", { sessionId: "ses-a", directory: null }, storage)
+    expect(isLastActiveSession("runtime-a", "ses-a", storage)).toBe(true)
+    clearLastActiveSession("runtime-a", storage) // A draft action while the snapshot loaded.
+    expect(isLastActiveSession("runtime-a", "ses-a", storage)).toBe(false)
   })
 })
