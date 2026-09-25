@@ -645,12 +645,17 @@ class OpencodeService {
   }
 
   async nativeCreationMode(directory: string): Promise<'interactive' | 'ordinary' | 'legacy'> {
+    return (await this.nativeCreationSupport(directory)).mode;
+  }
+
+  /** The creation mode, and whether create accepts and echoes a client request id (smarty-code#126). */
+  async nativeCreationSupport(directory: string): Promise<{ mode: 'interactive' | 'ordinary' | 'legacy'; clientRequestId: boolean }> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
-    const health = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health'));
-    return health.capabilities?.ordinaryInteractiveCreate === 1 ? 'interactive'
-      : health.capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
+    const capabilities = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities;
+    const mode = capabilities?.ordinaryInteractiveCreate === 1 ? 'interactive' : capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
+    return { mode, clientRequestId: capabilities?.creationClientRequestId === 1 };
   }
 
   /** True only when this directory's gateway advertises session voice calls (Smarty Code `sessionVoice`). */
@@ -662,8 +667,19 @@ class OpencodeService {
   }
 
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
-  async createNativeSession(directory: string): Promise<NativeCreationResult> {
+  async createNativeSession(directory: string, clientRequestId?: string): Promise<NativeCreationResult> {
     try {
+      if (clientRequestId) {
+        // The SDK's create drops unknown body fields; send the one-field body directly.
+        const scope = captureRuntimeRequestScope();
+        const response = await runtimeFetch('/api/session', { query: { directory }, method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientRequestId }) });
+        const body: unknown = await response.json();
+        assertRuntimeRequestScope(scope);
+        if (!response.ok) throw body;
+        // SAFETY: nativeCreatedSession validates the fields it relies on and refuses anything else.
+        return response.status === 202 ? nativeCreationResponseSchema.parse(body) : nativeCreatedSession(body as Session);
+      }
       const response = await this.getScopedSdkClient(directory).session.create({ directory });
       if (response.error) throw response.error;
       if (!response.data) throw new Error('Empty native creation response');
