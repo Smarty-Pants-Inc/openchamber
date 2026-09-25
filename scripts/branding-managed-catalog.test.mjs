@@ -37,7 +37,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   }
   const historical = structuredClone(overlay);
   // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; it is the newest layer, so unwind it first.
-  assert.equal(historical.herdrListSource, 'f6c91d5b069a66b5401ba9ce47af9c68348bcd2f');
+  assert.equal(historical.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   delete historical.herdrListSource;
   for (const entry of historical.files.filter(file => file.herdrListSha256)) {
     entry.combinedSha256 = entry.preHerdrListCombinedSha256;

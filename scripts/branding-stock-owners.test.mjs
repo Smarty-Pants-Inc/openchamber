@@ -200,7 +200,7 @@ test('every donor file/hunk has a disposition and the reviewed output has not dr
 
 test('the session-list allowlist layer binds its exact commit over the reviewed proxy behavior (smarty-code#126 F4)', () => {
   const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
-  assert.equal(overlay.herdrListSource, 'f6c91d5b069a66b5401ba9ce47af9c68348bcd2f');
+  assert.equal(overlay.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   assert.equal(entry.preHerdrListCombinedSha256, entry.behaviorSha256);
   assert.equal(entry.herdrListSha256, entry.combinedSha256);
   assert.ok(entry.herdrListNote);
