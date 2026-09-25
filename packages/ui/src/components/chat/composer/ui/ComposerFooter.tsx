@@ -24,7 +24,6 @@ import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
-import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -241,7 +240,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         <SessionGoalObjectiveCounter length={messageLength} />
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
-                        <PiVoiceCallBar viewedSessionId={currentSessionId} />
                         {!nativeModelControls ? <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
                             : nativeSession ? <NativeDraftModelControls session={nativeSession} className={cn('flex-1 min-w-0 justify-end')} /> : null}
                         <MemoComposerDictation
