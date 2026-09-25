@@ -72,7 +72,10 @@ for (const name of ['QuotaExceededError', 'SecurityError']) {
       const editor = c.editor();
       await act(async () => {
         useI18nStore.getState().setLocale('es');
-        for (let attempt = 0; attempt < 20 && useI18nStore.getState().loadingLocale; attempt++) await sleep(0);
+        // The 'es' bundle is a lazy import (real module I/O), not a fixed number of microtasks: wait on a real
+        // timer, bounded at 3 s, then assert (20 sleep(0) ticks flaked in the merge queue, OC#178).
+        const deadline = Date.now() + 3_000;
+        while (useI18nStore.getState().loadingLocale && Date.now() < deadline) await sleep(10);
       });
       expect(useI18nStore.getState().loadingLocale).toBeNull();
       expect(dom.container.querySelector('[role="alert"]')?.textContent).toContain('Los cambios del borrador');
