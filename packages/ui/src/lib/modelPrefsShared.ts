@@ -1,5 +1,5 @@
-// smarty-code#126 F6 (the #117 rule): an explicit pick writes only what it changed, merged onto the shared copy.
-// Local entries that a session restore added never reach the shared settings, not even with a later pick.
+// smarty-code#126 F6 (the #117 rule): an explicit pick writes only what it changed, applied to the server's current
+// copy. Local entries that a session restore added never reach the shared settings, not even with a later pick.
 type ModelRef = { providerID: string; modelID: string };
 export type ModelPrefs = {
   favoriteModels: ModelRef[];
@@ -31,7 +31,7 @@ function mergeList(field: ListField, prev: readonly Item[], next: readonly Item[
 }
 
 /**
- * The fields one explicit change touched, merged onto `shared` (the server's copy as last known). Returns only those
+ * The fields one explicit change touched, applied to `shared` (the server's current copy). Returns only those
  * fields; `shared` is not modified.
  */
 export function mergeExplicitChange(prev: ModelPrefs, next: ModelPrefs, shared: ModelPrefs): Partial<ModelPrefs> {
@@ -58,20 +58,3 @@ export function mergeExplicitChange(prev: ModelPrefs, next: ModelPrefs, shared: 
   return changes;
 }
 
-/** The fields a server application changed: only those are the server's copy (it applies fields one at a time and
- * leaves absent fields alone, so unchanged fields may still hold local restore values). */
-export function serverFields(prev: ModelPrefs, next: ModelPrefs): Partial<ModelPrefs> {
-  const changed: Partial<ModelPrefs> = {};
-  for (const field of Object.keys(next) as (keyof ModelPrefs)[]) {
-    // SAFETY: the same field of the same type is copied across.
-    if (prev[field] !== next[field]) (changed as Record<string, unknown>)[field] = copyModelPrefs(next)[field];
-  }
-  return changed;
-}
-
-export const copyModelPrefs = (prefs: ModelPrefs): ModelPrefs => ({
-  favoriteModels: prefs.favoriteModels.slice(), hiddenModels: prefs.hiddenModels.slice(),
-  collapsedModelProviders: prefs.collapsedModelProviders.slice(), recentModels: prefs.recentModels.slice(),
-  recentAgents: prefs.recentAgents.slice(),
-  recentEfforts: Object.fromEntries(Object.entries(prefs.recentEfforts).map(([model, variants]) => [model, variants.slice()])),
-});

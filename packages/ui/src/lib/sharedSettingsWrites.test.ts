@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import * as settings from '@/lib/persistence';
 import type { ProjectEntry } from '@/lib/api/types';
 import { createProjectIdFromPath } from '@/lib/projectId';
-import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
+import { startModelPrefsAutoSave, type ModelPrefsServer } from '@/lib/modelPrefsAutoSave';
 import { withoutSharingModelPrefs } from '@/lib/modelPrefsRestore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -30,11 +30,30 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, 'window');
 });
 
+/** The server's model preferences: every read returns them with a revision; every write is recorded. */
+type Prefs = import('@/lib/modelPrefsShared').ModelPrefs;
+const empty = (): Prefs => ({ favoriteModels: [], hiddenModels: [], collapsedModelProviders: [], recentModels: [], recentAgents: [], recentEfforts: {} });
+function fakeServer(initial: Partial<Prefs> = {}) {
+  const state = { prefs: { ...empty(), ...initial }, etag: 'v1', reads: 0, writes: [] as Array<{ changes: Partial<Prefs>; etag: string | null }>,
+    conflictOnce: false };
+  const server: ModelPrefsServer = {
+    async read() { state.reads += 1; return { prefs: structuredClone(state.prefs), etag: state.etag }; },
+    async write(changes, etag) {
+      state.writes.push({ changes: structuredClone(changes), etag });
+      if (state.conflictOnce || etag !== state.etag) { state.conflictOnce = false; return 'conflict'; }
+      state.prefs = { ...state.prefs, ...changes }; state.etag = `v${Number(state.etag.slice(1)) + 1}`;
+      return 'ok';
+    },
+  };
+  return { state, server };
+}
+
 /** modelPrefsAutoSave runs only in a browser; the timers it needs are the global ones. */
-const startBrowserAutoSave = () => {
+const startBrowserAutoSave = (server: ModelPrefsServer) => {
   Object.defineProperty(globalThis, 'window', { configurable: true, value: globalThis });
-  stopAutoSave = startModelPrefsAutoSave();
+  stopAutoSave = startModelPrefsAutoSave(server);
 };
+const localPrefs = () => useUIStore.setState({ recentModels: [], recentEfforts: {}, recentAgents: [], favoriteModels: [] });
 
 test('opening a session writes no shared settings', () => {
   // SAFETY: this test needs only the child-store manager; the fire-and-forget message fetch may fail harmlessly.
@@ -49,85 +68,60 @@ test('opening a session writes no shared settings', () => {
   useSessionUIStore.getState().setCurrentSession(null);
 });
 
-test('sending a message (the echo restores its model/effort/agent) writes no shared settings', async () => {
-  startBrowserAutoSave();
-  // The send echo restores the session's choice through the same store actions a pick uses.
+test('opening, sending (the echo restores the session choice) and restoring write nothing', async () => {
+  localPrefs();
+  const { state, server } = fakeServer();
+  startBrowserAutoSave(server);
   withoutSharingModelPrefs(() => {
     useUIStore.getState().addRecentModel('anthropic', 'send-echo');
     useUIStore.getState().addRecentEffort('anthropic', 'send-echo', 'high');
     useUIStore.getState().addRecentAgent('build-f6');
   });
   await wait(PREFS_FLUSH_MS);
-  expect(save).not.toHaveBeenCalled();
-});
-
-test('an explicit model pick still writes the shared model preferences', async () => {
-  startBrowserAutoSave();
-  useUIStore.getState().addRecentModel('anthropic', 'picked-f6');
-  await wait(PREFS_FLUSH_MS);
-  expect(save).toHaveBeenCalledTimes(1);
-  expect(save.mock.calls[0]?.[0].recentModels?.[0]).toEqual({ providerID: 'anthropic', modelID: 'picked-f6' });
-});
-
-test('a restore within the debounce after an explicit pick is not published with it', async () => {
-  startBrowserAutoSave();
-  useUIStore.getState().addRecentModel('anthropic', 'picked-first');
-  // Another session opens within the 1200 ms debounce and restores its own model and effort.
-  withoutSharingModelPrefs(() => {
-    useUIStore.getState().addRecentModel('openai', 'restored-other');
-    useUIStore.getState().addRecentEffort('openai', 'restored-other', 'low');
-  });
-  await wait(PREFS_FLUSH_MS);
-  expect(save).toHaveBeenCalledTimes(1);
-  const sent = save.mock.calls[0]?.[0];
-  expect(sent?.recentModels?.[0]).toEqual({ providerID: 'anthropic', modelID: 'picked-first' });
-  expect(JSON.stringify(sent).includes('restored-other')).toBe(false);
-});
-
-test('a later explicit pick writes only its own fields, merged onto the shared copy, with no restored recents', async () => {
-  useUIStore.setState({ recentModels: [{ providerID: 'anthropic', modelID: 'shared-a' }], recentEfforts: {}, recentAgents: [] });
-  startBrowserAutoSave(); // the shared copy is what the store holds now
-  // Another session opens: its model, effort and agent are restored locally.
-  withoutSharingModelPrefs(() => {
-    useUIStore.getState().addRecentModel('openai', 'restored-other');
-    useUIStore.getState().addRecentEffort('openai', 'restored-other', 'low');
-    useUIStore.getState().addRecentAgent('restored-agent');
-  });
-  await wait(PREFS_FLUSH_MS);
+  expect(state.reads).toBe(0); expect(state.writes).toHaveLength(0);
   expect(save.mock.calls).toHaveLength(0);
-  // Later, Paul explicitly picks X.
+});
+
+test('a restore, then an explicit pick, writes only the picked entry onto the server\'s list', async () => {
+  localPrefs();
+  const { state, server } = fakeServer({ recentModels: [{ providerID: 'anthropic', modelID: 'server-a' }] });
+  startBrowserAutoSave(server);
+  withoutSharingModelPrefs(() => useUIStore.getState().addRecentModel('openai', 'restored-other'));
   useUIStore.getState().addRecentModel('anthropic', 'picked-x');
   await wait(PREFS_FLUSH_MS);
-  expect(save.mock.calls).toHaveLength(1);
-  const sent = save.mock.calls[0]?.[0];
-  expect(Object.keys(sent ?? {})).toEqual(['recentModels']);
-  expect(sent?.recentModels).toEqual([{ providerID: 'anthropic', modelID: 'picked-x' }, { providerID: 'anthropic', modelID: 'shared-a' }]);
-  expect(JSON.stringify(sent).includes('restored')).toBe(false);
+  expect(state.writes).toEqual([{ etag: 'v1', changes: { recentModels: [
+    { providerID: 'anthropic', modelID: 'picked-x' }, { providerID: 'anthropic', modelID: 'server-a' }] } }]);
 });
 
-test('an explicit effort pick on a restored model writes only the picked effort', async () => {
-  useUIStore.setState({ recentModels: [], recentEfforts: {}, recentAgents: [] });
-  startBrowserAutoSave();
+test('a server value equal to a restored one is kept: an effort pick adds only its effort to the server list', async () => {
+  localPrefs();
+  const { state, server } = fakeServer({ recentEfforts: { 'anthropic/m': ['low'] } });
+  startBrowserAutoSave(server);
   withoutSharingModelPrefs(() => useUIStore.getState().addRecentEffort('anthropic', 'm', 'low'));
-  useUIStore.getState().addRecentEffort('anthropic', 'm', 'high'); // local list is now ['high', 'low']
+  useUIStore.getState().addRecentEffort('anthropic', 'm', 'high');
   await wait(PREFS_FLUSH_MS);
-  expect(save.mock.calls).toHaveLength(1);
-  expect(save.mock.calls[0]?.[0]).toEqual({ recentEfforts: { 'anthropic/m': ['high'] } });
+  expect(state.writes.map(write => write.changes)).toEqual([{ recentEfforts: { 'anthropic/m': ['high', 'low'] } }]);
+  expect(state.prefs.recentEfforts).toEqual({ 'anthropic/m': ['high', 'low'] });
 });
 
-test('a server response keeps restored values out of the shared baseline; a later pick sends none of them', async () => {
-  useUIStore.setState({ recentModels: [], recentEfforts: {}, recentAgents: [] });
-  startBrowserAutoSave();
-  withoutSharingModelPrefs(() => useUIStore.getState().addRecentEffort('openai', 'b', 'low')); // restore B/low
-  useUIStore.getState().addRecentModel('anthropic', 'x'); // explicit pick X
-  await wait(PREFS_FLUSH_MS);
-  expect(save.mock.calls[0]?.[0]).toEqual({ recentModels: [{ providerID: 'anthropic', modelID: 'x' }] });
-  // The save's response is applied through the real server-settings path; it omits recentEfforts.
-  settings.applyServerUiPreferences({ recentModels: [{ providerID: 'anthropic', modelID: 'x' }, { providerID: 'server', modelID: 'y' }] });
-  useUIStore.getState().addRecentEffort('anthropic', 'c', 'high'); // a later explicit effort pick
-  await wait(PREFS_FLUSH_MS);
-  expect(save.mock.calls).toHaveLength(2);
-  expect(save.mock.calls[1]?.[0]).toEqual({ recentEfforts: { 'anthropic/c': ['high'] } });
+test('a conflict is retried once from a fresh read, keeping what changed meanwhile', async () => {
+  localPrefs();
+  const { state, server } = fakeServer({ recentModels: [{ providerID: 'p', modelID: 'old' }] });
+  startBrowserAutoSave(server);
+  useUIStore.getState().addRecentModel('anthropic', 'picked-y');
+  // Another client writes before this save lands.
+  state.conflictOnce = true;
+  const read = server.read.bind(server);
+  server.read = async () => {
+    const result = await read();
+    if (state.reads === 2) { state.prefs.recentModels = [{ providerID: 'p', modelID: 'other-client' }, ...state.prefs.recentModels]; state.etag = 'v9';
+      return { prefs: structuredClone(state.prefs), etag: 'v9' }; }
+    return result;
+  };
+  await wait(PREFS_FLUSH_MS + 50);
+  expect(state.reads).toBe(2); expect(state.writes).toHaveLength(2);
+  expect(state.writes[1]).toEqual({ etag: 'v9', changes: { recentModels: [{ providerID: 'anthropic', modelID: 'picked-y' },
+    { providerID: 'p', modelID: 'other-client' }, { providerID: 'p', modelID: 'old' }] } });
 });
 
 test('an explicit project choice still publishes lastDirectory', () => {

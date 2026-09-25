@@ -1,8 +1,10 @@
 import { useUIStore } from '@/stores/useUIStore';
-import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
+import { isApplyingServerSettings } from '@/lib/persistence';
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import { SettingsConflictError } from '@/lib/projectSettingsMerge';
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { restoringModelPrefs } from '@/lib/modelPrefsRestore';
-import { copyModelPrefs, mergeExplicitChange, serverFields } from '@/lib/modelPrefsShared';
+import { mergeExplicitChange, type ModelPrefs } from '@/lib/modelPrefsShared';
 
 type ModelRef = { providerID: string; modelID: string };
 type ModelPrefsPayload = {
@@ -40,18 +42,6 @@ const recentEffortsEqual = (a: Record<string, string[]>, b: Record<string, strin
   return aKeys.every((key) => Array.isArray(b[key]) && stringsEqual(a[key], b[key]));
 };
 
-const snapshotModelPrefs = (): ModelPrefsPayload => {
-  const state = useUIStore.getState();
-  return {
-    favoriteModels: state.favoriteModels,
-    hiddenModels: state.hiddenModels,
-    collapsedModelProviders: state.collapsedModelProviders,
-    recentModels: state.recentModels,
-    recentAgents: state.recentAgents,
-    recentEfforts: state.recentEfforts,
-  };
-};
-
 const modelPrefsEqual = (a: ModelPrefsPayload, b: ModelPrefsPayload): boolean => (
   refsEqual(a.favoriteModels, b.favoriteModels) &&
   refsEqual(a.hiddenModels, b.hiddenModels) &&
@@ -61,40 +51,78 @@ const modelPrefsEqual = (a: ModelPrefsPayload, b: ModelPrefsPayload): boolean =>
   recentEffortsEqual(a.recentEfforts, b.recentEfforts)
 );
 
-export const startModelPrefsAutoSave = () => {
+/** The shared settings as the server holds them now, and their revision. */
+export type ModelPrefsServer = {
+  read(): Promise<{ prefs: ModelPrefs; etag: string | null }>;
+  /** Writes only these keys if the settings are still at `etag`; 'conflict' when they changed meanwhile. */
+  write(changes: Partial<ModelPrefs>, etag: string | null): Promise<'ok' | 'conflict'>;
+};
+
+const list = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
+/** The runtime's settings API: load with its revision, conditional save (a rejected condition throws a conflict). */
+const runtimeServer: ModelPrefsServer = {
+  async read() {
+    const api = getRegisteredRuntimeAPIs()?.settings;
+    if (!api) throw new Error('No settings API');
+    const { settings, revision } = await api.load();
+    const body = settings as Record<string, unknown>;
+    const efforts = body.recentEfforts && typeof body.recentEfforts === 'object' ? body.recentEfforts as Record<string, string[]> : {};
+    return { etag: revision ?? null, prefs: { favoriteModels: list(body.favoriteModels), hiddenModels: list(body.hiddenModels),
+      collapsedModelProviders: list(body.collapsedModelProviders), recentModels: list(body.recentModels),
+      recentAgents: list(body.recentAgents), recentEfforts: efforts } };
+  },
+  async write(changes, etag) {
+    const api = getRegisteredRuntimeAPIs()?.settings;
+    if (!api) throw new Error('No settings API');
+    try { await api.save(changes, etag ? { ifMatch: etag } : undefined); return 'ok'; }
+    catch (error) { if (error instanceof SettingsConflictError) return 'conflict'; throw error; }
+  },
+};
+
+/**
+ * smarty-code#126 F6 (the #117 rule): the shared model preferences change only by the exact change of an explicit
+ * user action. Each explicit change is a read-modify-write against the server: read the current settings and their
+ * revision, apply exactly that change, and write only the keys it touched with If-Match; on a conflict, once more
+ * from a fresh read. Session restores (withoutSharingModelPrefs), local rehydration and server-applied values never
+ * write. There is no local copy of the shared settings to drift.
+ */
+export const startModelPrefsAutoSave = (server: ModelPrefsServer = runtimeServer) => {
   if (typeof window === 'undefined') {
     return () => {};
   }
 
   let timer: number | null = null;
   let scheduledRuntimeKey: string | null = null;
-  // The shared copy as last known: the values in the store when saving starts, then each field the server applies and
-  // each explicit change. A restore (or local rehydration) never enters it, so it never reaches the server (#126 F6).
-  let shared: ModelPrefsPayload = copyModelPrefs(snapshotModelPrefs());
-  // Only the fields explicit choices changed, taken when they were made; a restore within the debounce never rides along.
-  let pending: Partial<ModelPrefsPayload> = {};
+  // Explicit changes waiting for the debounce, each as the user made it.
+  let pending: Array<{ prev: ModelPrefs; next: ModelPrefs }> = [];
+
+  const apply = async (changes: Array<{ prev: ModelPrefs; next: ModelPrefs }>, runtimeKey: string) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { prefs, etag } = await server.read();
+      if (runtimeKey !== getRuntimeKey()) return;
+      let current = prefs, touched: Partial<ModelPrefs> = {};
+      for (const change of changes) {
+        const delta = mergeExplicitChange(change.prev, change.next, current);
+        current = { ...current, ...delta }; touched = { ...touched, ...delta };
+      }
+      if (Object.keys(touched).length === 0) return;
+      if (await server.write(touched, etag) === 'ok') return;
+    }
+  };
 
   const flush = () => {
     timer = null;
-    const runtimeKey = scheduledRuntimeKey, payload = pending;
-    scheduledRuntimeKey = null; pending = {};
-    if (!runtimeKey || runtimeKey !== getRuntimeKey() || Object.keys(payload).length === 0) return;
-    void updateDesktopSettings(payload).catch(() => {});
-  };
-
-  const schedule = () => {
-    if (timer !== null) {
-      window.clearTimeout(timer);
-    }
-    scheduledRuntimeKey = getRuntimeKey();
-    timer = window.setTimeout(flush, 1200);
+    const runtimeKey = scheduledRuntimeKey, changes = pending;
+    scheduledRuntimeKey = null; pending = [];
+    if (!runtimeKey || runtimeKey !== getRuntimeKey() || changes.length === 0) return;
+    void apply(changes, runtimeKey).catch(() => {});
   };
 
   const unsubscribeRuntime = subscribeRuntimeEndpointWillChange(() => {
     if (timer !== null) window.clearTimeout(timer);
     timer = null;
     scheduledRuntimeKey = null;
-    pending = {};
+    pending = [];
   });
 
   const unsubscribe = useUIStore.subscribe((state, prevState) => {
@@ -114,15 +142,13 @@ export const startModelPrefsAutoSave = () => {
       recentAgents: prevState.recentAgents,
       recentEfforts: prevState.recentEfforts,
     };
-    if (modelPrefsEqual(next, prev)) return;
-    // Values the server sent are its copy; they are not sent back.
-    if (isApplyingServerSettings()) { shared = { ...shared, ...serverFields(prev, next) }; return; }
-    // Local rehydration and session restores are not user choices; they stay local.
+    if (modelPrefsEqual(next, prev) || isApplyingServerSettings()) return;
+    // Local rehydration and session restores are not user choices; they never write.
     if (useUIStore.persist?.hasHydrated?.() === false || restoringModelPrefs()) return;
-    const changes = mergeExplicitChange(prev, next, shared);
-    shared = { ...shared, ...changes };
-    pending = { ...pending, ...changes };
-    schedule();
+    pending.push({ prev, next });
+    if (timer !== null) window.clearTimeout(timer);
+    scheduledRuntimeKey = getRuntimeKey();
+    timer = window.setTimeout(flush, 1200);
   });
 
   return () => {

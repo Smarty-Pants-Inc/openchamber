@@ -1409,9 +1409,9 @@ describe('updateDesktopSettings', () => {
 
       await delay(1500);
 
+      // Each explicit change is written as exactly the keys it touched, onto the server's copy (smarty-code#126 F6).
       expect(saveCalls).toHaveLength(1);
       expect(saveCalls[0]).toEqual({
-        draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
         hiddenModels: [{ providerID: 'openai', modelID: 'gpt-5' }],
         collapsedModelProviders: ['openai'],
