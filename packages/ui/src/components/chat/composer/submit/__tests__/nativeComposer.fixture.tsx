@@ -35,7 +35,9 @@ const leaves = {
 for (const [module, exports] of Object.entries(leaves)) mock.module(module, () => Object.fromEntries(exports.map(name => [name, () => null])));
 mock.module('@/hooks/useRuntimeAPIs', () => ({ useRuntimeAPIs: () => ({}) }));
 mock.module('@/contexts/useThemeSystem', () => ({ useThemeSystem: () => ({ currentTheme: theme }), useOptionalThemeSystem: () => null }));
-mock.module('@/hooks/useSessionActivity', () => ({ useSessionActivity: () => ({ phase: 'idle' }), useCurrentSessionActivity: () => ({ phase: 'idle' }) }));
+/** The current session's shown activity; a test may set 'busy' (a mounted composer re-renders to read it). */
+export const shownActivity: { phase: 'idle' | 'busy' } = { phase: 'idle' };
+mock.module('@/hooks/useSessionActivity', () => ({ useSessionActivity: () => ({ phase: 'idle' }), useCurrentSessionActivity: () => ({ phase: shownActivity.phase }) }));
 mock.module('@/components/chat/btw/useBtwPanelState', () => ({ useBtwPanelState: () => ({ collapsed: true, btwSessionId: null, btwDirectory: null, parentSession: null }) }));
 export const errors: string[] = [];
 const bootstrap = nativeComposerDom();

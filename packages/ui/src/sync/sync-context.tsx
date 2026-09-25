@@ -40,7 +40,7 @@ import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingS
 import { countSyncPerformance } from "./performance-diagnostics"
 import { runBackgroundNetworkTask } from "@/lib/background-network"
 import { setActionRefs } from "./session-actions"
-import { setSyncRefs, getAllSyncSessions } from "./sync-refs"
+import { setSyncRefs, getAllSyncSessions, getSyncChildStores } from "./sync-refs"
 import { useSessionUIStore } from "./session-ui-store"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { upsertSessionRecord } from "./session-records"
@@ -784,6 +784,20 @@ async function resyncDirectorySessionStatuses(
  * directory (shared with the watchdog poll), best-effort — the watchdog poll
  * remains the backstop.
  */
+/**
+ * Send-time status check (F11): a missed session.idle can leave a session shown working, and Send then takes the
+ * queue route. Re-read the server's status for this one session; true when it is idle there (the stale status is
+ * lowered). A failed read returns false, so the caller keeps its current route.
+ */
+export async function reconcileSessionIdleBeforeSend(directory: string, sessionID: string): Promise<boolean> {
+  let store: StoreApi<DirectoryStore>
+  try { store = getSyncChildStores().ensureChild(directory) } catch { return false } // Sync is not mounted.
+  const snapshot = await resyncDirectorySessionStatuses(directory, store, [sessionID], "authoritative")
+  if (!snapshot) return false
+  const live = snapshot[sessionID]
+  return !live || live.type === "idle"
+}
+
 export function maybePollStatusAfterMessageCompletion(
   directory: string,
   store: StoreApi<DirectoryStore>,

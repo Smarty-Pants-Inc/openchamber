@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { mountedNativeComposer } from './composer/submit/__tests__/nativeComposer.fixture';
+import { mountedNativeComposer, shownActivity } from './composer/submit/__tests__/nativeComposer.fixture';
 import { deferred, directory, session } from '@/sync/native-draft-fixture';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
@@ -15,6 +15,7 @@ const initialAutoReview = useAutoReviewStore.getState();
 const initialQueue = useMessageQueueStore.getState();
 afterEach(async () => {
     await mounted?.dispose(); mounted = undefined;
+    shownActivity.phase = 'idle';
     useAutoReviewStore.setState(initialAutoReview, true);
     useMessageQueueStore.setState(initialQueue, true);
 });
@@ -138,4 +139,41 @@ test('an unknown queue admission keeps live input and a second submit cannot rep
     expect(requests.filter(request => request.method === 'POST')).toHaveLength(1);
     expect(c.prompts()).toHaveLength(0);
     expect(Object.values(useMessageQueueStore.getState().recoveryMessages).flat()[0].state).toBe('unconfirmed');
+});
+
+// F11: a missed session.idle left the page 'working', so Send took the queue route for a session idle on the server.
+async function shownWorking(serverStatus: Record<string, unknown>) {
+    const c = await composer();
+    await act(async () => {
+        useAutoReviewStore.setState(initialAutoReview, true);
+        c.children.ensureChild(directory, { bootstrap: false }).setState({ session_status: { [session.id]: { type: 'busy' } } });
+        shownActivity.phase = 'busy';
+    });
+    const statusReads: Request[] = [];
+    const queue = queueTransport(async request => request.method === 'GET' ? Response.json({ supported: true })
+        : Response.json({ revision: 1, session: { sessionId: session.id, directory, sendingId: null, items: [] } }));
+    const queueFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        if (new URL(request.url).pathname.endsWith('/session/status')) { statusReads.push(request); return Response.json(serverStatus); }
+        return queueFetch(input, init);
+    };
+    await act(async () => { c.rerender(); });
+    return { c, queue, statusReads };
+}
+
+test('Send re-reads a session shown working and sends directly when the server says idle', async () => {
+    const { c, queue, statusReads } = await shownWorking({});
+    await c.submit(); await act(async () => { await sleep(10); });
+    expect(statusReads).toHaveLength(1);
+    expect(queue).toHaveLength(0);
+    expect(c.prompts()).toHaveLength(1);
+});
+
+test('Send still queues when the server confirms the session is working', async () => {
+    const { c, queue, statusReads } = await shownWorking({ [session.id]: { type: 'busy' } });
+    await c.submit(); await act(async () => { await sleep(10); });
+    expect(statusReads).toHaveLength(1);
+    expect(queue.map(request => request.method)).toEqual(['GET', 'POST']);
+    expect(c.prompts()).toHaveLength(0);
 });

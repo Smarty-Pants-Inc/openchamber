@@ -45,6 +45,7 @@ import { normalizePath } from "@/lib/pathNormalization"
 import { mergeMessages } from "./optimistic"
 import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
+import { useNotificationStore } from "./notification-store"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -2043,6 +2044,12 @@ export async function optimisticSend(input: {
         [input.sessionId]: { type: "idle" as const },
       },
     })
+    // The server said why it refused: keep its words in the chat, not only in a passing toast (F11).
+    const refusalReason = (error as { refusalReason?: unknown } | null)?.refusalReason
+    if (typeof refusalReason === "string") {
+      useNotificationStore.getState().append({ type: "error", session: input.sessionId, directory: targetDirectory ?? undefined,
+        time: Date.now(), viewed: true, error: { name: null, message: refusalReason } })
+    }
     throw error
   }
 }
