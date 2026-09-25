@@ -99,3 +99,22 @@ test("'unavailable' until the time limit: the start is unknown, nothing is sent,
   expect(fixture.requests.filter(r => new URL(r.url).pathname.endsWith(`/creation/${operationId}`)).length).toBeGreaterThan(1);
   expect(record()?.status).toBe('pending');
 });
+
+for (const action of ['trust', 'ready'] as const) {
+  test(`an 'unavailable' answer to the ${action} reply, then a read with no newer state: never answered again; unknown at the limit`, async () => {
+    interactive(() => operation);
+    const answer = reply;
+    let answered = false;
+    reply = body => {
+      if (body.action !== action) return answer(body);
+      answered = true; return unavailable(); // The reply's outcome is not known: the server state did not move.
+    };
+    reads = [unavailable()];
+    const now = Date.now; let clock = now();
+    Date.now = () => (clock += answered ? 30_000 : 0);
+    try { expect(await failure(startNativeDraft([], async () => {}))).toBe('unknown'); } finally { Date.now = now; }
+    const sent = (await Promise.all(replies().map(r => r.clone().json()))).map(body => body.action);
+    expect(sent.filter(value => value === action)).toHaveLength(1);
+    expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
+  });
+}

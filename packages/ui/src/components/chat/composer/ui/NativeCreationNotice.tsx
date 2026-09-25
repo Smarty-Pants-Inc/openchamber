@@ -42,7 +42,15 @@ export function NativeCreationNotice({ native, draftOpen, onSend }: {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
       <p>{t('chat.nativeCreation.starting')}</p>
       {creation?.status === 'pending' && CANCELLABLE.includes(creation.operation.phase) ? <Button type="button" variant="outline" size="sm"
-        disabled={creation.busy} onClick={() => { void native.cancel(); }}>{t('chat.nativeCreation.cancel')}</Button> : null}
+        disabled={creation.busy || creation.unreadable} onClick={() => { void native.cancel(); }}>{t('chat.nativeCreation.cancel')}</Button> : null}
+    </div>;
+  }
+  // Send stopped while the start could not be read (smarty-code#126): its outcome is unknown. Check again only reads.
+  if (creation?.status === 'pending' && (creation.unreadable || creation.operation.phase === 'unavailable')) {
+    return <div className="mb-2 space-y-1">
+      <p role="alert" className="text-sm text-[var(--status-error)]">{t('chat.nativeCreation.unknown')}</p>
+      <Button type="button" variant="outline" size="sm" disabled={creation.busy} onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
+      {escape}
     </div>;
   }
   if (creation?.status === 'pending') {

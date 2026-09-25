@@ -57,13 +57,18 @@ async function acceptState(record: Pending, next: NativeCreationState) {
     indexNativeCreatedSession(session, record.directory, record.runtimeKey);
     publishNativeCreation(record, { runtimeKey: record.runtimeKey, draftId: record.draftId,
       projectId: record.projectId, directory: record.directory, status: 'created', session });
-  } else publishNativeCreation(record, { ...record, operation: next, busy: false, error: undefined, unreadable: undefined });
+  } else {
+    // A state no newer than one this record already answered does not show the reply's outcome: re-read, never replay.
+    const stale = record.answered !== undefined && next.revision <= record.answered;
+    publishNativeCreation(record, { ...record, operation: next, busy: false, error: undefined, unreadable: stale || undefined });
+  }
 }
 
 async function request(record: Pending, reply?: NativeCreationReply) {
   assertCurrent(record);
   if (record.busy) return;
-  const pending = { ...record, busy: true, error: undefined };
+  const pending: Pending = { ...record, busy: true, error: undefined };
+  if (reply) pending.answered = record.operation.revision;
   publishNativeCreation(record, pending);
   try {
     const next = reply
@@ -74,7 +79,7 @@ async function request(record: Pending, reply?: NativeCreationReply) {
     // Keep the original operation after ambiguity. Re-read is allowed; replay is not.
     const state = useSessionUIStore.getState();
     if ([...state.nativeDraftCreations.values()].includes(pending)) {
-      publishNativeCreation(record, { ...record, busy: false, error: cause instanceof NativeCreationError ? cause : new NativeCreationError('unknown', cause) });
+      publishNativeCreation(pending, { ...pending, busy: false, error: cause instanceof NativeCreationError ? cause : new NativeCreationError('unknown', cause) });
     }
     throw cause;
   }
