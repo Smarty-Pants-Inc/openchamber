@@ -4,6 +4,8 @@ import type { SessionGroup, SessionNode } from '../types';
 import { normalizePath } from '../utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { readLastActiveSession } from '@/sync/last-session-cache';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 type ProjectSection = {
   project: { id: string; normalizedPath: string };
@@ -221,6 +223,11 @@ export const useProjectSessionSelection = (args: Args): void => {
     if (selection.kind !== 'select-session') {
       return;
     }
+    // The same startup rule for a session (smarty-code#113, R3.19): with no last-session pointer the person's last view
+    // was a new-session draft (an explicit New session and typing clear it), which the automatic draft open restores
+    // with its project and text. Selecting the project's latest session here replaced it with a fleet session. With a
+    // pointer, the last view was a session and this default still applies.
+    if (initialObservation && !readLastActiveSession(getRuntimeKey())) return;
     const targetDirectory = projectMap?.get(selection.sessionId)?.directory ?? null;
     handleSessionSelect(selection.sessionId, targetDirectory);
   }, [
