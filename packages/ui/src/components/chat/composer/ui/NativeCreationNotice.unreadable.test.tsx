@@ -31,6 +31,8 @@ test('after Send stops on an unreadable start, the outcome is unknown and Check 
     expect(html).toContain(nativeCreationI18n.en['chat.nativeCreation.unknown']);
     expect(html).toContain('Check again');
     expect(html).not.toContain(nativeCreationI18n.en['chat.nativeCreation.recover']);
+    // No escape to a second start: the gateway refuses one while this start is unsettled (OC#207 review).
+    expect(html).not.toContain(nativeCreationI18n.en['chat.nativeCreation.startAgain']);
   }
 });
 

@@ -46,11 +46,12 @@ export function NativeCreationNotice({ native, draftOpen, onSend }: {
     </div>;
   }
   // Send stopped while the start could not be read (smarty-code#126): its outcome is unknown. Check again only reads.
+  // ponytail: no "start a new session anyway" here. The gateway refuses a second start while this one is unsettled, so
+  // leaving it behind would only strand this Send; it settles (ready, or expired after 5 minutes) and Check again sees it.
   if (creation?.status === 'pending' && (creation.unreadable || creation.operation.phase === 'unavailable')) {
     return <div className="mb-2 space-y-1">
       <p role="alert" className="text-sm text-[var(--status-error)]">{t('chat.nativeCreation.unknown')}</p>
       <Button type="button" variant="outline" size="sm" disabled={creation.busy} onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
-      {escape}
     </div>;
   }
   if (creation?.status === 'pending') {
