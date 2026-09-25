@@ -8,6 +8,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import * as managedRefresh from '@/lib/managed-project-refresh';
+import * as globalSessions from '@/stores/useGlobalSessionsStore';
 import { useRouter } from '@/hooks/useRouter';
 import { readLastActiveSession } from '@/sync/last-session-cache';
 
@@ -70,4 +71,27 @@ test('leaving a shown session for New session keeps its history entry: Back retu
     // The draft was pushed as its own entry, so the previous one (Back) is still the session just left.
     expect(push.mock.calls.map(call => String(call[2]))).toEqual([`/?session=${session.id}`, `/?session=${other.id}`, '/']);
   } finally { push.mockRestore(); }
+});
+
+test('a stock route restore that already shows its session, still loading: New session drops ?session= at once', async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  const held = deferred<void>();
+  const load = spyOn(globalSessions, 'ensureGlobalSessionsLoaded').mockImplementation(async () => {
+    await held.promise; return { activeSessions: [session], archivedSessions: [] };
+  });
+  try {
+    await act(async () => {
+      useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock', managedProjects: null, managedRows: null });
+      useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, nativeDraftCreations: new Map() });
+      window.history.replaceState(null, '', `/?session=${session.id}`);
+      await mountRouter(c);
+    });
+    expect(useSessionUIStore.getState().currentSessionId).toBe(session.id); // Shown before its snapshot arrives.
+    await act(async () => { useSessionUIStore.getState().openNewSessionDraft(); await settle(); });
+    expect(shown()).toBeNull();
+    expect(readLastActiveSession(c.runtimeA)).toBeNull();
+    await act(async () => { held.resolve(); await settle(); });
+    expect(useSessionUIStore.getState().currentSessionId).toBeNull(); // The cancelled restore never reopens it.
+    expect(shown()).toBeNull();
+  } finally { held.resolve(); load.mockRestore(); }
 });

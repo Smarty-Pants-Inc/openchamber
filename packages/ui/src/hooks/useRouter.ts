@@ -180,8 +180,9 @@ export function useRouter(): void {
     if (isVSCode || isEmbeddedChat) {
       return;
     }
-    // A cleared restore pointer may drop its pending ?session= only while the page does not show that session (#113).
-    setShownSessionProbe(() => useSessionUIStore.getState().currentSessionId);
+    // A cleared restore pointer drops its ?session= unless the router's own navigation will move off that session
+    // (#113): while a route is still being applied, the router ignores selection changes, so the restore is pending.
+    setShownSessionProbe(() => isApplyingRouteRef.current ? null : useSessionUIStore.getState().currentSessionId);
 
     let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId;
 
