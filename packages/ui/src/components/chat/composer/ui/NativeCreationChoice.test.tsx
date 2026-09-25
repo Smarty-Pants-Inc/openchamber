@@ -124,7 +124,7 @@ test('a start from another window is named in plain words and never taken over b
   listed = [operation];
   await act(async () => window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED,
     { detail: { directory, runtimeKey: fixture.runtimeA } })));
-  expect(dom.container.textContent).toContain('Another new session in this project is still starting');
+  expect(dom.container.textContent).toContain('A session is still starting in this project. It will appear in the sidebar.');
   await click('Send');
   await act(async () => { await sendResult?.catch(() => undefined); });
   expect(fixture.creates()).toHaveLength(0); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);

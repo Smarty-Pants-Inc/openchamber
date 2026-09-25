@@ -4,7 +4,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useInputStore } from './input-store';
 import { nativeCreationForDraft } from './native-draft-creation';
 import { deferred, directory, nativeDraftFixture, session } from './native-draft-fixture';
-import { startNativeDraft, startNativeDraftAgain } from './native-draft-start';
+import { resetNativeDraftPage, startNativeDraft, startNativeDraftAgain } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
 import { opencodeClient } from '@/lib/opencode/client';
 
@@ -71,7 +71,7 @@ function interactive() {
     return inner(input, init);
   }) as typeof fetch;
 }
-afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); sessionStorage.clear(); });
+afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); sessionStorage.clear(); resetNativeDraftPage(); });
 
 test('one Send starts the session (trust and first input answered), then sends the message once', async () => {
   interactive();
@@ -187,7 +187,14 @@ test('a stock server (no session start) leaves Send to its ordinary path', async
   expect(fixture.creates()).toHaveLength(0); expect(record()).toBeNull();
 });
 
-const clearPage = () => useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+/** This tab's saved create request ids (the draft tokens beside them are not requests). */
+const requests = () => [...tab].filter(([key]) => key.startsWith('oc.nativeCreation.request:')).map(([, id]) => id);
+/** A reload of this tab: page memory goes, and the startup open restores the current draft (the automatic open). */
+const clearPage = () => { resetNativeDraftPage();
+  useSessionUIStore.setState(state => ({ nativeDraftCreations: new Map(), newSessionDraft: { ...state.newSessionDraft, restored: true } })); };
+/** A reload whose first draft is opened by the real draft-open action: explicit (New session) or automatic (restore). */
+const reloadInto = (automatic: boolean) => { resetNativeDraftPage(); useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+  useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'a', directoryOverride: directory, ...(automatic ? { automatic } : {}) }); };
 const loseResponse = () => { const created = fixture.handlers.create;
   fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); }; };
 const sentIds = async () => Promise.all(fixture.creates().map(async request => (await request.clone().text()) || 'none'));
@@ -261,7 +268,7 @@ test('a saved id blocks a second create after a reload, even while the list is e
   fixture.handlers.create = async request => { const sent = await request.clone().text();
     operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
-  const saved = [...tab.values()];
+  const saved = requests();
   expect(saved).toHaveLength(1);
   clearPage(); // reload: page memory gone, tab storage kept
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // empty list: not proof of anything
@@ -270,7 +277,7 @@ test('a saved id blocks a second create after a reload, even while the list is e
     ? Response.json({ message: 'down' }, { status: 503 }) : inner(input, init)) as typeof fetch;
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // failed read: still no create
   globalThis.fetch = inner;
-  expect(fixture.creates()).toHaveLength(1); expect([...tab.values()]).toEqual(saved);
+  expect(fixture.creates()).toHaveLength(1); expect(requests()).toEqual(saved);
   listed = [operation]; // the server now lists the original start, with the original id
   await sendOnce();
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
@@ -299,7 +306,7 @@ test('the explicit escape from an unknown start clears the saved id and starts e
   clearPage();
   expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
   startNativeDraftAgain();
-  expect(tab.size).toBe(0);
+  expect(requests()).toEqual([]);
   operation = { ...operation, phase: 'awaiting-trust', revision: 1, native: undefined, canInitialReady: false, clientRequestId: undefined };
   fixture.handlers.create = async request => { const sent = await request.clone().text();
     operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; listed = [operation];
@@ -309,4 +316,80 @@ test('the explicit escape from an unknown start clears the saved id and starts e
   expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
   const [first, second] = await sentIds();
   expect(first).not.toBe(second);
+});
+
+test('a reload (a new draft id for the same project) still finds the saved id and creates no second session', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  // Reload: page memory is gone and the draft counter restarts, so the draft id differs; tab storage remains.
+  clearPage();
+  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, draftId: state.newSessionDraft.draftId + 1000 } }));
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  expect(fixture.creates()).toHaveLength(1);
+  listed = [operation];
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+});
+
+test('an explicit new draft in the same project never resumes, answers or sends to the earlier draft\'s start', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  // New session B, same page and project: a new draft id, and A's start is now readable.
+  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, draftId: state.newSessionDraft.draftId + 1 } }));
+  listed = [operation];
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // Even after a reload, the restored draft is B (the latest), not A: A's start is still never adopted.
+  clearPage();
+  useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, draftId: state.newSessionDraft.draftId + 1000 } }));
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+});
+
+test('after a reload, an explicit New session first gets a fresh token and never adopts; the restored draft recovers', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  const saved = { ...Object.fromEntries(tab) };
+  listed = [operation]; // A's start is readable now
+  reloadInto(false); // explicit New session for the same project, before anything else on the new page
+  expect(useSessionUIStore.getState().newSessionDraft.directoryOverride).toBe(directory);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBeUndefined();
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // Another reload of the same tab, from before B: the startup restore takes A's token back and recovers A exactly.
+  sessionStorage.clear(); for (const [key, value] of Object.entries(saved)) sessionStorage.setItem(key, value);
+  reloadInto(true);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBe(true);
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
+});
+
+test('a restored draft retargeted by the project selector gets a fresh token and never adopts; restoring A still recovers', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // draft A in project a
+  const saved = { ...Object.fromEntries(tab) };
+  listed = [operation];
+  // Reload into the automatic restore of a draft in project b, then choose project a in its selector.
+  resetNativeDraftPage(); useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+  useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'b', directoryOverride: '/native-project-b', automatic: true });
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBe(true);
+  fixture.target('a', directory);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBeUndefined();
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // A itself, restored in a reload of the tab as it was, still recovers its start exactly.
+  sessionStorage.clear(); for (const [key, value] of Object.entries(saved)) sessionStorage.setItem(key, value);
+  reloadInto(true);
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });
