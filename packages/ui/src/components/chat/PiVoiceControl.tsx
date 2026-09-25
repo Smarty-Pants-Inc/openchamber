@@ -24,8 +24,11 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   // Whether this session takes calls, and if not, the gateway's plain reason (smarty-code#126). A known "no" shows the
   // control disabled with that reason, so a person sees the call feature exists; unknown stays hidden.
   const [voice, setVoice] = React.useState<{ key: string; available: boolean; reason?: string } | null>(null);
-  const [checks, recheck] = React.useReducer((value: number) => value + 1, 0);
   const voiceKey = JSON.stringify([getRuntimeKey(), sessionId, directory]);
+  const current = useActivePiVoiceCall();
+  const here = current?.runtimeKey === getRuntimeKey() && current.sessionId === sessionId && current.directory === directory;
+  // Read again whenever a call on this session starts or ends, however it ended (the engine, End in the call
+  // bar, a move elsewhere): a call can end because the session stopped taking calls.
   React.useEffect(() => {
     if (unsupportedRuntime || !supportsPiVoice()) return;
     let cancelled = false;
@@ -34,10 +37,8 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
       if (!cancelled && getRuntimeKey() === runtimeKey) setVoice({ key, ...result });
     }, () => undefined);
     return () => { cancelled = true; };
-  }, [sessionId, directory, unsupportedRuntime, checks]);
-  const current = useActivePiVoiceCall();
+  }, [sessionId, directory, unsupportedRuntime, here]);
   if (unsupportedRuntime || !supportsPiVoice() || voice?.key !== voiceKey) return null;
-  const here = current?.runtimeKey === getRuntimeKey() && current.sessionId === sessionId && current.directory === directory;
   // The live call, its phase and End are PiVoiceCallBar's, on every screen; this control only starts or moves.
   if (here) return null;
   if (!voice.available) {
@@ -49,8 +50,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     </span>;
   }
   const hooks = {
-    // A call can end because the session stopped taking calls: read this session's status again.
-    onEnded: (reason: string) => { recheck(); toast.error(t('chat.piVoice.ended', { reason })); },
+    onEnded: (reason: string) => { toast.error(t('chat.piVoice.ended', { reason })); },
     onFailed: (reason: string) => { toast.error(t('chat.piVoice.failed', { reason })); },
   };
   const label = current ? t('chat.piVoice.moveHere') : t('chat.piVoice.start');

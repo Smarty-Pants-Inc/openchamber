@@ -100,3 +100,44 @@ test('a call on another runtime is never shown as this session’s call, even wi
   expect(await render('/with-voice', false, 'org')).toBe('Move call here');
   store.endActivePiVoiceCall();
 });
+
+test('Move call here respects the target session: a session without voice shows its reason, not Move', async () => {
+  const store = await import('@/lib/voice/piVoiceActiveCall');
+  const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
+  const reason = 'Voice calls work in sessions started from Code. This session was started in Herdr.';
+  advertised.set('/with-voice', { available: true });
+  advertised.set('/herdr', { available: false, reason });
+  const { driver, runtime } = fakePiVoiceDriver();
+  runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey();
+  await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} });
+  expect(await render('/herdr', false, 'fleet-row')).toBe(`disabled: Voice call. ${reason}`);
+  store.endActivePiVoiceCall();
+});
+
+test('ending a call from outside the control (the call bar) re-reads the session\'s voice status', async () => {
+  const store = await import('@/lib/voice/piVoiceActiveCall');
+  const { fakePiVoiceDriver } = await import('@/lib/voice/piVoiceTestDriver');
+  advertised.set('/with-voice', { available: true });
+  const { driver, runtime } = fakePiVoiceDriver();
+  runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey();
+  const happy = new Window({ url: 'https://code.example.test' });
+  const values = { window: happy, document: happy.document, navigator: happy.navigator, Node: happy.Node,
+    Element: happy.Element, HTMLElement: happy.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+  for (const name of NAMES) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  // SAFETY: PiVoiceControl reads only `runtime.isVSCode` from the runtime context.
+  const runtimeApis = { runtime: { platform: 'web', isVSCode: false, isDesktop: false } } as RuntimeAPIs;
+  await act(async () => {
+    root.render(<I18nProvider><RuntimeAPIContext.Provider value={runtimeApis}><PiVoiceControl sessionId="org" directory="/with-voice" /></RuntimeAPIContext.Provider></I18nProvider>);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  });
+  await act(async () => { await store.startPiVoiceCallFor('org', '/with-voice', driver, { onEnded() {}, onFailed() {} }); });
+  asked.length = 0;
+  advertised.set('/with-voice', { available: false, reason: 'This session is not connected right now.' });
+  await act(async () => { store.endActivePiVoiceCall(); await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(asked).toEqual(['org@/with-voice']);
+  expect(container.querySelector('button')?.getAttribute('aria-label')).toBe('Voice call. This session is not connected right now.');
+  act(() => root.unmount());
+});
