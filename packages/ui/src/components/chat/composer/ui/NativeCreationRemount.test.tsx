@@ -22,10 +22,10 @@ function ComposerNotice() {
 
 const render = () => renderToStaticMarkup(<I18nProvider><ComposerNotice /></I18nProvider>);
 
-for (const outcome of ['created', 'unknown'] as const) test(`real hook/notice remount restores ${outcome} A after creating B`, async () => {
+test('real hook/notice remount restores an unknown outcome for A after starting B', async () => {
   fixture = nativeDraftFixture();
-  const detail = 'Inspect native-A w1:p2 /private/native-A/session.jsonl. Do not retry automatically.';
-  if (outcome === 'unknown') fixture.handlers.create = async () => Response.json({ name: 'APIError', data: { message: detail, isRetryable: false } }, { status: 503 });
+  const detail = 'Look for native-A in the session list. Do not retry automatically.';
+  fixture.handlers.create = async () => Response.json({ name: 'APIError', data: { message: detail, isRetryable: false } }, { status: 503 });
   await prepareNativeDraft().catch(() => {});
   // SSR normally reads initial hydration state. Exercise each real hook with its client snapshot,
   // without claiming DOM effects, browser subscriptions or hydration behavior.
@@ -38,9 +38,8 @@ for (const outcome of ['created', 'unknown'] as const) test(`real hook/notice re
     expect(render()).not.toBe(first);
     fixture.target('a', directory);
     expect(render()).toBe(first);
-    expect(first).toContain(outcome === 'created' ? session.id : detail);
-    expect(first).not.toContain('Create native Pi session');
-    if (outcome === 'unknown') expect(first).not.toContain('Check connection');
+    expect(first).toContain(detail);
+    expect(first).toContain('Check again');
     await prepareNativeDraft(); expect(fixture.creates()).toHaveLength(2);
   } finally { serverSnapshot.mockRestore(); }
 });

@@ -22,14 +22,15 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   // VS Code, and surfaces rendered without a runtime provider, show no voice control.
   const unsupportedRuntime = React.useContext(RuntimeAPIContext)?.runtime.isVSCode !== false;
   const [state, setState] = React.useState<ControlState>({ status: 'idle' });
-  // Shown only when the gateway advertises session voice for this directory; unknown means hidden.
-  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string } | null>(null);
+  // Usable only when the gateway advertises session voice for this directory. A known "no" shows the control
+  // disabled with its reason, so a person sees the call feature exists (smarty-code#126); unknown stays hidden.
+  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string; supported: boolean } | null>(null);
   React.useEffect(() => {
     if (unsupportedRuntime || !supportsPiVoice()) return;
     let cancelled = false;
     const runtimeKey = getRuntimeKey();
     opencodeClient.supportsSessionVoice(directory).then(supported => {
-      if (!cancelled && supported && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory });
+      if (!cancelled && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory, supported });
     }, () => undefined);
     return () => { cancelled = true; };
   }, [directory, unsupportedRuntime]);
@@ -46,6 +47,14 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     return () => { window.removeEventListener('pagehide', leave); cancel(); };
   }, [sessionId, directory, cancel]);
   if (unsupportedRuntime || !supportsPiVoice() || advertised?.directory !== directory || advertised.runtimeKey !== getRuntimeKey()) return null;
+  if (!advertised.supported) {
+    const reason = t('chat.piVoice.unavailable');
+    return <span title={reason} className="inline-flex">
+      <Button type="button" variant="chip" size="xs" disabled aria-label={`${t('chat.piVoice.call')}. ${reason}`}>
+        <Icon name="phone" className="size-3.5" /><span>{t('chat.piVoice.call')}</span>
+      </Button>
+    </span>;
+  }
   const active = state.status === 'starting' || state.status === 'active';
   const toggle = async () => {
     if (active) { call.current?.hangup(); return; }
@@ -81,8 +90,8 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     <Button type="button" variant="chip" size="xs" aria-pressed={active} aria-label={label}
       title={line ?? label}
       disabled={state.status === 'starting'} onClick={() => { void toggle(); }}>
-      <Icon name="mic" className="size-3.5" />
-      {phase ? <span aria-live="polite">{t(`chat.piVoice.phase.${phase}`)}</span> : null}
+      <Icon name="phone" className="size-3.5" />
+      <span aria-live="polite">{phase ? t(`chat.piVoice.phase.${phase}`) : t('chat.piVoice.call')}</span>
     </Button>
   );
 }

@@ -10,6 +10,7 @@ test('the view-only banner names the reason and links to enrollment', () => {
   const html = renderToStaticMarkup(<FleetViewOnlyBanner />);
   expect(html).toContain('View only.');
   expect(html).toContain(`href="${FLEET_ENROLLMENT_URL}"`);
-  expect(html).toContain('Enroll (#116)');
+  expect(html).toContain('Learn more');
+  expect(html).not.toContain('#116');
   expect(html).not.toContain('<textarea');
 });
