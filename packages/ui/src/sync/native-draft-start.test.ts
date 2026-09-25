@@ -189,7 +189,12 @@ test('a stock server (no session start) leaves Send to its ordinary path', async
 
 /** This tab's saved create request ids (the draft tokens beside them are not requests). */
 const requests = () => [...tab].filter(([key]) => key.startsWith('oc.nativeCreation.request:')).map(([, id]) => id);
-const clearPage = () => { useSessionUIStore.setState({ nativeDraftCreations: new Map() }); resetNativeDraftPage(); };
+/** A reload of this tab: page memory goes, and the startup open restores the current draft (the automatic open). */
+const clearPage = () => { resetNativeDraftPage();
+  useSessionUIStore.setState(state => ({ nativeDraftCreations: new Map(), newSessionDraft: { ...state.newSessionDraft, restored: true } })); };
+/** A reload whose first draft is opened by the real draft-open action: explicit (New session) or automatic (restore). */
+const reloadInto = (automatic: boolean) => { resetNativeDraftPage(); useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+  useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'a', directoryOverride: directory, ...(automatic ? { automatic } : {}) }); };
 const loseResponse = () => { const created = fixture.handlers.create;
   fixture.handlers.create = async request => { await created(request); throw new Error('response lost'); }; };
 const sentIds = async () => Promise.all(fixture.creates().map(async request => (await request.clone().text()) || 'none'));
@@ -343,4 +348,25 @@ test('an explicit new draft in the same project never resumes, answers or sends 
   useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, draftId: state.newSessionDraft.draftId + 1000 } }));
   expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
   expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+});
+
+test('after a reload, an explicit New session first gets a fresh token and never adopts; the restored draft recovers', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown');
+  const saved = { ...Object.fromEntries(tab) };
+  listed = [operation]; // A's start is readable now
+  reloadInto(false); // explicit New session for the same project, before anything else on the new page
+  expect(useSessionUIStore.getState().newSessionDraft.directoryOverride).toBe(directory);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBeUndefined();
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // Another reload of the same tab, from before B: the startup restore takes A's token back and recovers A exactly.
+  sessionStorage.clear(); for (const [key, value] of Object.entries(saved)) sessionStorage.setItem(key, value);
+  reloadInto(true);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBe(true);
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });

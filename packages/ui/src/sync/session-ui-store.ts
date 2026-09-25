@@ -368,6 +368,8 @@ export type NewSessionDraftState = {
   projectContextPins?: { notes: string[]; plans: string[] }
   target: NewSessionDraftTarget
   preparedChatDirectory?: string | null
+  /** Opened automatically (the startup restore), not by an explicit New session. */
+  restored?: boolean
 }
 
 export type ViewportAnchor = {
@@ -1470,6 +1472,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const nextDraft: NewSessionDraftState = {
       draftId: nextDraftId++,
       open: true,
+      // The automatic (startup restore) open; an explicit New session is never a restored draft (smarty-code#126).
+      ...(options?.automatic ? { restored: true } : {}),
       target,
       preparedChatDirectory: null,
       selectedProjectId: selectedProject?.id ?? null,

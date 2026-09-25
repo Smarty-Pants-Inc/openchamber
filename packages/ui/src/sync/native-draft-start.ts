@@ -21,9 +21,9 @@ export function useNativeDraftStarting(): boolean {
 
 /**
  * The draft's identity across a reload (#304/OC#182 review). draftId is a page-local counter, so each draft gets a
- * token instead. The token of the latest draft per runtime and project is kept in sessionStorage. After a reload, the
- * first draft this page opens for that project is the same draft (its text is restored with it) and takes the token.
- * Any other draft, such as an explicit New session, gets a new token, so it never takes over the earlier draft's start.
+ * token instead. The token of the latest draft per runtime and project is kept in sessionStorage. Only the startup
+ * restore (the automatic open, `restored`) takes it back after a reload, and only once per page. Any explicit New
+ * session gets a new token, so it never takes over an earlier draft's start.
  */
 const pageTokens = new Map<string, string>(), claimed = new Set<string>();
 function draftToken(draft: NewSessionDraftState, runtimeKey: string): string {
@@ -32,7 +32,7 @@ function draftToken(draft: NewSessionDraftState, runtimeKey: string): string {
   if (known) return known;
   const slot = `oc.nativeCreation.draft:${JSON.stringify([runtimeKey, draft.directoryOverride])}`;
   let token: string | undefined;
-  try { token = claimed.has(slot) ? undefined : sessionStorage.getItem(slot) ?? undefined; } catch { /* no storage */ }
+  try { token = draft.restored && !claimed.has(slot) ? sessionStorage.getItem(slot) ?? undefined : undefined; } catch { /* no storage */ }
   token ??= crypto.randomUUID();
   try { sessionStorage.setItem(slot, token); } catch { /* no storage: the token still separates drafts in this page */ }
   claimed.add(slot); pageTokens.set(page, token);
