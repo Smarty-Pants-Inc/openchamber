@@ -65,6 +65,7 @@ import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { isHerdrEnded, isHerdrNoIdentity } from '@/lib/herdrSession';
+import { continueEndedSession } from '@/sync/native-session-resume';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -1642,7 +1643,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     </>
                 )}
                 {sessionMessageLoadState.readOnly ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)} />
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)}
+                        onContinue={currentSessionId && effectiveSessionDirectory
+                            ? () => continueEndedSession(effectiveSessionDirectory, currentSessionId) : undefined} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
