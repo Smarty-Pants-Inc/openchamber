@@ -11,10 +11,8 @@
  */
 
 export interface PwaInstallToastDecisionInput {
-  /** Persistent localStorage entry: `'true'` when the user dismissed once. */
-  readonly dismissed: string | null;
-  /** Session-scoped sessionStorage flag set the first time the toast is shown in this tab. */
-  readonly sessionShown: string | null;
+  /** Persistent localStorage entry: `'true'` once the toast was shown, dismissed, or the app installed. */
+  readonly seen: string | null;
   /** Whether the current React effect already holds a toast id. */
   readonly hasActiveToast: boolean;
 }
@@ -23,14 +21,12 @@ export interface PwaInstallToastDecisionInput {
  * Returns `true` if the PWA install prompt toast should be shown for the
  * incoming `beforeinstallprompt` event.
  *
- * The decision composes three gates (any failure short-circuits):
- *  1. Persistent dismissal wins for all future visits.
- *  2. Per-tab dedup avoids re-showing inside the same browsing session.
- *  3. Re-entrancy guard prevents stacking when the effect already owns one.
+ * The decision composes two gates (any failure short-circuits):
+ *  1. The toast shows at most once per browser (smarty-code#126 F7 (d)).
+ *  2. Re-entrancy guard prevents stacking when the effect already owns one.
  */
 export const shouldShowPwaInstallToast = (input: PwaInstallToastDecisionInput): boolean => {
-  if (input.dismissed === 'true') return false;
-  if (input.sessionShown === 'true') return false;
+  if (input.seen === 'true') return false;
   if (input.hasActiveToast) return false;
   return true;
 };
