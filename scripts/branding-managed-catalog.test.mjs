@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,20 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // smarty-code#126 (c) imports the sidebar wording into the locale outputs; it is the newest layer, so unwind it first.
+  const sidebarHerdr = historical.files.filter(entry => entry.sidebarHerdrSha256);
+  assert.deepEqual(sidebarHerdr.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
+  assert.equal(historical.sidebarHerdrSource, 'e5aff1279a1a9c13e4fabfde34be79de19c9229a');
+  delete historical.sidebarHerdrSource;
+  for (const entry of sidebarHerdr) {
+    assert.equal(entry.sidebarHerdrSha256, entry.combinedSha256);
+    assert.match(entry.preSidebarHerdrCombinedSha256, /^[a-f0-9]{64}$/);
+    assert.ok(entry.sidebarHerdrNote);
+    entry.combinedSha256 = entry.preSidebarHerdrCombinedSha256;
+    delete entry.preSidebarHerdrCombinedSha256;
+    delete entry.sidebarHerdrSha256;
+    delete entry.sidebarHerdrNote;
+  }
   // smarty-code#126 item 8 adds one copy key to the locale outputs; it is the newest layer, so unwind it first.
   const managedAdds = historical.files.filter(entry => entry.managedAddSha256);
   assert.deepEqual(managedAdds.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());

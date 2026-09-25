@@ -35,3 +35,14 @@ export function nestSharedCheckout<P extends { id: string }>(sections: readonly 
     };
   });
 }
+
+/**
+ * Herdr draws a block's other members indented under its head (smarty-code#126): the root groups split into the head's
+ * own rows and the indented children (the checkout's other, labelled workspaces, then its worktree groups). Without the
+ * managed catalog every root stays flat, as stock.
+ */
+export function splitHerdrChildren<G extends { workspaceId?: string }>(roots: readonly G[], herdr: boolean) {
+  return herdr
+    ? { heads: roots.filter((root) => !root.workspaceId), indented: roots.filter((root) => root.workspaceId) }
+    : { heads: [...roots], indented: [] as G[] };
+}
