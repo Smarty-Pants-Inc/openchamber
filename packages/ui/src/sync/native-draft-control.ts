@@ -2,7 +2,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { nativeCreatedSession, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation } from './native-draft-creation';
+import { assertManagedDraftTarget, isDetachedNativeStart, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation } from './native-draft-creation';
 import { indexNativeCreatedSession } from './session-actions';
 import { useSessionUIStore } from './session-ui-store';
 
@@ -22,7 +22,7 @@ function assertCurrent(record: Pending) {
 /** A fresh list/read can recover an operation, never launch or answer a native prompt. */
 export async function resumeNativeCreation(operation: NativeCreationState): Promise<void> {
   const { draft, runtimeKey, record } = current();
-  if (!draft.open || !draft.selectedProjectId || draft.directoryOverride !== operation.directory
+  if (isDetachedNativeStart(operation.operationId) || !draft.open || !draft.selectedProjectId || draft.directoryOverride !== operation.directory
     || record && !(record.status === 'failed' && record.submitted)) throw new NativeCreationError('stale');
   const pending: Pending = { status: 'pending', runtimeKey, draftId: draft.draftId,
     projectId: draft.selectedProjectId, directory: operation.directory, operation };
@@ -45,6 +45,7 @@ async function acceptState(record: Pending, next: NativeCreationState) {
     throw new NativeCreationError('stale');
   }
   assertCurrent(record);
+  if (isDetachedNativeStart(previous.operationId)) throw new NativeCreationError('stale'); // Left behind: never adopted.
   if (next.phase === 'ready') {
     if (!next.native) throw new NativeCreationError('unknown');
     const detail = await opencodeClient.getSession(next.native.id, record.directory);
