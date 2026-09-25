@@ -105,7 +105,8 @@ for (const homeReady of [false, true]) for (const persist of [false, true]) for 
   expect(directoriesCreated).toBe(0);
   expect(useInputStore.getState().attachedFiles).toEqual(attachments);
   if (present) {
-    expect([...c.dom.container.querySelectorAll('button')].find(b => b.textContent === 'Create native Pi session')?.disabled).toBe(false);
+    // smarty-code#126: no separate create step; Send starts the session.
+    expect([...c.dom.container.querySelectorAll('button')].some(b => /Create native/.test(b.textContent ?? ''))).toBe(false);
   }
   await act(async () => { useProjectsStore.getState().admitManagedCatalog(); await settle(); });
   expect(useSessionUIStore.getState().newSessionDraft).toEqual(after);
@@ -162,9 +163,7 @@ for (const present of [true, false]) test(`global New session uses only admitted
   expect(selectedTarget?.id ?? null).toBe(present ? 'a' : null);
   if (present) {
     expect(composerHeading()).toContain('Saved Alpha');
-    const create = [...c.dom.container.querySelectorAll('button')].find(button => button.textContent === 'Create native Pi session');
-    expect(create).toBeDefined();
-    expect(create?.disabled).toBe(false);
+    expect([...c.dom.container.querySelectorAll('button')].some(button => /Create native/.test(button.textContent ?? ''))).toBe(false);
   }
   expect(c.creates()).toHaveLength(creates);
   expect(c.prompts()).toHaveLength(0);

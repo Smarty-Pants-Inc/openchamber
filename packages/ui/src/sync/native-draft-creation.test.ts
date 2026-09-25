@@ -18,6 +18,8 @@ const draft: NewSessionDraftState = { draftId: 1, open: true, target: 'project',
 const initialUI = useSessionUIStore.getState(), initialProjects = useProjectsStore.getState();
 const initialGlobal = useGlobalSessionsStore.getState(), initialInput = useInputStore.getState();
 const health = spyOn(opencodeClient, 'supportsNativeCreation');
+// Creation asks for the mode and request-id support in one health read; it follows the same boolean here.
+const support = spyOn(opencodeClient, 'nativeCreationSupport');
 const create = spyOn(opencodeClient, 'createNativeSession');
 const legacy = spyOn(opencodeClient, 'createSession');
 const prompt = spyOn(opencodeClient, 'sendMessage');
@@ -27,6 +29,7 @@ beforeEach(() => {
   // No network or provider can escape this fixture, including incidental configuration reads.
   fetchMock.mockImplementation(async () => { throw new Error('No network allowed'); });
   health.mockResolvedValue(true); create.mockResolvedValue(session);
+  support.mockImplementation(async directory => ({ mode: await opencodeClient.supportsNativeCreation(directory) ? 'ordinary' : 'legacy', clientRequestId: false }));
   legacy.mockImplementation(async () => { throw new Error('Unexpected legacy creation'); });
   prompt.mockImplementation(async () => { throw new Error('No prompt allowed'); });
   useProjectsStore.setState({ projects: [{ id: 'p', path: directory }], activeProjectId: 'p' });
@@ -36,13 +39,13 @@ beforeEach(() => {
 afterEach(() => {
   useSessionUIStore.setState(initialUI, true); useProjectsStore.setState(initialProjects, true);
   useGlobalSessionsStore.setState(initialGlobal, true); useInputStore.setState(initialInput, true);
-  for (const mock of [health, create, legacy, prompt, fetchMock]) mock.mockReset();
+  for (const mock of [health, support, create, legacy, prompt, fetchMock]) mock.mockReset();
 });
 
 test('create-only needs no selected model, leaves the draft intact and indexes the attached native owner', async () => {
   const before = useSessionUIStore.getState().newSessionDraft, input = useInputStore.getState();
   await prepareNativeDraft();
-  expect(create).toHaveBeenCalledTimes(1); expect(create).toHaveBeenCalledWith(directory);
+  expect(create).toHaveBeenCalledTimes(1); expect(create).toHaveBeenCalledWith(directory, undefined); // No request id where the gateway does not accept one.
   expect(legacy).not.toHaveBeenCalled(); expect(prompt).not.toHaveBeenCalled();
   expect(useSessionUIStore.getState().newSessionDraft).toBe(before);
   expect(useInputStore.getState()).toBe(input);

@@ -48,21 +48,23 @@ async function render(directory: string, isVSCode = false) {
     );
     await new Promise(resolve => setTimeout(resolve, 10));
   });
-  const buttons = container.querySelectorAll('button').length;
+  const buttons = [...container.querySelectorAll('button')];
+  const shown = buttons.length === 0 ? 'hidden' : buttons[0].disabled ? `disabled: ${buttons[0].getAttribute('aria-label')}` : buttons[0].textContent;
   act(() => root.unmount());
-  return buttons;
+  return shown;
 }
 
-test('hidden until the gateway advertises session voice for the directory', async () => {
+// smarty-code#126: the call control is labelled as a call, and a session without voice says why instead of hiding it.
+test('a labelled Voice call control; disabled with a plain reason where the gateway has no session voice', async () => {
   advertised.set('/with-voice', true);
-  expect(await render('/without-voice')).toBe(0);
-  expect(await render('/with-voice')).toBe(1);
+  expect(await render('/without-voice')).toBe('disabled: Voice call. Voice calls are not available in this session.');
+  expect(await render('/with-voice')).toBe('Voice call');
   expect(asked).toEqual(['/without-voice', '/with-voice']);
 });
 
 test('hidden in VS Code without asking the gateway', async () => {
   asked.length = 0;
   advertised.set('/with-voice', true);
-  expect(await render('/with-voice', true)).toBe(0);
+  expect(await render('/with-voice', true)).toBe('hidden');
   expect(asked).toEqual([]);
 });
