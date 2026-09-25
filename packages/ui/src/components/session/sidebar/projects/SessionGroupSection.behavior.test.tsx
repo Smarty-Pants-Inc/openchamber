@@ -5,6 +5,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import type { Session } from '@opencode-ai/sdk/v2';
 import type { SessionGroupSectionProps } from './SessionGroupSection';
@@ -40,11 +41,12 @@ mock.module('../folders/sessionFolderDnd', () => ({
   SessionFolderDndScope: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+let bootstrapState: string | null = null;
 mock.module('@/sync/sync-context', () => ({
   setActiveSession: () => undefined,
   useChildStoreManager: () => ({
     subscribeBootstrap: () => () => undefined,
-    getBootstrapState: () => null,
+    getBootstrapState: () => bootstrapState,
     getBootstrapFailure: () => undefined,
     requestBootstrap: () => undefined,
   }),
@@ -221,16 +223,31 @@ describe('SessionGroupSection public behavior', () => {
     const container = window.document.createElement('div');
     window.document.body.appendChild(container);
     const root = createRoot(container as unknown as Element);
-    const original = useProjectsStore.getState();
+    const original = useProjectsStore.getState(), originalSessions = useGlobalSessionsStore.getState();
     try {
       for (const [admitted, expected] of [[true, 'No agent sessions'], [false, 'No sessions in this workspace yet.']] as const) {
         useProjectsStore.setState({ managedCatalogAdmitted: admitted });
         await act(async () => root.render(<I18nProvider><SessionGroupSection {...createProps()} /></I18nProvider>));
         expect(container.textContent).toContain(expected);
       }
+      // #126 (c)6: the managed catalog's session read already lists every workspace, so an empty one is known empty
+      // while its scope bootstrap still waits in the queue; it never shows "Loading sessions…" (fresh profile, 20 s).
+      bootstrapState = 'queued';
+      for (const [admitted, catalog, loaded, expected] of [
+        [true, 'ready', true, 'No agent sessions'],
+        [true, 'ready', false, 'Loading sessions'], // Its session read has not answered yet.
+        [false, 'stock', true, 'Loading sessions'], // Stock keeps its scope bootstrap as the authority.
+      ] as const) {
+        useProjectsStore.setState({ managedCatalogAdmitted: admitted, managedCatalogStatus: catalog });
+        useGlobalSessionsStore.setState({ hasLoaded: loaded });
+        await act(async () => root.render(<I18nProvider><SessionGroupSection {...createProps()} /></I18nProvider>));
+        expect(container.textContent).toContain(expected);
+      }
     } finally {
+      bootstrapState = null;
       await act(async () => root.unmount());
       useProjectsStore.setState(original, true);
+      useGlobalSessionsStore.setState(originalSessions, true);
       for (const [name, descriptor] of previous) {
         if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name);
       }
