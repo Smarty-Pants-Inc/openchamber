@@ -22,18 +22,20 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   // VS Code, and surfaces rendered without a runtime provider, show no voice control.
   const unsupportedRuntime = React.useContext(RuntimeAPIContext)?.runtime.isVSCode !== false;
   const [state, setState] = React.useState<ControlState>({ status: 'idle' });
-  // Usable only when the gateway advertises session voice for this directory. A known "no" shows the control
-  // disabled with its reason, so a person sees the call feature exists (smarty-code#126); unknown stays hidden.
-  const [advertised, setAdvertised] = React.useState<{ runtimeKey: string; directory: string; supported: boolean } | null>(null);
+  // Whether this session takes calls, and if not, the gateway's plain reason (smarty-code#126). A known "no" shows the
+  // control disabled with that reason, so a person sees the call feature exists; unknown stays hidden.
+  const [voice, setVoice] = React.useState<{ key: string; available: boolean; reason?: string } | null>(null);
+  const [checks, recheck] = React.useReducer((value: number) => value + 1, 0);
+  const voiceKey = JSON.stringify([getRuntimeKey(), sessionId, directory]);
   React.useEffect(() => {
     if (unsupportedRuntime || !supportsPiVoice()) return;
     let cancelled = false;
-    const runtimeKey = getRuntimeKey();
-    opencodeClient.supportsSessionVoice(directory).then(supported => {
-      if (!cancelled && getRuntimeKey() === runtimeKey) setAdvertised({ runtimeKey, directory, supported });
+    const runtimeKey = getRuntimeKey(), key = JSON.stringify([runtimeKey, sessionId, directory]);
+    opencodeClient.sessionVoiceAvailability(sessionId, directory).then(result => {
+      if (!cancelled && getRuntimeKey() === runtimeKey) setVoice({ key, ...result });
     }, () => undefined);
     return () => { cancelled = true; };
-  }, [directory, unsupportedRuntime]);
+  }, [sessionId, directory, unsupportedRuntime, checks]);
   const call = React.useRef<Call | undefined>(undefined);
   // Leaving the session or page ends its call.
   const generation = React.useRef(0);
@@ -46,9 +48,9 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); cancel(); };
   }, [sessionId, directory, cancel]);
-  if (unsupportedRuntime || !supportsPiVoice() || advertised?.directory !== directory || advertised.runtimeKey !== getRuntimeKey()) return null;
-  if (!advertised.supported) {
-    const reason = t('chat.piVoice.unavailable');
+  if (unsupportedRuntime || !supportsPiVoice() || voice?.key !== voiceKey) return null;
+  if (!voice.available && state.status !== 'active' && state.status !== 'starting') {
+    const reason = voice.reason ?? t('chat.piVoice.unavailable');
     return <span title={reason} className="inline-flex">
       <Button type="button" variant="chip" size="xs" disabled aria-label={`${t('chat.piVoice.call')}. ${reason}`}>
         <Icon name="phone" className="size-3.5" /><span>{t('chat.piVoice.call')}</span>
@@ -70,6 +72,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
         setState(next);
         if (next.status === 'ended') {
           call.current = undefined;
+          recheck(); // a call can end because the session stopped taking calls
           if (next.error) toast.error(t('chat.piVoice.ended', { reason: next.error }));
         }
       }, () => generation.current === owner);
