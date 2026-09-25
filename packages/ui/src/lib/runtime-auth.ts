@@ -290,7 +290,9 @@ const mintRuntimeUrlAuthToken = (apiBaseUrl?: string | null): Promise<string> =>
       : fetch(url, { method: 'POST', headers, credentials: 'include', signal }), signal);
     assertRuntimeRequestScope(scope);
     if (!response.ok) {
-      urlAuthRejected = response.status === 401 || response.status === 403;
+      // 409: a human-auth (Google sign-in) server never issues URL tokens; the session cookie authorizes instead.
+      // Asking again on every backoff tick only added a refused request to each load (smarty-code#126).
+      urlAuthRejected = response.status === 401 || response.status === 403 || response.status === 409;
       clearRuntimeUrlAuthToken();
       throw new Error(`Failed to mint runtime URL auth token (${response.status})`);
     }
@@ -340,7 +342,7 @@ const mintLocalRuntimeUrlAuthToken = (localOrigin: string): Promise<string> => {
     }), signal);
     if (!response.ok) {
       if (generation === localRuntimeUrlAuthGeneration && origin === localRuntimeUrlAuthRefreshOrigin) {
-        localUrlAuthRejected = response.status === 401 || response.status === 403;
+        localUrlAuthRejected = response.status === 401 || response.status === 403 || response.status === 409;
         localRuntimeUrlAuthToken = '';
         localRuntimeUrlAuthTokenExpiresAt = 0;
         localRuntimeUrlAuthOrigin = '';
