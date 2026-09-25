@@ -92,9 +92,11 @@ export function clearLastActiveSession(
   dropSessionRoute(cleared.sessionId)
 }
 
-/** The session the page shows now, when a router registered one (web only). */
-let shownSession: (() => string | null) | undefined
-export function setShownSessionProbe(probe: (() => string | null) | undefined): void { shownSession = probe }
+/** What the router knows now, when one registered (web only): whether it is still applying the page's route (a restore
+ * pending; it ignores selection changes meanwhile), and the session the page shows. */
+type RouteProbe = () => { applying: boolean; shown: string | null }
+let routeProbe: RouteProbe | undefined
+export function setShownSessionProbe(probe: RouteProbe | undefined): void { routeProbe = probe }
 
 /**
  * The address bar must not keep what the pointer no longer means (smarty-code#113): a draft action clears the pointer,
@@ -103,11 +105,14 @@ export function setShownSessionProbe(probe: (() => string | null) | undefined): 
  * with its history entry. An embedded session chat (`ocPanel`) keeps its fixed identity.
  */
 function dropSessionRoute(sessionId: string): void {
-  const win = globalThis.window
-  if (!shownSession || !win?.history?.replaceState || shownSession() === sessionId) return
+  const win = globalThis.window, router = routeProbe?.()
+  if (!router || !win?.history?.replaceState || (!router.applying && router.shown === sessionId)) return
   try {
     const url = new URL(win.location.href)
-    if (url.searchParams.has("ocPanel") || url.searchParams.get("session") !== sessionId) return
+    // While the route is still being applied the address may name an earlier choice (A, then B selected, then a draft),
+    // which the router has not synced yet: any session it names is then the cancelled restore.
+    const routed = url.searchParams.get("session")
+    if (url.searchParams.has("ocPanel") || !routed || (!router.applying && routed !== sessionId)) return
     url.searchParams.delete("session")
     win.history.replaceState(win.history.state, "", url)
   } catch { /* the address is best effort */ }

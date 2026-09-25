@@ -182,7 +182,7 @@ export function useRouter(): void {
     }
     // A cleared restore pointer drops its ?session= unless the router's own navigation will move off that session
     // (#113): while a route is still being applied, the router ignores selection changes, so the restore is pending.
-    setShownSessionProbe(() => isApplyingRouteRef.current ? null : useSessionUIStore.getState().currentSessionId);
+    setShownSessionProbe(() => ({ applying: isApplyingRouteRef.current, shown: useSessionUIStore.getState().currentSessionId }));
 
     let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId;
 

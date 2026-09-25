@@ -95,3 +95,29 @@ test('a stock route restore that already shows its session, still loading: New s
     expect(shown()).toBeNull();
   } finally { held.resolve(); load.mockRestore(); }
 });
+
+test('a pending stock route for A, then B selected, then New session and typing: no ?session= survives a reload', async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  const other = { ...session, id: '98765432-1234-4234-9234-012345678901' };
+  const held = deferred<void>();
+  const load = spyOn(globalSessions, 'ensureGlobalSessionsLoaded').mockImplementation(async () => {
+    await held.promise; return { activeSessions: [session, other], archivedSessions: [] };
+  });
+  try {
+    await act(async () => {
+      useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock', managedProjects: null, managedRows: null });
+      useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, nativeDraftCreations: new Map() });
+      window.history.replaceState(null, '', `/?session=${session.id}`);
+      await mountRouter(c);
+    });
+    await act(async () => { useSessionUIStore.getState().setCurrentSession(other.id, directory); await settle(); });
+    await act(async () => { useSessionUIStore.getState().openNewSessionDraft(); await settle(); });
+    await act(async () => { await c.replace('Unsent draft'); await settle(); });
+    // A reload now finds no session in the address and no pointer: the draft is what comes back.
+    expect(shown()).toBeNull();
+    expect(readLastActiveSession(c.runtimeA)).toBeNull();
+    await act(async () => { held.resolve(); await settle(); });
+    expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+    expect(shown()).toBeNull();
+  } finally { held.resolve(); load.mockRestore(); }
+});

@@ -69,7 +69,7 @@ describe("last active session persistence", () => {
 describe("clearing the pointer and the address bar", () => {
   const withWindow = (href: string, run: (win: Window) => void, shown: string | null = null) => {
     const win = new Window({ url: href })
-    setShownSessionProbe(() => shown)
+    setShownSessionProbe(() => ({ applying: false, shown }))
     const previous = Object.getOwnPropertyDescriptor(globalThis, "window")
     Object.defineProperty(globalThis, "window", { configurable: true, value: win })
     try { run(win) } finally {
@@ -108,7 +108,7 @@ test("leaving a session the page shows is the router's navigation: the address i
   Object.defineProperty(globalThis, "window", { configurable: true, value: win })
   try {
     for (const shown of ["ses-b", undefined]) {
-      setShownSessionProbe(shown === undefined ? undefined : () => shown)
+      setShownSessionProbe(shown === undefined ? undefined : () => ({ applying: false, shown }))
       persistLastActiveSession("runtime-a", { sessionId: "ses-b", directory: null }, storage)
       clearLastActiveSession("runtime-a", storage)
       expect(win.location.search).toBe("?session=ses-b")
