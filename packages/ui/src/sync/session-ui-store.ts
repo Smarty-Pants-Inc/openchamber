@@ -1631,6 +1631,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
           preparedChatDirectory: target.projectId === CHAT_DRAFT_PROJECT_ID ? s.newSessionDraft.preparedChatDirectory : null,
           selectedProjectId: target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId,
           directoryOverride: target.projectId === CHAT_DRAFT_PROJECT_ID ? null : target.directoryOverride ?? s.newSessionDraft.directoryOverride,
+          // An explicit target choice is not the restored draft: it never takes a saved start back (smarty-code#126).
+          restored: undefined,
         },
       }
     })

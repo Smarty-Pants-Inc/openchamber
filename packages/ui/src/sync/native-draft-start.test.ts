@@ -370,3 +370,26 @@ test('after a reload, an explicit New session first gets a fresh token and never
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
   expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });
+
+test('a restored draft retargeted by the project selector gets a fresh token and never adopts; restoring A still recovers', async () => {
+  interactive();
+  fixture.handlers.create = async request => { const sent = await request.clone().text();
+    operation = { ...operation, clientRequestId: JSON.parse(sent).clientRequestId }; throw new Error('response lost'); };
+  expect(await failure(startNativeDraft([], noWait))).toBe('unknown'); // draft A in project a
+  const saved = { ...Object.fromEntries(tab) };
+  listed = [operation];
+  // Reload into the automatic restore of a draft in project b, then choose project a in its selector.
+  resetNativeDraftPage(); useSessionUIStore.setState({ nativeDraftCreations: new Map() });
+  useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'b', directoryOverride: '/native-project-b', automatic: true });
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBe(true);
+  fixture.target('a', directory);
+  expect(useSessionUIStore.getState().newSessionDraft.restored).toBeUndefined();
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('elsewhere');
+  expect(fixture.creates()).toHaveLength(1); expect(replies()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // A itself, restored in a reload of the tab as it was, still recovers its start exactly.
+  sessionStorage.clear(); for (const [key, value] of Object.entries(saved)) sessionStorage.setItem(key, value);
+  reloadInto(true);
+  await sendOnce();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
+  expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
+});
