@@ -2,6 +2,7 @@ import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
+import { useNativeDraftStarting } from '@/sync/native-draft-start';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import { assertNativeDraftReady, isNativeDraftCurrent, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
@@ -470,9 +471,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
     const nativeModel = nativeCreation.session?.nativeCreation.model;
     const materializedSessionId = useSessionUIStore(s => s.materializedDraftSessionId);
-    const nativePending = newSessionDraftOpen && (nativeCreation.creation?.status === 'pending'
-        || nativeCreation.mode === 'ordinary' && !nativeCreation.session);
-    const nativeModelControls = nativePending || (newSessionDraftOpen && nativeCreation.mode === 'ordinary') || Boolean(nativeModel);
+    const nativeStarting = useNativeDraftStarting();
+    const nativeModelControls = (newSessionDraftOpen && (nativeCreation.creation?.status === 'pending' || nativeCreation.mode === 'ordinary'))
+        || Boolean(nativeModel);
     const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
         s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
     ));
@@ -1046,7 +1047,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;
-    const canSend = (hasContent || hasQueuedMessages) && !nativePending;
+    // Send itself starts a new draft's session (smarty-code#126); only a start already running blocks it.
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && nativeStarting);
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
@@ -1331,7 +1333,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Snapshot the draft and current-session identity before the first
         // async gap so a later sidebar selection cannot reroute the send.
         const capturedDraftSnapshot = newSessionDraftOpen ? { ...newSessionDraft } : null;
-        const inputSnapshot = options?.presetText != null
+        let inputSnapshot = options?.presetText != null
             ? {
                 message: options.presetText,
                 hasContent: options.presetText.trim().length > 0 || attachedFiles.length > 0 || hasDrafts,
@@ -1344,6 +1346,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (newSessionDraftOpen) {
             try { nativeIntent = await nativeCreation.beforeSend(); }
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }
+            // Starting the session can take a while; send the composer as it is now, so text typed meanwhile is
+            // sent (and cleared) with it rather than lost (smarty-code#126).
+            if (nativeIntent && options?.presetText == null) {
+                inputSnapshot = getCurrentInputSnapshot();
+                if (displayName && inputSnapshot.message.trimStart().startsWith('/')) {
+                    toast.error(t('chat.displayName.plainOnly')); return;
+                }
+            }
         }
         const retainNativeDraft = Boolean(nativeIntent);
         const ordinary = currentSessionId ? readOrdinaryModel(

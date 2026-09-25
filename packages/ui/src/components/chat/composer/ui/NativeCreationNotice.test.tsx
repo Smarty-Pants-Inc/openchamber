@@ -5,7 +5,8 @@ import { nativeCreationI18n } from '@/lib/i18n/messages/native-creation.i18n';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
-mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en, params: Record<string, string> = {}) => {
+const i18n = await import('@/lib/i18n');
+mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en, params: Record<string, string> = {}) => {
   const text = nativeCreationI18n.en[key] ?? key;
   return text.replace(/\{(\w+)\}/g, (_, name: string) => params[name] ?? name);
 } }) }));
@@ -13,44 +14,36 @@ mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: keyof typeof nativ
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null,
-  canCreate: true, refresh: async () => {}, describeError: () => 'Inspect w1:p2 /native-one/session.jsonl. Do not retry automatically.',
-  create: async () => {}, beforeSend: async () => undefined, operations: [], resume: async () => {}, reply: async () => {} };
+  refresh: async () => {}, cancel: async () => {}, describeError: error => nativeCreationI18n.en[`chat.nativeCreation.${(error as NativeCreationError).code}` as keyof typeof nativeCreationI18n.en],
+  beforeSend: async () => undefined, operations: [] };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);
+const failed = (code: 'unavailable' | 'unknown', submitted: boolean): ReturnType<typeof useNativeCreation> => ({ ...native,
+  creation: { status: 'failed', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', submitted, error: new NativeCreationError(code) } });
 
-test('create-only action is a separate non-submit button without a model requirement', () => {
-  const html = render();
-  expect(html).toContain('type="button"');
-  expect(html).toContain('Create native Pi session');
-  expect(html).not.toContain('disabled=""');
+// smarty-code#126: Send starts a new draft's session itself; there is no separate step to show.
+test('a ready new-session draft shows nothing extra: no create button, no jargon', () => {
+  expect(render()).toBe('');
   expect(render({ ...native, mode: 'legacy' })).toBe('');
-  expect(render({ ...native, canCreate: false })).toContain('disabled=""');
+  expect(render({ ...native, mode: 'loading' })).toBe('');
 });
 
-test('native attachment shows the returned model and original-terminal readiness, not a submit action', () => {
-  const html = render({ ...native, session: { id: '01234567-1234-4234-9234-012345678901', slug: 'native', projectID: 'p',
-    directory: '/project', title: 'Pi', version: '1', time: { created: 1, updated: 1 },
-    nativeCreation: { model: { providerID: 'native-provider', modelID: 'native-model' }, inputReady: false } } });
-  expect(html).toContain('native-provider/native-model');
-  expect(html).toContain('/code-ready');
-  expect(html).not.toContain('<button');
+test('a failed start says what happened and what to do in plain words, with one Check again action', () => {
+  for (const html of [render(failed('unavailable', false)), render(failed('unknown', true))]) {
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('Nothing was sent, and your message is still here.');
+    expect(html).toContain('Check again');
+    expect(html).not.toMatch(/native|\/code-ready|Inspect Herdr|admitted|create-only/i);
+  }
 });
 
-test('known pre-create failure exposes read-only connection recovery, while checking hides Create', () => {
-  const failure: ReturnType<typeof useNativeCreation> = { ...native, creation: { status: 'failed', runtimeKey: 'test', draftId: 1,
-    directory: '/project', projectId: 'p', submitted: false, error: new NativeCreationError('unavailable') } };
-  const html = render(failure);
-  expect(html).toContain('Check connection');
-  expect(html).not.toContain('Create native Pi session');
-  expect(html).toContain('type="button"');
-  expect(render({ ...failure, creation: { status: 'checking', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p' } })).not.toContain('<button');
+test('while the session is starting the line says so; an unreachable server says the message waits', () => {
+  expect(render({ ...native, creation: { status: 'creating', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p' } }))
+    .toContain('Starting a new session in this project');
+  expect(render({ ...native, mode: 'unavailable' })).toContain('Cannot reach the server right now');
 });
 
-test('unknown recovery details permit a status read but never a Create retry', () => {
-  const html = render({ ...native, creation: { status: 'failed', runtimeKey: 'test', draftId: 1,
-    directory: '/project', projectId: 'p', submitted: true, error: new NativeCreationError('unknown') } });
-  expect(html).toContain('role="alert"');
-  expect(html).toContain('w1:p2 /native-one/session.jsonl');
-  expect(html).toContain('Do not retry automatically');
-  expect(html).toContain('Read current creation status');
-  expect(html).not.toContain('Create native Pi session');
+test('every plain-language string avoids the old jargon', () => {
+  for (const [locale, strings] of Object.entries(nativeCreationI18n)) {
+    for (const text of Object.values(strings)) expect(`${locale}: ${text}`).not.toMatch(/native|\/code-ready|admitted|create-only|Inspect Herdr/i);
+  }
 });
