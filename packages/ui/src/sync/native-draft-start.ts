@@ -88,8 +88,8 @@ async function resolveSaved(directory: string, id: string, key: string): Promise
   const listed = await opencodeClient.listNativeCreations(directory).catch(cause => { throw new NativeCreationError('unknown', cause); });
   const match = listed.find(operation => operation.clientRequestId === id && operation.directory === directory);
   if (match && STOPPED.includes(match.phase)) { forgetRequestId(key); return 'cleared'; }
-  if (!match || match.phase === 'unavailable') throw new NativeCreationError('unknown');
-  return match;
+  if (!match) throw new NativeCreationError('unknown');
+  return match; // An 'unavailable' match is continued too: settle() re-reads it until its limit.
 }
 
 const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftId === b.draftId
@@ -174,7 +174,7 @@ async function finish(key: string, record: () => ReturnType<typeof nativeCreatio
 }
 
 async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {
-  const began = Date.now();
+  const began = Date.now(); let unreadable = false;
   const answer = (action: 'trust' | 'ready') => replyNativeCreation(action).catch(cause => { throw nativeCreationFailure(cause); });
   for (;;) {
     const now = record();
@@ -185,15 +185,16 @@ async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, w
     if (now.status === 'pending' && !now.busy) {
       const { phase, canInitialReady, native } = now.operation;
       if (STOPPED.includes(phase)) throw new NativeCreationError('stopped');
-      if (phase === 'unavailable') throw new NativeCreationError('unknown');
-      if (phase === 'awaiting-trust') { await answer('trust'); continue; }
-      if (phase === 'ready-required') {
+      // Not readable for a moment (its Pi still starting): re-read below, never answer or create (#126, 3.18 walk).
+      unreadable = now.unreadable === true || phase === 'unavailable';
+      if (!unreadable && phase === 'awaiting-trust') { await answer('trust'); continue; }
+      if (!unreadable && phase === 'ready-required') {
         if (!canInitialReady || !native) throw new NativeCreationError('notReady');
         await answer('ready'); continue;
       }
     }
-    // Still starting: the operation is re-read, never created or answered again. Send again continues it.
-    if (Date.now() - began > LIMIT_MS) throw new NativeCreationError('required');
+    // Still starting (or not readable): re-read, never created or answered again; at the limit, required (or unknown).
+    if (Date.now() - began > LIMIT_MS) throw new NativeCreationError(unreadable ? 'unknown' : 'required');
     await wait(POLL_MS);
     const later = record();
     if (later?.status === 'pending' && !later.busy) await refreshNativeCreation().catch(cause => { throw nativeCreationFailure(cause); });

@@ -32,6 +32,13 @@ export async function resumeNativeCreation(operation: NativeCreationState): Prom
 
 async function acceptState(record: Pending, next: NativeCreationState) {
   const previous = record.operation;
+  // 'unavailable' is no new state: the gateway could not read the new owner this time and the operation is unsettled
+  // (smarty-code#126, 3.18 walk). Keep the last known state, and only re-read until a real one arrives.
+  if (next.phase === 'unavailable' && next.operationId === previous.operationId && next.directory === record.directory) {
+    assertCurrent(record);
+    publishNativeCreation(record, { ...record, busy: false, error: undefined, unreadable: true });
+    return;
+  }
   if (next.operationId !== previous.operationId || next.directory !== record.directory
     || previous.generation !== null && next.generation !== previous.generation || next.revision < previous.revision
     || previous.native && (next.native?.id !== previous.native.id || next.native?.generation !== previous.native.generation)) {
@@ -50,7 +57,7 @@ async function acceptState(record: Pending, next: NativeCreationState) {
     indexNativeCreatedSession(session, record.directory, record.runtimeKey);
     publishNativeCreation(record, { runtimeKey: record.runtimeKey, draftId: record.draftId,
       projectId: record.projectId, directory: record.directory, status: 'created', session });
-  } else publishNativeCreation(record, { ...record, operation: next, busy: false, error: undefined });
+  } else publishNativeCreation(record, { ...record, operation: next, busy: false, error: undefined, unreadable: undefined });
 }
 
 async function request(record: Pending, reply?: NativeCreationReply) {
@@ -80,7 +87,7 @@ export async function refreshNativeCreation(): Promise<void> {
 
 export async function replyNativeCreation(action: NativeCreationReply['action']): Promise<void> {
   const { record } = current();
-  if (record?.status !== 'pending' || record.busy || record.error) throw new NativeCreationError('required');
+  if (record?.status !== 'pending' || record.busy || record.error || record.unreadable) throw new NativeCreationError('required');
   const state = record.operation;
   if (!state.generation || state.expiresAt <= Date.now()
     || (action === 'trust' || action === 'deny') && state.phase !== 'awaiting-trust'

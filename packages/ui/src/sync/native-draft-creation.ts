@@ -10,7 +10,9 @@ export type NativeDraftCreation = DraftTarget & (
   | { status: 'creating' | 'checking' }
   | { status: 'failed'; error: NativeCreationError; submitted: boolean }
   | { status: 'created'; session: NativeCreatedSession; inputAccepted?: true }
-  | { status: 'pending'; operation: NativeCreationState; busy?: boolean; error?: NativeCreationError }
+  | { status: 'pending'; operation: NativeCreationState; busy?: boolean; error?: NativeCreationError;
+      /** The last read answered 'unavailable' (its owner not readable yet): re-read only, never answer (#126). */
+      unreadable?: boolean }
 );
 
 export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
