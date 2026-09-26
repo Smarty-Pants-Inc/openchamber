@@ -40,6 +40,7 @@ export interface MobilePillComposerProps {
     onPrimaryAction: () => void;
     /** While a turn runs, the trailing action queues, as the expanded composer does. */
     onQueueMessage: () => void;
+    sendWhileWorking?: boolean;
     onNewSession: () => void;
     onPickLocalFiles: () => void;
     onOpenIssuePicker: () => void;
@@ -70,6 +71,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onApplySuggestion,
         onPrimaryAction,
         onQueueMessage,
+        sendWhileWorking = false,
         onNewSession,
         onPickLocalFiles,
         onOpenIssuePicker,
@@ -205,12 +207,12 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
                     onClick={showTrailingSendAction ? onQueueMessage : onNewSession}
                     disabled={newSessionDraftOpen && !showTrailingSendAction}
-                    title={t(showTrailingSendAction ? 'chat.chatInput.actions.queueMessageAria' : 'mobile.sessions.newChat')}
-                    aria-label={t(showTrailingSendAction ? 'chat.chatInput.actions.queueMessageAria' : 'mobile.sessions.newChat')}
+                    title={t(!showTrailingSendAction ? 'mobile.sessions.newChat' : sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
+                    aria-label={t(!showTrailingSendAction ? 'mobile.sessions.newChat' : sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
                 >
                     <Icon
                         name={showTrailingSendAction ? 'send-plane-2' : 'add'}
-                        className={cn(showTrailingSendAction ? cn(sendIconSizeClass, '-rotate-90') : 'h-5 w-5', 'text-current')}
+                        className={cn(showTrailingSendAction ? cn(sendIconSizeClass, !sendWhileWorking && '-rotate-90') : 'h-5 w-5', 'text-current')}
                     />
                 </button>
             </div>

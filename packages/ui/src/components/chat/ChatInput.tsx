@@ -1073,6 +1073,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
     const submitSessionIdRef = React.useRef(currentSessionId);
+    // An ordinary (Pi) session takes a message while its agent works: the server steers it into the running turn
+    // (co-steer, MVP 1 G5). So its Send never queues, steers locally or pre-reads the status; it just sends.
+    const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => Boolean(sessionId) && (
+        readOrdinaryModel(getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
+            .find(session => session.id === sessionId))
+        ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === sessionId))) !== undefined,
+    [currentDirectory, currentSessionDirectoryForSync]);
+    const sendsWhileWorking = !isBtwActive && (Boolean(displayedStopStatus?.ordinary) || isOrdinarySession(currentSessionId));
 
     const queueAdmissionInFlight = React.useRef(false);
     // Set while Send asks the server whether a session shown working is idle (followUpUnlessIdle): one at a time.
@@ -1535,7 +1543,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             if (capturedTarget) sendMessageOptions.target = capturedTarget;
             if (capturedDraftSnapshot) sendMessageOptions.draftSnapshot = capturedDraftSnapshot;
         }
-        if (delivery && sendMessageOptions) sendMessageOptions.delivery = delivery;
+        // An ordinary session is never sent a local steer: its server decides (G5).
+        if (delivery && sendMessageOptions && !ordinary) sendMessageOptions.delivery = delivery;
         if (displayName) sendMessageOptions = { ...sendMessageOptions, displayName };
         if (nativeIntent) sendMessageOptions = { ...sendMessageOptions, nativeIntent };
 
@@ -1946,6 +1955,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const handlePrimaryAction = React.useCallback(() => {
         if (followUpPreflight.current) return;
+        if (!isBtwActive && isOrdinarySession(currentSessionId)) { void handleSubmitRef.current(); return; }
         const inputSnapshot = getCurrentInputSnapshot();
         const canQueue = !isBtwActive && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
         if (followUpBehavior === 'queue' && canQueue) {
@@ -1955,7 +1965,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, followUpUnlessIdle]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, followUpUnlessIdle, isOrdinarySession]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2157,6 +2167,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         })) {
             e.preventDefault();
             if (followUpPreflight.current) return; // A Send is already checking the session; one at a time.
+            if (!isBtwActive && isOrdinarySession(currentSessionId)) { handleSubmit(); return; } // The server steers it (G5).
 
             // Queueing / steering only works when there's an existing busy
             // session (or an active auto-review run).
@@ -3340,7 +3351,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onExpand={mobileShell.expand}
                         onApplySuggestion={applyAssistSuggestion}
                         onPrimaryAction={handlePrimaryAction}
-                        onQueueMessage={() => { void handleQueueMessage(); }}
+                        onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : () => { void handleQueueMessage(); }}
+                        sendWhileWorking={sendsWhileWorking}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -3536,7 +3548,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onToggleExpandedInput={handleToggleExpandedInput}
                         onTogglePermissionAutoAccept={handlePermissionAutoAcceptToggle}
                         onPrimaryAction={handlePrimaryAction}
-                        onQueueMessage={handleQueueMessage}
+                        onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : handleQueueMessage}
+                        sendWhileWorking={sendsWhileWorking}
                         onAbort={handleAbort}
                         onStartDictation={toggleDictation}
                         onDictationInsert={handleDictationInsert}

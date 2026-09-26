@@ -1,3 +1,4 @@
+import { optimisticStatuses } from "./optimistic-status"
 import type {
   Event,
   Message,
@@ -98,6 +99,8 @@ function shouldPreserveExistingPart(previous: Part, next: Part): boolean {
 }
 
 function areSessionStatusesEqual(left: SessionStatus | undefined, right: SessionStatus): boolean {
+  // A send's optimistic status is not the server's: an equal server status still takes its place.
+  if (left && optimisticStatuses.has(left)) return false
   if (left === right) return true
   if (!left || left.type !== right.type) return false
   if (left.ordinary !== right.ordinary
