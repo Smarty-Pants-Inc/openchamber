@@ -27,3 +27,16 @@ export function trustedHumanAuthor(info: unknown) {
   const parsed = infoSchema.safeParse(info);
   return parsed.success ? parsed.data.metadata.smartyCodeHuman : undefined;
 }
+
+// A user message typed in Herdr's terminal (Pi's own input event said so). The server names the fleet owner when one is
+// configured, and omits the name otherwise (MVP 1 G4/G5).
+const terminalSchema = z.object({
+  version: z.literal(1),
+  name: z.string().min(1).max(128).refine(value => value === value.trim() && !hasForbiddenNameCharacter(value)).optional(),
+}).strict();
+const terminalInfoSchema = z.object({ metadata: z.object({ smartyCodeTerminal: terminalSchema }) });
+
+export function trustedTerminalAuthor(info: unknown) {
+  const parsed = terminalInfoSchema.safeParse(info);
+  return parsed.success ? parsed.data.metadata.smartyCodeTerminal : undefined;
+}
