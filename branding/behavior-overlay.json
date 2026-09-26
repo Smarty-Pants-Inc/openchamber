@@ -60,8 +60,11 @@
       "path": "packages/web/src/api/settings.ts",
       "brandingSha256": "d341f929be9c53ff06d06e63ba044b1d687ecd53c4b4c6392d9e50178516804f",
       "behaviorSha256": "9edd38aef35eb91cd8863b290b7da96d6dbc3f688afa78040f218fe01c9d89d0",
-      "combinedSha256": "213ac5500a98c685d54d8e26863897f58ac5ca50b2fa8802abc5bd6c652476d6",
-      "reason": "Reviewed revision/If-Match client with native Headers plus d43d0207 definite conditional-412 classification; branding reload-error label retained."
+      "combinedSha256": "a4b0e0815b6c3a52a0078accc7d5c09f1ffcb164b48aaeff0d3880fcc97eef72",
+      "reason": "Reviewed revision/If-Match client with native Headers plus d43d0207 definite conditional-412 classification; branding reload-error label retained.",
+      "preModelPrefsUnloadCombinedSha256": "213ac5500a98c685d54d8e26863897f58ac5ca50b2fa8802abc5bd6c652476d6",
+      "modelPrefsUnloadSha256": "a4b0e0815b6c3a52a0078accc7d5c09f1ffcb164b48aaeff0d3880fcc97eef72",
+      "modelPrefsUnloadNote": "A settings save may ask to outlive the page (keepalive) for the model-prefs unload flush; If-Match and the 412 classification are unchanged."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/de.ts",
@@ -466,5 +469,6 @@
   "sessionVoiceNote": "Session voice (Smarty Code #125) extends twelve managed-catalog overlaps: eleven locale outputs import and spread the pi-voice dictionary, and the web server attaches the signed-in session voice socket. Earlier fields remain historical evidence.",
   "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f",
   "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a",
-  "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38"
+  "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
+  "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8"
 }

@@ -789,7 +789,7 @@ export interface SettingsLoadResult {
 
 export interface SettingsAPI {
   load(): Promise<SettingsLoadResult>;
-  save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string }): Promise<SettingsPayload>;
+  save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string; keepalive?: boolean }): Promise<SettingsPayload>;
 
   restartOpenCode?: () => Promise<{ restarted: boolean }>;
 }
