@@ -339,6 +339,21 @@ describe('useConfigStore provider persistence', () => {
     } finally { useDirectoryStore.setState({ setDirectory: original }); }
   });
 
+  // smarty-code G13: a managed fleet of ~40 projects prewarmed each project's providers and agents one a second at
+  // load. A managed catalog loads a project's config when it is activated.
+  test('a managed catalog never prewarms the other projects\' configs', async () => {
+    const admitted = '/acceptance/A';
+    managedCatalogAdmitted = true;
+    managedProjects = [{ id: 'a', path: admitted, label: 'A' }, { id: 'b', path: '/acceptance/B', label: 'B' },
+      { id: 'c', path: '/acceptance/C', label: 'C' }];
+    selectedDirectory = admitted;
+    await useConfigStore.getState().initializeApp();
+    const before = configScopes.length;
+    await useConfigStore.getState().prewarmProjectConfigs(admitted);
+    expect(configScopes.length).toBe(before);
+    expect(configScopes.every(path => path === admitted)).toBe(true);
+  });
+
   test('managed empty catalog does not initialize or prewarm saved project scopes', async () => {
     managedCatalogAdmitted = true; selectedDirectory = '';
     await useConfigStore.getState().initializeApp();

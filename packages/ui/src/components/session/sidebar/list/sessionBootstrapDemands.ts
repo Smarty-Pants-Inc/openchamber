@@ -28,6 +28,15 @@ export function buildSessionBootstrapDemands(input: {
   collapsedGroups: ReadonlySet<string>
   currentDirectory: string | null
   currentSessionDirectory: string | null
+  /**
+   * A managed catalog (Smarty Code, G13): the sidebar's rows and statuses come from the catalog's one unscoped session
+   * and status reads, so only the selected and active project bootstrap (config, MCP, LSP, commands, session lists).
+   * Another project bootstraps when it is selected. Stock bootstraps every known and expanded directory as before.
+   * ponytail: its pending OpenCode questions and permissions are not read at load either. A managed gateway answers
+   * both with [] (Pi asks in its terminal; all 86 reads in the release-3.25 G13 HAR were []). Revisit if it forwards them.
+   * Completions and errors in another project still alert (sync-context notifySessionOutcome).
+   */
+  managed?: boolean
 }): DirectoryBootstrapDemand[] {
   const byDirectory = new Map<string, DirectoryBootstrapDemand>()
   const add = (
@@ -80,5 +89,6 @@ export function buildSessionBootstrapDemands(input: {
 
   add(input.currentDirectory, "selected", "current-directory")
   add(input.currentSessionDirectory, "selected", "selected-session")
-  return [...byDirectory.values()]
+  const demands = [...byDirectory.values()]
+  return input.managed ? demands.filter((demand) => PRIORITY_RANK[demand.priority] <= PRIORITY_RANK["active-project"]) : demands
 }
