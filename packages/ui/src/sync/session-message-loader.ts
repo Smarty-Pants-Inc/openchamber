@@ -349,6 +349,23 @@ export class SessionMessageLoader {
     })
   }
 
+  /**
+   * Replaces a session's shown history with a fresh newest page, as on a first open: the page's own cursor and
+   * completeness, older pages then load normally from there. A View only watch re-acquired after entries it missed
+   * (openchamber#278): a merged tail page would keep the old coverage and leave gaps or a branch that no longer exists.
+   */
+  replaceHistory(target: SessionMessageTarget): Promise<void> {
+    const normalized = this.normalizeTarget(target)
+    const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    if (!normalized || !entry || this.disposed) return Promise.resolve()
+    this.bumpGeneration(entry)
+    entry.inflight = null
+    entry.resetHistory = true
+    this.patchEntry(entry, { status: "idle", loadingKind: null, resolved: false, cursor: undefined, complete: false })
+    clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
+    return this.refreshTail(normalized, getInitialPageSize())
+  }
+
   getAcceptedOrdinaryView(target: SessionMessageTarget, runtimeKey: string): string | undefined {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return undefined
