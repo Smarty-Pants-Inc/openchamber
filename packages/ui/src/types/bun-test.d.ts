@@ -1,22 +1,6 @@
 // Minimal type declarations for bun:test to satisfy tsc.
 // Only the subset used by our test files is declared.
 
-// Test-local asset loaders use Bun's module API, not a blanket Bun global.
-declare module "bun" {
-  interface TestPluginBuilder {
-    onLoad(
-      options: { filter: RegExp },
-      callback: (args: { path: string }) =>
-        { contents: string; loader: "js" | "ts" } |
-        Promise<{ contents: string; loader: "js" | "ts" }>,
-    ): void;
-  }
-  export function plugin(options: {
-    name: string;
-    setup: (build: TestPluginBuilder) => void;
-  }): void;
-}
-
 declare module "bun:test" {
   export function describe(name: string, fn: () => void): void;
   export function test(name: string, fn: () => void | Promise<void>, timeoutMs?: number): void;
