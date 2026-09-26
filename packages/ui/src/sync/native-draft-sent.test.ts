@@ -34,13 +34,16 @@ const start = (phase: NativeCreationState['phase'], native = false): NativeCreat
   if (native) value.native = { id: session.id, generation: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
   return value;
 };
-function server(listed: NativeCreationState[], sent: string[], history: Promise<void> = Promise.resolve()) {
+function server(listed: NativeCreationState[], sent: string[], history: Promise<void> = Promise.resolve(), read?: NativeCreationState) {
   fixture = nativeDraftFixture();
   const inner = globalThis.fetch;
   // SAFETY: the fixture fetch takes and returns exactly what fetch does; only Bun's extra static members differ.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(new Request(input, init).url);
     if (url.pathname.endsWith('/session/creation')) return Response.json({ nativeCreations: listed });
+    // A read of one operation (the server keeps a settled start readable after it leaves the listing).
+    if (url.pathname.includes('/session/creation/')) return read ? Response.json({ nativeCreation: read })
+      : Response.json({ name: 'UnknownError', data: { message: 'unreadable' } }, { status: 503 });
     if (url.pathname.endsWith(`/session/${session.id}/message`)) {
       await history;
       return Response.json(sent.map((text, i) => ({ info: { id: `msg_${i}`, sessionID: session.id, role: 'user', time: { created: 1 } },
@@ -60,7 +63,9 @@ test('each outcome of a sent start after a closed tab: only a stopped start or i
   for (const [listed, sent, admitted, outcome, marker] of [
     [[start('awaiting-trust')], [], false, 'pending', true],
     [[start('ready', true)], [], false, 'unknown', true], // No user message yet is no proof it will never arrive.
-    [[start('expired')], [], false, 'stopped', false],
+    [[start('expired')], [], false, 'expired', false], // Stopped: named by its phase, so the person is told why.
+    [[start('denied')], [], false, 'denied', false],
+    [[start('cancelled')], [], false, 'cancelled', false],
     [[], [], false, 'unknown', true],
     [[start('unavailable')], [], false, 'unknown', true], // Not readable: unknown, so the person can still edit it.
     [[start('ready', true)], ['hello'], false, 'delivered', true], // Its text arrived: kept, admitted, for other tabs.
@@ -237,4 +242,33 @@ test('a new draft saved while the Send was held survives its late admission and 
   resetSentStartsForPage(); // A reload.
   expect(await resolve()).toBe('delivered');
   expect(readChatDraft(draft()).text).toBe('hello');
+});
+
+// #117 on 3.36 (code-controls): a start whose tab closed while it started, then expired. The server lists a settled start
+// only for 5 minutes, so 8 minutes on "check again" found nothing and said the start had not finished: the text stayed
+// locked. The mark keeps its start's operation, and a start the listing no longer shows is read directly.
+test('a start that expired after it left the listing releases its text, and says why', async () => {
+  const operationId = start('expired').operationId;
+  for (const [read, outcome, marker] of [
+    [start('expired'), 'expired', false], // Found stopped: the mark is cleared, the text is back and editable.
+    [start('starting'), 'pending', true], // Counterexample: still starting, so it stays locked.
+    [undefined, 'unknown', true], // Counterexample: not readable is no proof it stopped.
+    [{ ...start('expired'), clientRequestId: newer }, 'unknown', true], // Another request's start is no proof.
+  ] as const) {
+    server([], [], undefined, read);
+    write('hello');
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, operationId }));
+    expect(await resolve()).toBe(outcome);
+    expect(localStorage.getItem(markKey()) !== null).toBe(marker);
+    expect(readChatDraft(draft()).text).toBe('hello'); // The text is never lost.
+    expect(sentStartLocks(outcome)).toBe(outcome !== 'expired');
+    fixture!.dispose(); fixture = undefined; localStorage.clear(); resetSentStartsForPage();
+  }
+});
+
+test('the mark of an accepted start keeps its operation', () => {
+  fixture = nativeDraftFixture();
+  markSentStart(fixture.runtimeA, directory, request, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  releaseSentStart(request);
 });

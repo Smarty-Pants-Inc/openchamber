@@ -190,7 +190,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   const made = record();
   if (made?.status === 'created' && !made.session.nativeCreation.inputReady) { forgetRequestId(key); throw new NativeCreationError('notReady'); }
   // The server accepted this start with its request id: its text is sent, not a draft, until the start resolves (#117).
-  if (made?.status === 'pending' && made.operation.clientRequestId === id) { markSentStart(runtimeKey, draft.directoryOverride, id); hold(id); }
+  if (made?.status === 'pending' && made.operation.clientRequestId === id) { markSentStart(runtimeKey, draft.directoryOverride, id, made.operation.operationId); hold(id); }
   await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, id));
 }
 

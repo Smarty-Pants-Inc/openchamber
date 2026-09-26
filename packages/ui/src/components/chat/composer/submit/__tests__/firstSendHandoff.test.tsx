@@ -8,6 +8,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { resetNativeDraftPage } from '@/sync/native-draft-start';
 import { resetSentStartsForPage } from '@/sync/native-draft-sent';
+import { writeChatDraft } from '@/lib/chatDraftPersistence';
 
 // smarty-dev#856 (Release 3.34, slice 1, Kate's step 6): a first-ever New session → Send created its session, which
 // settled ready, but its first message was never sent: a catalog sample that briefly lacked the project (the fleet was
@@ -204,4 +205,42 @@ test('a first message the gateway refuses after the start keeps the gateway\'s o
   // Its own words stay (not "It is not clear whether the session started": it did start).
   expect(c.dom.container.querySelector('[role="alert"]')?.textContent ?? '').toContain('Finish original Pi dialogs and /code-ready first.');
   void server;
+});
+
+// #117 on 3.36 (code-controls, #114): a start whose tab was closed while it started, then expired. On the next page,
+// after the server stopped listing the settled start (5 min), "check again" said it had not finished starting and the
+// text stayed locked. The page's mark keeps its start's operation, so the next page reads it: expired.
+test('a start whose tab closed while starting, then expired: the next page gives the text back and says why', async () => {
+  let server!: ReturnType<typeof interactiveServer>;
+  const c = mounted = await mountedNativeComposer(true, undefined, undefined, undefined, fixture => { server = interactiveServer(fixture); });
+  await managed();
+  const served = globalThis.fetch;
+  let closed = false;
+  // The start stays at its trust step until the tab closes; afterwards it expired, and the server no longer lists it
+  // (a settled start leaves the listing after 5 min), while a read of the operation still says so.
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(new Request(input, init).url).pathname;
+    if (!closed) return path.endsWith('/reply') ? new Promise<Response>(() => {}) : served(input, init);
+    if (path.endsWith('/session/creation')) return Response.json({ nativeCreations: [] });
+    if (path.endsWith(`/session/creation/${operationId}`)) return Response.json({ nativeCreation: { ...server.operation!, phase: 'expired' } });
+    return served(input, init);
+  }) as typeof fetch;
+  await c.replace('Closed tab text'); await c.submit();
+  for (let i = 0; i < 10; i++) await settle();
+  const sentKey = `oc.nativeCreation.sent:${JSON.stringify([c.runtimeA, directory])}`;
+  expect(JSON.parse(localStorage.getItem(sentKey)!).operationId).toBe(operationId); // The page's mark knows its start.
+  // The tab closes (its locks and Send attempt end; the mark and the draft it saved stay), and the page loads again.
+  closed = true;
+  // A new tab has its own session storage: the closed tab's own request id went with it.
+  await act(async () => {
+    sessionStorage.clear(); resetNativeDraftPage(); resetSentStartsForPage();
+    useSessionUIStore.setState({ nativeDraftCreations: new Map() }); // A new page has none of the closed one's memory.
+  });
+  writeChatDraft({ runtimeKey: c.runtimeA, directory, sessionId: null }, 'Closed tab text', []);
+  await act(async () => { c.remount(); });
+  for (let i = 0; i < 20; i++) await settle();
+  expect(c.dom.container.querySelector('[role="alert"]')?.textContent ?? '').toContain('its session start expired'); // Why.
+  expect(c.text()).toBe('Closed tab text'); // The text is back...
+  expect(localStorage.getItem(sentKey)).toBeNull(); // ...and no longer locked as sent.
+  globalThis.fetch = served;
 });

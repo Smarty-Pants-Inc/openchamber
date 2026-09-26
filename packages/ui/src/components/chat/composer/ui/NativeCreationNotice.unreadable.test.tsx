@@ -57,7 +57,7 @@ test('text another tab sent (#117) is shown with what became of it, never as an 
   const root = createRoot(host);
   useSessionUIStore.setState(state => ({ newSessionDraft: { ...state.newSessionDraft, open: true, directoryOverride: '/project' } }));
   try {
-    for (const [outcome, key] of [['pending', 'sentPending'], ['unknown', 'sentKeep'], ['stopped', 'sentStopped']] as const) {
+    for (const [outcome, key] of [['pending', 'sentPending'], ['unknown', 'sentKeep'], ['expired', 'sentExpired'], ['denied', 'sentDenied'], ['cancelled', 'sentCancelled']] as const) {
       await act(async () => root.render(<NativeCreationNotice native={{ ...native(false), creation: null }} draftOpen sent={outcome} />));
       expect(host.textContent).toContain(nativeCreationI18n.en[`chat.nativeCreation.${key}`]);
       if (outcome === 'pending') expect(host.textContent).toContain('Check again');

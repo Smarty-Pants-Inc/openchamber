@@ -1,9 +1,13 @@
 import React from 'react';
 import { consumeChatDraft, createChatDraftIdentity, readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { opencodeClient } from '@/lib/opencode/client';
+import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { z } from 'zod';
 
 const markerSchema = z.object({ clientRequestId: z.string().min(1), admitted: z.literal(true).optional(),
+  // Its start's operation: read directly once the listing no longer shows it (a settled start leaves the listing after
+  // 5 min), so a start that expired is found stopped, never left 'unknown' (#117, code-controls on 3.36).
+  operationId: z.string().optional(),
   text: z.string().optional(), at: z.number().optional(),
   // The text a Send submitted and when, recorded before its prompt POST: a lost reply's recovery settles exactly that
   // submission, never a draft set after it (#220).
@@ -18,15 +22,19 @@ const markerSchema = z.object({ clientRequestId: z.string().min(1), admitted: z.
  * - An admitted (or found delivered) Send keeps the mark, flagged admitted with its text, for ADMITTED_MS: every tab
  *   that holds a live copy consumes that text through its own draft generation before it unlocks. Nothing but a
  *   stopped start removes a mark early.
- * - Only a stopped start (expired, denied, cancelled) proves the text was not sent: it is restored as unsent. Anything
+ * - Only a stopped start (expired, denied, cancelled) proves the text was not sent: it is restored as unsent, and the
+ *   outcome names why. Anything
  *   else not proven (no user message yet, no live sender, not readable) is unknown: read-only until the person
  *   explicitly edits it as an unsent message.
  */
-export type SentStartOutcome = 'resolving' | 'pending' | 'unknown' | 'stopped';
+/** A stopped start's outcome is its phase, so the person is told why (it expired, was declined or was cancelled). */
+export type SentStartStopped = 'expired' | 'denied' | 'cancelled';
+export type SentStartOutcome = 'resolving' | 'pending' | 'unknown' | SentStartStopped;
 type Marker = z.infer<typeof markerSchema>;
 type Resolved = SentStartOutcome | 'delivered' | null;
 
-const STOPPED = ['denied', 'cancelled', 'expired'];
+const STOPPED: readonly string[] = ['denied', 'cancelled', 'expired'] satisfies SentStartStopped[];
+export const isSentStartStopped = (outcome: unknown): outcome is SentStartStopped => STOPPED.includes(outcome as string);
 const slot = (runtimeKey: string, directory: string) => JSON.stringify([runtimeKey, directory]);
 const storageKey = (runtimeKey: string, directory: string) => `oc.nativeCreation.sent:${slot(runtimeKey, directory)}`;
 const lockName = (id: string) => `oc.nativeCreation.sending:${id}`;
@@ -75,9 +83,9 @@ export function releaseSentStart(clientRequestId: string | undefined): void {
 }
 
 /** The start for this Send was accepted: its text is sent, not an ordinary draft, until the start resolves. */
-export function markSentStart(runtimeKey: string, directory: string, clientRequestId: string): boolean {
+export function markSentStart(runtimeKey: string, directory: string, clientRequestId: string, operationId?: string): boolean {
   holdSentStart(clientRequestId);
-  return writeMarker(runtimeKey, directory, { clientRequestId });
+  return writeMarker(runtimeKey, directory, operationId ? { clientRequestId, operationId } : { clientRequestId });
 }
 
 /**
@@ -169,7 +177,7 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   const superseded = () => JSON.stringify(readMarker(runtimeKey, directory) ?? null) !== JSON.stringify(marker ?? null);
   const settle = (outcome: Resolved): Resolved => {
     if (superseded()) return outcomes.get(key) ?? null;
-    if (marker && outcome === 'stopped') writeMarker(runtimeKey, directory, null);
+    if (marker && isSentStartStopped(outcome)) writeMarker(runtimeKey, directory, null);
     if (outcome && outcome !== 'delivered') outcomes.set(key, outcome); else outcomes.delete(key);
     notify();
     return outcome;
@@ -197,8 +205,14 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
     .then(state => (state.held ?? []).some(lock => lock.name === lockName(id)), () => false);
   if (live) return settle('pending');
   const listed = await opencodeClient.listNativeCreations(directory).catch(() => undefined);
-  const start = listed?.find(operation => operation.clientRequestId === id && operation.directory === directory);
-  if (start && STOPPED.includes(start.phase)) return settle('stopped');
+  const own = (operation: NativeCreationState | undefined) => operation?.clientRequestId === id && operation.directory === directory;
+  let start = listed?.find(own);
+  // Settled starts leave the listing after a while: read its own operation, when the mark knows it.
+  if (!start && marker.operationId) {
+    const read = await opencodeClient.readNativeCreation(directory, marker.operationId).catch(() => undefined);
+    if (own(read)) start = read;
+  }
+  if (start && isSentStartStopped(start.phase)) return settle(start.phase);
   // Still starting: pending. Not readable ('unavailable'), not listed, or no user message: unknown.
   if (start && start.phase !== 'ready' && start.phase !== 'unavailable') return settle('pending');
   const history = start?.native ? await opencodeClient.getSessionMessages(start.native.id, 20, directory).catch(() => undefined) : undefined;
