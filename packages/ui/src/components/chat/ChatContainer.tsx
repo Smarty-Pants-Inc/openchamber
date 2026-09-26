@@ -80,6 +80,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
+import { useViewOnlyWatch } from '@/sync/view-only-watch';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -813,6 +814,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         currentSessionId ?? '',
         effectiveSessionDirectory,
     );
+    // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455).
+    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true);
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
 
     React.useEffect(() => {
