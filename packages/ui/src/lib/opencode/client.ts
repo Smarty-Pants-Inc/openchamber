@@ -2227,11 +2227,13 @@ class OpencodeService {
   // Both roots must describe the same server response, including on desktop.
   // Failure is distinct from an older server omitting chatsRoot.
   async getFilesystemHomeInfo(): Promise<z.infer<typeof fsHomeResponseSchema>> {
+    // Bounded like other reads: discovery waits for this before it publishes, so a hung read must end (smarty-code#113).
     const response = await runtimeFetch(`${this.baseUrl}/fs/home`, {
       method: 'GET',
       headers: {
         Accept: 'application/json'
-      }
+      },
+      signal: AbortSignal.timeout(OPENCODE_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve the chats root (${response.status})`);

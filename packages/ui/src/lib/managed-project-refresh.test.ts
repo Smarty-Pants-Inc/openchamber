@@ -323,3 +323,18 @@ test('a slow read whose catalog changed mid-read retries in the background and p
     expect(sessionReads).toBe(2);
   } finally { setCatalogReadLimitsForTest(30_000, 30_000); }
 });
+
+test('a read that never answers (the SDK bound) keeps Loading and tries again; its later answer publishes', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    projectRead = async () => { reads++; if (reads <= 3) throw new Error('OpenCode request timed out after 120000ms'); return { response: response(), data: [row] }; };
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});

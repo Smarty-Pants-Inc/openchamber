@@ -51,7 +51,8 @@ function retryWhileUnavailable(scope: ReturnType<typeof captureRuntimeRequestSco
   retryAttempt++;
   retryTimer = setTimeout(() => {
     retryTimer = undefined; retryScope = undefined;
-    if (!isRuntimeRequestScopeCurrent(scope) || useProjectsStore.getState().managedCatalogStatus !== 'unavailable') { retryAttempt = 0; return; }
+    const status = useProjectsStore.getState().managedCatalogStatus;
+    if (!isRuntimeRequestScopeCurrent(scope) || (status !== 'unavailable' && status !== 'unknown')) { retryAttempt = 0; return; }
     // A slow sample is still running: wait for its answer rather than supersede it.
     if (slowSampleCurrent()) { retryWhileUnavailable(scope); return; }
     void refreshManagedProjects(true);
@@ -140,6 +141,13 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
   };
   const failed = (error: unknown) => {
     if (!current()) return;
+    // A read that never answered (the SDK's bound for a half-open connection) is not an error answer: the first
+    // discovery stays 'Loading projects…' and tries again; a later refresh keeps what it has and tries again.
+    if (error instanceof Error && /request timed out/.test(error.message)) {
+      console.warn('[managed-catalog] no answer yet; trying again:', error.message);
+      retryWhileUnavailable(scope);
+      return;
+    }
     // The banner alone does not say which read or check failed (R3.5 live leg); name it for diagnosis.
     console.warn('[managed-catalog] refresh failed:', error instanceof Error ? error.message : String(error));
     useProjectsStore.setState({ managedCatalogStatus: 'unavailable' });
