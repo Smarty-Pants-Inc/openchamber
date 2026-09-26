@@ -1,4 +1,4 @@
-import { isUnsaved, reconciledMetadata } from "./unsaved"
+import { keepSavedState } from "./unsaved"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { mergeMessages } from "./optimistic"
 import type { SessionMaterializationReason } from "./event-reducer"
@@ -284,8 +284,7 @@ export function materializeSessionSnapshots(
     ) continue
     if (reconciledCurrentMessages === currentMessages) reconciledCurrentMessages = [...currentMessages]
     // A stopped reply takes the page's completion fields, but keeps the shown save state unless the page may change it.
-    reconciledCurrentMessages[index] = isUnsaved(existing) === isUnsaved(incoming) || reconciledMetadata(existing, incoming).adopt
-      ? incoming : { ...incoming, metadata: (existing as { metadata?: unknown }).metadata } as typeof incoming
+    reconciledCurrentMessages[index] = keepSavedState(existing, incoming)
   }
   const messages = mergeMessages(reconciledCurrentMessages, nextMessages)
   const messagesChanged = messages !== currentMessages || (existingMessages === undefined && snapshots.length === 0)
