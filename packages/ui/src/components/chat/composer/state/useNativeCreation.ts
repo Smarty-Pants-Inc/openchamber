@@ -12,12 +12,9 @@ import { startNativeDraft } from '@/sync/native-draft-start';
 import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
 import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import { discoveryAnswered, discoveryPendingFor } from '@/lib/managed-discovery';
 
-/**
- * Whether project discovery has not answered yet (smarty-code MVP 1 G13): still unknown, or unavailable while it retries
- * before it ever published projects or found a stock server. Then nothing is checked against the home fallback.
- */
-export const discoveryPendingFor = (status: string, answered: boolean) => status === 'unknown' || (status === 'unavailable' && !answered);
+export { discoveryPendingFor } from '@/lib/managed-discovery';
 
 type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[] };
 
@@ -35,7 +32,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   // again when the catalog publishes instead of leaving the draft unavailable (smarty-code#113).
   // Nor check before discovery answers at all: the directory in hand (the home fallback) may not be admitted either.
   const catalogStatus = useProjectsStore(s => s.managedCatalogStatus);
-  const answered = useProjectsStore(s => s.managedCatalogStatus === 'stock' || s.managedRows !== null);
+  const answered = useProjectsStore(discoveryAnswered);
   const discoveryPending = discoveryPendingFor(catalogStatus, answered) && !isVSCodeRuntime(getRegisteredRuntimeAPIs());
   React.useEffect(() => {
     if (!draft.open || !directory || discoveryPending) return;

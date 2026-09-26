@@ -23,9 +23,9 @@ class SlowRefresh extends Error {
 let revision = 0;
 let pending: Promise<void> | undefined;
 let pendingScope: ReturnType<typeof captureRuntimeRequestScope> | undefined;
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined, retryScope: ReturnType<typeof captureRuntimeRequestScope> | undefined;
 let retryAttempt = 0;
-const stopRetrying = () => { clearTimeout(retryTimer); retryTimer = undefined; retryAttempt = 0; };
+const stopRetrying = () => { clearTimeout(retryTimer); retryTimer = undefined; retryScope = undefined; retryAttempt = 0; };
 
 /**
  * An unavailable catalog is retried on its own, with backoff, until a sample answers (smarty-code MVP 1 G13): before,
@@ -33,11 +33,14 @@ const stopRetrying = () => { clearTimeout(retryTimer); retryTimer = undefined; r
  * change or an answered sample stops it. Never writes settings.
  */
 function retryWhileUnavailable(scope: ReturnType<typeof captureRuntimeRequestScope>) {
-  if (retryTimer) return;
+  // One timer, for the current scope: a timer left from an older runtime or auth scope is replaced, not trusted.
+  if (retryTimer && retryScope !== undefined && isRuntimeRequestScopeCurrent(retryScope)) return;
+  if (retryTimer) stopRetrying();
+  retryScope = scope;
   const delay = UNAVAILABLE_RETRY_DELAYS_MS[Math.min(retryAttempt, UNAVAILABLE_RETRY_DELAYS_MS.length - 1)];
   retryAttempt++;
   retryTimer = setTimeout(() => {
-    retryTimer = undefined;
+    retryTimer = undefined; retryScope = undefined;
     if (!isRuntimeRequestScopeCurrent(scope) || useProjectsStore.getState().managedCatalogStatus !== 'unavailable') { retryAttempt = 0; return; }
     void refreshManagedProjects(true);
   }, delay);

@@ -1048,7 +1048,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;
     // Send itself starts a new draft's session (smarty-code#126); only a start already running blocks it.
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && nativeStarting);
+    // A new-session draft cannot be sent until its project is known (G13: discovery still answering).
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering'));
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));

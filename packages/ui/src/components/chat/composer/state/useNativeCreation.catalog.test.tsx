@@ -67,3 +67,10 @@ test('discoveryPendingFor: unknown, or unavailable before any answer; never afte
   expect(discoveryPendingFor('ready', true)).toBe(false);
   expect(discoveryPendingFor('stock', true)).toBe(false);
 });
+
+test('discovery counts as answered after a stock answer too, even when a later refresh is unavailable (G13)', async () => {
+  const { discoveryAnswered } = await import('@/lib/managed-discovery');
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: true, managedRows: null })).toBe(true);
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: [] })).toBe(true);
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: null })).toBe(false);
+});

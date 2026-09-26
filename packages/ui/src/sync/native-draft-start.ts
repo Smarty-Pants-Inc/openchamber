@@ -5,6 +5,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation } from './native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
+import { discoveryPendingNow } from '@/lib/managed-discovery';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
 /** Phases known to have started nothing that could take this message. */
@@ -105,6 +106,9 @@ const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftI
 export async function startNativeDraft(operations: readonly NativeCreationState[], wait = (ms: number) =>
   new Promise<void>(done => setTimeout(done, ms))): Promise<void> {
   if (running) throw new NativeCreationError('sending');
+  // Projects not discovered yet (G13): the draft's directory may be the home fallback, so nothing starts; Send says
+  // to wait for the project, and the message stays.
+  if (discoveryPendingNow()) throw new NativeCreationError('target');
   setRunning(true);
   try { await drive(operations, wait); } finally { setRunning(false); }
 }

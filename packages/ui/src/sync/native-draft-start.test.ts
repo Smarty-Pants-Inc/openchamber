@@ -404,3 +404,16 @@ test('a restored draft retargeted by the project selector gets a fresh token and
   expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
   expect(replies().map(request => new URL(request.url).pathname.split('/').at(-2))).toEqual([operationId, operationId]);
 });
+
+// smarty-code MVP 1 G13: while project discovery has not answered (unavailable before any answer, retrying), the
+// draft's directory may be the home fallback, so Send starts nothing there and the message stays.
+test('Send while projects are still being discovered starts no session and sends nothing', async () => {
+  interactive();
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.setState({ managedCatalogStatus: 'unavailable', managedRows: null, managedCatalogStockConfirmed: false });
+  expect(await failure(startNativeDraft(listed, noWait))).toBe('target');
+  expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  // Once discovery has answered (here: a stock server), the same draft can start as before.
+  useProjectsStore.setState({ managedCatalogStatus: 'stock' });
+  expect(await failure(startNativeDraft(listed, noWait))).not.toBe('target');
+});

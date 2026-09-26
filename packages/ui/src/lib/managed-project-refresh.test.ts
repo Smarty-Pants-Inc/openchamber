@@ -226,3 +226,17 @@ test('an unavailable catalog retries on its own and publishes once the server an
     expect(reads).toBe(stopped);
   } finally { UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
 });
+
+test('a retry timer from an older auth scope does not block the current scope\'s retry (no endpoint event)', async () => {
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 200, 200);
+  try {
+    let failing = true;
+    projectRead = async () => failing ? { response: response(true, 503), data: [] } : { response: response(), data: [row] };
+    await refreshManagedProjects(true); // Old scope fails: a retry is scheduled for it.
+    generation++; // Renewed auth: a new scope, with no endpoint-change event.
+    await refreshManagedProjects(true); // New scope fails too: its own retry must replace the old timer.
+    failing = false;
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    expect(status).toBe('ready');
+  } finally { UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
