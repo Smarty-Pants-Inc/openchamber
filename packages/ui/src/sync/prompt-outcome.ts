@@ -1,6 +1,6 @@
 import { toast } from '@/components/ui'
 import { formatMessage, useI18nStore } from '@/lib/i18n'
-import { useNotificationStore } from './notification-store'
+import { useSteerOutcomes } from './steer-outcomes'
 import { takePendingSteer } from './pending-steers'
 import { getRuntimeKey } from '@/lib/runtime-switch'
 import { getImperativeSessionMessageLoader } from './session-message-loader'
@@ -33,8 +33,9 @@ export function applyPromptOutcome(properties: unknown, runtimeKey: string): voi
   }
   const key = props.outcome === 'not-delivered' ? 'chat.coSteer.notDelivered' : 'chat.coSteer.unconfirmed'
   const words = formatMessage(useI18nStore.getState().dictionary, key, { text: pending.text })
-  useNotificationStore.getState().append({ type: 'error', session: pending.sessionID, directory: pending.directory,
-    time: Date.now(), viewed: true, error: { name: null, message: words } })
+  // It stays in the chat, with its text, until its sender dismisses it; the toast is only the first sign.
+  useSteerOutcomes.getState().add({ runtimeKey, sessionID: pending.sessionID, messageID: pending.messageID,
+    outcome: props.outcome as 'not-delivered' | 'unconfirmed', text: pending.text, at: Date.now() })
   toast.error(words)
   // After the current event batch publishes: a batch that already copied the store would otherwise restore it.
   queueMicrotask(() => { if (current()) loader!.optimisticRemove(pending) })

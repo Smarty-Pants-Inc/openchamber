@@ -4,7 +4,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { toast } from "@/components/ui"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { ChildStoreManager } from "../child-store"
-import { useNotificationStore } from "../notification-store"
+import { reloadSteerOutcomesForTest, useSteerOutcomes } from "../steer-outcomes"
 import { registerPendingSteer, reloadPendingSteersForTest, takePendingSteer } from "../pending-steers"
 import { SessionMessageLoader, setImperativeSessionMessageLoader } from "../session-message-loader"
 import { createEventRoutingIndex, handleEvent } from "../sync-context"
@@ -33,7 +33,7 @@ beforeEach(() => {
   children = new ChildStoreManager()
   children.ensureChild(directory, { bootstrap: false }).setState({ session: [{ id: sessionID, directory } as never] })
   newLoader()
-  useNotificationStore.setState({ list: [] } as never)
+  reloadSteerOutcomesForTest()
   toasts.length = 0
   spyOn(toast, "error").mockImplementation(message => { toasts.push(String(message)); return "toast" })
 })
@@ -52,8 +52,7 @@ const deliver = async (messageID: string, outcome: string) => {
   await Promise.resolve()
 }
 const shown = () => (children.getChild(directory)?.getState().message[sessionID] ?? []).map(message => message.id)
-const notices = () => (useNotificationStore.getState() as unknown as { list: Array<{ error?: { message: string } }> }).list
-  .map(notice => notice.error?.message)
+const notices = () => useSteerOutcomes.getState().items.map(item => `${item.outcome}: ${item.text}`)
 
 test("not delivered: the sender's copy goes and the sender is told, with the text to send again", async () => {
   sent("msg_kate", "draft a marketing plan")
@@ -62,7 +61,7 @@ test("not delivered: the sender's copy goes and the sender is told, with the tex
   expect(toasts).toHaveLength(1)
   expect(toasts[0].startsWith("Not delivered:")).toBe(true)
   expect(toasts[0]).toContain("draft a marketing plan")
-  expect(notices()).toContain(toasts[0])
+  expect(notices()).toEqual(["not-delivered: draft a marketing plan"])
   expect(takePendingSteer(getRuntimeKey(), sessionID, "msg_kate")).toBeUndefined()
 })
 
