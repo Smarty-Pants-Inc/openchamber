@@ -61,7 +61,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, now } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -82,6 +82,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
     abortHoldMs: 50,
   };
   if (retryDelayMs) options.retryDelayMs = retryDelayMs;
+  if (now) options.now = now;
   const runtime = createMessageQueueRuntime(options);
   runtimes.push(runtime);
   return {
@@ -95,8 +96,16 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   };
 };
 
-const settle = async (ms = 30) => {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+// No wall-clock sleeps (they raced the dispatch chain under a loaded parallel run). `until` waits for the state it
+// asserts. `turn` lets an armed zero-delay dispatch (dispatchQuietMs: 0) run first: timers fire in arming order.
+// `pass` waits for a dispatch pass to have read the session status, then for the runtime's writes to settle.
+const until = (assertion) => vi.waitFor(assertion, { timeout: 10_000, interval: 2 });
+const turn = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); await new Promise((resolve) => setImmediate(resolve)); };
+const reads = (openCode, route) => openCode.fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname.endsWith(route)).length;
+const pass = async ({ runtime, openCode }, route = '/session/status', before = 0) => {
+  await until(() => expect(reads(openCode, route)).toBeGreaterThan(before));
+  await turn();
+  await runtime.flush();
 };
 
 describe('parseQueuedItemInput', () => {
@@ -148,7 +157,7 @@ describe('message queue runtime', () => {
 
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first' }));
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'second', text: 'second' }));
-    await settle();
+    await pass({ runtime, openCode }); // A dispatch pass saw the busy session.
     expect(openCode.state.sent).toHaveLength(0);
 
     openCode.state.statuses = {};
@@ -182,57 +191,66 @@ describe('message queue runtime', () => {
     runtime.start();
     openCode.state.tail = [{ info: { role: 'assistant', time: { created: 1 } } }];
     await runtime.enqueue(SESSION, DIRECTORY, item());
+    const before = reads(openCode, '/message');
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await pass({ runtime, openCode }, '/message', before); // The pass read the running tail.
     expect(openCode.state.sent).toHaveLength(0);
 
     // The reply completes: that alone drains the queue (a missed idle event
     // must not strand it).
     openCode.state.tail = [{ info: { role: 'assistant', time: { created: 1, completed: 2 } } }];
     emit({ type: 'message.updated', properties: { info: { role: 'assistant', sessionID: SESSION, time: { created: 1, completed: 2 } } } });
-    await settle();
-    expect(openCode.state.sent).toHaveLength(1);
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
   });
 
   it('treats an unreachable OpenCode as unknown, not idle', async () => {
-    const { runtime, openCode, emit } = createRuntime({ retryDelayMs: () => 10 });
+    const { runtime, openCode, emit } = createRuntime({ retryDelayMs: () => 1 });
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item());
+    const start = openCode.fetchImpl.mock.calls.length;
     openCode.state.failNext = /\/session\/status$/;
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle(5);
-    expect(openCode.state.sent).toHaveLength(0);
-    // Retried after the status fetch recovers.
-    await settle(40);
-    expect(openCode.state.sent).toHaveLength(1);
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
+    // The failed status read was not taken as idle: the prompt went out only after a later status read succeeded.
+    const routes = openCode.fetchImpl.mock.calls.slice(start).map(([url, init]) => `${init?.method ?? 'GET'} ${new URL(url).pathname}`);
+    const failed = routes.indexOf('GET /session/status'), posted = routes.indexOf(`POST /session/${SESSION}/prompt_async`);
+    expect(failed).toBeGreaterThanOrEqual(0);
+    expect(routes.slice(failed + 1, posted)).toContain('GET /session/status');
   });
 
   it('keeps a POST failure unknown without retrying', async () => {
-    const { runtime, openCode, emit, broadcasts } = createRuntime({ retryDelayMs: () => 20 });
+    const { runtime, openCode, emit, broadcasts } = createRuntime({ retryDelayMs: () => 1 });
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item());
     openCode.state.failNext = /prompt_async$/;
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle(10);
+    await until(() => expect(runtime.sessionSnapshot(SESSION).items[0]?.state).toBe('unknown'));
+    await runtime.flush();
     expect(openCode.state.sent).toHaveLength(0);
     expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
     expect(runtime.sessionSnapshot(SESSION).sendingId).toBeNull();
     expect(broadcasts.at(-1).properties.session.sendingId).toBeNull();
-    await settle(40);
+    // Without retrying: another idle arms nothing for an unknown head, so exactly the one POST was ever made.
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+    await turn();
+    expect(reads(openCode, '/prompt_async')).toBe(1);
     expect(openCode.state.sent).toHaveLength(0);
     expect(runtime.sessionSnapshot(SESSION).items[0].state).toBe('unknown');
   });
 
   it('holds delivery briefly after a user abort', async () => {
-    const { runtime, openCode, emit } = createRuntime();
+    // The runtime's own clock (abortHoldMs is 50 here): the hold ends when the clock says so, not when a sleep ends.
+    let clock = 1_000;
+    const { runtime, openCode, emit } = createRuntime({ now: () => clock });
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item());
     emit({ type: 'message.updated', properties: { info: { role: 'assistant', sessionID: SESSION, error: { name: 'MessageAbortedError' } } } });
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle(10);
+    await turn(); // The pass saw the hold and re-armed itself.
     expect(openCode.state.sent).toHaveLength(0);
-    await settle(80);
-    expect(openCode.state.sent).toHaveLength(1);
+    expect(reads(openCode, '/session/status')).toBe(0);
+    clock += 60;
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
   });
 
   it('honors a hold until it is released', async () => {
@@ -241,12 +259,11 @@ describe('message queue runtime', () => {
     await runtime.enqueue(SESSION, DIRECTORY, item());
     runtime.setHold(SESSION, true, 60_000);
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await turn(); // The armed pass ran and stopped at the hold.
     expect(openCode.state.sent).toHaveLength(0);
 
     runtime.setHold(SESSION, false);
-    await settle();
-    expect(openCode.state.sent).toHaveLength(1);
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
   });
 
   it('survives a restart and delivers once OpenCode reconnects', async () => {
@@ -263,8 +280,7 @@ describe('message queue runtime', () => {
     await second.runtime.load();
     expect(second.runtime.sessionSnapshot(SESSION).items.map((entry) => entry.content)).toEqual(['persisted']);
     second.connect();
-    await settle();
-    expect(second.openCode.state.sent).toHaveLength(1);
+    await until(() => expect(second.openCode.state.sent).toHaveLength(1));
     expect(second.openCode.state.sent[0].body.parts).toEqual([{ type: 'text', text: 'persisted' }]);
   });
 
@@ -287,8 +303,7 @@ describe('message queue runtime', () => {
       : original(url, init));
     const { itemId } = await runtime.enqueue(SESSION, DIRECTORY, item());
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
-    expect(runtime.sessionSnapshot(SESSION).sendingId).toBe(itemId);
+    await until(() => { expect(release).toBeDefined(); expect(runtime.sessionSnapshot(SESSION).sendingId).toBe(itemId); });
 
     await expect(runtime.remove(SESSION, itemId)).rejects.toMatchObject({ status: 409 });
     await expect(runtime.take(SESSION, itemId)).rejects.toMatchObject({ status: 409 });
@@ -297,8 +312,7 @@ describe('message queue runtime', () => {
     expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
 
     release();
-    await settle();
-    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
+    await until(() => expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0));
   });
 
   it('take hands back the full payload and retains a non-sendable recovery copy', async () => {
@@ -331,10 +345,9 @@ describe('message queue runtime', () => {
     await runtime.enqueue(SESSION, DIRECTORY, item());
     openCode.state.statuses = {};
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(runtime.snapshot().sessions).toEqual([]));
 
     expect(openCode.state.sent).toHaveLength(1);
-    expect(runtime.snapshot().sessions).toEqual([]);
     expect(broadcasts.at(-1).properties.session).toEqual({ sessionId: SESSION, directory: DIRECTORY, items: [], sendingId: null });
   });
 
@@ -367,7 +380,7 @@ describe('message queue runtime', () => {
     openCode.state.commands = [{ name: 'review' }];
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: '/review src', text: '/review src', sendConfig: { providerID: 'p', modelID: 'm', agent: 'build', variant: 'max' } }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
     expect(openCode.state.sent).toHaveLength(1);
     expect(openCode.state.sent[0].path).toBe(`/session/${SESSION}/command`);
     expect(openCode.state.sent[0].body).toEqual({ command: 'review', arguments: 'src', model: 'p/m', agent: 'build', variant: 'max' });
@@ -391,7 +404,7 @@ describe('message queue runtime', () => {
       ],
     }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
     expect(openCode.state.sent[0].body.parts).toEqual([
       { type: 'text', text: 'follow up' },
       { type: 'file', mime: 'text/plain', filename: 'f.txt', url: 'data:text/plain,hi' },
@@ -414,7 +427,7 @@ describe('message queue runtime', () => {
       attachments: [{ id: 'a', filename: 'f.txt', mimeType: 'text/plain', size: 1, source: 'local', dataUrl: 'data:text/plain,hi' }],
     }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
     expect(openCode.state.sent[0].path).toBe(`/session/${SESSION}/command`);
     expect(openCode.state.sent[0].body.parts).toEqual([{ type: 'file', mime: 'text/plain', filename: 'f.txt', url: 'data:text/plain,hi' }]);
   });
@@ -433,7 +446,7 @@ describe('message queue runtime', () => {
       context: [{ kind: 'context', text: 'quoted', metadata }],
     }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
     expect(openCode.state.sent[0].path).toBe(`/session/${SESSION}/prompt_async`);
     expect(openCode.state.sent[0].body.parts).toEqual([
       { type: 'text', text: 'Review src with focus on error handling' },
@@ -451,7 +464,7 @@ describe('message queue runtime', () => {
       context: [{ kind: 'synthetic', text: 'focus on tests' }],
     }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(openCode.state.sent).toHaveLength(1));
     expect(openCode.state.sent[0].path).toBe(`/session/${SESSION}/prompt_async`);
     expect(openCode.state.sent[0].body.parts).toEqual([
       { type: 'text', text: '/grill auth' },
@@ -482,7 +495,7 @@ describe('message queue runtime', () => {
     runtime.start();
     await runtime.enqueue(SESSION, DIRECTORY, item({ agentMention: 'reviewer', attachments: [{ id: 'a', filename: 'f.txt', mimeType: 'text/plain', size: 1, source: 'local', dataUrl: 'data:text/plain,hi' }] }));
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
-    await settle();
+    await until(() => expect(recorded).toHaveLength(1)); // Recorded once the prompt was delivered.
     expect(openCode.state.sent[0].body.parts).toEqual([
       { type: 'text', text: 'follow up' },
       { type: 'file', mime: 'text/plain', filename: 'f.txt', url: 'data:text/plain,hi' },

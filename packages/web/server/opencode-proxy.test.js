@@ -84,13 +84,18 @@ describe('OpenCode proxy SSE forwarding', () => {
   });
 
   it('closes downstream SSE when the OpenCode upstream stalls despite proxy heartbeats', async () => {
+    // Driven by what the test reads, not by timers racing each other: the upstream writes each chunk only after the
+    // previous step reached the browser side, well inside a generous stall timeout. Only the final close waits for it.
     let stallTimeoutReads = 0;
+    let upstreamResponse;
+    let upstreamOpened;
+    const opened = new Promise((resolve) => { upstreamOpened = resolve; });
     const upstream = express();
     upstream.get('/global/event', (_req, res) => {
       res.setHeader('Content-Type', 'text/event-stream');
       res.flushHeaders();
-      setTimeout(() => res.write(':upstream-alive\n\n'), 40);
-      setTimeout(() => res.write('data: still-alive\n\n'), 80);
+      upstreamResponse = res;
+      upstreamOpened();
     });
     upstreamServer = await listen(upstream);
     const upstreamPort = upstreamServer.address().port;
@@ -104,7 +109,7 @@ describe('OpenCode proxy SSE forwarding', () => {
       SSE_HEARTBEAT_INTERVAL_MS: 10,
       getSseUpstreamStallTimeoutMs: () => {
         stallTimeoutReads += 1;
-        return stallTimeoutReads === 1 ? 50 : 100;
+        return 1000;
       },
       getRuntime: () => ({
         openCodePort: upstreamPort,
@@ -121,15 +126,34 @@ describe('OpenCode proxy SSE forwarding', () => {
 
     const response = await fetch(`http://127.0.0.1:${proxyPort}/api/global/event`, {
       headers: { Accept: 'text/event-stream' },
-      signal: AbortSignal.timeout(2000),
+      signal: AbortSignal.timeout(10_000),
     });
-
     expect(response.status).toBe(200);
-    const body = await response.text();
-    expect(body).toContain(':heartbeat\n\n');
-    expect(body).toContain(':upstream-alive\n\n');
-    expect(body).toContain('data: still-alive\n\n');
-    expect(stallTimeoutReads).toBeGreaterThanOrEqual(3);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let body = '';
+    const readUntil = async (text) => {
+      while (!body.includes(text)) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error(`stream closed before ${JSON.stringify(text)}`);
+        body += decoder.decode(value, { stream: true });
+      }
+    };
+
+    await readUntil(':heartbeat\n\n'); // Heartbeats flow while the upstream is silent.
+    await opened;
+    upstreamResponse.write(':upstream-alive\n\n');
+    await readUntil(':upstream-alive\n\n');
+    upstreamResponse.write('data: still-alive\n\n');
+    await readUntil('data: still-alive\n\n');
+    // Now the upstream stalls. The proxy's own heartbeats continue, but it must close the stream anyway.
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      body += decoder.decode(value, { stream: true });
+    }
+    expect(body.slice(body.indexOf('data: still-alive')).includes(':heartbeat\n\n')).toBe(true);
+    expect(stallTimeoutReads).toBeGreaterThanOrEqual(3); // Armed at open, then re-armed by each upstream chunk.
   });
 
   it('holds a request through OpenCode warmup and succeeds once ready (no 503/backoff)', async () => {
