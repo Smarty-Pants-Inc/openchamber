@@ -4,7 +4,7 @@ import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
 import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
 import { sentStartLocks, useSentStart } from '@/sync/native-draft-sent';
-import { NativeCreationError } from '@/lib/opencode/nativeCreation';
+import { NativeCreationError, nativeCreationFailure } from '@/lib/opencode/nativeCreation';
 import { assertNativeDraftReady, isNativeDraftCurrent, noteNativeDraftSubmitted, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
@@ -1798,6 +1798,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     scrollToBottom?.();
                 } catch (error) {
                     restoreConsumedInput();
+                    if (nativeIntent) nativeCreation.noteRefusal(error);
                     toast.error(nativeIntent ? nativeCreation.describeError(error) : getSubmitErrorMessage(error, t(command.errorToastKey)));
                 }
                 return;
@@ -1822,7 +1823,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (!part.synthetic) part.text = await expandText(part.text);
             }
         } catch (error) {
-            if (nativeIntent) { toast.error(nativeCreation.describeError(error)); return; }
+            if (nativeIntent) { nativeCreation.noteRefusal(error); toast.error(nativeCreation.describeError(error)); return; }
             console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
         }
 
@@ -1882,6 +1883,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
             console.error('Message send failed:', rawMessage || error);
             if (retainNativeDraft) {
+                // The started session's first message was not admitted: its text stays, and the composer says why.
+                nativeCreation.noteRefusal(nativeCreationFailure(error));
                 toast.error(error instanceof NativeCreationError ? nativeCreation.describeError(error) : rawMessage || t('chat.chatInput.toast.messageSendFailed'));
                 return;
             }

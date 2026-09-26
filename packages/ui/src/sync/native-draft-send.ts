@@ -11,6 +11,26 @@ type NativeDraftTarget = { draft: NewSessionDraftState; runtimeKey: string; sess
 export type NativeDraftSend = NativeDraftTarget & { loader: SessionMessageLoader; view: string; clientRequestId?: string };
 const pending = new Set<NativeCreatedSession>();
 
+/**
+ * Open drafts whose first native Send is between the press and its admission or refusal (runtime and draft id, with
+ * when it began). Opening the draft's own new session meanwhile (its row appears as soon as it starts) would end that
+ * Send before its message goes (smarty-dev#856); the Send opens the session itself once the message is admitted.
+ */
+const firstSends = new Map<string, number>();
+const FIRST_SEND_LIMIT_MS = 180_000; // A Send that never reports back (a lost exit) stops holding after this.
+const firstSendKey = (runtimeKey: string, draftId: number) => `${runtimeKey}\0${draftId}`;
+export function beginFirstSend(draft: NewSessionDraftState, runtimeKey: string): void { firstSends.set(firstSendKey(runtimeKey, draft.draftId), Date.now()); }
+export function endFirstSend(draft: NewSessionDraftState, runtimeKey: string): void { firstSends.delete(firstSendKey(runtimeKey, draft.draftId)); }
+/** True when `sessionId` is the open draft's own new session and its first Send is still under way. */
+export function isFirstSendInFlightFor(sessionId: string): boolean {
+  const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
+  const began = firstSends.get(firstSendKey(runtimeKey, draft.draftId));
+  if (!draft.open || began === undefined || Date.now() - began > FIRST_SEND_LIMIT_MS) return false;
+  const record = nativeCreationForDraft(store.nativeDraftCreations, draft, runtimeKey);
+  if (record?.status === 'created') return !record.inputAccepted && record.session.id === sessionId;
+  return record?.status === 'pending' && record.operation.native?.id === sessionId;
+}
+
 export function isNativeDraftCurrent(target: NativeDraftTarget): boolean {
   const store = useSessionUIStore.getState();
   const current = nativeCreationForDraft(store.nativeDraftCreations, store.newSessionDraft, getRuntimeKey());
@@ -64,6 +84,7 @@ const submittedTexts = new WeakMap<NativeDraftSend, { text: string; at: number }
 export function noteNativeDraftSubmitted(target: NativeDraftSend, text: string, at = Date.now()): void { submittedTexts.set(target, { text, at }); }
 
 export function acceptNativeDraftSend(target: NativeDraftSend): void {
+  endFirstSend(target.draft, target.runtimeKey);
   const submitted = submittedTexts.get(target);
   // Delivered: the start's text is no longer pending anywhere (#117).
   if (target.draft.directoryOverride) {
