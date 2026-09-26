@@ -35,6 +35,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     ...attributionPaths,
     ...overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.testDeterminismAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.originGuardAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -241,6 +242,18 @@ test('deterministic stall tests bind their exact commit as new overlay entries',
   assert.deepEqual(added.map(entry => entry.path).sort(), ['packages/web/server/lib/event-stream/runtime.test.js', 'packages/web/server/opencode-proxy.test.js']);
   for (const entry of added) {
     assert.equal(entry.testDeterminismSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  }
+});
+
+test('the passwordless origin guard binds its exact commit over the message-stream runtime only (smarty-code#391)', () => {
+  assert.match(overlay.originGuardSource, /^[a-f0-9]{40}$/);
+  const added = overlay.files.filter(entry => entry.originGuardAdded);
+  assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/event-stream/runtime.js']);
+  const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
+  for (const entry of added) {
+    assert.equal(entry.brandingSha256, original.get(entry.path).outputSha256); // The donor bytes it replaces.
+    assert.equal(entry.originGuardSha256, entry.combinedSha256);
     assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   }
 });
