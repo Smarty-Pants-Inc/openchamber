@@ -358,6 +358,9 @@ export function sendRefusalReason(body: string): string | null {
   }
 }
 
+/** The gateway's stable refusal code (`data.code`, e.g. `smarty.prompt-stale-view`), when the body carries one. */
+const refusalCode = (value: unknown): unknown => (value as { data?: { code?: unknown } } | null | undefined)?.data?.code;
+
 class OpencodeService {
   private runtimeClient: OpencodeClient;
   private runtimeScope = captureRuntimeRequestScope();
@@ -1151,53 +1154,69 @@ class OpencodeService {
     assertRuntimeRequestScope(scope);
     params.beforeDispatch?.();
     assertRuntimeRequestScope(scope);
-    let response: Response;
-    let refusal: unknown;
-
-    try {
-      const result = await client.session.promptAsync({
-        sessionID: params.id,
-        ...(requestDirectory ? { directory: requestDirectory } : {}),
-        model: {
-          providerID: params.providerID,
-          modelID: params.modelID,
-        },
-        agent: params.agent,
-        variant: params.variant,
-        messageID: messageId,
-        ...(params.delivery ? { delivery: params.delivery } : {}),
-        ...(params.format ? { format: params.format } : {}),
-        parts,
-      }, ordinaryView ? { headers: { 'x-smarty-ordinary-view': ordinaryView } } : undefined);
-      refusal = result.error;
-      if (result.response instanceof Response) {
-        response = result.response;
-      } else if (result.error) {
-        const status = (result as SdkResult<unknown>).response?.status;
-        if (!status) {
-          // The SDK caught a thrown fetch error (network/tunnel transport
-          // failure) — there is no HTTP response to report. Never fabricate a
-          // status: surface it as a transport error so callers treat it like
-          // any other network failure instead of a server 500.
-          // Preserve the transport's "dispatched, outcome unknown" tag through
-          // the wrap: without it the caller cannot tell a lost response from a
-          // send that never reached the server, and re-sends a running prompt.
-          const transportError = new Error(`Message send transport failure: ${formatSdkError(result.error)}`);
-          throw isAmbiguousTransportFailure(result.error)
-            ? markAmbiguousTransportFailure(transportError)
-            : transportError;
+    const dispatch = async (view: string | undefined): Promise<{ response: Response; refusal: unknown }> => {
+      try {
+        const result = await client.session.promptAsync({
+          sessionID: params.id,
+          ...(requestDirectory ? { directory: requestDirectory } : {}),
+          model: {
+            providerID: params.providerID,
+            modelID: params.modelID,
+          },
+          agent: params.agent,
+          variant: params.variant,
+          messageID: messageId,
+          ...(params.delivery ? { delivery: params.delivery } : {}),
+          ...(params.format ? { format: params.format } : {}),
+          parts,
+        }, view ? { headers: { 'x-smarty-ordinary-view': view } } : undefined);
+        const refusal: unknown = result.error;
+        if (result.response instanceof Response) {
+          return { response: result.response, refusal };
+        } else if (result.error) {
+          const status = (result as SdkResult<unknown>).response?.status;
+          if (!status) {
+            // The SDK caught a thrown fetch error (network/tunnel transport
+            // failure) — there is no HTTP response to report. Never fabricate a
+            // status: surface it as a transport error so callers treat it like
+            // any other network failure instead of a server 500.
+            // Preserve the transport's "dispatched, outcome unknown" tag through
+            // the wrap: without it the caller cannot tell a lost response from a
+            // send that never reached the server, and re-sends a running prompt.
+            const transportError = new Error(`Message send transport failure: ${formatSdkError(result.error)}`);
+            throw isAmbiguousTransportFailure(result.error)
+              ? markAmbiguousTransportFailure(transportError)
+              : transportError;
+          }
+          return { response: new Response(JSON.stringify(result.error), { status }), refusal };
+        } else {
+          return { response: new Response(JSON.stringify(result.data ?? true), { status: 200 }), refusal };
         }
-        response = new Response(JSON.stringify(result.error), { status });
-      } else {
-        response = new Response(JSON.stringify(result.data ?? true), { status: 200 });
+      } catch (error) {
+        // Do not retry prompt_async after a transport failure: through a remote
+        // tunnel the POST may already be running server-side even though the
+        // client lost the response.
+        if (view && isRuntimeRequestScopeCurrent(scope)) viewLoader?.invalidateOrdinaryView(viewTarget);
+        if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID);
+        throw error;
       }
-    } catch (error) {
-      // Do not retry prompt_async after a transport failure: through a remote
-      // tunnel the POST may already be running server-side even though the
-      // client lost the response.
-      if (ordinaryView && isRuntimeRequestScopeCurrent(scope)) viewLoader?.invalidateOrdinaryView(viewTarget);
-      if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID);
-      throw error;
+    };
+    let { response, refusal } = await dispatch(ordinaryView);
+    // A stale view is refused before anything is sent or bound (smarty.prompt-stale-view), so the page reads the
+    // session again, at most 5 s, and sends the same message once more with the fresh view (G5). Never a second time.
+    if (ordinaryView && viewLoader && response.status === 409 && refusalCode(refusal) === 'smarty.prompt-stale-view'
+      && isRuntimeRequestScopeCurrent(scope)) {
+      viewLoader.invalidateOrdinaryView(viewTarget, true);
+      await Promise.race([viewLoader.refreshOrdinaryView(viewTarget).catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      const fresh = viewLoader.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
+      if (fresh && fresh !== ordinaryView && viewLoader === getImperativeSessionMessageLoader() && getRuntimeKey() === viewRuntimeKey) {
+        assertRuntimeRequestScope(scope);
+        params.beforeDispatch?.();
+        assertRuntimeRequestScope(scope);
+        ordinaryView = fresh;
+        ({ response, refusal } = await dispatch(fresh));
+      }
     }
 
     if (ordinaryView && isRuntimeRequestScopeCurrent(scope)) {
@@ -1206,6 +1225,14 @@ class OpencodeService {
     }
     if (response.ok) {
       if (isRuntimeRequestScopeCurrent(scope)) recordProviderSuccess(params.providerID);
+      // The server steered the message into the running turn instead of starting one (co-steer, G5).
+      // The notice is decoration: the server accepted the message, so a notice that cannot load or show never fails it.
+      if (response.headers.get('x-smarty-prompt-delivery') === 'steer' && isRuntimeRequestScopeCurrent(scope)) {
+        const title = getAllSyncSessionMap().get(params.id)?.title;
+        void import('./promptDelivery').then(({ announceSteered }) => {
+          if (isRuntimeRequestScopeCurrent(scope)) announceSteered(title); // Not after a runtime switch meanwhile.
+        }).catch(() => {});
+      }
       return messageId;
     }
 

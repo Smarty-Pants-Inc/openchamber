@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/v2"
 import type { Event, Message, Part, PermissionRequest, QuestionRequest, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { applyDirectoryEvent } from "../event-reducer"
+import { optimisticStatuses } from "../optimistic-status"
 import { INITIAL_STATE, type State } from "../types"
 
 function state(overrides: Partial<State> = {}): State {
@@ -240,6 +241,19 @@ describe("applyDirectoryEvent", () => {
 
     expect(applyDirectoryEvent(draft, event)).toBe(false)
     expect(draft.session_status.ses_1).toBe(statusRef)
+  })
+
+  test("an equal server status still replaces a send's optimistic status (co-steer review, openchamber#234)", () => {
+    const optimistic = { type: "busy" } as SessionStatus
+    optimisticStatuses.add(optimistic)
+    const draft = state({ session_status: { ses_1: optimistic } })
+    const event = { type: "session.status", properties: { sessionID: "ses_1", status: { type: "busy" } } } as Event
+
+    expect(applyDirectoryEvent(draft, event)).toBe(true)
+    expect(draft.session_status.ses_1).toEqual({ type: "busy" })
+    expect(draft.session_status.ses_1).not.toBe(optimistic)
+    // Once the server's own status is in place, duplicates are skipped as before.
+    expect(applyDirectoryEvent(draft, event)).toBe(false)
   })
 
   test("skips duplicate session idle events", () => {

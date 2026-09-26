@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { ChildStoreManager } from '@/sync/child-store';
 import { SessionMessageLoader, setImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { setSyncRefs } from '@/sync/sync-refs';
@@ -178,4 +178,67 @@ test('a transport failure revokes the submitted view without inventing an HTTP s
   expect(prompts()[0].headers.get('x-smarty-ordinary-view')).toBe(view);
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
   expect(requests).toHaveLength(2);
+});
+
+// Co-steer (MVP 1 G5): the gateway says how it took the prompt, and a stale view is re-read and resent once.
+const staleRefusal = () => Response.json({ name: 'APIError', data: { message: 'The session changed since this page read it.',
+  isRetryable: false, code: 'smarty.prompt-stale-view' } }, { status: 409 });
+
+test('a steered prompt is announced as delivered while the agent works; a new turn is not (G5)', async () => {
+  const { toast } = await import('@/components/ui');
+  const seen: string[] = [];
+  const spy = spyOn(toast, 'success').mockImplementation(message => { seen.push(String(message)); return 'toast'; });
+  try {
+    await loader.ensure(target);
+    prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'steer' } });
+    await opencodeClient.sendMessage(params);
+    history = async () => page(`ov2_${'d'.repeat(64)}`);
+    prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+    await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });
+    history = async () => page(`ov2_${'9'.repeat(64)}`);
+    prompt = async () => new Response(null, { status: 204 });
+    await opencodeClient.sendMessage({ ...params, messageId: 'msg_third' });
+    await new Promise(resolve => setTimeout(resolve, 10)); // The notice follows the accepted send, never gates it.
+    expect(seen).toEqual(['Delivered while the agent works.']);
+  } finally { spy.mockRestore(); }
+});
+
+test('a stale-view refusal re-reads the session and sends the same message once more with the fresh view (G5)', async () => {
+  await loader.ensure(target);
+  const fresh = `ov2_${'e'.repeat(64)}`;
+  let posts = 0;
+  prompt = async () => (++posts === 1 ? staleRefusal() : new Response(null, { status: 204 }));
+  history = async () => page(fresh);
+  expect(await opencodeClient.sendMessage(params)).toBe('msg_client');
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, fresh]);
+  const bodies = await Promise.all(prompts().map(request => request.json()));
+  expect(bodies.map(body => body.messageID)).toEqual(['msg_client', 'msg_client']);
+  expect(bodies[1]).toEqual(bodies[0]);
+});
+
+test('a second stale-view refusal is shown, never a third POST (G5)', async () => {
+  await loader.ensure(target);
+  prompt = async () => staleRefusal();
+  history = async () => page(`ov2_${'f'.repeat(64)}`);
+  const error = await opencodeClient.sendMessage(params).catch((caught: unknown) => caught);
+  expect((error as Error & { status?: number }).status).toBe(409);
+  expect(prompts()).toHaveLength(2);
+});
+
+test('only a stale view is resent: busy, blocked and a stale view the re-read cannot change are not (G5)', async () => {
+  await loader.ensure(target);
+  for (const code of ['smarty.prompt-busy', 'smarty.prompt-blocked']) {
+    requests.length = 0;
+    history = async () => page(view);
+    await loader.refreshOrdinaryView(target);
+    prompt = async () => Response.json({ name: 'APIError', data: { message: code, isRetryable: false, code } }, { status: 409 });
+    await opencodeClient.sendMessage(params).catch(() => undefined);
+    expect(prompts()).toHaveLength(1);
+  }
+  requests.length = 0;
+  history = async () => page(view);
+  await loader.refreshOrdinaryView(target);
+  prompt = async () => staleRefusal();
+  await opencodeClient.sendMessage(params).catch(() => undefined);
+  expect(prompts()).toHaveLength(1);
 });

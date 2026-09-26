@@ -3,6 +3,7 @@
  * Replaces the action methods from the old useSessionStore.
  */
 
+import { optimisticStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { useSessionUIStore } from "./session-ui-store"
@@ -1963,14 +1964,20 @@ export async function optimisticSend(input: {
   })
   input.onOptimisticInsert?.()
 
-  // Set busy status
+  // Set busy status. A message sent into a running turn (co-steer, G5) leaves the server's status alone: it is already
+  // working, and its ordinary Stop target must stay. This send's own status object is its token for rollback.
   const current = store.getState()
-  store.setState({
-    session_status: {
-      ...current.session_status,
-      [input.sessionId]: { type: "busy" as const },
-    },
-  })
+  const liveStatus = current.session_status?.[input.sessionId]
+  const optimisticStatus = liveStatus && liveStatus.type !== "idle" ? undefined : { type: "busy" as const }
+  if (optimisticStatus) {
+    optimisticStatuses.add(optimisticStatus)
+    store.setState({
+      session_status: {
+        ...current.session_status,
+        [input.sessionId]: optimisticStatus,
+      },
+    })
+  }
 
   try {
     assertRuntimeUnchanged()
@@ -2039,10 +2046,10 @@ export async function optimisticSend(input: {
       session,
       message,
       part,
-      session_status: {
-        ...rollbackState.session_status,
-        [input.sessionId]: { type: "idle" as const },
-      },
+      // Undo only this send's own status: a newer server status (idle, or a new Stop target) stays.
+      session_status: optimisticStatus && rollbackState.session_status?.[input.sessionId] === optimisticStatus
+        ? { ...rollbackState.session_status, [input.sessionId]: { type: "idle" as const } }
+        : rollbackState.session_status,
     })
     // The server said why it refused: keep its words in the chat, not only in a passing toast (F11).
     const refusalReason = (error as { refusalReason?: unknown } | null)?.refusalReason
