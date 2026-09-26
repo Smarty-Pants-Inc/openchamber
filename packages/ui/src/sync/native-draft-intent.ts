@@ -49,8 +49,3 @@ export const forgetRequestId = (key: string) => {
   notifyDraftStart();
 };
 
-
-/** This tab's own saved create request for the draft: the tab continues that start itself (see native-draft-sent). */
-export function ownNativeRequestId(draft: NewSessionDraftState, runtimeKey: string): string | undefined {
-  return storedRequestId(requestKey(draft, runtimeKey));
-}

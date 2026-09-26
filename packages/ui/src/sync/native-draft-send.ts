@@ -2,7 +2,7 @@ import { NativeCreationError, type NativeCreatedSession } from '@/lib/opencode/n
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSelectionStore } from './selection-store';
 import { assertManagedDraftTarget, nativeCreationForDraft } from './native-draft-creation';
-import { admitSentStart, holdSentStart, releaseSentStart } from './native-draft-sent';
+import { admitSentStart, ensureSentStart, holdSentStart, releaseSentStart } from './native-draft-sent';
 import { getImperativeSessionMessageLoader, type SessionMessageLoader } from './session-message-loader';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
@@ -41,8 +41,17 @@ export async function prepareNativeDraftSend(draft: NewSessionDraftState, sessio
   return { ...target, loader, view, clientRequestId };
 }
 
+/**
+ * Every check of a native Send, the last one immediately before its prompt POST (the store's beforeDispatch), also
+ * requires its accepted start's durable mark, so a page closed after admission never leaves the text as a draft to
+ * send again (#117). A mark another tab removed meanwhile is written again; one that cannot be stored stops the Send.
+ */
 export function assertNativeDraftReady(target: NativeDraftSend): void {
   assertNativeDraftCurrent(target);
+  if (target.clientRequestId && target.draft.directoryOverride) {
+    const marked = ensureSentStart(target.runtimeKey, target.draft.directoryOverride, target.clientRequestId);
+    if (marked !== 'marked') throw new NativeCreationError(marked);
+  }
   const history = { directory: target.session.directory, sessionID: target.session.id };
   if (target.loader !== getImperativeSessionMessageLoader()
     || target.loader.getAcceptedOrdinaryView(history, target.runtimeKey) !== target.view) throw new NativeCreationError('history');

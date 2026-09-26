@@ -5,11 +5,23 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation } from './native-draft-creation';
 import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
-import { clearSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
+import { clearSentStart, ensureSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
 import { discoveryPendingNow } from '@/lib/managed-discovery';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 import { forgetRequestId, newRequestId, notifyDraftStart, requestKey, storedRequestId, subscribeDraftStart } from './native-draft-intent';
-export { ownNativeRequestId, resetNativeDraftPage } from './native-draft-intent';
+export { resetNativeDraftPage } from './native-draft-intent';
+
+/**
+ * This tab's own start for the draft: its saved request, or the one this page still holds in memory (after the start
+ * settled, until its text is admitted). The tab continues it itself, so its own mark never locks it (native-draft-sent).
+ */
+export function ownNativeRequestId(draft: NewSessionDraftState, runtimeKey: string): string | undefined {
+  const saved = storedRequestId(requestKey(draft, runtimeKey));
+  if (saved) return saved;
+  const held = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, runtimeKey);
+  if (held?.status === 'created') return held.inputAccepted ? undefined : held.clientRequestId;
+  return held?.status === 'pending' ? held.operation.clientRequestId : undefined;
+}
 
 /** Phases known to have started nothing that could take this message. */
 const STOPPED = ['denied', 'cancelled', 'expired'];
@@ -106,6 +118,12 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     return nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
   };
   const key = requestKey(draft, runtimeKey), requestId = storedRequestId(key);
+  // An accepted start recovered by its request id: its text is sent (#117) before anything is sent to it.
+  const recovered = (directory: string, id: string) => {
+    const marked = ensureSentStart(runtimeKey, directory, id);
+    if (marked !== 'marked') throw new NativeCreationError(marked);
+    hold(id);
+  };
   // A start this page abandoned is settled for good even when the caller's list predates that (#340).
   const open = operations.filter(operation => operation.directory === draft.directoryOverride
     && operation.phase !== 'ready' && !STOPPED.includes(operation.phase) && !abandonedNativeCreations.has(operation.operationId));
@@ -118,12 +136,16 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     const saved = await resolveSaved(first.directory, requestId, key);
     record();
     if (saved === 'cleared') { publishNativeCreation(first, null); throw new NativeCreationError('stopped'); }
-    hold(requestId);
+    recovered(first.directory, requestId);
     await resumeNativeCreation(saved);
-    return await finish(key, record, wait);
+    return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   } else if (first) {
-    hold(requestId);
-    return await finish(key, record, wait);
+    // A start this page still holds (its Send left for another project and came back): accepted with this tab's id,
+    // it takes the sent mark before its text goes, as a recovered start does (#117).
+    const echoed = first.status === 'pending' ? first.operation.clientRequestId : first.status === 'created' ? first.clientRequestId : undefined;
+    if (!requestId || echoed !== requestId) { hold(requestId); return await finish(key, record, wait); }
+    recovered(first.directory, requestId);
+    return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   }
   const directory = draft.directoryOverride ?? visibleProjects(useProjectsStore.getState())
     .find(project => project.id === draft.selectedProjectId)?.path ?? opencodeClient.getDirectory();
@@ -136,7 +158,11 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     // After a reload the record is gone but the saved id is not: resolve it by a fresh read, never by the snapshot.
     const saved = await resolveSaved(draft.directoryOverride, requestId, key);
     record();
-    if (saved !== 'cleared') { hold(requestId); await resumeNativeCreation(saved); return await finish(key, record, wait); }
+    if (saved !== 'cleared') {
+      recovered(draft.directoryOverride, requestId);
+      await resumeNativeCreation(saved);
+      return await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, requestId));
+    }
   }
   // Any other start still running here (another window, device or draft) is never taken over; the server refuses a
   // second start meanwhile.

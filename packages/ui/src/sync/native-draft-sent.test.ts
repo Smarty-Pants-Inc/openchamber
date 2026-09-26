@@ -16,7 +16,10 @@ if (!('localStorage' in globalThis)) {
 // Web Locks as another live tab holds them.
 const held = new Set<string>();
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
-  request: async (name: string, work: () => Promise<void>) => { held.add(name); try { await work(); } finally { held.delete(name); } }, query: async () => ({ held: [...held].map(name => ({ name })) }) } } });
+  request: async (name: string, options: unknown, callback?: (lock: unknown) => unknown) => {
+    const work = (callback ?? options) as (lock: unknown) => unknown;
+    if (callback && (options as { ifAvailable?: boolean }).ifAvailable && held.has(name)) return work(null);
+    held.add(name); try { return await work({ name }); } finally { held.delete(name); } }, query: async () => ({ held: [...held].map(name => ({ name })) }) } } });
 const request = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', newer = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
 afterEach(() => { fixture?.dispose(); fixture = undefined; localStorage.clear(); held.clear(); resetSentStartsForPage(); });
@@ -138,7 +141,7 @@ test('this tab continues its own start; an unknown start can be kept as an unsen
   write('hello');
   markedElsewhere();
   expect(await resolve()).toBe('unknown');
-  keepSentTextAsDraft(fixture!.runtimeA, directory);
+  await keepSentTextAsDraft(fixture!.runtimeA, directory);
   expect(await resolve()).toBeNull();
   expect(readChatDraft(draft()).text).toBe('hello');
 });
@@ -160,4 +163,55 @@ test('an admitted Send carries the text it submitted, and every tab consumes its
     expect(seen).toEqual(['same text in both tabs']); // Consumed once per tab; the mark stays for the next tab.
     expect(localStorage.getItem(markKey())).not.toBeNull();
   }
+});
+
+// Astra review of #220 (P2): an expired admitted mark is no mark, and an older read never relocks an admitted text.
+test('an expired admitted mark never consumes a later draft with the same text', async () => {
+  server([], []);
+  write('hello'); // A new, unsent prompt that happens to equal the old delivered text.
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, admitted: true, text: 'hello', at: Date.now() - 700_000 }));
+  expect(await resolve()).toBeNull();
+  expect(readChatDraft(draft()).text).toBe('hello');
+  expect(localStorage.getItem(markKey())).toBeNull();
+});
+
+test('admission arriving while an older history read is held: the late empty answer never relocks the composer', async () => {
+  let arrive = () => {};
+  server([start('ready', true)], [], new Promise<void>(resolve => { arrive = resolve; }));
+  write('hello');
+  markedElsewhere();
+  const older = resolve();
+  await new Promise(done => setTimeout(done, 5));
+  // Another tab admits this same request: its storage event resolves the updated mark and unlocks.
+  markedElsewhere(request, true);
+  expect(await resolve()).toBe('delivered');
+  write('a new draft typed after admission');
+  arrive();
+  expect(sentStartLocks(await older)).toBe(false); // Superseded: it reports the current outcome, never 'unknown'.
+  expect(readChatDraft(draft()).text).toBe('a new draft typed after admission');
+});
+
+// Pre-check round 3: "Edit it as an unsent message" shown before a sender took the request never clears its mark.
+test('keeping the text as a draft never clears a mark while a tab is sending that request', async () => {
+  server([], []);
+  write('hello');
+  markedElsewhere();
+  held.add(lock()); // Another tab began its Send for this request after this notice showed.
+  await keepSentTextAsDraft(fixture!.runtimeA, directory);
+  expect(localStorage.getItem(markKey())).toContain(request);
+  held.delete(lock());
+  await keepSentTextAsDraft(fixture!.runtimeA, directory); // No sender: the person's choice clears it.
+  expect(localStorage.getItem(markKey())).toBeNull();
+});
+
+test('a stale keep-as-draft click after another tab admitted the request keeps the admitted mark; the text is consumed', async () => {
+  server([start('ready', true)], []);
+  write('hello');
+  markedElsewhere();
+  expect(await resolve()).toBe('unknown'); // The notice offers "Edit it as an unsent message".
+  markedElsewhere(request, true); // Another tab's Send is admitted and ends; its storage event is not handled yet.
+  await keepSentTextAsDraft(fixture!.runtimeA, directory); // The stale click.
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toMatchObject({ clientRequestId: request, admitted: true });
+  expect(await resolve()).toBe('delivered'); // The storage event: this copy is consumed, never sent again.
+  expect(readChatDraft(draft()).text).toBe('');
 });

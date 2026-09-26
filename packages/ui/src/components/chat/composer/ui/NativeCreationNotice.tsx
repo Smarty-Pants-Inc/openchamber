@@ -28,8 +28,9 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     <Button type="button" size="sm" onClick={() => { startNativeDraftAgain(); onSend?.(); }}>{t('chat.nativeCreation.startAgain')}</Button>
   </>;
   const creation = native.creation;
-  if (!draftOpen || native.session) return null;
-  // Text another tab sent to start a session (#117): say what became of it before anything else.
+  if (!draftOpen) return null;
+  // Text another tab sent to start a session (#117): say what became of it before anything else, with or without a
+  // session here (the composer is locked meanwhile, so its way out is always shown).
   const runtimeKey = getRuntimeKey(), directory = draft.directoryOverride;
   if (sent && directory) {
     if (sent === 'stopped') return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
@@ -40,10 +41,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
         <Button type="button" variant="outline" size="sm" disabled={sent === 'resolving'}
           onClick={() => { void resolveSentStart(runtimeKey, directory, draft.draftId, ownNativeRequestId(draft, runtimeKey)); }}>{t('chat.nativeCreation.check')}</Button>
         {sent === 'unknown' ? <Button type="button" variant="outline" size="sm"
-          onClick={() => keepSentTextAsDraft(runtimeKey, directory)}>{t('chat.nativeCreation.sentKeep')}</Button> : null}
+          onClick={() => { void keepSentTextAsDraft(runtimeKey, directory); }}>{t('chat.nativeCreation.sentKeep')}</Button> : null}
       </div>
     </div>;
   }
+  if (native.session) return null;
   const running = native.operations.filter(operation => CANCELLABLE.includes(operation.phase));
   const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   const unknown = creation?.status === 'failed' && creation.submitted;

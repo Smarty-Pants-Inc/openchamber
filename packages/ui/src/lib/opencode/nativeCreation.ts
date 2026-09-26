@@ -46,7 +46,7 @@ const recoveryErrorSchema = z.object({
 });
 
 export type NativeCreatedSession = Session & z.infer<typeof nativeSessionSchema>;
-type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model' | 'history' | 'sending' | 'stopped' | 'notReady' | 'elsewhere';
+type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model' | 'history' | 'sending' | 'stopped' | 'notReady' | 'elsewhere' | 'storage';
 
 export class NativeCreationError extends Error {
   /** `status` is the HTTP status of a definite refusal: the server answered and did not act on the request. */

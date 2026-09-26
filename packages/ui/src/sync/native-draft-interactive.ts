@@ -23,7 +23,10 @@ if (!('sessionStorage' in globalThis)) Object.defineProperty(globalThis, 'sessio
 /** Web Locks this page holds (Bun has none). */
 export const heldLocks = new Set<string>();
 if (!globalThis.navigator?.locks) Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { ...globalThis.navigator, locks: {
-  request: async (name: string, work: () => Promise<void>) => { heldLocks.add(name); try { await work(); } finally { heldLocks.delete(name); } },
+  request: async (name: string, options: unknown, callback?: (lock: unknown) => unknown) => {
+    const work = (callback ?? options) as (lock: unknown) => unknown;
+    if (callback && (options as { ifAvailable?: boolean }).ifAvailable && heldLocks.has(name)) return work(null);
+    heldLocks.add(name); try { return await work({ name }); } finally { heldLocks.delete(name); } },
   query: async () => ({ held: [...heldLocks].map(name => ({ name })) }) } } });
 
 export const operationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

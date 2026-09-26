@@ -36,17 +36,22 @@ const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
 const sending = new Map<string, () => void>();
 
-function readMarker(runtimeKey: string, directory: string): Marker | undefined {
+const parseMarker = (raw: string | null): Marker | undefined => {
   try {
-    const parsed = markerSchema.safeParse(JSON.parse(localStorage.getItem(storageKey(runtimeKey, directory)) ?? 'null'));
+    const parsed = markerSchema.safeParse(JSON.parse(raw ?? 'null'));
     return parsed.success ? parsed.data : undefined;
   } catch { return undefined; }
-}
-const writeMarker = (runtimeKey: string, directory: string, marker: Marker | null) => {
+};
+const readMarker = (runtimeKey: string, directory: string): Marker | undefined => {
+  try { return parseMarker(localStorage.getItem(storageKey(runtimeKey, directory))); } catch { return undefined; }
+};
+/** False when the browser refused to store it (no storage, or full). */
+const writeMarker = (runtimeKey: string, directory: string, marker: Marker | null): boolean => {
   try {
     if (marker) localStorage.setItem(storageKey(runtimeKey, directory), JSON.stringify(marker));
     else localStorage.removeItem(storageKey(runtimeKey, directory));
-  } catch { /* no storage */ }
+    return true;
+  } catch { return false; }
 };
 const locks = (): LockManager | undefined => globalThis.navigator?.locks;
 
@@ -67,9 +72,22 @@ export function releaseSentStart(clientRequestId: string | undefined): void {
 }
 
 /** The start for this Send was accepted: its text is sent, not an ordinary draft, until the start resolves. */
-export function markSentStart(runtimeKey: string, directory: string, clientRequestId: string): void {
-  writeMarker(runtimeKey, directory, { clientRequestId });
+export function markSentStart(runtimeKey: string, directory: string, clientRequestId: string): boolean {
   holdSentStart(clientRequestId);
+  return writeMarker(runtimeKey, directory, { clientRequestId });
+}
+
+/**
+ * Before any text goes to an accepted start (its prompt POST, a recovered start), its durable mark must exist, so a
+ * page closed after the prompt is admitted leaves the text sent, not an ordinary draft (#117). Its own mark (maybe
+ * admitted) is kept; another request's unadmitted mark (a live start) is never replaced ('elsewhere'); a mark the
+ * browser refuses to store is 'storage'. Either way nothing may be sent. It takes no lock (the caller holds one).
+ */
+export function ensureSentStart(runtimeKey: string, directory: string, clientRequestId: string): 'marked' | 'elsewhere' | 'storage' {
+  const existing = readMarker(runtimeKey, directory);
+  if (existing?.clientRequestId === clientRequestId) return 'marked';
+  if (existing && !existing.admitted) return 'elsewhere';
+  return writeMarker(runtimeKey, directory, { clientRequestId }) ? 'marked' : 'storage';
 }
 
 /**
@@ -92,9 +110,26 @@ export function clearSentStart(runtimeKey: string, directory: string, clientRequ
   if (outcomes.delete(slot(runtimeKey, directory))) notify();
 }
 
-/** The person keeps an unresolvable text as an unsent draft (never a dead end). The start itself is left alone. */
-export function keepSentTextAsDraft(runtimeKey: string, directory: string): void {
-  clearSentStart(runtimeKey, directory, readMarker(runtimeKey, directory)?.clientRequestId);
+/**
+ * The person keeps an unresolvable text as an unsent draft (never a dead end). The start itself is left alone. A tab
+ * sending that request now (its lock held, taken after this notice showed) keeps its mark: the text shows pending.
+ */
+export async function keepSentTextAsDraft(runtimeKey: string, directory: string): Promise<void> {
+  const id = readMarker(runtimeKey, directory)?.clientRequestId;
+  if (!id) return;
+  const manager = locks();
+  // Cleared only while it is still that request's unadmitted mark: one admitted meanwhile (its Send delivered the
+  // text) stays, and its storage event consumes this copy.
+  const clear = () => {
+    const now = readMarker(runtimeKey, directory);
+    if (now?.clientRequestId === id && !now.admitted) clearSentStart(runtimeKey, directory, id);
+  };
+  // ifAvailable: taken only when no sender holds it; the mark is cleared while this page holds it.
+  const kept = manager ? await manager.request(lockName(id), { ifAvailable: true }, lock => {
+    if (lock) clear();
+    return lock !== null;
+  }).catch(() => false) : (clear(), true);
+  if (!kept) { outcomes.set(slot(runtimeKey, directory), 'pending'); notify(); }
 }
 
 const userText = (parts: readonly { type: string; text?: string }[]) => parts.map(part => (part.type === 'text' ? part.text ?? '' : '')).join('');
@@ -105,18 +140,22 @@ const userText = (parts: readonly { type: string; text?: string }[]) => parts.ma
  * start consumes (the mounted composer's own); a newer draft's text is never touched.
  */
 export async function resolveSentStart(runtimeKey: string, directory: string, draftId: number, ownRequestId?: string): Promise<Resolved> {
-  const key = slot(runtimeKey, directory), marker = readMarker(runtimeKey, directory);
+  const key = slot(runtimeKey, directory);
+  let marker = readMarker(runtimeKey, directory);
+  // The mark changed meanwhile (a newer one, a kept draft, or this one admitted by another tab): the read that the
+  // change started resolves it; this older one never overrides that (it could relock an admitted text).
+  const superseded = () => JSON.stringify(readMarker(runtimeKey, directory) ?? null) !== JSON.stringify(marker ?? null);
   const settle = (outcome: Resolved): Resolved => {
-    // A newer mark or a kept draft replaced this one meanwhile: that one is resolved on its own.
-    if (readMarker(runtimeKey, directory)?.clientRequestId !== marker?.clientRequestId) return outcomes.get(key) ?? null;
+    if (superseded()) return outcomes.get(key) ?? null;
     if (marker && outcome === 'stopped') writeMarker(runtimeKey, directory, null);
     if (outcome && outcome !== 'delivered') outcomes.set(key, outcome); else outcomes.delete(key);
     notify();
     return outcome;
   };
   const draft = createChatDraftIdentity(runtimeKey, directory, null, draftId);
+  // An expired admitted mark is no mark: a later draft with the same text is a new message, never consumed.
+  if (marker?.admitted && Date.now() - (marker.at ?? 0) > ADMITTED_MS) { writeMarker(runtimeKey, directory, null); marker = undefined; }
   if (marker?.admitted) {
-    if (Date.now() - (marker.at ?? 0) > ADMITTED_MS) writeMarker(runtimeKey, directory, null);
     // Handled here before (or sent from here): unrelated to this draft now, so it never blocks a new start.
     if (handled.has(marker.clientRequestId)) return settle(null);
     // Delivered: consume this tab's copy (live editor and saved draft, only if it is that text) once, then unlock.
@@ -126,15 +165,16 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   }
   // No mark, or this tab's own start: it continues it through Send; the mark stays until the start resolves.
   if (!marker || marker.clientRequestId === ownRequestId || sending.has(marker.clientRequestId)) return settle(null);
+  const id = marker.clientRequestId;
   const text = readChatDraft(draft).text;
   // No copy of the text here: nothing to guard or consume (the mark is left for a tab that has one).
   if (!text) return settle(null);
   outcomes.set(key, outcomes.get(key) ?? 'resolving'); notify();
   const live = await locks()?.query()
-    .then(state => (state.held ?? []).some(lock => lock.name === lockName(marker.clientRequestId)), () => false);
+    .then(state => (state.held ?? []).some(lock => lock.name === lockName(id)), () => false);
   if (live) return settle('pending');
   const listed = await opencodeClient.listNativeCreations(directory).catch(() => undefined);
-  const start = listed?.find(operation => operation.clientRequestId === marker.clientRequestId && operation.directory === directory);
+  const start = listed?.find(operation => operation.clientRequestId === id && operation.directory === directory);
   if (start && STOPPED.includes(start.phase)) return settle('stopped');
   // Still starting: pending. Not readable ('unavailable'), not listed, or no user message: unknown.
   if (start && start.phase !== 'ready' && start.phase !== 'unavailable') return settle('pending');
@@ -142,10 +182,11 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   const sent = history?.filter(record => record.info.role === 'user').map(record => userText(record.parts)) ?? [];
   // Only this draft's own text counts as delivered.
   if (!sent.includes(text)) return settle('unknown');
-  if (readMarker(runtimeKey, directory)?.clientRequestId !== marker.clientRequestId) return outcomes.get(key) ?? null;
+  if (superseded()) return outcomes.get(key) ?? null;
   // Found delivered: flag the mark admitted with that text, so every other tab consumes its copy too.
-  writeMarker(runtimeKey, directory, { clientRequestId: marker.clientRequestId, admitted: true, text, at: Date.now() });
-  handled.add(marker.clientRequestId);
+  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text, at: Date.now() });
+  marker = readMarker(runtimeKey, directory);
+  handled.add(id);
   consumeChatDraft(draft, text);
   return settle('delivered');
 }
@@ -161,7 +202,18 @@ export function useSentStart(runtimeKey: string, directory: string | null | unde
   React.useEffect(() => {
     if (!directory) return;
     const resolve = () => { void resolveSentStart(runtimeKey, directory, draftId, own.current()); };
-    const changed = (event: StorageEvent) => { if (event.key === storageKey(runtimeKey, directory)) resolve(); };
+    const changed = (event: StorageEvent) => {
+      if (event.key !== storageKey(runtimeKey, directory)) return;
+      // Each admission event carries its own delivered text: a later one (the next Send in this project, before this
+      // tab handled the first) must not hide it. Consume it once, then resolve the current mark.
+      const admitted = parseMarker(event.newValue);
+      if (admitted?.admitted && admitted.text && !handled.has(admitted.clientRequestId)
+        && Date.now() - (admitted.at ?? 0) <= ADMITTED_MS) {
+        handled.add(admitted.clientRequestId);
+        consumeChatDraft(createChatDraftIdentity(runtimeKey, directory, null, draftId), admitted.text);
+      }
+      resolve();
+    };
     // After this commit's other effects: the composer's draft consumer must be listening before a delivered text is
     // consumed (a cold mount with an admitted mark).
     const first = setTimeout(resolve, 0);

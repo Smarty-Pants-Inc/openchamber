@@ -62,6 +62,10 @@ test('text another tab sent (#117) is shown with what became of it, never as an 
       expect(host.textContent).toContain(nativeCreationI18n.en[`chat.nativeCreation.${key}`]);
       if (outcome === 'pending') expect(host.textContent).toContain('Check again');
     }
+    // With a session here too (a Send refused after its start settled): the locked composer always shows its way out.
+    const withSession = { ...native(false), creation: null, session: { id: 'ses_1' } } as unknown as ReturnType<typeof useNativeCreation>;
+    await act(async () => root.render(<NativeCreationNotice native={withSession} draftOpen sent="unknown" />));
+    expect(host.textContent).toContain(nativeCreationI18n.en['chat.nativeCreation.sentKeep']);
   } finally {
     await act(async () => root.unmount());
     for (const [name, descriptor] of previous) {
