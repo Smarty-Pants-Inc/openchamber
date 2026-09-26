@@ -46,7 +46,7 @@ let sessionReadOptions: unknown;
 mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: (_sdk: unknown, options: unknown) => { sessionReadOptions = options; return sessionRead(); } }));
 mock.module('@/stores/utils/vscodeRuntime', () => ({ isVSCodeRuntime: () => false }));
 mock.module('@/lib/chatDirectories', () => ({ warmChatsRootDirectory: async () => {} }));
-const { refreshManagedProjects } = await import('./managed-project-refresh');
+const { refreshManagedProjects, DISCOVERY_TIMEOUT_MS, UNAVAILABLE_RETRY_DELAYS_MS } = await import('./managed-project-refresh');
 const { resolveProjectAddAllowed } = await import('./managed-project-add');
 
 beforeEach(() => {
@@ -192,4 +192,37 @@ test('retries are bounded and a final failure keeps the rows already applied', a
   await refreshManagedProjects();
   expect(projectReads).toBe(3); expect(status).toBe('unavailable');
   expect(publications).toEqual([[row]]); expect(sessionsPublished).toBe(1);
+});
+
+// smarty-code MVP 1 G13: a fresh profile's first discovery on a loaded host stayed "unavailable" until a user action.
+test('the first discovery waits as long as later refreshes (30 s), and retries back off 2/5/10/20/30 s', () => {
+  expect(DISCOVERY_TIMEOUT_MS).toBe(30_000);
+  expect(UNAVAILABLE_RETRY_DELAYS_MS).toEqual([2_000, 5_000, 10_000, 20_000, 30_000]);
+});
+
+test('an unavailable catalog retries on its own and publishes once the server answers; an endpoint change stops it', async () => {
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10, 20, 40);
+  try {
+    let reads = 0, failing = true;
+    projectRead = async () => { reads++; return failing ? { response: response(true, 503), data: [] } : { response: response(), data: [row] }; };
+    await refreshManagedProjects(true);
+    expect(status).toBe('unavailable'); expect(publications).toEqual([]);
+    const afterFirst = reads;
+    await new Promise(resolve => setTimeout(resolve, 700)); // Retries at 10, then 20 ms after each failed round.
+    expect(reads).toBeGreaterThan(afterFirst); expect(status).toBe('unavailable');
+    failing = false;
+    await new Promise(resolve => setTimeout(resolve, 700));
+    expect(status).toBe('ready'); expect(publications).toEqual([[row]]);
+    const settled = reads;
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(reads).toBe(settled); // Answered: no more retries.
+
+    failing = true; generation++; changed(); // Endpoint switch while unavailable: its retry must stop.
+    await refreshManagedProjects(true);
+    expect(status).toBe('unavailable');
+    generation++; changed();
+    const stopped = reads;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(reads).toBe(stopped);
+  } finally { UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
 });

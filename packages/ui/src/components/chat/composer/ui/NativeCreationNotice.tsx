@@ -58,6 +58,8 @@ export function NativeCreationNotice({ native, draftOpen, onSend }: {
     return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>;
   }
   if (running.length > 0) return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.elsewhere')}</p>;
+  // Projects are still being discovered (the server may be slow): say so, never "cannot reach the server".
+  if (native.mode === 'discovering') return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.discovering')}</p>;
   if (native.mode === 'unavailable') return <div className="mb-2 space-y-1">
     <p role="alert" className="text-sm text-muted-foreground">{t('chat.nativeCreation.offline')}</p>
     <Button type="button" variant="outline" size="sm" onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>

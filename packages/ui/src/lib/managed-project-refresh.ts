@@ -11,20 +11,44 @@ import { readManagedCatalog, MANAGED_CATALOG_HEADER, MANAGED_CATALOG_VERSION } f
 
 const REFRESH_RETRIES = 2;
 const REFRESH_RETRY_DELAY_MS = 150;
-const DISCOVERY_TIMEOUT_MS = 10_000;
+// The first discovery gets the same limit as later refreshes (smarty-code MVP 1 G13): on a loaded host a 10 s limit
+// declared a working catalog unavailable.
+export const DISCOVERY_TIMEOUT_MS = 30_000;
 const REFRESH_TIMEOUT_MS = 30_000;
+/** While the catalog is unavailable, discovery is retried on its own after these delays (the last one repeats). */
+export const UNAVAILABLE_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
 class SlowRefresh extends Error {
   constructor(readonly first: boolean) { super(first ? 'Project catalog read timed out' : 'Project catalog refresh timed out'); }
 }
 let revision = 0;
 let pending: Promise<void> | undefined;
 let pendingScope: ReturnType<typeof captureRuntimeRequestScope> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryAttempt = 0;
+const stopRetrying = () => { clearTimeout(retryTimer); retryTimer = undefined; retryAttempt = 0; };
 
-// Uses the existing endpoint lifecycle; never starts a timer or writes settings.
+/**
+ * An unavailable catalog is retried on its own, with backoff, until a sample answers (smarty-code MVP 1 G13): before,
+ * a failed first discovery stayed unavailable until a reconnect or a user action. One timer at most; an endpoint
+ * change or an answered sample stops it. Never writes settings.
+ */
+function retryWhileUnavailable(scope: ReturnType<typeof captureRuntimeRequestScope>) {
+  if (retryTimer) return;
+  const delay = UNAVAILABLE_RETRY_DELAYS_MS[Math.min(retryAttempt, UNAVAILABLE_RETRY_DELAYS_MS.length - 1)];
+  retryAttempt++;
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    if (!isRuntimeRequestScopeCurrent(scope) || useProjectsStore.getState().managedCatalogStatus !== 'unavailable') { retryAttempt = 0; return; }
+    void refreshManagedProjects(true);
+  }, delay);
+}
+
+// Uses the existing endpoint lifecycle; its only timer is the unavailable-catalog retry above.
 subscribeRuntimeEndpointChanged(() => {
   revision++;
   pending = undefined;
   pendingScope = undefined;
+  stopRetrying();
   useProjectsStore.getState().resetManagedCatalog();
 });
 
@@ -97,9 +121,15 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
           await Promise.race([sample(), new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new SlowRefresh(first)), first ? DISCOVERY_TIMEOUT_MS : REFRESH_TIMEOUT_MS);
           })]);
+          if (current() && useProjectsStore.getState().managedCatalogStatus !== 'unavailable') stopRetrying();
           return;
         } catch (error) {
-          if (error instanceof SlowRefresh && !error.first) { console.warn('[managed-catalog] refresh is slow; keeping the published catalog'); return; }
+          if (error instanceof SlowRefresh && !error.first) {
+            console.warn('[managed-catalog] refresh is slow; keeping the published catalog');
+            // Still unavailable (a retry that was slow too): keep retrying rather than stopping here.
+            if (current() && useProjectsStore.getState().managedCatalogStatus === 'unavailable') retryWhileUnavailable(scope);
+            return;
+          }
           if (!current() || attempt >= REFRESH_RETRIES || error instanceof SlowRefresh) throw error;
         } finally { clearTimeout(timer); }
         await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_DELAY_MS * (attempt + 1)));
@@ -110,6 +140,7 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
       // The banner alone does not say which read or check failed (R3.5 live leg); name it for diagnosis.
       console.warn('[managed-catalog] refresh failed:', error instanceof Error ? error.message : String(error));
       useProjectsStore.setState({ managedCatalogStatus: 'unavailable' });
+      retryWhileUnavailable(scope);
     } finally {
       // A discarded sample is not completed discovery for callers awaiting it.
       if (requestRevision !== revision && isRuntimeRequestScopeCurrent(scope) && pending) await pending;
