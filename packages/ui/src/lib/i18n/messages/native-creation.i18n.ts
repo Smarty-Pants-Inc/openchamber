@@ -2,6 +2,8 @@ export const nativeCreationI18n = {
   en: {
     'chat.nativeCreation.discovering': 'Loading projects…',
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
+    'chat.terminalDialog.waitingTitled': "Pi is waiting for an answer in the terminal: {title}. Answer it there; nothing is answered from here.",
+    'chat.terminalDialog.waiting': "Pi is waiting for an answer in the terminal. Answer it there; nothing is answered from here.",
     'chat.followUp.changedDuringCheck': "Nothing was sent: the chat or the message changed while Send checked whether the session is still working. Each chat keeps its own draft. Press Send again.",
     'chat.coSteer.delivered': "Delivered to {name} while it works.",
     'chat.coSteer.deliveredUnnamed': "Delivered while the agent works.",
@@ -35,6 +37,8 @@ export const nativeCreationI18n = {
   de: {
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
     'chat.ordinary.viewMissing': "Der Verlauf dieses Chats ist noch nicht geladen, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld. Drücken Sie gleich noch einmal auf Senden.",
+    'chat.terminalDialog.waitingTitled': "Pi wartet im Terminal auf eine Antwort: {title}. Antworten Sie dort; von hier wird nichts beantwortet.",
+    'chat.terminalDialog.waiting': "Pi wartet im Terminal auf eine Antwort. Antworten Sie dort; von hier wird nichts beantwortet.",
     'chat.followUp.changedDuringCheck': "Nichts wurde gesendet: Der Chat oder die Nachricht hat sich geändert, während Senden prüfte, ob die Sitzung noch arbeitet. Jeder Chat behält seinen eigenen Entwurf. Drücken Sie erneut auf Senden.",
     'chat.coSteer.delivered': "An {name} zugestellt, während es arbeitet.",
     'chat.coSteer.deliveredUnnamed': "Zugestellt, während der Agent arbeitet.",
@@ -68,6 +72,8 @@ export const nativeCreationI18n = {
   es: {
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
     'chat.ordinary.viewMissing': "El historial de este chat aún no ha terminado de cargarse, así que no se envió nada. Tu mensaje sigue en el editor. Pulsa Enviar de nuevo en un momento.",
+    'chat.terminalDialog.waitingTitled': "Pi espera una respuesta en el terminal: {title}. Respóndela allí; desde aquí no se responde nada.",
+    'chat.terminalDialog.waiting': "Pi espera una respuesta en el terminal. Respóndela allí; desde aquí no se responde nada.",
     'chat.followUp.changedDuringCheck': "No se envió nada: el chat o el mensaje cambió mientras Enviar comprobaba si la sesión sigue trabajando. Cada chat conserva su propio borrador. Pulsa Enviar de nuevo.",
     'chat.coSteer.delivered': "Entregado a {name} mientras trabaja.",
     'chat.coSteer.deliveredUnnamed': "Entregado mientras el agente trabaja.",
@@ -101,6 +107,8 @@ export const nativeCreationI18n = {
   fr: {
     'chat.nativeCreation.discovering': 'Chargement des projets…',
     'chat.ordinary.viewMissing': "L'historique de cette discussion n'est pas encore chargé, donc rien n'a été envoyé. Votre message reste dans la zone de saisie. Appuyez à nouveau sur Envoyer dans un instant.",
+    'chat.terminalDialog.waitingTitled': "Pi attend une réponse dans le terminal : {title}. Répondez-y là-bas ; rien n'est répondu d'ici.",
+    'chat.terminalDialog.waiting': "Pi attend une réponse dans le terminal. Répondez-y là-bas ; rien n'est répondu d'ici.",
     'chat.followUp.changedDuringCheck': "Rien n'a été envoyé : la discussion ou le message a changé pendant qu'Envoyer vérifiait si la session travaille encore. Chaque discussion garde son propre brouillon. Appuyez de nouveau sur Envoyer.",
     'chat.coSteer.delivered': "Remis à {name} pendant qu'il travaille.",
     'chat.coSteer.deliveredUnnamed': "Remis pendant que l'agent travaille.",
@@ -134,6 +142,8 @@ export const nativeCreationI18n = {
   ja: {
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
     'chat.ordinary.viewMissing': "このチャットの履歴がまだ読み込まれていないため、何も送信されていません。メッセージは入力欄に残っています。少し待ってからもう一度送信してください。",
+    'chat.terminalDialog.waitingTitled': "Pi はターミナルで回答を待っています: {title}。そちらで回答してください。ここからは何も回答しません。",
+    'chat.terminalDialog.waiting': "Pi はターミナルで回答を待っています。そちらで回答してください。ここからは何も回答しません。",
     'chat.followUp.changedDuringCheck': "送信されませんでした: セッションがまだ動作中かを送信が確認している間に、チャットまたはメッセージが変わりました。各チャットの下書きはそのまま残ります。もう一度送信を押してください。",
     'chat.coSteer.delivered': "{name} の作業中に届けました。",
     'chat.coSteer.deliveredUnnamed': "エージェントの作業中に届けました。",
@@ -167,6 +177,8 @@ export const nativeCreationI18n = {
   ko: {
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
     'chat.ordinary.viewMissing': "이 채팅의 기록이 아직 로드되지 않아 아무것도 보내지 않았습니다. 메시지는 입력란에 그대로 있습니다. 잠시 후 다시 보내기를 누르세요.",
+    'chat.terminalDialog.waitingTitled': "Pi가 터미널에서 답을 기다리고 있습니다: {title}. 그곳에서 답하세요. 여기서는 아무것도 답하지 않습니다.",
+    'chat.terminalDialog.waiting': "Pi가 터미널에서 답을 기다리고 있습니다. 그곳에서 답하세요. 여기서는 아무것도 답하지 않습니다.",
     'chat.followUp.changedDuringCheck': "아무것도 보내지 않았습니다: 보내기가 세션이 아직 작업 중인지 확인하는 동안 채팅 또는 메시지가 바뀌었습니다. 각 채팅의 초안은 그대로 남아 있습니다. 보내기를 다시 누르세요.",
     'chat.coSteer.delivered': "{name}이(가) 작업하는 동안 전달했습니다.",
     'chat.coSteer.deliveredUnnamed': "에이전트가 작업하는 동안 전달했습니다.",
@@ -200,6 +212,8 @@ export const nativeCreationI18n = {
   pl: {
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
+    'chat.terminalDialog.waitingTitled': "Pi czeka na odpowiedź w terminalu: {title}. Odpowiedz tam; stąd nic nie jest odpowiadane.",
+    'chat.terminalDialog.waiting': "Pi czeka na odpowiedź w terminalu. Odpowiedz tam; stąd nic nie jest odpowiadane.",
     'chat.followUp.changedDuringCheck': "Nic nie zostało wysłane: czat lub wiadomość zmieniły się, gdy Wyślij sprawdzało, czy sesja nadal pracuje. Każdy czat zachowuje własny szkic. Naciśnij Wyślij ponownie.",
     'chat.coSteer.delivered': "Dostarczono do {name} w trakcie jego pracy.",
     'chat.coSteer.deliveredUnnamed': "Dostarczono w trakcie pracy agenta.",
@@ -233,6 +247,8 @@ export const nativeCreationI18n = {
   'pt-BR': {
     'chat.nativeCreation.discovering': 'Carregando projetos…',
     'chat.ordinary.viewMissing': "O histórico deste chat ainda não terminou de carregar, então nada foi enviado. Sua mensagem continua no editor. Pressione Enviar novamente em instantes.",
+    'chat.terminalDialog.waitingTitled': "O Pi está esperando uma resposta no terminal: {title}. Responda lá; nada é respondido daqui.",
+    'chat.terminalDialog.waiting': "O Pi está esperando uma resposta no terminal. Responda lá; nada é respondido daqui.",
     'chat.followUp.changedDuringCheck': "Nada foi enviado: o chat ou a mensagem mudou enquanto Enviar verificava se a sessão ainda está trabalhando. Cada chat mantém o próprio rascunho. Pressione Enviar novamente.",
     'chat.coSteer.delivered': "Entregue a {name} enquanto trabalha.",
     'chat.coSteer.deliveredUnnamed': "Entregue enquanto o agente trabalha.",
@@ -266,6 +282,8 @@ export const nativeCreationI18n = {
   tr: {
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
     'chat.ordinary.viewMissing': "Bu sohbetin geçmişi henüz yüklenmedi, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor. Birazdan yeniden Gönder'e basın.",
+    'chat.terminalDialog.waitingTitled': "Pi terminalde bir yanıt bekliyor: {title}. Orada yanıtlayın; buradan hiçbir şey yanıtlanmaz.",
+    'chat.terminalDialog.waiting': "Pi terminalde bir yanıt bekliyor. Orada yanıtlayın; buradan hiçbir şey yanıtlanmaz.",
     'chat.followUp.changedDuringCheck': "Hiçbir şey gönderilmedi: Gönder, oturumun hâlâ çalışıp çalışmadığını denetlerken sohbet veya ileti değişti. Her sohbet kendi taslağını korur. Gönder'e yeniden basın.",
     'chat.coSteer.delivered': "{name} çalışırken iletildi.",
     'chat.coSteer.deliveredUnnamed': "Ajan çalışırken iletildi.",
@@ -299,6 +317,8 @@ export const nativeCreationI18n = {
   uk: {
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
     'chat.ordinary.viewMissing': "Історія цього чату ще не завантажилася, тому нічого не надіслано. Ваше повідомлення лишається в полі введення. Натисніть «Надіслати» ще раз за мить.",
+    'chat.terminalDialog.waitingTitled': "Pi чекає на відповідь у терміналі: {title}. Відповідайте там; звідси нічого не відповідається.",
+    'chat.terminalDialog.waiting': "Pi чекає на відповідь у терміналі. Відповідайте там; звідси нічого не відповідається.",
     'chat.followUp.changedDuringCheck': "Нічого не надіслано: чат або повідомлення змінилися, поки Надіслати перевіряло, чи сесія ще працює. Кожен чат зберігає власну чернетку. Натисніть Надіслати ще раз.",
     'chat.coSteer.delivered': "Доставлено {name}, поки він працює.",
     'chat.coSteer.deliveredUnnamed': "Доставлено, поки агент працює.",
@@ -332,6 +352,8 @@ export const nativeCreationI18n = {
   'zh-CN': {
     'chat.nativeCreation.discovering': '正在加载项目…',
     'chat.ordinary.viewMissing': "此聊天的历史记录尚未加载完成，因此未发送任何内容。你的消息仍在输入框中。请稍后再次点击发送。",
+    'chat.terminalDialog.waitingTitled': "Pi 正在终端中等待回答：{title}。请在那里回答；这里不会回答任何内容。",
+    'chat.terminalDialog.waiting': "Pi 正在终端中等待回答。请在那里回答；这里不会回答任何内容。",
     'chat.followUp.changedDuringCheck': "未发送任何内容：在“发送”检查会话是否仍在工作时，聊天或消息发生了变化。每个聊天都保留自己的草稿。请再次按“发送”。",
     'chat.coSteer.delivered': "已在 {name} 工作时送达。",
     'chat.coSteer.deliveredUnnamed': "已在代理工作时送达。",
@@ -365,6 +387,8 @@ export const nativeCreationI18n = {
   'zh-TW': {
     'chat.nativeCreation.discovering': '正在載入專案…',
     'chat.ordinary.viewMissing': "此聊天的歷史記錄尚未載入完成，因此未傳送任何內容。你的訊息仍在輸入框中。請稍後再次按下傳送。",
+    'chat.terminalDialog.waitingTitled': "Pi 正在終端機中等待回答：{title}。請在那裡回答；這裡不會回答任何內容。",
+    'chat.terminalDialog.waiting': "Pi 正在終端機中等待回答。請在那裡回答；這裡不會回答任何內容。",
     'chat.followUp.changedDuringCheck': "未傳送任何內容：在「傳送」檢查工作階段是否仍在進行時，聊天或訊息已變更。每個聊天都保留自己的草稿。請再按一次「傳送」。",
     'chat.coSteer.delivered': "已在 {name} 工作時送達。",
     'chat.coSteer.deliveredUnnamed': "已在代理工作時送達。",

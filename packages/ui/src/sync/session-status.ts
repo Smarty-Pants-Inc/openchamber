@@ -7,6 +7,12 @@ const ordinaryFields = {
     generation: z.string().min(1),
     presentationId: z.string().min(1),
   }).nullable().optional(),
+  // An extension dialog is open in Pi's terminal (slice 1 L4). Pi has no handle a browser answer could settle, so the
+  // page only says where to answer it; it never answers or acknowledges it.
+  ordinaryDialog: z.object({
+    kind: z.enum(['select', 'confirm', 'input', 'editor', 'custom']),
+    title: z.string().max(200).optional(),
+  }).nullable().optional().catch(null),
 }
 const statusSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('idle'), ...ordinaryFields }),
