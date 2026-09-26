@@ -1,4 +1,5 @@
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
+import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
 
 export const createBootstrapRuntime = (dependencies) => {
   const {
@@ -94,6 +95,24 @@ export const createBootstrapRuntime = (dependencies) => {
         return scope === 'tunnel' || scope === 'unknown-public'
           ? tunnelAuthController.requireTunnelSession(req, res, next) : next();
       }, humanAuth.handler);
+    }
+    // smarty-code#391: the passwordless mode's browser-origin rule (lib/security/browser-origin.js), for every mutation
+    // before the status and API routes; the WebSocket listeners apply the same rule to their upgrades.
+    configureApplicationHosts(async () => {
+      const settings = await Promise.resolve(readSettingsFromDiskMigrated?.()).catch(() => undefined);
+      return [settings?.publicOrigin, getTunnelUrl?.(), ...(process.env.OPENCHAMBER_ALLOWED_HOSTS ?? '').split(',')]
+        .flatMap((value) => { try { return value ? [String(value).includes('://') ? new URL(String(value)).host : String(value).trim()] : []; } catch { return []; } });
+    });
+    if (!uiAuthController.enabled) {
+      // Every request (reads included) needs an application host; a mutation also needs the application origin. The
+      // preview capability is registered above, before this: its capability is its only credential.
+      app.use((req, res, next) => {
+        void (async () => {
+          if (!await applicationAuthority(req)) return res.status(403).json({ error: 'Requests require an application host' });
+          if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || await browserRequestAllowed(req)) return next();
+          return res.status(403).json({ error: 'Application mutations require the application origin' });
+        })().catch(next);
+      });
     }
     if (uiAuthController.enabled) {
       console.log(humanAuth ? 'Google human authentication enabled' : 'UI password protection enabled for browser sessions');

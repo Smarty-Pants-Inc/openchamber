@@ -20,6 +20,7 @@
  *     { type: 'pong' }
  */
 
+import { browserRequestAllowed } from '../security/browser-origin.js';
 import { WebSocketServer } from 'ws';
 
 import { DictationStreamManager } from './stream-manager.js';
@@ -246,6 +247,9 @@ export function createDictationRuntime({
             rejectWebSocketUpgrade(socket, 403, 'Invalid origin');
             return;
           }
+        } else if (!await browserRequestAllowed(req)) { // Passwordless: the browser-origin rule (smarty-code#391).
+          rejectWebSocketUpgrade(socket, 403, 'Invalid origin');
+          return;
         }
 
         wsServer.handleUpgrade(req, socket, head, (ws) => {

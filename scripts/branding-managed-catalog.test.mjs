@@ -36,6 +36,10 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The passwordless origin guard (smarty-code#391) is the newest layer: it only adds one entry, so unwind it first.
+  assert.match(historical.originGuardSource, /^[a-f0-9]{40}$/);
+  delete historical.originGuardSource;
+  historical.files = historical.files.filter(entry => !entry.originGuardAdded);
   // The deterministic stall tests are the newest layer: they only add two test entries, so unwind them first.
   assert.match(historical.testDeterminismSource, /^[a-f0-9]{40}$/);
   delete historical.testDeterminismSource;
