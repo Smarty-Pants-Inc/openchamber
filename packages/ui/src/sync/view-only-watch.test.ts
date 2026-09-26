@@ -6,6 +6,7 @@ import { holdViewOnlyWatch, setViewOnlyWatchDeps, viewOnlyWatchesHeld } from './
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 type Call = { path: string; query: Record<string, string> };
 function gateway(options: { watch?: boolean; failFirst?: number; healthFails?: number } = {}) {
+  const streams: (() => void)[] = []; // Ends each open stream from the server side (a dropped watch).
   const calls: Call[] = [];
   let open = 0, most = 0, failures = options.failFirst ?? 0;
   const fetch = async (path: string, init: { query: Record<string, string>; signal?: AbortSignal }) => {
@@ -19,13 +20,16 @@ function gateway(options: { watch?: boolean; failFirst?: number; healthFails?: n
         open++; most = Math.max(most, open);
         controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
         closeStream = () => { open--; closeStream = () => {}; };
-        init.signal?.addEventListener('abort', () => { closeStream(); try { controller.close(); } catch { /* closed */ } }, { once: true });
+        const end = () => { closeStream(); try { controller.close(); } catch { /* closed */ } };
+        streams.push(end);
+        init.signal?.addEventListener('abort', end, { once: true });
       },
       cancel() { closeStream(); },
     });
     return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
   };
-  return { fetch, calls, open: () => open, most: () => most, watches: () => calls.filter((call) => call.path === '/api/event') };
+  return { fetch, calls, open: () => open, most: () => most, watches: () => calls.filter((call) => call.path === '/api/event'),
+    drop: () => { for (const end of streams.splice(0)) end(); } };
 }
 afterEach(() => { setViewOnlyWatchDeps(); });
 
@@ -98,4 +102,22 @@ test('retries leave no abort listeners behind', async () => {
     expect(live).toBeLessThanOrEqual(2); // Only the current stream's listeners (reader cancel, and the fake's own).
     release();
   } finally { AbortSignal.prototype.addEventListener = added; AbortSignal.prototype.removeEventListener = removed; }
+});
+
+// #278 review: entries committed while a view was hidden (or its watch dropped) appear when it is shown (reconnects).
+test('hidden, then entries committed, then shown: the entries appear; a dropped watch catches up the same way', async () => {
+  const g = gateway(), journal = ['a'], transcript = new Set<string>(['a']), order: string[] = [];
+  const catchUp = async () => { order.push(`catch-up after ${g.open()} open`); for (const entry of journal) transcript.add(entry); };
+  setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A', catchUp });
+  let release = holdViewOnlyWatch('s', '/p'); await sleep(10); // Shown; its first watch reads nothing extra.
+  expect(order).toEqual([]);
+  release(); await sleep(5); // Hidden: released.
+  journal.push('b'); // Committed while hidden.
+  release = holdViewOnlyWatch('s', '/p'); await sleep(10); // Shown again.
+  expect([...transcript]).toEqual(['a', 'b']);
+  expect(order).toEqual(['catch-up after 1 open']); // Read once the new stream is open (it becomes the tail's baseline).
+  journal.push('c'); g.drop(); // The watch drops while shown, and 'c' is committed;
+  for (let i = 0; i < 150 && order.length < 2; i++) await sleep(10); // it reconnects after its backoff.
+  expect([...transcript]).toEqual(['a', 'b', 'c']);
+  release();
 });
