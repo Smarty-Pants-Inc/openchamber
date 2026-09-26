@@ -1,3 +1,5 @@
+import { registerPreviewServeRoute } from '../fs/preview-capability.js';
+
 export const createBootstrapRuntime = (dependencies) => {
   const {
     createUiAuth,
@@ -72,6 +74,9 @@ export const createBootstrapRuntime = (dependencies) => {
       clientAuthController: remoteClientAuthRuntime,
       humanAuth,
     });
+    // The Files view's HTML preview (smarty-code#382): its capability is its only credential, so it comes before every
+    // origin and session check, and it never reaches the app's session.
+    registerPreviewServeRoute(app);
     if (humanAuth) {
       // Protect application mutations too, including status routes registered below.
       app.use((req, res, next) => {

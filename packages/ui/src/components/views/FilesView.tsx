@@ -3071,17 +3071,37 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     ? `${selectedFile.path}|${selectedFileReadOptions.allowOutsideWorkspace ? 'outside' : 'workspace'}|${selectedFileReadOptions.outsideFileGrant ?? ''}|${fileContentRevision}`
     : '';
 
-  const htmlAssetAuthKey = selectedFile?.path && isHtml && htmlViewMode === 'preview' && !runtime.isVSCode
+  // An HTML preview never runs as the signed-in user (smarty-code#382): the server grants a capability URL that reads
+  // only the file's own directory, served as a sandboxed document with an opaque origin, with no cookie or URL token.
+  const htmlPreviewKey = selectedFile?.path && isHtml && htmlViewMode === 'preview' && !runtime.isVSCode
     ? `${selectedFile.path}|${fileContentRevision}`
     : '';
+  const [htmlPreview, setHtmlPreview] = React.useState<{ key: string; url: string } | null>(null);
+  const htmlPreviewPath = selectedFile?.path;
+  React.useEffect(() => {
+    if (!htmlPreviewKey || !htmlPreviewPath) return;
+    let cancelled = false;
+    void runtimeFetch(`/api/fs/preview${root ? `?${new URLSearchParams({ directory: root })}` : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: htmlPreviewPath }),
+    }).then(async (response) => {
+      const body = await response.json().catch(() => ({})) as { url?: unknown; error?: unknown };
+      if (!response.ok || typeof body.url !== 'string') {
+        throw new Error(typeof body.error === 'string' ? body.error : t('filesView.error.readFileFailed'));
+      }
+      if (!cancelled) setHtmlPreview({ key: htmlPreviewKey, url: getRuntimeUrlResolver().auth(body.url) });
+    }).catch((error: unknown) => {
+      if (!cancelled) setFileError(error instanceof Error ? error.message : t('filesView.error.readFileFailed'));
+    });
+    return () => { cancelled = true; };
+  }, [htmlPreviewKey, htmlPreviewPath, root, t]);
 
   const assetAuthErrorFallback = t('filesView.error.readFileFailed');
-  const { readyKey: htmlAssetAuthReadyKey, nonce: htmlPreviewNonce } =
-    useAssetAuthRefresh(htmlAssetAuthKey, setFileError, assetAuthErrorFallback);
   const { readyKey: pdfAssetAuthReadyKey, nonce: pdfPreviewNonce } =
     useAssetAuthRefresh(pdfAssetAuthKey, setFileError, assetAuthErrorFallback);
 
-  const isHtmlAssetAuthLoading = Boolean(htmlAssetAuthKey && htmlAssetAuthReadyKey !== htmlAssetAuthKey);
+  const isHtmlAssetAuthLoading = Boolean(htmlPreviewKey && htmlPreview?.key !== htmlPreviewKey);
   const isPdfAssetAuthLoading = Boolean(pdfAssetAuthKey && pdfAssetAuthReadyKey !== pdfAssetAuthKey);
 
   const imageSrc = selectedFile?.path && isSelectedImage
@@ -4018,18 +4038,16 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             ) : (
             <div className="h-full overflow-hidden">
               <iframe
-                key={htmlPreviewNonce}
-                src={!runtime.isVSCode && htmlAssetAuthReadyKey === htmlAssetAuthKey ? (() => {
-                  const encoded = selectedFile.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-                  return getRuntimeUrlResolver().authenticatedAsset(`/api/fs/serve${encoded.startsWith('/') ? encoded : `/${encoded}`}`);
-                })() : undefined}
+                key={htmlPreview?.url ?? 'srcdoc'}
+                src={!runtime.isVSCode && htmlPreview?.key === htmlPreviewKey ? htmlPreview.url : undefined}
                 srcDoc={runtime.isVSCode ? (() => {
                   const basePath = selectedFile.path.substring(0, selectedFile.path.lastIndexOf('/') + 1);
                   if (!basePath) return fileContent;
                   return fileContent.replace(/<head([^>]*)>/i, `<head$1><base href="${basePath}">`);
                 })() : undefined}
                 className="w-full h-full border-none"
-                sandbox="allow-scripts allow-same-origin allow-forms"
+                // Scripts run for display, but never with the app's origin (no allow-same-origin), cookies or storage.
+                sandbox="allow-scripts"
                 title={t('filesView.editor.htmlPreviewTitle')}
               />
             </div>
