@@ -75,7 +75,7 @@ test("a held replacement response, with an update and a removal applied meanwhil
   try {
     await loader.ensure(target, { reason: "navigation" }); expect(shown()).toEqual(["m0001", "m0002"])
     let release!: () => void; hold = new Promise<void>((resolve) => { release = resolve })
-    const replacing = loader.replaceHistory(target) // Its read serves [m0001, m0002] and is held.
+    const replacing = loader.replaceHistory(target, [5]) // Its read serves [m0001, m0002] and is held.
     await new Promise((resolve) => setTimeout(resolve, 5))
     branch = ["m0001", "m0003"] // Pi moves the branch; the gateway publishes the change live:
     live({ type: "message.updated", properties: { info: record("m0003", 3).info } })
@@ -89,29 +89,42 @@ test("a held replacement response, with an update and a removal applied meanwhil
   } finally { loader.dispose(); childStores.disposeAll() }
 })
 
-test("a page that keeps moving during every replacement read falls back to a merge that never erases a newer event", async () => {
+test("a page that keeps moving never loses a live update or removal, and the replacement converges once quiet", async () => {
   const { applyDirectoryEvent } = await import("./event-reducer")
-  const branch = ["m0001"]
-  let during: (() => void) | undefined, reads = 0
+  const branch = ["m0001", "m0002"]
+  const quietAfter = 6 // The first open, then four reads each overlapped by a live change, then quiet.
+  let reads = 0
+  const store = () => childStores.ensureChild(target.directory, { bootstrap: false })
+  const live = (event: unknown) => {
+    const state = store().getState(), draft = { ...state, message: { ...state.message }, part: { ...state.part } }
+    applyDirectoryEvent(draft as never, event as never); store().setState(draft)
+  }
   const messages = async () => {
-    const at = [...branch]; reads++; during?.() // A live event lands during every read.
+    const at = [...branch]; reads++
+    if (reads > 1 && reads < 5) { // Pi commits while this read is in flight.
+      const id = `m${String(reads + 1).padStart(4, "0")}`; branch.push(id)
+      live({ type: "message.updated", properties: { info: record(id, Number(id.slice(1))).info } })
+    }
+    if (reads === 5) { // This read (the old merge fallback's) still serves m0002, which is removed while it is in flight.
+      branch.splice(branch.indexOf("m0002"), 1); live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
+    }
     return { data: at.map((id) => record(id, Number(id.slice(1)))), response: { headers: { get: (name: string) => name === "x-smarty-read-only" ? "1" : null } } }
   }
   const childStores = new ChildStoreManager()
   const loader = new SessionMessageLoader(childStores, { sdk: { session: { messages } } as unknown as OpencodeClient, runtimeKey: "runtime-a" })
-  const store = () => childStores.ensureChild(target.directory, { bootstrap: false })
+  const shown = () => (store().getState().message[target.sessionID] ?? []).map((message) => message.id)
   try {
     await loader.ensure(target, { reason: "navigation" })
-    let next = 2
-    during = () => {
-      const id = `m${String(next++).padStart(4, "0")}`, state = store().getState()
-      const draft = { ...state, message: { ...state.message }, part: { ...state.part } }
-      applyDirectoryEvent(draft as never, { type: "message.updated", properties: { info: record(id, Number(id.slice(1))).info } } as never)
-      store().setState(draft)
-    }
-    await loader.replaceHistory(target)
-    const shown = (store().getState().message[target.sessionID] ?? []).map((message) => message.id)
-    expect(reads).toBe(1 + 4) // The first open, then three stale reads and the merge.
-    expect(shown).toEqual(["m0001", "m0002", "m0003", "m0004", "m0005"]) // Every live entry kept.
+    const seen: string[][] = []
+    const unsubscribe = childStores.ensureChild(target.directory, { bootstrap: false }).subscribe(() => seen.push(shown()))
+    await loader.replaceHistory(target, [5])
+    unsubscribe()
+    // Never lost: once a live entry was shown it stays shown, and the removed one never comes back.
+    const added = ["m0003", "m0004", "m0005"]
+    for (const id of added) { const first = seen.findIndex((ids) => ids.includes(id)); expect(first).toBeGreaterThanOrEqual(0); expect(seen.slice(first).every((ids) => ids.includes(id))).toBe(true) }
+    const gone = seen.findIndex((ids) => !ids.includes("m0002")); expect(seen.slice(gone).every((ids) => !ids.includes("m0002"))).toBe(true)
+    expect(shown()).toEqual(branch) // Converged on the gateway's branch once quiet,
+    expect(reads).toBe(quietAfter) // after four stale reads and one clean one,
+    expect(loader.getSnapshot(target)).toMatchObject({ status: "ready", resolved: true, complete: true }) // coverage fresh.
   } finally { loader.dispose(); childStores.disposeAll() }
 })
