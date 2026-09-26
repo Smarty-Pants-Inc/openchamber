@@ -195,6 +195,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             return;
         }
         if (!persistEnabled) {
+            messageRef.current = '';
             setMessage('');
             confirmedMentionsRef.current = new Set();
             return;
@@ -202,6 +203,10 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
         persistNow(previous, messageRef.current);
         const restored = readChatDraft(identity);
+        // The composer's own restore, not typing: the editor's controlled rewrite compares against messageRef, so it
+        // must hold the restored text first. Otherwise the rewrite marks a cold draft edited, and the catalog transfer
+        // then saves the empty composer over the remembered project's draft (smarty-code#113, new-project reload).
+        messageRef.current = restored.text;
         setMessage(restored.text);
         confirmedMentionsRef.current = restored.confirmedMentions;
         if (restored.text) {
