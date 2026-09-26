@@ -120,8 +120,8 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   };
   const key = requestKey(draft, runtimeKey), requestId = storedRequestId(key);
   // An accepted start recovered by its request id: its text is sent (#117) before anything is sent to it.
-  const recovered = (directory: string, id: string) => {
-    const marked = ensureSentStart(runtimeKey, directory, id);
+  const recovered = (directory: string, id: string, operationId: string | undefined) => {
+    const marked = ensureSentStart(runtimeKey, directory, id, undefined, operationId);
     if (marked !== 'marked') throw new NativeCreationError(marked);
     hold(id);
   };
@@ -136,7 +136,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     const saved = await resolveSaved(first.directory, requestId, key);
     record();
     if (saved === 'cleared') { publishNativeCreation(first, null); throw new NativeCreationError('stopped'); }
-    recovered(first.directory, requestId);
+    recovered(first.directory, requestId, saved.operationId);
     await resumeNativeCreation(saved);
     return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   } else if (first) {
@@ -144,7 +144,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     // it takes the sent mark before its text goes, as a recovered start does (#117).
     const echoed = first.status === 'pending' ? first.operation.clientRequestId : first.status === 'created' ? first.clientRequestId : undefined;
     if (!requestId || echoed !== requestId) { hold(requestId); return await finish(key, record, wait); }
-    recovered(first.directory, requestId);
+    recovered(first.directory, requestId, first.status === 'pending' ? first.operation.operationId : undefined);
     return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   }
   const directory = draft.directoryOverride ?? visibleProjects(useProjectsStore.getState())
@@ -159,7 +159,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     const saved = await resolveSaved(draft.directoryOverride, requestId, key);
     record();
     if (saved !== 'cleared') {
-      recovered(draft.directoryOverride, requestId);
+      recovered(draft.directoryOverride, requestId, saved.operationId);
       await resumeNativeCreation(saved);
       return await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, requestId));
     }
@@ -190,7 +190,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   const made = record();
   if (made?.status === 'created' && !made.session.nativeCreation.inputReady) { forgetRequestId(key); throw new NativeCreationError('notReady'); }
   // The server accepted this start with its request id: its text is sent, not a draft, until the start resolves (#117).
-  if (made?.status === 'pending' && made.operation.clientRequestId === id) { markSentStart(runtimeKey, draft.directoryOverride, id); hold(id); }
+  if (made?.status === 'pending' && made.operation.clientRequestId === id) { markSentStart(runtimeKey, draft.directoryOverride, id, made.operation.operationId); hold(id); }
   await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, id));
 }
 

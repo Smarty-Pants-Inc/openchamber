@@ -3,13 +3,15 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { keepSentTextAsDraft, resolveSentStart, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations } from '@/sync/native-draft-control';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
+const STOPPED_LINE = { expired: 'chat.nativeCreation.sentExpired', denied: 'chat.nativeCreation.sentDenied',
+  cancelled: 'chat.nativeCreation.sentCancelled' } as const;
 /** A start past trust is a real session: the server refuses to abandon it (smarty-code#340). */
 const PAST_TRUST = ['starting', 'ready-required', 'ready'];
 
@@ -35,8 +37,9 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   // session here (the composer is locked meanwhile, so its way out is always shown).
   const runtimeKey = getRuntimeKey(), directory = draft.directoryOverride;
   if (sent && directory) {
-    if (sent === 'stopped') return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
-      {t('chat.nativeCreation.sentStopped')}</p>;
+    // Not sent, and why: the text is back in the draft, editable (#117).
+    if (isSentStartStopped(sent)) return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
+      {t(STOPPED_LINE[sent])}</p>;
     return <div className="mb-2 space-y-1">
       <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
       <div className="flex gap-2">
