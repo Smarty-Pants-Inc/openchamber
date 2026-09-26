@@ -815,7 +815,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         effectiveSessionDirectory,
     );
     // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455).
-    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true);
+    // Hidden views (another panel shown: messagesEnabled false) hold none.
+    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true, messagesEnabled);
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
 
     React.useEffect(() => {
