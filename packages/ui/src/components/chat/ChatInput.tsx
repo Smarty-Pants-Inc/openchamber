@@ -187,7 +187,7 @@ import {
     mapInputHistoryEntriesToValues,
     mergeSessionInputHistory,
 } from './inputHistory';
-import { useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { reconcileSessionIdleBeforeSend, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -1072,11 +1072,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         presetText?: string;
     };
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
+    const submitSessionIdRef = React.useRef(currentSessionId);
 
     const queueAdmissionInFlight = React.useRef(false);
+    // Set while Send asks the server whether a session shown working is idle (followUpUnlessIdle): one at a time.
+    const followUpPreflight = React.useRef(false);
     // Add message to queue instead of sending.
     const handleQueueMessage = React.useCallback(async () => {
-        if (queueAdmissionInFlight.current) return;
+        if (queueAdmissionInFlight.current || followUpPreflight.current) return;
         try {
             if (browserDisplayName.read()) { toast.error(t('chat.displayName.plainOnly')); return; }
         } catch { toast.error(t('chat.displayName.error')); return; }
@@ -1306,7 +1309,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const handleSubmit = async (options?: SubmitOptions) => {
-        if (queueAdmissionInFlight.current) return;
+        if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
             toast.error(t('chat.queuedMessage.admissionUnknown'));
             return;
@@ -1911,19 +1914,48 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Update ref with latest handleSubmit on every render
     handleSubmitRef.current = handleSubmit;
+    submitSessionIdRef.current = currentSessionId;
 
     // Primary action for send/queue button — respects selected follow-up behavior
+    // A missed idle event can leave the session shown working, so Send would queue or steer into a turn that is
+    // not running. Ask the server first: a session idle there gets a plain send (F11). A failed read keeps the
+    // chosen follow-up. An auto-review run is local state and needs no check.
+    // The read is an async gap, and the composer stays mounted across session selections. So the session and the
+    // draft (text and files) are captured before it, and afterwards the send or queue goes ahead only if both are
+    // unchanged: the latest composer then holds exactly the captured draft for the captured session. Otherwise nothing
+    // is sent or queued, and a plain notice says so; each session keeps its own draft.
+    const followUpUnlessIdle = React.useCallback(async (followUp: () => void) => {
+        const directory = currentSessionDirectoryForSync ?? currentDirectory;
+        if (autoReviewRunning || !currentSessionId || !directory) { followUp(); return; }
+        if (followUpPreflight.current) return;
+        const identity = () => [submitSessionIdRef.current, useSessionUIStore.getState().currentSessionId, getRuntimeKey(),
+            composerRef.current?.getValue() ?? messageRef.current, useInputStore.getState().attachedFiles] as const;
+        const before = identity();
+        followUpPreflight.current = true;
+        let idle: boolean;
+        try { idle = await reconcileSessionIdleBeforeSend(directory, currentSessionId); }
+        finally { followUpPreflight.current = false; }
+        const after = identity();
+        if (before.some((value, index) => value !== after[index])) {
+            toast.error(t('chat.followUp.changedDuringCheck'));
+            return;
+        }
+        if (idle) { void handleSubmitRef.current(); return; }
+        followUp();
+    }, [autoReviewRunning, currentDirectory, currentSessionDirectoryForSync, currentSessionId, t]);
+
     const handlePrimaryAction = React.useCallback(() => {
+        if (followUpPreflight.current) return;
         const inputSnapshot = getCurrentInputSnapshot();
         const canQueue = !isBtwActive && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
         if (followUpBehavior === 'queue' && canQueue) {
-            void handleQueueMessage();
+            void followUpUnlessIdle(() => { void handleQueueMessage(); });
         } else if (followUpBehavior === 'steer' && canQueue) {
-            void handleSubmitRef.current({ delivery: 'steer' });
+            void followUpUnlessIdle(() => { void handleSubmitRef.current({ delivery: 'steer' }); });
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, followUpUnlessIdle]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2124,6 +2156,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             metaKey: e.metaKey,
         })) {
             e.preventDefault();
+            if (followUpPreflight.current) return; // A Send is already checking the session; one at a time.
 
             // Queueing / steering only works when there's an existing busy
             // session (or an active auto-review run).
@@ -2133,14 +2166,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (isCtrlEnter || !canQueue) {
                     handleSubmit();
                 } else {
-                    void handleQueueMessage();
+                    void followUpUnlessIdle(() => { void handleQueueMessage(); });
                 }
             } else {
                 // steer: Enter steers into the running turn, Ctrl+Enter sends now.
                 if (isCtrlEnter || !canQueue) {
                     handleSubmit();
                 } else {
-                    handleSubmit({ delivery: 'steer' });
+                    void followUpUnlessIdle(() => { void handleSubmitRef.current({ delivery: 'steer' }); });
                 }
             }
         }
