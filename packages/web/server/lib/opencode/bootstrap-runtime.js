@@ -94,6 +94,23 @@ export const createBootstrapRuntime = (dependencies) => {
         return scope === 'tunnel' || scope === 'unknown-public'
           ? tunnelAuthController.requireTunnelSession(req, res, next) : next();
       }, humanAuth.handler);
+    } else {
+      // smarty-code#391: without human auth (the passwordless loopback mode included), any page in the same browser, a
+      // sandboxed preview among them, could POST to /api/fs/write or /api/system/shutdown. A browser's mutation must come
+      // from this server's own origin or a native client's (Electron, mobile, VS Code webview, local dev); an opaque or
+      // other origin is refused. A request no browser sent (no Origin, no Sec-Fetch-Site: CLI, native bridges) passes.
+      // The native clients are the ones the server's CORS policy already admits (it set Access-Control-Allow-Origin).
+      app.use((req, res, next) => {
+        if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+        const origin = req.headers.origin, site = req.headers['sec-fetch-site'];
+        if (origin === undefined && site === undefined) return next();
+        if (site === 'same-origin' || (typeof origin === 'string' && origin !== 'null'
+          && (origin === `${req.protocol}://${req.get('host')}` || origin.startsWith('vscode-webview://')
+            || res.getHeader('Access-Control-Allow-Origin') === origin))) {
+          return next();
+        }
+        return res.status(403).json({ error: 'Application mutations require the application origin' });
+      });
     }
     if (uiAuthController.enabled) {
       console.log(humanAuth ? 'Google human authentication enabled' : 'UI password protection enabled for browser sessions');
