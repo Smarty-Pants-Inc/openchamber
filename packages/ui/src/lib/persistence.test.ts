@@ -823,7 +823,8 @@ describe('updateDesktopSettings', () => {
     });
   });
 
-  test('seeds missing shared sidebar preferences from the hydrated local cache', async () => {
+  // smarty-code#117: this browser's local sidebar preferences are kept in memory, never published by a page load.
+  test('keeps local sidebar preferences the shared settings lack, without writing them', async () => {
     getWindow();
     const saves: Array<Partial<SettingsPayload>> = [];
     useSessionDisplayStore.setState({
@@ -846,14 +847,9 @@ describe('updateDesktopSettings', () => {
 
     await syncDesktopSettings();
 
-    expect(saves).toEqual([{
-      draftStartersCraftGoalAdded: true,
-      draftStartersScheduleTaskAdded: true,
-      sidebarProjectDisplayMode: 'single',
-      sidebarSessionGroupingMode: 'flat',
-      sidebarProjectSortOrder: 'a-z',
-      sidebarShowRecentSection: false,
-    }]);
+    expect(saves).toEqual([]);
+    expect(useSessionDisplayStore.getState()).toMatchObject({ projectDisplayMode: 'single', sessionGroupingMode: 'flat',
+      projectSortOrder: 'a-z', showRecentSection: false });
   });
 
   test('preserves local sidebar preferences when the authoritative load fails', async () => {
@@ -1282,13 +1278,13 @@ describe('updateDesktopSettings', () => {
       const migrationStarted = deferred<void>();
       const releaseMigration = deferred<void>();
       registerSettingsApi(async (changes) => {
-        // The draft-starter migration (the server lacks its flags); a default seed is no longer written (#117).
+        // The draft-starter migration of a legacy list (it changes the list, so it writes once; #117).
         if (changes.draftStartersCraftGoalAdded !== undefined) {
           migrationStarted.resolve();
           await releaseMigration.promise;
         }
         return changes;
-      }, async () => ({ settings: { activeProjectId: 'project-a' }, source: 'web' }));
+      }, async () => ({ settings: { activeProjectId: 'project-a', draftStarters: [{ type: 'command', name: 'plan-feature' }] }, source: 'web' }));
       invalidateSettingsCache();
       const synced: SettingsSyncedDetail[] = [];
       const handleSettingsSynced = (event: Event) => {
@@ -1665,7 +1661,7 @@ describe('updateDesktopSettings', () => {
     expect(saveCalls.some((changes) => changes.autoSaveEnabled === false)).toBe(true);
   });
 
-  test('seeds omitted autoSaveEnabled from the hydrated client preference', async () => {
+  test('keeps an omitted autoSaveEnabled from the hydrated client preference, without writing it (#117)', async () => {
     getWindow();
     invalidateSettingsCache();
     useUIStore.getState().setAutoSaveEnabled(false);
@@ -1682,7 +1678,7 @@ describe('updateDesktopSettings', () => {
     await delay(500);
 
     expect(useUIStore.getState().autoSaveEnabled).toBe(false);
-    expect(saveCalls.some((changes) => changes.autoSaveEnabled === false)).toBe(true);
+    expect(saveCalls.some((changes) => changes.autoSaveEnabled !== undefined)).toBe(false);
   });
 
   test('seeds default autoSaveEnabled when omitted and client still has the default', async () => {

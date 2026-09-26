@@ -719,7 +719,9 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     nextFollowUpBehavior = normalizeFollowUpBehavior(undefined, settings.queueModeEnabled);
   }
   if (nextFollowUpBehavior && nextFollowUpBehavior !== queueStore.followUpBehavior) {
-    queueStore.setFollowUpBehavior(nextFollowUpBehavior);
+    // The server's value (or its legacy queueModeEnabled) applied in memory: the store's setter would write it back
+    // to the shared settings, and a load is no user action (smarty-code#117).
+    useMessageQueueStore.setState({ followUpBehavior: nextFollowUpBehavior });
   }
 
   if (typeof settings.showDeletionDialog === 'boolean' && settings.showDeletionDialog !== store.showDeletionDialog) {
@@ -2104,15 +2106,14 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
     await waitForHydration();
     if (!isSettingsRuntimeContextCurrent(context)) return;
     settings = overlayPendingChanges(_settingsMutationTracker.reconcile(loadedSettings, operation));
-    const shouldPersistCraftGoalMigration = settings.draftStartersCraftGoalAdded !== true
-      || settings.draftStartersScheduleTaskAdded !== true;
-    // `autoSaveEnabled` is new to the settings backend. Until the server has a
-    // value, materialize would invent the client default (true) and overwrite a
-    // deliberate legacy "off" preference migrated from
-    // `openchamber:files:auto-save-enabled`. Prefer the hydrated store value and
-    // seed the backend once so later omitted→default authority is correct.
-    // A seed writes only a local preference that differs from the default: writing a default would publish
-    // this browser's startup state as the shared choice (smarty-code#117). An absent key already means default.
+    // The starters migration writes only when it really changes a stored list (smarty-code#117: it wrote its markers,
+    // and an unchanged list, on every first load). No list, or one that already has both starters, needs no write: the
+    // built-in default has them, and a user's own save carries the markers (useDraftStarters).
+    const storedStarters = Array.isArray(settings.draftStarters) ? JSON.stringify(settings.draftStarters) : undefined;
+    // `autoSaveEnabled` and the sidebar modes are new to the settings backend. Until the server has a value,
+    // materialize would invent the client default and overwrite this browser's own preference, so the hydrated
+    // local value is kept, in memory only: a page load never publishes it as the shared choice (smarty-code#117).
+    // The user's next change of it saves it. An absent key already means default.
     const uiDefaults = useUIStore.getInitialState();
     const displayDefaults = useSessionDisplayStore.getInitialState();
     const displayState = useSessionDisplayStore.getState();
@@ -2157,27 +2158,10 @@ const syncDesktopSettingsNow = async (options?: { bootstrap?: boolean; adoptThem
       console.warn('applyDesktopUiPreferences failed:', error);
     }
     const migrationPatch: Partial<DesktopSettings> = {};
-    if (shouldPersistCraftGoalMigration) {
-      if (authoritativeSettings.draftStarters) {
-        migrationPatch.draftStarters = authoritativeSettings.draftStarters;
-      }
+    if (storedStarters !== undefined && JSON.stringify(authoritativeSettings.draftStarters) !== storedStarters) {
+      migrationPatch.draftStarters = authoritativeSettings.draftStarters;
       migrationPatch.draftStartersCraftGoalAdded = true;
       migrationPatch.draftStartersScheduleTaskAdded = true;
-    }
-    if (shouldSeedAutoSaveEnabled) {
-      migrationPatch.autoSaveEnabled = authoritativeSettings.autoSaveEnabled;
-    }
-    if (shouldSeedSidebarProjectDisplayMode) {
-      migrationPatch.sidebarProjectDisplayMode = authoritativeSettings.sidebarProjectDisplayMode;
-    }
-    if (shouldSeedSidebarSessionGroupingMode) {
-      migrationPatch.sidebarSessionGroupingMode = authoritativeSettings.sidebarSessionGroupingMode;
-    }
-    if (shouldSeedSidebarProjectSortOrder) {
-      migrationPatch.sidebarProjectSortOrder = authoritativeSettings.sidebarProjectSortOrder;
-    }
-    if (shouldSeedSidebarShowRecentSection) {
-      migrationPatch.sidebarShowRecentSection = authoritativeSettings.sidebarShowRecentSection;
     }
     if (Object.keys(migrationPatch).length > 0) {
       await updateDesktopSettings(migrationPatch);
