@@ -36,6 +36,17 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The unsaved label (slice 1 L1) is the newest layer, so unwind it first.
+  assert.match(historical.unsavedLabelSource, /^[a-f0-9]{40}$/);
+  delete historical.unsavedLabelSource;
+  for (const entry of historical.files.filter(file => file.unsavedLabelSha256)) {
+    assert.equal(entry.unsavedLabelSha256, entry.combinedSha256);
+    assert.ok(entry.unsavedLabelNote);
+    entry.combinedSha256 = entry.preUnsavedLabelCombinedSha256;
+    delete entry.preUnsavedLabelCombinedSha256;
+    delete entry.unsavedLabelSha256;
+    delete entry.unsavedLabelNote;
+  }
   // The model-prefs unload flush (smarty-code#126 F6) is the newest layer, so unwind it first.
   assert.match(historical.modelPrefsUnloadSource, /^[a-f0-9]{40}$/);
   delete historical.modelPrefsUnloadSource;
@@ -89,7 +100,12 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(stopWording.map(entry => entry.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
   for (const entry of stopWording) {
     assert.equal(entry.stopWordingSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
+    // The layer's own binding stays pinned. The file on disk carries it only while no newer layer rebound the file
+    // (the newer layer then checks the disk and names this hash as its predecessor).
+    assert.equal(entry.stopWordingSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8');
+    if (overlay.files.find(current => current.path === entry.path)?.combinedSha256 === entry.stopWordingSha256) {
+      assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
+    }
     assert.equal(entry.stopWordingSource, '1bb8b45e6b73d501337c17bf74db875ec9496178');
     assert.ok(entry.stopWordingNote);
     entry.combinedSha256 = entry.preStopWordingCombinedSha256;

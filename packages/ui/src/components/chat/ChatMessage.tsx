@@ -1,5 +1,6 @@
 import React from 'react';
 import { HumanAuthor } from '@/components/auth/HumanAuthor';
+import { UnsavedLabel } from '@/components/chat/UnsavedLabel';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -838,6 +839,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                             className="px-5 py-3 shadow-none border border-primary/5"
                                         >
                                             <HumanAuthor info={message.info} />
+                                            <UnsavedLabel info={message.info} />
                                             <MessageBody
                                                 messageId={message.info.id}
                                                 parts={displayParts}
@@ -911,6 +913,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                         )
                     ) : (
                         <div className="relative">
+                            <UnsavedLabel info={message.info} />
                             <MessageBody
                                 sessionId={message.info.sessionID}
                                 messageId={message.info.id}

@@ -47,6 +47,7 @@ import { mergeMessages } from "./optimistic"
 import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
 import { useNotificationStore } from "./notification-store"
+import { keepSavedState } from "./unsaved"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -2093,7 +2094,7 @@ async function fetchRecentSendConfirmationRecords(
   return null
 }
 
-function materializeConfirmedSendRecords(
+export function materializeConfirmedSendRecords(
   store: DirectoryStoreApi,
   sessionId: string,
   messageID: string,
@@ -2109,11 +2110,13 @@ function materializeConfirmedSendRecords(
     }
     delete part[messageID]
 
+    // The sent record is replaced below, so no merge sees it: keep it saved if it is shown as saved (unsaved.ts).
+    const shown = currentMessages?.find((candidate) => candidate.id === messageID)
     const materialized = materializeSessionSnapshots(
       { ...state, message, part },
       sessionId,
       records.map((record) => ({
-        info: stripMessageDiffSnapshots(record.info),
+        info: stripMessageDiffSnapshots(shown && record.info.id === messageID ? keepSavedState(shown, record.info) : record.info),
         parts: record.parts ?? [],
       })),
       { skipPartTypes: MESSAGE_REFETCH_SKIP_PARTS },
