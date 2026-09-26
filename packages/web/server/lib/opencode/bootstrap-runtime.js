@@ -1,5 +1,5 @@
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
-import { browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
+import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
 
 export const createBootstrapRuntime = (dependencies) => {
   const {
@@ -104,10 +104,14 @@ export const createBootstrapRuntime = (dependencies) => {
         .flatMap((value) => { try { return value ? [String(value).includes('://') ? new URL(String(value)).host : String(value).trim()] : []; } catch { return []; } });
     });
     if (!uiAuthController.enabled) {
+      // Every request (reads included) needs an application host; a mutation also needs the application origin. The
+      // preview capability is registered above, before this: its capability is its only credential.
       app.use((req, res, next) => {
-        if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-        void browserRequestAllowed(req).then((allowed) => (allowed ? next()
-          : res.status(403).json({ error: 'Application mutations require the application origin' })), next);
+        void (async () => {
+          if (!await applicationAuthority(req)) return res.status(403).json({ error: 'Requests require an application host' });
+          if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || await browserRequestAllowed(req)) return next();
+          return res.status(403).json({ error: 'Application mutations require the application origin' });
+        })().catch(next);
       });
     }
     if (uiAuthController.enabled) {

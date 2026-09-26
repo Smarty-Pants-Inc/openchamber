@@ -8,7 +8,7 @@ import { registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerS
 
 // smarty-code#391: in the passwordless loopback mode (no human auth, no UI password), any page in the same browser, a
 // sandboxed preview among them, could POST to the application's mutations. A browser's mutation now needs this server's
-// own origin or a native client's; requests no browser sent, and every GET, are unchanged.
+// own origin or a native client's, and every request needs an application host (below: reads).
 test('passwordless loopback: browser mutations need the application origin; native clients and GETs pass', async () => {
   let shutdowns = 0;
   const app = express();
@@ -30,18 +30,20 @@ test('passwordless loopback: browser mutations need the application origin; nati
   await form(undefined, 'cross-site').expect(403); // A browser that sent no Origin.
   await request(app).post('/api/system/shutdown').set('Origin', 'null').expect(403);
   assert.deepEqual(writes, []); assert.equal(shutdowns, 0);
-  await form(undefined, 'same-origin').expect(200); // The application's own page.
+  await form(undefined, 'same-origin').expect(403); // A browser mutation always says its Origin; metadata alone is not enough.
   const self = request(app).post('/api/fs/write'); // Origin equal to the server's own (browsers without Sec-Fetch-Site).
   await self.set('Origin', new URL(self.url).origin).type('form').send({ path: '/tmp/x', content: 'self' }).expect(200);
   await form('openchamber-ui://app').expect(200); // The packaged desktop client.
   await form('vscode-webview://abc123').expect(200); // The VS Code webview.
   await form().expect(200); // No browser: a CLI or native bridge.
-  assert.equal(writes.length, 5);
+  assert.equal(writes.length, 4);
   await request(app).get('/api/system/info').set('Origin', 'null').expect((res) => assert.notEqual(res.status, 403));
   // DNS rebinding (security pass on #271): an attacker's hostname pointed at this listener is same-origin to the browser.
   const rebound = () => request(app).post('/api/fs/write').type('form').set('Host', 'attacker.test:4001')
     .set('Origin', 'http://attacker.test:4001').set('Sec-Fetch-Site', 'same-origin').send({ path: '/tmp/x', content: 'rebound' });
   await rebound().expect(403);
+  await rebound().set('X-Forwarded-Host', 'localhost').expect(403); // A page can set a forwarding header: never trusted.
+  await rebound().set('X-Forwarded-Host', '127.0.0.1').set('Forwarded', 'host=localhost').expect(403);
   await request(app).post('/api/fs/write').type('form').set('Host', 'mac.local:4001').set('Origin', 'http://mac.local:4001')
     .send({ path: '/tmp/x', content: 'lan' }).expect(403); // A LAN name that is not configured.
   process.env.OPENCHAMBER_ALLOWED_HOSTS = 'mac.local';
@@ -51,7 +53,45 @@ test('passwordless loopback: browser mutations need the application origin; nati
   } finally { delete process.env.OPENCHAMBER_ALLOWED_HOSTS; }
   await request(app).post('/api/fs/write').type('form').set('Host', '192.168.1.5:4001').set('Origin', 'http://192.168.1.5:4001')
     .send({ path: '/tmp/x', content: 'ip' }).expect(200); // An IP address cannot be rebound to.
-  assert.equal(writes.length, 7);
+  assert.equal(writes.length, 6);
+});
+
+// Security pass 2 on #271: a rebound hostname could still READ (every GET was exempt from the host check), and a
+// client-supplied X-Forwarded-Host stood in for the real Host. Every passwordless request now needs its own Host to be the
+// application's; forwarding headers are never used. The preview capability is its own credential, as before.
+test('passwordless reads need an application host: a rebound Host reads nothing, with or without Origin or forwarding headers', async () => {
+  const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path');
+  const { registerFsRoutes } = await import('../fs/routes.js');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'oc-rebind-read-')));
+  const secret = path.join(root, 'secret.txt');
+  await fs.writeFile(secret, 'workspace secret');
+  const app = express();
+  const tunnel = { classifyRequestScope: () => 'local', requireTunnelSession: (_req, res) => res.status(403).end() };
+  createBootstrapRuntime({ express, createUiAuth, registerServerStatusRoutes, registerCommonRequestMiddleware,
+    registerAuthAndAccessRoutes, registerTtsRoutes: () => {}, registerNotificationRoutes: () => {}, registerOpenChamberRoutes: () => {},
+  }).setupBaseRoutes(app, { tunnelAuthController: tunnel, process, runtimeName: 'test', openchamberVersion: 'fixture',
+    sessionRuntime: {}, gracefulShutdown: async () => {}, getHealthSnapshot: () => ({}) });
+  registerFsRoutes(app, { os, path, fsPromises: fs, spawn: () => { throw new Error('unused'); }, crypto: { randomUUID: () => 'id-0' },
+    normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: root }),
+    resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, '.config') });
+  try {
+    const read = (host) => request(app).get(`/api/fs/read?path=${encodeURIComponent(secret)}`).set('Host', host);
+    const refused = (res) => { assert.equal(res.status, 403); assert.ok(!JSON.stringify(res.body).includes('workspace secret')); };
+    await read('attacker.test:4001').expect(refused); // No Origin, no fetch metadata.
+    await read('attacker.test:4001').set('Origin', 'http://attacker.test:4001').set('Sec-Fetch-Site', 'same-origin').expect(refused);
+    await read('attacker.test:4001').set('X-Forwarded-Host', 'localhost').set('Sec-Fetch-Site', 'same-origin').expect(refused);
+    await request(app).get('/api/system/info').set('Host', 'attacker.test:4001').expect(403); // A representative API read.
+    const text = (res) => JSON.stringify(res.body) + (res.text ?? '');
+    assert.ok(text(await read('127.0.0.1:4001').expect(200)).includes('workspace secret')); // Loopback: the application.
+    assert.ok(text(await read('localhost:4001').expect(200)).includes('workspace secret'));
+    process.env.OPENCHAMBER_ALLOWED_HOSTS = 'code.example.test';
+    try { assert.ok(text(await read('code.example.test').expect(200)).includes('workspace secret')); } // Configured.
+    finally { delete process.env.OPENCHAMBER_ALLOWED_HOSTS; }
+    // The preview capability (registered before the host check) is its own credential and still serves its frame.
+    const grant = await request(app).post('/api/fs/preview').set('Host', '127.0.0.1:4001').set('Origin', 'http://127.0.0.1:4001')
+      .send({ path: secret }).expect(200);
+    await request(app).get(new URL(grant.body.url, 'http://127.0.0.1').pathname).set('Host', '127.0.0.1:4001').expect(200);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
 test('passwordless WebSocket upgrades (event stream, terminal) refuse opaque, other and rebound origins', async () => {
