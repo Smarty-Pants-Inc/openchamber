@@ -48,3 +48,25 @@ test("managed: a session announced and finished in the same flush (not yet publi
   }
   expect(alerted()).toEqual(["ses_new"])
 })
+
+test("managed: a store a sidebar row made but never bootstrapped (no sessions) uses the catalog lineage too", () => {
+  useProjectsStore.setState({ managedCatalogAdmitted: true })
+  children.ensureChild(other, { bootstrap: false })
+  for (const id of ["ses_top", "ses_sub", "ses_unknown"]) handleEvent(other, idle(id), children, createEventRoutingIndex(), getRuntimeKey())
+  expect(alerted()).toEqual(["ses_top"])
+})
+
+test("stock: a store with no entry for the session still alerts as before", () => {
+  useProjectsStore.setState({ managedCatalogAdmitted: false })
+  children.ensureChild(other, { bootstrap: false })
+  handleEvent(other, idle("ses_unknown"), children, createEventRoutingIndex(), getRuntimeKey())
+  expect(alerted()).toEqual(["ses_unknown"])
+})
+
+test("managed: a bootstrapped store still alerts for a session nobody lists yet (created in a stream gap); a known subtask stays silent", () => {
+  useProjectsStore.setState({ managedCatalogAdmitted: true })
+  children.ensureChild(other, { bootstrap: false }).setState({ status: "complete" })
+  const error = (sessionID: string) => ({ type: "session.error", properties: { sessionID, error: { name: "UnknownError", data: { message: "boom" } } } }) as unknown as Event
+  for (const event of [idle("ses_gap"), error("ses_gap_2"), idle("ses_sub")]) handleEvent(other, event, children, createEventRoutingIndex(), getRuntimeKey())
+  expect(alerted()).toEqual(["ses_gap", "ses_gap_2"])
+})

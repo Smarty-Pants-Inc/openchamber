@@ -1635,6 +1635,24 @@ function notifySessionOutcome(payload: Event, directory: string, unknownAlerts: 
   })
 }
 
+/**
+ * A managed catalog's lineage for a session this page has not loaded (G13): a created/updated event queued in this
+ * flush (not published yet), else the catalog's global session list; unknown when neither lists it.
+ */
+function managedLineage(id: string, batch?: DirectoryEventBatch): "top" | "sub" | "unknown" {
+  type Lineage = Session & { parentID?: string | null }
+  const queued = batch?.globalSessionEvents ?? []
+  let session: Lineage | undefined
+  for (let index = queued.length - 1; index >= 0 && !session; index--) {
+    const event = queued[index]
+    const info = (event.type === "session.created" || event.type === "session.updated")
+      ? (event.properties as { info?: Lineage }).info : undefined
+    if (info?.id === id) session = info
+  }
+  session ??= useGlobalSessionsStore.getState().activeSessions.find((entry) => entry.id === id) as Lineage | undefined
+  return !session ? "unknown" : session.parentID ? "sub" : "top"
+}
+
 export function handleEvent(
   rawDirectory: string,
   payload: Event,
@@ -1758,21 +1776,7 @@ export function handleEvent(
     // A managed catalog bootstraps only the selected project (G13): another project's completion or error still
     // alerts, with the catalog's global session list deciding top level vs subtask (unknown: no alert).
     if (useProjectsStore.getState().managedCatalogAdmitted && directory && directory !== "global") {
-      const sessions = useGlobalSessionsStore.getState().activeSessions
-      const queued = batch?.globalSessionEvents ?? []
-      notifySessionOutcome(payload, directory, false, (id) => {
-        type Lineage = Session & { parentID?: string | null }
-        // A session announced in this same flush is not published yet: its queued created/updated event says.
-        let session: Lineage | undefined
-        for (let index = queued.length - 1; index >= 0 && !session; index--) {
-          const event = queued[index]
-          const info = (event.type === "session.created" || event.type === "session.updated")
-            ? (event.properties as { info?: Lineage }).info : undefined
-          if (info?.id === id) session = info
-        }
-        session ??= sessions.find((entry) => entry.id === id) as Lineage | undefined
-        return !session ? "unknown" : session.parentID ? "sub" : "top"
-      })
+      notifySessionOutcome(payload, directory, false, (id) => managedLineage(id, batch))
     }
     // Try as global event for unknown directories
     const result = reduceGlobalEvent(payload)
@@ -1879,9 +1883,14 @@ export function handleEvent(
   // These are NOT handled by the event reducer — only the notification store.
   if (payload.type === "session.idle" || payload.type === "session.error") {
     const storeState = getDirectoryEventState(store, batch)
-    notifySessionOutcome(payload, resolvedDirectory, true, (id) => {
+    // A managed catalog decides a session its store does not list by the catalog's lineage (a known subtask: no alert).
+    // An unknown one is silent only in a store never bootstrapped (a sidebar row made it; G13); a bootstrapped store
+    // keeps the old fallback, so a session created in a stream gap still alerts before the catalog catches up.
+    const managed = useProjectsStore.getState().managedCatalogAdmitted
+    notifySessionOutcome(payload, resolvedDirectory, !managed || storeState.status !== "loading", (id) => {
       const session = storeState.session.find((s) => s.id === id)
-      return session && (session as { parentID?: string }).parentID ? "sub" : "top"
+      if (session) return (session as { parentID?: string }).parentID ? "sub" : "top"
+      return managed ? managedLineage(id, batch) : "top"
     })
   }
 
