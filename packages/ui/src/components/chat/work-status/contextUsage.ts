@@ -1,5 +1,5 @@
 /**
- * Context-window usage for a specific session.
+ * Context-window usage for a specific session, against the window of the model that session runs.
  *
  * `useSessionUIStore.getContextUsage` cannot serve this panel. It reads
  * `getSyncMessages(sessionId)` with **no directory**, which resolves to the
@@ -28,18 +28,53 @@ type MessageLike = {
   id?: string;
   role?: string;
   tokens?: MessageTokens;
+  providerID?: string;
+  modelID?: string;
 };
+
+type ModelRef = { providerID: string; modelID: string };
+type ProviderLike = { id: string; models: ReadonlyArray<{ id: string; limit?: unknown }> };
 
 type WorkStatusContextUsage = {
   totalTokens: number;
-  /** Context limit actually used for the ratio, after the default fallback. */
+  /** The session model's context window; 0 when it reports none. */
   limit: number;
-  /** Unrounded, so the panel and the header cannot disagree by a rounding step. */
-  percent: number;
+  /** Unrounded, so the panel and the header cannot disagree by a rounding step; null without a known window. */
+  percent: number | null;
 };
 
-/** The store's own fallback when a model exposes no context limit. */
-export const DEFAULT_CONTEXT_LIMIT = 200_000;
+const windowOf = (providers: readonly ProviderLike[], ref: ModelRef | null): { context: number; output: number } => {
+  const model = ref ? providers.find((provider) => provider.id === ref.providerID)?.models.find((candidate) => candidate.id === ref.modelID) : undefined;
+  const limit = model?.limit as { context?: unknown; output?: unknown } | undefined;
+  const positive = (value: unknown) => (typeof value === 'number' && value > 0 ? value : 0);
+  return { context: positive(limit?.context), output: positive(limit?.output) };
+};
+
+/**
+ * The model this session runs, in order of authority: the ordinary session's native model, else the model of its
+ * newest reply, else the composer's selection (which follows the person's last pick, possibly in another session).
+ */
+export const sessionModelRef = (
+  sessionModel: ModelRef | null | undefined,
+  messages: readonly MessageLike[],
+  selectedModel: ModelRef | null | undefined,
+): ModelRef | null => {
+  if (sessionModel) return sessionModel;
+  const replied = [...messages].reverse().find((message) => message.role === 'assistant' && message.providerID && message.modelID);
+  if (replied) return { providerID: replied.providerID!, modelID: replied.modelID! };
+  return selectedModel ?? null;
+};
+
+/**
+ * The context window of the model this session runs, and only that model: 0 when that model reports none, never
+ * another model's window (smarty-dev#777 G14).
+ */
+export const sessionContextWindow = (
+  providers: readonly ProviderLike[],
+  sessionModel: ModelRef | null | undefined,
+  messages: readonly MessageLike[],
+  selectedModel: ModelRef | null | undefined,
+): { context: number; output: number } => windowOf(providers, sessionModelRef(sessionModel, messages, selectedModel));
 
 /**
  * Usage from the newest assistant message that reported a non-zero token count.
@@ -61,9 +96,22 @@ export const computeContextUsage = (
     const totalTokens = contextTokensFromBreakdown(message.tokens);
     if (totalTokens <= 0) continue;
 
-    const limit = contextLimit > 0 ? contextLimit : DEFAULT_CONTEXT_LIMIT;
-    return { totalTokens, limit, percent: (totalTokens / limit) * 100 };
+    // No known window means no percentage: dividing by a guessed window showed a 1M-token session at "186.1%" (G14).
+    const limit = contextLimit > 0 ? contextLimit : 0;
+    return { totalTokens, limit, percent: limit ? (totalTokens / limit) * 100 : null };
   }
 
   return null;
 };
+
+/**
+ * Whether the header shows its context meter: tokens are in use and the session model's window is known right now.
+ * A retained reading from when the window was known does not count once it is unknown (G14).
+ */
+export const showsHeaderContextMeter = (options: {
+  isVSCode: boolean;
+  workStatusPanelVisible: boolean;
+  retainedTokens: number | null | undefined;
+  contextLimit: number;
+}): boolean => !options.isVSCode && !options.workStatusPanelVisible
+  && (options.retainedTokens ?? 0) > 0 && options.contextLimit > 0;
