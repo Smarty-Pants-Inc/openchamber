@@ -336,13 +336,16 @@
       "path": "packages/ui/src/components/chat/ChatMessage.tsx",
       "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
       "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
-      "combinedSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
+      "combinedSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
       "behaviorSource": "f07077052ba821ad138a931484108d00511fc437",
       "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged.",
       "preStopWordingCombinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
       "stopWordingSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
       "stopWordingSource": "1bb8b45e6b73d501337c17bf74db875ec9496178",
-      "stopWordingNote": "A user Stop (MessageAbortedError) reads Stopped instead of a send failure; the error-notice mapping moves unchanged into lib/messages/assistantErrorText.ts. Human-author display integration and branding ownership remain unchanged."
+      "stopWordingNote": "A user Stop (MessageAbortedError) reads Stopped instead of a send failure; the error-notice mapping moves unchanged into lib/messages/assistantErrorText.ts. Human-author display integration and branding ownership remain unchanged.",
+      "preUnsavedLabelCombinedSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
+      "unsavedLabelSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
+      "unsavedLabelNote": "Slice 1 L1: both message rows render UnsavedLabel from info.metadata.smartyCodeUnsaved (the gateway marks a record not yet in the session file). Branded strings are unchanged."
     },
     {
       "path": "packages/web/package.json",
@@ -470,5 +473,6 @@
   "managedAddSource": "a5104366fda151b13a679566c9d411e3005f942f",
   "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a",
   "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
-  "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8"
+  "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8",
+  "unsavedLabelSource": "d6a5471f98baaf43c9ac722f9ed53efc2ed04bd1"
 }

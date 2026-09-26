@@ -215,3 +215,12 @@ test('the model-prefs unload flush binds its exact fix commit over the settings 
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.match(entry.preModelPrefsUnloadCombinedSha256, /^[a-f0-9]{64}$/);
 });
+
+test('the unsaved label binds its exact fix commit over the message row only (slice 1 L1)', () => {
+  assert.match(overlay.unsavedLabelSource, /^[a-f0-9]{40}$/);
+  assert.deepEqual(overlay.files.filter(file => file.unsavedLabelSha256).map(file => file.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
+  const entry = overlays.get('packages/ui/src/components/chat/ChatMessage.tsx');
+  assert.equal(entry.unsavedLabelSha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.match(entry.preUnsavedLabelCombinedSha256, /^[a-f0-9]{64}$/);
+});
