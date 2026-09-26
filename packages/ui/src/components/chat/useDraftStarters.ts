@@ -160,7 +160,8 @@ export function useDraftStarters(): UseDraftStartersResult {
 
     const persistGlobal = React.useCallback((next: DraftStarterRef[]) => {
         useUIStore.getState().setGlobalDraftStarters(next);
-        void updateDesktopSettings({ draftStarters: next });
+        // The markers make a removed built-in starter stay removed (the load-time migration no longer writes them).
+        void updateDesktopSettings({ draftStarters: next, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true });
     }, []);
 
     const persistProject = React.useCallback((next: DraftStarterRef[]) => {
