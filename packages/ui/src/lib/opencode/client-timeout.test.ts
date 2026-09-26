@@ -145,4 +145,21 @@ describe('createRuntimeOpencodeClient fetch wrapper (#2470)', () => {
       }),
     ).rejects.toThrow('Aborted');
   });
+
+  // smarty-code#113: the project catalog and the global session list may take longer on a loaded host, so they get a
+  // longer, still finite, bound; every other read keeps its own.
+  test('the project catalog and global session list reads get the longer discovery bound; other reads keep theirs', async () => {
+    runtimeFetchMock.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      const done = setTimeout(() => resolve(new Response('[]', { status: 200 })), 80);
+      init?.signal?.addEventListener('abort', () => { clearTimeout(done); reject(new DOMException('Aborted', 'AbortError')); });
+    }));
+    createRuntimeOpencodeClient({ baseUrl: '', requestTimeoutMs: 25, discoveryTimeoutMs: 1000 });
+    expect((await capturedFetch!('http://opencode.test/project')).status).toBe(200);
+    expect((await capturedFetch!('http://opencode.test/experimental/session?roots=true&limit=500')).status).toBe(200);
+    await expect(capturedFetch!('http://opencode.test/project/current')).rejects.toThrow(/request timed out/);
+    await expect(capturedFetch!('http://opencode.test/session')).rejects.toThrow(/request timed out/);
+    createRuntimeOpencodeClient({ baseUrl: '', requestTimeoutMs: 25, discoveryTimeoutMs: 40 });
+    await expect(capturedFetch!('http://opencode.test/project')).rejects.toThrow(/request timed out after 40ms/);
+  });
 });
+
