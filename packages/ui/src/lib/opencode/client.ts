@@ -38,7 +38,9 @@ import { noteRuntimeHealth, runtimeAnsweredRecently } from "@/lib/runtime-reacha
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
-import { gatewayErrorSchema, ordinarySwitchResponseSchema, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
+import { getAllSyncSessionMap } from "@/sync/sync-refs";
+import { summarizeOpenCodeError } from "@/sync/session-error-log";
+import { gatewayErrorSchema, ordinarySwitchResponseSchema, readOrdinaryModel, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
 import {
@@ -345,6 +347,16 @@ const getDesktopFilesApi = (): FilesAPI | null => {
 // only a valid home response may use the legacy chats-root fallback.
 const fsAbsolutePathSchema = z.string().trim().regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/);
 const fsHomeResponseSchema = z.object({ home: fsAbsolutePathSchema, chatsRoot: fsAbsolutePathSchema.optional() });
+
+
+/** The plain-words reason in a refused send's body (`{ name, data: { message } }`), if it has one. */
+export function sendRefusalReason(body: string): string | null {
+  try {
+    return summarizeOpenCodeError(JSON.parse(body)).message;
+  } catch {
+    return null;
+  }
+}
 
 class OpencodeService {
   private runtimeClient: OpencodeClient;
@@ -1013,12 +1025,21 @@ class OpencodeService {
     const viewTarget = { directory: requestDirectory ?? '', sessionID: params.id };
     let ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
     // Each send revokes the view, and the reply's session.idle refreshes it. A send before that read lands would go
-    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first, at most 5 s;
-    // a slower read still ends in the honest 409 rather than a send stuck in "sending".
-    if (!ordinaryView && viewLoader?.isOrdinary(viewTarget, viewRuntimeKey)) {
-      await Promise.race([viewLoader.refreshOrdinaryView(viewTarget).catch(() => undefined),
-        new Promise((resolve) => setTimeout(resolve, 5_000))]);
+    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first, at most 5 s.
+    // A session whose history this page never loaded is loaded first when its record says it is ordinary (F11).
+    const recordIsOrdinary = () => readOrdinaryModel(getAllSyncSessionMap().get(params.id)) !== undefined;
+    if (!ordinaryView && viewLoader && (viewLoader.isOrdinary(viewTarget, viewRuntimeKey) || recordIsOrdinary())) {
+      const load = viewLoader.isOrdinary(viewTarget, viewRuntimeKey)
+        ? viewLoader.refreshOrdinaryView(viewTarget)
+        : viewLoader.ensure(viewTarget, { reason: 'navigation' });
+      await Promise.race([load.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 5_000))]);
       ordinaryView = viewLoader.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
+      // Every ordinary prompt carries the view it was written against. Without one it is refused here, visibly,
+      // instead of going out bare and being refused later with no reason on screen (F11).
+      if (!ordinaryView) {
+        const { formatMessage, useI18nStore } = await import('@/lib/i18n');
+        throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.ordinary.viewMissing'));
+      }
     }
     const displayName = params.displayName === undefined ? undefined : displayNameSchema.parse(params.displayName);
     const displayNameRuntimeKey = params.runtimeKey ?? getRuntimeKey();
@@ -1131,6 +1152,7 @@ class OpencodeService {
     params.beforeDispatch?.();
     assertRuntimeRequestScope(scope);
     let response: Response;
+    let refusal: unknown;
 
     try {
       const result = await client.session.promptAsync({
@@ -1147,6 +1169,7 @@ class OpencodeService {
         ...(params.format ? { format: params.format } : {}),
         parts,
       }, ordinaryView ? { headers: { 'x-smarty-ordinary-view': ordinaryView } } : undefined);
+      refusal = result.error;
       if (result.response instanceof Response) {
         response = result.response;
       } else if (result.error) {
@@ -1192,9 +1215,12 @@ class OpencodeService {
     } catch {
       // ignore
     }
+    // A refusal's own words go on screen: the gateway explains in `data.message` (F11). Other bodies keep the old form.
+    const reason = summarizeOpenCodeError(refusal as { message?: string } | undefined).message ?? sendRefusalReason(detail);
     const suffix = detail && detail.trim().length > 0 ? `: ${detail.trim()}` : '';
-    const error = new Error(`Failed to send message (${response.status})${suffix}`) as Error & { status?: number };
+    const error = new Error(reason ?? `Failed to send message (${response.status})${suffix}`) as Error & { status?: number; refusalReason?: string };
     error.status = response.status;
+    if (reason) error.refusalReason = reason;
     if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID, response.status);
     throw error;
   }

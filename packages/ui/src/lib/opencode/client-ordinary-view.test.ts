@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { ChildStoreManager } from '@/sync/child-store';
 import { SessionMessageLoader, setImperativeSessionMessageLoader } from '@/sync/session-message-loader';
+import { setSyncRefs } from '@/sync/sync-refs';
 import { refreshRuntimeUrlAuthToken } from '../runtime-auth';
 import { switchRuntimeEndpoint } from '../runtime-switch';
 import { deferred } from '../runtime-isolation-fixture';
@@ -125,10 +126,39 @@ test('a failed tail read preserves records but cannot authorize the next prompt'
   expect(loader.getSnapshot(target).status).toBe('error');
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
   expect(childStores.getChild('/repo')?.getState().message[target.sessionID]?.map(message => message.id)).toEqual(['tail']);
-  prompt = async () => Response.json({ message: 'missing accepted view' }, { status: 409 });
-  await expect(opencodeClient.sendMessage(params)).rejects.toThrow('(409)');
+  // F11: a prompt without a view is refused here, visibly, instead of going out bare to a guaranteed 409.
+  await expect(opencodeClient.sendMessage(params)).rejects.toThrow('nothing was sent');
+  expect(prompts()).toHaveLength(0);
+});
+
+test('a session whose record is ordinary loads its history first and sends with that view (F11)', async () => {
+  setSyncRefs(opencodeClient.getSdkClient(), childStores, target.directory);
+  childStores.ensureChild(target.directory, { bootstrap: false }).setState({ session: [{ id: target.sessionID,
+    directory: target.directory, ordinary: { generation: 'g1', sequence: 1, thinkingLevel: 'high',
+      model: { providerID: params.providerID, modelID: params.modelID, name: 'Test' } } } as never] });
+  expect(loader.isOrdinary(target, 'a')).toBe(false);
+  await opencodeClient.sendMessage(params);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+  expect(prompts()[0].headers.get('x-smarty-ordinary-view')).toBe(view);
+});
+
+test('a refusal shows the server\'s own words, not the raw body (F11)', async () => {
+  await loader.ensure(target);
+  const reason = 'The page was out of date, so nothing was sent. Your message is still here.';
+  prompt = async () => Response.json({ name: 'APIError', data: { message: reason, isRetryable: false } }, { status: 409 });
+  const error = await opencodeClient.sendMessage(params).catch((caught: unknown) => caught);
+  expect(error instanceof Error ? error.message : String(error)).toBe(reason);
+  expect((error as Error & { status?: number }).status).toBe(409);
+});
+
+test('an unconfirmed send (503) shows the server\'s words and keeps its status for the unconfirmed path (F11)', async () => {
+  await loader.ensure(target);
+  const reason = 'The server could not confirm this message. Check the chat before sending it again.';
+  prompt = async () => Response.json({ name: 'APIError', data: { message: reason, isRetryable: false } }, { status: 503 });
+  const error = await opencodeClient.sendMessage(params).catch((caught: unknown) => caught);
+  expect(error instanceof Error ? error.message : String(error)).toBe(reason);
+  expect((error as Error & { status?: number }).status).toBe(503);
   expect(prompts()).toHaveLength(1);
-  expect(prompts()[0].headers.get('x-smarty-ordinary-view')).toBeNull();
 });
 
 test('view invalidation during attachment preparation prevents POST dispatch', async () => {
