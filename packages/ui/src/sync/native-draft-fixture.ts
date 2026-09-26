@@ -86,7 +86,8 @@ export function nativeDraftFixture() {
     input => loader.optimisticConfirm({ ...input, directory: input.directory ?? directory }),
   );
   useConfigStore.setState({ isConnected: true });
-  useProjectsStore.setState({ projects: [{ id: 'a', path: directory }, { id: 'b', path: '/native-project-b' }], activeProjectId: 'a' });
+  useProjectsStore.setState({ projects: [{ id: 'a', path: directory }, { id: 'b', path: '/native-project-b' }], activeProjectId: 'a',
+    managedCatalogStatus: 'stock' }); // Discovery has answered (smarty-code G13: nothing starts before it).
   useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, newSessionDraft: { ...draft }, nativeDraftCreations: new Map() });
   useInputStore.setState({ pendingInputText: 'Keep @notes.md', pendingSyntheticParts: [{ text: 'input context', synthetic: true }],
     attachedFiles: [{ id: 'file-one', filename: 'notes.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,bm90ZXM=',
