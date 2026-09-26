@@ -676,6 +676,8 @@ type ChatContainerProps = {
      * row — issue #2903).
      */
     messagesEnabled?: boolean;
+    /** A full-screen surface covers this chat (a phone's Settings): it holds no View only watch meanwhile. */
+    covered?: boolean;
     autoOpenDraft?: boolean;
     readOnly?: boolean;
     initialAllowPromptingSubagentSessions?: boolean;
@@ -684,6 +686,7 @@ type ChatContainerProps = {
 export const ChatContainer: React.FC<ChatContainerProps> = ({
     active = true,
     messagesEnabled: messagesEnabledProp,
+    covered = false,
     autoOpenDraft = true,
     readOnly = false,
     initialAllowPromptingSubagentSessions,
@@ -815,8 +818,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         effectiveSessionDirectory,
     );
     // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455).
-    // Hidden views (another panel shown: messagesEnabled false) hold none.
-    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true, messagesEnabled);
+    // Hidden views (another panel shown: messagesEnabled false; or covered full-screen) hold none.
+    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true, messagesEnabled && !covered);
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
 
     React.useEffect(() => {
