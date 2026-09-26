@@ -18,7 +18,8 @@
       "@/*": ["../ui/src/*", "./src/*"],
       "@web/*": ["./src/*"],
       "@openchamber/ui/*": ["../ui/src/*"],
-      "@openchamber/web/*": ["./src/*"]
+      "@openchamber/web/*": ["./src/*"],
+      "bun": ["../ui/src/types/bun-module.d.ts"]
     }
   },
   "include": ["src", "../ui/src", "../ui/src/types/**/*"]
