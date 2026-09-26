@@ -1642,7 +1642,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     </>
                 )}
                 {sessionMessageLoadState.readOnly ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)} />
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)}
+                        resume={currentSessionId && effectiveSessionDirectory ? { directory: effectiveSessionDirectory, sessionID: currentSessionId,
+                            project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
