@@ -1228,10 +1228,12 @@ class OpencodeService {
       viewLoader?.invalidateOrdinaryView(viewTarget, response.status === 409);
       if (response.status === 409) void viewLoader?.refreshOrdinaryView(viewTarget);
     }
-    // Only a queued steer is settled later; a started turn or a definite refusal (4xx) is settled now. An unknown
-    // outcome keeps its record, so a late outcome still reaches the sender: a thrown transport error (above), a timeout
-    // (408) or a 5xx (the proxy's 503/504 can follow an accepted POST).
-    const settledNow = response.ok ? response.headers.get('x-smarty-prompt-delivery') !== 'steer'
+    // Only a queued message is settled later: a steer, or a send the owner has not answered yet (receipt 'queued'; its
+    // outcome follows as an event). A started turn or a definite refusal (4xx) is settled now. An unknown outcome keeps
+    // its record, so a late outcome still reaches the sender: a thrown transport error (above), a timeout (408) or a
+    // 5xx (the proxy's 503/504 can follow an accepted POST).
+    const settledNow = response.ok
+      ? response.headers.get('x-smarty-prompt-delivery') !== 'steer' && response.headers.get('x-smarty-prompt-receipt') !== 'queued'
       : response.status >= 400 && response.status < 500 && response.status !== 408;
     if (pendingSteer && ownsPendingSteer && settledNow) {
       takePendingSteer(pendingSteer.runtimeKey, pendingSteer.sessionID, pendingSteer.messageID);

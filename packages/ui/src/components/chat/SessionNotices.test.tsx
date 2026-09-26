@@ -113,3 +113,16 @@ test('two messages settled together both stay, each with its text; dismissing on
   expect(useSteerOutcomes.getState().items.map(item => item.text)).toEqual(['second steer']);
   expect(text()).toContain('second steer');
 });
+
+test('a failure notice the gateway later corrects to delivered leaves the chat (smarty-code#399)', async () => {
+  await setSession({ session_status: { [SESSION]: { type: 'busy' } } } as Partial<State>);
+  await settle([['m1', 'draft a marketing plan', 'not-delivered']]);
+  expect(text()).toContain('draft a marketing plan');
+  await act(async () => {
+    handleEvent('global', { type: 'smarty.prompt.outcome', properties: { sessionID: SESSION, messageID: 'm1', outcome: 'delivered' } } as unknown as Event,
+      children, createEventRoutingIndex(), getRuntimeKey());
+    await Promise.resolve();
+  });
+  expect(text()).not.toContain('draft a marketing plan');
+  expect(useSteerOutcomes.getState().items).toEqual([]);
+});

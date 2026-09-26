@@ -269,6 +269,11 @@ test('only a queued steer keeps a record for its later outcome; a started turn o
   await opencodeClient.sendMessage({ ...params, messageId: 'msg_unknown' }).catch(() => undefined);
   expect(kept('msg_steer')?.text).toBe('steer me');
   expect(kept('msg_turn')).toBeUndefined();
+  // A send the owner has not answered yet (smarty-code#399): 204 with a queued receipt; its outcome follows as an event.
+  again();
+  prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-receipt': 'queued' } });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_receipt' });
+  expect(kept('msg_receipt')?.messageID).toBe('msg_receipt');
   expect(kept('msg_refused')).toBeUndefined();
   expect(kept('msg_unknown')?.messageID).toBe('msg_unknown');
   // The proxy's 503 and 504 can follow a POST the gateway accepted: the outcome is unknown, so the record stays.
