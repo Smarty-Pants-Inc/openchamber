@@ -185,3 +185,12 @@ test('a reconnect refresh whose page lacks a record keeps the server record show
     expect(isUnsaved(store().getState().message.s1.find((message) => message.id === 'm1'))).toBe(true);
   } finally { loader.dispose(); children.disposeAll(); }
 });
+
+test('an ambiguous send confirmed by an older unsaved read keeps a record saved meanwhile', async () => {
+  const { create } = await import('zustand');
+  const { materializeConfirmedSendRecords } = await import('@/sync/session-actions');
+  const saved = { ...base, sessionID: 's1', role: 'user' };
+  const store = create(() => ({ message: { s1: [saved] }, part: { m1: [] } })) as never;
+  materializeConfirmedSendRecords(store, 's1', 'm1', [{ info: { ...saved, metadata: { smartyCodeUnsaved: true } } as never, parts: [] }]);
+  expect(isUnsaved((store as { getState: () => { message: { s1: unknown[] } } }).getState().message.s1[0])).toBe(false);
+});
