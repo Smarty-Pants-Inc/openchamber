@@ -2,7 +2,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation } from './native-draft-creation';
+import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
 import { indexNativeCreatedSession } from './session-actions';
 import { useSessionUIStore } from './session-ui-store';
 
@@ -77,6 +77,7 @@ async function acceptState(record: Pending, next: NativeCreationState) {
     const readySession = { ...detail, nativeCreation: { model: ordinary.model, inputReady: true } };
     const session = nativeCreatedSession(readySession);
     indexNativeCreatedSession(session, record.directory, record.runtimeKey);
+    ownSettledStarts.add(settledStartKey(record.runtimeKey, next.operationId));
     publishNativeCreation(record, { runtimeKey: record.runtimeKey, draftId: record.draftId,
       projectId: record.projectId, directory: record.directory, status: 'created', session, clientRequestId: record.operation.clientRequestId });
   } else {

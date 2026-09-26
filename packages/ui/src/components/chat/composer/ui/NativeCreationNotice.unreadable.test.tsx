@@ -20,7 +20,7 @@ const operation: NativeCreationState = { operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-a
   revision: 2, phase: 'awaiting-trust', expiresAt: Date.now() + 60_000, canInitialReady: false };
 const native = (unreadable: boolean, phase: NativeCreationState['phase'] = 'awaiting-trust', canAbandon = false): ReturnType<typeof useNativeCreation> => ({
   mode: 'ordinary', session: null, canAbandon, refresh: async () => {}, cancel: async () => {}, describeError: () => '',
-  beforeSend: async () => undefined, operations: [],
+  beforeSend: async () => undefined, operations: [], refusal: null,
   creation: { status: 'pending', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p',
     operation: { ...operation, phase }, unreadable } });
 const render = (value: ReturnType<typeof useNativeCreation>) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);

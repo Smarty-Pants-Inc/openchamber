@@ -70,7 +70,7 @@ function interactive() {
       fixture.requests.push(request.clone());
       if (path.endsWith('/creation')) return Response.json({ nativeCreations: listed });
       if (path.endsWith('/reply')) return reply(await request.json());
-      if (path.endsWith(`/creation/${operationId}`)) return Response.json({ nativeCreation: operation });
+      if (/\/creation\/[^/]+$/.test(path)) return Response.json({ nativeCreation: operation }); // The current start, by any id.
       return detail();
     }
     return inner(input, init);
@@ -421,4 +421,28 @@ test('Send while projects are still being discovered starts no session and sends
   // Once discovery has answered (here: a stock server), the same draft can start as before.
   useProjectsStore.setState({ managedCatalogStatus: 'stock' });
   expect(await failure(startNativeDraft(listed, noWait))).not.toBe('target');
+});
+
+// smarty-code#114 (Release 3.32, the fresh repeat leg): after a first New session → Send whose session opened, the second
+// New session's composer held a list read begun 0.8 s before that start settled ready, and its Send refused locally with
+// no request at all. Only a fresh read refuses; this page's own settled start is never "another start".
+test('a second New session right after the first one opened: Send starts one new session despite a stale snapshot', async () => {
+  interactive();
+  await sendOnce(); // Round 1: started, ready, sent.
+  expect(fixture.creates()).toHaveLength(1);
+  const stale = { ...operation, phase: 'ready-required' as const }; // The composer's read from before it settled.
+  useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'a', directoryOverride: directory });
+  // Round 2's own start (a new operation).
+  operation = { ...operation, operationId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', revision: 1, phase: 'awaiting-trust', native: undefined,
+    canInitialReady: false, clientRequestId: undefined };
+  await startNativeDraft([stale], noWait); await send();
+  expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(2);
+});
+
+test('a stale snapshot of another start that has since settled is re-read once, and Send goes ahead', async () => {
+  interactive();
+  const other = { ...operation, operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', phase: 'starting' as const };
+  listed = [{ ...other, phase: 'ready' }]; // The server now: that start settled.
+  await startNativeDraft([other], noWait); await send();
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
 });
