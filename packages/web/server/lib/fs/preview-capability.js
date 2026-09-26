@@ -50,8 +50,14 @@ const PREVIEW_TTL_MS = 8 * 60 * 60 * 1000;
 const key = crypto.randomBytes(32);
 const sign = (payload) => crypto.createHmac('sha256', key).update(payload).digest('base64url');
 
-/** A capability to read files under `directory` (a real, canonical path) until it expires. */
+// A filesystem root is never granted: the capability would read the whole machine (code-lead's decision on #240).
+const isRoot = (directory) => path.parse(directory).root === directory;
+
+/** A capability to read files under `directory` (a real, canonical path, not a filesystem root) until it expires. */
 export const mintPreviewCapability = (directory, now = Date.now()) => {
+  if (typeof directory !== 'string' || !path.isAbsolute(directory) || isRoot(directory)) {
+    throw new Error('A preview capability needs a folder that is not a filesystem root');
+  }
   const payload = Buffer.from(JSON.stringify({ d: directory, e: now + PREVIEW_TTL_MS })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 };
@@ -66,7 +72,7 @@ export const readPreviewCapability = (capability, now = Date.now()) => {
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
   try {
     const { d, e } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    return typeof d === 'string' && path.isAbsolute(d) && typeof e === 'number' && e > now ? d : null;
+    return typeof d === 'string' && path.isAbsolute(d) && !isRoot(d) && typeof e === 'number' && e > now ? d : null;
   } catch {
     return null;
   }
@@ -77,17 +83,8 @@ const isInside = (directory, target) => {
   return Boolean(inside) && inside !== '..' && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside);
 };
 
-// Whether the open file lies inside the granted directory. Linux names the open file itself; elsewhere the resolved
-// path must still be the same file (no link), which leaves a narrow folder-swap window.
-// ponytail: the deployed Code runs on Linux; a platform without /proc keeps that window until it needs this preview.
-const openedInside = async (handle, directory, target, opened) => {
-  try {
-    return isInside(directory, await fsPromises.readlink(`/proc/self/fd/${handle.fd}`));
-  } catch {
-    const named = await fsPromises.lstat(target).catch(() => null);
-    return Boolean(named) && !named.isSymbolicLink() && named.dev === opened.dev && named.ino === opened.ino;
-  }
-};
+/** The kernel's own path for an open descriptor (Linux). There is no safe way to confirm it elsewhere in Node. */
+const kernelPathOf = (handle) => fsPromises.readlink(`/proc/self/fd/${handle.fd}`);
 
 const setPreviewHeaders = (res) => {
   res.setHeader('Content-Security-Policy', PREVIEW_CSP);
@@ -102,7 +99,7 @@ const setPreviewHeaders = (res) => {
  * GET /api/fs/preview/<capability>/<path under the granted directory>. Registered before any session or origin check:
  * the capability is the only credential, so nothing here reads cookies, tokens or the user's session.
  */
-export const registerPreviewServeRoute = (app) => {
+export const registerPreviewServeRoute = (app, { openedPath = kernelPathOf } = {}) => {
   app.get(/^\/api\/fs\/preview\/([^/]+)\/(.+)$/, async (req, res) => {
     const notFound = () => res.status(404).type('text/plain').send('Not found');
     const directory = readPreviewCapability(req.params[0]);
@@ -111,14 +108,18 @@ export const registerPreviewServeRoute = (app) => {
     let handle;
     try {
       // Resolve, check containment, then open that resolved path without following a final link (O_NOFOLLOW) and
-      // without blocking on a FIFO. Then confirm what was ACTUALLY opened: on Linux the kernel names the open file
-      // (/proc/self/fd), so a link or folder swapped in after the check cannot redirect the read outside.
+      // without blocking on a FIFO. Then confirm what was ACTUALLY opened: the kernel names the open file
+      // (/proc/self/fd), so a link or folder swapped in after the check cannot redirect the read outside. Where the
+      // kernel cannot name it, the read is refused: Node has no openat, so no other check is safe (fail closed).
       const target = await fsPromises.realpath(candidate);
       if (!isInside(directory, target)) return notFound();
       handle = await fsPromises.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const opened = await handle.stat();
       if (!opened.isFile() || opened.size > MAX_SERVE_BYTES) return notFound();
-      if (!(await openedInside(handle, directory, target, opened))) return notFound();
+      let actual;
+      try { actual = await openedPath(handle); } catch { actual = null; }
+      if (typeof actual !== 'string') return res.status(403).type('text/plain').send('Preview unavailable');
+      if (!isInside(directory, actual)) return notFound();
       const content = await handle.readFile();
       setPreviewHeaders(res);
       return res.type(FILE_MIME_MAP[path.extname(target).toLowerCase()] || 'application/octet-stream').send(content);

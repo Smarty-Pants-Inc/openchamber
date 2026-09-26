@@ -23,7 +23,7 @@ describe('HTML preview capability', () => {
   });
   afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
-  const app = () => { const server = express(); registerPreviewServeRoute(server); return server; };
+  const app = (options) => { const server = express(); registerPreviewServeRoute(server, options); return server; };
 
   it('grants its directory until it expires, and nothing when altered', () => {
     const now = 1_000;
@@ -62,9 +62,9 @@ describe('HTML preview capability', () => {
     }
   });
 
-  it('serves beneath a filesystem-root capability, refuses a FIFO without waiting, and refuses a file swapped after the check', async () => {
-    const underRoot = await request(app()).get(`/api/fs/preview/${mintPreviewCapability('/')}/${encodeURIComponent(path.join(site, 'index.html').slice(1))}`);
-    expect(underRoot.status).toBe(200);
+  it('refuses a filesystem-root capability, refuses a FIFO without waiting, and refuses a file swapped after the check', async () => {
+    // A filesystem root is never granted (the read side refuses a root too, as defence in depth).
+    expect(() => mintPreviewCapability('/')).toThrow();
     const { execFileSync } = await import('node:child_process');
     execFileSync('mkfifo', [path.join(site, 'pipe.html')]);
     const fifo = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/pipe.html`).timeout(3000);
@@ -91,6 +91,29 @@ describe('HTML preview capability', () => {
     try {
       const response = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/swap.txt`);
       expect(response.status).toBe(404);
+      expect(response.text).not.toContain('not yours');
+    } finally { spy.mockRestore(); }
+  });
+
+  // Review P1 (da1c2477) and security round 2: where the kernel cannot name the opened file, the read fails closed.
+  it('refuses with 403 when the opened file cannot be named, with no fallback', async () => {
+    const unavailable = { openedPath: async () => { throw new Error('no /proc'); } };
+    const response = await request(app(unavailable)).get(`/api/fs/preview/${mintPreviewCapability(site)}/index.html`);
+    expect(response.status).toBe(403);
+    expect(response.text).toBe('Preview unavailable');
+  });
+
+  it('refuses a parent-folder swap while the kernel lookup fails, and serves nothing from outside', async () => {
+    await fs.mkdir(path.join(site, 'sub'));
+    await fs.writeFile(path.join(site, 'sub', 'secret.txt'), 'inside');
+    const spy = swapAfterCheck(async () => {
+      await fs.rename(path.join(site, 'sub'), path.join(root, 'moved-away'));
+      await fs.symlink(other, path.join(site, 'sub'));
+    });
+    try {
+      const response = await request(app({ openedPath: async () => { throw new Error('lookup failed'); } }))
+        .get(`/api/fs/preview/${mintPreviewCapability(site)}/sub/secret.txt`);
+      expect(response.status).toBe(403);
       expect(response.text).not.toContain('not yours');
     } finally { spy.mockRestore(); }
   });

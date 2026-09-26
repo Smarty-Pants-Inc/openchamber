@@ -1191,7 +1191,9 @@ export const registerFsRoutes = (app, dependencies) => {
       const canonicalPath = await fsPromises.realpath(resolved.resolved);
       const stats = await fsPromises.stat(canonicalPath);
       if (!stats.isFile()) return res.status(400).json({ error: 'Specified path is not a file' });
-      const capability = mintPreviewCapability(path.dirname(canonicalPath));
+      const folder = path.dirname(canonicalPath);
+      if (path.parse(folder).root === folder) return res.status(403).json({ error: 'A file at a filesystem root cannot be previewed' });
+      const capability = mintPreviewCapability(folder);
       res.setHeader('Cache-Control', 'no-store');
       return res.json({ url: `/api/fs/preview/${capability}/${encodeURIComponent(path.basename(canonicalPath))}` });
     } catch (error) {
