@@ -1,4 +1,5 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { optimisticStatuses } from './optimistic-status';
 import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectorySelectionStore } from '@/stores/useDirectoryStore';
@@ -698,8 +699,10 @@ export function applySessionStatusSnapshot(
       const incoming = toSessionStatus(snapshot[sessionId])
 
       if (incoming && incoming.type !== "idle") {
-        // Confirm or raise active status (catches a busy event the SSE missed).
-        if (!haveEquivalentSyncSnapshots(current[sessionId], incoming)) {
+        // Confirm or raise active status (catches a busy event the SSE missed). A send's optimistic status is not
+        // the server's: an equal snapshot still takes its place, so the send's rollback cannot undo it.
+        const optimistic = current[sessionId] !== undefined && optimisticStatuses.has(current[sessionId])
+        if (optimistic || !haveEquivalentSyncSnapshots(current[sessionId], incoming)) {
           draft()[sessionId] = incoming
           changed = true
         }

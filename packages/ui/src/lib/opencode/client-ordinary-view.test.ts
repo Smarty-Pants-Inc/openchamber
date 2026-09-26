@@ -198,6 +198,7 @@ test('a steered prompt is announced as delivered while the agent works; a new tu
     history = async () => page(`ov2_${'9'.repeat(64)}`);
     prompt = async () => new Response(null, { status: 204 });
     await opencodeClient.sendMessage({ ...params, messageId: 'msg_third' });
+    await new Promise(resolve => setTimeout(resolve, 10)); // The notice follows the accepted send, never gates it.
     expect(seen).toEqual(['Delivered while the agent works.']);
   } finally { spy.mockRestore(); }
 });

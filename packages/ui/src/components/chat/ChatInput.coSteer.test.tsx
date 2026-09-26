@@ -2,7 +2,8 @@ import { afterEach, expect, test } from 'bun:test';
 import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { mountedNativeComposer, shownActivity } from './composer/submit/__tests__/nativeComposer.fixture';
-import { directory, session } from '@/sync/native-draft-fixture';
+import { deferred, directory, session } from '@/sync/native-draft-fixture';
+import { abortCurrentOperation } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { toast } from '@/components/ui';
@@ -15,7 +16,11 @@ afterEach(async () => { await mounted?.dispose(); mounted = undefined; shownActi
 
 const successToasts = () => (toast.success as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(call => String(call[0]));
 
-async function ordinaryWorking(reply: () => Response) {
+const target = { generation: 'g1', presentationId: 'run-1' };
+const running = { type: 'busy', ordinary: true, ordinaryTarget: target } as const;
+const statusOf = (c: Awaited<ReturnType<typeof mountedNativeComposer>>) => c.children.getChild(directory)?.getState().session_status[session.id];
+
+async function ordinaryWorking(reply: () => Response | Promise<Response>) {
   const c = mounted = await mountedNativeComposer(false);
   const other: string[] = [];
   await act(async () => {
@@ -25,7 +30,7 @@ async function ordinaryWorking(reply: () => Response) {
     c.children.ensureChild(directory, { bootstrap: false }).setState({
       session: [{ ...session, title: 'org', ordinary: { generation: 'g1', sequence: 1, thinkingLevel: 'high',
         model: { providerID: 'p', modelID: 'm', name: 'Model' } } } as never],
-      session_status: { [session.id]: { type: 'busy' } },
+      session_status: { [session.id]: running },
     });
     shownActivity.phase = 'busy';
   });
@@ -34,6 +39,7 @@ async function ordinaryWorking(reply: () => Response) {
   globalThis.fetch = async (input, init) => {
     const path = new URL(new Request(input, init).url).pathname;
     if (path.endsWith('/session/status') || path.startsWith('/api/message-queue')) other.push(path);
+    if (path.endsWith('/abort')) { await fixtureFetch(input, init); return Response.json(true); } // Recorded, then answered.
     return fixtureFetch(input, init);
   };
   await act(async () => { c.rerender(); });
@@ -71,4 +77,64 @@ test('a refused send keeps the session shown working and the text in the compose
   expect(c.prompts()).toHaveLength(1);
   expect(c.children.getChild(directory)?.getState().session_status[session.id]?.type).toBe('busy');
   expect(c.text()).toBe('steer this');
+});
+
+// Review on #234 (P2 1): a co-steer send leaves the server's status and its ordinary Stop target alone.
+test('after a co-steer send, Stop still targets the running turn', async () => {
+  const { c } = await ordinaryWorking(steered);
+  const seeded = statusOf(c);
+  await c.submit(); await act(async () => { await sleep(10); });
+  expect(c.prompts()).toHaveLength(1);
+  expect(statusOf(c)).toBe(seeded);
+  await act(async () => { await abortCurrentOperation(session.id, { status: statusOf(c) }).catch(() => false); });
+  const stop = c.requests.find(request => new URL(request.url).pathname.endsWith('/abort'));
+  expect(stop?.headers.get('x-smarty-ordinary-generation')).toBe('g1');
+  expect(stop?.headers.get('x-smarty-ordinary-presentation-id')).toBe('run-1');
+});
+
+for (const [name, newer] of [['idle', { type: 'idle' }], ['a new Stop target', { ...running, ordinaryTarget: { generation: 'g1', presentationId: 'run-2' } }]] as const) {
+  test(`a status that changed during a held send (${name}) survives its refusal`, async () => {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit();
+    await act(async () => { c.children.getChild(directory)!.setState(state => ({ session_status: { ...state.session_status, [session.id]: newer } })); });
+    const current = statusOf(c);
+    await act(async () => {
+      held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false, code: 'smarty.prompt-blocked' } }, { status: 409 }));
+      await sleep(10);
+    });
+    expect(statusOf(c)).toBe(current);
+  });
+}
+
+// Review on #234 (P2 2): the notice is decoration; an accepted send stays accepted whatever the notice does.
+test('a notice that fails to show leaves the accepted send in place: no rollback, no second POST', async () => {
+  const spy = toast.success as unknown as { mockImplementationOnce: (fn: () => never) => void };
+  spy.mockImplementationOnce(() => { throw new Error('notice failed'); });
+  const { c } = await ordinaryWorking(steered);
+  await c.submit(); await act(async () => { await sleep(10); });
+  expect(c.prompts()).toHaveLength(1);
+  expect(c.text()).toBe('');
+  const messages = c.children.getChild(directory)?.getState().message[session.id] ?? [];
+  expect(messages.filter(message => message.role === 'user')).toHaveLength(1);
+});
+
+// Astra pre-check: a send from idle sets its own busy; the server then says busy too (an equal status), and the send
+// fails. The rollback must not reset the server's busy to idle, or Stop disappears while the agent runs.
+test('a failed send from idle keeps a busy status the server sent meanwhile', async () => {
+  const held = deferred<Response>();
+  const { c } = await ordinaryWorking(() => held.promise);
+  await act(async () => { c.children.getChild(directory)!.setState(state => ({ session_status: { ...state.session_status, [session.id]: { type: 'idle' } } })); });
+  shownActivity.phase = 'idle';
+  await act(async () => { c.rerender(); });
+  await c.submit();
+  const optimistic = statusOf(c);
+  expect(optimistic).toEqual({ type: 'busy' });
+  await act(async () => { c.children.getChild(directory)!.setState(state => ({ session_status: { ...state.session_status, [session.id]: { type: 'busy' } } })); });
+  const server = statusOf(c);
+  await act(async () => {
+    held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false, code: 'smarty.prompt-blocked' } }, { status: 409 }));
+    await sleep(10);
+  });
+  expect(statusOf(c)).toBe(server);
 });

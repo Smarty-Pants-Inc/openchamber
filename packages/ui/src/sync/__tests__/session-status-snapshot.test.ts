@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { create, type StoreApi } from "zustand"
 import type { SessionStatus } from "../session-status"
+import { optimisticStatuses } from "../optimistic-status"
 
 import { INITIAL_STATE, type State } from "../types"
 import type { DirectoryStore } from "../child-store"
@@ -32,6 +33,20 @@ function completedMessage() {
 const BUSY: SessionStatus = { type: "busy" }
 
 describe("applySessionStatusSnapshot", () => {
+  // Co-steer review (openchamber#234): a snapshot that confirms busy replaces a send's optimistic busy, in both modes,
+  // so the send's identity-checked rollback leaves the server's word in place.
+  for (const mode of ["monotonic", "authoritative"] as const) {
+    test(`an equal busy snapshot replaces a send's optimistic busy (${mode})`, () => {
+      const optimistic: SessionStatus = { type: "busy" }
+      optimisticStatuses.add(optimistic)
+      const store = createDirectoryStore({ session_status: { ses_a: optimistic } })
+      expect(applySessionStatusSnapshot(store, { ses_a: { type: "busy" } }, ["ses_a"], mode)).toBe(true)
+      expect(store.getState().session_status.ses_a).toEqual(BUSY)
+      expect(store.getState().session_status.ses_a).not.toBe(optimistic)
+      expect(applySessionStatusSnapshot(store, { ses_a: { type: "busy" } }, ["ses_a"], mode)).toBe(false)
+    })
+  }
+
   describe("monotonic mode (periodic poll)", () => {
     test("does NOT lower a busy session to idle when the snapshot omits it", () => {
       const store = createDirectoryStore({ session_status: { ses_a: BUSY } })

@@ -1226,9 +1226,12 @@ class OpencodeService {
     if (response.ok) {
       if (isRuntimeRequestScopeCurrent(scope)) recordProviderSuccess(params.providerID);
       // The server steered the message into the running turn instead of starting one (co-steer, G5).
+      // The notice is decoration: the server accepted the message, so a notice that cannot load or show never fails it.
       if (response.headers.get('x-smarty-prompt-delivery') === 'steer' && isRuntimeRequestScopeCurrent(scope)) {
-        const { announceSteered } = await import('./promptDelivery');
-        announceSteered(getAllSyncSessionMap().get(params.id)?.title);
+        const title = getAllSyncSessionMap().get(params.id)?.title;
+        void import('./promptDelivery').then(({ announceSteered }) => {
+          if (isRuntimeRequestScopeCurrent(scope)) announceSteered(title); // Not after a runtime switch meanwhile.
+        }).catch(() => {});
       }
       return messageId;
     }
