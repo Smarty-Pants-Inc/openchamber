@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
-  testDir: '.', testMatch: ['proof.browser.mjs', 'preview-sandbox.browser.mjs'], workers: 1, retries: 0,
+  testDir: '.', testMatch: ['proof.browser.mjs', 'preview-sandbox.browser.mjs', 'loopback-origin.browser.mjs'], workers: 1, retries: 0,
   timeout: 30000, forbidOnly: true,
   outputDir: '../../.auth-ui-proof/results',
   reporter: [['list'], ['html', {

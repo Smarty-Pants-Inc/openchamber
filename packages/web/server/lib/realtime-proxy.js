@@ -1,3 +1,4 @@
+import { browserRequestAllowed } from './security/browser-origin.js';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const PROXY_SSE_PATH = '/api/openchamber/realtime-proxy/sse';
@@ -129,6 +130,9 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
   const originAllowed = async (req) => {
     if (typeof isRequestOriginAllowed !== 'function') return false;
     try {
+      // Passwordless: also the browser-origin rule (smarty-code#391): a rebound hostname is not the application's.
+      const controller = typeof getUiAuthController === 'function' ? getUiAuthController() : null;
+      if (!controller?.enabled && !await browserRequestAllowed(req)) return false;
       return await isRequestOriginAllowed(req);
     } catch {
       return false;

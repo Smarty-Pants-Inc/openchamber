@@ -483,6 +483,15 @@
       "reason": "The stalled-upstream close test follows the stream instead of racing timers (flaky under load); its branded labels are unchanged.",
       "testDeterminismAdded": true,
       "testDeterminismSha256": "d8c08735b1dd7c9f7ecfd57984d86756d3177823b846c568b1fcbda3ebfc79c7"
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/runtime.js",
+      "brandingSha256": "18af18e36357bccb319090554abc11218321d5801db0e7f1cc4d2eed730364c8",
+      "behaviorSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099",
+      "combinedSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099",
+      "reason": "smarty-code#391: in the passwordless mode the message-stream WebSocket upgrade applies the browser-origin rule (lib/security/browser-origin.js); the donor file carries no branded strings.",
+      "originGuardAdded": true,
+      "originGuardSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -497,5 +506,6 @@
   "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8",
   "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c",
   "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8",
-  "testDeterminismSource": "732a27bc26645739bdedb85cc19c66532aa95967"
+  "testDeterminismSource": "732a27bc26645739bdedb85cc19c66532aa95967",
+  "originGuardSource": "82b714f7ab0987db9ff2774ddda866e02915e0d7"
 }
