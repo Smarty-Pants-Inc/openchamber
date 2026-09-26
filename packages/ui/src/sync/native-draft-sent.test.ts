@@ -215,3 +215,26 @@ test('a stale keep-as-draft click after another tab admitted the request keeps t
   expect(await resolve()).toBe('delivered'); // The storage event: this copy is consumed, never sent again.
   expect(readChatDraft(draft()).text).toBe('');
 });
+
+// Review of #220 (fbcc3093): after a reload within the mark's lifetime, a later draft with the same words survives.
+test('send, reload within ten minutes, New session, type the same text: the new draft survives', async () => {
+  server([], []);
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, admitted: true, text: 'hello', at: Date.now() - 60_000 }));
+  resetSentStartsForPage(); // The reload: this page's memory of what it handled is gone.
+  write('hello'); // New session, then the same words typed as a new message (saved after the admission).
+  expect(await resolve()).toBe('delivered'); // Unlocked...
+  expect(readChatDraft(draft()).text).toBe('hello'); // ...and the new draft is kept.
+});
+
+// Review of #220 (round 9): admission counts from the submission, not the late response.
+test('a new draft saved while the Send was held survives its late admission and a reload', async () => {
+  server([], []);
+  markSentStart(fixture!.runtimeA, directory, request);
+  const submittedAt = Date.now() - 5_000; // The Send was submitted; its response is held.
+  write('hello'); // Meanwhile: New session, the same words typed and saved as a new message.
+  admitSentStart(fixture!.runtimeA, directory, request, 'hello', submittedAt); // The response arrives.
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toMatchObject({ admitted: true, at: submittedAt });
+  resetSentStartsForPage(); // A reload.
+  expect(await resolve()).toBe('delivered');
+  expect(readChatDraft(draft()).text).toBe('hello');
+});

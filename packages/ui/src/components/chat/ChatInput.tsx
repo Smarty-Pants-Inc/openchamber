@@ -1677,11 +1677,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         if (outgoing.isEmpty) return;
 
+        // A native Send consumes only copies set by its submission (#220): not a new draft typed while it was held.
+        const submittedAt = Date.now();
         const clearSubmittedInput = () => {
             if (queuedOnly) return;
             const origin = nativeIntent;
             const ownsInput = origin ? consumeChatDraft(createChatDraftIdentity(origin.runtimeKey,
-                origin.session.directory, null, origin.draft.draftId), inputSnapshot.message) : false;
+                origin.session.directory, null, origin.draft.draftId), inputSnapshot.message, submittedAt) : false;
             if (!origin) {
                 messageRef.current = '';
                 setMessage('');
@@ -1718,7 +1720,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
-        if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message);
+        if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
 
         if (isMobile) {

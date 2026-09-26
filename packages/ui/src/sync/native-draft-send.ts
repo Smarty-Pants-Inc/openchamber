@@ -59,13 +59,16 @@ export function assertNativeDraftReady(target: NativeDraftSend): void {
 
 /** Admission is final even after navigation. Only the originating record changes. */
 /** The composer text each native Send submits: other tabs consume their copies of it on admission (#117). */
-const submittedTexts = new WeakMap<NativeDraftSend, string>();
-export function noteNativeDraftSubmitted(target: NativeDraftSend, text: string): void { submittedTexts.set(target, text); }
+/** With when it was submitted: copies set later (a new draft typed while the POST was held) are newer messages. */
+const submittedTexts = new WeakMap<NativeDraftSend, { text: string; at: number }>();
+export function noteNativeDraftSubmitted(target: NativeDraftSend, text: string, at = Date.now()): void { submittedTexts.set(target, { text, at }); }
 
 export function acceptNativeDraftSend(target: NativeDraftSend): void {
   const submitted = submittedTexts.get(target);
   // Delivered: the start's text is no longer pending anywhere (#117).
-  if (target.draft.directoryOverride) admitSentStart(target.runtimeKey, target.draft.directoryOverride, target.clientRequestId, submitted);
+  if (target.draft.directoryOverride) {
+    admitSentStart(target.runtimeKey, target.draft.directoryOverride, target.clientRequestId, submitted?.text, submitted?.at);
+  }
   const state = useSessionUIStore.getState();
   const original = nativeCreationForDraft(state.nativeDraftCreations, target.draft, target.runtimeKey);
   const visible = nativeCreationForDraft(state.nativeDraftCreations, state.newSessionDraft, getRuntimeKey());

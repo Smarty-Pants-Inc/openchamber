@@ -1,5 +1,5 @@
 import React from 'react';
-import { consumeChatDraft, createChatDraftIdentity, readChatDraft } from '@/lib/chatDraftPersistence';
+import { consumeChatDraft, createChatDraftIdentity, readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { opencodeClient } from '@/lib/opencode/client';
 import { z } from 'zod';
 
@@ -93,12 +93,14 @@ export function ensureSentStart(runtimeKey: string, directory: string, clientReq
 /**
  * This request's Send was admitted with the composer text it submitted: other tabs consume their copies of that text.
  */
-export function admitSentStart(runtimeKey: string, directory: string, clientRequestId: string | undefined, submitted?: string): void {
+export function admitSentStart(runtimeKey: string, directory: string, clientRequestId: string | undefined, submitted?: string,
+  submittedAt = Date.now()): void {
   releaseSentStart(clientRequestId);
   if (clientRequestId && readMarker(runtimeKey, directory)?.clientRequestId === clientRequestId) {
     handled.add(clientRequestId);
-    writeMarker(runtimeKey, directory, submitted === undefined ? { clientRequestId, admitted: true, at: Date.now() }
-      : { clientRequestId, admitted: true, text: submitted, at: Date.now() });
+    // Admitted as of its submission: a copy set after that is a new message, even if its response came later.
+    writeMarker(runtimeKey, directory, submitted === undefined ? { clientRequestId, admitted: true, at: submittedAt }
+      : { clientRequestId, admitted: true, text: submitted, at: submittedAt });
   }
 }
 
@@ -132,6 +134,14 @@ export async function keepSentTextAsDraft(runtimeKey: string, directory: string)
   if (!kept) { outcomes.set(slot(runtimeKey, directory), 'pending'); notify(); }
 }
 
+/**
+ * A delivered text is consumed only from a copy that existed when its Send was admitted: a draft saved later (New
+ * session, then the same words typed again, even across a reload) is a new message and stays (#220 review).
+ */
+const consumeDelivered = (draft: ChatDraftIdentity | null, marker: Marker): void => {
+  if (marker.text) consumeChatDraft(draft, marker.text, marker.at ?? 0);
+};
+
 const userText = (parts: readonly { type: string; text?: string }[]) => parts.map(part => (part.type === 'text' ? part.text ?? '' : '')).join('');
 
 /**
@@ -141,6 +151,8 @@ const userText = (parts: readonly { type: string; text?: string }[]) => parts.ma
  */
 export async function resolveSentStart(runtimeKey: string, directory: string, draftId: number, ownRequestId?: string): Promise<Resolved> {
   const key = slot(runtimeKey, directory);
+  // Copies that existed when this read began are the ones it may find delivered; a draft saved later is newer (#220).
+  const began = Date.now();
   let marker = readMarker(runtimeKey, directory);
   // The mark changed meanwhile (a newer one, a kept draft, or this one admitted by another tab): the read that the
   // change started resolves it; this older one never overrides that (it could relock an admitted text).
@@ -160,7 +172,7 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
     if (handled.has(marker.clientRequestId)) return settle(null);
     // Delivered: consume this tab's copy (live editor and saved draft, only if it is that text) once, then unlock.
     handled.add(marker.clientRequestId);
-    if (marker.text) consumeChatDraft(draft, marker.text);
+    consumeDelivered(draft, marker);
     return settle('delivered');
   }
   // No mark, or this tab's own start: it continues it through Send; the mark stays until the start resolves.
@@ -184,10 +196,10 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   if (!sent.includes(text)) return settle('unknown');
   if (superseded()) return outcomes.get(key) ?? null;
   // Found delivered: flag the mark admitted with that text, so every other tab consumes its copy too.
-  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text, at: Date.now() });
+  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text, at: began });
   marker = readMarker(runtimeKey, directory);
   handled.add(id);
-  consumeChatDraft(draft, text);
+  consumeChatDraft(draft, text, began);
   return settle('delivered');
 }
 
@@ -210,7 +222,7 @@ export function useSentStart(runtimeKey: string, directory: string | null | unde
       if (admitted?.admitted && admitted.text && !handled.has(admitted.clientRequestId)
         && Date.now() - (admitted.at ?? 0) <= ADMITTED_MS) {
         handled.add(admitted.clientRequestId);
-        consumeChatDraft(createChatDraftIdentity(runtimeKey, directory, null, draftId), admitted.text);
+        consumeDelivered(createChatDraftIdentity(runtimeKey, directory, null, draftId), admitted);
       }
       resolve();
     };
