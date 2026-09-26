@@ -84,7 +84,16 @@ export function holdViewOnlyWatch(sessionId: string, directory: string): () => v
   };
 }
 
-/** A shown session view (`shown`: its messages are enabled) holds its watch while it shows a View only session. */
+/**
+ * Whether a session view is visible for its live watch: shown (active: an embedded tab's visibility handshake, the
+ * desktop's main view), subscribed to its history, and not covered by a full-screen surface. messagesEnabled alone is
+ * not visibility: embedded tabs keep it true while hidden (#2903). A hidden view re-watches when shown again; the
+ * gateway hands the gap's entries to the new watch.
+ */
+export const viewOnlyWatchVisible = (view: { active: boolean; messagesEnabled: boolean; covered: boolean }): boolean =>
+  view.active && view.messagesEnabled && !view.covered;
+
+/** A visible session view (`shown`, viewOnlyWatchVisible) holds its watch while it shows a View only session. */
 export function useViewOnlyWatch(sessionId: string | null | undefined, directory: string | null | undefined, readOnly: boolean, shown: boolean): void {
   React.useEffect(() => {
     if (!shown || !readOnly || !sessionId || !directory) return;

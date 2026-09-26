@@ -457,7 +457,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
               <ErrorBoundary>
-                <ChatView covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures)} />
+                <ChatView covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
               </ErrorBoundary>
             </div>
           </main>

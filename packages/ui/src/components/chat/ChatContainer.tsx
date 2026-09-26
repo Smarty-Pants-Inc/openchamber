@@ -80,7 +80,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
-import { useViewOnlyWatch } from '@/sync/view-only-watch';
+import { useViewOnlyWatch, viewOnlyWatchVisible } from '@/sync/view-only-watch';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -818,8 +818,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         effectiveSessionDirectory,
     );
     // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455).
-    // Hidden views (another panel shown: messagesEnabled false; or covered full-screen) hold none.
-    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true, messagesEnabled && !covered);
+    // Only a visible view holds it: hidden (a background tab, another panel) or covered full-screen, none.
+    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true,
+        viewOnlyWatchVisible({ active, messagesEnabled, covered }));
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
 
     React.useEffect(() => {
