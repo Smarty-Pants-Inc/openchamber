@@ -1,5 +1,5 @@
 import { useI18n } from '@/lib/i18n';
-import { isUnsaved } from './unsaved';
+import { isUnsaved } from '@/sync/unsaved';
 
 /** A small label on a message row that Pi has not written to the session file yet (slice 1 L1). */
 export function UnsavedLabel({ info }: { info: unknown }) {

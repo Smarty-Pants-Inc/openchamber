@@ -100,7 +100,9 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(stopWording.map(entry => entry.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
   for (const entry of stopWording) {
     assert.equal(entry.stopWordingSha256, entry.combinedSha256);
-    // The file on disk still carries this layer only while no newer layer rebound it (the newer layer checks the disk).
+    // The layer's own binding stays pinned. The file on disk carries it only while no newer layer rebound the file
+    // (the newer layer then checks the disk and names this hash as its predecessor).
+    assert.equal(entry.stopWordingSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8');
     if (overlay.files.find(current => current.path === entry.path)?.combinedSha256 === entry.stopWordingSha256) {
       assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
     }

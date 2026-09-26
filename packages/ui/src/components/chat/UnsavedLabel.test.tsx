@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { I18nProvider } from '@/lib/i18n';
 import { UnsavedLabel } from './UnsavedLabel';
-import { isUnsaved } from './unsaved';
+import { isUnsaved } from '@/sync/unsaved';
 
 // Slice 1 L1: a record Pi holds in memory but has not written to the session file carries
 // info.metadata.smartyCodeUnsaved: true; its row shows a small 'Unsaved' label. Absent means saved.
@@ -11,7 +11,7 @@ const render = (info: unknown) => renderToStaticMarkup(<I18nProvider><UnsavedLab
 
 test('an unsaved record shows the label with its explanation', () => {
   const html = render({ id: 'm1', metadata: { smartyCodeUnsaved: true } });
-  expect(html).toContain('>Unsaved<');
+  expect(html).toContain('>unsaved<'); // code-controls' slice 1 harness looks for this word.
   expect(html).toContain('title="Pi has this message, but it is not in the session file yet."');
 });
 
@@ -29,4 +29,159 @@ test('both message rows render it: the user bubble (beside the author) and the a
   const source = readFileSync(new URL('./ChatMessage.tsx', import.meta.url), 'utf8');
   expect(/<HumanAuthor info=\{message\.info\} \/>\s*<UnsavedLabel info=\{message\.info\} \/>/.test(source)).toBe(true);
   expect(/<div className="relative">\s*<UnsavedLabel info=\{message\.info\} \/>\s*<MessageBody/.test(source)).toBe(true);
+});
+
+// The flag must reach the row through every path and clear when the record is saved (Astra pre-check).
+const base = { id: 'm1', sessionID: 's1', role: 'assistant', time: { created: 1, completed: 2 }, finish: 'stop', cost: 0.1 };
+const unsaved = { ...base, metadata: { smartyCodeUnsaved: true } };
+
+test('a live message.updated that only adds the flag (a new record) or removes it (saved) is applied', async () => {
+  const { applyDirectoryEvent } = await import('@/sync/event-reducer');
+  const { INITIAL_STATE } = await import('@/sync/types');
+  const draft = { ...INITIAL_STATE, message: {}, part: {}, session_status: {} } as never as Parameters<typeof applyDirectoryEvent>[0];
+  const update = (info: unknown) => applyDirectoryEvent(draft, { type: 'message.updated', properties: { info } } as never);
+  expect(update(unsaved)).toBe(true);
+  expect(isUnsaved(draft.message.s1[0])).toBe(true);
+  expect(update(base)).toBe(true);
+  expect(isUnsaved(draft.message.s1[0])).toBe(false);
+});
+
+test('a history page clears the flag of a record already shown, keeping its newer fields, and never sets it', async () => {
+  const { mergeMessages } = await import('@/sync/optimistic');
+  const live = { ...unsaved, cost: 0.2 };
+  const saved = mergeMessages([live] as never[], [base] as never[]);
+  expect(isUnsaved(saved[0])).toBe(false);
+  expect((saved[0] as { cost: number }).cost).toBe(0.2);
+  // A page never sets the flag on a shown record: it may be older than a live update that saved it.
+  const stale = mergeMessages([base] as never[], [unsaved] as never[]);
+  expect(isUnsaved(stale[0])).toBe(false);
+  const same = [base] as never[];
+  expect(mergeMessages(same, [{ ...base }] as never[])).toBe(same);
+});
+
+test('a mounted row re-renders when only the flag changes, in both directions', async () => {
+  const { areRenderRelevantMessagesEqual } = await import('./message/renderCompare');
+  const record = (info: unknown) => ({ info, parts: [] }) as never;
+  expect(areRenderRelevantMessagesEqual(record(base), record(unsaved))).toBe(false);
+  expect(areRenderRelevantMessagesEqual(record(unsaved), record(base))).toBe(false);
+  expect(areRenderRelevantMessagesEqual(record(unsaved), record({ ...unsaved }))).toBe(true);
+});
+
+test('an optimistic shadow merged with an older page never clears a flag a live update set', async () => {
+  const { mergeMessages } = await import('@/sync/optimistic');
+  const { optimisticMessageRecords } = await import('@/sync/unsaved');
+  const shadow = { ...base, role: 'user' };
+  optimisticMessageRecords.add(shadow);
+  const live = { ...shadow, metadata: { smartyCodeUnsaved: true, smartyCodeHuman: { name: 'Kate' } } };
+  const merged = mergeMessages([live] as never[], [shadow] as never[]);
+  expect(isUnsaved(merged[0])).toBe(true);
+  expect((merged[0] as { metadata: { smartyCodeHuman: { name: string } } }).metadata.smartyCodeHuman.name).toBe('Kate');
+});
+
+test('a page promotes an optimistic record to the server flag, set or clear', async () => {
+  const { mergeMessages } = await import('@/sync/optimistic');
+  const { optimisticMessageRecords } = await import('@/sync/unsaved');
+  const optimistic = { ...base, role: 'user' };
+  optimisticMessageRecords.add(optimistic);
+  const promoted = mergeMessages([optimistic] as never[], [{ ...optimistic, metadata: { smartyCodeUnsaved: true } }] as never[]);
+  expect(isUnsaved(promoted[0])).toBe(true);
+});
+
+test('a stopped reply reconciled from an older page keeps its saved state', async () => {
+  const { materializeSessionSnapshots } = await import('@/sync/materialization');
+  const saved = { ...base, time: { created: 1 }, error: { name: 'MessageAbortedError', data: {} } };
+  const olderPage = { ...unsaved, time: { created: 1, completed: 3 }, error: { name: 'MessageAbortedError', data: {} } };
+  const state = { message: { s1: [saved] }, part: {} } as never;
+  const result = materializeSessionSnapshots(state, 's1', [{ info: olderPage as never, parts: [] }]);
+  const row = result.message.s1[0] as { time: { completed?: number } };
+  expect(isUnsaved(row)).toBe(false);
+  expect(row.time.completed).toBe(3);
+});
+
+test('a saved confirmation retires the optimistic record, so an older unsaved snapshot cannot bring the label back', async () => {
+  const { mergeMessages } = await import('@/sync/optimistic');
+  const { optimisticMessageRecords } = await import('@/sync/unsaved');
+  const optimistic = { ...base, role: 'user' };
+  optimisticMessageRecords.add(optimistic);
+  const confirmed = mergeMessages([optimistic] as never[], [{ ...optimistic }] as never[]);
+  expect(optimisticMessageRecords.has(confirmed[0])).toBe(false);
+  const stale = mergeMessages(confirmed, [{ ...optimistic, metadata: { smartyCodeUnsaved: true } }] as never[]);
+  expect(isUnsaved(stale[0])).toBe(false);
+});
+
+test('an older buffered live update never un-saves a record a newer snapshot saved; its other fields apply', async () => {
+  const { applyDirectoryEvent } = await import('@/sync/event-reducer');
+  const { INITIAL_STATE } = await import('@/sync/types');
+  const draft = { ...INITIAL_STATE, message: { s1: [base] }, part: {}, session_status: {} } as never as Parameters<typeof applyDirectoryEvent>[0];
+  expect(applyDirectoryEvent(draft, { type: 'message.updated', properties: { info: { ...unsaved, cost: 0.3 } } } as never)).toBe(true);
+  expect(isUnsaved(draft.message.s1[0])).toBe(false);
+  expect((draft.message.s1[0] as unknown as { cost: number }).cost).toBe(0.3);
+});
+
+test('a reconnect refresh that answers with an older unsaved page does not un-save a record saved meanwhile', async () => {
+  const { ChildStoreManager } = await import('@/sync/child-store');
+  const { SessionMessageLoader } = await import('@/sync/session-message-loader');
+  const { applyDirectoryEvent } = await import('@/sync/event-reducer');
+  const view = `ov2_${'a'.repeat(64)}`;
+  const record = (saved: boolean) => ({ info: { ...base, sessionID: 's1', ...(saved ? {} : { metadata: { smartyCodeUnsaved: true } }) },
+    parts: [{ id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text', text: 'hi' }] });
+  let answer: (records: unknown[]) => void = () => {};
+  let calls = 0;
+  const sdk = { session: { messages: async () => {
+    calls += 1;
+    if (calls === 1) return { data: [record(false)], response: new Response(null, { headers: { 'x-smarty-ordinary-view': view } }) };
+    const records = await new Promise<unknown[]>((resolve) => { answer = resolve; });
+    return { data: records, response: new Response(null, { headers: { 'x-smarty-ordinary-view': view } }) };
+  } } };
+  const children = new ChildStoreManager();
+  const loader = new SessionMessageLoader(children, { sdk: sdk as never, runtimeKey: 'a' });
+  const target = { directory: '/repo', sessionID: 's1' };
+  try {
+    await loader.ensure(target);
+    const store = () => children.getChild('/repo')!;
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(true);
+    loader.invalidateOrdinaryViews();
+    const refresh = loader.refreshOrdinaryView(target, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const draft = { ...store().getState(), message: { ...store().getState().message } };
+    applyDirectoryEvent(draft as never, { type: 'message.updated', properties: { info: record(true).info } } as never);
+    store().setState({ message: draft.message });
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(false);
+    answer([record(false)]);
+    await refresh;
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(false);
+  } finally { loader.dispose(); children.disposeAll(); }
+});
+
+test('a reconnect refresh whose page lacks a record keeps the server record shown, not the page\'s optimistic shadow', async () => {
+  const { ChildStoreManager } = await import('@/sync/child-store');
+  const { SessionMessageLoader } = await import('@/sync/session-message-loader');
+  const { applyDirectoryEvent } = await import('@/sync/event-reducer');
+  const view = `ov2_${'b'.repeat(64)}`;
+  let answer: (records: unknown[]) => void = () => {};
+  let calls = 0;
+  const sdk = { session: { messages: async () => {
+    calls += 1;
+    if (calls === 1) return { data: [], response: new Response(null, { headers: { 'x-smarty-ordinary-view': view } }) };
+    const records = await new Promise<unknown[]>((resolve) => { answer = resolve; });
+    return { data: records, response: new Response(null, { headers: { 'x-smarty-ordinary-view': view } }) };
+  } } };
+  const children = new ChildStoreManager();
+  const loader = new SessionMessageLoader(children, { sdk: sdk as never, runtimeKey: 'a' });
+  const target = { directory: '/repo', sessionID: 's1' };
+  try {
+    await loader.ensure(target);
+    const user = { id: 'm1', sessionID: 's1', role: 'user', time: { created: 1 } };
+    loader.optimisticAdd({ ...target, message: user as never, parts: [{ id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text', text: 'hi' }] as never });
+    loader.invalidateOrdinaryViews();
+    const refresh = loader.refreshOrdinaryView(target, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const store = () => children.getChild('/repo')!;
+    const draft = { ...store().getState(), message: { ...store().getState().message } };
+    applyDirectoryEvent(draft as never, { type: 'message.updated', properties: { info: { ...user, metadata: { smartyCodeUnsaved: true } } } } as never);
+    store().setState({ message: draft.message });
+    answer([]);
+    await refresh;
+    expect(isUnsaved(store().getState().message.s1.find((message) => message.id === 'm1'))).toBe(true);
+  } finally { loader.dispose(); children.disposeAll(); }
 });

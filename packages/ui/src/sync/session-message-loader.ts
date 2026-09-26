@@ -1,3 +1,4 @@
+import { keepSavedState, optimisticMessageRecords } from "./unsaved"
 import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
 import type { ChildStoreManager, DirectoryStore } from "./child-store"
 import { retry } from "./retry"
@@ -428,6 +429,7 @@ export class SessionMessageLoader {
     const target = this.normalizeTarget(input)
     if (!target) return
     const entry = this.getEntry(target)
+    optimisticMessageRecords.add(input.message)
     entry.optimistic.set(input.message.id, { message: input.message, parts: filterIdentifiedParts(input.parts) })
     const store = this.childStores.ensureChild(target.directory, { bootstrap: false })
     const current = store.getState()
@@ -752,6 +754,7 @@ export class SessionMessageLoader {
     const mergedPartsByMessageID = new Map(merged.part.map((candidate) => [candidate.id, candidate.part] as const))
     const current = store.getState()
     const reset = mode !== "prepend" && entry.resetHistory
+    const shownByID = new Map((current.message[target.sessionID] ?? []).map((message) => [message.id, message] as const))
     const part = reset ? { ...current.part } : current.part
     if (reset) {
       for (const message of current.message[target.sessionID] ?? []) {
@@ -762,7 +765,11 @@ export class SessionMessageLoader {
       reset ? { ...current, message: { ...current.message, [target.sessionID]: [] }, part } : current,
       target.sessionID,
       merged.session.map((info) => ({
-        info,
+        // A reset replaces the shown bucket, so no merge sees these records: keep a record shown as saved saved here.
+        // An optimistic shadow never replaces the server's record already shown.
+        info: !shownByID.has(info.id) ? info
+          : optimisticMessageRecords.has(info) && !optimisticMessageRecords.has(shownByID.get(info.id)!) ? shownByID.get(info.id)!
+            : keepSavedState(shownByID.get(info.id)!, info),
         parts: page.partsByMessageID.get(info.id)
           ?? mergedPartsByMessageID.get(info.id)
           ?? [],

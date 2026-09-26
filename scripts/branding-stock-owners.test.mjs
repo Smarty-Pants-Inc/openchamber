@@ -222,5 +222,5 @@ test('the unsaved label binds its exact fix commit over the message row only (sl
   const entry = overlays.get('packages/ui/src/components/chat/ChatMessage.tsx');
   assert.equal(entry.unsavedLabelSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
-  assert.match(entry.preUnsavedLabelCombinedSha256, /^[a-f0-9]{64}$/);
+  assert.equal(entry.preUnsavedLabelCombinedSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8'); // The Stop-wording layer it replaces.
 });

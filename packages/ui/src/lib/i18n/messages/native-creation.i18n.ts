@@ -4,7 +4,7 @@ export const nativeCreationI18n = {
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
     'chat.terminalDialog.waitingTitled': "Pi is waiting for an answer in the terminal: {title}. Answer it there; nothing is answered from here.",
     'chat.terminalDialog.waiting': "Pi is waiting for an answer in the terminal. Answer it there; nothing is answered from here.",
-    'chat.unsaved.label': "Unsaved",
+    'chat.unsaved.label': "unsaved",
     'chat.unsaved.detail': "Pi has this message, but it is not in the session file yet.",
     'chat.followUp.changedDuringCheck': "Nothing was sent: the chat or the message changed while Send checked whether the session is still working. Each chat keeps its own draft. Press Send again.",
     'chat.coSteer.delivered': "Delivered to {name} while it works.",
