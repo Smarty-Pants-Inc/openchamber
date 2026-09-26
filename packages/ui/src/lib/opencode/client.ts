@@ -742,8 +742,8 @@ class OpencodeService {
   }
 
   /** smarty-code#365: continue an ended Code-created session in a new Pi; resolves once that Pi is enrolled. */
-  async resumeNativeSession(directory: string, sessionID: string): Promise<void> {
-    await this.nativeCreationRequest(directory, '/resume', { sessionID });
+  async resumeNativeSession(directory: string, sessionID: string) {
+    return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, '/resume', { sessionID })).nativeCreation;
   }
 
   async replyNativeCreation(directory: string, operationId: string, reply: NativeCreationReply) {
