@@ -1,4 +1,5 @@
 import { optimisticStatuses } from "./optimistic-status"
+import { keepSavedState } from "./unsaved"
 import type {
   Event,
   Message,
@@ -132,7 +133,9 @@ function areMessageUpdateFieldsEqual(existing: Message, next: Message): boolean 
   if ((existing as { finish?: unknown }).finish !== (next as { finish?: unknown }).finish) return false
   if ((existing.time as { completed?: number })?.completed !== (next.time as { completed?: number })?.completed) return false
 
-  const fields: Array<keyof Message | "structured" | "summary" | "tokens" | "error" | "cost" | "model" | "tools" | "format" | "variant" | "agent" | "system"> = [
+  const fields: Array<keyof Message | "structured" | "summary" | "tokens" | "error" | "cost" | "model" | "tools" | "format" | "variant" | "agent" | "system" | "metadata"> = [
+    // The gateway's record facts (the author, and whether Pi has saved it yet) change without other fields changing.
+    "metadata",
     "summary",
     "error",
     "cost",
@@ -369,7 +372,7 @@ export function applyDirectoryEvent(
     }
 
     case "message.updated": {
-      const info = (event.properties as { info: Message }).info
+      let info = (event.properties as { info: Message }).info
       const messages = draft.message[info.sessionID]
       if (!messages) {
         draft.message[info.sessionID] = [info]
@@ -379,6 +382,7 @@ export function applyDirectoryEvent(
       if (messageIndex >= 0) {
         // Skip message replacement if unchanged — preserves reference, avoids re-render
         const existing = messages[messageIndex]
+        info = keepSavedState(existing, info) // An older buffered update never un-saves a record (unsaved.ts).
         const unchanged = areMessageUpdateFieldsEqual(existing, info)
         if (unchanged) {
           syncDebug.reducer.messageUpdatedUnchanged(info.sessionID, info.id, info.role, (info as { finish?: unknown }).finish, (info.time as { completed?: number })?.completed)

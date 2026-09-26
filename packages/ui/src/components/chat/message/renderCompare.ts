@@ -1,3 +1,4 @@
+import { isUnsaved } from '@/sync/unsaved';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import type { TurnActivityGroup, TurnActivityRecord, TurnChangedFile, TurnDiffStats, TurnGroupingContext } from '../lib/turns/types';
 
@@ -133,6 +134,7 @@ const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boole
     && (left as { variant?: unknown }).variant === (right as { variant?: unknown }).variant
     && (left as { clientRole?: unknown }).clientRole === (right as { clientRole?: unknown }).clientRole
     && (left as { userMessageMarker?: unknown }).userMessageMarker === (right as { userMessageMarker?: unknown }).userMessageMarker
+    && isUnsaved(left) === isUnsaved(right)
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null)
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null);
 };

@@ -1,3 +1,4 @@
+import { reconciledMetadata } from "./unsaved"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { sortMessagesChronologically } from "./message-ordering"
 
@@ -78,8 +79,14 @@ export function mergeMessages<T extends Message>(existingMessages: readonly T[],
   const messagesByID = new Map(existingMessages.map((item) => [item.id, item] as const))
   let changed = false
   for (const item of incomingMessages) {
-    if (!messagesByID.has(item.id)) {
+    const existing = messagesByID.get(item.id)
+    if (!existing) {
       messagesByID.set(item.id, item)
+      changed = true
+    } else if (reconciledMetadata(existing, item).adopt) {
+      // The server's word on whether Pi saved the record (unsaved.ts): adopt its metadata, keeping every other field,
+      // which a live update may have made newer than this page.
+      messagesByID.set(item.id, { ...existing, metadata: (item as { metadata?: unknown }).metadata } as T)
       changed = true
     }
   }

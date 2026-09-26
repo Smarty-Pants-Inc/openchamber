@@ -215,3 +215,12 @@ test('the model-prefs unload flush binds its exact fix commit over the settings 
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.match(entry.preModelPrefsUnloadCombinedSha256, /^[a-f0-9]{64}$/);
 });
+
+test('the unsaved label binds its exact fix commit over the message row only (slice 1 L1)', () => {
+  assert.match(overlay.unsavedLabelSource, /^[a-f0-9]{40}$/);
+  assert.deepEqual(overlay.files.filter(file => file.unsavedLabelSha256).map(file => file.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
+  const entry = overlays.get('packages/ui/src/components/chat/ChatMessage.tsx');
+  assert.equal(entry.unsavedLabelSha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(entry.preUnsavedLabelCombinedSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8'); // The Stop-wording layer it replaces.
+});
