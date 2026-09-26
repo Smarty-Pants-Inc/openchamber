@@ -188,3 +188,20 @@ test('a second press that stops early (an unreadable file) while the first Send 
   expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
   globalThis.fetch = served; void server;
 });
+
+test('a first message the gateway refuses after the start keeps the gateway\'s own reason on screen, with the text', async () => {
+  let server!: ReturnType<typeof interactiveServer>;
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, fixture => {
+    server = interactiveServer(fixture);
+    fixture.handlers.prompt = async () => Response.json({ name: 'UnknownError', data: { message: 'Finish original Pi dialogs and /code-ready first.' } }, { status: 409 });
+  });
+  await managed();
+  await c.replace('Refused text'); await c.submit();
+  for (let i = 0; i < 40 && c.prompts().length < 1; i++) await settle();
+  for (let i = 0; i < 10; i++) await settle();
+  expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(1);
+  expect(c.text()).toBe('Refused text');
+  // Its own words stay (not "It is not clear whether the session started": it did start).
+  expect(c.dom.container.querySelector('[role="alert"]')?.textContent ?? '').toContain('Finish original Pi dialogs and /code-ready first.');
+  void server;
+});

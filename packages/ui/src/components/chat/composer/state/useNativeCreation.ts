@@ -2,7 +2,7 @@ import React from 'react';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
-import { NativeCreationError, NATIVE_CREATION_INVALIDATED, type NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { NativeCreationError, NATIVE_CREATION_INVALIDATED, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -97,10 +97,15 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     canAbandon: capability?.runtimeKey === runtimeKey && capability.directory === directory && capability.abandon === true,
     refusal: refusal?.key === refusalFor ? refusal.error : null,
     /** A native Send that failed after its start (its prompt was never admitted): keep saying why (smarty-dev#856). */
-    noteRefusal: (cause: unknown) => {
-      const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
-      if (error.code === 'sending') return; // A second press: the first Send is still under way and says its own outcome.
-      if (stillShown()) setRefusal({ key: refusalFor, error });
+    // Its own words when it has them: the backend's recovery message, or the send's refusal reason (a 409's "finish
+    // the original dialogs"), else the plain send failure. Returned, so the toast says the same.
+    noteRefusal: (cause: unknown): NativeCreationError => {
+      const reason = (cause as { refusalReason?: unknown } | null)?.refusalReason, parsed = nativeCreationFailure(cause);
+      const error = cause instanceof NativeCreationError || parsed.detail ? parsed
+        : new NativeCreationError('unavailable', cause, typeof reason === 'string' ? reason : t('chat.chatInput.toast.messageSendFailed'));
+      // A second press: the first Send is still under way and says its own outcome.
+      if (error.code !== 'sending' && stillShown()) setRefusal({ key: refusalFor, error });
+      return error;
     },
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();
