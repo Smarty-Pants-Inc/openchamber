@@ -20,7 +20,7 @@ describe('startup pipeline runtime', () => {
     });
 
     await runtime.run({
-      app: {},
+      app: { get: vi.fn() },
       setupProxy: vi.fn(),
       staticRoutesRuntime: { registerStaticRoutes: vi.fn() },
       apiOnly: false,
