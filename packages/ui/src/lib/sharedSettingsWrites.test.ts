@@ -163,3 +163,22 @@ test('an explicit project choice still publishes lastDirectory', () => {
 
   expect(save.mock.calls.some(([changes]) => changes.lastDirectory === path)).toBe(true);
 });
+
+// smarty-code#114 (the #117 class): a managed first load selects the catalog's project when its initial directory is
+// not one (initializeApp); that selection is startup, not a choice, and writes no shared setting. A choice still does.
+test('a managed startup selection writes no shared settings; an explicit managed choice publishes lastDirectory', () => {
+  const path = '/sandbox/managed-114';
+  const project: ProjectEntry = { id: createProjectIdFromPath(path), path, label: '114', addedAt: 1, lastOpenedAt: 1 };
+  // SAFETY: the selection needs only the child-store manager; its fire-and-forget reads may fail harmlessly.
+  setSyncRefs({} as never, new ChildStoreManager(), '/repo');
+  useProjectsStore.setState({ managedCatalogAdmitted: true, managedProjects: [project], activeProjectId: null });
+  const before = save.mock.calls.length;
+
+  useProjectsStore.getState().setActiveProject(project.id, { remember: false });
+  expect(useProjectsStore.getState().activeProjectId).toBe(project.id);
+  expect(save.mock.calls).toHaveLength(before);
+
+  useProjectsStore.getState().setActiveProject(project.id);
+  expect(save.mock.calls.some(([changes]) => changes.lastDirectory === path)).toBe(true);
+  useProjectsStore.setState({ managedCatalogAdmitted: false, managedProjects: null });
+});
