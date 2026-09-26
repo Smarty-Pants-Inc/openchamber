@@ -170,7 +170,9 @@ test('lost create response, recovery, prompt admitted, page closed before its an
   const id = h.operation.clientRequestId!;
   expect(sentMark()).toBeNull(); // The 202 never arrived: nothing proved the start accepted yet.
   await startNativeDraft([], async () => {}); // Send again: recovery by this tab's id, then ready.
-  expect(JSON.parse(sentMark()!)).toEqual({ clientRequestId: id }); // Marked before the prompt goes.
+  // Marked before the prompt goes, with its start's operation: a later page can read it after it leaves the listing
+  // (#117 on 3.36: a recovered start that then expired stayed locked).
+  expect(JSON.parse(sentMark()!)).toEqual({ clientRequestId: id, operationId: h.operation.operationId });
   let admitted = () => {};
   fx().handlers.prompt = () => new Promise(() => { admitted(); }); // The server takes the prompt; its answer never arrives.
   const posted = new Promise<void>(done => { admitted = done; });
@@ -212,7 +214,7 @@ test('a start still held in memory (Send left for another project, then came bac
   fx().target('a', directory);
   expect(record()?.status).toBe('pending'); // The accepted start is still held for this draft.
   await startNativeDraft([], async () => {});
-  expect(JSON.parse(sentMark()!)).toEqual({ clientRequestId: h.operation.clientRequestId });
+  expect(JSON.parse(sentMark()!)).toEqual({ clientRequestId: h.operation.clientRequestId, operationId: h.operation.operationId });
   let admitted = () => {};
   fx().handlers.prompt = () => new Promise(() => { admitted(); });
   const posted = new Promise<void>(done => { admitted = done; });
