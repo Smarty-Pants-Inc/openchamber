@@ -105,7 +105,9 @@ function areSessionStatusesEqual(left: SessionStatus | undefined, right: Session
   if (!left || left.type !== right.type) return false
   if (left.ordinary !== right.ordinary
     || left.ordinaryTarget?.generation !== right.ordinaryTarget?.generation
-    || left.ordinaryTarget?.presentationId !== right.ordinaryTarget?.presentationId) return false
+    || left.ordinaryTarget?.presentationId !== right.ordinaryTarget?.presentationId
+    || left.ordinaryDialog?.kind !== right.ordinaryDialog?.kind
+    || left.ordinaryDialog?.title !== right.ordinaryDialog?.title) return false
   if (left.type === "retry") {
     return right.type === "retry"
       && left.attempt === right.attempt
