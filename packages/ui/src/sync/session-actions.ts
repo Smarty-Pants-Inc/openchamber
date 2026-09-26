@@ -1897,6 +1897,8 @@ export async function optimisticSend(input: {
   const stateBeforeSend = store.getState()
   const sessionBeforeSend = stateBeforeSend.session.find((session) => session.id === input.sessionId)
   const revertMessageID = sessionBeforeSend?.revert?.messageID
+  // A refused send restores what the session was doing: a message sent while the agent works leaves it working (G5).
+  const statusBeforeSend = stateBeforeSend.session_status?.[input.sessionId]
   const messagesBeforeSend = stateBeforeSend.message[input.sessionId] ?? []
   const revertedMessages = messagesFrom(messagesBeforeSend, revertMessageID)
   const revertedParts = new Map(
@@ -2041,7 +2043,7 @@ export async function optimisticSend(input: {
       part,
       session_status: {
         ...rollbackState.session_status,
-        [input.sessionId]: { type: "idle" as const },
+        [input.sessionId]: statusBeforeSend && statusBeforeSend.type !== "idle" ? statusBeforeSend : { type: "idle" as const },
       },
     })
     // The server said why it refused: keep its words in the chat, not only in a passing toast (F11).

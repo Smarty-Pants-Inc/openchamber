@@ -67,6 +67,7 @@ export interface ComposerFooterProps {
     onTogglePermissionAutoAccept: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
+    sendWhileWorking?: boolean;
     onAbort: () => void;
     onStartDictation: () => void;
     onDictationInsert: (text: string) => void;
@@ -110,6 +111,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onTogglePermissionAutoAccept,
         onPrimaryAction,
         onQueueMessage,
+        sendWhileWorking,
         onAbort,
         onStartDictation,
         onDictationInsert,
@@ -199,6 +201,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                     newSessionDraftOpen={newSessionDraftOpen}
                                     onPrimaryAction={onPrimaryAction}
                                     onQueueMessage={onQueueMessage}
+                                    sendWhileWorking={sendWhileWorking}
                                     onAbort={onAbort}
                                 />
                             </div>
@@ -269,6 +272,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             newSessionDraftOpen={newSessionDraftOpen}
                             onPrimaryAction={onPrimaryAction}
                             onQueueMessage={onQueueMessage}
+                                    sendWhileWorking={sendWhileWorking}
                             onAbort={onAbort}
                         />
                     </div>

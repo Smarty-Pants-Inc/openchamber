@@ -25,6 +25,8 @@ type ComposerActionButtonsProps = {
     newSessionDraftOpen: boolean;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
+    /** An ordinary session takes the message while its agent works (the server steers it): Send, not Queue. */
+    sendWhileWorking?: boolean;
     onAbort: () => void;
 };
 
@@ -41,6 +43,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         newSessionDraftOpen,
         onPrimaryAction,
         onQueueMessage,
+        sendWhileWorking = false,
         onAbort,
     } = props;
     const { t } = useI18n();
@@ -90,9 +93,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
                         currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
-                    aria-label={t('chat.chatInput.actions.queueMessageAria')}
+                    aria-label={t(sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
+                    title={sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined}
                 >
-                    <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />
+                    <Icon name="send-plane-2" className={cn(sendIconSizeClass, !sendWhileWorking && '-rotate-90')} />
                 </button>
             ) : null}
             <button
@@ -120,5 +124,6 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.newSessionDraftOpen === next.newSessionDraftOpen
     && prev.onPrimaryAction === next.onPrimaryAction
     && prev.onQueueMessage === next.onQueueMessage
+    && prev.sendWhileWorking === next.sendWhileWorking
     && prev.onAbort === next.onAbort
 ));
