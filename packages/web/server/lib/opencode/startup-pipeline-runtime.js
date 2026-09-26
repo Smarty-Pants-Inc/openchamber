@@ -1,4 +1,5 @@
 import { recordStartupPerformance } from './startup-performance.js';
+import { registerOrgEntryRoutes } from './org-entry.js';
 
 export const createStartupPipelineRuntime = (dependencies) => {
   const {
@@ -102,6 +103,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
     });
 
     setupProxy(app);
+    registerOrgEntryRoutes(app);
 
     if (apiOnly) {
       staticRoutesRuntime.registerApiOnlyFallbackRoutes(app);
