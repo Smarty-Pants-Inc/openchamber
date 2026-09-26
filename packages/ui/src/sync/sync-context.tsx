@@ -1693,6 +1693,9 @@ export function handleEvent(
   if (shouldConsumeBulkArchiveEcho(payload, expectedRuntimeKey)) return
 
   const directory = resolveDirectoryFromRoutingIndex(routingIndex, rawDirectory, payload, childStores, batch)
+  // A project that joined the open stream (smarty-dev#777), including one that comes back with its store still
+  // cached: an unlisted project refreshes the catalog (kept while discovery runs; #282 review).
+  if (payload.type === "server.connected") noticeProjectConnected(directory)
 
   if (payload.type === "session.deleted" && expectedRuntimeKey === getRuntimeKey()) {
     const sessionID = getSessionIdFromPayload(payload)
@@ -1779,8 +1782,6 @@ export function handleEvent(
     if (useProjectsStore.getState().managedCatalogAdmitted && directory && directory !== "global") {
       notifySessionOutcome(payload, directory, false, (id) => managedLineage(id, batch))
     }
-    // A project that joined the open stream (smarty-dev#777): the catalog learns it (kept while discovery runs).
-    if (payload.type === "server.connected") noticeProjectConnected(directory)
     // Try as global event for unknown directories
     const result = reduceGlobalEvent(payload)
     if (result?.type === "refresh") {
