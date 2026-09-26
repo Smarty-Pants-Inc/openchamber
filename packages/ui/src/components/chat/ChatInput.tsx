@@ -2,9 +2,10 @@ import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
-import { useNativeDraftStarting } from '@/sync/native-draft-start';
+import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
+import { sentStartLocks, useSentStart } from '@/sync/native-draft-sent';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
-import { assertNativeDraftReady, isNativeDraftCurrent, type NativeDraftSend } from '@/sync/native-draft-send';
+import { assertNativeDraftReady, isNativeDraftCurrent, noteNativeDraftSubmitted, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -469,6 +470,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     );
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
     const nativeCreation = useNativeCreation(newSessionDraft, currentSessionId, currentDirectory, activeRuntimeKey);
+    // Text another tab sent to start a session is not an ordinary draft until that start resolves (#117).
+    const sentStart = useSentStart(activeRuntimeKey, newSessionDraftOpen ? newSessionDraft.directoryOverride : null,
+        newSessionDraft.draftId, () => ownNativeRequestId(useSessionUIStore.getState().newSessionDraft, activeRuntimeKey));
+    const sentLocked = newSessionDraftOpen && sentStartLocks(sentStart);
     const nativeModel = nativeCreation.session?.nativeCreation.model;
     const materializedSessionId = useSessionUIStore(s => s.materializedDraftSessionId);
     const nativeStarting = useNativeDraftStarting();
@@ -1049,7 +1054,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const hasQueuedMessages = queuedMessages.length > 0;
     // Send itself starts a new draft's session (smarty-code#126); only a start already running blocks it.
     // A new-session draft cannot be sent until its project is known (G13: discovery still answering).
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering'));
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked;
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
@@ -1322,6 +1327,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const handleSubmit = async (options?: SubmitOptions) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
+        if (sentLocked) return; // The notice above the composer says why, and offers Check again.
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
             toast.error(t('chat.queuedMessage.admissionUnknown'));
             return;
@@ -1712,6 +1718,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
+        if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message);
         else clearSubmittedInput();
 
         if (isMobile) {
@@ -3240,7 +3247,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
-                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} onSend={() => { void handleSubmit(); }} />
+                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void handleSubmit(); }} />
                 {draftEphemeralOnly ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-warning)]">
                         {t('chat.draft.ephemeralOnly')}
@@ -3505,7 +3512,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                             ? t('chat.chatInput.placeholder.shell')
                                             : t(useCompactChatPlaceholder ? 'chat.chatInput.placeholder.chatCompact' : 'chat.chatInput.placeholder.chat')
                                         : t('chat.chatInput.placeholder.selectSession')}
-                                editable={Boolean(currentSessionId || newSessionDraftOpen)}
+                                editable={Boolean(currentSessionId || newSessionDraftOpen) && !sentLocked}
                                 autoCorrect={composerAutoCorrect({ isMobile })}
                                 autoCapitalize={isMobile ? 'sentences' : 'none'}
                                 preserveDeferredEnterShift={!enterToSendConfigured || !isMobile}

@@ -35,6 +35,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'A session is still starting in this project. It will appear in the sidebar. Nothing was sent, and your message is still here.',
     'chat.nativeCreation.startAgain': 'Start a new session anyway',
     'chat.nativeCreation.startAgainHint': 'If a session was started, you will see it in the sidebar.',
+    'chat.nativeCreation.sentPending': "This message was sent to start a session that has not finished starting, so you cannot edit or send it yet. Check again to see what happened.",
+    'chat.nativeCreation.sentStopped': "This message was not sent: the session did not start.",
+    'chat.nativeCreation.sentKeep': "Edit it as an unsent message",
   },
   de: {
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
@@ -72,6 +75,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'In diesem Projekt startet noch eine Sitzung. Sie erscheint in der Seitenleiste. Es wurde nichts gesendet, und deine Nachricht ist noch da.',
     'chat.nativeCreation.startAgain': 'Trotzdem eine neue Sitzung starten',
     'chat.nativeCreation.startAgainHint': 'Falls eine Sitzung gestartet wurde, siehst du sie in der Seitenleiste.',
+    'chat.nativeCreation.sentPending': "Diese Nachricht wurde gesendet, um eine Sitzung zu starten, die noch nicht fertig gestartet ist. Sie können sie daher noch nicht bearbeiten oder erneut senden. Prüfen Sie erneut, was passiert ist.",
+    'chat.nativeCreation.sentStopped': "Diese Nachricht wurde nicht gesendet: Die Sitzung wurde nicht gestartet.",
+    'chat.nativeCreation.sentKeep': "Als nicht gesendete Nachricht bearbeiten",
   },
   es: {
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
@@ -109,6 +115,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'Todavía se está iniciando una sesión en este proyecto. Aparecerá en la barra lateral. No se envió nada y tu mensaje sigue aquí.',
     'chat.nativeCreation.startAgain': 'Iniciar una sesión nueva de todos modos',
     'chat.nativeCreation.startAgainHint': 'Si se inició una sesión, la verás en la barra lateral.',
+    'chat.nativeCreation.sentPending': "Este mensaje se envió para iniciar una sesión que aún no ha terminado de iniciarse, así que todavía no puedes editarlo ni enviarlo. Vuelve a comprobar qué pasó.",
+    'chat.nativeCreation.sentStopped': "Este mensaje no se envió: la sesión no se inició.",
+    'chat.nativeCreation.sentKeep': "Editarlo como mensaje no enviado",
   },
   fr: {
     'chat.nativeCreation.discovering': 'Chargement des projets…',
@@ -146,6 +155,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'Une session est encore en cours de démarrage dans ce projet. Elle apparaîtra dans la barre latérale. Rien n’a été envoyé et votre message est toujours là.',
     'chat.nativeCreation.startAgain': 'Démarrer quand même une nouvelle session',
     'chat.nativeCreation.startAgainHint': 'Si une session a été démarrée, vous la verrez dans la barre latérale.',
+    'chat.nativeCreation.sentPending': "Ce message a été envoyé pour démarrer une session qui n'a pas fini de démarrer : vous ne pouvez pas encore le modifier ni le renvoyer. Vérifiez à nouveau ce qui s'est passé.",
+    'chat.nativeCreation.sentStopped': "Ce message n'a pas été envoyé : la session n'a pas démarré.",
+    'chat.nativeCreation.sentKeep': "Le modifier comme message non envoyé",
   },
   ja: {
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
@@ -183,6 +195,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'このプロジェクトではまだセッションが起動中です。サイドバーに表示されます。何も送信されておらず、メッセージはそのまま残っています。',
     'chat.nativeCreation.startAgain': 'それでも新しいセッションを開始',
     'chat.nativeCreation.startAgainHint': 'セッションが開始されていれば、サイドバーに表示されます。',
+    'chat.nativeCreation.sentPending': "このメッセージは、まだ起動が完了していないセッションを開始するために送信されたため、まだ編集や再送信はできません。もう一度確認して結果を見てください。",
+    'chat.nativeCreation.sentStopped': "このメッセージは送信されていません。セッションは開始されませんでした。",
+    'chat.nativeCreation.sentKeep': "未送信のメッセージとして編集する",
   },
   ko: {
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
@@ -220,6 +235,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': '이 프로젝트에서 아직 세션이 시작 중입니다. 사이드바에 표시됩니다. 아무것도 보내지 않았으며 메시지는 그대로 남아 있습니다.',
     'chat.nativeCreation.startAgain': '그래도 새 세션 시작',
     'chat.nativeCreation.startAgainHint': '세션이 시작되었다면 사이드바에 표시됩니다.',
+    'chat.nativeCreation.sentPending': "이 메시지는 아직 시작이 끝나지 않은 세션을 시작하려고 보낸 것이어서 아직 편집하거나 다시 보낼 수 없습니다. 다시 확인하여 결과를 보세요.",
+    'chat.nativeCreation.sentStopped': "이 메시지는 전송되지 않았습니다. 세션이 시작되지 않았습니다.",
+    'chat.nativeCreation.sentKeep': "보내지 않은 메시지로 편집",
   },
   pl: {
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
@@ -257,6 +275,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'W tym projekcie wciąż uruchamia się sesja. Pojawi się na pasku bocznym. Nic nie zostało wysłane, a Twoja wiadomość nadal tu jest.',
     'chat.nativeCreation.startAgain': 'Mimo to rozpocznij nową sesję',
     'chat.nativeCreation.startAgainHint': 'Jeśli sesja została uruchomiona, zobaczysz ją na pasku bocznym.',
+    'chat.nativeCreation.sentPending': "Ta wiadomość została wysłana, aby uruchomić sesję, która jeszcze się nie uruchomiła, więc nie możesz jej jeszcze edytować ani wysłać ponownie. Sprawdź ponownie, co się stało.",
+    'chat.nativeCreation.sentStopped': "Ta wiadomość nie została wysłana: sesja się nie uruchomiła.",
+    'chat.nativeCreation.sentKeep': "Edytuj jako niewysłaną wiadomość",
   },
   'pt-BR': {
     'chat.nativeCreation.discovering': 'Carregando projetos…',
@@ -294,6 +315,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'Uma sessão ainda está iniciando neste projeto. Ela aparecerá na barra lateral. Nada foi enviado e sua mensagem continua aqui.',
     'chat.nativeCreation.startAgain': 'Iniciar uma nova sessão mesmo assim',
     'chat.nativeCreation.startAgainHint': 'Se uma sessão foi iniciada, você a verá na barra lateral.',
+    'chat.nativeCreation.sentPending': "Esta mensagem foi enviada para iniciar uma sessão que ainda não terminou de iniciar, então você ainda não pode editá-la nem enviá-la de novo. Verifique novamente o que aconteceu.",
+    'chat.nativeCreation.sentStopped': "Esta mensagem não foi enviada: a sessão não foi iniciada.",
+    'chat.nativeCreation.sentKeep': "Editar como mensagem não enviada",
   },
   tr: {
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
@@ -331,6 +355,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'Bu projede bir oturum hâlâ başlatılıyor. Kenar çubuğunda görünecek. Hiçbir şey gönderilmedi, mesajınız hâlâ burada.',
     'chat.nativeCreation.startAgain': 'Yine de yeni bir oturum başlat',
     'chat.nativeCreation.startAgainHint': 'Bir oturum başlatıldıysa onu kenar çubuğunda görürsünüz.',
+    'chat.nativeCreation.sentPending': "Bu mesaj, başlatılması henüz bitmemiş bir oturumu başlatmak için gönderildi; bu yüzden onu henüz düzenleyemez veya yeniden gönderemezsiniz. Ne olduğunu görmek için yeniden kontrol edin.",
+    'chat.nativeCreation.sentStopped': "Bu mesaj gönderilmedi: oturum başlamadı.",
+    'chat.nativeCreation.sentKeep': "Gönderilmemiş mesaj olarak düzenle",
   },
   uk: {
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
@@ -368,6 +395,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': 'У цьому проєкті ще запускається сеанс. Він з’явиться на бічній панелі. Нічого не надіслано, ваше повідомлення залишилося тут.',
     'chat.nativeCreation.startAgain': 'Усе одно почати новий сеанс',
     'chat.nativeCreation.startAgainHint': 'Якщо сеанс було запущено, ви побачите його на бічній панелі.',
+    'chat.nativeCreation.sentPending': "Це повідомлення надіслано, щоб запустити сесію, яка ще не завершила запуск, тому його поки не можна редагувати чи надіслати знову. Перевірте ще раз, що сталося.",
+    'chat.nativeCreation.sentStopped': "Це повідомлення не надіслано: сесія не запустилася.",
+    'chat.nativeCreation.sentKeep': "Редагувати як ненадіслане повідомлення",
   },
   'zh-CN': {
     'chat.nativeCreation.discovering': '正在加载项目…',
@@ -405,6 +435,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': '此项目中仍有会话正在启动。它会出现在侧边栏中。未发送任何内容，你的消息仍在这里。',
     'chat.nativeCreation.startAgain': '仍然开始新会话',
     'chat.nativeCreation.startAgainHint': '如果已经启动了会话，你会在侧边栏中看到它。',
+    'chat.nativeCreation.sentPending': "此消息已发送以启动一个尚未完成启动的会话，因此暂时无法编辑或再次发送。请再次检查以查看结果。",
+    'chat.nativeCreation.sentStopped': "此消息未发送：会话没有启动。",
+    'chat.nativeCreation.sentKeep': "作为未发送的消息编辑",
   },
   'zh-TW': {
     'chat.nativeCreation.discovering': '正在載入專案…',
@@ -442,5 +475,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.elsewhere': '此專案中仍有工作階段正在啟動。它會出現在側邊欄中。尚未傳送任何內容，你的訊息仍在這裡。',
     'chat.nativeCreation.startAgain': '仍要開始新的工作階段',
     'chat.nativeCreation.startAgainHint': '如果已啟動工作階段，你會在側邊欄中看到它。',
+    'chat.nativeCreation.sentPending': "此訊息已送出以啟動一個尚未完成啟動的工作階段，因此暫時無法編輯或再次傳送。請再次檢查以查看結果。",
+    'chat.nativeCreation.sentStopped': "此訊息未傳送：工作階段沒有啟動。",
+    'chat.nativeCreation.sentKeep': "以未傳送的訊息編輯",
   },
 };

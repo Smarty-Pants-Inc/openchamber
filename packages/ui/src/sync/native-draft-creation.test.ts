@@ -29,7 +29,7 @@ beforeEach(() => {
   // No network or provider can escape this fixture, including incidental configuration reads.
   fetchMock.mockImplementation(async () => { throw new Error('No network allowed'); });
   health.mockResolvedValue(true); create.mockResolvedValue(session);
-  support.mockImplementation(async directory => ({ mode: await opencodeClient.supportsNativeCreation(directory) ? 'ordinary' : 'legacy', clientRequestId: false }));
+  support.mockImplementation(async directory => ({ mode: await opencodeClient.supportsNativeCreation(directory) ? 'ordinary' : 'legacy', clientRequestId: false, abandon: false }));
   legacy.mockImplementation(async () => { throw new Error('Unexpected legacy creation'); });
   prompt.mockImplementation(async () => { throw new Error('No prompt allowed'); });
   useProjectsStore.setState({ projects: [{ id: 'p', path: directory }], activeProjectId: 'p' });
