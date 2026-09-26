@@ -9,3 +9,8 @@ test('a phone full-screen surface covers the chat; a tablet dialog and no surfac
   expect(mobileChatCovered('instances', 'fullscreen', false)).toBe(false); // Not shown without Capacitor features.
   expect(mobileChatCovered('settings', 'dialog', true)).toBe(false); // A tablet: side by side.
 });
+
+test('a phone Plan opened full-screen covers the chat; on a tablet it does not', () => {
+  expect(mobileChatCovered(null, 'fullscreen', false, true)).toBe(true);
+  expect(mobileChatCovered(null, 'dialog', false, true)).toBe(false);
+});

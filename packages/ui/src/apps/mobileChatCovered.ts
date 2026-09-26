@@ -4,7 +4,8 @@
  * with the Capacitor features.
  */
 export function mobileChatCovered(surface: 'instances' | 'settings' | 'update' | null, variant: 'dialog' | 'fullscreen',
-  capacitorFeatures: boolean): boolean {
-  if (variant !== 'fullscreen' || surface === null) return false;
-  return surface !== 'instances' || capacitorFeatures;
+  capacitorFeatures: boolean, planOpen = false): boolean {
+  if (variant !== 'fullscreen') return false;
+  if (planOpen) return true; // A saved Plan, opened above the workspace drawer's Notes.
+  return surface !== null && (surface !== 'instances' || capacitorFeatures);
 }
