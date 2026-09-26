@@ -166,7 +166,9 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
   // list reloads; otherwise a new browser overwrites another browser's choice (smarty-code#117).
   // themeId/themeVariant are last-publisher hints, not authority. Ref writes in state updaters
   // below are idempotent, so StrictMode double calls are safe.
-  const publishedThemeChoiceRef = useRef<string | null>(null);
+  // It starts as this browser's own initial choice (cached or default), so mounting publishes nothing: a page load never
+  // writes the theme or its splash colours to shared settings where none are stored yet (smarty-code#117).
+  const publishedThemeChoiceRef = useRef<string | null>(themeChoiceKey(preferences));
   const receivesParentThemeSync = useMemo(() => {
     if (typeof window === 'undefined') {
       return false;

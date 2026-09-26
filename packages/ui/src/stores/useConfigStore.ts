@@ -2199,19 +2199,9 @@ export const useConfigStore = create<ConfigStore>()(
                             const opencodeDefaultModel = latestSnapshot?.opencodeDefaultModel
                                 ?? (latestConfigState.activeDirectoryKey === directoryKey ? latestConfigState.opencodeDefaultModel : undefined);
 
-                            const shouldPersistResolvedZenModel =
-                                !!resolvedZenModel &&
-                                resolvedZenModel !== defaultZenModel;
-
-                            if (shouldPersistResolvedZenModel && resolvedZenModel) {
-                                updateDesktopSettings({
-                                    zenModel: resolvedZenModel,
-                                    gitProviderId: '',
-                                    gitModelId: '',
-                                }).catch(() => {
-                                    // Ignore errors - best effort cleanup
-                                });
-                            }
+                            // The resolved Zen model is this load's runtime choice, applied above in memory only. A page load
+                            // never writes it to the shared settings (smarty-code#117: it replaced the stored model and
+                            // cleared the git model selection with no user action); the settings page saves a real choice.
 
                             if (safeAgents.length === 0) {
                                 set((state) => {
@@ -2373,17 +2363,15 @@ export const useConfigStore = create<ConfigStore>()(
                                 return nextState;
                             });
 
-                            // Clear invalid settings from storage (best-effort cleanup)
+                            // Defaults this load cannot use are ignored in memory only. The stored values stay: a page load
+                            // never erases a shared choice (smarty-code#117), and a provider or agent that is missing now
+                            // (still loading, or another project's) may be back on the next load.
                             if (Object.keys(invalidSettings).length > 0) {
-                                // Also clear from store state
                                  set({
                                      settingsDefaultModel: invalidSettings.defaultModel !== undefined ? undefined : get().settingsDefaultModel,
                                      settingsDefaultVariant: invalidSettings.defaultVariant !== undefined ? undefined : get().settingsDefaultVariant,
                                      settingsDefaultAgent: invalidSettings.defaultAgent !== undefined ? undefined : get().settingsDefaultAgent,
                                  });
-                                updateDesktopSettings(invalidSettings).catch(() => {
-                                    // Ignore errors - best effort cleanup
-                                });
                             }
 
                             const loaderEnded = typeof performance !== 'undefined' ? performance.now() : Date.now();
