@@ -1,5 +1,6 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { optimisticStatuses } from './optimistic-status';
+import { applyPromptOutcome } from './prompt-outcome';
 import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectorySelectionStore } from '@/stores/useDirectoryStore';
@@ -1617,6 +1618,12 @@ export function handleEvent(
   batch?: DirectoryEventBatch,
   globalEffectsAlreadyApplied = false,
 ) {
+  // Settles this tab's own steered message by session and message ID; no directory routing needed (co-steer, G5).
+  if ((payload as { type?: unknown }).type === "smarty.prompt.outcome") {
+    applyPromptOutcome((payload as unknown as { properties?: unknown }).properties, expectedRuntimeKey)
+    return
+  }
+
   if ((payload as { type?: unknown }).type === "openchamber:message-queue.updated") {
     applyMessageQueueUpdatedEvent(payload, expectedRuntimeKey)
     return
