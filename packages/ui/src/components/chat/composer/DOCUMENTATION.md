@@ -246,8 +246,10 @@ The successful attached session must include
 `nativeCreation: { model: { providerID, modelID }, inputReady: boolean }` from the
 just-created native snapshot. The UI displays that model, not the first connected
 session's provider listing. Model and readiness are creation-time observations;
-they do not change the native model or grant durable input permission. Finish
-original-TUI dialogs and run `/code-ready` there. The UI never arms the session.
+they do not change the native model or grant durable input permission. Input is
+ready unless an extension dialog or the browser model control is open; a dialog
+open in the terminal is shown as "answer it there" (slice 1 L4). The UI never arms
+the session.
 
 A later explicit Send uses `materializeOpenDraftSession` to prepare that owner
 with its exact model, without another create POST. `native-draft-send.ts` waits
@@ -285,8 +287,9 @@ It keeps newer unsent text and confirmed mentions with the native owner, with
 stored drafts either on or off. Only the old draft slot is cleared; new inline
 context transfers to the owner and newer files/synthetic parts remain attached.
 History and native input refusals retain the original prepared input for another
-explicit Send. Native `/code-ready`, model checks and accepted-view validation
-remain authoritative; the UI does not manufacture a view or arm input.
+explicit Send. Native readiness (no open dialog or model control), model checks and
+accepted-view validation remain authoritative; the UI does not manufacture a view or
+arm input.
 
 Failures keep the draft. Validated non-retryable API errors retain the backend's
 safe operation/pane/path details in the visible alert. Malformed success and
