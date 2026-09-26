@@ -6,8 +6,14 @@ import { refreshRuntimeUrlAuthToken } from '../runtime-auth';
 import { switchRuntimeEndpoint } from '../runtime-switch';
 import { deferred } from '../runtime-isolation-fixture';
 import { opencodeClient } from './client';
+import { reloadPendingSteersForTest, takePendingSteer } from '@/sync/pending-steers';
 
 const originalFetch = globalThis.fetch;
+const memory = new Map<string, string>();
+Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+  getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => { memory.set(key, value); },
+  removeItem: (key: string) => { memory.delete(key); }, clear: () => memory.clear(), key: () => null, length: 0,
+} satisfies Storage });
 const view = `ov2_${'a'.repeat(64)}`;
 const olderView = `ov2_${'b'.repeat(64)}`;
 const target = { directory: '/repo', sessionID: 'ordinary-a' };
@@ -37,6 +43,8 @@ const prompts = () => requests.filter(request => request.method === 'POST');
 
 beforeEach(async () => {
   requests.length = 0;
+  memory.clear();
+  reloadPendingSteersForTest();
   history = async () => page(view);
   prompt = async () => new Response(null, { status: 204 });
   // Exercise the actual SDK, runtime transport and loader. No endpoint is contacted.
@@ -241,4 +249,67 @@ test('only a stale view is resent: busy, blocked and a stale view the re-read ca
   prompt = async () => staleRefusal();
   await opencodeClient.sendMessage(params).catch(() => undefined);
   expect(prompts()).toHaveLength(1);
+});
+
+test('only a queued steer keeps a record for its later outcome; a started turn or a refusal is settled at once (G5)', async () => {
+  await loader.ensure(target);
+  const kept = (messageID: string) => takePendingSteer('a', target.sessionID, messageID);
+  let reads = 0; // Each send revokes the view; the next one reads a fresh one.
+  const again = () => { reads += 1; history = async () => page(`ov2_${String(reads).padStart(64, '0')}`); };
+  prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'steer' } });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_steer', text: 'steer me' });
+  again();
+  prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_turn' });
+  again();
+  prompt = async () => Response.json({ name: 'APIError', data: { message: 'blocked', isRetryable: false, code: 'smarty.prompt-blocked' } }, { status: 409 });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_refused' }).catch(() => undefined);
+  again();
+  prompt = async () => { throw new TypeError('fixture connection lost'); };
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_unknown' }).catch(() => undefined);
+  expect(kept('msg_steer')?.text).toBe('steer me');
+  expect(kept('msg_turn')).toBeUndefined();
+  expect(kept('msg_refused')).toBeUndefined();
+  expect(kept('msg_unknown')?.messageID).toBe('msg_unknown');
+  // The proxy's 503 and 504 can follow a POST the gateway accepted: the outcome is unknown, so the record stays.
+  for (const status of [503, 504, 408]) {
+    // A started turn between failures keeps the provider circuit closed (it opens after three errors in a row).
+    again();
+    prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+    await opencodeClient.sendMessage({ ...params, messageId: `msg_ok_${status}` });
+    again();
+    prompt = async () => new Response('upstream', { status });
+    await opencodeClient.sendMessage({ ...params, messageId: `msg_${status}` }).catch(() => undefined);
+    expect(kept(`msg_${status}`)?.messageID).toBe(`msg_${status}`);
+  }
+  again();
+  prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_ok_last' });
+});
+
+test('a refused send that reuses a queued steer\'s message ID leaves the queued record in place (G5)', async () => {
+  await loader.ensure(target);
+  prompt = async () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'steer' } });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_shared', text: 'queued first' });
+  history = async () => page(`ov2_${'7'.repeat(64)}`);
+  prompt = async () => Response.json({ name: 'APIError', data: { message: 'blocked', isRetryable: false, code: 'smarty.prompt-blocked' } }, { status: 409 });
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_shared', text: 'refused second' }).catch(() => undefined);
+  expect(takePendingSteer('a', target.sessionID, 'msg_shared')?.text).toBe('queued first');
+});
+
+test('an outcome that beats the 204 is not contradicted by a "delivered while it works" notice (G5)', async () => {
+  const { toast } = await import('@/components/ui');
+  const seen: string[] = [];
+  const spy = spyOn(toast, 'success').mockImplementation(message => { seen.push(String(message)); return 'toast'; });
+  try {
+    await loader.ensure(target);
+    prompt = async () => {
+      // The run ended without it, and the outcome settled its record before the POST answered.
+      takePendingSteer('a', target.sessionID, 'msg_early');
+      return new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'steer' } });
+    };
+    expect(await opencodeClient.sendMessage({ ...params, messageId: 'msg_early' })).toBe('msg_early');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(seen).toHaveLength(0);
+  } finally { spy.mockRestore(); }
 });
