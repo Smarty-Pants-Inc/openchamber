@@ -5,7 +5,7 @@ import { useNativeCreation } from './composer/state/useNativeCreation';
 import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
 import { sentStartLocks, useSentStart } from '@/sync/native-draft-sent';
 import { NativeCreationError, nativeCreationFailure } from '@/lib/opencode/nativeCreation';
-import { assertNativeDraftReady, endFirstSend, isNativeDraftCurrent, noteNativeDraftSubmitted, type NativeDraftSend } from '@/sync/native-draft-send';
+import { assertNativeDraftReady, beginFirstSend, endFirstSend, isNativeDraftCurrent, noteNativeDraftSubmitted, type FirstSendHold, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -1068,8 +1068,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [attachedFiles.length, hasDrafts, message]);
 
     // Keep a ref to handleSubmit so callbacks don't depend on it.
-    /** One Send press: its native start (if any), and whether it dispatched (smarty-dev#856). */
-    type SubmitAttempt = { native?: NativeDraftSend; dispatched: boolean };
+    /** One Send press: its hold on opening a new draft's session, and its dispatched send (smarty-dev#856). */
+    type SubmitAttempt = { hold?: FirstSendHold; sent?: Promise<unknown> };
     type SubmitOptions = {
         queuedOnly?: boolean;
         queuedMessageId?: string;
@@ -1327,13 +1327,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             : message || fallback;
     };
 
-    // A native first Send holds the opening of its new session until the message is admitted or refused
-    // (smarty-dev#856). An exit that dispatches nothing (a bad attachment, emptied text) releases it here; one that
-    // dispatches releases it when the send settles (admission or noteRefusal).
+    // A Send on a new-session draft holds the opening of its new session until its message is admitted or it ends
+    // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
+    // it settles. Another press or another draft target never ends it.
     const submitComposer = async (options?: SubmitOptions) => {
-        const attempt: SubmitAttempt = { dispatched: false };
+        const attempt: SubmitAttempt = {};
         try { await handleSubmit(options, attempt); }
-        finally { if (attempt.native && !attempt.dispatched) endFirstSend(attempt.native.draft, attempt.native.runtimeKey); }
+        finally {
+            const end = () => endFirstSend(attempt.hold);
+            if (attempt.sent) void attempt.sent.then(end, end); else end();
+        }
     };
 
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
@@ -1378,7 +1381,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Nothing to send starts nothing: Enter reaches here without the Send button's content check (#126).
         if (newSessionDraftOpen && !queuedOnly && !inputSnapshot.hasContent && !hasQueuedMessages) return;
         if (newSessionDraftOpen) {
-            try { nativeIntent = await nativeCreation.beforeSend(); attempt.native = nativeIntent; }
+            attempt.hold = beginFirstSend(useSessionUIStore.getState().newSessionDraft, getRuntimeKey());
+            try { nativeIntent = await nativeCreation.beforeSend(); }
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }
             // Starting the session can take a while; send the composer as it is now, so text typed meanwhile is
             // sent (and cleared) with it rather than lost (smarty-code#126).
@@ -1800,7 +1804,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
                     if (nativeIntent) assertNativeDraftReady(nativeIntent);
                     const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
-                    attempt.dispatched = true;
                     await sendMessage(
                         visibleText,
                         providerIdToSend,
@@ -1856,7 +1859,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // never claims the new message.
         scrollToBottom?.();
 
-        attempt.dispatched = true;
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,
@@ -1869,6 +1871,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             inputMode,
             sendMessageOptions,
         );
+        attempt.sent = sendPromise;
         void sendPromise.then(() => {
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is

@@ -12,24 +12,28 @@ export type NativeDraftSend = NativeDraftTarget & { loader: SessionMessageLoader
 const pending = new Set<NativeCreatedSession>();
 
 /**
- * Open drafts whose first native Send is between the press and its admission or refusal (runtime and draft id, with
- * when it began). Opening the draft's own new session meanwhile (its row appears as soon as it starts) would end that
- * Send before its message goes (smarty-dev#856); the Send opens the session itself once the message is admitted.
+ * Sends on an open draft between the press and their end (admitted, refused or stopped), one hold per press, with the
+ * draft target it was pressed for. Opening the draft's own new session meanwhile (its row appears as soon as it
+ * starts) would end that Send before its message goes (smarty-dev#856); the Send opens the session itself once the
+ * message is admitted. Only the press that took a hold ends it, so another press or target never releases it.
  */
-const firstSends = new Map<string, number>();
+export type FirstSendHold = { runtimeKey: string; draftId: number; projectId: string | null; directory: string | null; began: number };
+const firstSends = new Set<FirstSendHold>();
 const FIRST_SEND_LIMIT_MS = 180_000; // A Send that never reports back (a lost exit) stops holding after this.
-const firstSendKey = (runtimeKey: string, draftId: number) => `${runtimeKey}\0${draftId}`;
-export function beginFirstSend(draft: NewSessionDraftState, runtimeKey: string): void {
-  const key = firstSendKey(runtimeKey, draft.draftId), began = firstSends.get(key);
-  // A second press while the first is under way keeps the first one's hold (and its limit).
-  if (began === undefined || Date.now() - began > FIRST_SEND_LIMIT_MS) firstSends.set(key, Date.now());
+export function beginFirstSend(draft: NewSessionDraftState, runtimeKey: string): FirstSendHold {
+  const hold = { runtimeKey, draftId: draft.draftId, projectId: draft.selectedProjectId ?? null, directory: draft.directoryOverride ?? null, began: Date.now() };
+  firstSends.add(hold);
+  return hold;
 }
-export function endFirstSend(draft: NewSessionDraftState, runtimeKey: string): void { firstSends.delete(firstSendKey(runtimeKey, draft.draftId)); }
-/** True when `sessionId` is the open draft's own new session and its first Send is still under way. */
+export function endFirstSend(hold: FirstSendHold | undefined): void { if (hold) firstSends.delete(hold); }
+/** True when `sessionId` is the open draft's own new session and a Send pressed for that same target is under way. */
 export function isFirstSendInFlightFor(sessionId: string): boolean {
-  const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
-  const began = firstSends.get(firstSendKey(runtimeKey, draft.draftId));
-  if (!draft.open || began === undefined || Date.now() - began > FIRST_SEND_LIMIT_MS) return false;
+  const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey(), now = Date.now();
+  if (!draft.open) return false;
+  const held = [...firstSends].some(hold => hold.runtimeKey === runtimeKey && hold.draftId === draft.draftId
+    && hold.projectId === (draft.selectedProjectId ?? null) && hold.directory === (draft.directoryOverride ?? null)
+    && now - hold.began <= FIRST_SEND_LIMIT_MS);
+  if (!held) return false;
   const record = nativeCreationForDraft(store.nativeDraftCreations, draft, runtimeKey);
   if (record?.status === 'created') return !record.inputAccepted && record.session.id === sessionId;
   return record?.status === 'pending' && record.operation.native?.id === sessionId;
@@ -88,7 +92,6 @@ const submittedTexts = new WeakMap<NativeDraftSend, { text: string; at: number }
 export function noteNativeDraftSubmitted(target: NativeDraftSend, text: string, at = Date.now()): void { submittedTexts.set(target, { text, at }); }
 
 export function acceptNativeDraftSend(target: NativeDraftSend): void {
-  endFirstSend(target.draft, target.runtimeKey);
   const submitted = submittedTexts.get(target);
   // Delivered: the start's text is no longer pending anywhere (#117).
   if (target.draft.directoryOverride) {

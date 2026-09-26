@@ -9,7 +9,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { nativeCreationForDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation } from '@/sync/native-draft-control';
 import { startNativeDraft } from '@/sync/native-draft-start';
-import { beginFirstSend, endFirstSend, prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
+import { prepareNativeDraftSend, resumeAcceptedNativeDraft } from '@/sync/native-draft-send';
 import { isVSCodeRuntime } from '@/stores/utils/vscodeRuntime';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { discoveryAnswered, discoveryPendingFor } from '@/lib/managed-discovery';
@@ -93,8 +93,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     /** A native Send that failed after its start (its prompt was never admitted): keep saying why (smarty-dev#856). */
     noteRefusal: (cause: unknown) => {
       const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
-      if (error.code === 'sending') return; // A second press: the first Send is still under way and holds on.
-      endFirstSend(draft, runtimeKey);
+      if (error.code === 'sending') return; // A second press: the first Send is still under way and says its own outcome.
       if (draft.open) setRefusal({ key: refusalFor, error });
     },
     refresh: () => perform(async () => {
@@ -107,7 +106,6 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     /** Send on a new-session draft starts its session first (native-draft-start), then sends once. */
     beforeSend: async () => {
       setRefusal(null);
-      if (draft.open) beginFirstSend(draft, runtimeKey);
       try {
         guard();
         if (draft.open) {
@@ -117,7 +115,6 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
           // Awaited here, so a refusal while preparing (history, target) is caught below and said, never lost.
           if (native) return await prepareNativeDraftSend(draft, native);
         }
-        endFirstSend(draft, runtimeKey); // No native start (a stock server): the ordinary Send goes on.
         return undefined;
       } catch (cause) {
         const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
@@ -125,7 +122,6 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
         // Only for the draft and target that are still shown (a late refusal of a switched-away target is not shown).
         const now = useSessionUIStore.getState().newSessionDraft;
         const still = `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
-        if (error.code !== 'sending') endFirstSend(draft, runtimeKey); // A second press never ends the first one's Send.
         if (draft.open && still && error.code !== 'sending') setRefusal({ key: refusalFor, error });
         throw error;
       }

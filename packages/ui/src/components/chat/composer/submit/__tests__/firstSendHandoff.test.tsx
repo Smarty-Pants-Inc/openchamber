@@ -162,3 +162,29 @@ test('a Send that stops after the start without sending (a mentioned file cannot
   expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
   globalThis.fetch = served; void server;
 });
+
+test('a second press that stops early (an unreadable file) while the first Send is under way never releases the first', async () => {
+  let server!: ReturnType<typeof interactiveServer>;
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, fixture => { server = interactiveServer(fixture); });
+  await managed();
+  let release = () => {}; const held = new Promise<void>(resolve => { release = resolve; });
+  const served = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(new Request(input, init).url).pathname;
+    if (path === '/api/session-knowledge') await held;
+    if (path.endsWith('/api/fs/raw')) return new Response('gone', { status: 404 });
+    return served(input, init);
+  }) as typeof fetch;
+  await c.replace('First'); await c.submit();
+  for (let i = 0; i < 10; i++) await settle();
+  expect(c.prompts()).toHaveLength(0); // The first Send is under way.
+  await c.replace('Second '); await c.mention('broken.docx'); await c.submit(); // Stops: the file cannot be read.
+  for (let i = 0; i < 10; i++) await settle();
+  await act(async () => { useSessionUIStore.getState().setCurrentSession(session.id, directory); }); // She opens its row.
+  release();
+  for (let i = 0; i < 40 && c.prompts().length < 1; i++) await settle();
+  expect(c.creates()).toHaveLength(1);
+  expect(c.prompts()).toHaveLength(1); // The first message is still sent.
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  globalThis.fetch = served; void server;
+});
