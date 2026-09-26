@@ -47,3 +47,10 @@ test('every plain-language string avoids the old jargon', () => {
     for (const text of Object.values(strings)) expect(`${locale}: ${/native|\/code-ready|admitted|create-only|Inspect Herdr/i.test(text)}`).toBe(`${locale}: false`);
   }
 });
+
+test('while projects are still being discovered the line says so, never that the server cannot be reached (G13)', () => {
+  const html = render({ ...native, mode: 'discovering' as never });
+  expect(html).toContain('Loading projects…');
+  expect(html).not.toContain('Cannot reach the server');
+  expect(html).not.toContain('Check again');
+});

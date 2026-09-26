@@ -34,12 +34,20 @@ test('native creation support is checked once the managed catalog becomes ready,
   try {
     await act(async () => root.render(<Probe />));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect([mode, checks]).toEqual(['loading', 0]);
+    expect([mode, checks]).toEqual(['discovering', 0]); // "Loading projects…" (G13), never a home-directory check.
+    // A first discovery that failed and is retrying is still "discovering": no check against the home fallback (G13).
+    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect([mode, checks]).toEqual(['discovering', 0]);
     admitted = true;
     await act(async () => useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-owned', worktree: '/projects/owned' }]));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     expect(checks).toBe(1);
     expect(mode).toBe('ordinary');
+    // Unavailable AFTER discovery answered keeps the last-known projects: the composer is not sent back to discovering.
+    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(mode).not.toBe('discovering');
   } finally {
     await act(async () => root.unmount());
     client.nativeCreationMode = original.mode; client.listNativeCreations = original.list;
@@ -49,4 +57,20 @@ test('native creation support is checked once the managed catalog becomes ready,
     }
     await win.happyDOM.close();
   }
+});
+
+test('discoveryPendingFor: unknown, or unavailable before any answer; never after an answer (G13)', async () => {
+  const { discoveryPendingFor } = await import('./useNativeCreation');
+  expect(discoveryPendingFor('unknown', false)).toBe(true);
+  expect(discoveryPendingFor('unavailable', false)).toBe(true);
+  expect(discoveryPendingFor('unavailable', true)).toBe(false);
+  expect(discoveryPendingFor('ready', true)).toBe(false);
+  expect(discoveryPendingFor('stock', true)).toBe(false);
+});
+
+test('discovery counts as answered after a stock answer too, even when a later refresh is unavailable (G13)', async () => {
+  const { discoveryAnswered } = await import('@/lib/managed-discovery');
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: true, managedRows: null })).toBe(true);
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: [] })).toBe(true);
+  expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: null })).toBe(false);
 });
