@@ -26,6 +26,8 @@ const BACKPRESSURE_FLUSH_FRAME_MS = 200
 const BACKPRESSURE_MODE_MS = 10_000
 const STREAM_YIELD_MS = 8
 const DEFAULT_RECONNECT_DELAY_MS = 250
+const SHORT_LIVED_STREAM_MS = 5_000
+const SHORT_LIVED_BACKOFF_CAP_MS = 15_000
 const DEFAULT_HEARTBEAT_TIMEOUT_MS = 30_000
 const WS_FALLBACK_WINDOW_MS = 60_000
 const DEFAULT_WS_READY_TIMEOUT_MS = 2_000
@@ -385,13 +387,17 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
    *   - the pipeline is being torn down (cleanup aborts).
    * Otherwise resolves after `ms` like a plain timer.
    */
+  let wakeRetry: (() => void) | undefined
   const waitForRetry = (ms: number) => new Promise<void>((resolve) => {
     if (ms <= 0 || abort.signal.aborted) {
       resolve()
       return
     }
+    // This page's own reconnect or a system resume ends the wait too, not only the next attempt.
+    wakeRetry = () => onInterrupt()
 
     const cleanup = () => {
+      wakeRetry = undefined
       if (timer !== undefined) {
         clearTimeout(timer)
         timer = undefined
@@ -423,6 +429,15 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
     }
     abort.signal.addEventListener("abort", onInterrupt, { once: true })
   })
+
+  // A stream the server keeps ending soon after it opens (a gateway invalidating its registry every second,
+  // smarty-dev#777 3.29) is not a failure, so it reconnected every 250 ms, and every reconnect resyncs the page. The
+  // first short-lived stream reconnects at once (one restart recovers promptly); consecutive ones back off
+  // 1, 2, 4, 8 s up to 15 s. A stream that lives SHORT_LIVED_STREAM_MS or more resets it. Each reconnect still
+  // resyncs in full, so nothing is recovered later or less.
+  let shortLivedStreams = 0
+  const shortLivedDelay = (): number => shortLivedStreams < 2 ? 0
+    : Math.min(SHORT_LIVED_BACKOFF_CAP_MS, 1_000 * 2 ** Math.min(shortLivedStreams - 2, 4))
 
   const computeRetryDelay = (failures: number): number => {
     if (failures <= 0) return 0
@@ -807,7 +822,9 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
 
   void (async () => {
     while (!abort.signal.aborted) {
-      attempt = new AbortController()
+      const attemptStartedAt = Date.now()
+      let endedCleanly = false
+      const thisAttempt = attempt = new AbortController()
       lastEventAt = Date.now()
       attemptAbortReason = null
       let retryDelayMs = reconnectDelayMs
@@ -825,6 +842,8 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
         } else {
           await runSseAttempt(attempt.signal)
         }
+        // The SDK's reader also finishes normally when aborted (online, visibility): only the server's end counts.
+        endedCleanly = !thisAttempt.signal.aborted
       } catch (error) {
         const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined
         if (currentTransport === "ws" && code === "WS_FALLBACK") {
@@ -882,11 +901,17 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
       }
 
       if (abort.signal.aborted) return
+      // Only a stream the server ended cleanly counts: errors have their own backoff, and a transport fallback or an
+      // abort (online, visibility, this page's reconnect) keeps its prompt retry.
+      if (!endedCleanly) shortLivedStreams = 0
+      else shortLivedStreams = Date.now() - attemptStartedAt < SHORT_LIVED_STREAM_MS ? shortLivedStreams + 1 : 0
       if (attemptAbortReason && attemptAbortReason !== "pipeline_stopped") {
         notifyDisconnected(attemptAbortReason)
         retryDelayMs = 0
         attemptAbortReason = null
       }
+      // Not for this page's own reconnects (visibility, a stale watchdog, a manual reconnect): those set 0 above.
+      else if (endedCleanly) retryDelayMs = Math.max(retryDelayMs, shortLivedDelay())
       if (retryDelayMs > 0) {
         await waitForRetry(retryDelayMs)
       }
@@ -911,6 +936,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   const onSystemResume = () => {
     attemptAbortReason = `${activeTransport}_system_resume`
     attempt?.abort()
+    wakeRetry?.()
   }
 
   // Browser told us the network is back. If we're already in a disconnected
@@ -934,6 +960,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   const reconnect = (reason = "manual") => {
     attemptAbortReason = `${activeTransport}_${reason}`
     attempt?.abort()
+    wakeRetry?.()
   }
 
   if (typeof document !== "undefined") {
