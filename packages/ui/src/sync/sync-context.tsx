@@ -95,6 +95,7 @@ import { isFilesystemError } from "@/lib/api/files-errors"
 import { formatMessage, useI18nStore } from "@/lib/i18n"
 import { sessionEvents } from "@/lib/sessionEvents"
 import { NATIVE_CREATION_INVALIDATED } from "@/lib/opencode/nativeCreation"
+import { normalizePath } from "@/lib/pathNormalization"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
@@ -2645,6 +2646,8 @@ export function SyncProvider(props: {
       directory: string,
       store: StoreApi<DirectoryStore>,
       parentSessionIds: string[],
+      /** A managed catalog's fleet session list (G13): its rows for this directory, with no read of its own. */
+      fleet?: readonly Session[],
     ) => {
       if (parentSessionIds.length === 0) return
       if (childDiscoveryDirectories.has(directory)) return
@@ -2653,12 +2656,17 @@ export function SyncProvider(props: {
         // Paginated so directories with > pageSize sessions are fully
         // discovered; a single 200-record page silently truncated the list and
         // left subagent children beyond it undiscovered.
-        const allSessions = await listGlobalSessionPages(props.sdk, {
-          directory,
-          archived: false,
-          roots: false,
-          pageSize: 200,
-        })
+        // ponytail: a managed catalog's global session list (the catalog read, kept current by the fleet stream's
+        // session events and each reconnect's refresh) already holds every project's sessions, children included, so
+        // ten busy projects no longer read their lists every 15 s. Revisit if a gateway stops relaying session events.
+        const allSessions = fleet
+          ? fleet.filter((session) => normalizePath(session.directory ?? null) === normalizePath(directory))
+          : await listGlobalSessionPages(props.sdk, {
+            directory,
+            archived: false,
+            roots: false,
+            pageSize: 200,
+          })
         const state = store.getState()
         const existingIds = new Set(state.session.map((s) => s.id))
         const parentIdSet = new Set(parentSessionIds)
@@ -2764,7 +2772,8 @@ export function SyncProvider(props: {
             const lastChildDiscoveryAt = lastChildDiscoveryAtByDirectoryRef.current.get(directory) ?? 0
             if (now - lastChildDiscoveryAt >= CHILD_SESSION_DISCOVERY_INTERVAL_MS) {
               lastChildDiscoveryAtByDirectoryRef.current.set(directory, now)
-              void discoverChildSessions(directory, store, candidateSessionIds)
+              void discoverChildSessions(directory, store, candidateSessionIds,
+                managed ? useGlobalSessionsStore.getState().activeSessions : undefined)
             }
           }
         })
