@@ -39,6 +39,7 @@ import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, i
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
 import { getAllSyncSessionMap } from "@/sync/sync-refs";
+import { hasPendingSteer, registerPendingSteer, takePendingSteer } from "@/sync/pending-steers";
 import { summarizeOpenCodeError } from "@/sync/session-error-log";
 import { gatewayErrorSchema, ordinarySwitchResponseSchema, readOrdinaryModel, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
@@ -1201,6 +1202,10 @@ class OpencodeService {
         throw error;
       }
     };
+    // A message may be queued as a steer; its outcome can arrive after a reload, so the record comes first (G5).
+    const pendingSteer = ordinaryView ? { runtimeKey: viewRuntimeKey, directory: viewTarget.directory, sessionID: params.id,
+      messageID: messageId, text: params.text ?? '' } : undefined;
+    const ownsPendingSteer = pendingSteer ? registerPendingSteer(pendingSteer) : false;
     let { response, refusal } = await dispatch(ordinaryView);
     // A stale view is refused before anything is sent or bound (smarty.prompt-stale-view), so the page reads the
     // session again, at most 5 s, and sends the same message once more with the fresh view (G5). Never a second time.
@@ -1223,14 +1228,26 @@ class OpencodeService {
       viewLoader?.invalidateOrdinaryView(viewTarget, response.status === 409);
       if (response.status === 409) void viewLoader?.refreshOrdinaryView(viewTarget);
     }
+    // Only a queued steer is settled later; a started turn or a definite refusal (4xx) is settled now. An unknown
+    // outcome keeps its record, so a late outcome still reaches the sender: a thrown transport error (above), a timeout
+    // (408) or a 5xx (the proxy's 503/504 can follow an accepted POST).
+    const settledNow = response.ok ? response.headers.get('x-smarty-prompt-delivery') !== 'steer'
+      : response.status >= 400 && response.status < 500 && response.status !== 408;
+    if (pendingSteer && ownsPendingSteer && settledNow) {
+      takePendingSteer(pendingSteer.runtimeKey, pendingSteer.sessionID, pendingSteer.messageID);
+    }
     if (response.ok) {
       if (isRuntimeRequestScopeCurrent(scope)) recordProviderSuccess(params.providerID);
       // The server steered the message into the running turn instead of starting one (co-steer, G5).
       // The notice is decoration: the server accepted the message, so a notice that cannot load or show never fails it.
-      if (response.headers.get('x-smarty-prompt-delivery') === 'steer' && isRuntimeRequestScopeCurrent(scope)) {
+      // Its outcome may already have arrived and been shown (it can beat the 204): then there is nothing to announce.
+      const stillPending = () => !pendingSteer
+        || hasPendingSteer(pendingSteer.runtimeKey, pendingSteer.sessionID, pendingSteer.messageID);
+      if (response.headers.get('x-smarty-prompt-delivery') === 'steer' && isRuntimeRequestScopeCurrent(scope) && stillPending()) {
         const title = getAllSyncSessionMap().get(params.id)?.title;
         void import('./promptDelivery').then(({ announceSteered }) => {
-          if (isRuntimeRequestScopeCurrent(scope)) announceSteered(title); // Not after a runtime switch meanwhile.
+          // Not after a runtime switch or a settled outcome meanwhile.
+          if (isRuntimeRequestScopeCurrent(scope) && stillPending()) announceSteered(title);
         }).catch(() => {});
       }
       return messageId;

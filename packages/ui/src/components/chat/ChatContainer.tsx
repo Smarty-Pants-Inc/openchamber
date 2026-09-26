@@ -29,7 +29,7 @@ import { QuestionCard } from './QuestionCard';
 import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
 import { StatusRowContainer } from './StatusRowContainer';
 import { SessionRecapNote } from '@/components/chat/SessionRecapSpacer';
-import { SessionErrorNotice } from '@/components/chat/SessionErrorNotice';
+import { SessionNotices } from '@/components/chat/SessionNotices';
 import ScrollToBottomButton from './components/ScrollToBottomButton';
 import { PromptNavigatorRail } from './components/PromptNavigatorRail';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
@@ -380,7 +380,7 @@ const ChatViewport = React.memo(({
                 </div>
             )}
 
-            <SessionErrorNotice sessionId={currentSessionId} directory={directory} />
+            <SessionNotices sessionId={currentSessionId} directory={directory} />
             <SessionRecapNote sessionId={currentSessionId} directory={directory} isMobile={isMobile} />
 
             <div className="flex-shrink-0" style={{ height: isMobile ? '40px' : '10vh' }} aria-hidden="true" />
