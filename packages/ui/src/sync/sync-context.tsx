@@ -2698,13 +2698,19 @@ export function SyncProvider(props: {
       directory: string,
       store: StoreApi<DirectoryStore>,
       candidateSessionIds: string[],
+      fleet?: Promise<DirectorySessionStatusSnapshot | null>,
     ) => {
       const polling = statusPollingDirectories
       if (polling.has(directory)) return
       polling.add(directory)
       try {
         const before = store.getState()
-        const statuses = await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
+        // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
+        // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
+        const shared = fleet ? await fleet : null
+        const statuses = shared
+          ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
+          : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
         if (!statuses) return
         const needsSnapshot = candidateSessionIds.some((sessionId) => (
           needsSnapshotAfterStatusPoll(before, sessionId, statuses[sessionId])
@@ -2724,6 +2730,10 @@ export function SyncProvider(props: {
         .then(() => {
           if (stopped) return
           const now = Date.now()
+          // One fleet-wide status read per tick for a managed catalog, made only if some directory is due.
+          let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
+          const fleetStatus = () => fleet ??= runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null))
+          const managed = useProjectsStore.getState().managedCatalogAdmitted
           for (const [directory, store] of childStores.children.entries()) {
             const state = store.getState()
             const candidateSessionIds = getActiveSessionCandidateIds(directory, state)
@@ -2736,7 +2746,7 @@ export function SyncProvider(props: {
             const lastStatusPollAt = lastStatusPollAtByDirectoryRef.current.get(directory) ?? 0
             if (now - lastStatusPollAt >= ACTIVE_SESSION_STATUS_POLL_INTERVAL_MS) {
               lastStatusPollAtByDirectoryRef.current.set(directory, now)
-              void pollDirectoryStatuses(directory, store, candidateSessionIds).catch(() => undefined)
+              void pollDirectoryStatuses(directory, store, candidateSessionIds, managed ? fleetStatus() : undefined).catch(() => undefined)
             }
 
             const lastFullResyncAt = lastFullResyncAtByDirectoryRef.current.get(directory) ?? 0
