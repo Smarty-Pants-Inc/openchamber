@@ -49,7 +49,7 @@ export async function prepareNativeDraftSend(draft: NewSessionDraftState, sessio
 export function assertNativeDraftReady(target: NativeDraftSend): void {
   assertNativeDraftCurrent(target);
   if (target.clientRequestId && target.draft.directoryOverride) {
-    const marked = ensureSentStart(target.runtimeKey, target.draft.directoryOverride, target.clientRequestId);
+    const marked = ensureSentStart(target.runtimeKey, target.draft.directoryOverride, target.clientRequestId, submittedTexts.get(target));
     if (marked !== 'marked') throw new NativeCreationError(marked);
   }
   const history = { directory: target.session.directory, sessionID: target.session.id };

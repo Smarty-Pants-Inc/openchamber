@@ -240,7 +240,7 @@ test('a start made ready in its terminal (notReady first) is marked when its tex
   fx().handlers.prompt = async () => { marks.push(sentMark()); return new Response(null, { status: 204 }); };
   await composerSend('hello');
   expect(marks).toHaveLength(1);
-  expect(JSON.parse(marks[0]!)).toEqual({ clientRequestId: id });
+  expect(JSON.parse(marks[0]!)).toMatchObject({ clientRequestId: id, submittedText: 'hello' });
 });
 
 test('a mark the browser refuses to store blocks the prompt: nothing is sent and the Send says why', async () => {

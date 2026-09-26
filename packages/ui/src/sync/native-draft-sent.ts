@@ -4,7 +4,10 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { z } from 'zod';
 
 const markerSchema = z.object({ clientRequestId: z.string().min(1), admitted: z.literal(true).optional(),
-  text: z.string().optional(), at: z.number().optional() });
+  text: z.string().optional(), at: z.number().optional(),
+  // The text a Send submitted and when, recorded before its prompt POST: a lost reply's recovery settles exactly that
+  // submission, never a draft set after it (#220).
+  submittedText: z.string().optional(), submittedAt: z.number().optional() });
 
 /**
  * A Send whose session start the server accepted (202, its client request id echoed) owns the new-session draft's
@@ -83,11 +86,18 @@ export function markSentStart(runtimeKey: string, directory: string, clientReque
  * admitted) is kept; another request's unadmitted mark (a live start) is never replaced ('elsewhere'); a mark the
  * browser refuses to store is 'storage'. Either way nothing may be sent. It takes no lock (the caller holds one).
  */
-export function ensureSentStart(runtimeKey: string, directory: string, clientRequestId: string): 'marked' | 'elsewhere' | 'storage' {
+export function ensureSentStart(runtimeKey: string, directory: string, clientRequestId: string,
+  submission?: { text: string; at: number }): 'marked' | 'elsewhere' | 'storage' {
   const existing = readMarker(runtimeKey, directory);
-  if (existing?.clientRequestId === clientRequestId) return 'marked';
+  const record = submission ? { submittedText: submission.text, submittedAt: submission.at } : {};
+  if (existing?.clientRequestId === clientRequestId) {
+    // The submission this POST carries (a retry may carry another): durable before it goes.
+    if (!submission || existing.admitted
+      || (existing.submittedText === submission.text && existing.submittedAt === submission.at)) return 'marked';
+    return writeMarker(runtimeKey, directory, { ...existing, ...record }) ? 'marked' : 'storage';
+  }
   if (existing && !existing.admitted) return 'elsewhere';
-  return writeMarker(runtimeKey, directory, { clientRequestId }) ? 'marked' : 'storage';
+  return writeMarker(runtimeKey, directory, { clientRequestId, ...record }) ? 'marked' : 'storage';
 }
 
 /**
@@ -138,9 +148,9 @@ export async function keepSentTextAsDraft(runtimeKey: string, directory: string)
  * A delivered text is consumed only from a copy that existed when its Send was admitted: a draft saved later (New
  * session, then the same words typed again, even across a reload) is a new message and stays (#220 review).
  */
-const consumeDelivered = (draft: ChatDraftIdentity | null, marker: Marker): void => {
-  if (marker.text) consumeChatDraft(draft, marker.text, marker.at ?? 0);
-};
+/** False when this draft generation no longer owns the slot (New session took it): nothing was settled. */
+const consumeDelivered = (draft: ChatDraftIdentity | null, marker: Marker): boolean =>
+  !marker.text || consumeChatDraft(draft, marker.text, marker.at ?? 0);
 
 const userText = (parts: readonly { type: string; text?: string }[]) => parts.map(part => (part.type === 'text' ? part.text ?? '' : '')).join('');
 
@@ -170,9 +180,10 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   if (marker?.admitted) {
     // Handled here before (or sent from here): unrelated to this draft now, so it never blocks a new start.
     if (handled.has(marker.clientRequestId)) return settle(null);
-    // Delivered: consume this tab's copy (live editor and saved draft, only if it is that text) once, then unlock.
+    // Delivered: consume this tab's copy (live editor and saved draft, only if it is that text) once, then unlock. Only a
+    // consumption this draft's owner accepted settles it; otherwise the current owner's read settles it.
+    if (!consumeDelivered(draft, marker)) return outcomes.get(key) ?? null;
     handled.add(marker.clientRequestId);
-    consumeDelivered(draft, marker);
     return settle('delivered');
   }
   // No mark, or this tab's own start: it continues it through Send; the mark stays until the start resolves.
@@ -192,14 +203,18 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   if (start && start.phase !== 'ready' && start.phase !== 'unavailable') return settle('pending');
   const history = start?.native ? await opencodeClient.getSessionMessages(start.native.id, 20, directory).catch(() => undefined) : undefined;
   const sent = history?.filter(record => record.info.role === 'user').map(record => userText(record.parts)) ?? [];
-  // Only this draft's own text counts as delivered.
-  if (!sent.includes(text)) return settle('unknown');
+  // What was sent, and when: the Send's own durable record; a mark from before it existed falls back to this draft's
+  // text as of this read.
+  const delivered = marker.submittedText ?? text, cutoff = marker.submittedAt ?? began;
+  if (!sent.includes(delivered)) return settle('unknown');
   if (superseded()) return outcomes.get(key) ?? null;
+  // Settle this draft's copy first: only a consumption its current owner accepted commits the recovery (New session
+  // may have taken the slot meanwhile; its own read then settles it). A draft set after the submission is kept.
+  if (!consumeChatDraft(draft, delivered, cutoff)) return outcomes.get(key) ?? null;
   // Found delivered: flag the mark admitted with that text, so every other tab consumes its copy too.
-  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text, at: began });
+  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text: delivered, at: cutoff });
   marker = readMarker(runtimeKey, directory);
   handled.add(id);
-  consumeChatDraft(draft, text, began);
   return settle('delivered');
 }
 

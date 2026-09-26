@@ -308,3 +308,64 @@ test("a draft's transfer into its new session keeps another tab's different draf
     expect(savedText(runtimeKey, directory)).toBe('B draft');
   } finally { act(() => root.unmount()); localStorage.clear(); }
 });
+
+// Review of #220 (2ca115ae), smarty-code#461's repros: recovery through the session history after a lost reply.
+async function historySpies(id: string, directory: string, reads: Array<() => Promise<unknown>>) {
+  const { opencodeClient } = await import('@/lib/opencode/client');
+  const listed = spyOn(opencodeClient, 'listNativeCreations').mockResolvedValue([{ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    directory, generation: null, revision: 1, phase: 'ready', expiresAt: Date.now() + 60_000, canInitialReady: false, clientRequestId: id,
+    native: { id: 'ses_history', generation: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' } }] as never);
+  let call = 0;
+  const history = spyOn(opencodeClient, 'getSessionMessages').mockImplementation((async () => (reads[call++] ?? reads.at(-1)!)()) as never);
+  return () => { listed.mockRestore(); history.mockRestore(); };
+}
+const deliveredHello = [{ info: { id: 'msg_1', sessionID: 'ses_history', role: 'user', time: { created: 1 } }, parts: [{ id: 'prt_1', type: 'text', text: 'hello' }] }];
+
+test('P1: both recovery reads held across New session: the delivered copy is consumed by its current owner, never left sendable', async () => {
+  const runtimeKey = 'sent-recovery-new-session', directory = '/synthetic', id = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+  const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
+  saveSlot(runtimeKey, directory, 'hello', Date.now() - 60_000);
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: id })); // A reload: the reply was lost, the outcome unknown.
+  let releaseOld = () => {}, releaseNew = () => {};
+  const oldRead = new Promise<void>(done => { releaseOld = done; }), newRead = new Promise<void>(done => { releaseNew = done; });
+  const restore = await historySpies(id, directory, [async () => { await oldRead; return deliveredHello; }, async () => { await newRead; return deliveredHello; }]);
+  const messageRef = { current: 'hello' }, confirmedMentionsRef = { current: new Set<string>() };
+  const seen = { shown: 'hello', outcome: 'unset' as string | null };
+  function Composer({ draftId }: { draftId: number }) {
+    const identity = React.useMemo(() => ({ runtimeKey, directory, sessionId: null, draftId }), [draftId]);
+    const [message, setMessage] = React.useState('hello');
+    const change = (next: string) => { messageRef.current = next; setMessage(next); };
+    seen.outcome = useSentStart(runtimeKey, directory, draftId, () => undefined);
+    useComposerDraft({ message, messageRef, setMessage: change, confirmedMentionsRef, identity, persistEnabled: true,
+      initialDraft: { text: 'hello', identity } });
+    seen.shown = message;
+    return null;
+  }
+  const root = createRoot(dom.container);
+  try {
+    await act(async () => { root.render(<Composer draftId={20} />); await new Promise(done => setTimeout(done, 20)); });
+    await act(async () => { root.render(<Composer draftId={21} />); await new Promise(done => setTimeout(done, 20)); }); // New session.
+    await act(async () => { releaseOld(); await new Promise(done => setTimeout(done, 20)); }); // The old read answers first.
+    await act(async () => { releaseNew(); await new Promise(done => setTimeout(done, 20)); });
+    expect(seen.shown).toBe(''); // Consumed by the current owner: never sent again.
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ clientRequestId: id, admitted: true });
+  } finally { restore(); act(() => root.unmount()); localStorage.clear(); }
+});
+
+test('P2: submitted "hello", reply lost, edited away and back, saved, reloaded: history recovery keeps the new draft', async () => {
+  const runtimeKey = 'sent-recovery-edited', directory = '/synthetic', id = 'efefefef-efef-4fef-8fef-efefefefefef';
+  const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
+  const submittedAt = Date.now() - 30_000;
+  // Recorded before the prompt POST (ensureSentStart): the text the Send submitted, and when.
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: id, submittedText: 'hello', submittedAt }));
+  saveSlot(runtimeKey, directory, 'hello', Date.now() - 5_000); // Edited away and back after the submission, then saved.
+  const restore = await historySpies(id, directory, [async () => deliveredHello]);
+  const { seen, root } = await mountComposer(runtimeKey, directory, 22, 'hello'); // The reload.
+  try {
+    await act(async () => { await new Promise(done => setTimeout(done, 30)); });
+    expect(seen.shown).toBe('hello'); // The new unsent draft stays, in the editor...
+    act(() => root.unmount());
+    expect(savedText(runtimeKey, directory)).toBe('hello'); // ...and saved.
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ admitted: true, at: submittedAt }); // The Send is settled.
+  } finally { restore(); try { act(() => root.unmount()); } catch { /* unmounted */ } localStorage.clear(); }
+});
