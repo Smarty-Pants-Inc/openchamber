@@ -443,15 +443,21 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return { projects: nested.topLevel, worktreesByProject: nested.worktreesByProject };
   }, [availableWorktreesByProject, managed, normalizedProjects]);
 
+  // A managed catalog (G13) reads git state for the active project only: a Herdr fleet of ~40 projects polled git
+  // status, check and root for every row at load (about 190 requests). Other rows get it when selected.
+  const repoStatusProjects = React.useMemo(
+    () => managed ? normalizedProjects.filter((project) => project.id === activeProjectId) : normalizedProjects,
+    [activeProjectId, managed, normalizedProjects],
+  );
   const normalizedProjectPaths = React.useMemo(
-    () => normalizedProjects.map((project) => project.normalizedPath),
-    [normalizedProjects],
+    () => repoStatusProjects.map((project) => project.normalizedPath),
+    [repoStatusProjects],
   );
 
   const gitRepoStatus = useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY);
   useProjectRepoStatus({
     enabled: isVisible,
-    normalizedProjects,
+    normalizedProjects: repoStatusProjects,
     gitRepoStatus,
     setProjectRepoStatus,
     setProjectRootBranches,

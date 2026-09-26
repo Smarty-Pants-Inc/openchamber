@@ -3368,6 +3368,11 @@ export const useConfigStore = create<ConfigStore>()(
                     if (!get().isConnected) {
                         return;
                     }
+                    // A managed catalog (Smarty Code, G13) loads a project's config when it is activated, never all ~40 at
+                    // load: this prewarm read providers for one project a second for the whole first minute and more.
+                    if (useProjectsStore.getState().managedCatalogAdmitted) {
+                        return;
+                    }
 
                     const initialKey = toConfigDirectoryKey(initialDirectory ?? fromDirectoryKey(get().activeDirectoryKey));
                     const projectDirectories = visibleProjects(useProjectsStore.getState())

@@ -1607,6 +1607,52 @@ async function resyncDirectoryAfterReconnect(
   ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
 }
 
+/**
+ * A session's turn-complete or error alert (unread count, notification). `parentOf` says whether the session is a
+ * subtask ('sub', no alert), top level, or unknown; `unknownAlerts` decides the unknown case.
+ */
+function notifySessionOutcome(payload: Event, directory: string, unknownAlerts: boolean,
+  parentOf: (sessionID: string) => "top" | "sub" | "unknown"): void {
+  if (payload.type !== "session.idle" && payload.type !== "session.error") return
+  const props = payload.properties as { sessionID?: string; error?: OpenCodeSessionErrorPayload }
+  const sessionID = props.sessionID
+  const errorSummary = payload.type === "session.error" ? summarizeOpenCodeError(props.error) : null
+  if (errorSummary && sessionID) {
+    recordSessionError({ sessionId: sessionID, directory: directory ?? null, ...errorSummary })
+  }
+  if (!sessionID) return
+  const kind = parentOf(sessionID)
+  // Skip subtask sessions — only top-level sessions generate notifications
+  if (kind === "sub" || (kind === "unknown" && !unknownAlerts)) return
+  appendNotification({
+    directory,
+    session: sessionID,
+    time: Date.now(),
+    viewed: isViewedInCurrentSession(directory, sessionID),
+    ...(errorSummary
+      ? { type: "error" as const, error: errorSummary }
+      : { type: "turn-complete" as const }),
+  })
+}
+
+/**
+ * A managed catalog's lineage for a session this page has not loaded (G13): a created/updated event queued in this
+ * flush (not published yet), else the catalog's global session list; unknown when neither lists it.
+ */
+function managedLineage(id: string, batch?: DirectoryEventBatch): "top" | "sub" | "unknown" {
+  type Lineage = Session & { parentID?: string | null }
+  const queued = batch?.globalSessionEvents ?? []
+  let session: Lineage | undefined
+  for (let index = queued.length - 1; index >= 0 && !session; index--) {
+    const event = queued[index]
+    const info = (event.type === "session.created" || event.type === "session.updated")
+      ? (event.properties as { info?: Lineage }).info : undefined
+    if (info?.id === id) session = info
+  }
+  session ??= useGlobalSessionsStore.getState().activeSessions.find((entry) => entry.id === id) as Lineage | undefined
+  return !session ? "unknown" : session.parentID ? "sub" : "top"
+}
+
 export function handleEvent(
   rawDirectory: string,
   payload: Event,
@@ -1727,6 +1773,11 @@ export function handleEvent(
   }
 
   if (!store) {
+    // A managed catalog bootstraps only the selected project (G13): another project's completion or error still
+    // alerts, with the catalog's global session list deciding top level vs subtask (unknown: no alert).
+    if (useProjectsStore.getState().managedCatalogAdmitted && directory && directory !== "global") {
+      notifySessionOutcome(payload, directory, false, (id) => managedLineage(id, batch))
+    }
     // Try as global event for unknown directories
     const result = reduceGlobalEvent(payload)
     if (result?.type === "refresh") {
@@ -1831,28 +1882,16 @@ export function handleEvent(
   // Notification dispatch for session turn-complete and error events.
   // These are NOT handled by the event reducer — only the notification store.
   if (payload.type === "session.idle" || payload.type === "session.error") {
-    const props = payload.properties as { sessionID?: string; error?: OpenCodeSessionErrorPayload }
-    const sessionID = props.sessionID
-    const errorSummary = payload.type === "session.error" ? summarizeOpenCodeError(props.error) : null
-    if (errorSummary && sessionID) {
-      recordSessionError({ sessionId: sessionID, directory: resolvedDirectory ?? null, ...errorSummary })
-    }
-    // Skip subtask sessions — only top-level sessions generate notifications
     const storeState = getDirectoryEventState(store, batch)
-    const session = storeState.session.find((s) => s.id === sessionID)
-    if (session && (session as { parentID?: string }).parentID) {
-      // subtask — skip notification
-    } else if (sessionID) {
-      appendNotification({
-        directory: resolvedDirectory,
-        session: sessionID,
-        time: Date.now(),
-        viewed: isViewedInCurrentSession(resolvedDirectory, sessionID),
-        ...(errorSummary
-          ? { type: "error" as const, error: errorSummary }
-          : { type: "turn-complete" as const }),
-      })
-    }
+    // A managed catalog decides a session its store does not list by the catalog's lineage (a known subtask: no alert).
+    // An unknown one is silent only in a store never bootstrapped (a sidebar row made it; G13); a bootstrapped store
+    // keeps the old fallback, so a session created in a stream gap still alerts before the catalog catches up.
+    const managed = useProjectsStore.getState().managedCatalogAdmitted
+    notifySessionOutcome(payload, resolvedDirectory, !managed || storeState.status !== "loading", (id) => {
+      const session = storeState.session.find((s) => s.id === id)
+      if (session) return (session as { parentID?: string }).parentID ? "sub" : "top"
+      return managed ? managedLineage(id, batch) : "top"
+    })
   }
 
   // Sync-layer parent resync: when a child session goes idle, recover

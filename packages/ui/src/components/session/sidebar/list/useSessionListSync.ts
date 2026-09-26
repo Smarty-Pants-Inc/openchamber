@@ -53,9 +53,10 @@ export const useSessionListSync = ({
       collapsedGroups: new Set(),
       currentDirectory,
       currentSessionDirectory,
+      managed,
     }));
     return () => childStores.clearBootstrapDemand(bootstrapDemandOwner);
-  }, [activeProjectId, bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, discoveryPending, knownDirectories, projects]);
+  }, [activeProjectId, bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, discoveryPending, knownDirectories, managed, projects]);
 
   const knownProjectSessionDirectoriesRef = React.useRef<Set<string> | null>(null);
   React.useEffect(() => {

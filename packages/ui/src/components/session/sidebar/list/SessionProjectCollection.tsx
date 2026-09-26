@@ -270,6 +270,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const expansionDemandOwner = `session-collection-expansion:${React.useId()}`;
   // Same gate as useSessionListSync: no scoped reads before managed discovery answers (#126 startup 403s).
   const discoveryPending = useProjectsStore((state) => state.managedCatalogStatus === 'unknown') && !topology.isVSCode;
+  const managed = useProjectsStore((state) => state.managedCatalogAdmitted);
   React.useEffect(() => {
     if (discoveryPending) return;
     childStores.setBootstrapDemand(expansionDemandOwner, buildSessionBootstrapDemands({
@@ -279,9 +280,10 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
       collapsedGroups: projectView.collapsedGroups,
       currentDirectory: null,
       currentSessionDirectory: null,
+      managed,
     }));
     return () => childStores.clearBootstrapDemand(expansionDemandOwner);
-  }, [childStores, discoveryPending, expansionDemandOwner, projectSections, projectView.collapsedProjects, projectView.collapsedGroups, view.activeProjectId]);
+  }, [childStores, discoveryPending, expansionDemandOwner, managed, projectSections, projectView.collapsedProjects, projectView.collapsedGroups, view.activeProjectId]);
   const source = view.useGroupedSections ? sectionsForRender : flatSectionsForRender;
   const sectionsForSidebarRender = React.useMemo(() => view.showInlineArchived ? source : source.map((section) => (
     section.groups.some((group) => group.isArchivedBucket)
