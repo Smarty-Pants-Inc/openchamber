@@ -15,7 +15,7 @@ mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false 
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null, canAbandon: false,
   refresh: async () => {}, cancel: async () => {}, describeError: error => nativeCreationI18n.en[`chat.nativeCreation.${(error as NativeCreationError).code}` as keyof typeof nativeCreationI18n.en],
-  beforeSend: async () => undefined, operations: [] };
+  beforeSend: async () => undefined, operations: [], refusal: null };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);
 const failed = (code: 'unavailable' | 'unknown', submitted: boolean): ReturnType<typeof useNativeCreation> => ({ ...native,
   creation: { status: 'failed', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', submitted, error: new NativeCreationError(code) } });
@@ -53,4 +53,16 @@ test('while projects are still being discovered the line says so, never that the
   expect(html).toContain('Loading projects…');
   expect(html).not.toContain('Cannot reach the server');
   expect(html).not.toContain('Check again');
+});
+
+// smarty-code#114 (pre-check): a refused Send's line never hides a start's own line and its controls.
+test('a refused Send keeps an unreadable start\'s Check again, and shows its own reason only without a start', () => {
+  const refusal = new NativeCreationError('unavailable');
+  const operation = { operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory: '/project', generation: null, revision: 1,
+    phase: 'unavailable' as const, expiresAt: Date.now() + 60_000, canInitialReady: false };
+  const withStart = render({ ...native, refusal,
+    creation: { status: 'pending', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', operation, unreadable: true } });
+  expect(withStart).toContain('Check again');
+  expect(withStart).not.toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
+  expect(render({ ...native, refusal })).toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
 });

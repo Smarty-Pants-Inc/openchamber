@@ -22,6 +22,21 @@ export type NativeDraftCreation = DraftTarget & (
       readyReplied?: true }
 );
 
+/** Phases known to have started nothing that could take a message. */
+export const STOPPED_PHASES = ['denied', 'cancelled', 'expired'];
+/** Starts this page settled into its own sessions, per server: never "another start still running here" (smarty-code#114). */
+export const ownSettledStarts = new Set<string>();
+export const settledStartKey = (runtimeKey: string, operationId: string) => `${runtimeKey}\0${operationId}`;
+/**
+ * Starts still running in a project that are not this page's own settled ones. Send refuses a new start while any is
+ * (the server refuses a second one meanwhile), and the composer says so; both use this one rule.
+ */
+export function startsElsewhere(operations: readonly NativeCreationState[], runtimeKey: string, directory?: string | null): NativeCreationState[] {
+  return operations.filter(operation => (directory === undefined || operation.directory === directory)
+    && operation.phase !== 'ready' && !STOPPED_PHASES.includes(operation.phase)
+    && !ownSettledStarts.has(settledStartKey(runtimeKey, operation.operationId)));
+}
+
 export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
   return draft.open && draft.target === 'project' && Boolean(draft.directoryOverride && draft.selectedProjectId)
     && !draft.parentID && !draft.title && !draft.pendingWorktreeRequestId && !draft.bootstrapPendingDirectory;

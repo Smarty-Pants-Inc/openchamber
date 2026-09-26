@@ -5,6 +5,8 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
 import { keepSentTextAsDraft, resolveSentStart, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { startsElsewhere } from '@/sync/native-draft-creation';
+import { abandonedNativeCreations } from '@/sync/native-draft-control';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
@@ -46,7 +48,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     </div>;
   }
   if (native.session) return null;
-  const running = native.operations.filter(operation => CANCELLABLE.includes(operation.phase));
+  // The same rule Send refuses by, so the line and the refusal agree (smarty-code#114).
+  const running = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
   const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   const unknown = creation?.status === 'failed' && creation.submitted;
   if (failure) return <div className="mb-2 space-y-1">
@@ -58,6 +61,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (unresolved && !creation && !starting) return <div className="mb-2 space-y-1">
     <p role="alert" className="text-sm text-[var(--status-error)]">{t('chat.nativeCreation.unknown')}</p>
     {escape}
+  </div>;
+  // Send was refused before anything was sent (smarty-code#114: never a silent Send): say why until the next Send. A
+  // start of this draft's own has its own line and controls (above and below), which say more.
+  if (native.refusal && !creation && !starting) return <div className="mb-2 space-y-1">
+    <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(native.refusal)}</p>
   </div>;
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
