@@ -1,4 +1,5 @@
 import React from 'react';
+import { mobileChatCovered } from './mobileChatCovered';
 
 import { AboutSettings } from '@/components/sections/openchamber/AboutSettings';
 import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
@@ -456,7 +457,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
               <ErrorBoundary>
-                <ChatView />
+                <ChatView covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
               </ErrorBoundary>
             </div>
           </main>
