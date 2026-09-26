@@ -18,6 +18,8 @@ import {
     claimChatDraftOwnership,
     isChatDraftEphemeral,
     readChatDraft,
+    readChatDraftSince,
+    savedChatDraftPredates,
     subscribeChatDraftPersistence,
     subscribeChatDraftConsumption,
     subscribeChatDraftDeletion,
@@ -98,6 +100,19 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     const skipNextPersistRef = React.useRef(false);
     const lastPersistedRef = React.useRef<Map<string, string>>(new Map());
     const currentIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraft.identity);
+    // When this editor's current text was set (restored: its saved draft's; typed or edited: that change). A
+    // delivered text consumes only a copy whose exact text existed at its admission (#220), judged per editor: the
+    // saved slot is shared by every tab, so another tab's newer draft there says nothing about this editor's copy.
+    // 'unknown': restored text with no saved provenance (treated as an old copy, as before provenance existed).
+    const liveSinceRef = React.useRef<number | 'unknown' | null>(initialDraft.text ? readChatDraftSince(initialDraft.identity) ?? 'unknown' : null);
+    const liveTextRef = React.useRef(initialDraft.text);
+    /** The composer's own restore (not an edit): the text keeps its saved provenance. */
+    const restoreProvenance = (text: string, since: number | 'unknown' | null) => { liveTextRef.current = text; liveSinceRef.current = since; };
+    React.useEffect(() => {
+        if (message === liveTextRef.current) return;
+        liveTextRef.current = message;
+        liveSinceRef.current = message ? Date.now() : null;
+    }, [message]);
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
@@ -122,10 +137,13 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         }
         confirmedMentionsRef.current = activeMentions;
 
-        const signature = draftSignature(draft, activeMentions);
+        // This editor's own provenance for its text (a copy it restored or typed), not the shared slot's. It is part
+        // of what was saved: the same words set again later (edited away and back) are saved again with their new start.
+        const since = draft && typeof liveSinceRef.current === 'number' ? liveSinceRef.current : undefined;
+        const signature = since === undefined ? draftSignature(draft, activeMentions) : `${draftSignature(draft, activeMentions)}\u0000${since}`;
         if (lastPersistedRef.current.get(key) === signature && !isChatDraftEphemeral()) return;
 
-        const stored = writeChatDraft(target, draft, activeMentions);
+        const stored = writeChatDraft(target, draft, activeMentions, since);
         if (stored === undefined) return;
         if (stored) lastPersistedRef.current.set(key, signature);
         else lastPersistedRef.current.delete(key);
@@ -170,6 +188,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
             const restored = persistEnabled && catalogTransfer === 'restore' && !live ? readChatDraft(identity) : null;
             if (restored?.text) {
+                restoreProvenance(restored.text, readChatDraftSince(identity) ?? 'unknown');
                 messageRef.current = restored.text;
                 confirmedMentionsRef.current = restored.confirmedMentions;
                 setMessage(restored.text);
@@ -188,8 +207,10 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
         if (previous && identity && !previous.sessionId && identity.sessionId === materializedSessionId
             && previous.runtimeKey === identity.runtimeKey && previous.directory === identity.directory) {
-            // This is an identity transfer, not navigation to another input. Keep newer text and mentions.
-            writeChatDraft(previous, '', []);
+            // This is an identity transfer, not navigation to another input. Keep newer text and mentions. The shared
+            // new-session slot clears only if it still holds this text: another tab's draft saved there stays (#220).
+            const slot = readChatDraft(previous).text;
+            if (!slot || slot === messageRef.current) writeChatDraft(previous, '', []);
             lastPersistedRef.current.set(getChatDraftIdentityKey(previous), draftSignature('', []));
             if (persistEnabled) persistNow(identity, messageRef.current);
             return;
@@ -206,6 +227,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         // The composer's own restore, not typing: the editor's controlled rewrite compares against messageRef, so it
         // must hold the restored text first. Otherwise the rewrite marks a cold draft edited, and the catalog transfer
         // then saves the empty composer over the remembered project's draft (smarty-code#113, new-project reload).
+        restoreProvenance(restored.text, restored.text ? readChatDraftSince(identity) ?? 'unknown' : null);
         messageRef.current = restored.text;
         setMessage(restored.text);
         confirmedMentionsRef.current = restored.confirmedMentions;
@@ -214,18 +236,34 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         }
     }, [clearPending, confirmedMentionsRef, identity, materializedSessionId, messageRef, persistEnabled, persistNow, setMessage]);
 
-    React.useEffect(() => subscribeChatDraftConsumption((target, submitted) => {
+    React.useEffect(() => subscribeChatDraftConsumption((target, submitted, before) => {
         const current = currentIdentityRef.current;
         if (!current || current.draftId !== target.draftId
             || getChatDraftIdentityKey(current) !== getChatDraftIdentityKey(target)) return;
-        clearPending();
+        // This editor's text began after the admission: a new message with the same words, kept.
+        const since = liveSinceRef.current;
+        if (before !== undefined && typeof since === 'number' && since > before) return;
         const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
+        // Another tab's delivered text this editor does not hold: nothing here to consume or flush over the shared slot
+        // (an empty editor would delete another tab's saved draft); this editor's own saves go on as usual.
+        if (before !== undefined && live !== submitted) {
+            // An empty editor counts as saved, so its unload flushes do not delete that saved draft either.
+            if (!live) lastPersistedRef.current.set(getChatDraftIdentityKey(current), draftSignature('', []));
+            return;
+        }
+        clearPending();
         messageRef.current = live;
         if (live === submitted) {
             messageRef.current = '';
             confirmedMentionsRef.current = new Set();
             setMessage('');
-            persistNow(current, '');
+            // The shared saved slot clears only if it holds that old copy, never another tab's newer draft. Otherwise this
+            // editor's empty text counts as saved, so the debounce and unload flushes do not delete that draft either.
+            // With an admission time, only that very copy: the same text, begun by then (another tab's different draft stays).
+            if (before === undefined || (readChatDraft(current).text === submitted && savedChatDraftPredates(current, before))) {
+                persistNow(current, '');
+            }
+            else lastPersistedRef.current.set(getChatDraftIdentityKey(current), draftSignature('', []));
             callbacksRef.current.onDraftConsumed?.();
         } else if (persistEnabled) persistNow(current, live);
     }), [clearPending, confirmedMentionsRef, messageRef, persistEnabled, persistNow, setMessage]);

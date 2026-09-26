@@ -680,13 +680,13 @@ class OpencodeService {
   }
 
   /** The creation mode, and whether create accepts and echoes a client request id (smarty-code#126). */
-  async nativeCreationSupport(directory: string): Promise<{ mode: 'interactive' | 'ordinary' | 'legacy'; clientRequestId: boolean }> {
+  async nativeCreationSupport(directory: string): Promise<{ mode: 'interactive' | 'ordinary' | 'legacy'; clientRequestId: boolean; abandon: boolean }> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
     const capabilities = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities;
     const mode = capabilities?.ordinaryInteractiveCreate === 1 ? 'interactive' : capabilities?.ordinaryCreateOnly === 1 ? 'ordinary' : 'legacy';
-    return { mode, clientRequestId: capabilities?.creationClientRequestId === 1 };
+    return { mode, clientRequestId: capabilities?.creationClientRequestId === 1, abandon: capabilities?.creationAbandon === 1 };
   }
 
   /**
@@ -736,7 +736,7 @@ class OpencodeService {
   }
 
   /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
-  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply) {
+  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never>) {
     const scope = captureRuntimeRequestScope();
     const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET' };
     if (reply) {
@@ -746,7 +746,7 @@ class OpencodeService {
     const response = await runtimeFetch(`/api/session/creation${suffix}`, options);
     const body: unknown = await response.json();
     assertRuntimeRequestScope(scope);
-    if (!response.ok) throw nativeCreationFailure(body);
+    if (!response.ok) throw nativeCreationFailure(body, response.status);
     return body;
   }
 
@@ -756,6 +756,11 @@ class OpencodeService {
 
   async readNativeCreation(directory: string, operationId: string) {
     return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}`)).nativeCreation;
+  }
+
+  /** Leave an unsettled start behind for good (smarty-code#340): the server settles it cancelled and admits a new one. */
+  async abandonNativeCreation(directory: string, operationId: string) {
+    return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}/abandon`, {})).nativeCreation;
   }
 
   async replyNativeCreation(directory: string, operationId: string, reply: NativeCreationReply) {

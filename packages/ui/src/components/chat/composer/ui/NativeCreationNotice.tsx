@@ -1,18 +1,22 @@
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { startNativeDraftAgain, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
+import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
+import { keepSentTextAsDraft, resolveSentStart, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
+/** A start past trust is a real session: the server refuses to abandon it (smarty-code#340). */
+const PAST_TRUST = ['starting', 'ready-required', 'ready'];
 
 /**
  * A new-session draft needs no separate step: Send starts the session and then sends (smarty-code#126).
  * This line only says what is happening, or what went wrong and what to do, in plain words.
  */
-export function NativeCreationNotice({ native, draftOpen, onSend }: {
-  native: ReturnType<typeof useNativeCreation>; draftOpen: boolean; onSend?: () => void;
+export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }: {
+  native: ReturnType<typeof useNativeCreation>; draftOpen: boolean; sent?: SentStartOutcome | null; onSend?: () => void;
 }) {
   const { t } = useI18n();
   const starting = useNativeDraftStarting();
@@ -24,7 +28,24 @@ export function NativeCreationNotice({ native, draftOpen, onSend }: {
     <Button type="button" size="sm" onClick={() => { startNativeDraftAgain(); onSend?.(); }}>{t('chat.nativeCreation.startAgain')}</Button>
   </>;
   const creation = native.creation;
-  if (!draftOpen || native.session) return null;
+  if (!draftOpen) return null;
+  // Text another tab sent to start a session (#117): say what became of it before anything else, with or without a
+  // session here (the composer is locked meanwhile, so its way out is always shown).
+  const runtimeKey = getRuntimeKey(), directory = draft.directoryOverride;
+  if (sent && directory) {
+    if (sent === 'stopped') return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
+      {t('chat.nativeCreation.sentStopped')}</p>;
+    return <div className="mb-2 space-y-1">
+      <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" size="sm" disabled={sent === 'resolving'}
+          onClick={() => { void resolveSentStart(runtimeKey, directory, draft.draftId, ownNativeRequestId(draft, runtimeKey)); }}>{t('chat.nativeCreation.check')}</Button>
+        {sent === 'unknown' ? <Button type="button" variant="outline" size="sm"
+          onClick={() => { void keepSentTextAsDraft(runtimeKey, directory); }}>{t('chat.nativeCreation.sentKeep')}</Button> : null}
+      </div>
+    </div>;
+  }
+  if (native.session) return null;
   const running = native.operations.filter(operation => CANCELLABLE.includes(operation.phase));
   const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   const unknown = creation?.status === 'failed' && creation.submitted;
@@ -46,12 +67,18 @@ export function NativeCreationNotice({ native, draftOpen, onSend }: {
     </div>;
   }
   // Send stopped while the start could not be read (smarty-code#126): its outcome is unknown. Check again only reads.
-  // ponytail: no "start a new session anyway" here. The gateway refuses a second start while this one is unsettled, so
-  // leaving it behind would only strand this Send; it settles (ready, or expired after 5 minutes) and Check again sees it.
+  // A server that can abandon it for good (smarty-code#340) also offers starting a new session instead; without that,
+  // leaving it behind would only strand the next Send (the server refuses a second start while this one is unsettled).
   if (creation?.status === 'pending' && (creation.unreadable || creation.operation.phase === 'unavailable')) {
     return <div className="mb-2 space-y-1">
       <p role="alert" className="text-sm text-[var(--status-error)]">{t('chat.nativeCreation.unknown')}</p>
-      <Button type="button" variant="outline" size="sm" disabled={creation.busy} onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" size="sm" disabled={creation.busy} onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
+        {native.canAbandon && !PAST_TRUST.includes(creation.operation.phase) ? <Button type="button" size="sm" disabled={creation.busy}
+          onClick={() => { void startNativeDraftInstead().then(started => { if (started) onSend?.(); },
+            error => { toast.error(native.describeError(error)); void native.refresh(); }); }}>
+          {t('chat.nativeCreation.startAgain')}</Button> : null}
+      </div>
     </div>;
   }
   if (creation?.status === 'pending') {

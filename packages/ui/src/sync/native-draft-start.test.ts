@@ -13,6 +13,11 @@ const tab = new Map<string, string>();
 if (typeof globalThis.sessionStorage === 'undefined') Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
   getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => { tab.set(key, value); },
   removeItem: (key: string) => { tab.delete(key); }, clear: () => { tab.clear(); } } });
+// The sent mark (#117) lives in localStorage, which every prompt POST requires; Bun has none either.
+const shared = new Map<string, string>();
+if (typeof globalThis.localStorage === 'undefined') Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+  getItem: (key: string) => shared.get(key) ?? null, setItem: (key: string, value: string) => { shared.set(key, value); },
+  removeItem: (key: string) => { shared.delete(key); }, clear: () => { shared.clear(); } } });
 
 
 // smarty-code#126 (Paul's 2026-09-25 attempt): Send on a new-session draft starts the session, waits until it takes
@@ -71,7 +76,7 @@ function interactive() {
     return inner(input, init);
   }) as typeof fetch;
 }
-afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); sessionStorage.clear(); resetNativeDraftPage(); });
+afterEach(() => { restore(); restore = () => {}; fixture?.dispose(); sessionStorage.clear(); localStorage.clear(); resetNativeDraftPage(); });
 
 test('one Send starts the session (trust and first input answered), then sends the message once', async () => {
   interactive();

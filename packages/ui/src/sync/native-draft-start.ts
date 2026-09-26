@@ -4,67 +4,39 @@ import { NativeCreationError, nativeCreationFailure, type NativeCreationState } 
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation } from './native-draft-creation';
-import { refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
+import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
+import { clearSentStart, ensureSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
 import { discoveryPendingNow } from '@/lib/managed-discovery';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
+import { forgetRequestId, newRequestId, notifyDraftStart, requestKey, storedRequestId, subscribeDraftStart } from './native-draft-intent';
+export { resetNativeDraftPage } from './native-draft-intent';
+
+/**
+ * This tab's own start for the draft: its saved request, or the one this page still holds in memory (after the start
+ * settled, until its text is admitted). The tab continues it itself, so its own mark never locks it (native-draft-sent).
+ */
+export function ownNativeRequestId(draft: NewSessionDraftState, runtimeKey: string): string | undefined {
+  const saved = storedRequestId(requestKey(draft, runtimeKey));
+  if (saved) return saved;
+  const held = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, runtimeKey);
+  if (held?.status === 'created') return held.inputAccepted ? undefined : held.clientRequestId;
+  return held?.status === 'pending' ? held.operation.clientRequestId : undefined;
+}
 
 /** Phases known to have started nothing that could take this message. */
 const STOPPED = ['denied', 'cancelled', 'expired'];
 const POLL_MS = 1000, LIMIT_MS = 120_000;
 let running = false;
-const listeners = new Set<() => void>();
-const setRunning = (value: boolean) => { running = value; listeners.forEach(listener => listener()); };
+const setRunning = (value: boolean) => { running = value; notifyDraftStart(); };
 /** True while Send is starting a session; the composer disables Send and says so. */
 export function useNativeDraftStarting(): boolean {
-  return React.useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    () => running, () => false);
+  return React.useSyncExternalStore(subscribeDraftStart, () => running, () => false);
 }
-
-/**
- * The draft's identity across a reload (#304/OC#182 review). draftId is a page-local counter, so each draft gets a
- * token instead. The token of the latest draft per runtime and project is kept in sessionStorage. Only the startup
- * restore (the automatic open, `restored`) takes it back after a reload, and only once per page. Any explicit New
- * session gets a new token, so it never takes over an earlier draft's start.
- */
-const pageTokens = new Map<string, string>(), claimed = new Set<string>();
-function draftToken(draft: NewSessionDraftState, runtimeKey: string): string {
-  const page = JSON.stringify([runtimeKey, draft.draftId, draft.directoryOverride]);
-  const known = pageTokens.get(page);
-  if (known) return known;
-  const slot = `oc.nativeCreation.draft:${JSON.stringify([runtimeKey, draft.directoryOverride])}`;
-  let token: string | undefined;
-  try { token = draft.restored && !claimed.has(slot) ? sessionStorage.getItem(slot) ?? undefined : undefined; } catch { /* no storage */ }
-  token ??= crypto.randomUUID();
-  try { sessionStorage.setItem(slot, token); } catch { /* no storage: the token still separates drafts in this page */ }
-  claimed.add(slot); pageTokens.set(page, token);
-  return token;
-}
-/** A page load starts with no claimed drafts; tests call this to model a reload of the same tab. */
-export function resetNativeDraftPage(): void { pageTokens.clear(); claimed.clear(); }
-
-/**
- * This draft's outstanding create request id (smarty-code#126, OC#167 review): sessionStorage, so another window never
- * shares it and a reload of this tab keeps it. A lost create response is recovered only by an exact match on it.
- */
-const requestKey = (draft: NewSessionDraftState, runtimeKey: string) =>
-  `oc.nativeCreation.request:${JSON.stringify([runtimeKey, draft.directoryOverride, draftToken(draft, runtimeKey)])}`;
-const storedRequestId = (key: string) => { try { return sessionStorage.getItem(key) ?? undefined; } catch { return undefined; } };
-function newRequestId(key: string): string {
-  const id = crypto.randomUUID();
-  try { sessionStorage.setItem(key, id); } catch { /* no storage: the id still correlates within this page */ }
-  listeners.forEach(listener => listener());
-  return id;
-}
-const forgetRequestId = (key: string) => {
-  try { sessionStorage.removeItem(key); } catch { /* no storage */ }
-  listeners.forEach(listener => listener());
-};
 
 /** True while this draft has a create whose outcome is unknown (its saved id is unresolved). */
 export function useUnresolvedNativeStart(draft: NewSessionDraftState, runtimeKey: string): boolean {
   const key = requestKey(draft, runtimeKey);
-  return React.useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    () => !running && storedRequestId(key) !== undefined, () => false);
+  return React.useSyncExternalStore(subscribeDraftStart, () => !running && storedRequestId(key) !== undefined, () => false);
 }
 
 /**
@@ -77,7 +49,26 @@ export function startNativeDraftAgain(): void {
   if (running) return;
   const record = nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
   if (record?.status === 'failed') publishNativeCreation(record, null);
-  forgetRequestId(requestKey(draft, runtimeKey));
+  forgetOwnStart(draft, runtimeKey);
+}
+
+/** Forget this draft's own start: its saved request id and its sent mark (only that request's, never a newer one). */
+function forgetOwnStart(draft: NewSessionDraftState, runtimeKey: string) {
+  const key = requestKey(draft, runtimeKey), id = storedRequestId(key);
+  forgetRequestId(key);
+  if (draft.directoryOverride) clearSentStart(runtimeKey, draft.directoryOverride, id);
+}
+
+/**
+ * "Start a new session instead" for a start that stays unreadable (smarty-code#340): the server settles it cancelled
+ * for good (never sent to, even if it becomes ready), and only then this draft forgets it; the caller's Send then starts
+ * exactly one new session. False when there is nothing to abandon; a refused abandon throws and keeps the start.
+ */
+export async function startNativeDraftInstead(): Promise<boolean> {
+  const draft = useSessionUIStore.getState().newSessionDraft, runtimeKey = getRuntimeKey();
+  if (running || !await abandonNativeCreation()) return false;
+  forgetOwnStart(draft, runtimeKey);
+  return true;
 }
 /**
  * A saved request id is an outstanding create whose outcome this tab does not know. It blocks any new create until a
@@ -110,10 +101,16 @@ export async function startNativeDraft(operations: readonly NativeCreationState[
   // to wait for the project, and the message stays.
   if (discoveryPendingNow()) throw new NativeCreationError('target');
   setRunning(true);
-  try { await drive(operations, wait); } finally { setRunning(false); }
+  // The request this start continues or makes: this page holds its sending lock (#117) while it starts; the prompt
+  // POST holds it again (native-draft-send). Between the two, other tabs read the sent text as unknown, never unsent.
+  let request: string | undefined;
+  const hold = (id: string | undefined) => { request = id; if (id) holdSentStart(id); };
+  try { await drive(operations, wait, hold); }
+  finally { releaseSentStart(request); setRunning(false); }
 }
 
-async function drive(operations: readonly NativeCreationState[], wait: (ms: number) => Promise<void>) {
+async function drive(operations: readonly NativeCreationState[], wait: (ms: number) => Promise<void>,
+  hold: (id: string | undefined) => void) {
   const draft = useSessionUIStore.getState().newSessionDraft, runtimeKey = getRuntimeKey();
   const record = () => {
     const state = useSessionUIStore.getState();
@@ -121,8 +118,15 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     return nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey);
   };
   const key = requestKey(draft, runtimeKey), requestId = storedRequestId(key);
+  // An accepted start recovered by its request id: its text is sent (#117) before anything is sent to it.
+  const recovered = (directory: string, id: string) => {
+    const marked = ensureSentStart(runtimeKey, directory, id);
+    if (marked !== 'marked') throw new NativeCreationError(marked);
+    hold(id);
+  };
+  // A start this page abandoned is settled for good even when the caller's list predates that (#340).
   const open = operations.filter(operation => operation.directory === draft.directoryOverride
-    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase));
+    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase) && !abandonedNativeCreations.has(operation.operationId));
   const first = record();
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);
@@ -132,10 +136,16 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     const saved = await resolveSaved(first.directory, requestId, key);
     record();
     if (saved === 'cleared') { publishNativeCreation(first, null); throw new NativeCreationError('stopped'); }
+    recovered(first.directory, requestId);
     await resumeNativeCreation(saved);
-    return await finish(key, record, wait);
+    return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   } else if (first) {
-    return await finish(key, record, wait);
+    // A start this page still holds (its Send left for another project and came back): accepted with this tab's id,
+    // it takes the sent mark before its text goes, as a recovered start does (#117).
+    const echoed = first.status === 'pending' ? first.operation.clientRequestId : first.status === 'created' ? first.clientRequestId : undefined;
+    if (!requestId || echoed !== requestId) { hold(requestId); return await finish(key, record, wait); }
+    recovered(first.directory, requestId);
+    return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   }
   const directory = draft.directoryOverride ?? visibleProjects(useProjectsStore.getState())
     .find(project => project.id === draft.selectedProjectId)?.path ?? opencodeClient.getDirectory();
@@ -148,13 +158,21 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     // After a reload the record is gone but the saved id is not: resolve it by a fresh read, never by the snapshot.
     const saved = await resolveSaved(draft.directoryOverride, requestId, key);
     record();
-    if (saved !== 'cleared') { await resumeNativeCreation(saved); return await finish(key, record, wait); }
+    if (saved !== 'cleared') {
+      recovered(draft.directoryOverride, requestId);
+      await resumeNativeCreation(saved);
+      return await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, requestId));
+    }
   }
   // Any other start still running here (another window, device or draft) is never taken over; the server refuses a
   // second start meanwhile.
   if (open.length > 0) throw new NativeCreationError('elsewhere');
+  // Another tab sent this project's draft text (#117): resolve it first; its text is never sent again from here.
+  const sent = await resolveSentStart(runtimeKey, draft.directoryOverride, draft.draftId);
+  if (sent === 'delivered' || sentStartLocks(sent)) throw new NativeCreationError('elsewhere');
   record();
-  try { await prepareNativeDraft(newRequestId(key)); }
+  const id = newRequestId(key);
+  try { await prepareNativeDraft(id); }
   catch (error) {
     // A failure known to precede the create request sent nothing with this id.
     const failed = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, runtimeKey);
@@ -165,14 +183,18 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
   // Send made it, so it sends nothing: a message is never a readiness probe. A later Send sends to it once it is ready.
   const made = record();
   if (made?.status === 'created' && !made.session.nativeCreation.inputReady) { forgetRequestId(key); throw new NativeCreationError('notReady'); }
-  await finish(key, record, wait);
+  // The server accepted this start with its request id: its text is sent, not a draft, until the start resolves (#117).
+  if (made?.status === 'pending' && made.operation.clientRequestId === id) { markSentStart(runtimeKey, draft.directoryOverride, id); hold(id); }
+  await finish(key, record, wait, () => clearSentStart(runtimeKey, draft.directoryOverride!, id));
 }
 
 /** A settled start (or one known to have started nothing) needs no recovery id; an unknown one keeps it. */
-async function finish(key: string, record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {
+async function finish(key: string, record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>,
+  startedNothing = () => {}) {
   try { await settle(record, wait); forgetRequestId(key); }
   catch (error) {
-    if (error instanceof NativeCreationError && ['stopped', 'notReady'].includes(error.code)) forgetRequestId(key);
+    // Known to have started nothing: this live page keeps the text as its own unsent draft.
+    if (error instanceof NativeCreationError && ['stopped', 'notReady'].includes(error.code)) { forgetRequestId(key); startedNothing(); }
     throw error;
   }
 }
@@ -192,7 +214,8 @@ async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, w
       // Not readable for a moment (its Pi still starting): re-read below, never answer or create (#126, 3.18 walk).
       unreadable = now.unreadable === true || phase === 'unavailable';
       if (!unreadable && phase === 'awaiting-trust') { await answer('trust'); continue; }
-      if (!unreadable && phase === 'ready-required') {
+      // The owner reports 'ready' a moment after its first-input answer (#117: it was POSTed twice): re-read, once only.
+      if (!unreadable && phase === 'ready-required' && !now.readyReplied) {
         if (!canInitialReady || !native) throw new NativeCreationError('notReady');
         await answer('ready'); continue;
       }

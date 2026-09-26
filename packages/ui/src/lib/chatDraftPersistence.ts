@@ -19,6 +19,8 @@ type PersistedChatDraft = {
   text: string;
   confirmedMentions: string[];
   touchedAt: number;
+  /** When this exact text was set (any edit resets it): its provenance, kept across reloads. */
+  since?: number;
 };
 
 type PersistedChatDraftEnvelope = {
@@ -31,7 +33,7 @@ const MAX_DRAFTS = 50;
 // The composer already debounces typing. Lifecycle saves must reach backing storage now.
 const storage = getSafeStorage();
 const deletionListeners = new Set<(identity: ChatDraftIdentity) => void>();
-const consumptionListeners = new Set<(identity: ChatDraftIdentity, submitted: string) => void>();
+const consumptionListeners = new Set<(identity: ChatDraftIdentity, submitted: string, before?: number) => void>();
 const draftOwners = new Map<string, number>();
 const persistenceListeners = new Set<() => void>();
 let ephemeralOnly = false;
@@ -90,6 +92,7 @@ const readEnvelope = (): PersistedChatDraftEnvelope => {
         text: draft.text,
         confirmedMentions: draft.confirmedMentions.filter((mention): mention is string => typeof mention === 'string'),
         touchedAt: draft.touchedAt,
+        ...(typeof draft.since === 'number' ? { since: draft.since } : {}),
       };
     }
     cachedRawEnvelope = raw;
@@ -129,6 +132,8 @@ export const writeChatDraft = (
   identity: ChatDraftIdentity | null,
   text: string,
   confirmedMentions: Iterable<string>,
+  /** The writing editor's own text start, when it knows it: never another tab's older draft's (#220). */
+  since?: number,
 ): boolean | undefined => {
   if (!identity || !ownsChatDraft(identity)) return;
   const envelope = readEnvelope();
@@ -139,7 +144,10 @@ export const writeChatDraft = (
     if (!(key in envelope.drafts) && !ephemeralOnly) return;
     delete envelope.drafts[key];
   } else {
-    envelope.drafts[key] = { text, confirmedMentions: mentions, touchedAt: Date.now() };
+    const previous = envelope.drafts[key];
+    const now = Date.now();
+    envelope.drafts[key] = { text, confirmedMentions: mentions, touchedAt: now,
+      since: since ?? (previous?.text === text ? previous.since ?? previous.touchedAt : now) };
   }
 
   const retained = Object.entries(envelope.drafts)
@@ -148,16 +156,30 @@ export const writeChatDraft = (
   return writeEnvelope({ version: 2, drafts: Object.fromEntries(retained) });
 };
 
-/** Current mounted consumers settle live edits first; unmounted inputs use their flushed snapshot. */
-export const consumeChatDraft = (identity: ChatDraftIdentity | null, submitted: string): boolean => {
+/** When the saved draft's current text was set (older entries: when it was last saved); undefined when none is saved. */
+export const readChatDraftSince = (identity: ChatDraftIdentity | null): number | undefined => {
+  const persisted = identity ? readEnvelope().drafts[getChatDraftIdentityKey(identity)] : undefined;
+  return persisted?.text ? persisted.since ?? persisted.touchedAt : undefined;
+};
+
+/** A saved draft that began after `before` is a newer message, never a copy of text submitted then. */
+export const savedChatDraftPredates = (identity: ChatDraftIdentity | null, before?: number): boolean =>
+  before === undefined || (readChatDraftSince(identity) ?? 0) <= before;
+
+/**
+ * Current mounted consumers settle live edits first; unmounted inputs use their flushed snapshot. `before` (a
+ * delivered text's admission time) consumes only copies that existed then: each editor judges its own copy, and the
+ * shared saved slot clears only if its text began by then.
+ */
+export const consumeChatDraft = (identity: ChatDraftIdentity | null, submitted: string, before?: number): boolean => {
   if (!identity || !ownsChatDraft(identity)) return false;
-  consumptionListeners.forEach(listener => listener(identity, submitted));
+  consumptionListeners.forEach(listener => listener(identity, submitted, before));
   if (!ownsChatDraft(identity)) return false;
-  if (readChatDraft(identity).text === submitted) writeChatDraft(identity, '', []);
+  if (readChatDraft(identity).text === submitted && savedChatDraftPredates(identity, before)) writeChatDraft(identity, '', []);
   return true;
 };
 
-export const subscribeChatDraftConsumption = (listener: (identity: ChatDraftIdentity, submitted: string) => void): (() => void) => {
+export const subscribeChatDraftConsumption = (listener: (identity: ChatDraftIdentity, submitted: string, before?: number) => void): (() => void) => {
   consumptionListeners.add(listener);
   return () => consumptionListeners.delete(listener);
 };
