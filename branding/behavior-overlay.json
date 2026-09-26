@@ -290,7 +290,7 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
+      "combinedSha256": "e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445",
       "catalogReloadSource": "b4b815b491de25924df4a9a33554427efff10898",
       "catalogReloadSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "preCatalogReloadCombinedSha256": "bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb",
@@ -319,7 +319,10 @@
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Per-submission display-name snapshot and explicit unsupported-path refusal in the existing send route; native ownership unchanged. Coupled native draft repair retains each live scoped outcome, requires accepted history before dispatch and defers draft consumption/selection until input admission. Native intent crosses composer preparation; accepted completion remains with its origin after navigation and transfers newer unsent input to that owner. Draft open/target transitions claim the original live generation used for accepted cleanup across epoch remounts and off-screen replacements. Selected ordinary model state now controls prompt preparation and is checked again before dispatch; missing or changed native authority refuses the send. Earlier source hashes remain unchanged.",
       "preManagedCatalogCombinedSha256": "bf78cd5db2b20b09ebbb95bbfb71227b4d00c86e61f32e6d8f948d0f05b21ac8",
-      "managedCatalogSha256": "84adc664f096d950651c0d456e49ec4b1e69175ae50ec4d87e11e516736d268f"
+      "managedCatalogSha256": "84adc664f096d950651c0d456e49ec4b1e69175ae50ec4d87e11e516736d268f",
+      "preFirstSendHandoffCombinedSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
+      "firstSendHandoffSha256": "e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445",
+      "firstSendHandoffNote": "Opening the open draft's own new session while its first message is still being sent is held until the message is admitted (smarty-dev#856); branded strings unchanged."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
@@ -507,5 +510,6 @@
   "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c",
   "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8",
   "testDeterminismSource": "732a27bc26645739bdedb85cc19c66532aa95967",
-  "originGuardSource": "82b714f7ab0987db9ff2774ddda866e02915e0d7"
+  "originGuardSource": "82b714f7ab0987db9ff2774ddda866e02915e0d7",
+  "firstSendHandoffSource": "34a811038a1c2160f1bf49b46a22103a9d6a24c7"
 }

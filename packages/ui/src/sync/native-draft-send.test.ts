@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { useInputStore } from './input-store';
 import { materializeOpenDraftSession, useSessionUIStore } from './session-ui-store';
 import { nativeCreationForDraft, prepareNativeDraft } from './native-draft-creation';
+import { beginFirstSend, endFirstSend, isFirstSendInFlightFor } from './native-draft-send';
 import { acceptedView, deferred, directory, draft, nativeDraftFixture, session } from './native-draft-fixture';
 
 let fixture: ReturnType<typeof nativeDraftFixture>;
@@ -127,4 +128,19 @@ test('another explicit Send cannot dispatch while the same native draft prompt i
   expect(fixture.prompts()).toHaveLength(1);
   await expect(send()).rejects.toThrow(); expect(fixture.prompts()).toHaveLength(1);
   response.resolve(new Response(null, { status: 204 })); await first;
+});
+
+test('a Send holds opening its own new session only for the draft target it was pressed for, until that press ends it (smarty-dev#856)', async () => {
+  fixture = nativeDraftFixture(); await prepareNativeDraft();
+  const shown = useSessionUIStore.getState().newSessionDraft;
+  // A press for another project of the same draft (she switched): it never holds this target's session.
+  const other = beginFirstSend({ ...shown, selectedProjectId: 'b', directoryOverride: '/native-project-b' }, fixture.runtimeA);
+  expect(isFirstSendInFlightFor(session.id)).toBe(false);
+  const first = beginFirstSend(shown, fixture.runtimeA), second = beginFirstSend(shown, fixture.runtimeA);
+  expect(isFirstSendInFlightFor(session.id)).toBe(true);
+  expect(isFirstSendInFlightFor('another-session')).toBe(false); // Other sessions open as usual.
+  endFirstSend(other); endFirstSend(second); // Another target's end, or a second press's end, never releases the first.
+  expect(isFirstSendInFlightFor(session.id)).toBe(true);
+  endFirstSend(first);
+  expect(isFirstSendInFlightFor(session.id)).toBe(false);
 });

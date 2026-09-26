@@ -5,7 +5,7 @@ import { useNativeCreation } from './composer/state/useNativeCreation';
 import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
 import { sentStartLocks, useSentStart } from '@/sync/native-draft-sent';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
-import { assertNativeDraftReady, isNativeDraftCurrent, noteNativeDraftSubmitted, type NativeDraftSend } from '@/sync/native-draft-send';
+import { assertNativeDraftReady, beginFirstSend, endFirstSend, isNativeDraftCurrent, noteNativeDraftSubmitted, type FirstSendHold, type NativeDraftSend } from '@/sync/native-draft-send';
 import { browserDisplayName } from '@/lib/messages/displayName';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
@@ -1068,6 +1068,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [attachedFiles.length, hasDrafts, message]);
 
     // Keep a ref to handleSubmit so callbacks don't depend on it.
+    /** One Send press: its hold on opening a new draft's session, and its dispatched send (smarty-dev#856). */
+    type SubmitAttempt = { hold?: FirstSendHold; sent?: Promise<unknown> };
     type SubmitOptions = {
         queuedOnly?: boolean;
         queuedMessageId?: string;
@@ -1325,7 +1327,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             : message || fallback;
     };
 
-    const handleSubmit = async (options?: SubmitOptions) => {
+    // A Send on a new-session draft holds the opening of its new session until its message is admitted or it ends
+    // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
+    // it settles. Another press or another draft target never ends it.
+    const submitComposer = async (options?: SubmitOptions) => {
+        const attempt: SubmitAttempt = {};
+        try { await handleSubmit(options, attempt); }
+        finally {
+            const end = () => endFirstSend(attempt.hold);
+            if (attempt.sent) void attempt.sent.then(end, end); else end();
+        }
+    };
+
+    const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
@@ -1367,6 +1381,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Nothing to send starts nothing: Enter reaches here without the Send button's content check (#126).
         if (newSessionDraftOpen && !queuedOnly && !inputSnapshot.hasContent && !hasQueuedMessages) return;
         if (newSessionDraftOpen) {
+            attempt.hold = beginFirstSend(useSessionUIStore.getState().newSessionDraft, getRuntimeKey());
             try { nativeIntent = await nativeCreation.beforeSend(); }
             catch (error) { toast.error(nativeCreation.describeError(error)); return; }
             // Starting the session can take a while; send the composer as it is now, so text typed meanwhile is
@@ -1374,11 +1389,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             if (nativeIntent && options?.presetText == null) {
                 inputSnapshot = getCurrentInputSnapshot();
                 if (displayName && inputSnapshot.message.trimStart().startsWith('/')) {
-                    toast.error(t('chat.displayName.plainOnly')); return;
+                    const message = t('chat.displayName.plainOnly');
+                    toast.error(message); nativeCreation.noteRefusal(new NativeCreationError('unavailable', undefined, message)); return;
                 }
             }
         }
         const retainNativeDraft = Boolean(nativeIntent);
+        // After its session started, a Send that stops here sends nothing: say why and keep saying it (smarty-dev#856).
+        const refuse = (message: string) => {
+            toast.error(message);
+            if (nativeIntent) nativeCreation.noteRefusal(new NativeCreationError('unavailable', undefined, message));
+        };
         const ordinary = currentSessionId ? readOrdinaryModel(
             getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
                 .find(session => session.id === currentSessionId),
@@ -1455,7 +1476,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         if (!providerIdToSend || !modelIdToSend) {
             console.warn('Cannot send message: provider or model not selected');
-            toast.error(t('chat.chatInput.toast.noModelSelected'));
+            refuse(t('chat.chatInput.toast.noModelSelected'));
             return;
         }
 
@@ -1571,7 +1592,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         if (documentMentions.status === 'runtime-changed') return;
         if (documentMentions.status === 'failed') {
-            toast.error(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
+            refuse(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
             return;
         }
         const preparedDocumentMentions = documentMentions.prepared;
@@ -1798,7 +1819,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     scrollToBottom?.();
                 } catch (error) {
                     restoreConsumedInput();
-                    toast.error(nativeIntent ? nativeCreation.describeError(error) : getSubmitErrorMessage(error, t(command.errorToastKey)));
+                    toast.error(nativeIntent ? nativeCreation.describeError(nativeCreation.noteRefusal(error)) : getSubmitErrorMessage(error, t(command.errorToastKey)));
                 }
                 return;
             }
@@ -1822,7 +1843,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (!part.synthetic) part.text = await expandText(part.text);
             }
         } catch (error) {
-            if (nativeIntent) { toast.error(nativeCreation.describeError(error)); return; }
+            if (nativeIntent) { toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error))); return; }
             console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
         }
 
@@ -1849,6 +1870,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             inputMode,
             sendMessageOptions,
         );
+        attempt.sent = sendPromise;
         void sendPromise.then(() => {
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is
@@ -1882,7 +1904,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
             console.error('Message send failed:', rawMessage || error);
             if (retainNativeDraft) {
-                toast.error(error instanceof NativeCreationError ? nativeCreation.describeError(error) : rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+                // The started session's first message was not admitted: its text stays, and the composer says why.
+                toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error)));
                 return;
             }
             restoreConsumedDrafts();
@@ -1935,7 +1958,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     // Update ref with latest handleSubmit on every render
-    handleSubmitRef.current = handleSubmit;
+    handleSubmitRef.current = submitComposer;
     composerSessionIdRef.current = currentSessionId;
     handleQueueMessageRef.current = handleQueueMessage;
 
@@ -2187,7 +2210,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         })) {
             e.preventDefault();
             if (followUpPreflight.current) return; // A Send is already checking the session; one at a time.
-            if (!isBtwActive && isOrdinarySession(currentSessionId)) { handleSubmit(); return; } // The server steers it (G5).
+            if (!isBtwActive && isOrdinarySession(currentSessionId)) { void submitComposer(); return; } // The server steers it (G5).
 
             // Queueing / steering only works when there's an existing busy
             // session (or an active auto-review run).
@@ -2195,14 +2218,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
             if (followUpBehavior === 'queue') {
                 if (isCtrlEnter || !canQueue) {
-                    handleSubmit();
+                    void submitComposer();
                 } else {
                     void followUpUnlessIdle(() => { void handleQueueMessageRef.current(); });
                 }
             } else {
                 // steer: Enter steers into the running turn, Ctrl+Enter sends now.
                 if (isCtrlEnter || !canQueue) {
-                    handleSubmit();
+                    void submitComposer();
                 } else {
                     void followUpUnlessIdle(() => { void handleSubmitRef.current({ delivery: 'steer' }); });
                 }
@@ -3249,7 +3272,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
-                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void handleSubmit(); }} />
+                <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void submitComposer(); }} />
                 {draftEphemeralOnly ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-warning)]">
                         {t('chat.draft.ephemeralOnly')}
