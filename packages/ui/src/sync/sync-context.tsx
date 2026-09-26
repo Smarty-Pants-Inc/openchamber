@@ -1,4 +1,5 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses } from './optimistic-status';
 import { applyPromptOutcome } from './prompt-outcome';
 import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
@@ -1777,6 +1778,8 @@ export function handleEvent(
     // alerts, with the catalog's global session list deciding top level vs subtask (unknown: no alert).
     if (useProjectsStore.getState().managedCatalogAdmitted && directory && directory !== "global") {
       notifySessionOutcome(payload, directory, false, (id) => managedLineage(id, batch))
+      // A project that joined the open stream (smarty-dev#777): its first event refreshes the catalog once.
+      if (payload.type === "server.connected") noticeProjectConnected(directory)
     }
     // Try as global event for unknown directories
     const result = reduceGlobalEvent(payload)
