@@ -15,3 +15,9 @@ test('a Pi without a session identity opens with its plain reason, not an enroll
   expect(html).not.toContain('href=');
   expect(html).not.toContain('No sessions');
 });
+
+test('a Code-created session whose Pi ended says so plainly, with no enrollment link', () => {
+  const html = renderToStaticMarkup(<FleetViewOnlyBanner ended />);
+  expect(html).toContain('This session’s Pi has ended. You can read it here, but you cannot send to it.');
+  expect(html).not.toContain('href=');
+});
