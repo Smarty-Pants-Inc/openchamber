@@ -58,3 +58,12 @@ test('an unconditional 412 or transport error does not certify safe conditional 
   request = async () => { throw error; };
   await rejects(createWebSettingsAPI().save({ projects: [] }, { ifMatch: '"old"' }), received => received === error);
 });
+
+test('an unload save keeps its precondition and asks the request to outlive the page', async () => {
+  const api = createWebSettingsAPI();
+  const seen: RequestInit[] = [];
+  request = async (_path, init) => { if (init) seen.push(init); return settingsResponse('"saved"'); };
+  await api.save({ recentModels: [] }, { ifMatch: '"base"', keepalive: true });
+  await api.save({ recentModels: [] }, { ifMatch: '"base"' });
+  expect(seen.map(init => [new Headers(init.headers).get('If-Match'), init.keepalive === true])).toEqual([['"base"', true], ['"base"', false]]);
+});

@@ -33,13 +33,15 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
     return { settings: payload, source: 'web', revision };
   },
 
-  async save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string }): Promise<SettingsPayload> {
+  async save(changes: Partial<SettingsPayload>, options?: { ifMatch?: string; keepalive?: boolean }): Promise<SettingsPayload> {
     const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'application/json' });
     if (options?.ifMatch) headers.set('If-Match', options.ifMatch);
     const response = await runtimeFetch(SETTINGS_ENDPOINT, {
       method: 'PUT',
       headers,
       body: JSON.stringify(changes),
+      // A save started while the page unloads must outlive it (sendBeacon cannot carry If-Match).
+      ...(options?.keepalive ? { keepalive: true } : {}),
     });
 
     if (!response.ok) {
