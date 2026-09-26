@@ -102,6 +102,9 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
     const sdk = opencodeClient.getSdkClient();
     const result = await sdk.project.list();
     if (!current()) return;
+    // The SDK reports a transport failure (including its read bound, 'request timed out') as an error with no
+    // response, not as a rejection: surface it as that error, so no answer is not taken for an error answer.
+    if (!result.response) throw result.error instanceof Error ? result.error : new Error(String(result.error ?? 'Project catalog read failed'));
     if (result.response.ok && result.response.headers.get(MANAGED_CATALOG_HEADER) === MANAGED_CATALOG_VERSION) {
       useProjectsStore.getState().admitManagedCatalog();
     }

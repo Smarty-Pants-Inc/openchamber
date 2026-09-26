@@ -338,3 +338,20 @@ test('a read that never answers (the SDK bound) keeps Loading and tries again; i
     expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
   } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
 });
+
+test('the real SDK shape of a timed-out read (an error, no response) keeps Loading too', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    projectRead = (async () => { reads++; return reads <= 3
+      ? { error: new Error('OpenCode request timed out after 120000ms'), response: undefined }
+      : { response: response(), data: [row] }; }) as never;
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
