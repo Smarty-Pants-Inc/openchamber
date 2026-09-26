@@ -29,3 +29,12 @@ queue_rules:
       - check-success = review/astra
     merge_conditions:
       - check-success = checks
+
+# GitHub suspended smarty-agents (2026-09-25); the review agent queues as the write App's bot,
+# which has no collaborator permission (smarty-dev#735). Humans with write access still can.
+commands_restrictions:
+  queue:
+    conditions:
+      - or:
+          - sender-permission >= write
+          - sender = smarty-fleet-write[bot]
