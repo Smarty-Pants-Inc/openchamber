@@ -11,8 +11,10 @@ import { getImperativeSessionMessageLoader } from './session-message-loader';
  * A gateway that does not say `readOnlyWatch: 1` in its health for that directory is not asked (it would stream
  * everything). Capability answers are per server (runtime key) and directory; a failed health read is retried.
  * Catch-up: a watch re-acquired for a session this page watched before (shown again after being hidden, or a dropped
- * stream reconnected) re-reads the session's latest page once its stream is open. On the gateway, that read becomes the
- * new tail's baseline, so entries committed while unwatched appear and nothing between the read and the tail is lost.
+ * stream reconnected) replaces the session's shown history with a fresh newest page once its stream is open, as on a
+ * first open (its own cursor and completeness; older pages load from there). On the gateway, that read becomes the new
+ * tail's baseline, so entries committed while unwatched appear, a branch changed meanwhile is shown as it is now, and
+ * nothing between the read and the tail is lost.
  */
 type Fetch = (input: string, init: { query: Record<string, string>; signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
 type Held = { views: number; stop: AbortController };
@@ -20,9 +22,8 @@ const held = new Map<string, Held>();
 const supported = new Set<string>(); // `${runtime}\0${directory}` whose gateway said readOnlyWatch: 1.
 let fetcher: Fetch = runtimeFetch as unknown as Fetch;
 let runtime: () => string = getRuntimeKey;
-const CATCH_UP_LIMIT = 50;
 type CatchUp = (sessionId: string, directory: string) => Promise<void>;
-const readLatest: CatchUp = async (sessionID, directory) => { await getImperativeSessionMessageLoader()?.refreshTail({ directory, sessionID }, CATCH_UP_LIMIT); };
+const readLatest: CatchUp = async (sessionID, directory) => { await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }); };
 let catchUp: CatchUp = readLatest;
 const watchedBefore = new Set<string>(); // Sessions this page has watched (bounded): their next watch catches up.
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
