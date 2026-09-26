@@ -1,4 +1,5 @@
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses } from './optimistic-status';
 import { applyPromptOutcome } from './prompt-outcome';
 import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
@@ -1692,6 +1693,9 @@ export function handleEvent(
   if (shouldConsumeBulkArchiveEcho(payload, expectedRuntimeKey)) return
 
   const directory = resolveDirectoryFromRoutingIndex(routingIndex, rawDirectory, payload, childStores, batch)
+  // A project that joined the open stream (smarty-dev#777), including one that comes back with its store still
+  // cached: an unlisted project refreshes the catalog (kept while discovery runs; #282 review).
+  if (payload.type === "server.connected") noticeProjectConnected(directory)
 
   if (payload.type === "session.deleted" && expectedRuntimeKey === getRuntimeKey()) {
     const sessionID = getSessionIdFromPayload(payload)
