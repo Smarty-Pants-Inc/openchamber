@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createGlobalUiEventBroadcaster, createMessageStreamWsRuntime } from './runtime.js';
 
@@ -446,13 +446,11 @@ describe('message stream websocket runtime', () => {
     const socket = new FakeSocket();
     runtime.wsServer.emit('connection', socket, { url: '/api/global/event/ws' });
 
-    await new Promise((resolve) => setTimeout(resolve, 35));
-
-    const readyFrames = socket.sent.filter((frame) => frame.type === 'ready');
-    const eventFrames = socket.sent.filter((frame) => frame.type === 'event' && frame.payload?.type === 'server.connected');
-
-    expect(readyFrames.length).toBeGreaterThanOrEqual(2);
-    expect(eventFrames.length).toBeGreaterThanOrEqual(2);
+    // Wait for the reconnect itself (stall timer, then the resumed stream), not a guess at how long it takes under load.
+    await vi.waitFor(() => {
+      expect(socket.sent.filter((frame) => frame.type === 'ready').length).toBeGreaterThanOrEqual(2);
+      expect(socket.sent.filter((frame) => frame.type === 'event' && frame.payload?.type === 'server.connected').length).toBeGreaterThanOrEqual(2);
+    }, { timeout: 10_000, interval: 2 });
     expect(fetchCalls.slice(0, 2)).toEqual([null, 'evt-1']);
     expect(triggerHealthCheckCalls).toBe(0);
 

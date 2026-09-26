@@ -34,6 +34,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     'packages/web/server/lib/opencode/static-routes-runtime.js',
     ...attributionPaths,
     ...overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.testDeterminismAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -232,4 +233,14 @@ test('the context window binds its exact fix commit over the header only (smarty
   assert.equal(entry.contextWindowSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preContextWindowCombinedSha256, '5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4');
+});
+
+test('deterministic stall tests bind their exact commit as new overlay entries', () => {
+  assert.match(overlay.testDeterminismSource, /^[a-f0-9]{40}$/);
+  const added = overlay.files.filter(entry => entry.testDeterminismAdded);
+  assert.deepEqual(added.map(entry => entry.path).sort(), ['packages/web/server/lib/event-stream/runtime.test.js', 'packages/web/server/opencode-proxy.test.js']);
+  for (const entry of added) {
+    assert.equal(entry.testDeterminismSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  }
 });

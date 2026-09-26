@@ -7,7 +7,10 @@ import { createMessageQueueRuntime } from './runtime.js';
 const SESSION = 'ses_durable_queue';
 const input = { content: 'keep this', text: 'keep this', attachments: [], context: [], sendConfig: { providerID: 'p', modelID: 'm' } };
 const owned = [];
-const pause = () => new Promise((resolve) => setTimeout(resolve, 15));
+// No wall-clock sleeps (they raced the dispatch chain under a loaded parallel run). `until` waits for the state it
+// asserts; `turn` lets an armed zero-delay dispatch (dispatchQuietMs: 0) run first: timers fire in arming order.
+const until = (assertion) => vi.waitFor(assertion, { timeout: 10_000, interval: 2 });
+const turn = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); await new Promise((resolve) => setImmediate(resolve)); };
 const deferred = () => Promise.withResolvers();
 
 function fixture(dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-queue-boundary-'))) {
@@ -62,7 +65,7 @@ it('does not acknowledge, publish, or dispatch an admission while its write is h
   const admission = runtime.enqueue(SESSION, '/repo', input).then(() => { acknowledged = true; });
   try {
     await entered.promise;
-    await pause();
+    await turn();
     expect({ acknowledged, broadcasts: broadcasts.length, sent: state.sent }).toEqual({ acknowledged: false, broadcasts: 0, sent: 0 });
   } finally { held.resolve(); await admission; }
 });
@@ -76,7 +79,7 @@ it.each(['writeFile', 'rename'])('a failed %s refuses admission without a visibl
   });
   state.busy = false;
   await expect(runtime.enqueue(SESSION, '/repo', input)).rejects.toThrow();
-  await pause();
+  await turn();
   expect(runtime.snapshot().sessions).toEqual([]);
   expect(broadcasts).toEqual([]);
   expect(state.sent).toBe(0);
@@ -107,9 +110,9 @@ it('retains an accepted-then-lost response as unknown and never automatically po
   state.loseResponse = true;
   state.busy = false;
   idle(runtime);
-  await pause();
+  await until(() => expect(runtime.sessionSnapshot(SESSION).items[0]?.state).toBe('unknown'));
   idle(runtime);
-  await pause();
+  await turn();
   expect(state.sent).toBe(1);
   expect(runtime.sessionSnapshot(SESSION).items[0]).toMatchObject({ state: 'unknown' });
 });
@@ -134,9 +137,9 @@ it('persists the attempt before POST and restores a crash cut as unknown without
     await recovered.runtime.load();
     expect(recovered.runtime.sessionSnapshot(SESSION).items[0]).toMatchObject({ state: 'unknown' });
     idle(recovered.runtime);
-    await pause();
+    await turn();
     expect(recovered.state.sent).toBe(0);
-  } finally { held.resolve(); await pause(); }
+  } finally { held.resolve(); await turn(); }
 });
 
 it('migrates v1 payloads as uncertain and preserves their original bytes', async () => {
@@ -147,7 +150,7 @@ it('migrates v1 payloads as uncertain and preserves their original bytes', async
   state.busy = false;
   await runtime.load();
   idle(runtime);
-  await pause();
+  await turn();
   expect(state.sent).toBe(0);
   expect(runtime.sessionSnapshot(SESSION).items[0]).toMatchObject({ state: 'unknown' });
   expect(fs.readdirSync(dataDir).some((name) => name !== 'message-queue.json' && fs.readFileSync(path.join(dataDir, name), 'utf8') === bytes)).toBe(true);
@@ -175,8 +178,7 @@ it('admits the explicit supported Chord contract and stock OpenCode path', async
   await runtime.enqueue(SESSION, '/repo', input);
   state.busy = false;
   idle(runtime);
-  await pause();
-  expect(state.sent).toBe(1);
+  await until(() => expect(state.sent).toBe(1));
 });
 
 it('retains full payload after a lost take response and refuses repeat transfer', async () => {
@@ -194,7 +196,7 @@ it('retains full payload after a lost take response and refuses repeat transfer'
   await next.runtime.clear(SESSION);
   state.busy = false;
   idle(next.runtime);
-  await pause();
+  await turn();
   expect(next.state.sent).toBe(0);
   expect(next.runtime.sessionSnapshot(SESSION).items[0].state).toBe('taken');
 });
@@ -220,9 +222,8 @@ it('retains unknown if accepted settlement cannot be written, including on resta
   };
   state.busy = false;
   idle(runtime);
-  await pause();
+  await until(() => expect(runtime.sessionSnapshot(SESSION).items[0].state).toBe('unknown'));
   expect(state.sent).toBe(1);
-  expect(runtime.sessionSnapshot(SESSION).items[0].state).toBe('unknown');
   vi.restoreAllMocks();
   runtime.stop();
   const next = fixture(dataDir);

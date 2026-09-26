@@ -465,6 +465,24 @@
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "671d427d831007ac642a2bce77218554e8ecc31db62348a932e753adcd591e82",
       "managedCatalogSha256": "9f4d23bcb855996fad9e048c4be13d5f457ef1da14810db1c727e87376820988"
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/runtime.test.js",
+      "brandingSha256": "fb5fe1e466fd00b0befe40a8365dcd0553017861e66ac86d63b2da4b2cdcc61a",
+      "behaviorSha256": "62db5bdd20ffc0d01f6343f2e15a100d815128ddabf3565db86441694adcacec",
+      "combinedSha256": "62db5bdd20ffc0d01f6343f2e15a100d815128ddabf3565db86441694adcacec",
+      "reason": "The stalled-upstream reconnect test waits for the reconnect instead of a fixed sleep (flaky under load); the branded Engine label is unchanged.",
+      "testDeterminismAdded": true,
+      "testDeterminismSha256": "62db5bdd20ffc0d01f6343f2e15a100d815128ddabf3565db86441694adcacec"
+    },
+    {
+      "path": "packages/web/server/opencode-proxy.test.js",
+      "brandingSha256": "23aa47ba07f4c5b94ae9607ec62338cee19e7b316c041026a5b12622b36c9a49",
+      "behaviorSha256": "d8c08735b1dd7c9f7ecfd57984d86756d3177823b846c568b1fcbda3ebfc79c7",
+      "combinedSha256": "d8c08735b1dd7c9f7ecfd57984d86756d3177823b846c568b1fcbda3ebfc79c7",
+      "reason": "The stalled-upstream close test follows the stream instead of racing timers (flaky under load); its branded labels are unchanged.",
+      "testDeterminismAdded": true,
+      "testDeterminismSha256": "d8c08735b1dd7c9f7ecfd57984d86756d3177823b846c568b1fcbda3ebfc79c7"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -478,5 +496,6 @@
   "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
   "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8",
   "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c",
-  "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8"
+  "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8",
+  "testDeterminismSource": "732a27bc26645739bdedb85cc19c66532aa95967"
 }
