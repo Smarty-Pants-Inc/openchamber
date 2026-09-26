@@ -253,6 +253,72 @@ describe('ProjectActionsButton lifecycle', () => {
 
 
 
+  // smarty-dev#777 G13: with nothing running, the header lists terminal sessions once and stays quiet; the 5 s loop
+  // runs only while an action here is running (a run another client started counts once listed).
+  const recordFiveSecondTimers = () => {
+    const originalSetTimeout = globalThis.setTimeout, originalClearTimeout = globalThis.clearTimeout;
+    const pending = new Map<symbol, () => void>();
+    // 5 s timers (the loop's next listing, the header's join) are recorded, never run by themselves.
+    globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay !== 5_000) return originalSetTimeout(callback, delay, ...args);
+      const id = Symbol('five-seconds'); pending.set(id, callback); return id;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((id: unknown) => {
+      if (typeof id === 'symbol') pending.delete(id); else originalClearTimeout(id as ReturnType<typeof setTimeout>);
+    }) as typeof clearTimeout;
+    const settle = async () => { for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => originalSetTimeout(resolve, 1)); }); };
+    const elapse = async () => { const due = [...pending.values()]; pending.clear(); await act(async () => { for (const run of due) run(); }); await settle(); };
+    return { pending, settle, elapse, restore: () => { globalThis.setTimeout = originalSetTimeout; globalThis.clearTimeout = originalClearTimeout; } };
+  };
+
+  test('the header polls terminal sessions only while an action is running', async () => {
+    const originalList = terminal.listSessions, timers = recordFiveSecondTimers();
+    let lists = 0; let running = false;
+    Object.assign(terminal, { listSessions: async () => { lists++; return running ? [{
+      sessionId: 'peer-run', cwd: '/repo', status: 'running', createdAt: 1, mode: 'command',
+      purpose: { type: 'project-action', actionId: 'build', executionId: 'peer-execution' },
+    }] : []; } });
+    try {
+      await renderButton(); await timers.settle();
+      expect(lists).toBe(1);
+      expect(timers.pending.size).toBe(0); // Nothing running: nothing more is scheduled.
+      // Counterexample: a run another client started, once listed, keeps the header watching it.
+      await act(async () => root.unmount()); root = createRoot(host); running = true;
+      await renderButton(); await timers.settle();
+      expect(lists).toBe(2);
+      await timers.elapse(); // The header joins the loop one interval later...
+      expect(lists).toBe(3);
+      await timers.elapse(); // ...and it keeps listing while the run goes on.
+      expect(lists).toBe(4);
+    } finally { terminal.listSessions = originalList; timers.restore(); }
+  });
+
+  test('a rerun whose terminal is still being created is not cancelled by its previous run\'s exited record', async () => {
+    const originalList = terminal.listSessions, originalCreate = terminal.createSession, timers = recordFiveSecondTimers();
+    try {
+      await renderButton(); await timers.settle();
+      const primaryButton = host.querySelector('button');
+      if (!primaryButton) throw new Error('expected primary button');
+      await act(async () => { primaryButton.dispatchEvent(new Event('click', { bubbles: true })); await Promise.resolve(); }); // Run.
+      const first = useTerminalStore.getState().getDirectoryState('/repo')?.tabs.find(tab => tab.purpose.type === 'project-action');
+      const firstExecution = first?.purpose.type === 'project-action' ? first.purpose.executionId : null;
+      await act(async () => { primaryButton.dispatchEvent(new Event('click', { bubbles: true })); await Promise.resolve(); await Promise.resolve(); }); // Stop.
+      await timers.settle();
+      // The server still lists the previous run, exited; the rerun's terminal takes a while to be created.
+      Object.assign(terminal, { listSessions: async () => [{ sessionId: firstSessionId(), cwd: '/repo', status: 'exited', createdAt: 1, mode: 'command',
+        purpose: { type: 'project-action', actionId: 'build', executionId: firstExecution } }] });
+      let created = () => {}; const creating = new Promise<void>(resolve => { created = resolve; });
+      Object.assign(terminal, { createSession: async (options: CreateTerminalOptions) => { await creating; return originalCreate(options); } });
+      await act(async () => { primaryButton.dispatchEvent(new Event('click', { bubbles: true })); await Promise.resolve(); }); // Rerun.
+      await timers.settle();
+      created(); await timers.settle();
+      const rerun = useTerminalStore.getState().getDirectoryState('/repo')?.tabs.find(tab => tab.purpose.type === 'project-action');
+      expect(rerun?.terminalSessionId).toBe(secondSessionId());
+      expect(rerun?.lifecycle).toBe('running');
+      expect(closeCalls).toEqual([]);
+    } finally { terminal.listSessions = originalList; terminal.createSession = originalCreate; timers.restore(); }
+  });
+
   test('adopting a saved URL action does not auto-open a different output URL', async () => {
     mockedActionsState.actions = [{ id: 'build', name: 'Build', command: 'echo hello', autoOpenUrl: true, openUrl: 'http://localhost:4000' }];
     const originalList = terminal.listSessions;

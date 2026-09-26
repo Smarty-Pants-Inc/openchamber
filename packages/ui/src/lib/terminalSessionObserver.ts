@@ -99,8 +99,9 @@ export const observeTerminalSessions = (
   }
   scope.listeners.add(listener);
   return () => {
-    scope.listeners.delete(listener);
-    if (scope.listeners.size > 0) return;
+    // Idempotent: a second call (a one-shot consumer's own stop, then its cleanup) never removes a later consumer's
+    // scope for the same directory.
+    if (!scope.listeners.delete(listener) || scope.listeners.size > 0) return;
     observation.scopes.delete(key);
     if (observation.scopes.size > 0) return;
     observation.close();
