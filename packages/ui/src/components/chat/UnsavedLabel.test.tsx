@@ -34,6 +34,9 @@ test('both message rows render it: the user bubble (beside the author) and the a
 // The flag must reach the row through every path and clear when the record is saved (Astra pre-check).
 const base = { id: 'm1', sessionID: 's1', role: 'assistant', time: { created: 1, completed: 2 }, finish: 'stop', cost: 0.1 };
 const unsaved = { ...base, metadata: { smartyCodeUnsaved: true } };
+// The gateway's freshness (smarty-code#401): a record's revision never decreases for the same row.
+const at = <T extends object>(revision: number, record: T, unsavedRow = false) =>
+  ({ ...record, metadata: { ...(unsavedRow ? { smartyCodeUnsaved: true } : {}), smartyCodeRevision: revision } });
 
 test('a live message.updated that only adds the flag (a new record) or removes it (saved) is applied', async () => {
   const { applyDirectoryEvent } = await import('@/sync/event-reducer');
@@ -46,15 +49,16 @@ test('a live message.updated that only adds the flag (a new record) or removes i
   expect(isUnsaved(draft.message.s1[0])).toBe(false);
 });
 
-test('a history page clears the flag of a record already shown, keeping its newer fields, and never sets it', async () => {
+test('a history page applies a newer save state to a shown record, either way, keeping its other fields; an older one is ignored', async () => {
   const { mergeMessages } = await import('@/sync/optimistic');
-  const live = { ...unsaved, cost: 0.2 };
-  const saved = mergeMessages([live] as never[], [base] as never[]);
+  const live = { ...at(1, base, true), cost: 0.2 };
+  const saved = mergeMessages([live] as never[], [at(2, base)] as never[]);
   expect(isUnsaved(saved[0])).toBe(false);
   expect((saved[0] as { cost: number }).cost).toBe(0.2);
-  // A page never sets the flag on a shown record: it may be older than a live update that saved it.
-  const stale = mergeMessages([base] as never[], [unsaved] as never[]);
-  expect(isUnsaved(stale[0])).toBe(false);
+  // Saved -> unsaved is real too (a tool result that failed to append), when it is newer.
+  expect(isUnsaved(mergeMessages(saved, [at(3, base, true)] as never[])[0])).toBe(true);
+  // An older page never overrides a newer state, in either direction.
+  expect(isUnsaved(mergeMessages(saved, [at(1, base, true)] as never[])[0])).toBe(false);
   const same = [base] as never[];
   expect(mergeMessages(same, [{ ...base }] as never[])).toBe(same);
 });
@@ -89,8 +93,8 @@ test('a page promotes an optimistic record to the server flag, set or clear', as
 
 test('a stopped reply reconciled from an older page keeps its saved state', async () => {
   const { materializeSessionSnapshots } = await import('@/sync/materialization');
-  const saved = { ...base, time: { created: 1 }, error: { name: 'MessageAbortedError', data: {} } };
-  const olderPage = { ...unsaved, time: { created: 1, completed: 3 }, error: { name: 'MessageAbortedError', data: {} } };
+  const saved = { ...at(5, base), time: { created: 1 }, error: { name: 'MessageAbortedError', data: {} } };
+  const olderPage = { ...at(4, base, true), time: { created: 1, completed: 3 }, error: { name: 'MessageAbortedError', data: {} } };
   const state = { message: { s1: [saved] }, part: {} } as never;
   const result = materializeSessionSnapshots(state, 's1', [{ info: olderPage as never, parts: [] }]);
   const row = result.message.s1[0] as { time: { completed?: number } };
@@ -103,17 +107,17 @@ test('a saved confirmation retires the optimistic record, so an older unsaved sn
   const { optimisticMessageRecords } = await import('@/sync/unsaved');
   const optimistic = { ...base, role: 'user' };
   optimisticMessageRecords.add(optimistic);
-  const confirmed = mergeMessages([optimistic] as never[], [{ ...optimistic }] as never[]);
+  const confirmed = mergeMessages([optimistic] as never[], [at(5, optimistic)] as never[]);
   expect(optimisticMessageRecords.has(confirmed[0])).toBe(false);
-  const stale = mergeMessages(confirmed, [{ ...optimistic, metadata: { smartyCodeUnsaved: true } }] as never[]);
+  const stale = mergeMessages(confirmed, [at(4, optimistic, true)] as never[]);
   expect(isUnsaved(stale[0])).toBe(false);
 });
 
 test('an older buffered live update never un-saves a record a newer snapshot saved; its other fields apply', async () => {
   const { applyDirectoryEvent } = await import('@/sync/event-reducer');
   const { INITIAL_STATE } = await import('@/sync/types');
-  const draft = { ...INITIAL_STATE, message: { s1: [base] }, part: {}, session_status: {} } as never as Parameters<typeof applyDirectoryEvent>[0];
-  expect(applyDirectoryEvent(draft, { type: 'message.updated', properties: { info: { ...unsaved, cost: 0.3 } } } as never)).toBe(true);
+  const draft = { ...INITIAL_STATE, message: { s1: [at(5, base)] }, part: {}, session_status: {} } as never as Parameters<typeof applyDirectoryEvent>[0];
+  expect(applyDirectoryEvent(draft, { type: 'message.updated', properties: { info: { ...at(4, base, true), cost: 0.3 } } } as never)).toBe(true);
   expect(isUnsaved(draft.message.s1[0])).toBe(false);
   expect((draft.message.s1[0] as unknown as { cost: number }).cost).toBe(0.3);
 });
@@ -123,7 +127,7 @@ test('a reconnect refresh that answers with an older unsaved page does not un-sa
   const { SessionMessageLoader } = await import('@/sync/session-message-loader');
   const { applyDirectoryEvent } = await import('@/sync/event-reducer');
   const view = `ov2_${'a'.repeat(64)}`;
-  const record = (saved: boolean) => ({ info: { ...base, sessionID: 's1', ...(saved ? {} : { metadata: { smartyCodeUnsaved: true } }) },
+  const record = (saved: boolean) => ({ info: at(saved ? 2 : 1, { ...base, sessionID: 's1' }, !saved),
     parts: [{ id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text', text: 'hi' }] });
   let answer: (records: unknown[]) => void = () => {};
   let calls = 0;
@@ -189,8 +193,42 @@ test('a reconnect refresh whose page lacks a record keeps the server record show
 test('an ambiguous send confirmed by an older unsaved read keeps a record saved meanwhile', async () => {
   const { create } = await import('zustand');
   const { materializeConfirmedSendRecords } = await import('@/sync/session-actions');
-  const saved = { ...base, sessionID: 's1', role: 'user' };
+  const saved = at(5, { ...base, sessionID: 's1', role: 'user' });
   const store = create(() => ({ message: { s1: [saved] }, part: { m1: [] } })) as never;
-  materializeConfirmedSendRecords(store, 's1', 'm1', [{ info: { ...saved, metadata: { smartyCodeUnsaved: true } } as never, parts: [] }]);
+  materializeConfirmedSendRecords(store, 's1', 'm1', [{ info: at(4, { ...base, sessionID: 's1', role: 'user' }, true) as never, parts: [] }]);
   expect(isUnsaved((store as { getState: () => { message: { s1: unknown[] } } }).getState().message.s1[0])).toBe(false);
+});
+
+// smarty-code#401 review: the gateway legitimately moves a saved row back to unsaved (a tool result that fails to
+// append, or a journal that is replaced). Producer to consumer: saved, then an authoritative unsaved update, then a
+// reconnect whose page says the same: the label stays; a stale older page cannot un-save the newer row.
+test('a saved row made unsaved by a newer live update keeps the label through a reconnect; an older page cannot clear it', async () => {
+  const { ChildStoreManager } = await import('@/sync/child-store');
+  const { SessionMessageLoader } = await import('@/sync/session-message-loader');
+  const { applyDirectoryEvent } = await import('@/sync/event-reducer');
+  const view = `ov2_${'c'.repeat(64)}`;
+  const row = (revision: number, unsavedRow: boolean) => ({ info: at(revision, { ...base, sessionID: 's1' }, unsavedRow),
+    parts: [{ id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text', text: 'tool call' }] });
+  const pages: unknown[][] = [[row(5, false)], [row(6, true)], [row(4, false)]];
+  const sdk = { session: { messages: async () => ({ data: pages.shift() ?? [], response: new Response(null, { headers: { 'x-smarty-ordinary-view': view } }) }) } };
+  const children = new ChildStoreManager();
+  const loader = new SessionMessageLoader(children, { sdk: sdk as never, runtimeKey: 'a' });
+  const target = { directory: '/repo', sessionID: 's1' };
+  const store = () => children.getChild('/repo')!;
+  try {
+    await loader.ensure(target);
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(false);
+    // The tool result failed to append: the gateway republishes the row unsaved, with a higher revision.
+    const draft = { ...store().getState(), message: { ...store().getState().message } };
+    applyDirectoryEvent(draft as never, { type: 'message.updated', properties: { info: row(6, true).info } } as never);
+    store().setState({ message: draft.message });
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(true);
+    loader.invalidateOrdinaryViews();
+    await loader.refreshOrdinaryView(target, true);
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(true);
+    // A stale page from before (revision 4, saved) cannot clear it.
+    loader.invalidateOrdinaryViews();
+    await loader.refreshOrdinaryView(target, true);
+    expect(isUnsaved(store().getState().message.s1[0])).toBe(true);
+  } finally { loader.dispose(); children.disposeAll(); }
 });
