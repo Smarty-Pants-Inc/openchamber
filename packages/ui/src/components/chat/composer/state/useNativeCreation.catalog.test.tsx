@@ -9,7 +9,8 @@ import type { NewSessionDraftState } from '@/sync/session-ui-store';
 
 mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 // Operation refresh is covered elsewhere; this test isolates the capability check.
-mock.module('@/sync/native-draft-control', () => ({ refreshNativeCreation: async () => {}, replyNativeCreation: async () => {}, resumeNativeCreation: async () => {} }));
+mock.module('@/sync/native-draft-control', () => ({ refreshNativeCreation: async () => {}, replyNativeCreation: async () => {},
+  resumeNativeCreation: async () => {}, abandonNativeCreation: async () => false, abandonedNativeCreations: new Set<string>() }));
 const { useNativeCreation } = await import('./useNativeCreation');
 
 // smarty-code#113 / #126: before managed discovery answers, the directory may not be admitted (gateway 403), so no
@@ -20,9 +21,10 @@ test('native creation support is checked once the managed catalog becomes ready,
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
   const client = opencodeClient as unknown as Record<string, unknown>;
-  const original = { mode: client.nativeCreationMode, list: client.listNativeCreations };
+  const original = { support: client.nativeCreationSupport, list: client.listNativeCreations };
   let admitted = false, checks = 0;
-  client.nativeCreationMode = async () => { checks++; if (!admitted) throw new Error('403 not admitted'); return 'interactive'; };
+  client.nativeCreationSupport = async () => { checks++; if (!admitted) throw new Error('403 not admitted');
+    return { mode: 'interactive', clientRequestId: true, abandon: false }; };
   client.listNativeCreations = async () => [];
   useProjectsStore.getState().resetManagedCatalog();
   useProjectsStore.setState({ projects: [], managedCatalogStatus: 'unknown' });
@@ -50,7 +52,7 @@ test('native creation support is checked once the managed catalog becomes ready,
     expect(mode).not.toBe('discovering');
   } finally {
     await act(async () => root.unmount());
-    client.nativeCreationMode = original.mode; client.listNativeCreations = original.list;
+    client.nativeCreationSupport = original.support; client.listNativeCreations = original.list;
     useProjectsStore.getState().resetManagedCatalog();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);

@@ -16,7 +16,9 @@ import { discoveryAnswered, discoveryPendingFor } from '@/lib/managed-discovery'
 
 export { discoveryPendingFor } from '@/lib/managed-discovery';
 
-type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[] };
+type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[];
+  /** The server can settle an unreadable start for good, so a new one may begin (smarty-code#340). */
+  abandon?: boolean };
 
 export function useNativeCreation(draft: NewSessionDraftState, sessionId: string | null,
   currentDirectory: string | undefined, runtimeKey: string) {
@@ -40,11 +42,11 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     const check = async () => {
       const ticket = ++request;
       try {
-        const support = await opencodeClient.nativeCreationMode(directory);
+        const { mode: support, abandon } = await opencodeClient.nativeCreationSupport(directory);
         const operations = support === 'interactive' ? await opencodeClient.listNativeCreations(directory) : [];
         if (operations.some(operation => operation.directory !== directory)) throw new NativeCreationError('stale');
         if (cancelled || ticket !== request || getRuntimeKey() !== runtimeKey) return;
-        setCapability({ runtimeKey, directory, mode: support === 'legacy' ? 'legacy' : 'ordinary', operations });
+        setCapability({ runtimeKey, directory, mode: support === 'legacy' ? 'legacy' : 'ordinary', operations, abandon });
         await refreshNativeCreation();
       } catch {
         if (!cancelled && ticket === request && getRuntimeKey() === runtimeKey) {
@@ -82,6 +84,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   };
   return {
     mode, session, creation: scoped, operations,
+    canAbandon: capability?.runtimeKey === runtimeKey && capability.directory === directory && capability.abandon === true,
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();
       else if (scoped?.status === 'failed' && !scoped.submitted) await recheckNativeDraft();

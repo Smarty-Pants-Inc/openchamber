@@ -13,7 +13,7 @@ mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typ
 // Button's shared class helper imports search; this isolated static render never searches.
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
-const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null,
+const native: ReturnType<typeof useNativeCreation> = { mode: 'ordinary', session: null, creation: null, canAbandon: false,
   refresh: async () => {}, cancel: async () => {}, describeError: error => nativeCreationI18n.en[`chat.nativeCreation.${(error as NativeCreationError).code}` as keyof typeof nativeCreationI18n.en],
   beforeSend: async () => undefined, operations: [] };
 const render = (value = native) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);

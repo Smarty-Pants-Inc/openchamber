@@ -4,7 +4,8 @@ import { z } from 'zod';
 export const nativeCreationHealthSchema = z.object({
   healthy: z.literal(true),
   capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional(),
-    sessionVoice: z.literal(1).optional(), sessionVoiceStatus: z.literal(1).optional(), creationClientRequestId: z.literal(1).optional() }).optional(),
+    sessionVoice: z.literal(1).optional(), sessionVoiceStatus: z.literal(1).optional(), creationClientRequestId: z.literal(1).optional(),
+    creationAbandon: z.literal(1).optional() }).optional(),
 });
 // Public creation-contract.ts; endpoint and native generations are distinct.
 const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
@@ -45,20 +46,21 @@ const recoveryErrorSchema = z.object({
 });
 
 export type NativeCreatedSession = Session & z.infer<typeof nativeSessionSchema>;
-type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model' | 'history' | 'sending' | 'stopped' | 'notReady' | 'elsewhere';
+type NativeCreationFailureCode = 'target' | 'unsupported' | 'unavailable' | 'unknown' | 'stale' | 'required' | 'model' | 'history' | 'sending' | 'stopped' | 'notReady' | 'elsewhere' | 'storage';
 
 export class NativeCreationError extends Error {
+  /** `status` is the HTTP status of a definite refusal: the server answered and did not act on the request. */
   constructor(readonly code: NativeCreationFailureCode, cause?: unknown, readonly detail?: string,
-    readonly reference?: z.infer<typeof nativeReferenceSchema>) {
+    readonly reference?: z.infer<typeof nativeReferenceSchema>, readonly status?: number) {
     super('Native creation failed', { cause });
   }
 }
 
 /** Keep only the backend's safe recovery message, never stringify arbitrary transport errors. */
-export function nativeCreationFailure(cause: unknown): NativeCreationError {
+export function nativeCreationFailure(cause: unknown, status?: number): NativeCreationError {
   if (cause instanceof NativeCreationError) return cause;
   const parsed = recoveryErrorSchema.safeParse(cause);
-  return new NativeCreationError('unknown', cause, parsed.success ? parsed.data.data.message : undefined);
+  return new NativeCreationError('unknown', cause, parsed.success ? parsed.data.data.message : undefined, undefined, status);
 }
 
 export function nativeCreatedSession(session: Session): NativeCreatedSession {
