@@ -104,6 +104,10 @@ describe('sessionContextWindow (smarty-dev#777 G14)', () => {
     expect(sessionContextWindow(providers, null, [], haiku).context).toBe(200_000);
   });
 
+  test("an ordinary session whose native model is unavailable has no window, whatever its history or the selection", () => {
+    expect(sessionContextWindow(providers, 'unavailable', [{ role: 'assistant', ...haiku }], opus).context).toBe(0);
+  });
+
   test("the session's model decides even when it reports no window: never another model's window", () => {
     expect(sessionContextWindow(providers, unknown, [{ role: 'assistant', ...opus }], haiku).context).toBe(0);
     expect(sessionContextWindow(providers, null, [{ role: 'assistant', ...unknown }], haiku).context).toBe(0);

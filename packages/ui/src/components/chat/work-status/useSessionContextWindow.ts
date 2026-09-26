@@ -11,12 +11,15 @@ export function useSessionContextWindow(sessionId: string | null | undefined, di
   const currentModelId = useConfigStore((state) => state.currentModelId);
   const session = useSession(sessionId ?? null, directory ?? undefined);
   const messages = useSessionMessages(sessionId ?? '', directory ?? undefined);
-  const ordinary = readOrdinaryModel(session ?? undefined)?.model;
-  const ordinaryProvider = ordinary?.providerID;
-  const ordinaryModel = ordinary?.modelID;
+  const ordinaryState = readOrdinaryModel(session ?? undefined);
+  // An ordinary session (the state exists) without a model: its window is unknown, not its history's.
+  const ordinaryUnavailable = ordinaryState !== undefined && !ordinaryState.model;
+  const ordinaryProvider = ordinaryState?.model?.providerID;
+  const ordinaryModel = ordinaryState?.model?.modelID;
   return React.useMemo(() => sessionContextWindow(providers,
-    ordinaryProvider && ordinaryModel ? { providerID: ordinaryProvider, modelID: ordinaryModel } : null,
+    ordinaryUnavailable ? 'unavailable'
+      : ordinaryProvider && ordinaryModel ? { providerID: ordinaryProvider, modelID: ordinaryModel } : null,
     messages as unknown as Parameters<typeof sessionContextWindow>[2],
     currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null),
-  [providers, ordinaryProvider, ordinaryModel, messages, currentProviderId, currentModelId]);
+  [providers, ordinaryUnavailable, ordinaryProvider, ordinaryModel, messages, currentProviderId, currentModelId]);
 }

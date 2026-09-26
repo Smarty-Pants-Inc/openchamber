@@ -55,10 +55,12 @@ const windowOf = (providers: readonly ProviderLike[], ref: ModelRef | null): { c
  * newest reply, else the composer's selection (which follows the person's last pick, possibly in another session).
  */
 export const sessionModelRef = (
-  sessionModel: ModelRef | null | undefined,
+  sessionModel: ModelRef | 'unavailable' | null | undefined,
   messages: readonly MessageLike[],
   selectedModel: ModelRef | null | undefined,
 ): ModelRef | null => {
+  // An ordinary session whose native model is unavailable has no current window: no history or selection stands in.
+  if (sessionModel === 'unavailable') return null;
   if (sessionModel) return sessionModel;
   const replied = [...messages].reverse().find((message) => message.role === 'assistant' && message.providerID && message.modelID);
   if (replied) return { providerID: replied.providerID!, modelID: replied.modelID! };
@@ -71,7 +73,7 @@ export const sessionModelRef = (
  */
 export const sessionContextWindow = (
   providers: readonly ProviderLike[],
-  sessionModel: ModelRef | null | undefined,
+  sessionModel: ModelRef | 'unavailable' | null | undefined,
   messages: readonly MessageLike[],
   selectedModel: ModelRef | null | undefined,
 ): { context: number; output: number } => windowOf(providers, sessionModelRef(sessionModel, messages, selectedModel));
