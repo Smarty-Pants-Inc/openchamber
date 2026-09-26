@@ -2,6 +2,7 @@ import { keepSavedState, optimisticMessageRecords } from "./unsaved"
 import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
 import type { ChildStoreManager, DirectoryStore } from "./child-store"
 import { retry } from "./retry"
+import { sessionMessageEventCount } from "./event-reducer"
 import { mergeOptimisticPage, type OptimisticItem } from "./optimistic"
 import { findMessageIndex, insertMessageChronologically, sortMessagesChronologically } from "./message-ordering"
 import { stripMessageDiffSnapshots } from "./sanitize"
@@ -59,9 +60,10 @@ type LoaderEntry = {
   optimistic: Map<string, OptimisticItem>
   ordinary: boolean
   resetHistory: boolean
-  /** replaceHistory: the session's shown state (by reference) when its read began; a reset commits only if unchanged. */
-  resetBoundary: ResetBoundary | null
-  resetStale: boolean
+  /** Pages committed to the store (replaceHistory: a reset read during which another load committed is stale). */
+  commits: number
+  /** Loads started or refreshes requested (replaceHistory: a reset read during which newer demand arose is stale). */
+  demand: number
   /** The latest replaceHistory call; an older one's retries stop. */
   replaceEpoch: number
   ordinaryRefresh: Promise<void> | null
@@ -72,12 +74,6 @@ type LoaderEntry = {
 
 /** replaceHistory's retry delays after a stale read (then the last, repeated). */
 const REPLACE_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
-type ResetBoundary = { messages: Message[] | undefined; parts: Map<string, Part[] | undefined> }
-/** Whether a live event (an update, a part update, a removal) changed the session since `boundary`: the reducer copies
- * on every change, so a reference differs. */
-const movedSince = (state: DirectoryStore, sessionID: string, boundary: ResetBoundary) =>
-  state.message[sessionID] !== boundary.messages
-  || [...boundary.parts].some(([messageID, parts]) => state.part[messageID] !== parts)
 
 type FetchedPage = {
   session: Message[]
@@ -316,6 +312,7 @@ export class SessionMessageLoader {
     const entry = this.getEntry(normalized)
     if (entry.inflight) {
       entry.queuedRefreshLimit = Math.max(entry.queuedRefreshLimit, limit)
+      entry.demand++
       if (entry.queuedRefresh) return entry.queuedRefresh
       const inflight = entry.inflight
       const entryKey = this.keyFor(normalized)
@@ -381,35 +378,60 @@ export class SessionMessageLoader {
    * completeness, older pages then load normally from there. A View only watch re-acquired after entries it missed
    * (openchamber#278): a merged tail page would keep the old coverage and leave gaps or a branch that no longer exists.
    */
-  async replaceHistory(target: SessionMessageTarget, retryMs: readonly number[] = REPLACE_RETRY_MS): Promise<void> {
+  async replaceHistory(target: SessionMessageTarget, retryMs: readonly number[] = REPLACE_RETRY_MS, signal?: AbortSignal): Promise<void> {
     const normalized = this.normalizeTarget(target)
     const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
-    if (!normalized || !entry || this.disposed) return
+    if (!normalized || !entry || this.disposed || signal?.aborted || entry.ordinary) return // Released: never supersedes.
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
-    // A live event applied while a read is in flight is newer than that read: the reset is not applied and the page is
-    // left exactly as it was (never a merge, never an erase). Another guarded read, a fresh gateway baseline, follows
-    // with a backoff until one commits cleanly. A newer replacement, or a disposed loader, ends this one.
+    // Its own read, apart from the loader's loads: the page and its coverage stay exactly as they are until one
+    // synchronous commit. A read during which a live event for the session was applied, or another load committed, is
+    // older than the page: nothing is applied (never a merge, never an erase), and another read follows with a backoff.
+    // A newer replacement, `signal` (the watch released) or a disposed loader ends it, before any commit or request.
+    // An event applied only after the commit (the pipeline batches them, and the stream and this read are separate
+    // connections) converges: View only events are full-state only, and the gateway tail publishes anything a read saw
+    // beyond its baseline at its next tick, because a read never moves that baseline (smarty-dev#777).
     const epoch = ++entry.replaceEpoch
-    for (let attempt = 0; ; attempt++) {
-      if (this.disposed || entry.replaceEpoch !== epoch || this.entries.get(this.keyFor(normalized)) !== entry) return
-      const state = store.getState(), messages = state.message[normalized.sessionID]
-      const { status, loadingKind, resolved, cursor, complete, error } = entry.snapshot
-      entry.resetBoundary = { messages, parts: new Map((messages ?? []).map((message) => [message.id, state.part[message.id]])) }
-      entry.resetStale = false
-      this.bumpGeneration(entry)
-      entry.inflight = null
-      entry.resetHistory = true
-      this.patchEntry(entry, { status: "idle", loadingKind: null, resolved: false, cursor: undefined, complete: false })
-      clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
-      await this.refreshTail(normalized, getInitialPageSize())
-      const stale = entry.resetStale
-      entry.resetBoundary = null
-      entry.resetHistory = false
-      entry.resetStale = false
-      if (!stale) return
-      this.patchEntry(entry, { status, loadingKind, resolved, cursor, complete, error }) // Unchanged while it waits.
+    const owns = () => !this.disposed && !signal?.aborted && entry.replaceEpoch === epoch
+      && this.entries.get(this.keyFor(normalized)) === entry && this.childStores.getChild(normalized.directory) === store
+    for (let attempt = 0; owns(); attempt++) {
+      const events = sessionMessageEventCount(normalized.sessionID), commits = entry.commits, demand = entry.demand
+      const page = await this.fetchPage(normalized, getInitialPageSize(), undefined, "refresh", undefined, () => !owns())
+        .catch(() => null)
+      if (!owns() || entry.ordinary) return // Another load adopted an ordinary view: the session left View only.
+      // It left View only: the ordinary loading path owns that transition, including its coverage (smarty-code#497).
+      if (page && (!page.readOnly || page.ordinaryView)) return
+      // Newer demand (a load started or a refresh requested during the read) is never retired: this read is stale.
+      if (page && events === sessionMessageEventCount(normalized.sessionID) && commits === entry.commits
+        && demand === entry.demand) {
+        // A load still reading, or queued, is older than this reset: it no longer commits. A load started while the reset
+        // publishes (by a subscriber) waits behind a barrier until the new coverage is set, then starts from it.
+        this.bumpGeneration(entry)
+        entry.queuedRefresh = null
+        entry.queuedRefreshLimit = 0
+        let release = () => {}
+        const barrier = entry.inflight = new Promise<void>((resolve) => { release = resolve })
+        let committed: { messages: Message[] } | null = null
+        try {
+          entry.resetHistory = true
+          committed = this.commitPage(normalized, entry, store, page, "merge", () => true)
+          if (committed) {
+            this.patchEntry(entry, { status: "ready", loadingKind: null, error: null, resolved: true, cursor: page.cursor,
+              complete: page.complete, limit: committed.messages.length, updatedAt: Date.now() })
+            this.persistCoverage(normalized, entry.snapshot)
+          }
+        } finally {
+          entry.resetHistory = false
+          if (entry.inflight === barrier) entry.inflight = null
+          release()
+        }
+        if (committed) return
+      }
       const delay = retryMs[Math.min(attempt, retryMs.length - 1)] ?? 30_000
-      await new Promise((resolve) => setTimeout(resolve, delay))
+      await new Promise<void>((resolve) => {
+        const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", done); resolve() }
+        const timer = setTimeout(done, delay)
+        signal?.addEventListener("abort", done, { once: true })
+      })
     }
   }
 
@@ -547,6 +569,7 @@ export class SessionMessageLoader {
     const entry = this.entries.get(this.keyFor(normalized))
     if (!entry) return
     this.bumpGeneration(entry)
+    entry.replaceEpoch++ // A history replacement in flight is older than this: it ends without committing.
     entry.inflight = null
     entry.optimistic.clear()
     // Keep the last known read-only marker until a fresh newest page replaces it.
@@ -619,8 +642,8 @@ export class SessionMessageLoader {
       optimistic: new Map(),
       ordinary: false,
       resetHistory: false,
-      resetBoundary: null,
-      resetStale: false,
+      commits: 0,
+      demand: 0,
       replaceEpoch: 0,
       ordinaryRefresh: null,
       ordinaryDemand: 0,
@@ -651,6 +674,7 @@ export class SessionMessageLoader {
     kind: SessionMessageLoadKind,
     run: (isCurrent: () => boolean, performance: LoadPerformanceDetails) => Promise<void>,
   ): Promise<void> {
+    entry.demand++
     const generation = entry.snapshot.generation
     const sdkEpoch = this.sdkEpoch
     const finishPerformanceEvent = startSessionLoadPerformanceEvent({
@@ -763,6 +787,7 @@ export class SessionMessageLoader {
     before?: string,
     caller: "initial-page" | "older" | "refresh" = "initial-page",
     performance?: LoadPerformanceDetails,
+    cancelled?: () => boolean,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const finishPagePerformance = startSessionLoadPerformanceEvent({
@@ -775,6 +800,7 @@ export class SessionMessageLoader {
     let recordCount = 0
     try {
       const result = await retry(async () => {
+        if (cancelled?.()) throw new Error("Session history read cancelled") // Not transient: no retry, no request.
         attempts += 1
         const response = await this.sdk.session.messages({
           sessionID: target.sessionID,
@@ -844,11 +870,6 @@ export class SessionMessageLoader {
     const mergedPartsByMessageID = new Map(merged.part.map((candidate) => [candidate.id, candidate.part] as const))
     const current = store.getState()
     const reset = mode !== "prepend" && entry.resetHistory
-    // Synchronous from here to the commit: a replacement whose session moved since its read began is stale, not applied.
-    if (reset && entry.resetBoundary && movedSince(current, target.sessionID, entry.resetBoundary)) {
-      entry.resetStale = true
-      return null
-    }
     const shownByID = new Map((current.message[target.sessionID] ?? []).map((message) => [message.id, message] as const))
     const part = reset ? { ...current.part } : current.part
     if (reset) {
@@ -878,6 +899,7 @@ export class SessionMessageLoader {
       if (reset || materialized.partsChanged) update.part = materialized.part
       store.setState(update)
     }
+    entry.commits++ // Even a page that changed nothing (an accepted view, new coverage) makes a reset read older.
     if (!isCurrent()) return null
     if (mode !== "prepend") {
       entry.ordinary ||= page.ordinaryView !== undefined

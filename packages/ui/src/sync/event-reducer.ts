@@ -260,6 +260,25 @@ export function applyGlobalProject(state: GlobalState, project: Project): Global
 // Caller MUST pass a mutable copy of State (e.g. structuredClone or spread).
 // ---------------------------------------------------------------------------
 
+/** The revision of each session's last applied live message event, even one that changes nothing (such as removing a
+ * message not shown): a View only history replacement read while it moved is older than the page (session-message-
+ * loader.ts). Revisions only grow, and an evicted session reads as the highest evicted revision, so a session's value
+ * never returns to an earlier one: eviction can only make a read stale, never a stale read clean. */
+const messageEvents = new Map<string, number>()
+let messageRevision = 0, evictedRevision = 0
+export const sessionMessageEventCount = (sessionID: string): number => messageEvents.get(sessionID) ?? evictedRevision
+const countMessageEvent = (event: Event) => {
+  if (!event.type.startsWith("message.")) return
+  const properties = event.properties as { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+  const sessionID = properties.sessionID ?? properties.info?.sessionID ?? properties.part?.sessionID
+  if (!sessionID) return
+  messageEvents.delete(sessionID); messageEvents.set(sessionID, ++messageRevision) // Most recent last.
+  if (messageEvents.size > 1024) {
+    const [oldest, revision] = messageEvents.entries().next().value!
+    messageEvents.delete(oldest); evictedRevision = Math.max(evictedRevision, revision)
+  }
+}
+
 export function applyDirectoryEvent(
   draft: State,
   event: Event,
@@ -269,6 +288,7 @@ export function applyDirectoryEvent(
     onSetSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
   },
 ): DirectoryEventResult {
+  countMessageEvent(event)
   const markSessionEvent = (sessionID: string, deleted: boolean) => {
     const revision = (draft.sessionRevision ?? 0) + 1
     draft.sessionRevision = revision

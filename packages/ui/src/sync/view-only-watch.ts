@@ -22,8 +22,10 @@ const held = new Map<string, Held>();
 const supported = new Set<string>(); // `${runtime}\0${directory}` whose gateway said readOnlyWatch: 1.
 let fetcher: Fetch = runtimeFetch as unknown as Fetch;
 let runtime: () => string = getRuntimeKey;
-type CatchUp = (sessionId: string, directory: string) => Promise<void>;
-const readLatest: CatchUp = async (sessionID, directory) => { await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }); };
+type CatchUp = (sessionId: string, directory: string, signal: AbortSignal) => Promise<void>;
+const readLatest: CatchUp = async (sessionID, directory, signal) => {
+  await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }, undefined, signal); // Ends with the watch.
+};
 let catchUp: CatchUp = readLatest;
 const watchedBefore = new Set<string>(); // Sessions this page has watched (bounded): their next watch catches up.
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
@@ -56,7 +58,7 @@ const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =>
 async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: () => void) {
   const response = await fetcher('/api/event', { query: { directory, watch: sessionId }, signal, headers: { accept: 'text/event-stream' } });
   const reader = response.ok ? response.body?.getReader() : undefined;
-  if (!reader) { await response.body?.cancel().catch(() => {}); return; }
+  if (!reader || signal.aborted) { await response.body?.cancel().catch(() => {}); return; } // Released while it opened.
   opened();
   const cancel = () => { void reader.cancel().catch(() => {}); };
   signal.addEventListener('abort', cancel, { once: true });
@@ -69,7 +71,7 @@ async function stream(sessionId: string, directory: string, signal: AbortSignal,
 async function hold(key: string, sessionId: string, directory: string, signal: AbortSignal) {
   const server = runtime(), session = `${key}\0${sessionId}`;
   const opened = () => { // A re-acquired watch (after a hidden spell or a drop) catches up on what it missed.
-    if (watchedBefore.has(session)) void catchUp(sessionId, directory).catch(() => {});
+    if (watchedBefore.has(session)) void catchUp(sessionId, directory, signal).catch(() => {});
     watchedBefore.delete(session); watchedBefore.add(session);
     if (watchedBefore.size > 256) watchedBefore.delete(watchedBefore.values().next().value!);
   };
