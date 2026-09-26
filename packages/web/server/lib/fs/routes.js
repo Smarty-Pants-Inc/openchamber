@@ -2,6 +2,7 @@ import { createRealpathCache } from '../path-realpath-cache.js';
 import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-catalog-guard.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
+import { FILE_MIME_MAP, MAX_SERVE_BYTES, mintPreviewCapability, PREVIEW_CSP } from './preview-capability.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -115,37 +116,6 @@ const createUploadMaxBytes = () => {
   return 100 * 1024 * 1024;
 };
 
-const FILE_MIME_MAP = Object.freeze({
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
-  '.json': 'application/json',
-  '.wasm': 'application/wasm',
-  '.xml': 'application/xml',
-  '.txt': 'text/plain',
-  '.md': 'text/markdown',
-  '.pdf': 'application/pdf',
-  '.csv': 'text/csv',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.ttf': 'font/ttf',
-  '.eot': 'application/vnd.ms-fontobject',
-  '.mp3': 'audio/mpeg',
-  '.mp4': 'video/mp4',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.bmp': 'image/bmp',
-  '.avif': 'image/avif',
-});
-
-const MAX_SERVE_BYTES = 100 * 1024 * 1024;
 
 const streamUploadBody = async (req, handle, maxBytes) => {
   let received = 0;
@@ -1178,6 +1148,10 @@ export const registerFsRoutes = (app, dependencies) => {
 
       const content = await fsPromises.readFile(canonicalPath);
       res.setHeader('Cache-Control', 'no-store');
+      // Opened as a document (the Files view's PDF iframe loads this URL), a raw file never runs scripts: the type comes
+      // from the canonical target, so a .pdf link to an SVG or HTML file is inert. Chrome shows no PDF inside a sandboxed
+      // document, so a real PDF is the one exception; its scripts run in the PDF viewer, not in the app (smarty-code#382).
+      if (mimeType !== 'application/pdf') res.setHeader('Content-Security-Policy', 'sandbox');
       if (resolved.granted) {
         res.setHeader('Referrer-Policy', 'no-referrer');
       }
@@ -1192,6 +1166,38 @@ export const registerFsRoutes = (app, dependencies) => {
       }
       console.error('Failed to read raw file:', error);
       return res.status(500).json({ error: (error && error.message) || 'Failed to read file' });
+    }
+  });
+
+  // The Files view's HTML preview asks for a capability URL to its file (smarty-code#382, preview-capability.js). The
+  // same workspace rules as /api/fs/serve decide what may be previewed.
+  app.post('/api/fs/preview', async (req, res) => {
+    const rawPath = typeof req.body?.path === 'string' ? req.body.path : '';
+    if (!rawPath) return res.status(400).json({ error: 'Path is required' });
+    if (req.query?.allowOutsideWorkspace === 'true') {
+      return res.status(403).json({ error: 'allowOutsideWorkspace is not permitted for this endpoint' });
+    }
+    try {
+      const resolved = await resolveReadPathFromContext({
+        req,
+        targetPath: path.resolve('/', rawPath),
+        resolveProjectDirectory,
+        path,
+        os,
+        normalizeDirectoryPath,
+        managedRoots,
+      });
+      if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+      const canonicalPath = await fsPromises.realpath(resolved.resolved);
+      const stats = await fsPromises.stat(canonicalPath);
+      if (!stats.isFile()) return res.status(400).json({ error: 'Specified path is not a file' });
+      const capability = mintPreviewCapability(path.dirname(canonicalPath));
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ url: `/api/fs/preview/${capability}/${encodeURIComponent(path.basename(canonicalPath))}` });
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ENOENT') return res.status(404).json({ error: 'File not found' });
+      if (isOsPermissionError(error)) return sendOsPermissionDenied(res, 'Access to file denied');
+      return res.status(500).json({ error: 'Failed to prepare the preview' });
     }
   });
 
@@ -1235,6 +1241,8 @@ export const registerFsRoutes = (app, dependencies) => {
       const content = await fsPromises.readFile(canonicalPath);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      // Opened as a document, a served file runs sandboxed with an opaque origin, never as the app (smarty-code#382).
+      res.setHeader('Content-Security-Policy', PREVIEW_CSP);
       return res.type(mimeType).send(content);
     } catch (error) {
       const err = error;
