@@ -253,6 +253,36 @@ describe('ProjectActionsButton lifecycle', () => {
 
 
 
+  // smarty-dev#777 G13: with nothing running, the header lists terminal sessions once and stays quiet; the 5 s loop
+  // runs only while an action here is running (a run another client started counts once listed).
+  test('the header polls terminal sessions only while an action is running', async () => {
+    const originalList = terminal.listSessions, originalSetTimeout = globalThis.setTimeout, originalClearTimeout = globalThis.clearTimeout;
+    const refreshes = new Set<unknown>(); let lists = 0; let running = false;
+    // The shared observer schedules its next listing 5 s out: record those (never run them) and pass others through.
+    globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay !== 5_000) return originalSetTimeout(callback, delay, ...args);
+      const id = Symbol('refresh'); refreshes.add(id); return id;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((id: unknown) => { if (!refreshes.delete(id)) originalClearTimeout(id as ReturnType<typeof setTimeout>); }) as typeof clearTimeout;
+    Object.assign(terminal, { listSessions: async () => { lists++; return running ? [{
+      sessionId: 'peer-run', cwd: '/repo', status: 'running', createdAt: 1, mode: 'command',
+      purpose: { type: 'project-action', actionId: 'build', executionId: 'peer-execution' },
+    }] : []; } });
+    try {
+      await renderButton();
+      for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => originalSetTimeout(resolve, 1)); });
+      expect(lists).toBe(1);
+      expect(refreshes.size).toBe(0); // Nothing running: no next listing is scheduled.
+      // Counterexample: a run another client started, once listed, keeps the header watching it.
+      await act(async () => root.unmount()); root = createRoot(host); running = true;
+      await renderButton();
+      for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => originalSetTimeout(resolve, 1)); });
+      expect(refreshes.size).toBe(1);
+    } finally {
+      terminal.listSessions = originalList; globalThis.setTimeout = originalSetTimeout; globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
   test('adopting a saved URL action does not auto-open a different output URL', async () => {
     mockedActionsState.actions = [{ id: 'build', name: 'Build', command: 'echo hello', autoOpenUrl: true, openUrl: 'http://localhost:4000' }];
     const originalList = terminal.listSessions;

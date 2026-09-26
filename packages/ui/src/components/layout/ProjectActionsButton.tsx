@@ -16,7 +16,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopShell } from '@/lib/desktop';
 import { useUIStore } from '@/stores/useUIStore';
-import { useTerminalStore } from '@/stores/useTerminalStore';
+import { isActiveProjectActionTab, useTerminalStore } from '@/stores/useTerminalStore';
 import { extractAnnouncedUrls, extractProjectActionUrl } from '@/lib/terminalPreview';
 import { setAnnouncedDevServers } from '@/lib/browser/announcedServers';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -397,15 +397,22 @@ export const ProjectActionsButton = ({
     void loadActions();
   }, [loadActions]);
 
+  // The listing loop runs only while an action here is known to be running: only then can its state change on its
+  // own. With nothing running the header lists once (runs another client started) and then stays quiet, as the
+  // sidebar does (smarty-dev#777 G13: a 5 s request for every open session). The terminal panel keeps its own loop.
+  // ponytail: a run another client starts later shows here on the next directory change or reload, not live.
+  const hasActiveAction = watchedTerminalStates.some(({ state }) => state?.tabs.some(isActiveProjectActionTab) ?? false);
   React.useEffect(() => {
-    const cleanups = watchedTerminalDirectories.map(executionDirectory => observeTerminalSessions(
-      terminal, executionDirectory, captureStartedActionMutationRevisions,
-      result => reconcileServerSessions(executionDirectory, result.sessions, {
-        startedActionMutationRevisions: result.startedActionMutationRevisions,
-      }),
-    ));
+    const cleanups = watchedTerminalDirectories.map(executionDirectory => {
+      const reconcile = (result: Parameters<Parameters<typeof observeTerminalSessions>[3]>[0]) => reconcileServerSessions(
+        executionDirectory, result.sessions, { startedActionMutationRevisions: result.startedActionMutationRevisions });
+      if (hasActiveAction) return observeTerminalSessions(terminal, executionDirectory, captureStartedActionMutationRevisions, reconcile);
+      let stop = () => {};
+      stop = observeTerminalSessions(terminal, executionDirectory, captureStartedActionMutationRevisions, result => { reconcile(result); stop(); });
+      return () => stop();
+    });
     return () => { for (const close of cleanups) close(); };
-  }, [captureStartedActionMutationRevisions, reconcileServerSessions, terminal, watchedTerminalDirectories]);
+  }, [captureStartedActionMutationRevisions, hasActiveAction, reconcileServerSessions, terminal, watchedTerminalDirectories]);
 
   React.useEffect(() => {
     for (const { directory: tabDirectory, state } of watchedTerminalStates) {
