@@ -92,9 +92,10 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     refusal: refusal?.key === refusalFor ? refusal.error : null,
     /** A native Send that failed after its start (its prompt was never admitted): keep saying why (smarty-dev#856). */
     noteRefusal: (cause: unknown) => {
-      endFirstSend(draft, runtimeKey);
       const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
-      if (draft.open && error.code !== 'sending') setRefusal({ key: refusalFor, error });
+      if (error.code === 'sending') return; // A second press: the first Send is still under way and holds on.
+      endFirstSend(draft, runtimeKey);
+      if (draft.open) setRefusal({ key: refusalFor, error });
     },
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();

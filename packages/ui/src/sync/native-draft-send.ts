@@ -19,7 +19,11 @@ const pending = new Set<NativeCreatedSession>();
 const firstSends = new Map<string, number>();
 const FIRST_SEND_LIMIT_MS = 180_000; // A Send that never reports back (a lost exit) stops holding after this.
 const firstSendKey = (runtimeKey: string, draftId: number) => `${runtimeKey}\0${draftId}`;
-export function beginFirstSend(draft: NewSessionDraftState, runtimeKey: string): void { firstSends.set(firstSendKey(runtimeKey, draft.draftId), Date.now()); }
+export function beginFirstSend(draft: NewSessionDraftState, runtimeKey: string): void {
+  const key = firstSendKey(runtimeKey, draft.draftId), began = firstSends.get(key);
+  // A second press while the first is under way keeps the first one's hold (and its limit).
+  if (began === undefined || Date.now() - began > FIRST_SEND_LIMIT_MS) firstSends.set(key, Date.now());
+}
 export function endFirstSend(draft: NewSessionDraftState, runtimeKey: string): void { firstSends.delete(firstSendKey(runtimeKey, draft.draftId)); }
 /** True when `sessionId` is the open draft's own new session and its first Send is still under way. */
 export function isFirstSendInFlightFor(sessionId: string): boolean {

@@ -118,3 +118,47 @@ test('a first message the page cannot send after its session started says why, k
   refusing.mockRestore();
   void server;
 });
+
+test('a second Send press while the first is fetching its session knowledge, then opening the new session: the first message is still sent once', async () => {
+  let server!: ReturnType<typeof interactiveServer>;
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, fixture => { server = interactiveServer(fixture); });
+  await managed();
+  // The session's knowledge is slow to load, so the first Send is under way but has not posted its message.
+  let release = () => {}; const held = new Promise<void>(resolve => { release = resolve; });
+  const served = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(new Request(input, init).url).pathname === '/api/session-knowledge') await held;
+    return served(input, init);
+  }) as typeof fetch;
+  await c.replace('Only once'); await c.submit();
+  for (let i = 0; i < 10; i++) await settle();
+  expect(c.prompts()).toHaveLength(0); // Still under way.
+  await c.submit(); for (let i = 0; i < 3; i++) await settle(); // She presses Send again (refused as a duplicate)...
+  await act(async () => { useSessionUIStore.getState().setCurrentSession(session.id, directory); }); // ...and opens its row.
+  release();
+  for (let i = 0; i < 40 && c.prompts().length < 1; i++) await settle();
+  for (let i = 0; i < 5; i++) await settle();
+  expect(c.creates()).toHaveLength(1);
+  expect(c.prompts()).toHaveLength(1); // The duplicate press never ends the first Send's hold.
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  globalThis.fetch = served; void server;
+});
+
+test('a Send that stops after the start without sending (a mentioned file cannot be read) says why and lets her open the session', async () => {
+  let server!: ReturnType<typeof interactiveServer>;
+  const c = mounted = await mountedNativeComposer(false, undefined, undefined, undefined, fixture => { server = interactiveServer(fixture); });
+  await managed();
+  const served = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => new URL(new Request(input, init).url).pathname.endsWith('/api/fs/raw')
+    ? new Response('gone', { status: 404 }) : served(input, init)) as typeof fetch;
+  await c.replace('Read this '); await c.mention('broken.docx'); const kept = c.text();
+  await c.submit();
+  for (let i = 0; i < 20; i++) await settle();
+  expect(c.creates()).toHaveLength(1); expect(c.prompts()).toHaveLength(0);
+  expect(c.text()).toBe(kept);
+  expect(c.dom.container.querySelector('[role="alert"]')?.textContent ?? '').toContain('broken.docx'); // Says why, and stays.
+  // Counterexample: the Send is over, so her session opens at once (no hold left behind).
+  await act(async () => { useSessionUIStore.getState().setCurrentSession(session.id, directory); });
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  globalThis.fetch = served; void server;
+});
