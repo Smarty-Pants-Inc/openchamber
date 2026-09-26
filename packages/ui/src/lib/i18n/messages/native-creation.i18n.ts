@@ -1,5 +1,6 @@
 export const nativeCreationI18n = {
   en: {
+    'chat.nativeCreation.discovering': 'Loading projects…',
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
     'chat.followUp.changedDuringCheck': "Nothing was sent: the chat or the message changed while Send checked whether the session is still working. Each chat keeps its own draft. Press Send again.",
     'chat.coSteer.delivered': "Delivered to {name} while it works.",
@@ -29,6 +30,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'If a session was started, you will see it in the sidebar.',
   },
   de: {
+    'chat.nativeCreation.discovering': 'Projekte werden geladen…',
     'chat.ordinary.viewMissing': "Der Verlauf dieses Chats ist noch nicht geladen, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld. Drücken Sie gleich noch einmal auf Senden.",
     'chat.followUp.changedDuringCheck': "Nichts wurde gesendet: Der Chat oder die Nachricht hat sich geändert, während Senden prüfte, ob die Sitzung noch arbeitet. Jeder Chat behält seinen eigenen Entwurf. Drücken Sie erneut auf Senden.",
     'chat.coSteer.delivered': "An {name} zugestellt, während es arbeitet.",
@@ -58,6 +60,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Falls eine Sitzung gestartet wurde, siehst du sie in der Seitenleiste.',
   },
   es: {
+    'chat.nativeCreation.discovering': 'Cargando proyectos…',
     'chat.ordinary.viewMissing': "El historial de este chat aún no ha terminado de cargarse, así que no se envió nada. Tu mensaje sigue en el editor. Pulsa Enviar de nuevo en un momento.",
     'chat.followUp.changedDuringCheck': "No se envió nada: el chat o el mensaje cambió mientras Enviar comprobaba si la sesión sigue trabajando. Cada chat conserva su propio borrador. Pulsa Enviar de nuevo.",
     'chat.coSteer.delivered': "Entregado a {name} mientras trabaja.",
@@ -87,6 +90,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Si se inició una sesión, la verás en la barra lateral.',
   },
   fr: {
+    'chat.nativeCreation.discovering': 'Chargement des projets…',
     'chat.ordinary.viewMissing': "L'historique de cette discussion n'est pas encore chargé, donc rien n'a été envoyé. Votre message reste dans la zone de saisie. Appuyez à nouveau sur Envoyer dans un instant.",
     'chat.followUp.changedDuringCheck': "Rien n'a été envoyé : la discussion ou le message a changé pendant qu'Envoyer vérifiait si la session travaille encore. Chaque discussion garde son propre brouillon. Appuyez de nouveau sur Envoyer.",
     'chat.coSteer.delivered': "Remis à {name} pendant qu'il travaille.",
@@ -116,6 +120,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Si une session a été démarrée, vous la verrez dans la barre latérale.',
   },
   ja: {
+    'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
     'chat.ordinary.viewMissing': "このチャットの履歴がまだ読み込まれていないため、何も送信されていません。メッセージは入力欄に残っています。少し待ってからもう一度送信してください。",
     'chat.followUp.changedDuringCheck': "送信されませんでした: セッションがまだ動作中かを送信が確認している間に、チャットまたはメッセージが変わりました。各チャットの下書きはそのまま残ります。もう一度送信を押してください。",
     'chat.coSteer.delivered': "{name} の作業中に届けました。",
@@ -145,6 +150,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'セッションが開始されていれば、サイドバーに表示されます。',
   },
   ko: {
+    'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
     'chat.ordinary.viewMissing': "이 채팅의 기록이 아직 로드되지 않아 아무것도 보내지 않았습니다. 메시지는 입력란에 그대로 있습니다. 잠시 후 다시 보내기를 누르세요.",
     'chat.followUp.changedDuringCheck': "아무것도 보내지 않았습니다: 보내기가 세션이 아직 작업 중인지 확인하는 동안 채팅 또는 메시지가 바뀌었습니다. 각 채팅의 초안은 그대로 남아 있습니다. 보내기를 다시 누르세요.",
     'chat.coSteer.delivered': "{name}이(가) 작업하는 동안 전달했습니다.",
@@ -174,6 +180,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': '세션이 시작되었다면 사이드바에 표시됩니다.',
   },
   pl: {
+    'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
     'chat.followUp.changedDuringCheck': "Nic nie zostało wysłane: czat lub wiadomość zmieniły się, gdy Wyślij sprawdzało, czy sesja nadal pracuje. Każdy czat zachowuje własny szkic. Naciśnij Wyślij ponownie.",
     'chat.coSteer.delivered': "Dostarczono do {name} w trakcie jego pracy.",
@@ -203,6 +210,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Jeśli sesja została uruchomiona, zobaczysz ją na pasku bocznym.',
   },
   'pt-BR': {
+    'chat.nativeCreation.discovering': 'Carregando projetos…',
     'chat.ordinary.viewMissing': "O histórico deste chat ainda não terminou de carregar, então nada foi enviado. Sua mensagem continua no editor. Pressione Enviar novamente em instantes.",
     'chat.followUp.changedDuringCheck': "Nada foi enviado: o chat ou a mensagem mudou enquanto Enviar verificava se a sessão ainda está trabalhando. Cada chat mantém o próprio rascunho. Pressione Enviar novamente.",
     'chat.coSteer.delivered': "Entregue a {name} enquanto trabalha.",
@@ -232,6 +240,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Se uma sessão foi iniciada, você a verá na barra lateral.',
   },
   tr: {
+    'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
     'chat.ordinary.viewMissing': "Bu sohbetin geçmişi henüz yüklenmedi, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor. Birazdan yeniden Gönder'e basın.",
     'chat.followUp.changedDuringCheck': "Hiçbir şey gönderilmedi: Gönder, oturumun hâlâ çalışıp çalışmadığını denetlerken sohbet veya ileti değişti. Her sohbet kendi taslağını korur. Gönder'e yeniden basın.",
     'chat.coSteer.delivered': "{name} çalışırken iletildi.",
@@ -261,6 +270,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Bir oturum başlatıldıysa onu kenar çubuğunda görürsünüz.',
   },
   uk: {
+    'chat.nativeCreation.discovering': 'Завантаження проєктів…',
     'chat.ordinary.viewMissing': "Історія цього чату ще не завантажилася, тому нічого не надіслано. Ваше повідомлення лишається в полі введення. Натисніть «Надіслати» ще раз за мить.",
     'chat.followUp.changedDuringCheck': "Нічого не надіслано: чат або повідомлення змінилися, поки Надіслати перевіряло, чи сесія ще працює. Кожен чат зберігає власну чернетку. Натисніть Надіслати ще раз.",
     'chat.coSteer.delivered': "Доставлено {name}, поки він працює.",
@@ -290,6 +300,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': 'Якщо сеанс було запущено, ви побачите його на бічній панелі.',
   },
   'zh-CN': {
+    'chat.nativeCreation.discovering': '正在加载项目…',
     'chat.ordinary.viewMissing': "此聊天的历史记录尚未加载完成，因此未发送任何内容。你的消息仍在输入框中。请稍后再次点击发送。",
     'chat.followUp.changedDuringCheck': "未发送任何内容：在“发送”检查会话是否仍在工作时，聊天或消息发生了变化。每个聊天都保留自己的草稿。请再次按“发送”。",
     'chat.coSteer.delivered': "已在 {name} 工作时送达。",
@@ -319,6 +330,7 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.startAgainHint': '如果已经启动了会话，你会在侧边栏中看到它。',
   },
   'zh-TW': {
+    'chat.nativeCreation.discovering': '正在載入專案…',
     'chat.ordinary.viewMissing': "此聊天的歷史記錄尚未載入完成，因此未傳送任何內容。你的訊息仍在輸入框中。請稍後再次按下傳送。",
     'chat.followUp.changedDuringCheck': "未傳送任何內容：在「傳送」檢查工作階段是否仍在進行時，聊天或訊息已變更。每個聊天都保留自己的草稿。請再按一次「傳送」。",
     'chat.coSteer.delivered': "已在 {name} 工作時送達。",
