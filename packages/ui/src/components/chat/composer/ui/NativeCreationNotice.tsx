@@ -47,6 +47,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
       </div>
     </div>;
   }
+  // The session started, but its first message could not be sent (smarty-dev#856: never silent): say why; the text is
+  // still in the composer, and Send sends it to this session.
+  if (native.session && native.refusal && !starting) return <div className="mb-2 space-y-1">
+    <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(native.refusal)}</p>
+  </div>;
   if (native.session) return null;
   // The same rule Send refuses by, so the line and the refusal agree (smarty-code#114).
   const running = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());

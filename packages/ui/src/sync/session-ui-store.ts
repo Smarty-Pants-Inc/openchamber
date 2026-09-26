@@ -96,7 +96,7 @@ import { getRuntimeKey } from "@/lib/runtime-switch"
 import { claimChatDraftOwnership, createChatDraftIdentity, type ChatDraftIdentity } from '@/lib/chatDraftPersistence'
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
-import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
+import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, isFirstSendInFlightFor, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -1139,6 +1139,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         : resolveSessionDirectory(id, sid => get().worktreeMetadata.get(sid))
       if (!visibleProjects(selectionProjects).some(project => project.path === selectedDirectory)) return
     }
+    // The open draft's own new session while its first message is still being sent: the Send opens it once the message
+    // is admitted; opening it now would end that Send and strand the message (smarty-dev#856).
+    if (id && transition !== "submitted-draft" && isFirstSendInFlightFor(id)) return
     const materializedDraftSessionId = id && transition === "submitted-draft" ? id : null
     // Publish the transition identity before closing the draft. Those are two
     // separate store updates, and ChatContainer must never observe a closed

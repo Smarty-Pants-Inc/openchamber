@@ -2,7 +2,7 @@ import React from 'react';
 import { expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { nativeCreationI18n } from '@/lib/i18n/messages/native-creation.i18n';
-import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { NativeCreationError, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const i18n = await import('@/lib/i18n');
@@ -20,7 +20,7 @@ const operation: NativeCreationState = { operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-a
   revision: 2, phase: 'awaiting-trust', expiresAt: Date.now() + 60_000, canInitialReady: false };
 const native = (unreadable: boolean, phase: NativeCreationState['phase'] = 'awaiting-trust', canAbandon = false): ReturnType<typeof useNativeCreation> => ({
   mode: 'ordinary', session: null, canAbandon, refresh: async () => {}, cancel: async () => {}, describeError: () => '',
-  beforeSend: async () => undefined, operations: [], refusal: null,
+  beforeSend: async () => undefined, operations: [], refusal: null, noteRefusal: () => new NativeCreationError('unavailable'),
   creation: { status: 'pending', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p',
     operation: { ...operation, phase }, unreadable } });
 const render = (value: ReturnType<typeof useNativeCreation>) => renderToStaticMarkup(<NativeCreationNotice native={value} draftOpen />);

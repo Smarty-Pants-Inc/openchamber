@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.firstSendHandoffSha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.firstSendHandoffSha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,17 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The first-send handoff (smarty-dev#856) is the newest layer: one file, so unwind it first.
+  assert.match(historical.firstSendHandoffSource, /^[a-f0-9]{40}$/);
+  delete historical.firstSendHandoffSource;
+  for (const entry of historical.files.filter(file => file.firstSendHandoffSha256)) {
+    assert.equal(entry.firstSendHandoffSha256, entry.combinedSha256);
+    assert.ok(entry.firstSendHandoffNote);
+    entry.combinedSha256 = entry.preFirstSendHandoffCombinedSha256;
+    delete entry.preFirstSendHandoffCombinedSha256;
+    delete entry.firstSendHandoffSha256;
+    delete entry.firstSendHandoffNote;
+  }
   // The passwordless origin guard (smarty-code#391) is the newest layer: it only adds one entry, so unwind it first.
   assert.match(historical.originGuardSource, /^[a-f0-9]{40}$/);
   delete historical.originGuardSource;

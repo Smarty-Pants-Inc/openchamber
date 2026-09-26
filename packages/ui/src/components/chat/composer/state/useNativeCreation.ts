@@ -2,7 +2,7 @@ import React from 'react';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
-import { NativeCreationError, NATIVE_CREATION_INVALIDATED, type NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { NativeCreationError, NATIVE_CREATION_INVALIDATED, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -32,6 +32,12 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   // Why the last Send on this draft was refused before anything was sent; shown until the next Send or another draft.
   // Bound to the draft, its project and directory, and the server: a switch shows no other target's refusal.
   const refusalFor = `${runtimeKey}\0${draft.draftId}\0${draft.selectedProjectId ?? ''}\0${draft.directoryOverride ?? ''}`;
+  // A refusal is said only while its draft and target are still shown: a late refusal of a switched-away target (a
+  // press made before the switch) never replaces the shown target's line.
+  const stillShown = () => {
+    const now = useSessionUIStore.getState().newSessionDraft;
+    return now.open && `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
+  };
   const [refusal, setRefusal] = React.useState<{ key: string; error: NativeCreationError } | null>(null);
   const directory = draft.directoryOverride ?? currentDirectory;
   // A check before the managed catalog admits this directory is refused by the gateway; check
@@ -90,6 +96,17 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     mode, session, creation: scoped, operations,
     canAbandon: capability?.runtimeKey === runtimeKey && capability.directory === directory && capability.abandon === true,
     refusal: refusal?.key === refusalFor ? refusal.error : null,
+    /** A native Send that failed after its start (its prompt was never admitted): keep saying why (smarty-dev#856). */
+    // Its own words when it has them: the backend's recovery message, or the send's refusal reason (a 409's "finish
+    // the original dialogs"), else the plain send failure. Returned, so the toast says the same.
+    noteRefusal: (cause: unknown): NativeCreationError => {
+      const reason = (cause as { refusalReason?: unknown } | null)?.refusalReason, parsed = nativeCreationFailure(cause);
+      const error = cause instanceof NativeCreationError || parsed.detail ? parsed
+        : new NativeCreationError('unavailable', cause, typeof reason === 'string' ? reason : t('chat.chatInput.toast.messageSendFailed'));
+      // A second press: the first Send is still under way and says its own outcome.
+      if (error.code !== 'sending' && stillShown()) setRefusal({ key: refusalFor, error });
+      return error;
+    },
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();
       else if (scoped?.status === 'failed' && !scoped.submitted) await recheckNativeDraft();
@@ -106,15 +123,14 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
           await startNativeDraft(operations);
           guard();
           const native = await preparedNativeDraft(draft);
-          if (native) return prepareNativeDraftSend(draft, native);
+          // Awaited here, so a refusal while preparing (history, target) is caught below and said, never lost.
+          if (native) return await prepareNativeDraftSend(draft, native);
         }
+        return undefined;
       } catch (cause) {
         const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
         // A second press while the first is still starting needs no line: the first one's own line is showing.
-        // Only for the draft and target that are still shown (a late refusal of a switched-away target is not shown).
-        const now = useSessionUIStore.getState().newSessionDraft;
-        const still = `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
-        if (draft.open && still && error.code !== 'sending') setRefusal({ key: refusalFor, error });
+        if (stillShown() && error.code !== 'sending') setRefusal({ key: refusalFor, error });
         throw error;
       }
     },
