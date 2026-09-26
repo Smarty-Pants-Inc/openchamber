@@ -26,6 +26,9 @@ test('shown -> hidden (another panel) -> shown -> not View only -> unmounted: a 
     await render({ id: 't', readOnly: true, shown: true }); expect(viewOnlyWatchesHeld()).toBe(1); // Another session: still one.
     await render({ id: 't', readOnly: false, shown: true }); expect(viewOnlyWatchesHeld()).toBe(0); // Not View only.
     await render({ id: 't', readOnly: true, shown: true }); expect(viewOnlyWatchesHeld()).toBe(1);
+    // A phone opens full-screen Settings over the chat (ChatContainer: shown = messagesEnabled && !covered), then returns.
+    await render({ id: 't', readOnly: true, shown: false }); expect(viewOnlyWatchesHeld()).toBe(0);
+    await render({ id: 't', readOnly: true, shown: true }); expect(viewOnlyWatchesHeld()).toBe(1);
     await act(() => { root.unmount(); }); expect(viewOnlyWatchesHeld()).toBe(0);
   } finally { setViewOnlyWatchDeps(); }
 });

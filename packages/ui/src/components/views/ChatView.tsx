@@ -11,6 +11,8 @@ type ChatViewProps = {
      * while composer focus / background work remain gated by visibility.
      */
     messagesEnabled?: boolean;
+    /** A full-screen surface covers this chat (ChatContainer's `covered`). */
+    covered?: boolean;
     readOnly?: boolean;
     initialAllowPromptingSubagentSessions?: boolean;
 };
@@ -18,6 +20,7 @@ type ChatViewProps = {
 export const ChatView: React.FC<ChatViewProps> = ({
     active = true,
     messagesEnabled,
+    covered,
     readOnly = false,
     initialAllowPromptingSubagentSessions,
 }) => {
@@ -28,6 +31,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <ChatContainer
                 active={active}
                 messagesEnabled={messagesEnabled}
+                covered={covered}
                 readOnly={readOnly}
                 initialAllowPromptingSubagentSessions={initialAllowPromptingSubagentSessions}
             />
