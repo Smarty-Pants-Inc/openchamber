@@ -20,6 +20,7 @@ let currentFetchDirectory: string | null = DIRECTORY;
 let selectedDirectory = DIRECTORY;
 let configScopes: Array<string | null | undefined> = [];
 let managedSelections: string[] = [];
+let rememberedSelections: string[] = [];
 let managedCatalogAdmitted = false;
 let managedProjects: { id: string; path: string; label: string }[] = [];
 let configListener: ((event: { scopes: string[]; source?: string; timestamp: number }) => void | Promise<void>) | null = null;
@@ -162,7 +163,10 @@ mock.module('@/stores/useProjectsStore', () => ({
       activeProjectId: managedCatalogAdmitted ? managedProjects[0]?.id ?? null : 'project',
       managedCatalogAdmitted,
       managedProjects,
-      setActiveProject: (id: string) => { managedSelections.push(id); selectedDirectory = managedProjects.find(project => project.id === id)!.path; },
+      setActiveProject: (id: string, options?: { remember?: boolean }) => {
+        managedSelections.push(id); if (options?.remember !== false) rememberedSelections.push(id);
+        selectedDirectory = managedProjects.find(project => project.id === id)!.path;
+      },
       projects: [
         { id: 'project', path: DIRECTORY, label: 'Project' },
         { id: 'other', path: OTHER_DIRECTORY, label: 'Other' },
@@ -266,7 +270,7 @@ describe('useConfigStore provider persistence', () => {
     listAgentsImpl = null;
     withDirectoryCalls = [];
     currentFetchDirectory = DIRECTORY;
-    selectedDirectory = DIRECTORY; managedCatalogAdmitted = false; managedProjects = []; configScopes = []; managedSelections = [];
+    selectedDirectory = DIRECTORY; managedCatalogAdmitted = false; managedProjects = []; configScopes = []; managedSelections = []; rememberedSelections = [];
     setSyncRefs({} as never, { children: new Map(), getState: () => undefined } as never, DIRECTORY);
     useSelectionStore.setState({
       sessionModelSelections: new Map(),
@@ -329,6 +333,8 @@ describe('useConfigStore provider persistence', () => {
     try {
       await useConfigStore.getState().initializeApp();
       expect(managedSelections).toEqual(['a']);
+      // smarty-code#114 (#117 class): a first load's selection is not a choice, so it publishes no shared setting.
+      expect(rememberedSelections).toEqual([]);
       expect(selectedDirectory).toBe(admitted);
       expect(useConfigStore.getState().activeDirectoryKey).toBe(admitted);
       expect(configScopes.length).toBeGreaterThan(0);
