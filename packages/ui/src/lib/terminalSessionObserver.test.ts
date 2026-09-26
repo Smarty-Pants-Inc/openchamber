@@ -124,3 +124,18 @@ test('rejects a replaced runtime response and refreshes the new runtime', async 
   expect(seen).toEqual([[]]);
   expect(calls).toBe(2);
 });
+
+test('a second stop of a finished one-shot consumer never ends a later consumer of the same directory', async () => {
+  const source = createTerminal();
+  // Another directory keeps the loop alive meanwhile.
+  cleanups.push(observeTerminalSessions(source.terminal, '/other', () => new Map(), () => {}));
+  let stop = () => {};
+  stop = observeTerminalSessions(source.terminal, '/repo', () => new Map(), () => stop()); // Lists once, then stops.
+  await tick();
+  const panel: TerminalServerSession[][] = [];
+  cleanups.push(observeTerminalSessions(source.terminal, '/repo', () => new Map(), result => panel.push(result.sessions)));
+  stop(); // The one-shot's effect cleanup: its second stop.
+  source.setRecords([running]);
+  await new Promise(resolve => setTimeout(resolve, 5100));
+  expect(panel.at(-1)).toEqual([running]); // The later consumer is still notified.
+}, 10000);
