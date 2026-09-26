@@ -1,6 +1,7 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { getImperativeSessionMessageLoader } from './session-message-loader';
 
 /**
  * smarty-code#455 (CPU, smarty-dev#777): while a page shows a View only session, it holds that session's live tail open
@@ -9,6 +10,9 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
  * Its frames are only a connected event and heartbeats: read and dropped (the page's own stream carries the events).
  * A gateway that does not say `readOnlyWatch: 1` in its health for that directory is not asked (it would stream
  * everything). Capability answers are per server (runtime key) and directory; a failed health read is retried.
+ * Catch-up: a watch re-acquired for a session this page watched before (shown again after being hidden, or a dropped
+ * stream reconnected) re-reads the session's latest page once its stream is open. On the gateway, that read becomes the
+ * new tail's baseline, so entries committed while unwatched appear and nothing between the read and the tail is lost.
  */
 type Fetch = (input: string, init: { query: Record<string, string>; signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
 type Held = { views: number; stop: AbortController };
@@ -16,12 +20,18 @@ const held = new Map<string, Held>();
 const supported = new Set<string>(); // `${runtime}\0${directory}` whose gateway said readOnlyWatch: 1.
 let fetcher: Fetch = runtimeFetch as unknown as Fetch;
 let runtime: () => string = getRuntimeKey;
+const CATCH_UP_LIMIT = 50;
+type CatchUp = (sessionId: string, directory: string) => Promise<void>;
+const readLatest: CatchUp = async (sessionID, directory) => { await getImperativeSessionMessageLoader()?.refreshTail({ directory, sessionID }, CATCH_UP_LIMIT); };
+let catchUp: CatchUp = readLatest;
+const watchedBefore = new Set<string>(); // Sessions this page has watched (bounded): their next watch catches up.
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
 /** Test seams: the number of watches held, and the fetch and runtime key used. */
 export const viewOnlyWatchesHeld = (): number => held.size;
-export const setViewOnlyWatchDeps = (deps: { fetch?: Fetch; runtime?: () => string } = {}): void => {
-  fetcher = deps.fetch ?? (runtimeFetch as unknown as Fetch); runtime = deps.runtime ?? getRuntimeKey; supported.clear();
+export const setViewOnlyWatchDeps = (deps: { fetch?: Fetch; runtime?: () => string; catchUp?: CatchUp } = {}): void => {
+  fetcher = deps.fetch ?? (runtimeFetch as unknown as Fetch); runtime = deps.runtime ?? getRuntimeKey; catchUp = deps.catchUp ?? readLatest;
+  supported.clear(); watchedBefore.clear();
 };
 
 /** 'yes' or 'no' from the gateway's own health; 'unknown' when it could not be read (retried). Only 'yes' is kept. */
@@ -41,11 +51,12 @@ const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =>
   const timer = setTimeout(done, ms);
   signal.addEventListener('abort', done, { once: true });
 });
-/** One stream until it ends, fails or `signal` aborts; its frames are dropped. */
-async function stream(sessionId: string, directory: string, signal: AbortSignal) {
+/** One stream until it ends, fails or `signal` aborts; its frames are dropped. `opened` runs once it is open. */
+async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: () => void) {
   const response = await fetcher('/api/event', { query: { directory, watch: sessionId }, signal, headers: { accept: 'text/event-stream' } });
   const reader = response.ok ? response.body?.getReader() : undefined;
   if (!reader) { await response.body?.cancel().catch(() => {}); return; }
+  opened();
   const cancel = () => { void reader.cancel().catch(() => {}); };
   signal.addEventListener('abort', cancel, { once: true });
   try { while (!signal.aborted && !(await reader.read()).done) { /* Frames are dropped. */ } }
@@ -55,13 +66,18 @@ async function stream(sessionId: string, directory: string, signal: AbortSignal)
 /** Holds the watch until `signal` aborts, on the server it began on: reconnects with a backoff after a failed health
  * read, a 503, an error or a closed stream; stops for good on a gateway without the capability or a server switch. */
 async function hold(key: string, sessionId: string, directory: string, signal: AbortSignal) {
-  const server = runtime();
+  const server = runtime(), session = `${key}\0${sessionId}`;
+  const opened = () => { // A re-acquired watch (after a hidden spell or a drop) catches up on what it missed.
+    if (watchedBefore.has(session)) void catchUp(sessionId, directory).catch(() => {});
+    watchedBefore.delete(session); watchedBefore.add(session);
+    if (watchedBefore.size > 256) watchedBefore.delete(watchedBefore.values().next().value!);
+  };
   for (let failures = 0; !signal.aborted && runtime() === server;) {
     const answer = await supports(key, directory, signal);
     if (answer === 'no' || signal.aborted || runtime() !== server) return;
     const started = Date.now();
     if (answer === 'yes') {
-      try { await stream(sessionId, directory, signal); } catch { /* Aborted, or the network failed. */ }
+      try { await stream(sessionId, directory, signal, opened); } catch { /* Aborted, or the network failed. */ }
     }
     if (signal.aborted) return;
     failures = Date.now() - started > 60_000 ? 1 : failures + 1; // A stream that lived a while starts the backoff over.
