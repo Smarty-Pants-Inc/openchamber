@@ -157,3 +157,69 @@ test("a second send that reuses a pending message ID does not own it", () => {
   expect(registerPendingSteer({ ...record, text: "second" })).toBe(false)
   expect(takePendingSteer(getRuntimeKey(), sessionID, "msg_kate")?.text).toBe("first")
 })
+
+// smarty-code#399 review (finding 3): the gateway may correct an outcome it already sent, keyed by the same sessionID
+// and messageID. A later 'delivered' clears the sender's failure notice; a different failure replaces its wording.
+test("a failure later corrected to delivered clears the sender's notice", async () => {
+  sent("msg_kate", "draft a marketing plan")
+  await deliver("msg_kate", "not-delivered")
+  expect(notices()).toEqual(["not-delivered: draft a marketing plan"])
+  await deliver("msg_kate", "delivered")
+  expect(notices()).toEqual([])
+})
+
+test("an unconfirmed outcome later corrected to not-delivered replaces the notice; a repeat changes nothing", async () => {
+  sent("msg_kate", "what changed today?")
+  await deliver("msg_kate", "unconfirmed")
+  await deliver("msg_kate", "not-delivered")
+  expect(notices()).toEqual(["not-delivered: what changed today?"])
+  await deliver("msg_kate", "not-delivered")
+  expect(notices()).toEqual(["not-delivered: what changed today?"])
+  expect(toasts).toHaveLength(1)
+})
+
+test("a correction for another message or another tab's message touches nothing", async () => {
+  sent("msg_kate", "first")
+  await deliver("msg_kate", "not-delivered")
+  await deliver("msg_other", "delivered")
+  expect(notices()).toEqual(["not-delivered: first"])
+})
+
+test("a delivered correction in the same batch keeps the message, and one after the removal reads the tail again", async () => {
+  sent("msg_kate", "draft a marketing plan")
+  const tail = spyOn(loader, "refreshTail").mockResolvedValue(undefined)
+  // Same batch: the failure schedules the removal, the correction arrives before it runs.
+  handleEvent("global", outcomeEvent("msg_kate", "unconfirmed"), children, createEventRoutingIndex(), getRuntimeKey())
+  handleEvent("global", outcomeEvent("msg_kate", "delivered"), children, createEventRoutingIndex(), getRuntimeKey())
+  await Promise.resolve()
+  expect(shown()).toEqual(["msg_kate"])
+  expect(notices()).toEqual([])
+  // Later: the failure already removed the copy; the correction reads the session's tail so the message shows again.
+  sent("msg_two", "second")
+  await deliver("msg_two", "not-delivered")
+  expect(shown()).not.toContain("msg_two")
+  await deliver("msg_two", "delivered")
+  expect(tail).toHaveBeenCalledWith({ directory, sessionID }, 50)
+  tail.mockRestore()
+})
+
+test("a delivered correction after the person dismissed the failure notice still restores the message", async () => {
+  sent("msg_dismissed", "dismissed then delivered")
+  const tail = spyOn(loader, "refreshTail").mockResolvedValue(undefined)
+  await deliver("msg_dismissed", "unconfirmed")
+  useSteerOutcomes.getState().dismiss(getRuntimeKey(), "msg_dismissed")
+  await deliver("msg_dismissed", "delivered")
+  expect(tail).toHaveBeenCalledWith({ directory, sessionID }, 50)
+  tail.mockRestore()
+})
+
+test("a delivered correction retires the page's shadow so a later authoritative removal stays removed", async () => {
+  sent("msg_shadow", "shadowed")
+  const tail = spyOn(loader, "refreshTail").mockResolvedValue(undefined)
+  const confirm = spyOn(loader, "optimisticConfirm")
+  handleEvent("global", outcomeEvent("msg_shadow", "unconfirmed"), children, createEventRoutingIndex(), getRuntimeKey())
+  handleEvent("global", outcomeEvent("msg_shadow", "delivered"), children, createEventRoutingIndex(), getRuntimeKey())
+  await Promise.resolve(); await Promise.resolve()
+  expect(confirm).toHaveBeenCalledWith({ directory, sessionID, messageID: "msg_shadow" })
+  tail.mockRestore(); confirm.mockRestore()
+})

@@ -8,6 +8,8 @@ import { create } from 'zustand'
 export type SettledSteer = {
   runtimeKey: string
   sessionID: string
+  /** The session's directory, to read its transcript again when the gateway corrects the outcome to delivered. */
+  directory?: string
   messageID: string
   outcome: 'not-delivered' | 'unconfirmed'
   text: string
