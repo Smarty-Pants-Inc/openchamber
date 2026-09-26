@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { claimChatDraftOwnership, consumeChatDraft, createChatDraftIdentity, readChatDraft, subscribeChatDraftConsumption, writeChatDraft } from '@/lib/chatDraftPersistence';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
-import { admitSentStart, keepSentTextAsDraft, markSentStart, releaseSentStart, resetSentStartsForPage, resolveSentStart, sentStartLocks } from './native-draft-sent';
+import { admitSentStart, ensureSentStart, keepSentTextAsDraft, markSentStart, releaseSentStart, resetSentStartsForPage, resolveSentStart, sentStartLocks } from './native-draft-sent';
 
 // #117 (closed-tab case on 3.20): a Send whose start the server accepted owns the draft's text until that start resolves.
 // A tab closed meanwhile leaves the text in the draft; the next load or New session in that project must resolve the
@@ -271,4 +271,16 @@ test('the mark of an accepted start keeps its operation', () => {
   markSentStart(fixture.runtimeA, directory, request, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   releaseSentStart(request);
+});
+
+test('a recovered start\'s mark gains its operation, keeps its submission, and never replaces another request\'s mark', () => {
+  fixture = nativeDraftFixture();
+  const op = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', submission = { text: 'hello', at: 5 };
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, submittedText: 'hello', submittedAt: 5 }));
+  expect(ensureSentStart(fixture.runtimeA, directory, request, undefined, op)).toBe('marked');
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, submittedText: 'hello', submittedAt: 5, operationId: op });
+  expect(ensureSentStart(fixture.runtimeA, directory, request, submission)).toBe('marked'); // A later POST keeps it.
+  expect(JSON.parse(localStorage.getItem(markKey())!).operationId).toBe(op);
+  expect(ensureSentStart(fixture.runtimeA, directory, newer, undefined, op)).toBe('elsewhere'); // Another live start's mark.
+  expect(JSON.parse(localStorage.getItem(markKey())!).clientRequestId).toBe(request);
 });

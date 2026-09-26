@@ -95,13 +95,15 @@ export function markSentStart(runtimeKey: string, directory: string, clientReque
  * browser refuses to store is 'storage'. Either way nothing may be sent. It takes no lock (the caller holds one).
  */
 export function ensureSentStart(runtimeKey: string, directory: string, clientRequestId: string,
-  submission?: { text: string; at: number }): 'marked' | 'elsewhere' | 'storage' {
+  submission?: { text: string; at: number }, operationId?: string): 'marked' | 'elsewhere' | 'storage' {
   const existing = readMarker(runtimeKey, directory);
-  const record = submission ? { submittedText: submission.text, submittedAt: submission.at } : {};
+  const record = { ...(submission ? { submittedText: submission.text, submittedAt: submission.at } : {}),
+    ...(operationId ? { operationId } : {}) };
   if (existing?.clientRequestId === clientRequestId) {
-    // The submission this POST carries (a retry may carry another): durable before it goes.
-    if (!submission || existing.admitted
-      || (existing.submittedText === submission.text && existing.submittedAt === submission.at)) return 'marked';
+    // The submission this POST carries (a retry may carry another), and its start's operation (a recovered start's
+    // mark gains it): durable before it goes.
+    const known = !submission || (existing.submittedText === submission.text && existing.submittedAt === submission.at);
+    if (existing.admitted || (known && (!operationId || existing.operationId === operationId))) return 'marked';
     return writeMarker(runtimeKey, directory, { ...existing, ...record }) ? 'marked' : 'storage';
   }
   if (existing && !existing.admitted) return 'elsewhere';
