@@ -69,13 +69,63 @@ describe('HTML preview capability', () => {
     execFileSync('mkfifo', [path.join(site, 'pipe.html')]);
     const fifo = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/pipe.html`).timeout(3000);
     expect(fifo.status).toBe(404);
-    // The opened file is outside; the canonical path checked afterwards names an inside file (a swap in between).
-    const realpath = vi.spyOn(fs, 'realpath').mockResolvedValueOnce(path.join(site, 'index.html'));
+  });
+
+  // Review P1 on openchamber#240: a link swapped in after the containment check must not redirect the read outside.
+  // The swap runs inside realpath, right after the real resolution: the moment between the check and the open.
+  const swapAfterCheck = (swap) => {
+    const real = fs.realpath.bind(fs);
+    return vi.spyOn(fs, 'realpath').mockImplementation(async (target, ...rest) => {
+      const resolved = await real(target, ...rest);
+      await swap();
+      return resolved;
+    });
+  };
+
+  it('refuses the file itself swapped for a link to an outside file after the check', async () => {
+    await fs.writeFile(path.join(site, 'swap.txt'), 'inside');
+    const spy = swapAfterCheck(async () => {
+      await fs.rm(path.join(site, 'swap.txt'));
+      await fs.symlink(path.join(other, 'secret.txt'), path.join(site, 'swap.txt'));
+    });
     try {
-      const swapped = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/..%2Fbeside.txt`);
-      expect(swapped.status).toBe(404);
-      expect(realpath).toHaveBeenCalled();
-    } finally { realpath.mockRestore(); }
+      const response = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/swap.txt`);
+      expect(response.status).toBe(404);
+      expect(response.text).not.toContain('not yours');
+    } finally { spy.mockRestore(); }
+  });
+
+  it('refuses the reviewed swap-back: outside when opened, inside when checked, outside again when compared', async () => {
+    const link = path.join(site, 'swap.txt');
+    await fs.symlink(path.join(other, 'secret.txt'), link);
+    const toInside = async () => { await fs.rm(link); await fs.writeFile(link, 'inside'); };
+    const toOutside = async () => { await fs.rm(link); await fs.symlink(path.join(other, 'secret.txt'), link); };
+    const realOpen = fs.open.bind(fs);
+    const open = vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      const handle = await realOpen(...args);
+      if (String(args[0]) === link) await toInside();
+      return handle;
+    });
+    const spy = swapAfterCheck(async () => { if ((await fs.lstat(link)).isFile()) await toOutside(); });
+    try {
+      const response = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/swap.txt`);
+      expect(response.status).toBe(404);
+      expect(response.text).not.toContain('not yours');
+    } finally { spy.mockRestore(); open.mockRestore(); }
+  });
+
+  it('refuses a parent folder swapped for a link to an outside folder after the check', async () => {
+    await fs.mkdir(path.join(site, 'sub'));
+    await fs.writeFile(path.join(site, 'sub', 'secret.txt'), 'inside');
+    const spy = swapAfterCheck(async () => {
+      await fs.rename(path.join(site, 'sub'), path.join(root, 'moved-away'));
+      await fs.symlink(other, path.join(site, 'sub'));
+    });
+    try {
+      const response = await request(app()).get(`/api/fs/preview/${mintPreviewCapability(site)}/sub/secret.txt`);
+      expect(response.status).toBe(404);
+      expect(response.text).not.toContain('not yours');
+    } finally { spy.mockRestore(); }
   });
 
   it('never lets a raw file run scripts when opened as a document, except a real PDF', async () => {

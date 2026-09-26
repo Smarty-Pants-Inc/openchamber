@@ -72,6 +72,23 @@ export const readPreviewCapability = (capability, now = Date.now()) => {
   }
 };
 
+const isInside = (directory, target) => {
+  const inside = path.relative(directory, target);
+  return Boolean(inside) && inside !== '..' && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside);
+};
+
+// Whether the open file lies inside the granted directory. Linux names the open file itself; elsewhere the resolved
+// path must still be the same file (no link), which leaves a narrow folder-swap window.
+// ponytail: the deployed Code runs on Linux; a platform without /proc keeps that window until it needs this preview.
+const openedInside = async (handle, directory, target, opened) => {
+  try {
+    return isInside(directory, await fsPromises.readlink(`/proc/self/fd/${handle.fd}`));
+  } catch {
+    const named = await fsPromises.lstat(target).catch(() => null);
+    return Boolean(named) && !named.isSymbolicLink() && named.dev === opened.dev && named.ino === opened.ino;
+  }
+};
+
 const setPreviewHeaders = (res) => {
   res.setHeader('Content-Security-Policy', PREVIEW_CSP);
   res.setHeader('Cache-Control', 'no-store');
@@ -93,16 +110,15 @@ export const registerPreviewServeRoute = (app) => {
     const candidate = path.resolve(directory, req.params[1]);
     let handle;
     try {
-      // Open first (non-blocking, so a FIFO cannot hold the request), then require that the checked canonical path is
-      // the very file that was opened: a link or folder swapped in between cannot redirect the read outside.
-      handle = await fsPromises.open(candidate, constants.O_RDONLY | constants.O_NONBLOCK);
+      // Resolve, check containment, then open that resolved path without following a final link (O_NOFOLLOW) and
+      // without blocking on a FIFO. Then confirm what was ACTUALLY opened: on Linux the kernel names the open file
+      // (/proc/self/fd), so a link or folder swapped in after the check cannot redirect the read outside.
+      const target = await fsPromises.realpath(candidate);
+      if (!isInside(directory, target)) return notFound();
+      handle = await fsPromises.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const opened = await handle.stat();
       if (!opened.isFile() || opened.size > MAX_SERVE_BYTES) return notFound();
-      const target = await fsPromises.realpath(candidate);
-      const inside = path.relative(directory, target);
-      if (!inside || inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) return notFound();
-      const named = await fsPromises.stat(target);
-      if (named.dev !== opened.dev || named.ino !== opened.ino) return notFound();
+      if (!(await openedInside(handle, directory, target, opened))) return notFound();
       const content = await handle.readFile();
       setPreviewHeaders(res);
       return res.type(FILE_MIME_MAP[path.extname(target).toLowerCase()] || 'application/octet-stream').send(content);
