@@ -3,13 +3,15 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
-import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation } from './native-draft-creation';
+import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation, ownSettledStarts, STOPPED_PHASES, startsElsewhere } from './native-draft-creation';
 import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
 import { clearSentStart, ensureSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
 import { discoveryPendingNow } from '@/lib/managed-discovery';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 import { forgetRequestId, newRequestId, notifyDraftStart, requestKey, storedRequestId, subscribeDraftStart } from './native-draft-intent';
-export { resetNativeDraftPage } from './native-draft-intent';
+import { resetNativeDraftPage as resetDraftIntentPage } from './native-draft-intent';
+/** A page load: no claimed drafts, and no remembered settled starts; tests call this to model a reload of the same tab. */
+export function resetNativeDraftPage(): void { resetDraftIntentPage(); ownSettledStarts.clear(); }
 
 /**
  * This tab's own start for the draft: its saved request, or the one this page still holds in memory (after the start
@@ -23,8 +25,7 @@ export function ownNativeRequestId(draft: NewSessionDraftState, runtimeKey: stri
   return held?.status === 'pending' ? held.operation.clientRequestId : undefined;
 }
 
-/** Phases known to have started nothing that could take this message. */
-const STOPPED = ['denied', 'cancelled', 'expired'];
+const STOPPED = STOPPED_PHASES;
 const POLL_MS = 1000, LIMIT_MS = 120_000;
 let running = false;
 const setRunning = (value: boolean) => { running = value; notifyDraftStart(); };
@@ -125,8 +126,7 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     hold(id);
   };
   // A start this page abandoned is settled for good even when the caller's list predates that (#340).
-  const open = operations.filter(operation => operation.directory === draft.directoryOverride
-    && operation.phase !== 'ready' && !STOPPED.includes(operation.phase) && !abandonedNativeCreations.has(operation.operationId));
+  const notAbandoned = (list: readonly NativeCreationState[]) => list.filter(operation => !abandonedNativeCreations.has(operation.operationId));
   const first = record();
   if (first?.status === 'failed' && !first.submitted || first?.status === 'pending' && STOPPED.includes(first.operation.phase)) {
     publishNativeCreation(first, null);
@@ -165,8 +165,14 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     }
   }
   // Any other start still running here (another window, device or draft) is never taken over; the server refuses a
-  // second start meanwhile.
-  if (open.length > 0) throw new NativeCreationError('elsewhere');
+  // second start meanwhile. The composer's snapshot may predate a start settling (smarty-code#114: read 0.8 s before
+  // this page's own first start turned ready), so only a fresh read refuses.
+  if (startsElsewhere(notAbandoned(operations), runtimeKey, draft.directoryOverride).length > 0) {
+    const fresh = await opencodeClient.listNativeCreations(draft.directoryOverride)
+      .catch(cause => { throw new NativeCreationError('unavailable', cause); });
+    record();
+    if (startsElsewhere(notAbandoned(fresh), runtimeKey, draft.directoryOverride).length > 0) throw new NativeCreationError('elsewhere');
+  }
   // Another tab sent this project's draft text (#117): resolve it first; its text is never sent again from here.
   const sent = await resolveSentStart(runtimeKey, draft.directoryOverride, draft.draftId);
   if (sent === 'delivered' || sentStartLocks(sent)) throw new NativeCreationError('elsewhere');

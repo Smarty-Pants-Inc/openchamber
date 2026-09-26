@@ -29,6 +29,10 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   React.useEffect(() => { resumeAcceptedNativeDraft(); }, [scoped]);
   const [capability, setCapability] = React.useState<Capability | null>(null);
   const [revision, recheck] = React.useReducer(value => value + 1, 0);
+  // Why the last Send on this draft was refused before anything was sent; shown until the next Send or another draft.
+  // Bound to the draft, its project and directory, and the server: a switch shows no other target's refusal.
+  const refusalFor = `${runtimeKey}\0${draft.draftId}\0${draft.selectedProjectId ?? ''}\0${draft.directoryOverride ?? ''}`;
+  const [refusal, setRefusal] = React.useState<{ key: string; error: NativeCreationError } | null>(null);
   const directory = draft.directoryOverride ?? currentDirectory;
   // A check before the managed catalog admits this directory is refused by the gateway; check
   // again when the catalog publishes instead of leaving the draft unavailable (smarty-code#113).
@@ -85,6 +89,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   return {
     mode, session, creation: scoped, operations,
     canAbandon: capability?.runtimeKey === runtimeKey && capability.directory === directory && capability.abandon === true,
+    refusal: refusal?.key === refusalFor ? refusal.error : null,
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();
       else if (scoped?.status === 'failed' && !scoped.submitted) await recheckNativeDraft();
@@ -94,12 +99,23 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     describeError,
     /** Send on a new-session draft starts its session first (native-draft-start), then sends once. */
     beforeSend: async () => {
-      guard();
-      if (draft.open) {
-        await startNativeDraft(operations);
+      setRefusal(null);
+      try {
         guard();
-        const native = await preparedNativeDraft(draft);
-        if (native) return prepareNativeDraftSend(draft, native);
+        if (draft.open) {
+          await startNativeDraft(operations);
+          guard();
+          const native = await preparedNativeDraft(draft);
+          if (native) return prepareNativeDraftSend(draft, native);
+        }
+      } catch (cause) {
+        const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
+        // A second press while the first is still starting needs no line: the first one's own line is showing.
+        // Only for the draft and target that are still shown (a late refusal of a switched-away target is not shown).
+        const now = useSessionUIStore.getState().newSessionDraft;
+        const still = `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
+        if (draft.open && still && error.code !== 'sending') setRefusal({ key: refusalFor, error });
+        throw error;
       }
     },
   };
