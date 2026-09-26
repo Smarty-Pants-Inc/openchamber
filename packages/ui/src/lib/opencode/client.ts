@@ -209,6 +209,15 @@ const createTimeoutSignal = (timeoutMs: number): { signal: AbortSignal; cleanup:
  * explicitly excluded in {@link createRuntimeOpencodeClient}.
  */
 const OPENCODE_REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * The project catalog and the global session list may take longer on a loaded host (a fleet read waits on each busy
+ * Pi; smarty-code#113), so they get a longer, still finite, bound: slow is not the half-open socket the bound guards.
+ */
+const DISCOVERY_READ_TIMEOUT_MS = 120_000;
+const isDiscoveryReadUrl = (input: string | URL | Request): boolean => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  try { return /\/(project|experimental\/session)$/.test(new URL(url, 'http://local').pathname); } catch { return false; }
+};
 
 const isEventStreamUrl = (input: string | URL | Request): boolean => {
   const url = typeof input === 'string'
@@ -224,10 +233,13 @@ type RuntimeOpencodeClientConfig = {
   directory?: string;
   /** Read-request timeout in ms. Overridable so tests can use short value. */
   requestTimeoutMs?: number;
+  /** The same for the project catalog and global session list reads. */
+  discoveryTimeoutMs?: number;
 };
 
 export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig): OpencodeClient => {
-  const requestTimeoutMs = config.requestTimeoutMs ?? OPENCODE_REQUEST_TIMEOUT_MS;
+  const readTimeoutMs = config.requestTimeoutMs ?? OPENCODE_REQUEST_TIMEOUT_MS;
+  const discoveryTimeoutMs = config.discoveryTimeoutMs ?? DISCOVERY_READ_TIMEOUT_MS;
   const scope = captureRuntimeRequestScope();
   return createOpencodeClient({
     ...config,
@@ -239,6 +251,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       if (isEventStreamUrl(input) || method === 'POST') {
         return runtimeFetch(input, init);
       }
+      const requestTimeoutMs = isDiscoveryReadUrl(input) ? discoveryTimeoutMs : readTimeoutMs;
       const timeout = createTimeoutSignal(requestTimeoutMs);
       const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
       const supportsAny = typeof AbortSignal !== 'undefined'
