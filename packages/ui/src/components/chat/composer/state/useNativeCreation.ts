@@ -32,6 +32,12 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   // Why the last Send on this draft was refused before anything was sent; shown until the next Send or another draft.
   // Bound to the draft, its project and directory, and the server: a switch shows no other target's refusal.
   const refusalFor = `${runtimeKey}\0${draft.draftId}\0${draft.selectedProjectId ?? ''}\0${draft.directoryOverride ?? ''}`;
+  // A refusal is said only while its draft and target are still shown: a late refusal of a switched-away target (a
+  // press made before the switch) never replaces the shown target's line.
+  const stillShown = () => {
+    const now = useSessionUIStore.getState().newSessionDraft;
+    return now.open && `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
+  };
   const [refusal, setRefusal] = React.useState<{ key: string; error: NativeCreationError } | null>(null);
   const directory = draft.directoryOverride ?? currentDirectory;
   // A check before the managed catalog admits this directory is refused by the gateway; check
@@ -94,7 +100,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     noteRefusal: (cause: unknown) => {
       const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
       if (error.code === 'sending') return; // A second press: the first Send is still under way and says its own outcome.
-      if (draft.open) setRefusal({ key: refusalFor, error });
+      if (stillShown()) setRefusal({ key: refusalFor, error });
     },
     refresh: () => perform(async () => {
       if (scoped?.status === 'pending') await refreshNativeCreation();
@@ -119,10 +125,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       } catch (cause) {
         const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
         // A second press while the first is still starting needs no line: the first one's own line is showing.
-        // Only for the draft and target that are still shown (a late refusal of a switched-away target is not shown).
-        const now = useSessionUIStore.getState().newSessionDraft;
-        const still = `${getRuntimeKey()}\0${now.draftId}\0${now.selectedProjectId ?? ''}\0${now.directoryOverride ?? ''}` === refusalFor;
-        if (draft.open && still && error.code !== 'sending') setRefusal({ key: refusalFor, error });
+        if (stillShown() && error.code !== 'sending') setRefusal({ key: refusalFor, error });
         throw error;
       }
     },
