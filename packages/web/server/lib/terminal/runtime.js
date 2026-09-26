@@ -1,3 +1,4 @@
+import { browserRequestAllowed } from '../security/browser-origin.js';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import {
@@ -412,7 +413,11 @@ export function createTerminalRuntime({
         }).catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
       } catch { rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'); }
     };
-    if (!uiAuthController?.enabled) { accept(); return; }
+    if (!uiAuthController?.enabled) { // Passwordless: the browser-origin rule (smarty-code#391).
+      void browserRequestAllowed(req).then((allowed) => (allowed ? accept() : rejectWebSocketUpgrade(socket, 403, 'Invalid origin')))
+        .catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
+      return;
+    }
     if (uiAuthController.humanMode) { checkOrigin(); return; }
     try {
       const result = uiAuthController.ensureSessionToken(req, null);

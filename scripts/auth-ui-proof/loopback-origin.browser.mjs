@@ -10,16 +10,27 @@ import {
   registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerServerStatusRoutes,
 } from '../../packages/web/server/lib/opencode/core-routes.js';
 import { registerFsRoutes } from '../../packages/web/server/lib/fs/routes.js';
+import { createMessageStreamWsRuntime } from '../../packages/web/server/lib/event-stream/runtime.js';
+import { createTerminalRuntime } from '../../packages/web/server/lib/terminal/runtime.js';
+import { createRequestSecurityRuntime } from '../../packages/web/server/lib/security/request-security.js';
 
 // smarty-code#391, in real Chromium, through the production bootstrap in the passwordless LOOPBACK mode (no human auth,
 // no UI password): a page in the same browser (here the Files view's sandboxed preview) sends a no-cors, url-encoded
-// POST to /api/fs/write and a POST to /api/system/shutdown. Neither may change anything. The control is the same page
-// from the application's own origin: its write lands, which proves the check would see a change.
+// POST to /api/fs/write and a POST to /api/system/shutdown, and opens the event-stream and terminal WebSockets (the
+// production listeners). Nothing may change and no socket may open. The control is the same page from the application's
+// own origin: its write lands and its sockets open, which proves the checks would see a change.
 const probe = (target) => `(async () => {
   const body = new URLSearchParams({ path: ${JSON.stringify(target)}, content: 'written by ' + self.origin });
   const r = { origin: self.origin };
   try { await fetch('/api/fs/write', { method: 'POST', mode: 'no-cors', body }); r.write = 'sent'; } catch (e) { r.write = String(e); }
   try { await fetch('/api/system/shutdown', { method: 'POST', mode: 'no-cors' }); r.shutdown = 'sent'; } catch (e) { r.shutdown = String(e); }
+  const socket = (path) => new Promise((resolve) => {
+    const ws = new WebSocket('ws://' + location.host + path);
+    ws.onopen = () => { ws.close(); resolve('open'); };
+    ws.onerror = () => resolve('refused');
+  });
+  r.events = await socket('/api/global/event/ws');
+  r.terminal = await socket('/api/terminal/ws');
   parent.postMessage(r, '*');
 })();`;
 
@@ -47,6 +58,15 @@ test.beforeAll(async () => {
     registerOpenChamberRoutes: () => {},
   }).setupBaseRoutes(app, { tunnelAuthController: tunnel, process, runtimeName: 'test', openchamberVersion: 'fixture',
     sessionRuntime: {}, gracefulShutdown: async () => { shutdowns++; }, getHealthSnapshot: () => ({}) });
+  const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
+  createMessageStreamWsRuntime({ server, uiAuthController: null, isRequestOriginAllowed: security.isRequestOriginAllowed,
+    rejectWebSocketUpgrade: security.rejectWebSocketUpgrade, buildOpenCodeUrl: (p) => `http://127.0.0.1:9${p}`,
+    getOpenCodeAuthHeaders: () => ({}), processForwardedEventPayload() {}, wsClients: new Set(), upstreamReconnectDelayMs: 60_000,
+    fetchImpl: () => new Promise(() => {}) });
+  createTerminalRuntime({ app: { get() {}, post() {}, delete() {} }, server, fs: {}, path: {}, uiAuthController: null,
+    buildAugmentedPath: () => '', searchPathFor: () => null, isExecutable: () => false,
+    isRequestOriginAllowed: security.isRequestOriginAllowed, rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
+    TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000, loadPtyProvider: async () => { throw new Error('unused'); } });
   registerFsRoutes(app, { os, path, fsPromises: fs, spawn: () => { throw new Error('unused'); }, crypto: { randomUUID: () => 'id-0' },
     normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: site }),
     resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, '.config') });
@@ -72,7 +92,7 @@ test.beforeEach(async () => {
 const run = async (page, src, sandbox) => {
   await page.goto(`${origin}/host?src=${encodeURIComponent(src)}${sandbox === undefined ? '' : `&sandbox=${encodeURIComponent(sandbox)}`}`);
   await page.waitForFunction(() => window.results !== null, null, { timeout: 10_000 });
-  await page.waitForTimeout(500); // Let both POSTs reach the server.
+  await page.waitForTimeout(500); // Let both POSTs reach the server (the sockets have already settled).
   return page.evaluate(() => window.results);
 };
 
@@ -85,10 +105,14 @@ test('passwordless loopback: a sandboxed page\'s url-encoded write and shutdown 
   expect(results.write).toBe('sent');
   expect(await fs.readFile(target, 'utf8')).toBe('original');
   expect(shutdowns).toBe(0);
+  expect(results.events).toBe('refused');
+  expect(results.terminal).toBe('refused');
 });
 
 test('control: the same page from the application origin writes the file, so a change would be seen', async ({ page }) => {
   const results = await run(page, `${origin}/control/index.html`);
   expect(results.origin).toBe(origin);
   expect(await fs.readFile(target, 'utf8')).toBe(`written by ${origin}`);
+  expect(results.events).toBe('open');
+  expect(results.terminal).toBe('open');
 });

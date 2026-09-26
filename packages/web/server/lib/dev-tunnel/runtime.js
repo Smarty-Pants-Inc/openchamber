@@ -24,6 +24,7 @@
  *   URL token. The URL-token case is used only by the trusted renderer through
  *   the E2EE relay; the UI-auth allowlist limits it to this exact path.
  */
+import { browserRequestAllowed } from '../security/browser-origin.js';
 import net from 'node:net';
 import { WebSocketServer } from 'ws';
 
@@ -148,6 +149,9 @@ export function createDevTunnelRuntime({
             rejectWebSocketUpgrade(socket, 403, 'Client authentication required');
             return;
           }
+        } else if (!await browserRequestAllowed(req)) { // Passwordless: the browser-origin rule (smarty-code#391).
+          rejectWebSocketUpgrade(socket, 403, 'Invalid origin');
+          return;
         }
 
         const port = parseRequestedPort(req.url);
