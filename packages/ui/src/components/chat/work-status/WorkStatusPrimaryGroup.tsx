@@ -7,7 +7,6 @@ import { useWorktreeBootstrapPending } from '@/hooks/useWorktreeBootstrapPending
 import { runBackgroundNetworkTask } from '@/lib/background-network';
 import { useFreshestPrVisualSummaryForBranch } from '@/stores/useGitHubPrStatusStore';
 import { useSessionMessages } from '@/sync/sync-context';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
@@ -16,6 +15,7 @@ import { resolveUsageTone } from '@/lib/quota';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { normalizePath } from '@/lib/pathNormalization';
 import { computeContextUsage } from './contextUsage';
+import { useSessionContextWindow } from './useSessionContextWindow';
 import { formatCost } from './subagentCost';
 import { useSubagentCostRollup } from './useSubagentCostRollup';
 import {
@@ -40,6 +40,8 @@ type Props = {
 // Matches the header readout exactly: one decimal, capped the same way, so the
 // two places that report context fill never disagree by a rounding step.
 const formatPercent = (percent: number): string => `${Math.min(percent, 999).toFixed(1)}%`;
+/** Tokens in use when the model reports no window: "372.2k tokens". */
+const formatTokens = (tokens: number): string => `${tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)} tokens`;
 
 /**
  * The persistent readouts — how full the context is, what the working tree and
@@ -157,22 +159,10 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
   // fan-out the PR-status concurrency gate exists to prevent.
   const prSummary = useFreshestPrVisualSummaryForBranch(gitDirectory, branch);
 
-  // `getCurrentModel` is an imperative getter: its reference never changes, so
-  // calling it in render subscribes to nothing. Subscribe to the selected model
-  // ids and recompute the limits from those.
-  const getCurrentModel = useConfigStore((state) => state.getCurrentModel);
-  const currentProviderId = useConfigStore((state) => state.currentProviderId);
-  const currentModelId = useConfigStore((state) => state.currentModelId);
+  // The window of the model this session runs (useSessionContextWindow), never the composer's selection alone.
   const sessionMessages = useSessionMessages(sessionId ?? '', directory ?? undefined);
 
-  const contextLimit = React.useMemo(() => {
-    const currentModel = getCurrentModel();
-    const limit = currentModel && typeof currentModel.limit === 'object' && currentModel.limit !== null
-      ? (currentModel.limit as Record<string, unknown>)
-      : null;
-    return limit && typeof limit.context === 'number' ? limit.context : 0;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getter output tracks the selected model ids
-  }, [getCurrentModel, currentProviderId, currentModelId]);
+  const contextLimit = useSessionContextWindow(sessionId, directory).context;
 
   // Computed from this session's own messages rather than through
   // `useSessionUIStore.getContextUsage`, which reads the *current* directory's
@@ -235,6 +225,8 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
             : null;
 
   const usagePercent = contextUsage?.percent ?? null;
+  // Without a known window the panel shows the tokens in use, never a guessed percentage (G14).
+  const usageTokens = contextUsage && usagePercent === null ? contextUsage.totalTokens : null;
   // Colour threshold uses the rounded percentage, matching what the header
   // feeds `resolveUsageTone`; the displayed number stays unrounded.
   const usageTone = usagePercent === null ? null : resolveUsageTone(Math.round(usagePercent));
@@ -254,7 +246,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
   // without them the total *is* the session's own cost and the row would
   // restate the number directly above it.
   const showCostBreakdown = cost !== null && subagentCount > 0 && subagentCost > 0;
-  const hasSession = showSession && (usagePercent !== null || cost !== null || Boolean(goalRow));
+  const hasSession = showSession && (usagePercent !== null || usageTokens !== null || cost !== null || Boolean(goalRow));
   const hasRepository = showRepository && Boolean(branch || changed || prSummary || attentionLabel);
 
   useReportWorkStatusPresence('session-repository', hasSession || hasRepository);
@@ -265,7 +257,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
     <>
       {hasSession ? (
         <WorkStatusSection title={t('chat.workStatus.section.session')}>
-          {usagePercent !== null ? (
+          {usagePercent !== null || usageTokens !== null ? (
             <>
               <WorkStatusRow
                 icon="donut-chart"
@@ -274,14 +266,14 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
                 label={t('chat.workStatus.context.label')}
                 value={(
                   <>
-                    <WorkStatusValue>{formatPercent(usagePercent)}</WorkStatusValue>
+                    <WorkStatusValue>{usagePercent !== null ? formatPercent(usagePercent) : formatTokens(usageTokens ?? 0)}</WorkStatusValue>
                     {/* No icon of its own: the sprite has no currency glyph, and
                         spend belongs with consumption anyway. The `$` labels it. */}
                     {cost !== null ? <WorkStatusValue tone="muted">{formatCost(cost)}</WorkStatusValue> : null}
                   </>
                 )}
               />
-              <WorkStatusMeter percent={usagePercent} color={meterColor} />
+              {usagePercent !== null ? <WorkStatusMeter percent={usagePercent} color={meterColor} /> : null}
               {/* Caption, not a row: it explains the figure above it rather
                   than reporting a reading of its own, so it carries no icon
                   and no label column. */}

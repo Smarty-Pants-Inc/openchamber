@@ -413,11 +413,14 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4",
+      "combinedSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
-      "managedCatalogSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4"
+      "managedCatalogSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4",
+      "preContextWindowCombinedSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4",
+      "contextWindowSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
+      "contextWindowNote": "G14: the header context meter takes the window of the model the session runs (useSessionContextWindow) instead of the composer selection. Branded strings are unchanged."
     },
     {
       "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
@@ -474,5 +477,6 @@
   "sidebarHerdrSource": "e5aff1279a1a9c13e4fabfde34be79de19c9229a",
   "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
   "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8",
-  "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c"
+  "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c",
+  "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8"
 }
