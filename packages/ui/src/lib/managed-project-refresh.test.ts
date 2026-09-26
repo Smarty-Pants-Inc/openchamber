@@ -355,3 +355,23 @@ test('the real SDK shape of a timed-out read (an error, no response) keeps Loadi
     expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
   } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
 });
+
+test('a read whose body stalls after the headers (TimeoutError, also wrapped by the session list) keeps Loading', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    sessionRead = async () => {
+      reads++;
+      if (reads === 1) throw new DOMException('The operation timed out.', 'TimeoutError');
+      if (reads <= 3) throw new Error('experimental.session.list failed: The operation timed out.');
+      return [{ directory: '/allowed/a' }];
+    };
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable');
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});

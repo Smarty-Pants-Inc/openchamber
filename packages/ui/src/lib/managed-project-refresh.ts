@@ -20,6 +20,10 @@ const limits = { first: DISCOVERY_TIMEOUT_MS, later: REFRESH_TIMEOUT_MS };
 export const setCatalogReadLimitsForTest = (first: number, later: number) => { limits.first = first; limits.later = later; };
 /** While the catalog is unavailable, discovery is retried on its own after these delays (the last one repeats). */
 export const UNAVAILABLE_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+// No answer arrived: the SDK's read bound before the headers ('request timed out'), or the body stalled after them
+// (the fetch's TimeoutError or AbortError, possibly wrapped in a list error's message). Not an error answer.
+const isNoAnswer = (error: unknown): boolean => error instanceof Error
+  && (error.name === 'TimeoutError' || error.name === 'AbortError' || /timed out/i.test(error.message));
 class SlowRefresh extends Error {
   constructor(readonly first: boolean) { super(first ? 'Project catalog read timed out' : 'Project catalog refresh timed out'); }
 }
@@ -146,8 +150,8 @@ export function refreshManagedProjects(fresh = false): Promise<void> {
     if (!current()) return;
     // A read that never answered (the SDK's bound for a half-open connection) is not an error answer: the first
     // discovery stays 'Loading projects…' and tries again; a later refresh keeps what it has and tries again.
-    if (error instanceof Error && /request timed out/.test(error.message)) {
-      console.warn('[managed-catalog] no answer yet; trying again:', error.message);
+    if (isNoAnswer(error)) {
+      console.warn('[managed-catalog] no answer yet; trying again:', error instanceof Error ? error.message : String(error));
       retryWhileUnavailable(scope);
       return;
     }
