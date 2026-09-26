@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeContextUsage, DEFAULT_CONTEXT_LIMIT } from './contextUsage';
+import { computeContextUsage, sessionContextWindow, showsHeaderContextMeter } from './contextUsage';
 
 const assistant = (tokens: Record<string, unknown>, id = 'msg') => ({ id, role: 'assistant', tokens });
 
@@ -42,13 +42,13 @@ describe('computeContextUsage', () => {
     // Rounding here is what made the panel print "34.0%" against the header's
     // "33.6%".
     const usage = computeContextUsage([assistant({ input: 336, output: 0, reasoning: 0 })], 1000);
-    expect(usage?.percent.toFixed(1)).toBe('33.6');
+    expect(usage?.percent?.toFixed(1)).toBe('33.6');
   });
 
-  test('falls back to the default limit when the model exposes none', () => {
-    const usage = computeContextUsage([assistant({ input: 20_000, output: 0, reasoning: 0 })], 0);
-    expect(usage?.limit).toBe(DEFAULT_CONTEXT_LIMIT);
-    expect(usage?.percent).toBe(10);
+  test('shows the tokens with no percentage when the model exposes no window (never a guessed one)', () => {
+    // smarty-dev#777 G14: a guessed 200k window showed a 1M-token session at "186.1%".
+    expect(computeContextUsage([assistant({ input: 372_200, output: 0, reasoning: 0 })], 0))
+      .toEqual({ totalTokens: 372_200, limit: 0, percent: null });
   });
 
   test('returns null when no message carries usable tokens', () => {
@@ -71,7 +71,7 @@ describe('computeContextUsage', () => {
       1_000_000,
     );
     expect(usage?.totalTokens).toBe(232_872);
-    expect(usage?.percent.toFixed(4)).toBe('23.2872');
+    expect(usage?.percent?.toFixed(4)).toBe('23.2872');
   });
 
   test('selects a message whose only signal is the reported total', () => {
@@ -80,5 +80,51 @@ describe('computeContextUsage', () => {
       100_000,
     );
     expect(usage?.totalTokens).toBe(5_000);
+  });
+});
+
+describe('sessionContextWindow (smarty-dev#777 G14)', () => {
+  const providers = [
+    { id: 'anthropic', models: [{ id: 'claude-opus-5-5', limit: { context: 1_000_000, output: 128_000 } }, { id: 'claude-haiku-4-5', limit: { context: 200_000 } }] },
+    { id: 'local', models: [{ id: 'no-window' }] },
+  ];
+  const opus = { providerID: 'anthropic', modelID: 'claude-opus-5-5' };
+  const haiku = { providerID: 'anthropic', modelID: 'claude-haiku-4-5' };
+  const unknown = { providerID: 'local', modelID: 'no-window' };
+
+  test("org's case: the session runs Opus 5.5 (1M) while the composer has another model selected", () => {
+    const window = sessionContextWindow(providers, opus, [], haiku);
+    expect(window).toEqual({ context: 1_000_000, output: 128_000 });
+    expect(computeContextUsage([assistant({ input: 372_200, output: 0, reasoning: 0 })], window.context)?.percent?.toFixed(1)).toBe('37.2');
+  });
+
+  test("without a session model, the newest reply's model decides; the selection is the last choice", () => {
+    const messages = [{ role: 'assistant', ...haiku }, { role: 'assistant', ...opus }];
+    expect(sessionContextWindow(providers, null, messages, haiku).context).toBe(1_000_000);
+    expect(sessionContextWindow(providers, null, [], haiku).context).toBe(200_000);
+  });
+
+  test("an ordinary session whose native model is unavailable has no window, whatever its history or the selection", () => {
+    expect(sessionContextWindow(providers, 'unavailable', [{ role: 'assistant', ...haiku }], opus).context).toBe(0);
+  });
+
+  test("the session's model decides even when it reports no window: never another model's window", () => {
+    expect(sessionContextWindow(providers, unknown, [{ role: 'assistant', ...opus }], haiku).context).toBe(0);
+    expect(sessionContextWindow(providers, null, [{ role: 'assistant', ...unknown }], haiku).context).toBe(0);
+    expect(sessionContextWindow([], opus, [], opus).context).toBe(0);
+  });
+});
+
+describe('showsHeaderContextMeter (G14)', () => {
+  const shown = { isVSCode: false, workStatusPanelVisible: false, retainedTokens: 372_200, contextLimit: 1_000_000 };
+  test('shown with tokens and a known window', () => expect(showsHeaderContextMeter(shown)).toBe(true));
+  test('hidden when the window is unknown from the start', () => expect(showsHeaderContextMeter({ ...shown, contextLimit: 0 })).toBe(false));
+  test('hidden when a known window becomes unknown, even with a retained reading', () => {
+    expect(showsHeaderContextMeter({ ...shown, contextLimit: 0, retainedTokens: 372_200 })).toBe(false);
+  });
+  test('hidden without tokens, in VS Code, or while the work-status panel shows the same figure', () => {
+    expect(showsHeaderContextMeter({ ...shown, retainedTokens: 0 })).toBe(false);
+    expect(showsHeaderContextMeter({ ...shown, isVSCode: true })).toBe(false);
+    expect(showsHeaderContextMeter({ ...shown, workStatusPanelVisible: true })).toBe(false);
   });
 });

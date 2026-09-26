@@ -1,3 +1,5 @@
+import { useSessionContextWindow } from '@/components/chat/work-status/useSessionContextWindow';
+import { showsHeaderContextMeter } from '@/components/chat/work-status/contextUsage';
 import React, { useEffect } from 'react';
 import {
   Tooltip,
@@ -14,7 +16,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { useUIStore, type ContextPanelMode } from '@/stores/useUIStore';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { formatSessionWorktreeBadge } from '@/sync/session-worktree-contract';
@@ -288,11 +289,10 @@ export const Header: React.FC = () => {
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const sessionTabsEnabled = useUIStore((state) => state.sessionTabsEnabled);
 
-  const getCurrentModel = useConfigStore((state) => state.getCurrentModel);
-
   const getContextUsage = useSessionUIStore((state) => state.getContextUsage);
   const isNewSessionDraftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+  const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
   const currentSessionMessagesResolved = useSessionMessagesResolved(currentSessionId ?? '');
   const currentSessionStatus = useGlobalSessionStatus(currentSessionId ?? '');
   const isCurrentSessionMovingToWorktree = useIsSessionWorktreeMovePending(currentSessionId ?? '');
@@ -392,13 +392,10 @@ export const Header: React.FC = () => {
     setIsDesktopApp(isDesktopShell());
   }, []);
 
-  const currentModel = getCurrentModel();
-  const limit = currentModel && typeof currentModel.limit === 'object' && currentModel.limit !== null
-    ? (currentModel.limit as Record<string, unknown>)
-    : null;
-  const contextLimit = (limit && typeof limit.context === 'number' ? limit.context : 0);
-  const outputLimit = (limit && typeof limit.output === 'number' ? limit.output : 0);
-  const contextUsage = getContextUsage(contextLimit, outputLimit);
+  // The window of the model this session runs, as in the work-status panel; no window, no meter (G14).
+  const { context: contextLimit, output: outputLimit } = useSessionContextWindow(currentSessionId, currentSessionDirectory);
+  // Without a known window there is no meter at all (the store would report 0 %).
+  const contextUsage = contextLimit > 0 ? getContextUsage(contextLimit, outputLimit) : null;
   const [stableDesktopContextUsage, setStableDesktopContextUsage] = React.useState<SessionContextUsage | null>(null);
   const isContextUsageResolvedForSession = !currentSessionId || currentSessionMessagesResolved;
 
@@ -451,10 +448,8 @@ export const Header: React.FC = () => {
     }
     setWorkStatusPanelEnabled(!workStatusPanelEnabled);
   }, [setWorkStatusOverlayOpen, setWorkStatusPanelEnabled, workStatusOverlayOpen, workStatusPanelEnabled, workStatusPanelFits]);
-  const showDesktopHeaderContextUsage = !isVSCode
-    && !workStatusPanelVisible
-    && !!stableDesktopContextUsage
-    && stableDesktopContextUsage.totalTokens > 0;
+  const showDesktopHeaderContextUsage = showsHeaderContextMeter({ isVSCode, workStatusPanelVisible,
+    retainedTokens: stableDesktopContextUsage?.totalTokens, contextLimit });
   const desktopHeaderDisplayPercentage = stableDesktopContextUsage && stableDesktopContextUsage.contextLimit > 0
     ? Math.min(999, (stableDesktopContextUsage.totalTokens / stableDesktopContextUsage.contextLimit) * 100)
     : 0;
