@@ -9,6 +9,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
+import { ChatColumnSessionContext, type ChatColumnSession } from './chatColumnSession';
 
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 const initialAutoReview = useAutoReviewStore.getState();
@@ -20,8 +21,8 @@ afterEach(async () => {
     useMessageQueueStore.setState(initialQueue, true);
 });
 
-async function composer() {
-    const c = mounted = await mountedNativeComposer(false);
+async function composer(body?: Parameters<typeof mountedNativeComposer>[3]) {
+    const c = mounted = await mountedNativeComposer(false, undefined, undefined, body);
     await act(async () => {
         useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: directory,
             newSessionDraft: { ...state.newSessionDraft, open: false } }));
@@ -142,8 +143,9 @@ test('an unknown queue admission keeps live input and a second submit cannot rep
 });
 
 // F11: a missed session.idle left the page 'working', so Send took the queue route for a session idle on the server.
-async function shownWorking(serverStatus: Record<string, unknown> | (() => Promise<Response>)) {
-    const c = await composer();
+async function shownWorking(serverStatus: Record<string, unknown> | (() => Promise<Response>),
+    body?: Parameters<typeof mountedNativeComposer>[3]) {
+    const c = await composer(body);
     await act(async () => {
         useAutoReviewStore.setState(initialAutoReview, true);
         c.children.ensureChild(directory, { bootstrap: false }).setState({ session_status: { [session.id]: { type: 'busy' } } });
@@ -221,4 +223,84 @@ test('repeated Sends while the status read is held make one read and one send', 
     await act(async () => { held.resolve(Response.json({})); await sleep(10); });
     expect(c.prompts()).toHaveLength(1);
     expect(queue).toHaveLength(0);
+});
+
+// smarty-dev#777 gap 5: under load the history view refreshes all the time. A refresh during the held status read
+// replaces objects (the view, the files array, the session record) but changes nothing the person sees: it must send.
+for (const [name, reply] of Object.entries({ idle: holds.idle, busy: holds.busy })) {
+  test(`a view refresh during a held status read (${name}) still sends or queues exactly once`, async () => {
+    const held = deferred<Response>();
+    const { c, queue, statusReads } = await shownWorking(() => held.promise);
+    errors.length = 0;
+    await c.submit();
+    expect(statusReads).toHaveLength(1);
+    await act(async () => {
+      // The loader re-reads the view; the stores publish new, equal objects.
+      await c.loader.refreshOrdinaryView({ directory, sessionID: session.id }).catch(() => undefined);
+      const input = useInputStore.getState();
+      useInputStore.setState({ attachedFiles: input.attachedFiles.map((file) => ({ ...file })) });
+      const child = c.children.getChild(directory)!;
+      child.setState((state) => ({ session: state.session.map((record) => ({ ...record })) }));
+      useSessionUIStore.setState((state) => ({ currentSessionId: state.currentSessionId }));
+    });
+    await act(async () => { held.resolve(reply()); await sleep(10); });
+    expect(errors.filter((message) => message.startsWith('Nothing was sent'))).toEqual([]);
+    expect(c.prompts().length + queue.filter((request) => request.method === 'POST').length).toBe(1);
+  });
+}
+
+test('a changed attachment during a held status read still cancels', async () => {
+  const held = deferred<Response>();
+  const { c, queue } = await shownWorking(() => held.promise);
+  errors.length = 0;
+  await c.submit();
+  await act(async () => { useInputStore.setState({ attachedFiles: [] }); });
+  await act(async () => { held.resolve(holds.idle()); await sleep(10); });
+  expect(c.prompts()).toHaveLength(0);
+  expect(queue.filter((request) => request.method === 'POST')).toHaveLength(0);
+  expect(errors.some((message) => message.startsWith('Nothing was sent'))).toBe(true);
+});
+
+// Astra pre-check on the gap-5 fix: the session the composer shows (the chat column's, which can lag the store's
+// selection) is compared too. The store already selects B while the column still shows A; Send checks A; the column
+// then catches up to B with the same text. Nothing may go to B.
+test('the chat column catching up to another session during a held status read cancels, even with the same text', async () => {
+    const { ChatInput } = await import('./ChatInput');
+    let column: ChatColumnSession = { sessionId: session.id, directory };
+    const held = deferred<Response>();
+    const { c, queue } = await shownWorking(() => held.promise,
+        () => <ChatColumnSessionContext.Provider value={column}><ChatInput /></ChatColumnSessionContext.Provider>);
+    await act(async () => { useSessionUIStore.setState({ currentSessionId: 'ses-b-other' }); c.rerender(); });
+    errors.length = 0;
+    await c.submit();
+    await act(async () => { column = { sessionId: 'ses-b-other', directory }; c.rerender(); });
+    await c.replace('queue this'); // B's draft reads exactly like A's.
+    await act(async () => { held.resolve(holds.idle()); await sleep(10); });
+    expect(c.prompts()).toHaveLength(0);
+    expect(queue.filter((request) => request.method === 'POST')).toHaveLength(0);
+    expect(errors.some((message) => message.startsWith('Nothing was sent'))).toBe(true);
+});
+
+test('an attachment replaced under the same id with other content during a held status read cancels', async () => {
+    const held = deferred<Response>();
+    const { c } = await shownWorking(() => held.promise);
+    errors.length = 0;
+    await c.submit();
+    await act(async () => {
+        useInputStore.setState((state) => ({ attachedFiles: state.attachedFiles.map((file) => ({ ...file, dataUrl: 'data:text/plain;base64,b3RoZXI=' })) }));
+    });
+    await act(async () => { held.resolve(holds.idle()); await sleep(10); });
+    expect(c.prompts()).toHaveLength(0);
+    expect(errors.some((message) => message.startsWith('Nothing was sent'))).toBe(true);
+});
+
+test('after a view refresh, an accepted queue clears the attachments it took from the composer', async () => {
+    const held = deferred<Response>();
+    const { c, queue } = await shownWorking(() => held.promise);
+    expect(useInputStore.getState().attachedFiles.length).toBeGreaterThan(0);
+    await c.submit();
+    await act(async () => { useInputStore.setState((state) => ({ attachedFiles: state.attachedFiles.map((file) => ({ ...file })) })); });
+    await act(async () => { held.resolve(holds.busy()); await sleep(20); });
+    expect(queue.filter((request) => request.method === 'POST')).toHaveLength(1);
+    expect(useInputStore.getState().attachedFiles).toEqual([]);
 });

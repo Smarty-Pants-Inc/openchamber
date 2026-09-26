@@ -1072,7 +1072,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         presetText?: string;
     };
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
-    const submitSessionIdRef = React.useRef(currentSessionId);
+    // The session this composer shows and sends to (the chat column's, which can lag the store's selection), and the
+    // latest queue handler: Send's status check compares the first and, once it passes, calls the second.
+    const composerSessionIdRef = React.useRef(currentSessionId);
+    const handleQueueMessageRef = React.useRef<() => Promise<void>>(async () => {});
     // An ordinary (Pi) session takes a message while its agent works: the server steers it into the running turn
     // (co-steer, MVP 1 G5). So its Send never queues, steers locally or pre-reads the status; it just sends.
     const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => Boolean(sessionId) && (
@@ -1923,7 +1926,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Update ref with latest handleSubmit on every render
     handleSubmitRef.current = handleSubmit;
-    submitSessionIdRef.current = currentSessionId;
+    composerSessionIdRef.current = currentSessionId;
+    handleQueueMessageRef.current = handleQueueMessage;
 
     // Primary action for send/queue button — respects selected follow-up behavior
     // A missed idle event can leave the session shown working, so Send would queue or steer into a turn that is
@@ -1937,8 +1941,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const directory = currentSessionDirectoryForSync ?? currentDirectory;
         if (autoReviewRunning || !currentSessionId || !directory) { followUp(); return; }
         if (followUpPreflight.current) return;
-        const identity = () => [submitSessionIdRef.current, useSessionUIStore.getState().currentSessionId, getRuntimeKey(),
-            composerRef.current?.getValue() ?? messageRef.current, useInputStore.getState().attachedFiles] as const;
+        // What the person sees, compared by value: the session the composer shows and the store's selection, the
+        // runtime, the exact text, and each attached file's identity and content. A view refresh republishes equal
+        // objects without changing any of these, so it never cancels; a session switch, an edit or a changed
+        // attachment does (smarty-dev#777 gap 5).
+        const identity = () => [composerSessionIdRef.current ?? '', useSessionUIStore.getState().currentSessionId ?? '',
+            getRuntimeKey(), composerRef.current?.getValue() ?? messageRef.current,
+            JSON.stringify(useInputStore.getState().attachedFiles.map((file) => [file.id, file.filename, file.mimeType,
+                file.size, file.source, file.serverPath ?? '', file.vscodePath ?? '', file.dataUrl]))] as const;
         const before = identity();
         followUpPreflight.current = true;
         let idle: boolean;
@@ -1959,13 +1969,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const inputSnapshot = getCurrentInputSnapshot();
         const canQueue = !isBtwActive && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
         if (followUpBehavior === 'queue' && canQueue) {
-            void followUpUnlessIdle(() => { void handleQueueMessage(); });
+            void followUpUnlessIdle(() => { void handleQueueMessageRef.current(); });
         } else if (followUpBehavior === 'steer' && canQueue) {
             void followUpUnlessIdle(() => { void handleSubmitRef.current({ delivery: 'steer' }); });
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, followUpUnlessIdle, isOrdinarySession]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, isBtwActive, followUpUnlessIdle, isOrdinarySession]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2177,7 +2187,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (isCtrlEnter || !canQueue) {
                     handleSubmit();
                 } else {
-                    void followUpUnlessIdle(() => { void handleQueueMessage(); });
+                    void followUpUnlessIdle(() => { void handleQueueMessageRef.current(); });
                 }
             } else {
                 // steer: Enter steers into the running turn, Ctrl+Enter sends now.
