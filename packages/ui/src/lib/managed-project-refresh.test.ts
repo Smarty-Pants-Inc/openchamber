@@ -46,7 +46,7 @@ let sessionReadOptions: unknown;
 mock.module('@/stores/globalSessions', () => ({ listGlobalSessionPages: (_sdk: unknown, options: unknown) => { sessionReadOptions = options; return sessionRead(); } }));
 mock.module('@/stores/utils/vscodeRuntime', () => ({ isVSCodeRuntime: () => false }));
 mock.module('@/lib/chatDirectories', () => ({ warmChatsRootDirectory: async () => {} }));
-const { refreshManagedProjects, DISCOVERY_TIMEOUT_MS, UNAVAILABLE_RETRY_DELAYS_MS } = await import('./managed-project-refresh');
+const { refreshManagedProjects, DISCOVERY_TIMEOUT_MS, UNAVAILABLE_RETRY_DELAYS_MS, setCatalogReadLimitsForTest } = await import('./managed-project-refresh');
 const { resolveProjectAddAllowed } = await import('./managed-project-add');
 
 beforeEach(() => {
@@ -239,4 +239,139 @@ test('a retry timer from an older auth scope does not block the current scope\'s
     await new Promise(resolve => setTimeout(resolve, 1200));
     expect(status).toBe('ready');
   } finally { UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
+
+// smarty-code#113: a fresh profile's first discovery read can take longer than the page's wait (30 s; 30 ms here, and a
+// "40 s" read is 40 ms). Slow is not failed: the page keeps 'Loading projects…' and the answer publishes.
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const slowRead = (ms: number, answer: () => { response: Response; data: typeof row[] }) => async () => { await sleep(ms); return answer(); };
+
+test('a first read that takes longer than the wait, then succeeds, never shows unavailable', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  try {
+    const seen: string[] = [];
+    projectRead = slowRead(40, () => ({ response: response(), data: [row] }));
+    const request = refreshManagedProjects(true);
+    const watch = setInterval(() => seen.push(status), 2);
+    await request; // Callers stop waiting at the limit; the read keeps running.
+    expect(status).toBe('unknown');
+    // An ordinary refresh meanwhile waits for the running read instead of starting over.
+    let reads = 0; const inner = projectRead; projectRead = async () => { reads++; return inner(); };
+    await refreshManagedProjects();
+    await sleep(60);
+    clearInterval(watch);
+    expect(seen).not.toContain('unavailable');
+    expect(status).toBe('ready'); expect(publications).toEqual([[row]]);
+    expect(reads).toBe(0);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); }
+});
+
+test('a slow first read that ends in an error answer (503) still shows unavailable', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10_000);
+  try {
+    projectRead = slowRead(40, () => ({ response: response(true, 503), data: [] }));
+    await refreshManagedProjects(true);
+    expect(status).toBe('unknown');
+    // Its bounded retries run in the background (150 and 300 ms apart), then the error answer decides.
+    for (let waited = 0; status === 'unknown' && waited < 2000; waited += 20) await sleep(20);
+    expect(status).toBe('unavailable'); expect(publications).toEqual([]);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
+
+test('a slow retry after an unavailable catalog is not superseded: its answer replaces the banner', async () => {
+  setCatalogReadLimitsForTest(2000, 30); // The first request's three failing attempts settle as unavailable.
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 5, 5);
+  try {
+    let reads = 0;
+    // The first request's three attempts fail (503); the next read, by the retry, is slow and then answers.
+    projectRead = async () => { reads++; return reads <= 3 ? { response: response(true, 503), data: [] } : (await sleep(60), { response: response(), data: [row] }); };
+    await refreshManagedProjects(true);
+    expect(status).toBe('unavailable');
+    await sleep(150);
+    expect(status).toBe('ready'); expect(publications).toEqual([[row]]);
+    expect(reads).toBe(4); // The retries waited for the slow read instead of starting new ones.
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
+
+test('a fresh refresh supersedes a slow read: later refreshes and retries are not held by it', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  try {
+    let reads = 0;
+    projectRead = async () => { reads++; if (reads === 1) await sleep(300); return { response: response(), data: [row] }; };
+    await refreshManagedProjects(true); // Slow: still running.
+    await refreshManagedProjects(true); // A reconnect: a new read, which answers.
+    expect(status).toBe('ready');
+    const before = reads;
+    await refreshManagedProjects(); // An ordinary refresh is not held by the superseded slow read.
+    expect(reads).toBe(before + 1);
+    await sleep(300);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); }
+});
+
+test('a slow read whose catalog changed mid-read retries in the background and publishes, not unavailable', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  try {
+    let sessionReads = 0;
+    sessionRead = async () => { sessionReads++; await sleep(40); return sessionReads === 1 ? [{ directory: '/not/yet/published' }] : [{ directory: '/allowed/a' }]; };
+    const seen: string[] = [];
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 1000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable');
+    expect(sessionReads).toBe(2);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); }
+});
+
+test('a read that never answers (the SDK bound) keeps Loading and tries again; its later answer publishes', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    projectRead = async () => { reads++; if (reads <= 3) throw new Error('OpenCode request timed out after 120000ms'); return { response: response(), data: [row] }; };
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
+
+test('the real SDK shape of a timed-out read (an error, no response) keeps Loading too', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    projectRead = (async () => { reads++; return reads <= 3
+      ? { error: new Error('OpenCode request timed out after 120000ms'), response: undefined }
+      : { response: response(), data: [row] }; }) as never;
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable'); expect(reads).toBe(4);
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
+});
+
+test('a read whose body stalls after the headers (TimeoutError, also wrapped by the session list) keeps Loading', async () => {
+  setCatalogReadLimitsForTest(30, 30);
+  const saved = UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, 10);
+  try {
+    let reads = 0;
+    const seen: string[] = [];
+    sessionRead = async () => {
+      reads++;
+      if (reads === 1) throw new DOMException('The operation timed out.', 'TimeoutError');
+      if (reads <= 3) throw new Error('experimental.session.list failed: The operation timed out.');
+      return [{ directory: '/allowed/a' }];
+    };
+    const watch = setInterval(() => seen.push(status), 2);
+    await refreshManagedProjects(true);
+    for (let waited = 0; status !== 'ready' && waited < 2000; waited += 20) await sleep(20);
+    clearInterval(watch);
+    expect(status).toBe('ready'); expect(seen).not.toContain('unavailable');
+  } finally { setCatalogReadLimitsForTest(30_000, 30_000); UNAVAILABLE_RETRY_DELAYS_MS.splice(0, UNAVAILABLE_RETRY_DELAYS_MS.length, ...saved); }
 });
