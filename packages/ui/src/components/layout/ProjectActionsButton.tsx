@@ -69,6 +69,8 @@ interface ProjectActionsButtonProps {
   allowMobile?: boolean;
 }
 
+/** The shared terminal-session loop's interval (lib/terminalSessionObserver). */
+const TERMINAL_LOOP_JOIN_MS = 5_000;
 const AUTO_DISCOVER_ACTION_ID = '__openchamber_auto_discover_preview__';
 const AUTO_DISCOVER_PREVIEW_WAIT_TIMEOUT_MS = 15_000;
 /**
@@ -406,7 +408,15 @@ export const ProjectActionsButton = ({
     const cleanups = watchedTerminalDirectories.map(executionDirectory => {
       const reconcile = (result: Parameters<Parameters<typeof observeTerminalSessions>[3]>[0]) => reconcileServerSessions(
         executionDirectory, result.sessions, { startedActionMutationRevisions: result.startedActionMutationRevisions });
-      if (hasActiveAction) return observeTerminalSessions(terminal, executionDirectory, captureStartedActionMutationRevisions, reconcile);
+      if (hasActiveAction) {
+        // Join the loop from its next tick, as before, not at once: an action that just started here is still being
+        // created, and a listing now could return its previous run's exited record and cancel the new one.
+        let close = () => {};
+        const join = setTimeout(() => {
+          close = observeTerminalSessions(terminal, executionDirectory, captureStartedActionMutationRevisions, reconcile);
+        }, TERMINAL_LOOP_JOIN_MS);
+        return () => { clearTimeout(join); close(); };
+      }
       let stop = () => {};
       stop = observeTerminalSessions(terminal, executionDirectory, captureStartedActionMutationRevisions, result => { reconcile(result); stop(); });
       return () => stop();
