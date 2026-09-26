@@ -16,8 +16,7 @@ const { createEventRoutingIndex, handleEvent } = await import("../sync-context")
 
 const back = "/fleet/back"
 const listed = (...paths: string[]): ProjectEntry[] => paths.map(path => ({ id: path, path, label: path }))
-// SAFETY: this is the SDK's server.connected event shape (type plus empty properties), as the gateway sends it.
-const connected = { type: "server.connected", properties: {} } as unknown as Event
+const connected: Event = { id: "evt-connected", type: "server.connected", properties: {} }
 const settle = () => new Promise(resolve => setTimeout(resolve, JOIN_DEBOUNCE_MS + 50))
 let children: InstanceType<typeof ChildStoreManager>
 const initial = useProjectsStore.getState()
