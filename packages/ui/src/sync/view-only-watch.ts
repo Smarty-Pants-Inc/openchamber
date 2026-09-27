@@ -8,8 +8,9 @@ import { getImperativeSessionMessageLoader } from './session-message-loader';
  * on the gateway with one quiet event stream, `GET /api/event?directory=D&watch=S`; the gateway frees the tail as soon as
  * the stream closes. One stream per session (per server), shared by every view of it, closed when the last view closes.
  * Its frames are only a connected event and heartbeats: read and dropped (the page's own stream carries the events).
- * A gateway that does not say `readOnlyWatch: 1` in its health for that directory is not asked (it would stream
- * everything). Capability answers are per server (runtime key) and directory; a failed health read is retried.
+ * A gateway that does not say `readOnlyWatch: 1` and `readOnlyReadBaseline: 1` in its health for that directory is
+ * not asked: without the first it would stream everything; without the second a history read moves its tail's
+ * baseline, and the catch-up below could keep a branch the page saw late (smarty-code#507). Capability answers are per server (runtime key) and directory; a failed health read is retried.
  * Catch-up: a watch re-acquired for a session this page watched before (shown again after being hidden, or a dropped
  * stream reconnected) replaces the session's shown history with a fresh newest page once its stream is open, as on a
  * first open (its own cursor and completeness; older pages load from there). On the gateway, that read becomes the new
@@ -43,8 +44,8 @@ async function supports(key: string, directory: string, signal: AbortSignal): Pr
   try {
     const response = await fetcher('/api/global/health', { query: { directory }, signal });
     if (!response.ok) return 'unknown';
-    const body = await response.json() as { capabilities?: { readOnlyWatch?: unknown } };
-    if (body?.capabilities?.readOnlyWatch !== 1) return 'no';
+    const body = await response.json() as { capabilities?: { readOnlyWatch?: unknown; readOnlyReadBaseline?: unknown } };
+    if (body?.capabilities?.readOnlyWatch !== 1 || body.capabilities.readOnlyReadBaseline !== 1) return 'no';
     supported.add(key); return 'yes';
   } catch { return 'unknown'; }
 }

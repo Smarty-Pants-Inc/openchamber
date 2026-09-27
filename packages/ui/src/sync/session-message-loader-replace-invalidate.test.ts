@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { setup, sleep, target } from "./session-message-loader-replace.fixture"
+import { record, setup, sleep, target } from "./session-message-loader-replace.fixture"
 
 // #278 review 6 (local passes 4 and 6): a session invalidated, or a newer load started, while a recovery reads.
 
@@ -34,5 +34,21 @@ test("a load started during a recovery's read is newer: the recovery never retir
     expect(s.shown()).toEqual(["m0001", "m0002", "m0003"]) // The newer load committed.
     await recovering // The retry then resets on a fresh read.
     expect(s.loader.getSnapshot(target)).toMatchObject({ status: "ready", resolved: true })
+  } finally { s.done() }
+})
+
+test("round 7: an old-branch event applied after the recovery commits is undone by the gateway's next tick", async () => {
+  const s = setup()
+  try {
+    s.g.branch = ["m0001", "m0002"]; await s.loader.ensure(target, { reason: "navigation" }) // m0002: the old branch.
+    s.g.branch = ["m0001", "m0003"]
+    await s.loader.replaceHistory(target, [5]) // The recovery reads and commits the new branch first,
+    expect(s.shown()).toEqual(["m0001", "m0003"])
+    const late = { ...record("m0002").info }
+    await s.live({ type: "message.updated", properties: { sessionID: target.sessionID, info: late } }) // then a late frame,
+    expect(s.shown()).toEqual(["m0001", "m0002", "m0003"])
+    // and the tick of a gateway whose read left its baseline at the old branch (readOnlyReadBaseline) removes it.
+    await s.live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
+    expect(s.shown()).toEqual(["m0001", "m0003"])
   } finally { s.done() }
 })

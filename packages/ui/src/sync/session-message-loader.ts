@@ -389,7 +389,8 @@ export class SessionMessageLoader {
     // A newer replacement, `signal` (the watch released) or a disposed loader ends it, before any commit or request.
     // An event applied only after the commit (the pipeline batches them, and the stream and this read are separate
     // connections) converges: View only events are full-state only, and the gateway tail publishes anything a read saw
-    // beyond its baseline at its next tick, because a read never moves that baseline (smarty-dev#777).
+    // beyond its baseline at its next tick, because a read never moves that baseline (the gateway's readOnlyReadBaseline
+    // capability, smarty-code#507; view-only-watch.ts watches only such a gateway).
     const epoch = ++entry.replaceEpoch
     const owns = () => !this.disposed && !signal?.aborted && entry.replaceEpoch === epoch
       && this.entries.get(this.keyFor(normalized)) === entry && this.childStores.getChild(normalized.directory) === store
