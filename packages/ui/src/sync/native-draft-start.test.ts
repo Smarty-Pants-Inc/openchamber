@@ -139,12 +139,43 @@ test('a declined start sends nothing; the next Send starts a new session once', 
   expect(fixture.creates()).toHaveLength(2); expect(fixture.prompts()).toHaveLength(1);
 });
 
-test('a session that cannot take first input from the browser sends nothing', async () => {
+test('a session that never becomes ready for first input from the browser sends nothing, at the limit', async () => {
   interactive();
   reply = async () => { operation = { ...operation, revision: 2, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: false };
     return Response.json({ nativeCreation: operation }); };
-  expect(await failure(startNativeDraft(listed, noWait))).toBe('notReady');
+  // Its reads keep saying it cannot take first input yet; the clock jumps so the start reaches its limit.
+  const now = Date.now; let clock = now();
+  Date.now = () => clock;
+  const halfMinute = async () => { clock += 30_000; }; // Each wait between reads is half a minute.
+  try { expect(await failure(startNativeDraft(listed, halfMinute))).toBe('notReady'); } finally { Date.now = now; }
   expect(replies()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(0);
+});
+
+// Release 3.39, slice 1 step 6 (op 8a8bfb49): after its trust answer the new Pi reported 'ready-required' while it was
+// still loading (canInitialReady false, advisory), and became ready a moment later. The page took the first such read
+// as final ('notReady'), so it never answered ready and the first message was never sent. It waits instead.
+test('a start that is not ready for first input yet waits until it is, then answers ready and sends once', async () => {
+  interactive();
+  let reads = 0;
+  reply = async body => {
+    operation = body.action === 'trust'
+      ? { ...operation, revision: 2, phase: 'ready-required', native: { id: session.id, generation }, canInitialReady: false }
+      : { ...operation, revision: operation.revision + 1, phase: 'ready' };
+    return Response.json({ nativeCreation: operation });
+  };
+  const read = fixture.handlers; void read;
+  const inner = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(new Request(input, init).url).pathname;
+    // The Pi finishes loading after a few reads: now it can take first input.
+    if (/\/creation\/[^/]+$/.test(path) && operation.phase === 'ready-required' && ++reads >= 3) {
+      operation = { ...operation, revision: 3, canInitialReady: true };
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+  await sendOnce();
+  expect(replies()).toHaveLength(2); // Trust, then ready.
+  expect(fixture.creates()).toHaveLength(1); expect(fixture.prompts()).toHaveLength(1);
 });
 
 test('a second Send while the first is starting is refused; one create, one reply, nothing sent twice', async () => {

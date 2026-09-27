@@ -206,7 +206,7 @@ async function finish(key: string, record: () => ReturnType<typeof nativeCreatio
 }
 
 async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {
-  const began = Date.now(); let unreadable = false;
+  const began = Date.now(); let unreadable = false, waitingForInput = false;
   const answer = (action: 'trust' | 'ready') => replyNativeCreation(action).catch(cause => { throw nativeCreationFailure(cause); });
   for (;;) {
     const now = record();
@@ -221,13 +221,16 @@ async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, w
       unreadable = now.unreadable === true || phase === 'unavailable';
       if (!unreadable && phase === 'awaiting-trust') { await answer('trust'); continue; }
       // The owner reports 'ready' a moment after its first-input answer (#117: it was POSTed twice): re-read, once only.
-      if (!unreadable && phase === 'ready-required' && !now.readyReplied) {
-        if (!canInitialReady || !native) throw new NativeCreationError('notReady');
+      // 'canInitialReady' is advisory: a Pi still loading reports false for a moment after trust (Release 3.39, slice 1
+      // step 6: the page gave up on the first such read and never answered ready). Re-read until it can; at the limit, the
+      // session is one that does not take first input from the browser.
+      if (!unreadable && phase === 'ready-required' && !now.readyReplied && canInitialReady && native) {
         await answer('ready'); continue;
       }
+      waitingForInput = !unreadable && phase === 'ready-required' && !now.readyReplied;
     }
     // Still starting (or not readable): re-read, never created or answered again; at the limit, required (or unknown).
-    if (Date.now() - began > LIMIT_MS) throw new NativeCreationError(unreadable ? 'unknown' : 'required');
+    if (Date.now() - began > LIMIT_MS) throw new NativeCreationError(unreadable ? 'unknown' : waitingForInput ? 'notReady' : 'required');
     await wait(POLL_MS);
     const later = record();
     if (later?.status === 'pending' && !later.busy) await refreshNativeCreation().catch(cause => { throw nativeCreationFailure(cause); });

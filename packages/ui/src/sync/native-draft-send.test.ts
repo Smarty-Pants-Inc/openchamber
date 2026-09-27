@@ -144,3 +144,48 @@ test('a Send holds opening its own new session only for the draft target it was 
   endFirstSend(first);
   expect(isFirstSendInFlightFor(session.id)).toBe(false);
 });
+
+// Slice 1 step 6 on the candidate stack: the new session's first idle refreshes its tail right as its first message goes.
+// A plain tail refresh keeps the last accepted view until it commits, so the Send is not refused ("could not be
+// loaded"); a failed refresh revokes it, a changed view replaces it, and a reset still refuses (the gateway checks too).
+const heldRefresh = (next: () => Response) => {
+  const gate = deferred<void>();
+  fixture.handlers.history = async () => { await gate.promise; return next(); };
+  return { release: () => gate.resolve(), refresh: fixture.loader.refreshTail({ directory, sessionID: session.id }, 30) };
+};
+test('the first message goes while the new session\'s tail refresh is under way, once, with its view', async () => {
+  fixture = nativeDraftFixture(); await prepareNativeDraft();
+  const input = useInputStore.getState(); let accepted = 0;
+  fixture.handlers.knowledge = async () => {
+    // The new Pi's first idle: its tail is read again while the first message is prepared.
+    held = heldRefresh(() => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
+    return new Response(null, { status: 404 });
+  };
+  let held: ReturnType<typeof heldRefresh> | undefined;
+  await send(() => { accepted++; });
+  expect(fixture.prompts()).toHaveLength(1); expect(accepted).toBe(1);
+  expect(fixture.prompts()[0]!.headers.get('x-smarty-ordinary-view')).toBe(acceptedView);
+  held!.release(); await held!.refresh;
+  void input;
+});
+test('a tail refresh that fails, or commits another view, or a reset, no longer authorizes the prepared view', async () => {
+  const target = { directory, sessionID: session.id };
+  for (const outcome of ['failed', 'changed', 'reset'] as const) {
+    fixture = nativeDraftFixture(); await prepareNativeDraft();
+    await fixture.loader.ensure(target, { reason: 'navigation' });
+    expect(fixture.loader.getAcceptedOrdinaryView(target, fixture.runtimeA)).toBe(acceptedView);
+    if (outcome === 'reset') {
+      const held = heldRefresh(() => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }));
+      fixture.loader.invalidateOrdinaryView(target, true); // A removed message or a session error.
+      expect(fixture.loader.getAcceptedOrdinaryView(target, fixture.runtimeA)).toBeUndefined();
+      held.release(); await held.refresh.catch(() => undefined);
+    } else {
+      const held = heldRefresh(() => outcome === 'failed' ? Response.json({ message: 'read refused' }, { status: 409 })
+        : Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'b'.repeat(64)}` } }));
+      expect(fixture.loader.getAcceptedOrdinaryView(target, fixture.runtimeA)).toBe(acceptedView); // Kept while it runs.
+      held.release(); await held.refresh.catch(() => undefined);
+      expect(fixture.loader.getAcceptedOrdinaryView(target, fixture.runtimeA)).toBe(outcome === 'failed' ? undefined : `ov2_${'b'.repeat(64)}`);
+    }
+    fixture.dispose(); fixture = undefined!;
+  }
+});
