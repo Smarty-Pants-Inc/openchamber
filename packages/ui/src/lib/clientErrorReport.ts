@@ -45,8 +45,9 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const key = `${runtimeKey}\0${report.kind}\0${report.operationId}`;
   if (reported.has(key)) return; // The same failure again (shown twice, or re-rendered): one report.
-  if (reported.size > 500) reported.clear();
   reported.add(key);
+  // Bounded: the oldest operations are forgotten one by one (a Set keeps insertion order), never all at once.
+  if (reported.size > 500) reported.delete(reported.values().next().value!);
   const message = report.message ? redactClientError(report.message) : undefined;
   const body = {
     kind: report.kind.slice(0, 64),
@@ -70,13 +71,20 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
  * `page.unhandled` to the page's server when it fires, with its error name only (a code, never its message). One per
  * name per 30 s. Errors without an error object (a cross-origin "Script error.", a ResizeObserver notice) are not.
  */
+// Error names that are code, never content: the language's own and the platform's (DOMException) common ones.
+const ERROR_NAMES = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'EvalError', 'URIError',
+  'AggregateError', 'AbortError', 'TimeoutError', 'NetworkError', 'NotFoundError', 'NotAllowedError', 'NotSupportedError',
+  'InvalidStateError', 'QuotaExceededError', 'SecurityError', 'DataCloneError', 'ChunkLoadError']);
+const lastUnhandled = new Map<string, number>();
 export function reportUnhandled(error: unknown, now = Date.now()): void {
-  if (!(error instanceof Error) && !(typeof error === 'object' && error !== null && 'name' in error)) return;
-  const name = String((error as { name?: unknown }).name ?? '');
-  const code = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(name) ? name : 'Error';
+  if (!(error instanceof Error)) return; // A thrown non-error (an object, a string) may be anything: not sent.
+  const code = ERROR_NAMES.has(error.name) ? error.name : 'Error';
   const runtimeKey = currentRuntime();
   if (!runtimeKey) return;
-  reportClientError({ kind: 'page.unhandled', message: code, runtimeKey, operationId: `${code}:${Math.floor(now / 30_000)}` }, now);
+  const last = lastUnhandled.get(code);
+  if (last !== undefined && now - last < 30_000) return;
+  lastUnhandled.set(code, now);
+  reportClientError({ kind: 'page.unhandled', message: code, runtimeKey, operationId: `${code}:${now}` }, now);
 }
 
 let listening = false;
@@ -92,5 +100,5 @@ listenForUnhandledErrors();
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  reported.clear();
+  reported.clear(); lastUnhandled.clear();
 }

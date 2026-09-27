@@ -2219,6 +2219,7 @@ export const refreshDesktopSettings = async (): Promise<void> => {
 async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean } = {}): Promise<void> {
   const changes = _pendingSettingsChanges;
   const context = _pendingSettingsContext;
+  const saveId = newOperationId(); // This save, at its start (#536).
   const revision = _pendingSettingsRevision;
   const projectsBase = _pendingProjectsBase;
   const waiters = _settingsFlushWaiters;
@@ -2317,7 +2318,7 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
     if (changes?.projects && context && isSettingsRuntimeContextCurrent(context) && getSettingsSaveState() === 'error') {
       // #536: the fleet sees it too, from the server the save went to (the context is still current here).
       reportClientError({ kind: 'settings-save', message: 'Project changes were not saved', runtimeKey: context.runtimeKey,
-        operationId: newOperationId() });
+        operationId: saveId });
       toast.error('Project changes were not saved', { description: 'Refresh to load the latest settings, then try again.' });
     }
     waiters.forEach((resolve) => resolve());

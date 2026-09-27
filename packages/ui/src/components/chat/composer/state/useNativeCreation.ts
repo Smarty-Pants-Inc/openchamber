@@ -105,7 +105,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       const error = cause instanceof NativeCreationError || parsed.detail ? parsed
         : new NativeCreationError('unavailable', cause, typeof reason === 'string' ? reason : t('chat.chatInput.toast.messageSendFailed'));
       // A second press: the first Send is still under way and says its own outcome.
-      if (error.code !== 'sending' && stillShown()) { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `send.${error.code}`, status: error.status, runtimeKey, operationId: newOperationId() }); } // The code, never the server's words.
+      if (error.code !== 'sending' && stillShown()) { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `send.${error.code}`, status: error.status, runtimeKey, operationId: `${refusalFor}\0${error.code}` }); } // The code, never the server's words.
       return error;
     },
     refresh: () => perform(async () => {

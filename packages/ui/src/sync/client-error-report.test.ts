@@ -170,10 +170,13 @@ test('an unhandled error reports page.unhandled with its name only; an event wit
   listeners.get('error')!({ error: new TypeError("Cannot read 'merger plan'") });
   listeners.get('unhandledrejection')!({ reason: new RangeError('payroll.xlsx too big') });
   listeners.get('error')!({ error: null, message: 'ResizeObserver loop completed' });
+  listeners.get('unhandledrejection')!({ reason: { name: 'PayrollSecret' } }); // Not an Error: may be anything.
+  listeners.get('error')!({ error: Object.assign(new Error('x'), { name: 'MergerPlanError' }) }); // A custom name: 'Error'.
+  listeners.get('error')!({ error: new TypeError('again') }); // The same name within 30 s: not again.
   await sleep(50);
   const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
-  expect(bodies.map(body => [body.kind, body.message])).toEqual([['page.unhandled', 'TypeError'], ['page.unhandled', 'RangeError']]);
-  expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
+  expect(bodies.map(body => [body.kind, body.message])).toEqual([['page.unhandled', 'TypeError'], ['page.unhandled', 'RangeError'], ['page.unhandled', 'Error']]);
+  expect(/merger|payroll/i.test(JSON.stringify(bodies))).toBe(false);
 });
 
 test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {

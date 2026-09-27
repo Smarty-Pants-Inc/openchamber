@@ -227,6 +227,7 @@ const fetchRuntimeRequest = async (
   init: RuntimeFetchOptions,
   networkFetch: typeof fetch,
 ): Promise<Response> => {
+  const upgradeId = `upgrade:${Date.now()}:${Math.random()}`; // This request, at its start: its failure is one report.
   const { query, ...requestInit } = init;
   const scope = captureRuntimeRequestScope();
   const relayPath = scope.relay ? extractRelayPath(input, query) : null;
@@ -241,7 +242,6 @@ const fetchRuntimeRequest = async (
   assertRuntimeRequestScope(scope);
   addRuntimeProxyHeaders(url, headers);
   const isUpgrade = method === 'POST' && /\/api\/opencode\/upgrade(?:\?|$)/.test(url);
-  const upgradeId = `upgrade:${Date.now()}:${Math.random()}`; // This request: its failure is one report.
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
   let response: Response;
