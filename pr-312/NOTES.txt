@@ -1,0 +1,69 @@
+Candidate proof: openchamber#312 (smarty-code#608), final, on the RUNNING isolated stack p608. Recorded 2026-09-27 17:11:39Z-17:18:32Z.
+
+Revisions
+- UI: openchamber#312 a85fddcf (one commit on smarty-code 31240dea). Web dist built on the m4 --light slot, at /tmp/oc-dist-608. The full
+  ui suite passed there, 551/551. The follow-up 383f86db changes only the brand ledger JSON, so the dist is the same.
+- Gateway: the installed release 64320c78's own gateway.
+- Stack: web http://127.0.0.1:43295, root /tmp/sc-direct-ordinary-candidate-p608, log /tmp/h/cand-p608.log, Herdr workspace wN9 (wN9:p1 untouched).
+- Sign-in: the reviewed human-auth fixture session (<root>/cookies.json), not Google (smarty-code#592).
+- Driver: proof-608-final.ts (runs 1-3, one persistent browser context, one webm) and proof-608-r3b.ts (run 3b, its own webm), both
+  run through /tmp/sc-cand/integration/candidate/headed.sh with the release Playwright (headed, Xvfb).
+
+How the session was created: NOT by the page (see "Page path" below). Instead, as stack.ts placeInHerdr does:
+  git -C <root>/projects/candidate worktree add <root>/projects/candidate-<run> -b p608f-<run>
+  herdr worktree open --path <dir> --cwd <root>/projects/candidate --label candidate-p608-<run> --no-focus
+     (--cwd <linked worktree> is refused by Herdr, so --cwd is the parent checkout)
+  herdr pane run <pane> "cd <dir> && PI_CODING_AGENT_DIR=.../human-identity-20260921/pi-agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1
+     PI_TELEMETRY=0 <node> <root>/release/repos/pi/packages/coding-agent/dist/cli.js"
+  The session id comes from `herdr agent list`. A prompt "Reply with the word ready (<run>)." was typed into the Pi pane (herdr pane
+  send-text + send-keys Enter), so every session has a transcript. The gateway admitted every worktree in 7-18 ms (admission-log-lines.txt).
+How it was opened: page.goto('/?session=<id>') in the same page. In runs 2, 3 and 3b (held) the route alone did nothing: the page dropped to
+  '/' with a New session draft (run2-route-only-*.png). openSessionFromRoute only opens a session it finds in the global session listing
+  (restoreManagedSessionSelection); the last-session cache (oc.lastSession.v1) is only a hint checked against that listing, so seeding it
+  cannot open an unlisted session. The page was then given the directory the way the app's own link does: ~9 s after the route,
+  window.dispatchEvent(new CustomEvent('openchamber:open-session', {detail: {sessionId, directory}})) - App.tsx's handler for the
+  tray/shell open-session link, which calls setCurrentSession(id, directory). Declared.
+
+THE HOLD (declared)
+- page.route(predicate) on GET requests whose pathname is exactly /api/project, /api/session or /api/experimental/session (any query):
+  route.fetch(), then the held worktree's project row (worktree === dir), its session rows (directory === dir) and the dir in the parent row's
+  "sandboxes" were filtered out; route.fulfill. Non-GET requests and every other path (session history /api/session/<id>/message, detail
+  /api/session/<id>, prompts, /api/event stream) were NOT held. steps.json: "holds" (each held read, how many rows removed) and "requests"
+  (every /api request: method, path, start, end, status, held). The held sessions' history/detail were first requested only after release
+  (e.g. r2 /message 17:13:32.297 status 200 held=false).
+- Hold windows: run 2 17:11:55.841Z - 17:13:01.417Z (installed before the worktree existed). Run 3 17:13:34.628Z - 17:15:51.196Z.
+  Run 3b 17:16:10.415Z - 17:18:26.892Z.
+
+RUN 1 CONTROL (unheld): PASS
+- 17:11:44.7 worktree candidate-r1; 17:11:46.144 admission (11 ms); session 01a0e3d9-f17f-752e-b1c9-402017e1146b.
+- 17:11:50.686 route open; 17:11:53.235 the transcript shows (prompt + "ready (r1)"), no waiting notice, no swap, no toast.
+  run1-control-open-*.png.
+RUN 2 SLOW PATH (held 60 s): PASS
+- 17:11:57.497 real admission (18 ms) while the page's listing was held; session 01a0e3da-1e72-7660-b5c6-b85221c3656b.
+- 17:12:01.271 route open (dropped to '/'); 17:12:10.557 app link; 17:12:10.586 'Waiting for this project to finish loading…'
+  (run2-waiting-*.png). It stayed through 17:13:01 (run2-still-waiting-before-release-*.png); no other session shown, no toast.
+- 17:13:01.417 release. 17:13:32.548 it opened with its transcript (run2-open-after-release-*.png). The 31 s gap is the page's next
+  catalog read after release (its 45 s global-sessions poll): the real admission's join event had already arrived during the hold.
+RUN 3 NOT ARRIVED (held ~130 s): PASS for the notice; Show projects shown in run 3b
+- session 01a0e3db-9e31-769d-9339-d77c9ac13b25; 17:13:49.199 waiting; 17:15:49.500 (120.3 s later) "This session's project is not in the
+  live catalog. Show projects" (run3-not-arrived-*.png). 17:15:49.628 clicked Show projects. The sidebar was ALREADY open here (my attempt to
+  close it hit the wrong button), so this click proves nothing about opening it (run3-show-projects-*.png). Release 17:15:51.196, the transcript
+  opened 17:15:56.265 (run3-after-release-*.png). No swap, no toast.
+RUN 3b NOT ARRIVED, sidebar closed first (run3b/, own webm): PASS
+- session 01a0e3dd-fd77-7341-a351-034316eb2622; 17:16:24.783 waiting; the sidebar closed with the "Open sessions" toggle; 17:18:25.126 not
+  in the live catalog + Show projects, sidebar closed (run3b-not-arrived-*.png); 17:18:25.299 clicked -> the sidebar/project list opened
+  (run3b-show-projects-*.png). Release 17:18:26.892; the transcript opened 17:18:31.957. No swap, no toast.
+- The driver's "sidebarVisible" check is wrong: it reported true before the click too. The screenshots are the evidence.
+
+Across all runs: 0 "Saved project … Showing …" / "… Showing" toasts (a watcher checked every 300 ms); no other session replaced a held one.
+
+Page path (the preferred incident path) did not work on this stack: explore ex1.ts (driver.log is the main run; the explore output is in
+this note). The draft's worktree control "+ New" does create a worktree through the gateway (POST /api/git/worktrees 200), but it puts it
+at <root>/state/data/opencode/worktree/<hash>/<name>. That is outside the stack's discovery root <root>/projects, so the gateway never
+admits it ("Project is not configured: synchronized catalog directory was not admitted", 403), and Send fails with "Cannot reach the server
+to start the session" (explore-page-new-worktree-send-x3.png). That worktree (warm-ferret) and its branch were removed.
+
+Cleanup: Herdr workspaces wND, wNE, wNF, wNG closed; worktrees candidate-r1/r2/r3/r3b and branches p608f-* removed; the stack is still
+running (web 200, wN9:p1 alone). No Xvfb left.
+Files: steps.json (+ run3b/steps.json), stack-log-new.txt, admission-log-lines.txt, screenshots, candidate-312-final-runs123.webm +
+-sheet.png (its GIF was 79.7 MB and was deleted), run3b/candidate-312-final-run3b.webm + .gif (36.8 MB) + -sheet.png, driver logs, scripts.
