@@ -189,6 +189,31 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
 
 // Review of #301 (P2): no error toast bypasses reporting. A file that shows one without the reporting wrapper (sonner,
 // or the unwrapped toast module) reports that failure itself, with its runtime (context pin, upgrade, small model, ...).
+// One shown error, one report: a send refused by the page's own check, then its caller's toast in the same task.
+test('an operation\'s own report and its caller\'s toast in the same task are one report; a toast in a later task reports', async () => {
+  fixture = nativeDraftFixture();
+  const { reportClientError } = await import('@/lib/clientErrorReport');
+  const { toast } = await import('@/components/ui');
+  const kinds: string[] = [];
+  const served = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { kinds.push(String((await request.json()).kind)); return new Response(null, { status: 204 }); }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    await Promise.resolve().then(() => {
+      reportClientError({ kind: 'send.unavailable', sessionID: session.id }); // The operation's own report...
+    }).then(() => { toast.error('This session is unavailable right now'); }); // ...and its caller's toast, same task.
+    await sleep(50);
+    expect(kinds).toEqual(['send.unavailable']);
+    const later = () => { toast.error('Could not load stashes'); };
+    later(); await sleep(50); // A new error, in a later task: reported.
+    expect(kinds).toHaveLength(2);
+    expect(kinds[1]!.startsWith('toast.')).toBe(true);
+  } finally { globalThis.fetch = served; }
+});
+
 test('every error toast shown outside the reporting wrapper is reported by its own code', async () => {
   const { readdirSync, readFileSync } = await import('node:fs');
   const root = new URL('..', import.meta.url).pathname;

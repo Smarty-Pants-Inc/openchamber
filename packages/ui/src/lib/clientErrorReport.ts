@@ -47,7 +47,18 @@ export function redactClientError(text: string): string {
     .slice(0, 300);
 }
 
+/**
+ * One shown error, one report. An operation that reports its own failure is often shown by its caller's error toast,
+ * run in the same task (its catch runs as microtasks of that task). A generic toast in the same task as an explicit
+ * report is that failure's display, not a second error: not reported again. The mark clears at the next task, so no
+ * later report is held back. ponytail: the event loop's own boundary, not a guess of which toast is whose.
+ */
+let explicitThisTask = false;
+const isGenericToast = (kind: string) => kind === 'toast' || kind.startsWith('toast.');
+
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
+  if (isGenericToast(report.kind)) { if (explicitThisTask) return; }
+  else if (!explicitThisTask) { explicitThisTask = true; setTimeout(() => { explicitThisTask = false; }, 0); }
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -75,5 +86,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear();
+  lastReport.clear(); explicitThisTask = false;
 }
