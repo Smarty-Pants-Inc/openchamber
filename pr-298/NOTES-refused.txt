@@ -1,0 +1,26 @@
+openchamber#298 (smarty-code#523): candidate proof, REFUSED stop after expiry. Stack s298, run 2026-09-27 13:16-13:22 UTC.
+Stack as in ../candidate-298-frozen-20260927T124843Z (UI b609362f dist, gateway 6745e649 = #605+#548, web 127.0.0.1:43295, Herdr wM8).
+Sign-in: human-auth fixture ("Owned Browser Fixture"), NOT Google (smarty-code#592). Script: proof-298-refused.ts (copied here). Log: run.log.
+Freeze: README method. The Pi's exact pid 2500124 (pane wM8:pA, control.json's pid) went into cand-s298-pi-8a36a2b4.scope.
+  cgroup.procs held only that pid. systemctl --user freeze. herdr-smarty-dev.service cgroup.freeze stayed 0 throughout. No SIGSTOP.
+Expiry in the source: creation-record.ts expiresAt = createdAt + 300_000 (5 min). A frozen Pi cannot settle its own expiry
+  ("A start settles expired at its Pi's own deadline"), and the sweep/orphan paths need dead processes. So the Pi stayed frozen
+  until after expiresAt and was then thawed, which let its own deadline settle the start.
+
+op 8a36a2b4-23ed-4632-b581-50698289a4ac. expiresAt 13:21:19.120Z in the create answer; the list and read say 1790515276138 = 13:21:16.138Z.
+1 ctx1: New session, 'Refuse me', Enter. Create answered 202 ready-required at 10.09 s; frozen at 10.16 s.
+2 ctx2 (fresh profile, same cookies, loaded BEFORE the freeze): New session. "stop start 8a36a2b4" appeared after 58 s under "A session is
+  still starting in this project...". Its listed phase was "unavailable". Then 'ctx2 text' was typed (02-ctx2-stop-offered.png).
+  From then on, ctx2's GET /api/session/creation* were answered from its last live response. The page was never reloaded, so its list
+  stayed stale. Note: this staleness is held by a Playwright route (as in the previous run); it is not the app's own caching.
+3 13:21:36 (+17 s past expiresAt, Pi still frozen): GET creation/<op> returned 200 phase "unavailable", NOT expired. Thawed at 13:21:36.
+  At 13:21:38.405Z the read returned phase "expired". settled.json = {generation f08dea70-..., phase "expired", at 1790515296389 (13:21:36.389Z)}.
+  The gateway logged no end line for the op before the tab-close ("closed on attempt 1").
+4 ctx2 clicked its stale "stop start 8a36a2b4" at 329.2 s. POST /api/session/creation/8a36a2b4-.../abandon returned 409
+  {"name":"APIError","data":{"message":"This start already finished; nothing to abandon","isRetryable":false}}.
+  The page showed that reason in red under the notice, and the composer kept "ctx2 text" (04-ctx2-refused.png, ctx2.webm/gif/sheet).
+  Caveat: the "stop start 8a36a2b4" button was still shown after the refusal (stopStillShown=1), because the list was held stale.
+  The sidebar's "New Pi session 8a36a2b4" row disappeared.
+5 All scopes are thawed and gone. The gateway's tab cleanup had already closed pane wM8:pA; my close found it gone. Only wM8:p1 is left.
+attempt1-ctx2-never-loaded: op 1dc064ed. ctx2 was opened AFTER the freeze, and the gateway's config reads took 30 s+ with a Pi frozen.
+  ctx2 showed "Cannot reach the server right now", lost its typed text and never read creations. No Stop was offered, and the Pi was thawed.

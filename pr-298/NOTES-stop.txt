@@ -1,0 +1,37 @@
+openchamber#298 (smarty-code#523 "Stop this start"): signed-in candidate proof with a frozen Pi, stack s298
+Date: 2026-09-27, run at 12:55-13:03 UTC. Stack: web 127.0.0.1:43295, gateway 43296, root /tmp/sc-direct-ordinary-candidate-s298, Herdr wM8.
+UI: openchamber#298 head b609362f (rebased onto smarty-code a31c8dd7). Web dist built on the m4 --light slot, at /tmp/oc-dist-298.
+Gateway: smarty-code#605 e82e5de6 (a frozen Pi keeps project health) merged with #548 014151e4 (stoppedBy) as 6745e649 (/tmp/sc-605-548c).
+Page sends x-smarty-creation-fields: stoppedBy (recorded in steps.json).
+Sign-in: the reviewed human-auth fixture ("Owned Browser Fixture", integration/direct-ordinary/human-fixture.ts). NOT Google (smarty-code#592).
+Freeze: the README method. busctl StartTransientUnit cand-s298-pi-<op8>.scope with PIDs=[the Pi's exact pid] (the pid in control.json and
+  the pane's foreground process). cgroup.procs held only that pid. systemctl --user freeze; later thaw. herdr-smarty-dev.service
+  cgroup.freeze was 0 at every freeze, every thaw and at the end. No SIGSTOP. No create hold was needed: freeze landed 46-58 ms after
+  the create answered, still ready-required.
+Script: proof-stop-start-frozen.ts (copied here). Log: run.log.
+
+1 PASS, with a caveat. op b046036f-6f4e-4b6a-941c-4011b0aa7c46 (pane wM8:p5, pid 2247232). Create answered at 4.54 s and was frozen at 4.59 s.
+  The page's /reply got 503 smarty.pi-timed-out after 12 s. The SENDING draft then showed "It is not clear whether the session
+  started..." with NO Stop (01a-own-draft-unknown.png). After New session in the same page, the draft showed "This message was sent
+  to start a session that has not finished starting..." with "Stop start b046036f" at 77.6 s (01-stuck-start-stop-offered.png).
+  /api/global/health returned 200 on all 60 polls while a Pi was frozen (#605 works; the earlier run got 503s).
+  The creation list reported phase "unavailable". Gateway /session/creation reads were slow, taking 11-12 s.
+2 PASS. Stop was clicked at about 77 s. The abandon answered 200 only 24.1 s later, because the gateway waits on the frozen Pi:
+  {phase:"cancelled", stoppedBy:{issuer:"http://127.0.0.1:43295", subject:"ALkeNA76CdgbMxeBblRU7SyM1qYQljkZ", name:"Owned Browser Fixture"}}.
+  The notice read "This message was not sent: Owned Browser Fixture stopped its session start. Your text is back in the draft."
+  "Stop me" was back in the composer, and typing into it worked (02-stopped-text-back.png).
+3 PASS. op 3a3dfcf8. Exactly 1 prompt_async (204) to session 01a0e2f2-2ca9-75d6-9fbc-4ec2e7989be7. "ready" was shown 5.2 s after clicking New session.
+4 FAIL: no refusal after two tries (not faked).
+  Try 1: op 1abb5070 frozen. ctx2 (fresh profile, same cookies) was offered "stop start 1abb5070" under "A session is still starting
+  in this project". ctx2's creation reads were then served stale. ctx1 stopped the start at 242.4 s (200 cancelled). ctx2 clicked its
+  stale Stop, and the gateway answered 200 cancelled at 254.4 s, stoppedBy Owned Browser Fixture, which is idempotent as expected.
+  ctx2's notice cleared, and its own text stayed.
+  Try 2: op e553b059 frozen, and ctx2 was offered Stop. The Pi was then thawed so the start could end another way. My direct readiness
+  probe returned HTTP 400, a wrong request shape on my side, so there is no proof of its phase. After 120 s, ctx2's Stop answered
+  200 cancelled with stoppedBy, so the start had NOT ended: a thawed Pi without the page's reply stays unsettled until expiry.
+  Getting a 409 needs a start that reaches ready or expires (~5 min) while a page's list is stale. Not reached in the timebox.
+Earlier attempts in this dir: attempt1-no-stop (only the sending draft was watched; it showed "unknown" and no Stop),
+  attempt2-armed-wrong-op (my trigger picked a stale listed op; nothing was frozen), attempt3-abandon-slow (abandon took 24 s, so my
+  20 s wait missed it; the op settled cancelled with stoppedBy in settled.json).
+Cleanup: all scopes thawed and gone. Created panes were closed by the gateway's tab cleanup, and the script closed wM8:p6. Only wM8:p1
+  is left. The stack is still running.
