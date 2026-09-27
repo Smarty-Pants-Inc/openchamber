@@ -7,11 +7,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { betterAuth } from 'better-auth';
 import { testUtils } from 'better-auth/plugins';
 import { createNodeMembership } from './node-membership.js';
-import { createHumanAuth } from './human-auth.js';
+import { createHumanAuth, MEMBERSHIP_CHECK_MS } from './human-auth.js';
+import { EventEmitter } from 'node:events';
 
 // smarty-net#117 N2: on a Node, only its members sign in, by their Google subject in the Node's registry record.
 const GOOGLE = 'https://accounts.google.com';
-const record = (members, logins, extra = {}) => ({ format: 1, revision: 1, node: { trusted_issuers: [GOOGLE] },
+const record = (members, logins, extra = {}) => ({ format: 1, revision: 1, node: { id: 'test-org', trusted_issuers: [GOOGLE] },
   orgs: [{ id: 'org', members }], logins, ...extra });
 const withRecord = (value, run) => {
   const dir = mkdtempSync(join(tmpdir(), 'node-record-')), path = join(dir, 'registry.json');
@@ -33,10 +34,26 @@ test('fails closed: no record, an invalid record, or a record that does not trus
   await withRecord(undefined, async (path) => assert.equal(await createNodeMembership(path)('111'), undefined));
   await withRecord({ format: 2 }, async (path) => assert.equal(await createNodeMembership(path)('111'), undefined));
   await withRecord(record([{ smarty_id: 'kate', kind: 'person', status: 'active' }], [{ issuer: GOOGLE, subject: '111', smarty_id: 'kate' }],
-    { node: { trusted_issuers: [] } }), async (path) => assert.equal(await createNodeMembership(path)('111'), undefined));
+    { node: { id: 'test-org', trusted_issuers: [] } }), async (path) => assert.equal(await createNodeMembership(path)('111'), undefined));
 });
 
-test('a member removed from the record is refused at the next request (the session is not)', () => withRecord(record(
+// #326 review: a malformed format-1 record admits nobody (not only format 2).
+test('a malformed format-1 record admits nobody: a non-string id, a member without an id, an unknown field, a bad status', async () => {
+  const kate = { smarty_id: 'kate', kind: 'person', status: 'active' }, login = { issuer: GOOGLE, subject: '111', smarty_id: 'kate' };
+  const cases = [
+    record([{ smarty_id: 7, kind: 'person', status: 'active' }], [{ issuer: GOOGLE, subject: '111', smarty_id: 7 }]),
+    record([kate, { kind: 'person', status: 'active' }], [login]),
+    record([{ ...kate, admin: true }], [login]),
+    record([kate], [{ ...login, extra: 1 }]),
+    record([{ ...kate, status: 'maybe' }], [login]),
+    { ...record([kate], [login]), unexpected: 1 },
+    record([kate], [login], { node: { trusted_issuers: [GOOGLE] } }), // node.id missing
+  ];
+  for (const value of cases) await withRecord(value, async (path) => assert.equal(await createNodeMembership(path)('111'), undefined));
+  await withRecord(record([kate], [login]), async (path) => assert.equal(await createNodeMembership(path)('111'), 'kate')); // Valid.
+});
+
+test('a member removed from the record is refused at the next request, and their open connections are closed', () => withRecord(record(
   [{ smarty_id: 'kate', kind: 'person', status: 'active' }], [{ issuer: GOOGLE, subject: '111', smarty_id: 'kate' }]), async (path) => {
   const database = new DatabaseSync(':memory:');
   const human = await createHumanAuth({ baseURL: 'http://localhost:43210', secret: 'fixture-only-secret-at-least-thirty-two-characters',
@@ -50,7 +67,15 @@ test('a member removed from the record is refused at the next request (the sessi
     const headers = await helpers.getAuthHeaders({ userId: user.id });
     const request = { headers: Object.fromEntries(headers) };
     assert.equal((await human.resolve(request))?.user.id, user.id); // A member.
+    // #326 review: an open stream or socket (SSE, terminal, voice) of that session stays open while a member...
+    const socket = new EventEmitter(); let destroyed = false, admitted = false;
+    socket.destroy = () => { destroyed = true; socket.emit('close'); };
+    await human.protect(request, socket, () => { admitted = true; });
+    assert.equal(admitted, true);
     writeFileSync(path, JSON.stringify(record([], []))); // Removed from the Node.
     assert.equal(await human.resolve(request), null);
+    // ...and is closed within the membership check's interval after withdrawal: no further frames in or out.
+    await new Promise(done => setTimeout(done, MEMBERSHIP_CHECK_MS + 500));
+    assert.equal(destroyed, true);
   } finally { human.dispose(); database.close(); }
 }));

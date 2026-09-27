@@ -5,6 +5,7 @@ import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
 import { createNodeMembership } from './node-membership.js';
 
+export const MEMBERSHIP_CHECK_MS = 2_000;
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains, nodeRecord }) {
   const inAudience = createHumanAudience(allowedDomains);
@@ -31,7 +32,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   if (!database || typeof secret !== 'string' || secret.length < 32 || !googleClientId || !googleClientSecret) {
     throw new Error('Human authentication configuration is incomplete');
   }
-  const liveResponses = new Map();
+  const liveResponses = new Map(), sessionUsers = new Map(); // sessionUsers: each live session's user (membership recheck).
   const closeSession = (id) => {
     for (const response of liveResponses.get(id) || []) response.destroy();
     liveResponses.delete(id);
@@ -84,6 +85,14 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       },
     },
   };
+  // On a Node, every open stream and socket (SSE, terminal, voice) is rechecked against the record every
+  // MEMBERSHIP_CHECK_MS: a withdrawn member's connections are closed, so no further input or output passes (#326 review).
+  const membershipCheck = member ? setInterval(() => { void (async () => {
+    for (const [id, user] of sessionUsers) if (!await admits(user).catch(() => false)) {
+      console.warn(JSON.stringify({ type: 'smarty.node-member-withdrawn', session: id.slice(0, 8) })); closeSession(id); sessionUsers.delete(id);
+    }
+  })(); }, MEMBERSHIP_CHECK_MS) : undefined;
+  membershipCheck?.unref?.();
   // Use the library's schema, not a second hand-maintained account schema.
   const migration = await getMigrations(options);
   await migration.runMigrations();
@@ -135,7 +144,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const session = await resolve(req);
     if (!session) return reject(res);
     const responses = liveResponses.get(session.session.id) || new Set();
-    liveResponses.set(session.session.id, responses);
+    liveResponses.set(session.session.id, responses); sessionUsers.set(session.session.id, session.user);
     responses.add(res);
     // Session expiry also closes already-open streams, not just later HTTP requests.
     const remaining = new Date(session.session.expiresAt).getTime() - Date.now();
@@ -146,7 +155,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const cleanup = () => {
       closed = true;
       clearTimeout(timer); responses.delete(res);
-      if (!responses.size) liveResponses.delete(session.session.id);
+      if (!responses.size) { liveResponses.delete(session.session.id); sessionUsers.delete(session.session.id); }
     };
     res.once('close', cleanup);
     res.once('finish', cleanup);
@@ -170,7 +179,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       const session = await resolve(req);
       return session ? res.json({ authenticated: true, humanAuth: true, user: actor(session) }) : unauthorized(res);
     },
-    dispose: () => { for (const id of liveResponses.keys()) closeSession(id); },
+    dispose: () => { clearInterval(membershipCheck); for (const id of liveResponses.keys()) closeSession(id); },
   };
 }
 
