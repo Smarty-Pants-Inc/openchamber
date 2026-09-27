@@ -6,18 +6,6 @@ const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
  * as a person's action would: it carries no content, only which code showed an error. A report that carries its
  * operation's runtime goes to that server only, and is dropped once the page has left it.
  */
-/**
- * A caller's generic toast for a failure already reported explicitly is that failure's display: not reported again (one
- * failure, one report). Only ONE toast is absorbed, only on the same server, and only until the failure's body has been
- * read and a moment more (at most 30 s): no other report is ever held back.
- */
-const COVER_AFTER_MS = 1_000, COVER_MAX_MS = 30_000;
-let cover: { runtimeKey: string; until: number } | undefined;
-export function coverCallerToast(runtimeKey: string, bodyRead: Promise<unknown>, now = Date.now()): void {
-  const entry = { runtimeKey, until: now + COVER_MAX_MS };
-  cover = entry;
-  void bodyRead.catch(() => undefined).finally(() => { entry.until = Math.min(entry.until, Date.now() + COVER_AFTER_MS); });
-}
 
 /**
  * A generic toast's diagnostic identity: the code location that showed it (bundle file, line, column), read from the
@@ -60,7 +48,6 @@ export function redactClientError(text: string): string {
 }
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (!report.runtimeKey && cover && cover.runtimeKey === currentRuntime() && now < cover.until) { cover = undefined; return; }
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -88,5 +75,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); cover = undefined;
+  lastReport.clear();
 }
