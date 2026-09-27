@@ -195,6 +195,7 @@ test('every error toast shown outside the reporting wrapper is reported by its o
   // A reviewed branded file keeps its bytes: the operation it calls reports instead (checked below).
   const reportedByOperation: Record<string, [string, RegExp]> = {
     'components/chat/ChatMessage.tsx': ['sync/session-actions.ts', /kind: "context-pin"/],
+    'components/chat/work-status/WorkStatusPinnedSection.tsx': ['sync/session-actions.ts', /kind: "context-pin"/],
     'components/update/OpenCodeUpdateToast.tsx': ['lib/runtime-fetch.ts', /kind: 'opencode-upgrade'/],
   };
   const bypass: string[] = [];
@@ -205,4 +206,13 @@ test('every error toast shown outside the reporting wrapper is reported by its o
       && !(reportedByOperation[file] && reportedByOperation[file]![1].test(readFileSync(root + reportedByOperation[file]![0], 'utf8')))) bypass.push(file);
   }
   expect(bypass).toEqual([]);
+  // One shown error, one report: a caller of an operation that reports its own failure (the context pin) shows its
+  // toast unwrapped, or a failed unpin in Work Status would report twice.
+  const twice: string[] = [];
+  for (const file of readdirSync(root, { recursive: true }) as string[]) {
+    if (!/\.tsx?$/.test(file) || /\.test\.|__tests__/.test(file)) continue;
+    const text = readFileSync(root + file, 'utf8');
+    if (/setContextObligatoryMessage\(/.test(text) && /from '@\/components\/ui'/.test(text) && /toast\.error\(/.test(text)) twice.push(file);
+  }
+  expect(twice).toEqual([]);
 });
