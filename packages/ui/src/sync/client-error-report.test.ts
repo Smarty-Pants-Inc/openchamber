@@ -193,6 +193,36 @@ test('a small-model failure whose body is slow is still one report with its call
   } finally { globalThis.fetch = served; }
 });
 
+test('a small-model failure absorbs only its caller\'s one toast: after a switch, or a second error, reports go on', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { requestSmallModel } = await import('@/lib/smallModelRequest');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  const served = globalThis.fetch;
+  const seen: Array<{ runtime: string; kind: string }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), kind: String((await request.json()).kind) }); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/small-model/generate')) return new Response(new ReadableStream({ start() {} }), { status: 503 }); // Its body never ends.
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Its report goes to A.
+    const runtimeB = `server-b-${crypto.randomUUID()}`;
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeB });
+    toast.error('Could not load stashes'); await sleep(50); // On B, unrelated: reported.
+    expect(seen.map(entry => entry.runtime)).toEqual([runtimeA, runtimeB]);
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+    const second = () => { toast.error('Could not rename'); };
+    const other = () => { toast.error('Could not save the title'); };
+    second(); other(); await sleep(50); // Back on A: the first is taken as the caller's toast; the next reports.
+    expect(seen).toHaveLength(3);
+    expect(seen[2]!.runtime).toBe(runtimeA);
+  } finally { globalThis.fetch = served; }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
 test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {
   fixture = nativeDraftFixture();
   const { setContextObligatoryMessage } = await import('./session-actions');

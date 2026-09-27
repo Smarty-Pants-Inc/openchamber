@@ -1,7 +1,7 @@
 import { toast } from '@/components/ui/toast'; // Unwrapped: this site reports its own diagnostic.
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { readCopy } from '@/lib/responseCopy';
-import { coverFollowingToasts, reportClientError } from '@/lib/clientErrorReport';
+import { coverCallerToast, reportClientError } from '@/lib/clientErrorReport';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 const SMALL_MODEL_TOAST_ID = 'small-model-unavailable';
@@ -24,12 +24,12 @@ export async function requestSmallModel(
     const response = await runtimeFetch('/api/small-model/generate', init);
     if (!response.ok && !options.silentStatuses?.includes(response.status)) {
       notifySmallModelUnavailable(runtimeKey, response.status);
-      coverFollowingToasts(readCopy(response) ?? Promise.resolve()); // The caller's own toast for it follows once it reads the body.
+      coverCallerToast(runtimeKey, readCopy(response) ?? Promise.resolve()); // The caller's own toast for it follows once it reads the body.
     }
     return response;
   } catch (error) {
     notifySmallModelUnavailable(runtimeKey);
-    coverFollowingToasts(Promise.resolve());
+    coverCallerToast(runtimeKey, Promise.resolve());
     throw error;
   }
 }
