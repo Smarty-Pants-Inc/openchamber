@@ -169,7 +169,7 @@ test('a busy session that streamed while not shown opens with its whole history'
 }, 15_000);
 
 /** A mounted SyncProvider on '/a' whose server answers each session's history from `history`, with an event stream. */
-async function mountedSync(history: (sessionID: string) => unknown[], children?: (preview: string) => React.ReactNode) {
+async function mountedSync(history: (sessionID: string) => unknown[] | Promise<unknown[]>, children?: (preview: string) => React.ReactNode) {
   const originalFetch = globalThis.fetch;
   const dom = installHookTestDom();
   Object.assign(document, { hasFocus: () => true, visibilityState: 'visible' });
@@ -191,7 +191,7 @@ async function mountedSync(history: (sessionID: string) => unknown[], children?:
     if (message) {
       reads.push(message[1]!);
       // Pages as the server does: the newest `limit` records before the cursor, and the next cursor while older remain.
-      const all = history(message[1]!), before = url.searchParams.get('before');
+      const all = await history(message[1]!), before = url.searchParams.get('before');
       const end = before ? Number(before) : all.length, start = Math.max(0, end - Number(url.searchParams.get('limit') ?? all.length));
       const headers: Record<string, string> = { 'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}`, 'x-smarty-read-only': '1' };
       if (start > 0) headers['x-next-cursor'] = String(start);
@@ -309,6 +309,36 @@ test('a session read earlier as empty whose reply now has 60 steps opens with it
     await sync.settle(300);
     const ids = (sync.store.getState().message[S] ?? []).map(entry => entry.id);
     expect(ids[0]).toBe('msg_001'); // Its prompt is there, so the turn shows.
+    expect(ids).toHaveLength(61);
+  } finally { await sync.dispose(); }
+}, 15_000);
+
+// Pre-check (Astra, overlap): the streamed reply starts a recovery read, and she opens the session before it answers.
+// The open waits for that read, then finds the coverage still stale and reloads it from the start, once.
+test('opening while a recovery read of stale coverage is under way still reaches the prompt', async () => {
+  const S = 'ses_overlap';
+  let history: unknown[] = [];
+  let release = () => {};
+  let hold: Promise<void> | undefined;
+  const sync = await mountedSync(async () => { if (hold) { const gate = hold; hold = undefined; await gate; } return history; });
+  try {
+    sync.session(S);
+    await act(async () => { await getImperativeSessionMessageLoader()!.prefetch({ directory: '/a', sessionID: S }); });
+    const steps = Array.from({ length: 60 }, (_, i) => ({ info: reply(S, `msg_${String(i + 2).padStart(3, '0')}`, 'msg_001', i + 2, i + 3),
+      parts: [{ id: `prt_${i + 2}`, sessionID: S, messageID: `msg_${String(i + 2).padStart(3, '0')}`, type: 'text', text: `step ${i}` }] }));
+    history = [{ info: prompt(S, 'msg_001', 1), parts: [{ id: 'prt_1', sessionID: S, messageID: 'msg_001', type: 'text', text: 'go' }] }, ...steps];
+    hold = new Promise<void>(resolve => { release = resolve; });
+    sync.event('message.updated', { info: reply(S, 'msg_061', 'msg_001', 61, 62) }); // A reply with no parts yet: a recovery read.
+    await sync.settle(300);
+    expect(sync.reads).toEqual([S, S]); // The recovery read is under way (held).
+    setActiveSession('/a', S);
+    const opening = fetchMessagesForSession(S, '/a');
+    await sync.settle(100);
+    release();
+    await act(async () => { await opening; });
+    await sync.settle(300);
+    const ids = (sync.store.getState().message[S] ?? []).map(entry => entry.id);
+    expect(ids[0]).toBe('msg_001');
     expect(ids).toHaveLength(61);
   } finally { await sync.dispose(); }
 }, 15_000);

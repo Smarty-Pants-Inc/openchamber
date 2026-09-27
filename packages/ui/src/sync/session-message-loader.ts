@@ -209,7 +209,7 @@ export class SessionMessageLoader {
 
   ensure(
     target: SessionMessageTarget,
-    options?: { force?: boolean; reason?: "navigation" | "reactive" | "prefetch" },
+    options?: { force?: boolean; reason?: "navigation" | "reactive" | "prefetch"; coverageRechecked?: boolean },
   ): Promise<void> {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
@@ -229,6 +229,11 @@ export class SessionMessageLoader {
     if (entry.inflight) {
       if (options?.reason !== "prefetch" && entry.snapshot.loadingKind === "prefetch") {
         this.patchEntry(entry, { loadingKind: "initial" })
+      }
+      // Stale coverage behind a read already under way (a tail refresh): once it settles, check again, once.
+      if (staleCoverage && !options?.coverageRechecked) {
+        const inflight = entry.inflight
+        return inflight.catch(() => undefined).then(() => this.ensure(normalized, { reason: "navigation", coverageRechecked: true }))
       }
       return entry.inflight
     }
