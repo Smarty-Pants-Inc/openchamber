@@ -62,12 +62,13 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
     if (isGenericToast(report.kind)) return;
     if (operationsThisTask.some(earlier => !earlier || !report.sessionID || earlier === report.sessionID)) return;
   }
+  const runtimeKey = report.runtimeKey ?? currentRuntime();
+  if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
+  // Only a report that is the page's server's marks its task (a dropped old-server failure holds nothing back).
   if (!isGenericToast(report.kind)) {
     if (!operationsThisTask) { operationsThisTask = []; setTimeout(() => { operationsThisTask = undefined; }, 0); }
     operationsThisTask.push(report.sessionID);
   }
-  const runtimeKey = report.runtimeKey ?? currentRuntime();
-  if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
   const key = `${runtimeKey}\0${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
   const last = lastReport.get(key);

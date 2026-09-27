@@ -143,8 +143,10 @@ test('with an old request still pending, a new error on the new server is report
     expect(seen).toHaveLength(1);
     expect(seen[0]!.runtime).toBe(runtimeB);
     expect(seen[0]!.kind.startsWith('toast.')).toBe(true);
-    releaseA(); await lateA; await sleep(50); // A's own failure, late: it carries A's scope, so it goes nowhere.
-    expect(seen).toHaveLength(1);
+    releaseA(); await lateA.then(() => { toast.error('Could not rename'); }); await sleep(50);
+    // A's own failure, late, carries A's scope and goes nowhere; B's toast in the same task still reports.
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.runtime).toBe(runtimeB);
   } finally { globalThis.fetch = served; }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
