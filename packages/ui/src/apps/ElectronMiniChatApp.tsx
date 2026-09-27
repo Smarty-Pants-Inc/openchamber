@@ -1,4 +1,5 @@
 import React from 'react';
+import { z } from 'zod';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -18,6 +19,7 @@ import { useGitStore } from '@/stores/useGitStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { RuntimeSyncProvider, useSessions } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
+import { useShownViewOnlyWatch } from '@/sync/view-only-transcript-watch';
 import { SyncRuntimeEffects } from './AppEffects';
 import { useAppFontEffects } from './useAppFontEffects';
 import { useMiniChatKeyboardShortcuts } from '@/hooks/useMiniChatKeyboardShortcuts';
@@ -44,8 +46,11 @@ type ElectronMiniChatAppProps = {
   apis: RuntimeAPIs;
 };
 
+/** The tray's `openchamber:open-session` event detail. */
+const openSessionDetail = z.object({ sessionId: z.string().optional(), directory: z.string().optional() });
+
 const readMiniChatConfig = (): MiniChatConfig => {
-  const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const params = globalThis.window ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const mode = params.get('mode') === 'session' ? 'session' : 'draft';
   const sessionId = params.get('sessionId')?.trim() || null;
   const directory = params.get('directory')?.trim() || null;
@@ -143,7 +148,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
       void sync.ensureSessionRenderable(config.sessionId);
       return;
     }
-    const directory = (session as { directory?: string | null }).directory ?? config.directory;
+    const directory = session.directory ?? config.directory;
     setCurrentSession(config.sessionId, directory);
     sessionBootstrappedRef.current = true;
   }, [config, currentSessionId, sessions, setCurrentSession, sync]);
@@ -152,13 +157,12 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
   // tray while this window was focused) instead of spawning a new window.
   React.useEffect(() => {
     const onOpenSession = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: string; directory?: string }>).detail;
-      const sessionId = typeof detail?.sessionId === 'string' ? detail.sessionId.trim() : '';
+      const detail = event instanceof CustomEvent ? openSessionDetail.safeParse(event.detail).data : undefined;
+      const sessionId = detail?.sessionId?.trim() ?? '';
       if (!sessionId) return;
       if (useSessionUIStore.getState().currentSessionId === sessionId) return;
-      const sessionDirectory = (sessions.find((entry) => entry.id === sessionId) as { directory?: string | null } | undefined)?.directory?.trim();
-      const directory = sessionDirectory
-        || (typeof detail?.directory === 'string' && detail.directory.trim().length > 0 ? detail.directory.trim() : null);
+      const sessionDirectory = sessions.find((entry) => entry.id === sessionId)?.directory?.trim();
+      const directory = sessionDirectory || detail?.directory?.trim() || null;
       void sync.ensureSessionRenderable(sessionId);
       setCurrentSession(sessionId, directory);
       sessionBootstrappedRef.current = true;
@@ -231,7 +235,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
     const dismiss = () => {
       if (splashDismissedRef.current) return;
       splashDismissedRef.current = true;
-      const el = typeof document !== 'undefined' ? document.getElementById('initial-loading') : null;
+      const el = globalThis.document ? document.getElementById('initial-loading') : null;
       if (el) {
         el.classList.add('fade-out');
         window.setTimeout(() => el.remove(), 300);
@@ -252,7 +256,7 @@ const MiniChatPresencePublisher: React.FC = () => {
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
 
   React.useEffect(() => {
-    if (!currentSessionId || !currentDirectory || typeof BroadcastChannel === 'undefined') return;
+    if (!currentSessionId || !currentDirectory || !globalThis.BroadcastChannel) return; // Absent, or undefined (as typeof saw it).
 
     const channel = new BroadcastChannel(MINI_CHAT_PRESENCE_CHANNEL);
     const postPresence = (viewed: boolean) => {
@@ -340,6 +344,9 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
 
 const ElectronMiniChatContent: React.FC<{ config: MiniChatConfig }> = ({ config }) => {
   const sessionUnavailable = useSessionUnavailable(config);
+  // The Mini Chat window's transcript (ChatContainer, via MiniChatLayout) holds its session's View only watch while it
+  // shows it, independently of the main window (openchamber#278 review 12).
+  useShownViewOnlyWatch(!sessionUnavailable);
 
   return (
     <>

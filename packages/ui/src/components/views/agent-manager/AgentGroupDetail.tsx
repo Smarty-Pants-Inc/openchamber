@@ -10,6 +10,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus, useAllSessionStatuses } from '@/sync/sync-context';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { ChatErrorBoundary } from '@/components/chat/ChatErrorBoundary';
+import { useShownViewOnlyWatch } from '@/sync/view-only-transcript-watch';
 import {
   Dialog,
   DialogContent,
@@ -85,6 +86,8 @@ export const AgentGroupDetail: React.FC<AgentGroupDetailProps> = ({
   }, [group.name, group.sessions, selectedSessionId, currentSessionId, selectSession, setCurrentSession]);
 
   const isSessionSynced = selectedSession?.id === currentSessionId;
+  // Its transcript (ChatContainer) holds the session's View only watch while shown (openchamber#278 review 12).
+  useShownViewOnlyWatch(selectedSession !== null && isSessionSynced);
 
   const handleCopyWorktreePath = React.useCallback(() => {
     if (!selectedSession?.path) {
