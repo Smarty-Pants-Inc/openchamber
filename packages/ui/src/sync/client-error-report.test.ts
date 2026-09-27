@@ -11,7 +11,8 @@ const reports = () => fixture!.requests.filter(request => new URL(request.url).p
 
 test('a session whose messages cannot be loaded is reported once, with its session and status', async () => {
   fixture = nativeDraftFixture();
-  fixture.handlers.history = async () => Response.json({ name: 'APIError', data: { message: 'Pi unavailable', isRetryable: false } }, { status: 503 });
+  // The server's words may quote the person's content: never reported.
+  fixture.handlers.history = async () => Response.json({ name: 'APIError', data: { message: "Refused: 'keep the merger plan private'", isRetryable: false } }, { status: 503 });
   const target = { directory, sessionID: session.id };
   await fixture.loader.ensure(target, { reason: 'navigation' });
   expect(fixture.loader.getSnapshot(target).status).toBe('error'); // What the page shows as "Session could not be loaded".
@@ -20,6 +21,7 @@ test('a session whose messages cannot be loaded is reported once, with its sessi
   const body = await reports()[0]!.json() as Record<string, unknown>;
   expect(body).toMatchObject({ kind: 'session-messages.initial', sessionID: session.id, status: 503 });
   expect(typeof body.message).toBe('string');
+  expect(JSON.stringify(body).includes('merger')).toBe(false);
   expect(typeof body.at).toBe('number');
   for (const key of Object.keys(body)) expect(['at', 'kind', 'message', 'route', 'sessionID', 'status']).toContain(key); // No content.
   // The same failure again within 30 s: shown again, not reported again.
