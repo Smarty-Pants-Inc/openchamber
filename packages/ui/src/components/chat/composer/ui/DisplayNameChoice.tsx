@@ -5,11 +5,11 @@ import { useI18n } from '@/lib/i18n';
 import { browserDisplayName, displayNameSchema } from '@/lib/messages/displayName';
 import { isIMECompositionEvent } from '@/lib/ime';
 import { useHumanAuth } from '@/lib/human-auth';
-import { HumanAccount } from '@/components/auth/HumanAccount';
 
 export function DisplayNameChoice() {
   const enabled = useHumanAuth(state => state.enabled);
-  return enabled ? <HumanAccount /> : <LegacyDisplayNameChoice />;
+  // The signed-in account lives in the top bar (Header); the composer shows nothing then.
+  return enabled ? null : <LegacyDisplayNameChoice />;
 }
 
 function LegacyDisplayNameChoice() {

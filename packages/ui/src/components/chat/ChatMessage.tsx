@@ -830,15 +830,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                         reserve its gap to the next message here, OUTSIDE the
                                         bubble background. */}
                                     <div className={cn('max-w-[85%]', showStickyInlineHoverRow ? 'pb-5' : undefined, chatSurfaceMode === 'peek' ? 'pb-3' : undefined)}>
+                                        {/* #538: the sender sits above the bubble, like Slack/Claude, not inside it. */}
+                                        <div className="flex justify-end px-1"><HumanAuthor info={message.info} /></div>
                                         <div
                                             style={{
                                                 backgroundColor: 'var(--chat-user-message-bg)',
                                                 borderRadius: userMessageRadius,
                                                 borderBottomRightRadius: 'var(--radius-sm)',
                                             }}
-                                            className="px-5 py-3 shadow-none border border-primary/5"
+                                            className="px-4 py-2.5 shadow-none border border-primary/5"
                                         >
-                                            <HumanAuthor info={message.info} />
                                             <UnsavedLabel info={message.info} />
                                             <MessageBody
                                                 messageId={message.info.id}

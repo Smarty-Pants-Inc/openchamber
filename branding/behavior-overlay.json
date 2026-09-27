@@ -339,7 +339,7 @@
       "path": "packages/ui/src/components/chat/ChatMessage.tsx",
       "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
       "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
-      "combinedSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
+      "combinedSha256": "5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95",
       "behaviorSource": "f07077052ba821ad138a931484108d00511fc437",
       "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged.",
       "preStopWordingCombinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
@@ -348,7 +348,10 @@
       "stopWordingNote": "A user Stop (MessageAbortedError) reads Stopped instead of a send failure; the error-notice mapping moves unchanged into lib/messages/assistantErrorText.ts. Human-author display integration and branding ownership remain unchanged.",
       "preUnsavedLabelCombinedSha256": "dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8",
       "unsavedLabelSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
-      "unsavedLabelNote": "Slice 1 L1: both message rows render UnsavedLabel from info.metadata.smartyCodeUnsaved (the gateway marks a record not yet in the session file). Branded strings are unchanged."
+      "unsavedLabelNote": "Slice 1 L1: both message rows render UnsavedLabel from info.metadata.smartyCodeUnsaved (the gateway marks a record not yet in the session file). Branded strings are unchanged.",
+      "preDesign538CombinedSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
+      "design538Sha256": "5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95",
+      "design538Note": "smarty-code#538: the user bubble shows its HumanAuthor sender above the bubble instead of inside it, with tighter padding. Branded strings are unchanged."
     },
     {
       "path": "packages/web/package.json",
@@ -416,14 +419,17 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
+      "combinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "managedCatalogSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4",
       "preContextWindowCombinedSha256": "5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4",
       "contextWindowSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
-      "contextWindowNote": "G14: the header context meter takes the window of the model the session runs (useSessionContextWindow) instead of the composer selection. Branded strings are unchanged."
+      "contextWindowNote": "G14: the header context meter takes the window of the model the session runs (useSessionContextWindow) instead of the composer selection. Branded strings are unchanged.",
+      "preDesign538CombinedSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
+      "design538Sha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "design538Note": "smarty-code#538: the top bar shows the signed-in HumanAccount avatar menu at the right when human auth is on (it left the composer). Branded strings are unchanged."
     },
     {
       "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
@@ -511,5 +517,6 @@
   "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8",
   "testDeterminismSource": "732a27bc26645739bdedb85cc19c66532aa95967",
   "originGuardSource": "82b714f7ab0987db9ff2774ddda866e02915e0d7",
-  "firstSendHandoffSource": "34a811038a1c2160f1bf49b46a22103a9d6a24c7"
+  "firstSendHandoffSource": "34a811038a1c2160f1bf49b46a22103a9d6a24c7",
+  "design538Source": "ba31b74cd2a84d4793f780e470886d822ba80f06"
 }

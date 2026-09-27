@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import { HumanAccount } from '@/components/auth/HumanAccount';
+import { useHumanAuth } from '@/lib/human-auth';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -19,6 +21,7 @@ export const MobileHeader: React.FC<{
   compactTitle?: boolean;
 }> = ({ onOpenSessions, onOpenWorkspace, compactTitle = false }) => {
   const { t } = useI18n();
+  const humanAuthEnabled = useHumanAuth((state) => state.enabled);
   const [metadataOpen, setMetadataOpen] = React.useState(false);
   const [switcherOpen, setSwitcherOpen] = React.useState(false);
   const titleRef = React.useRef<HTMLButtonElement>(null);
@@ -135,6 +138,8 @@ export const MobileHeader: React.FC<{
           >
             <Icon name="pencil-ruler-2" className="size-5" />
           </button>
+          {/* #538: the signed-in account, top right, as on desktop. */}
+          {humanAuthEnabled ? <div className="flex size-10 shrink-0 items-center justify-center"><HumanAccount /></div> : null}
         </div>
       </header>
       <MobileSessionSwitcher

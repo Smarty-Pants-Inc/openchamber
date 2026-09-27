@@ -60,6 +60,8 @@ import {
 } from '@/lib/desktopCurrentHost';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
+import { useHumanAuth } from '@/lib/human-auth';
+import { HumanAccount } from '@/components/auth/HumanAccount';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
@@ -283,6 +285,7 @@ type HeaderSessionSnapshot = {
 export const Header: React.FC = () => {
   streamPerfCount('ui.header.render');
   const { t } = useI18n();
+  const humanAuthEnabled = useHumanAuth((state) => state.enabled);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
   const openContextOverview = useUIStore((state) => state.openContextOverview);
   const closeContextPanel = useUIStore((state) => state.closeContextPanel);
@@ -1689,6 +1692,7 @@ export const Header: React.FC = () => {
           ) : null}
 
           {desktopSidebarActions}
+          {humanAuthEnabled ? <div className="app-region-no-drag ml-1 flex shrink-0 items-center"><HumanAccount /></div> : null}
           <WindowsWindowControls visible={usesFramelessChrome && windowControlsSide === 'right'} position="right" />
         </div>
       </div>
