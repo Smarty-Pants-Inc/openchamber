@@ -352,7 +352,8 @@ export interface MessageListHandle {
     scrollToBottom: () => void;
 }
 
-import { isVoiceTurn, VoiceTurn } from './message/VoiceTurn';
+import { VoiceTurn } from './message/VoiceTurn';
+import { isVoiceTurn } from './message/voiceTurnData';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };

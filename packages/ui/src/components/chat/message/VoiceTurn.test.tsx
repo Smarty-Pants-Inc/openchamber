@@ -5,7 +5,8 @@ import { I18nProvider } from '@/lib/i18n';
 import { projectTurnRecords } from '../lib/turns/projectTurnRecords';
 import { buildStaticRenderEntries } from '../lib/turns/renderEntries';
 import type { ChatMessageEntry } from '../lib/turns/types';
-import { isVoiceTurn, VoiceTurn, voiceSpeaker } from './VoiceTurn';
+import { VoiceTurn } from './VoiceTurn';
+import { isVoiceTurn, voiceSpeaker } from './voiceTurnData';
 
 // The gateway's projection of a smarty-voice-turn entry (smarty-code#538, agreed with code-voice).
 const voice = (id: string, speaker: string, text: string, parentID: string) => ({
