@@ -37,8 +37,8 @@ export function redactClientError(text: string): string {
   return text
     .replace(/https?:\/\/[^\s"'<>]+/g, url => { try { const parsed = new URL(url); return `${parsed.origin}${parsed.pathname}`; } catch { return '<url>'; } })
     .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
-    // Quoted text in an error is usually the person's own (a title, a message): never sent.
-    .replace(/"[^"]{12,}"|“[^”]{12,}”|'[^']{12,}'/g, '"…"')
+    // Quoted text in an error is usually the person's own (a title, a message, a file name): never sent, whatever its length.
+    .replace(/"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|`[^`]+`/g, '"…"')
     .replace(/[A-Za-z0-9_+/=-]{24,}/g, '<redacted>')
     .slice(0, 300);
 }

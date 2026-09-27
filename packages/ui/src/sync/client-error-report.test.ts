@@ -53,6 +53,7 @@ test('a report is redacted: no query strings, tokens or addresses, and the route
   expect(redactClientError('Failed https://code.example/api/x?token=abc for paul@example.com with sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ123'))
     .toBe('Failed https://code.example/api/x for <email> with <redacted>');
   expect(redactClientError('Could not rename "Merger plan for Friday" session')).toBe('Could not rename "…" session');
+  expect(redactClientError('File "payroll.csv" is too large (max 10MB)')).toBe('File "…" is too large (max 10MB)');
 });
 
 test('a report made for one server is never sent after a switch to another', async () => {
