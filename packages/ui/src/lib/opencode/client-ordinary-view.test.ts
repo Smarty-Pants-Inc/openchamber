@@ -39,7 +39,8 @@ const switchTo = async (runtimeKey: string) => {
   await refreshRuntimeUrlAuthToken();
   opencodeClient.reconnectToRuntimeBaseUrl();
 };
-const prompts = () => requests.filter(request => request.method === 'POST');
+// The page's error report (smarty-code#536) is no prompt.
+const prompts = () => requests.filter(request => request.method === 'POST' && !request.url.endsWith('/client-error'));
 
 beforeEach(async () => {
   requests.length = 0;

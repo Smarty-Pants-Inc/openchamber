@@ -1,4 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
+import { answersUnsuccessful } from './responseCopy';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
@@ -216,11 +217,17 @@ const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope
   return response;
 };
 
+const reportUpgradeFailure = (runtimeKey: string, operationId: string, status?: number) => {
+  void import('./clientErrorReport').then(({ reportClientError }) =>
+    reportClientError({ kind: 'opencode-upgrade', status, runtimeKey, operationId }));
+};
+
 const fetchRuntimeRequest = async (
   input: string | URL | Request,
   init: RuntimeFetchOptions,
   networkFetch: typeof fetch,
 ): Promise<Response> => {
+  const upgradeId = `upgrade:${Date.now()}:${Math.random()}`; // This request, at its start: its failure is one report.
   const { query, ...requestInit } = init;
   const scope = captureRuntimeRequestScope();
   const relayPath = scope.relay ? extractRelayPath(input, query) : null;
@@ -234,18 +241,31 @@ const fetchRuntimeRequest = async (
   const headers = await mergeHeaders(resolvedInput instanceof Request ? resolvedInput.headers : undefined, requestInit.headers);
   assertRuntimeRequestScope(scope);
   addRuntimeProxyHeaders(url, headers);
+  const isUpgrade = method === 'POST' && /\/api\/opencode\/upgrade(?:\?|$)/.test(url);
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
-  const response = relay
-    ? await relay.fetch(input instanceof Request ? input : url, { ...requestInit, headers })
-    : await networkFetch(resolvedInput instanceof Request
-      ? new Request(resolvedInput, { ...requestInit, headers })
-      : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
+  let response: Response;
+  try {
+    response = relay
+      ? await relay.fetch(input instanceof Request ? input : url, { ...requestInit, headers })
+      : await networkFetch(resolvedInput instanceof Request
+        ? new Request(resolvedInput, { ...requestInit, headers })
+        : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
+  } catch (error) {
+    if (isUpgrade) reportUpgradeFailure(scope.runtimeKey, upgradeId);
+    throw error;
+  }
 
   if (isRuntimeRequestScopeCurrent(scope)) {
     observeRuntimeAuthResponse(url, response.status, scope);
     // The health probe's own answer is judged by its body in checkHealth, never taken as transport evidence here.
     if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered(scope.runtimeKey);
+  }
+  // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536):
+  // a refused or unanswered request, or a 200 whose body says it did not succeed.
+  if (isUpgrade) {
+    if (!response.ok) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status);
+    else void answersUnsuccessful(response).then(failed => { if (failed) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status); });
   }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;
