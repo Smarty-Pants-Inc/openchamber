@@ -1,4 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
+import { beginRuntimeWork, notePreviousRuntimeSettled } from './runtime-work';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
@@ -216,6 +217,11 @@ const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope
   return response;
 };
 
+const reportUpgradeFailure = (runtimeKey: string, status?: number) => {
+  void import('./clientErrorReport').then(({ reportClientError }) =>
+    reportClientError({ kind: 'opencode-upgrade', status, runtimeKey }));
+};
+
 const fetchRuntimeRequest = async (
   input: string | URL | Request,
   init: RuntimeFetchOptions,
@@ -234,23 +240,37 @@ const fetchRuntimeRequest = async (
   const headers = await mergeHeaders(resolvedInput instanceof Request ? resolvedInput.headers : undefined, requestInit.headers);
   assertRuntimeRequestScope(scope);
   addRuntimeProxyHeaders(url, headers);
+  const isUpgrade = method === 'POST' && /\/api\/opencode\/upgrade(?:\?|$)/.test(url);
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
-  const response = relay
-    ? await relay.fetch(input instanceof Request ? input : url, { ...requestInit, headers })
-    : await networkFetch(resolvedInput instanceof Request
-      ? new Request(resolvedInput, { ...requestInit, headers })
-      : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
+  const endWork = beginRuntimeWork(scope.runtimeKey);
+  let response: Response;
+  try {
+    response = relay
+      ? await relay.fetch(input instanceof Request ? input : url, { ...requestInit, headers })
+      : await networkFetch(resolvedInput instanceof Request
+        ? new Request(resolvedInput, { ...requestInit, headers })
+        : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
+  } catch (error) {
+    if (isUpgrade) reportUpgradeFailure(scope.runtimeKey);
+    throw error;
+  } finally {
+    endWork();
+    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); // Its failure may show on the next server.
+  }
 
   if (isRuntimeRequestScopeCurrent(scope)) {
     observeRuntimeAuthResponse(url, response.status, scope);
     // The health probe's own answer is judged by its body in checkHealth, never taken as transport evidence here.
     if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered(scope.runtimeKey);
   }
-  // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536).
-  if (method === 'POST' && !response.ok && /\/api\/opencode\/upgrade(?:\?|$)/.test(url)) {
-    void import('./clientErrorReport').then(({ reportClientError }) =>
-      reportClientError({ kind: 'opencode-upgrade', status: response.status, runtimeKey: scope.runtimeKey }));
+  // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536):
+  // a refused request, or a 200 whose body says it did not succeed.
+  if (isUpgrade) {
+    if (!response.ok) reportUpgradeFailure(scope.runtimeKey, response.status);
+    else void response.clone().json().then((payload: { success?: boolean } | null) => {
+      if (payload?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
+    }).catch(() => undefined);
   }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;

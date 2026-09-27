@@ -1,22 +1,16 @@
 // A namespace import: test doubles of the runtime module may omit the key; then no report is scoped (nor sent).
 import * as runtime from './runtime-switch';
+import { previousRuntimeWorkInDoubt, resetRuntimeWorkForPage } from './runtime-work';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
 /**
- * A report without its operation's runtime (a generic toast) cannot say which server its failure came from. Right after
- * a switch it may be the previous server's, finishing late, so for a while such reports are not sent; after that they
- * report to the page's server again. Operations that capture their runtime report exactly, at any time.
- * ponytail: a bounded window, not a scope threaded through every toast caller; the sites that matter pass their runtime.
+ * A report without its operation's runtime (a generic toast) cannot say which server its failure came from. It is not
+ * sent while the page still has work out on a previous server, or right after such work settled: then it may be that
+ * server's. Otherwise it is the current server's, and reported there. Operations that capture their runtime report
+ * exactly, at any time. ponytail: the requests' own record, not a scope threaded through every toast caller.
  */
-const SWITCH_GRACE_MS = 120_000; // Longer than a read's own time limit and the loader's tries of it.
-let switchedAt: number | undefined, watching = false;
-// The switch event goes through the window: subscribe once there is one (at page load on the page).
-const watchSwitches = () => {
-  if (watching || typeof window === 'undefined') return;
-  watching = true;
-  // Leaving a server is a switch; the first connection from the uninitialized default (a native app's cold boot) is not.
-  runtime.subscribeRuntimeEndpointChanged?.(detail => { if (detail.previousRuntimeKey !== 'url:default') switchedAt = Date.now(); });
-};
-watchSwitches();
+/** A generic toast right after an explicit report is that failure's display, already reported (one failure, one report). */
+const EXPLICIT_COVERS_MS = 1_000;
+let lastExplicitAt = Number.NEGATIVE_INFINITY;
 
 /**
  * A generic toast's diagnostic identity: the code location that showed it (bundle file, line, column), read from the
@@ -59,10 +53,10 @@ export function redactClientError(text: string): string {
 }
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  watchSwitches();
-  if (!report.runtimeKey && switchedAt !== undefined && now - switchedAt < SWITCH_GRACE_MS) return;
+  if (!report.runtimeKey && (previousRuntimeWorkInDoubt(currentRuntime(), now) || now - lastExplicitAt < EXPLICIT_COVERS_MS)) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
+  if (report.runtimeKey) lastExplicitAt = now;
   const message = report.message ? redactClientError(report.message) : undefined;
   const key = `${runtimeKey}\0${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
   const last = lastReport.get(key);
@@ -87,4 +81,6 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 }
 
 /** Tests model a page load. */
-export function resetClientErrorReportsForPage(): void { lastReport.clear(); switchedAt = undefined; }
+export function resetClientErrorReportsForPage(): void {
+  lastReport.clear(); lastExplicitAt = Number.NEGATIVE_INFINITY; resetRuntimeWorkForPage();
+}

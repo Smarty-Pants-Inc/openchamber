@@ -118,48 +118,69 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
 });
 
 // Review of #301 (P2): a switch does not stop reporting for good. A generic toast (no runtime of its own) is not sent
-// for a while after a switch (a late failure of the previous server's); after that, toasts report again. An operation
-// that captures its runtime reports exactly: begun on B, it reports to B at once.
-test('after a switch, a late toast is not reported, later toasts are, and an operation begun on the new server reports at once', async () => {
+// while the previous server's work is still out or has just settled (it may be that failure); otherwise it reports to
+// the page's server. An operation that captures its runtime reports exactly: begun on B, it reports to B at once.
+test('after a switch, a toast while the old server\'s request is out or just settled is not reported; later toasts and new operations are', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
   const { requestSmallModel } = await import('@/lib/smallModelRequest');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
   const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
   const runtimeA = getRuntimeKey();
-  const { Window } = await import('happy-dom');
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: new Window({ url: 'http://localhost' }) });
   const served = globalThis.fetch;
   const seen: Array<{ runtime: string; kind: string }> = [];
+  let releaseA = () => {};
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), kind: String((await request.json()).kind) }); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/slow-a')) { await new Promise<void>(resolve => { releaseA = resolve; }); return Response.json({ error: 'late' }, { status: 500 }); }
     if (path.endsWith('/small-model/generate')) return Response.json({ error: 'no model' }, { status: 503 });
     return served(input, init);
   }) as typeof fetch;
-  const lateToast = () => toast.error('Failed to generate a title');
+  const showToast = () => { toast.error('Failed to generate a title'); };
   try {
-    toast.error('Shown before any switch'); // Subscribes on the page's window (as at page load); reported.
-    await sleep(50);
-    expect(seen).toHaveLength(1);
+    const lateA = runtimeFetch('/api/slow-a', { method: 'POST', body: '{}' }).catch(() => undefined); // A's work, out.
+    await sleep(10);
     const runtimeB = `server-b-${crypto.randomUUID()}`;
     switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeB });
-    lateToast(); // A's request finished just after the switch: not reported.
+    showToast(); await sleep(50);
+    expect(seen).toEqual([]); // A's work is still out: this may be A's failure.
+    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Begun on B, fails on B: reported at once.
+    expect(seen).toEqual([{ runtime: runtimeB, kind: 'small-model' }]);
+    releaseA(); await lateA;
+    const now0 = Date.now; const settled = now0();
+    Date.now = () => settled + 1_500; // Past the small-model report's own moment, still right after A settled.
+    try { showToast(); } finally { Date.now = now0; }
     await sleep(50);
-    expect(seen).toHaveLength(1);
-    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Begun on B, fails on B: reported to B now.
-    expect(seen.slice(1)).toEqual([{ runtime: runtimeB, kind: 'small-model' }]);
-    const now = Date.now; Date.now = () => now() + 3 * 60_000; // Minutes later, a new toast reports again.
-    try { lateToast(); } finally { Date.now = now; }
+    expect(seen).toHaveLength(1); // A's request just settled: its failure, shown late, is not reported to B.
+    const now = Date.now; Date.now = () => now() + 5_000; // Moments later, with no A work out, B's toasts report.
+    try { showToast(); } finally { Date.now = now; }
     await sleep(50);
-    expect(seen).toHaveLength(3);
-    expect(seen[2]!.runtime).toBe(runtimeB);
-    expect(seen[2]!.kind.startsWith('toast.')).toBe(true);
-  } finally {
-    globalThis.fetch = served;
-    if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window');
-  }
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.runtime).toBe(runtimeB);
+    expect(seen[1]!.kind.startsWith('toast.')).toBe(true);
+  } finally { globalThis.fetch = served; }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
+test('one failure is one report: a caller\'s toast right after an explicit report is not reported again', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { requestSmallModel } = await import('@/lib/smallModelRequest');
+  const served = globalThis.fetch;
+  const kinds: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { kinds.push(String((await request.json()).kind)); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/small-model/generate')) return Response.json({ error: 'no model' }, { status: 503 });
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await requestSmallModel({ method: 'POST', body: '{}' });
+    if (!response.ok) { toast.error('Failed to generate a commit message'); } // As GitView does.
+    await sleep(50);
+    expect(kinds).toEqual(['small-model']);
+  } finally { globalThis.fetch = served; }
 });
 
 test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {
@@ -179,6 +200,24 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
     await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' });
     await sleep(50);
     expect(kinds.sort()).toEqual(['context-pin:', 'opencode-upgrade:500']);
+    // A 200 that says it did not succeed, and a request that never got an answer, are failures too.
+    const { resetClientErrorReportsForPage } = await import('@/lib/clientErrorReport');
+    resetClientErrorReportsForPage(); kinds.length = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init), path = new URL(request.url).pathname;
+      if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
+      return Response.json({ success: false, error: 'npm refused' }, { status: 200 });
+    }) as typeof fetch;
+    await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' }); await sleep(50);
+    expect(kinds).toEqual(['opencode-upgrade:200']);
+    resetClientErrorReportsForPage(); kinds.length = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init), path = new URL(request.url).pathname;
+      if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
+    await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' }).catch(() => undefined); await sleep(50);
+    expect(kinds).toEqual(['opencode-upgrade:']);
   } finally { globalThis.fetch = served; }
 });
 
@@ -200,24 +239,4 @@ test('every error toast shown outside the reporting wrapper is reported by its o
       && !(reportedByOperation[file] && reportedByOperation[file]![1].test(readFileSync(root + reportedByOperation[file]![0], 'utf8')))) bypass.push(file);
   }
   expect(bypass).toEqual([]);
-});
-
-test('a native app\'s first connection (from no server) is not a switch: its error toasts are still reported', async () => {
-  fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { Window } = await import('happy-dom');
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  const win = new Window({ url: 'http://localhost' });
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: win });
-  try {
-    toast.error('Subscribes on the page window'); await sleep(50);
-    const before = reports().length;
-    const { resetClientErrorReportsForPage } = await import('@/lib/clientErrorReport');
-    resetClientErrorReportsForPage(); // A new 30 s window for the next toast report.
-    // The cold boot's first connection: from the uninitialized default to the first server.
-    win.dispatchEvent(new win.CustomEvent('openchamber:runtime-endpoint-changed', { detail: { apiBaseUrl: 'http://synthetic.invalid',
-      previousApiBaseUrl: '', runtimeKey: 'first-server', previousRuntimeKey: 'url:default' } }) as never);
-    toast.error('An error after the first connection'); await sleep(50);
-    expect(reports().length).toBe(before + 1);
-  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
 });
