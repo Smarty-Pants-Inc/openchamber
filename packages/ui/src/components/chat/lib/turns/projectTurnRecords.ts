@@ -1,5 +1,4 @@
 import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
-import { repeatsRequest, VOICE_TURN_ROLE } from '../../message/voiceTurnData';
 import { projectTurnActivity } from './projectTurnActivity';
 import { projectTurnIndexes } from './projectTurnIndexes';
 import { projectTurnChangedFiles, projectTurnDiffStats, projectTurnSummary } from './projectTurnSummary';
@@ -286,10 +285,6 @@ export const projectTurnRecords = (
                 ungroupedMessageIds.add(message.info.id);
             }
             return;
-        }
-        if (resolveMessageRole(message) === VOICE_TURN_ROLE) {
-            const parentId = getMessageParentId(message);
-            if (repeatsRequest(message, parentId ? turnByUserId.get(parentId)?.userMessage : undefined)) return;
         }
         if (!groupedMessageIds.has(message.info.id)) {
             ungroupedMessageIds.add(message.info.id);

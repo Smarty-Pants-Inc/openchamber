@@ -1,4 +1,5 @@
 import type { Message, Part, Session } from '@opencode-ai/sdk/v2';
+import { isVoiceTurn } from '@/components/chat/message/voiceTurnData';
 import { opencodeClient } from '@/lib/opencode/client';
 import * as sessionActions from '@/sync/session-actions';
 import { withBtwSessionLink, withBtwSessionMarker, withoutBtwSessionLink, withoutBtwSessionMarker } from '@/lib/sessionBtwMetadata';
@@ -121,6 +122,8 @@ export const findLastCompletedAssistantMessageID = (messages: readonly Message[]
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== 'assistant') continue;
+    // A voice call's line (smarty-code#538) is a display-only record, never a fork point.
+    if (isVoiceTurn(message)) continue;
     if (message.time.completed !== undefined) return message.id;
   }
   return null;
