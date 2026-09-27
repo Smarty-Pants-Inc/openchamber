@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { optimisticStatuses } from "./optimistic-status"
 import { keepSavedState } from "./unsaved"
 import type {
@@ -32,6 +33,37 @@ type DedupeMetadata = {
   __dedupeNextDeltaFields?: string[]
 }
 
+/** Read-only view of the delta-overlap fields; every Part carries `type`, the rest may be absent. */
+type DeltaFieldView = {
+  type: string
+  text?: unknown
+  output?: unknown
+}
+
+/** Read-only view of the Message fields a `message.updated` comparison reads. */
+type MessageUpdateView = {
+  role: Message["role"]
+  finish?: unknown
+  time: { created: number; completed?: number }
+  metadata?: unknown
+  summary?: unknown
+  error?: unknown
+  cost?: unknown
+  tokens?: unknown
+  structured?: unknown
+  model?: unknown
+  tools?: unknown
+  format?: unknown
+  variant?: unknown
+  agent?: unknown
+  system?: unknown
+}
+
+function withDedupeFields(part: Part, dedupeFields: string[]): Part {
+  const tagged: Part & DedupeMetadata = { ...part, __dedupeNextDeltaFields: dedupeFields }
+  return tagged
+}
+
 function appendNonOverlappingDelta(existingValue: string | undefined, delta: string) {
   if (!existingValue || delta.length === 0) return (existingValue ?? "") + delta
   if (existingValue.endsWith(delta)) return existingValue
@@ -48,10 +80,12 @@ function appendNonOverlappingDelta(existingValue: string | undefined, delta: str
 
 function getUpdatedDeltaFields(previous: Part, next: Part) {
   const dedupeFields: string[] = []
+  const previousView: DeltaFieldView = previous
+  const nextView: DeltaFieldView = next
   for (const field of DELTA_OVERLAP_FIELDS) {
-    const previousValue = (previous as Record<string, unknown>)[field]
-    const nextValue = (next as Record<string, unknown>)[field]
-    if (typeof previousValue !== "string" || typeof nextValue !== "string") continue
+    const previousValue = z.string().safeParse(previousView[field]).data
+    const nextValue = z.string().safeParse(nextView[field]).data
+    if (previousValue === undefined || nextValue === undefined) continue
     if (previousValue.length === 0 || nextValue.length === 0) continue
     if (nextValue === previousValue || nextValue.startsWith(previousValue) || previousValue.startsWith(nextValue)) {
       dedupeFields.push(field)
@@ -60,14 +94,12 @@ function getUpdatedDeltaFields(previous: Part, next: Part) {
   return dedupeFields
 }
 
-function getPartEndTime(part: Part): number | undefined {
-  const stateEnd = (part as { state?: { time?: { end?: unknown } } }).state?.time?.end
-  if (typeof stateEnd === "number") {
-    return stateEnd
-  }
+// End times arrive as JSON numbers (never NaN or Infinity), so z.number() accepts exactly what `typeof` did.
+const stateEndSchema = z.object({ state: z.object({ time: z.object({ end: z.number() }) }) })
+const timeEndSchema = z.object({ time: z.object({ end: z.number() }) })
 
-  const timeEnd = (part as { time?: { end?: unknown } }).time?.end
-  return typeof timeEnd === "number" ? timeEnd : undefined
+function getPartEndTime(part: Part): number | undefined {
+  return stateEndSchema.safeParse(part).data?.state.time.end ?? timeEndSchema.safeParse(part).data?.time.end
 }
 
 function getToolStatus(part: Part): string | undefined {
@@ -75,8 +107,8 @@ function getToolStatus(part: Part): string | undefined {
     return undefined
   }
 
-  const status = (part as { state?: { status?: unknown } }).state?.status
-  return typeof status === "string" ? status : undefined
+  // The wire may carry a non-string status; only a string counts, as before.
+  return z.string().safeParse(part.state?.status).data
 }
 
 function shouldPreserveExistingPart(previous: Part, next: Part): boolean {
@@ -92,7 +124,7 @@ function shouldPreserveExistingPart(previous: Part, next: Part): boolean {
 
   const previousEnd = getPartEndTime(previous)
   const nextEnd = getPartEndTime(next)
-  if (typeof previousEnd === "number" && typeof nextEnd !== "number") {
+  if (previousEnd !== undefined && nextEnd === undefined) {
     return true
   }
 
@@ -118,7 +150,7 @@ function areSessionStatusesEqual(left: SessionStatus | undefined, right: Session
   return true
 }
 
-function areJsonEquivalent(left: unknown, right: unknown): boolean {
+function areJsonEquivalent<T>(left: T, right: T): boolean {
   if (left === right) return true
   if (left === undefined || right === undefined) return left === right
   try {
@@ -129,11 +161,13 @@ function areJsonEquivalent(left: unknown, right: unknown): boolean {
 }
 
 function areMessageUpdateFieldsEqual(existing: Message, next: Message): boolean {
-  if (existing.role !== next.role) return false
-  if ((existing as { finish?: unknown }).finish !== (next as { finish?: unknown }).finish) return false
-  if ((existing.time as { completed?: number })?.completed !== (next.time as { completed?: number })?.completed) return false
+  const existingView: MessageUpdateView = existing
+  const nextView: MessageUpdateView = next
+  if (existingView.role !== nextView.role) return false
+  if (existingView.finish !== nextView.finish) return false
+  if (existingView.time?.completed !== nextView.time?.completed) return false
 
-  const fields: Array<keyof Message | "structured" | "summary" | "tokens" | "error" | "cost" | "model" | "tools" | "format" | "variant" | "agent" | "system" | "metadata"> = [
+  const fields: Array<Exclude<keyof MessageUpdateView, "role" | "finish" | "time">> = [
     // The gateway's record facts (the author, and whether Pi has saved it yet) change without other fields changing.
     "metadata",
     "summary",
@@ -150,7 +184,7 @@ function areMessageUpdateFieldsEqual(existing: Message, next: Message): boolean 
   ]
 
   for (const field of fields) {
-    if (!areJsonEquivalent((existing as Record<string, unknown>)[field], (next as Record<string, unknown>)[field])) {
+    if (!areJsonEquivalent(existingView[field], nextView[field])) {
       return false
     }
   }
@@ -205,7 +239,7 @@ export function reduceGlobalEvent(event: Event): GlobalEventResult {
     return { type: "refresh" }
   }
   if (event.type === "project.updated") {
-    return { type: "project", project: event.properties as Project }
+    return { type: "project", project: event.properties }
   }
   return null
 }
@@ -257,7 +291,7 @@ export function applyDirectoryEvent(
     }
 
     case "session.created": {
-      const info = stripSessionDiffSnapshots((event.properties as { info: Session }).info)
+      const info = stripSessionDiffSnapshots(event.properties.info)
       const sessions = draft.session
       const result = Binary.search(sessions, info.id, (s) => s.id)
       if (result.found && shouldSkipStaleSessionEvent(sessions[result.index], info)) {
@@ -275,7 +309,7 @@ export function applyDirectoryEvent(
     }
 
     case "session.updated": {
-      const info = stripSessionDiffSnapshots((event.properties as { info: Session }).info)
+      const info = stripSessionDiffSnapshots(event.properties.info)
       const sessions = draft.session
       const result = Binary.search(sessions, info.id, (s) => s.id)
       // Keep the freshness check ahead of the archive branch: direct archive
@@ -306,7 +340,7 @@ export function applyDirectoryEvent(
 
     case "session.deleted": {
       const sessions = draft.session
-      const props = event.properties as { info?: Session; sessionID?: string }
+      const props: { info?: Session; sessionID?: string } = event.properties
       const sessionID = props.info?.id ?? props.sessionID
       if (!sessionID) return false
       const result = Binary.search(sessions, sessionID, (s) => s.id)
@@ -319,13 +353,13 @@ export function applyDirectoryEvent(
     }
 
     case "session.diff": {
-      const props = event.properties as { sessionID: string; diff: FileDiff[] }
+      const props: { sessionID: string; diff: FileDiff[] } = event.properties
       draft.session_diff[props.sessionID] = props.diff
       return true
     }
 
     case "todo.updated": {
-      const props = event.properties as { sessionID: string; todos: Todo[] }
+      const props = event.properties
       if (areJsonEquivalent(draft.todo[props.sessionID], props.todos)) {
         return false
       }
@@ -372,7 +406,7 @@ export function applyDirectoryEvent(
     }
 
     case "message.updated": {
-      let info = (event.properties as { info: Message }).info
+      let info = event.properties.info
       const messages = draft.message[info.sessionID]
       if (!messages) {
         draft.message[info.sessionID] = [info]
@@ -385,7 +419,8 @@ export function applyDirectoryEvent(
         info = keepSavedState(existing, info) // An older buffered update never un-saves a record (unsaved.ts).
         const unchanged = areMessageUpdateFieldsEqual(existing, info)
         if (unchanged) {
-          syncDebug.reducer.messageUpdatedUnchanged(info.sessionID, info.id, info.role, (info as { finish?: unknown }).finish, (info.time as { completed?: number })?.completed)
+          const infoView: MessageUpdateView = info
+          syncDebug.reducer.messageUpdatedUnchanged(info.sessionID, info.id, info.role, infoView.finish, infoView.time?.completed)
           return false
         }
         const next = [...messages]
@@ -405,7 +440,7 @@ export function applyDirectoryEvent(
     }
 
     case "message.removed": {
-      const props = event.properties as { sessionID: string; messageID: string }
+      const props = event.properties
       const messages = draft.message[props.sessionID]
       if (messages) {
         const next = [...messages]
@@ -420,14 +455,14 @@ export function applyDirectoryEvent(
     }
 
     case "message.part.updated": {
-      const props = event.properties as { sessionID?: string; part: Part }
+      const props: { sessionID?: string; part: Part } = event.properties
       const part = props.part
       if (SKIP_PARTS.has(part.type)) {
-        syncDebug.reducer.partSkipped((part as { messageID: string }).messageID, part.id, part.type)
+        syncDebug.reducer.partSkipped(part.messageID, part.id, part.type)
         return false
       }
-      const messageID = (part as { messageID?: string }).messageID
-      const sessionID = props.sessionID ?? (part as { sessionID?: string }).sessionID
+      const messageID: string | undefined = part.messageID
+      const sessionID: string | undefined = props.sessionID ?? part.sessionID
       if (!messageID) return false
       const missingOwningMessage = !hasMessage(draft, sessionID, messageID)
       const parts = draft.part[messageID]
@@ -450,16 +485,16 @@ export function applyDirectoryEvent(
         }
         const dedupeFields = getUpdatedDeltaFields(previous, part)
         next[partIndex] = dedupeFields.length > 0
-          ? { ...part, __dedupeNextDeltaFields: dedupeFields } as unknown as Part
+          ? withDedupeFields(part, dedupeFields)
           : part
       } else {
         // Replace optimistic part (no sessionID) with server part of same type.
         // Gate: only scan if the first part lacks sessionID (optimistic parts are
         // always inserted first). Assistant messages never have optimistic parts,
         // so this check is effectively free during streaming.
-        const hasOptimistic = next.length > 0 && !(next[0] as { sessionID?: string }).sessionID
+        const hasOptimistic = next.length > 0 && !next[0].sessionID
         const optimisticIndex = hasOptimistic && (part.type === "text" || part.type === "file")
-          ? next.findIndex((p) => p.type === part.type && !(p as { sessionID?: string }).sessionID)
+          ? next.findIndex((p) => p.type === part.type && !p.sessionID)
           : -1
         if (optimisticIndex >= 0) {
           // Replace in place: pushing to the end reorders text/file parts of a
@@ -479,7 +514,7 @@ export function applyDirectoryEvent(
     }
 
     case "message.part.removed": {
-      const props = event.properties as { messageID: string; partID: string }
+      const props = event.properties
       const parts = draft.part[props.messageID]
       if (!parts) return false
       const partIndex = parts.findIndex((part) => part.id === props.partID)
@@ -497,13 +532,13 @@ export function applyDirectoryEvent(
     }
 
     case "message.part.delta": {
-      const props = event.properties as {
+      const props: {
         sessionID?: string
         messageID: string
         partID: string
         field: string
         delta: string
-      }
+      } = event.properties
       const parts = draft.part[props.messageID]
       if (!parts) {
         syncDebug.reducer.partDeltaNoParts(props.messageID, props.partID)
@@ -520,30 +555,32 @@ export function applyDirectoryEvent(
           materialization: { type: "incomplete-session-snapshot", reason: "missing-delta-part", sessionID: props.sessionID, messageID: props.messageID, partID: props.partID },
         }
       }
-      const existing = parts[partIndex] as Record<string, unknown>
-      const existingValue = existing[props.field] as string | undefined
-      const dedupeFields = (existing as DedupeMetadata).__dedupeNextDeltaFields ?? []
+      // SAFETY: a delta names a string field of its part (text or output); deltas only ever append strings to it, so it reads as string | undefined.
+      const existing = parts[partIndex] as Part & DedupeMetadata & Partial<Record<string, string>>
+      const existingValue = existing[props.field]
+      const dedupeFields = existing.__dedupeNextDeltaFields ?? []
       const shouldDedupe = dedupeFields.includes(props.field)
       // Create new Part object + new array so React detects the change
       const next = [...parts]
-      next[partIndex] = {
+      const updated: Part & DedupeMetadata = {
         ...existing,
         [props.field]: shouldDedupe ? appendNonOverlappingDelta(existingValue, props.delta) : (existingValue ?? "") + props.delta,
         __dedupeNextDeltaFields: dedupeFields.filter((field) => field !== props.field),
-      } as unknown as Part
+      }
+      next[partIndex] = updated
       draft.part[props.messageID] = next
       return true
     }
 
     case "vcs.branch.updated": {
-      const props = event.properties as { branch: string }
+      const props = event.properties
       if (draft.vcs?.branch === props.branch) return false
       draft.vcs = { branch: props.branch }
       return true
     }
 
     case "permission.asked": {
-      const permission = event.properties as PermissionRequest
+      const permission: PermissionRequest = event.properties
       const permissions = draft.permission[permission.sessionID] ?? []
       const next = [...permissions]
       const result = Binary.search(next, permission.id, (p) => p.id)
@@ -557,7 +594,7 @@ export function applyDirectoryEvent(
     }
 
     case "permission.replied": {
-      const props = event.properties as { sessionID: string; requestID: string }
+      const props = event.properties
       const permissions = draft.permission[props.sessionID]
       if (!permissions) return false
       const result = Binary.search(permissions, props.requestID, (p) => p.id)
@@ -571,7 +608,7 @@ export function applyDirectoryEvent(
     }
 
     case "question.asked": {
-      const question = event.properties as QuestionRequest
+      const question: QuestionRequest = event.properties
       const questions = draft.question[question.sessionID] ?? []
       const next = [...questions]
       const result = Binary.search(next, question.id, (q) => q.id)
@@ -586,7 +623,7 @@ export function applyDirectoryEvent(
 
     case "question.replied":
     case "question.rejected": {
-      const props = event.properties as { sessionID: string; requestID: string }
+      const props = event.properties
       const questions = draft.question[props.sessionID]
       if (!questions) return false
       const result = Binary.search(questions, props.requestID, (q) => q.id)
