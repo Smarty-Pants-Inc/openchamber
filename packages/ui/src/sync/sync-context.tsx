@@ -393,6 +393,31 @@ const pendingMessageCompletionPolls = new Map<string, ReturnType<typeof setTimeo
 // How long to wait for the turn's own `session.idle` before spending a request.
 export const MESSAGE_COMPLETION_STATUS_POLL_DELAY_MS = 750
 
+/** Sessions a mounted view needs messages of (a subagent's preview in its parent, a pinned work status), counted. */
+const shownSessionConsumers = new Map<string, number>()
+
+function isSessionMaterializationWanted(directory: string, sessionID: string): boolean {
+  if (getViewedSessionMaterializationTarget(directory)?.sessionId === sessionID) return true
+  const key = viewedSessionKey(directory, sessionID)
+  if (shownSessionConsumers.has(key)) return true
+  pruneExternallyViewedSessions()
+  if (externallyViewedSessions.has(key)) return true
+  return getImperativeSessionMessageLoader()?.holdsHistory({ directory, sessionID }) === true
+}
+
+function dropUnownedPartBucket(childStores: ChildStoreManager, directory: string, sessionID: string, messageID: string) {
+  const store = childStores.getChild(directory)
+  if (!store || isSessionMaterializationWanted(directory, sessionID)) return
+  const state = store.getState()
+  if (!state.part[messageID] || (state.message[sessionID] ?? []).some(message => message.id === messageID)) return
+  store.setState(current => {
+    if (!current.part[messageID]) return current
+    const part = { ...current.part }
+    delete part[messageID]
+    return { part }
+  })
+}
+
 function enqueueSessionMaterialization(
   directory: string,
   sessionID: string,
@@ -400,13 +425,15 @@ function enqueueSessionMaterialization(
   request: SessionMaterializationRequest,
 ) {
   if (!directory || directory === "global" || !sessionID) return
-  // Only a session the page shows, or whose history it holds, can be incomplete. The fleet's other sessions stream their events
-  // here too; reading each one's messages on every event (then again on each idle) was most of a fresh page's
+  // Only a session the page shows, or whose history it holds, can be incomplete. The fleet's other sessions stream their
+  // events here too; reading each one's messages on every event (then again on each idle) was most of a fresh page's
   // message reads (smarty-dev#777 G13). Opening a session loads its history itself.
-  const viewed = getViewedSessionMaterializationTarget(directory)?.sessionId === sessionID
-    || (pruneExternallyViewedSessions(), externallyViewedSessions.has(viewedSessionKey(directory, sessionID)))
-  if (!viewed && !getImperativeSessionMessageLoader()?.holdsHistory({ directory, sessionID })) {
+  if (!isSessionMaterializationWanted(directory, sessionID)) {
     countSyncPerformance("materializationUnheldSkips")
+    // A part whose message this page never loaded is not kept: a later history load would take its bucket as
+    // already fetched. After the current event batch commits, as a materialization would run.
+    const messageID = request.messageID
+    if (messageID) void Promise.resolve().then(() => dropUnownedPartBucket(childStores, directory, sessionID, messageID))
     return
   }
   const runtimeKey = getRuntimeKey()
@@ -3778,6 +3805,18 @@ export function useEnsureSessionMessages(sessionID: string, directory?: string, 
   const resolvedDirectory = directory ?? syncDirectory
   const store = useDirectoryStore(resolvedDirectory)
   const requestGenerationRef = React.useRef(0)
+
+  // While mounted, this view shows the session: its streamed records are repaired (materialized) like the open one's.
+  React.useEffect(() => {
+    if (!sessionID || !enabled || !resolvedDirectory) return
+    const key = viewedSessionKey(resolvedDirectory, sessionID)
+    shownSessionConsumers.set(key, (shownSessionConsumers.get(key) ?? 0) + 1)
+    return () => {
+      const count = (shownSessionConsumers.get(key) ?? 1) - 1
+      if (count > 0) shownSessionConsumers.set(key, count)
+      else shownSessionConsumers.delete(key)
+    }
+  }, [enabled, sessionID, resolvedDirectory])
 
   React.useEffect(() => {
     if (!sessionID || !enabled) return

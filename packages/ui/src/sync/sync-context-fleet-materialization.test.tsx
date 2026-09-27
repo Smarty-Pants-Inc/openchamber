@@ -6,7 +6,7 @@ import { installHookTestDom } from '../components/session/sidebar/test-utils/tes
 import { switchRuntimeEndpoint } from '../lib/runtime-switch';
 import { opencodeClient } from '../lib/opencode/client';
 import { useConfigStore } from '../stores/useConfigStore';
-import { SyncProvider, setActiveSession, useSyncRuntime } from './sync-context';
+import { SyncProvider, setActiveSession, useEnsureSessionMessages, useSyncRuntime } from './sync-context';
 
 // smarty-code G13 (live d11893ce, smarty-dev#777): a fresh page read /session/:id/message 35 times in its first minute,
 // all for fleet sessions it did not show. Every streamed part of a session whose messages the page never loaded looked
@@ -49,9 +49,12 @@ test('streamed parts of a session the page does not show read no messages; the s
   const sdk = createOpencodeClient({ baseUrl: 'https://sync.invalid', fetch: request => globalThis.fetch(request) });
   let runtime!: ReturnType<typeof useSyncRuntime>;
   const Selected = () => { runtime = useSyncRuntime(); return null; };
+  // A subagent's preview inside the open session (ToolPart) needs its child session's messages while it is mounted.
+  let previewShown = false;
+  const Preview = () => { useEnsureSessionMessages(previewShown ? 'ses_child' : '', '/a'); return null; };
   const settle = (ms: number) => act(async () => new Promise(done => setTimeout(done, ms)));
   try {
-    await act(async () => root.render(<SyncProvider sdk={sdk} directory="/a"><Selected /></SyncProvider>));
+    await act(async () => root.render(<SyncProvider sdk={sdk} directory="/a"><Selected /><Preview /></SyncProvider>));
     runtime.childStores.ensureChild('/a', { bootstrap: false });
     await settle(300);
     reads.length = 0;
@@ -59,11 +62,20 @@ test('streamed parts of a session the page does not show read no messages; the s
     for (let n = 0; n < 3; n++) stream.enqueue(frame(part('ses_fleet', n)));
     await settle(1000);
     expect(reads).toEqual([]);
+    // Nor are its parts kept without their messages: a later history load would take them as already fetched.
+    const parts = runtime.childStores.getChild('/a')!.getState().part;
+    expect(Object.keys(parts).filter(id => id.startsWith('msg_ses_fleet'))).toEqual([]);
     // Counterexample: the session the page shows gets its missing message fetched, as before.
     setActiveSession('/a', 'ses_open');
     stream.enqueue(frame(part('ses_open', 0)));
     await settle(500);
     expect(reads).toEqual(['ses_open']);
+    // Counterexample: a subagent preview shown in the open session gets its child's missing message fetched too.
+    previewShown = true;
+    await act(async () => root.render(<SyncProvider sdk={sdk} directory="/a"><Selected /><Preview /></SyncProvider>));
+    stream.enqueue(frame(part('ses_child', 0)));
+    await settle(1000);
+    expect(reads).toEqual(['ses_open', 'ses_child']);
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = originalFetch;
