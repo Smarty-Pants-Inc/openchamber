@@ -1,5 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
-import { beginRuntimeWork, notePreviousRuntimeSettled, readCopy } from './runtime-work';
+import { readCopy } from './responseCopy';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
@@ -203,11 +203,7 @@ const resolveRuntimeFetchInput = (input: string | URL | Request, query?: Runtime
 const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope): Response => {
   const guard = <T>(read: () => Promise<T>) => async (): Promise<T> => {
     assertRuntimeRequestScope(scope);
-    let value: T;
-    try { value = await read(); } catch (error) {
-      assertRuntimeRequestScope(scope); // A read that failed after a switch is stale too (and marks its server's end).
-      throw error;
-    }
+    const value = await read();
     assertRuntimeRequestScope(scope);
     return value;
   };
@@ -218,17 +214,6 @@ const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope
   response.formData = guard(response.formData.bind(response));
   const clone = response.clone.bind(response);
   response.clone = () => guardRuntimeReadResponse(clone(), scope);
-  return response;
-};
-
-const markStaleReadEnds = (response: Response, scope: RuntimeRequestScope): Response => {
-  const mark = <T>(read: () => Promise<T>) => (): Promise<T> =>
-    read().finally(() => { if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); });
-  response.json = mark(response.json.bind(response));
-  response.text = mark(response.text.bind(response));
-  response.arrayBuffer = mark(response.arrayBuffer.bind(response));
-  response.blob = mark(response.blob.bind(response));
-  response.formData = mark(response.formData.bind(response));
   return response;
 };
 
@@ -258,14 +243,6 @@ const fetchRuntimeRequest = async (
   const isUpgrade = method === 'POST' && /\/api\/opencode\/upgrade(?:\?|$)/.test(url);
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
-  const endWork = beginRuntimeWork(scope.runtimeKey);
-  let counted = true;
-  const stopCounting = () => { if (counted) { counted = false; endWork(); } };
-  // Whenever it really ends (even past the cap), a previous server's request marks that end: its failure may show next.
-  const settle = () => {
-    stopCounting();
-    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled();
-  };
   let response: Response;
   try {
     response = relay
@@ -274,18 +251,9 @@ const fetchRuntimeRequest = async (
         ? new Request(resolvedInput, { ...requestInit, headers })
         : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
   } catch (error) {
-    settle();
     if (isUpgrade) reportUpgradeFailure(scope.runtimeKey);
     throw error;
   }
-  // An error, or an effect's answer, is shown only once its body has arrived: the work lasts until then (at most 60 s,
-  // for a body nobody reads). A clone reads it alongside the caller. Streams never end, and are not counted.
-  const bodyRead = response.body && (!response.ok || (method !== 'GET' && method !== 'HEAD'))
-    && !/text\/event-stream/i.test(response.headers.get('content-type') ?? '') ? readCopy(response) : null;
-  if (bodyRead) {
-    const cap = setTimeout(stopCounting, 60_000);
-    void bodyRead.finally(() => { clearTimeout(cap); settle(); });
-  } else settle();
 
   if (isRuntimeRequestScopeCurrent(scope)) {
     observeRuntimeAuthResponse(url, response.status, scope);
@@ -293,16 +261,15 @@ const fetchRuntimeRequest = async (
     if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered(scope.runtimeKey);
   }
   // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536):
-  // a refused request, or a 200 whose body says it did not succeed.
+  // a refused or unanswered request, or a 200 whose body says it did not succeed.
   if (isUpgrade) {
     if (!response.ok) reportUpgradeFailure(scope.runtimeKey, response.status);
     else void readCopy(response, 'json')?.then(payload => {
       if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
     });
   }
-  // Once dispatched, an effect belongs to its origin even after navigation: its answer is still read, and a read that
-  // ends after a switch marks the previous server's end first, before its caller can show the failure.
-  if (method !== 'GET' && method !== 'HEAD') return markStaleReadEnds(response, scope);
+  // Once dispatched, an effect belongs to its origin even after navigation.
+  if (method !== 'GET' && method !== 'HEAD') return response;
   if (!isRuntimeRequestScopeCurrent(scope)) {
     void response.body?.cancel().catch(() => {});
     assertRuntimeRequestScope(scope);

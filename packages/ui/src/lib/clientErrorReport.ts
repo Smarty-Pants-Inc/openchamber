@@ -1,12 +1,10 @@
 // A namespace import: test doubles of the runtime module may omit the key; then no report is scoped (nor sent).
 import * as runtime from './runtime-switch';
-import { previousRuntimeWorkInDoubt, resetRuntimeWorkForPage } from './runtime-work';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
 /**
- * A report without its operation's runtime (a generic toast) cannot say which server its failure came from. It is not
- * sent while the page still has work out on a previous server, or right after such work settled: then it may be that
- * server's. Otherwise it is the current server's, and reported there. Operations that capture their runtime report
- * exactly, at any time. ponytail: the requests' own record, not a scope threaded through every toast caller.
+ * A report without its operation's runtime (a generic toast) goes to the server that is the page's when it is shown,
+ * as a person's action would: it carries no content, only which code showed an error. A report that carries its
+ * operation's runtime goes to that server only, and is dropped once the page has left it.
  */
 /**
  * A caller's generic toast for a failure already reported explicitly is that failure's display: not reported again (one
@@ -60,7 +58,7 @@ export function redactClientError(text: string): string {
 }
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (!report.runtimeKey && (previousRuntimeWorkInDoubt(currentRuntime(), now) || now < coveredUntil)) return;
+  if (!report.runtimeKey && now < coveredUntil) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -88,5 +86,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); coveredUntil = Number.NEGATIVE_INFINITY; resetRuntimeWorkForPage();
+  lastReport.clear(); coveredUntil = Number.NEGATIVE_INFINITY;
 }

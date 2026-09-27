@@ -6,8 +6,7 @@ import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 // smarty-code#536 item 3 (Paul, 3.38): "Session could not be loaded" was shown to him and nothing in the fleet saw it.
 // The loader's error path reports what the page shows to the gateway (POST /api/client-error), once per 30 s per kind.
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
-// A test's leftover work fails as stale after its fixture goes (as a switched page's would): let it, then start clean.
-afterEach(async () => { fixture?.dispose(); fixture = undefined; await sleep(50); resetClientErrorReportsForPage(); });
+afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorReportsForPage(); });
 const reports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
 
 test('a session whose messages cannot be loaded is reported once, with its session and status', async () => {
@@ -118,14 +117,12 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
   } finally { globalThis.fetch = served; }
 });
 
-// Review of #301 (P2): a switch does not stop reporting for good. A generic toast (no runtime of its own) is not sent
-// while the previous server's work is still out or has just settled (it may be that failure); otherwise it reports to
-// the page's server. An operation that captures its runtime reports exactly: begun on B, it reports to B at once.
-test('after a switch, a toast while the old server\'s request is out or just settled is not reported; later toasts and new operations are', async () => {
+// Review of #301 (P2, 5854326593): old work never gates new reports. A report without scope goes to the page's current
+// server; a report that carries an old server's scope is dropped.
+test('with an old request still pending, a new error on the new server is reported once to it; the old operation\'s late failure is dropped', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
-  const { requestSmallModel } = await import('@/lib/smallModelRequest');
-  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const { forkFromMessage } = await import('./session-actions');
   const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
   const runtimeA = getRuntimeKey();
   const served = globalThis.fetch;
@@ -134,32 +131,20 @@ test('after a switch, a toast while the old server\'s request is out or just set
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), kind: String((await request.json()).kind) }); return new Response(null, { status: 204 }); }
-    if (path.endsWith('/slow-a')) { await new Promise<void>(resolve => { releaseA = resolve; }); return Response.json({ error: 'late' }, { status: 500 }); }
-    if (path.endsWith('/small-model/generate')) return Response.json({ error: 'no model' }, { status: 503 });
+    if (path.endsWith('/fork')) { await new Promise<void>(resolve => { releaseA = resolve; }); return Response.json({ name: 'APIError', data: { message: 'refused' } }, { status: 500 }); }
     return served(input, init);
   }) as typeof fetch;
-  const showToast = () => { toast.error('Failed to generate a title'); };
   try {
-    const lateA = runtimeFetch('/api/slow-a', { method: 'POST', body: '{}' }).catch(() => undefined); // A's work, out.
+    const lateA = forkFromMessage(session.id, 'msg_1').catch(() => undefined); // A's operation, still pending.
     await sleep(10);
     const runtimeB = `server-b-${crypto.randomUUID()}`;
     switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeB });
-    showToast(); await sleep(50);
-    expect(seen).toEqual([]); // A's work is still out: this may be A's failure.
-    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Begun on B, fails on B: reported at once.
-    expect(seen).toEqual([{ runtime: runtimeB, kind: 'small-model' }]);
-    releaseA(); await lateA;
-    const now0 = Date.now; const settled = now0();
-    Date.now = () => settled + 1_500; // Past the small-model report's own moment, still right after A settled.
-    try { showToast(); } finally { Date.now = now0; }
-    await sleep(50);
-    expect(seen).toHaveLength(1); // A's request just settled: its failure, shown late, is not reported to B.
-    const now = Date.now; Date.now = () => now() + 5_000; // Moments later, with no A work out, B's toasts report.
-    try { showToast(); } finally { Date.now = now; }
-    await sleep(50);
-    expect(seen).toHaveLength(2);
-    expect(seen[1]!.runtime).toBe(runtimeB);
-    expect(seen[1]!.kind.startsWith('toast.')).toBe(true);
+    toast.error('Could not load stashes'); await sleep(50); // A new error on B, while A's request is out.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.runtime).toBe(runtimeB);
+    expect(seen[0]!.kind.startsWith('toast.')).toBe(true);
+    releaseA(); await lateA; await sleep(50); // A's own failure, late: it carries A's scope, so it goes nowhere.
+    expect(seen).toHaveLength(1);
   } finally { globalThis.fetch = served; }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
@@ -182,120 +167,6 @@ test('one failure is one report: a caller\'s toast right after an explicit repor
     await sleep(50);
     expect(kinds).toEqual(['small-model']);
   } finally { globalThis.fetch = served; }
-});
-
-// Astra pre-check: the old server's error arrives in two steps, headers then body; its toast shows after the body.
-test('a previous server\'s error whose body arrives after the switch is not reported to the new server', async () => {
-  fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { runtimeFetch } = await import('@/lib/runtime-fetch');
-  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
-  const runtimeA = getRuntimeKey();
-  const served = globalThis.fetch;
-  let seen = 0, finishBody = () => {};
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
-    if (path.endsWith('/git/stage')) {
-      const body = new ReadableStream({ start(controller) { finishBody = () => { controller.enqueue(new TextEncoder().encode('{"error":"x"}')); controller.close(); }; } });
-      return new Response(body, { status: 500, headers: { 'content-type': 'application/json' } });
-    }
-    return served(input, init);
-  }) as typeof fetch;
-  try {
-    const response = await runtimeFetch('/api/git/stage', { method: 'POST', body: '{}' }); // Headers from A.
-    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
-    const shown = response.json().catch(() => undefined).then(() => { toast.error('Could not stage files'); });
-    await sleep(1_100); finishBody(); await shown; await sleep(50);
-    expect(seen).toBe(0); // A's failure, shown on B: not reported to B.
-  } finally { globalThis.fetch = served; }
-  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
-});
-
-test('a previous server\'s read whose body arrives after the switch fails as stale, and its toast is not reported to the new server', async () => {
-  fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { runtimeFetch } = await import('@/lib/runtime-fetch');
-  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
-  const runtimeA = getRuntimeKey();
-  const served = globalThis.fetch;
-  let seen = 0, finishBody = () => {};
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
-    if (path.endsWith('/git/stash')) {
-      const body = new ReadableStream({ start(controller) { finishBody = () => { controller.enqueue(new TextEncoder().encode('[]')); controller.close(); }; } });
-      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-    return served(input, init);
-  }) as typeof fetch;
-  try {
-    const response = await runtimeFetch('/api/git/stash'); // A 200 read from A: headers now, body later.
-    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
-    const shown = response.json().catch(() => { toast.error('Failed to load stashes'); }); // As the stash list does.
-    await sleep(2_200); finishBody(); await shown; await sleep(50);
-    expect(seen).toBe(0);
-  } finally { globalThis.fetch = served; }
-  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
-});
-
-test('a previous server\'s read already under way whose connection drops after the switch is not reported to the new server', async () => {
-  fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { runtimeFetch } = await import('@/lib/runtime-fetch');
-  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
-  const runtimeA = getRuntimeKey();
-  const served = globalThis.fetch;
-  let seen = 0, dropBody = () => {};
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
-    if (path.endsWith('/git/stash')) {
-      const body = new ReadableStream({ start(controller) { dropBody = () => controller.error(new TypeError('network connection was lost')); } });
-      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-    return served(input, init);
-  }) as typeof fetch;
-  try {
-    const response = await runtimeFetch('/api/git/stash');
-    const shown = response.json().catch(() => { toast.error('Failed to load stashes'); }); // Reading starts on A.
-    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
-    await sleep(2_200); dropBody(); await shown; await sleep(50);
-    expect(seen).toBe(0);
-  } finally { globalThis.fetch = served; }
-  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
-});
-
-test('a previous server\'s error body that ends after the 60 s cap still marks its end: its toast is not reported to the new server', async () => {
-  fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { runtimeFetch } = await import('@/lib/runtime-fetch');
-  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
-  const runtimeA = getRuntimeKey();
-  const served = globalThis.fetch, realNow = Date.now, realSetTimeout = globalThis.setTimeout;
-  let seen = 0, dropBody = () => {};
-  const timers: Array<() => void> = [];
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
-    if (path.endsWith('/git/stage')) {
-      const body = new ReadableStream({ start(controller) { dropBody = () => controller.error(new TypeError('network connection was lost')); } });
-      return new Response(body, { status: 500, headers: { 'content-type': 'application/json' } });
-    }
-    return served(input, init);
-  }) as typeof fetch;
-  // The cap's timer is run by hand, as if 60 s passed.
-  globalThis.setTimeout = ((fn: () => void, ms?: number) => (ms === 60_000 ? (timers.push(fn), 0) : realSetTimeout(fn, ms))) as typeof setTimeout;
-  try {
-    const response = await runtimeFetch('/api/git/stage', { method: 'POST', body: '{}' }); // A's error headers.
-    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
-    const shown = response.json().catch(() => { toast.error('Failed to stage'); }); // POST readers are not guarded.
-    Date.now = () => realNow() + 61_000; timers.forEach(fn => fn()); // The cap passes; the body is still out.
-    Date.now = () => realNow() + 63_500; // Well after the cap: the body fails now, and its toast shows.
-    dropBody(); await shown; await sleep(50);
-    expect(seen).toBe(0);
-  } finally { globalThis.fetch = served; globalThis.setTimeout = realSetTimeout; Date.now = realNow; }
-  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
 
 test('a small-model failure whose body is slow is still one report with its caller\'s toast', async () => {

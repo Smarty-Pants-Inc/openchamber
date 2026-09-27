@@ -1,6 +1,6 @@
 import { toast } from '@/components/ui/toast'; // Unwrapped: this site reports its own diagnostic.
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { readCopy } from '@/lib/runtime-work';
+import { readCopy } from '@/lib/responseCopy';
 import { coverFollowingToasts, reportClientError } from '@/lib/clientErrorReport';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
