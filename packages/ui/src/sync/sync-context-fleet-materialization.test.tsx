@@ -190,7 +190,12 @@ async function mountedSync(history: (sessionID: string) => unknown[], children?:
     const message = path.match(/^\/session\/([^/]+)\/message$/);
     if (message) {
       reads.push(message[1]!);
-      return Response.json(history(message[1]!), { headers: { 'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}`, 'x-smarty-read-only': '1' } });
+      // Pages as the server does: the newest `limit` records before the cursor, and the next cursor while older remain.
+      const all = history(message[1]!), before = url.searchParams.get('before');
+      const end = before ? Number(before) : all.length, start = Math.max(0, end - Number(url.searchParams.get('limit') ?? all.length));
+      const headers: Record<string, string> = { 'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}`, 'x-smarty-read-only': '1' };
+      if (start > 0) headers['x-next-cursor'] = String(start);
+      return Response.json(all.slice(start, end), { headers });
     }
     if (path === '/path') return Response.json({ state: '', config: '', worktree: '/a', directory: '/a', home: '/home' });
     if (path === '/project/current') return Response.json({ id: 'project', worktree: '/a' });
@@ -280,5 +285,30 @@ test('a session read earlier as empty, then streamed a reply, is read again when
     await sync.settle(300);
     expect(sync.reads).toEqual([S, S]);
     expect((sync.store.getState().message[S] ?? []).map(entry => entry.id)).toEqual(['msg_1', 'msg_2']);
+  } finally { await sync.dispose(); }
+}, 15_000);
+
+// Pre-check (Astra, paginated variant): the prompt is older than the first page (60 steps since). Reading the tail again
+// kept the empty page's 'whole history' and no cursor, so the session still opened with no visible turn and no way to
+// load older messages. Its coverage is re-established from the start.
+test('a session read earlier as empty whose reply now has 60 steps opens with its prompt reachable', async () => {
+  const S = 'ses_long';
+  let history: unknown[] = [];
+  const sync = await mountedSync(() => history);
+  try {
+    sync.session(S);
+    await act(async () => { await getImperativeSessionMessageLoader()!.prefetch({ directory: '/a', sessionID: S }); });
+    const steps = Array.from({ length: 60 }, (_, i) => ({ info: reply(S, `msg_${String(i + 2).padStart(3, '0')}`, 'msg_001', i + 2, i + 3),
+      parts: [{ id: `prt_${i + 2}`, sessionID: S, messageID: `msg_${String(i + 2).padStart(3, '0')}`, type: 'text', text: `step ${i}` }] }));
+    history = [{ info: prompt(S, 'msg_001', 1), parts: [{ id: 'prt_1', sessionID: S, messageID: 'msg_001', type: 'text', text: 'go' }] }, ...steps];
+    sync.event('message.updated', { info: reply(S, 'msg_061', 'msg_001', 61, 62) });
+    sync.event('message.part.updated', { part: { id: 'prt_61', sessionID: S, messageID: 'msg_061', type: 'text', text: 'step 59' } });
+    await sync.settle(300);
+    setActiveSession('/a', S);
+    await act(async () => { await fetchMessagesForSession(S, '/a'); });
+    await sync.settle(300);
+    const ids = (sync.store.getState().message[S] ?? []).map(entry => entry.id);
+    expect(ids[0]).toBe('msg_001'); // Its prompt is there, so the turn shows.
+    expect(ids).toHaveLength(61);
   } finally { await sync.dispose(); }
 }, 15_000);

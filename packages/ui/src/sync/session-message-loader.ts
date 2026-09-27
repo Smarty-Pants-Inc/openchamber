@@ -216,11 +216,14 @@ export class SessionMessageLoader {
     const entry = this.getEntry(normalized)
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const materialization = getSessionMaterializationStatus(store.getState(), normalized.sessionID)
-    if (!options?.force && materialization.renderable && entry.snapshot.resolved
-      && (!entry.ordinary || entry.snapshot.ordinaryView)
-      // Opening it: a page that claims the whole history while the store holds a reply without its prompt (streamed after
-      // that page) is not reused. The timeline hides such a reply, so the session would open empty (#126 item 4).
-      && !(options?.reason === "navigation" && entry.snapshot.complete && hasReplyWithoutPrompt(store.getState(), normalized.sessionID))) {
+    // Opening it: a page that claimed the whole history while the store now holds a reply without its prompt (streamed
+    // after that page) is stale coverage. The timeline hides such a reply, so the session would open empty (#126 item 4):
+    // it is loaded again from the start, so its pages, cursor and completeness are re-established.
+    const staleCoverage = !options?.force && options?.reason === "navigation" && entry.snapshot.resolved
+      && entry.snapshot.complete && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
+    const force = options?.force === true || staleCoverage
+    if (!force && materialization.renderable && entry.snapshot.resolved
+      && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
     }
     if (entry.inflight) {
@@ -229,10 +232,10 @@ export class SessionMessageLoader {
       }
       return entry.inflight
     }
-    if (entry.ordinary && entry.snapshot.resolved && !options?.force) {
+    if (entry.ordinary && entry.snapshot.resolved && !force) {
       return this.refreshTail(normalized, getInitialPageSize())
     }
-    if (options?.force) this.bumpGeneration(entry)
+    if (force) this.bumpGeneration(entry)
     const kind: SessionMessageLoadKind = options?.reason === "prefetch" ? "prefetch" : "initial"
     return this.startLoad(normalized, entry, store, kind, async (isCurrent, performance) => {
       await this.loadInitial(normalized, entry, store, isCurrent, performance)
