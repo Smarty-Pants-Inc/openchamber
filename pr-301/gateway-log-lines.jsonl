@@ -1,0 +1,12 @@
+# H-health
+# A-create
+{"type":"smarty.client-error","kind":"send.history","shownAt":1790497485432,"at":1790497485440,"human":"Owned Browser Fixture","subject":"4Y14pK9Gp1voyrjiQnh8O0YEyEVBU4Fg"}
+{"type":"smarty.client-error","kind":"toast.useAppFontEffects-0YJOwUCD.7250.26673","shownAt":1790497485433,"at":1790497485446,"human":"Owned Browser Fixture","subject":"4Y14pK9Gp1voyrjiQnh8O0YEyEVBU4Fg"}
+# A2-reply-in-created
+# D-fork
+{"type":"smarty.client-error","kind":"fork","message":"Failed to fork session","sessionID":"01a0e1f7-6f6f-754c-a3f7-799dcd47f904","shownAt":1790497700487,"at":1790497700491,"human":"Owned Browser Fixture","subject":"4Y14pK9Gp1voyrjiQnh8O0YEyEVBU4Fg"}
+# F-fork-report-aborted
+# G-layout
+{"type":"smarty.client-error","kind":"session-messages.initial","message":"Error","sessionID":"01a0e1f7-6f6f-754c-a3f7-799dcd47f904","status":503,"shownAt":1790497727967,"at":1790497727979,"human":"Owned Browser Fixture","subject":"4Y14pK9Gp1voyrjiQnh8O0YEyEVBU4Fg"}
+# E-send-refused
+# E2-send-into-ended
