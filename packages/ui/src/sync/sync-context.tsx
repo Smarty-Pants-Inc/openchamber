@@ -3822,8 +3822,10 @@ export function useEnsureSessionMessages(sessionID: string, directory?: string, 
     if (!sessionID || !enabled) return
 
     const state = store.getState()
-    // Already loaded into a renderable message/part snapshot — nothing to do.
-    if (getSessionMaterializationStatus(state, sessionID).renderable) return
+    // Already loaded into a renderable snapshot, and its history is this page's: nothing to do. A bucket that renders
+    // but that only the stream filled (the page never read this session) may miss parts, so it is read (G13).
+    if (getSessionMaterializationStatus(state, sessionID).renderable
+      && getImperativeSessionMessageLoader()?.holdsHistory({ directory: resolvedDirectory, sessionID })) return
     // Session doesn't exist — nothing to load
     if (!state.session.some((s) => s.id === sessionID)) return
 

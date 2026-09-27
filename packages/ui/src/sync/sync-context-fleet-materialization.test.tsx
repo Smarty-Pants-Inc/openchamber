@@ -167,3 +167,118 @@ test('a busy session that streamed while not shown opens with its whole history'
     dom.restore();
   }
 }, 15_000);
+
+/** A mounted SyncProvider on '/a' whose server answers each session's history from `history`, with an event stream. */
+async function mountedSync(history: (sessionID: string) => unknown[], children?: (preview: string) => React.ReactNode) {
+  const originalFetch = globalThis.fetch;
+  const dom = installHookTestDom();
+  Object.assign(document, { hasFocus: () => true, visibilityState: 'visible' });
+  const location = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: new URL('http://localhost/') });
+  const root = createRoot(dom.container);
+  const reads: string[] = [];
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url), path = url.pathname.replace(/^\/api/, '');
+    if (path === '/auth/url-token') return Response.json({ token: 'fixture-url-token', expiresAt: Date.now() + 60_000 });
+    if (path === '/global/event') {
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        stream = controller; controller.enqueue(frame({ id: 'evt', type: 'server.connected', properties: {} }));
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    const message = path.match(/^\/session\/([^/]+)\/message$/);
+    if (message) {
+      reads.push(message[1]!);
+      return Response.json(history(message[1]!), { headers: { 'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}`, 'x-smarty-read-only': '1' } });
+    }
+    if (path === '/path') return Response.json({ state: '', config: '', worktree: '/a', directory: '/a', home: '/home' });
+    if (path === '/project/current') return Response.json({ id: 'project', worktree: '/a' });
+    if (path === '/global/config' || path === '/session/status') return Response.json({});
+    return Response.json([]);
+  };
+  switchRuntimeEndpoint({ apiBaseUrl: 'https://sync.invalid', runtimeKey: `fleet-${Math.random()}`, clientToken: 'fixture' });
+  opencodeClient.reconnectToRuntimeBaseUrl();
+  useConfigStore.setState({ settingsMessageStreamTransport: 'sse', isConnected: false });
+  const sdk = createOpencodeClient({ baseUrl: 'https://sync.invalid', fetch: request => globalThis.fetch(request) });
+  let runtime!: ReturnType<typeof useSyncRuntime>;
+  const Selected = () => { runtime = useSyncRuntime(); return null; };
+  let preview = '';
+  const render = () => root.render(<SyncProvider sdk={sdk} directory="/a"><Selected />{children?.(preview)}</SyncProvider>);
+  await act(async () => render());
+  const store = runtime.childStores.ensureChild('/a', { bootstrap: false });
+  const settle = (ms: number) => act(async () => new Promise(done => setTimeout(done, ms)));
+  await settle(300);
+  return {
+    store, reads, settle,
+    event: (type: string, properties: unknown) => stream.enqueue(frame({ id: `evt_${Math.random()}`, type, properties })),
+    session: (id: string, parentID?: string) => store.setState(state => ({ session: [...state.session, { id, slug: id, projectID: 'project',
+      directory: '/a', title: id, version: '1', time: { created: 1, updated: 9 }, ...(parentID ? { parentID } : {}) }] as typeof state.session })),
+    showPreview: async (id: string) => { preview = id; await act(async () => render()); },
+    dispose: async () => {
+      await act(async () => root.unmount());
+      globalThis.fetch = originalFetch;
+      if (location) Object.defineProperty(globalThis, 'location', location); else Reflect.deleteProperty(globalThis, 'location');
+      dom.restore();
+    },
+  };
+}
+const reply = (sessionID: string, id: string, parentID: string, created: number, completed?: number) => ({ id, sessionID, role: 'assistant',
+  parentID, modelID: 'm', providerID: 'p', mode: 'build', agent: 'build', path: { cwd: '/a', root: '/a' }, cost: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: completed ? { created, completed } : { created } });
+const prompt = (sessionID: string, id: string, created: number) => ({ id, sessionID, role: 'user', agent: 'build',
+  model: { providerID: 'p', modelID: 'm' }, time: { created } });
+const tool = (sessionID: string, messageID: string, id: string, status: string) => ({ id, sessionID, messageID, type: 'tool', tool: 'bash',
+  callID: id, state: status === 'completed' ? { status, input: {}, output: 'ok', title: 'ls', metadata: {}, time: { start: 1, end: 2 } }
+    : { status, input: {}, time: { start: 1 } } });
+
+// Review of #294 (cdfa1618): a subagent preview that mounts on a bucket that renders but that only the stream filled
+// (an earlier part was dropped while nothing showed the child) must still read the child's history.
+test('a subagent preview mounting on a streamed-only bucket reads its history and gets the earlier part back', async () => {
+  const C = 'ses_child';
+  const history = [{ info: prompt(C, 'msg_c0', 1), parts: [] },
+    { info: reply(C, 'msg_c1', 'msg_c0', 2), parts: [tool(C, 'msg_c1', 'prt_c1', 'completed'), tool(C, 'msg_c1', 'prt_c2', 'running')] }];
+  const sync = await mountedSync(() => history, preview => <Preview key={preview} id={preview} />);
+  try {
+    sync.session(C, 'ses_parent');
+    // Nothing shows the child: its first tool part arrives before its message and is not kept.
+    sync.event('message.part.updated', { part: tool(C, 'msg_c1', 'prt_c1', 'completed') });
+    await sync.settle(300);
+    // Later its message and another part arrive: the bucket renders, but misses the first part.
+    sync.event('message.updated', { info: reply(C, 'msg_c1', 'msg_c0', 2) });
+    sync.event('message.part.updated', { part: tool(C, 'msg_c1', 'prt_c2', 'running') });
+    await sync.settle(300);
+    expect(sync.reads).toEqual([]);
+    expect((sync.store.getState().part.msg_c1 ?? []).map(part => part.id)).toEqual(['prt_c2']);
+    // The parent opens and mounts the child's preview; no more events come.
+    await sync.showPreview(C);
+    await sync.settle(500);
+    expect(sync.reads).toEqual([C]);
+    expect((sync.store.getState().part.msg_c1 ?? []).map(part => part.id).sort()).toEqual(['prt_c1', 'prt_c2']);
+  } finally { await sync.dispose(); }
+}, 15_000);
+function Preview({ id }: { id: string }) { useEnsureSessionMessages(id, '/a'); return null; }
+
+// #126 item 4 (Astra's reproduction): a session read earlier as empty (a prefetch, the whole history) then streams a reply
+// whose prompt the page does not have. Opening it must read again: the timeline hides a reply without its prompt.
+test('a session read earlier as empty, then streamed a reply, is read again when opened and shows its history', async () => {
+  const S = 'ses_busy';
+  let history: unknown[] = [];
+  const sync = await mountedSync(() => history);
+  try {
+    sync.session(S);
+    await act(async () => { await getImperativeSessionMessageLoader()!.prefetch({ directory: '/a', sessionID: S }); });
+    expect(sync.reads).toEqual([S]);
+    history = [{ info: prompt(S, 'msg_1', 1), parts: [{ id: 'prt_1', sessionID: S, messageID: 'msg_1', type: 'text', text: 'go' }] },
+      { info: reply(S, 'msg_2', 'msg_1', 2), parts: [{ id: 'prt_2', sessionID: S, messageID: 'msg_2', type: 'text', text: 'working' }] }];
+    sync.event('session.status', { sessionID: S, status: { type: 'busy' } });
+    sync.event('message.updated', { info: reply(S, 'msg_2', 'msg_1', 2) });
+    sync.event('message.part.updated', { part: { id: 'prt_2', sessionID: S, messageID: 'msg_2', type: 'text', text: 'working' } });
+    await sync.settle(300);
+    setActiveSession('/a', S);
+    await act(async () => { await fetchMessagesForSession(S, '/a'); });
+    await sync.settle(300);
+    expect(sync.reads).toEqual([S, S]);
+    expect((sync.store.getState().message[S] ?? []).map(entry => entry.id)).toEqual(['msg_1', 'msg_2']);
+  } finally { await sync.dispose(); }
+}, 15_000);

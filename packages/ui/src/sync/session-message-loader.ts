@@ -217,7 +217,10 @@ export class SessionMessageLoader {
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const materialization = getSessionMaterializationStatus(store.getState(), normalized.sessionID)
     if (!options?.force && materialization.renderable && entry.snapshot.resolved
-      && (!entry.ordinary || entry.snapshot.ordinaryView)) {
+      && (!entry.ordinary || entry.snapshot.ordinaryView)
+      // Opening it: a page that claims the whole history while the store holds a reply without its prompt (streamed after
+      // that page) is not reused. The timeline hides such a reply, so the session would open empty (#126 item 4).
+      && !(options?.reason === "navigation" && entry.snapshot.complete && hasReplyWithoutPrompt(store.getState(), normalized.sessionID))) {
       return entry.inflight ?? Promise.resolve()
     }
     if (entry.inflight) {
@@ -825,6 +828,13 @@ export class SessionMessageLoader {
 type DirectoryStoreSetter = (
   partial: Partial<DirectoryStore> | ((state: DirectoryStore) => Partial<DirectoryStore> | DirectoryStore),
 ) => void
+
+/** An assistant reply whose prompt (its parent message) the store does not have. */
+function hasReplyWithoutPrompt(state: DirectoryStore, sessionID: string): boolean {
+  const messages = state.message[sessionID] ?? []
+  const ids = new Set(messages.map((message) => message.id))
+  return messages.some((message) => message.role === "assistant" && Boolean(message.parentID) && !ids.has(message.parentID))
+}
 
 let imperativeLoader: SessionMessageLoader | null = null
 
