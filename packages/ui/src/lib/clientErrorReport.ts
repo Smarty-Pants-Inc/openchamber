@@ -48,17 +48,19 @@ export function redactClientError(text: string): string {
 }
 
 /**
- * One shown error, one report. An operation that reports its own failure is often shown by its caller's error toast,
- * run in the same task (its catch runs as microtasks of that task). A generic toast in the same task as an explicit
- * report is that failure's display, not a second error: not reported again. The mark clears at the next task, so no
- * later report is held back. ponytail: the event loop's own boundary, not a guess of which toast is whose.
+ * One failure, one report. A failure runs through its callers in one task (their catches are microtasks of it), and
+ * each may report or show it: the loader, then the start it refused, then a toast. Within a task, the first report
+ * stands; a later one is its consequence, unless both name different sessions (two failures). The record clears at
+ * the next task, so nothing later is held back. ponytail: the event loop's own boundary, not a guess by time.
  */
-let explicitThisTask = false;
-const isGenericToast = (kind: string) => kind === 'toast' || kind.startsWith('toast.');
+let reportedThisTask: Array<string | undefined> | undefined;
+const sameFailure = (sessionID: string | undefined) =>
+  reportedThisTask?.some(earlier => !earlier || !sessionID || earlier === sessionID) ?? false;
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (isGenericToast(report.kind)) { if (explicitThisTask) return; }
-  else if (!explicitThisTask) { explicitThisTask = true; setTimeout(() => { explicitThisTask = false; }, 0); }
+  if (sameFailure(report.sessionID)) return;
+  if (!reportedThisTask) { reportedThisTask = []; setTimeout(() => { reportedThisTask = undefined; }, 0); }
+  reportedThisTask.push(report.sessionID);
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -86,5 +88,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); explicitThisTask = false;
+  lastReport.clear(); reportedThisTask = undefined;
 }
