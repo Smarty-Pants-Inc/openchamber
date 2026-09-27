@@ -29,7 +29,7 @@ mock.module("@/lib/runtime-switch", () => ({
   getRuntimeKey: () => "test-runtime",
 }))
 
-import { maybePollStatusAfterMessageCompletion, MESSAGE_COMPLETION_STATUS_POLL_DELAY_MS } from "../sync-context"
+import { maybePollStatusAfterMessageCompletion, MESSAGE_COMPLETION_STATUS_POLL_DELAY_MS, setActiveSession } from "../sync-context"
 
 const createStore = (status: SessionStatus): StoreApi<DirectoryStore> => {
   return create<DirectoryStore>()((set) => ({
@@ -52,6 +52,20 @@ describe("maybePollStatusAfterMessageCompletion (issue OPE-193)", () => {
   beforeEach(() => {
     respondWithSnapshot = () => Promise.resolve({ ses_1: { type: "idle" } })
     statusSnapshotCalls.length = 0
+    setActiveSession("/test/project", "ses_1") // The session the page shows.
+  })
+
+  // smarty-dev#777 G13: another agent's session in the fleet finishes a step and stays busy; its idle comes with the
+  // watchdog's next tick. No per-directory read for it.
+  test("does not poll for a busy session the page does not show", async () => {
+    const store = createStore({ type: "busy" })
+    setActiveSession("/test/project", "ses_other")
+
+    maybePollStatusAfterMessageCompletion("/test/project", store, "ses_1")
+    await waitForPollSettled()
+
+    expect(statusSnapshotCalls).toEqual([])
+    expect(store.getState().session_status?.ses_1).toEqual({ type: "busy" })
   })
 
   test("does not poll when the store believes the session is already idle", async () => {
