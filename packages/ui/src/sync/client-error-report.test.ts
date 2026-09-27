@@ -266,6 +266,38 @@ test('a previous server\'s read already under way whose connection drops after t
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
 
+test('a previous server\'s error body that ends after the 60 s cap still marks its end: its toast is not reported to the new server', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  const served = globalThis.fetch, realNow = Date.now, realSetTimeout = globalThis.setTimeout;
+  let seen = 0, dropBody = () => {};
+  const timers: Array<() => void> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
+    if (path.endsWith('/git/stage')) {
+      const body = new ReadableStream({ start(controller) { dropBody = () => controller.error(new TypeError('network connection was lost')); } });
+      return new Response(body, { status: 500, headers: { 'content-type': 'application/json' } });
+    }
+    return served(input, init);
+  }) as typeof fetch;
+  // The cap's timer is run by hand, as if 60 s passed.
+  globalThis.setTimeout = ((fn: () => void, ms?: number) => (ms === 60_000 ? (timers.push(fn), 0) : realSetTimeout(fn, ms))) as typeof setTimeout;
+  try {
+    const response = await runtimeFetch('/api/git/stage', { method: 'POST', body: '{}' }); // A's error headers.
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    const shown = response.json().catch(() => { toast.error('Failed to stage'); }); // POST readers are not guarded.
+    Date.now = () => realNow() + 61_000; timers.forEach(fn => fn()); // The cap passes; the body is still out.
+    Date.now = () => realNow() + 63_500; // Well after the cap: the body fails now, and its toast shows.
+    dropBody(); await shown; await sleep(50);
+    expect(seen).toBe(0);
+  } finally { globalThis.fetch = served; globalThis.setTimeout = realSetTimeout; Date.now = realNow; }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
 test('a small-model failure whose body is slow is still one report with its caller\'s toast', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');

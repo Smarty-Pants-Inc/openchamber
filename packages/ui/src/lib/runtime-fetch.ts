@@ -221,6 +221,17 @@ const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope
   return response;
 };
 
+const markStaleReadEnds = (response: Response, scope: RuntimeRequestScope): Response => {
+  const mark = <T>(read: () => Promise<T>) => (): Promise<T> =>
+    read().finally(() => { if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); });
+  response.json = mark(response.json.bind(response));
+  response.text = mark(response.text.bind(response));
+  response.arrayBuffer = mark(response.arrayBuffer.bind(response));
+  response.blob = mark(response.blob.bind(response));
+  response.formData = mark(response.formData.bind(response));
+  return response;
+};
+
 const reportUpgradeFailure = (runtimeKey: string, status?: number) => {
   void import('./clientErrorReport').then(({ reportClientError }) =>
     reportClientError({ kind: 'opencode-upgrade', status, runtimeKey }));
@@ -248,12 +259,12 @@ const fetchRuntimeRequest = async (
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
   const endWork = beginRuntimeWork(scope.runtimeKey);
-  let settled = false;
+  let counted = true;
+  const stopCounting = () => { if (counted) { counted = false; endWork(); } };
+  // Whenever it really ends (even past the cap), a previous server's request marks that end: its failure may show next.
   const settle = () => {
-    if (settled) return;
-    settled = true;
-    endWork();
-    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); // Its failure may show on the next server.
+    stopCounting();
+    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled();
   };
   let response: Response;
   try {
@@ -272,7 +283,7 @@ const fetchRuntimeRequest = async (
   const bodyRead = response.body && (!response.ok || (method !== 'GET' && method !== 'HEAD'))
     && !/text\/event-stream/i.test(response.headers.get('content-type') ?? '') ? readCopy(response) : null;
   if (bodyRead) {
-    const cap = setTimeout(settle, 60_000);
+    const cap = setTimeout(stopCounting, 60_000);
     void bodyRead.finally(() => { clearTimeout(cap); settle(); });
   } else settle();
 
@@ -289,8 +300,9 @@ const fetchRuntimeRequest = async (
       if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
     });
   }
-  // Once dispatched, an effect belongs to its origin even after navigation.
-  if (method !== 'GET' && method !== 'HEAD') return response;
+  // Once dispatched, an effect belongs to its origin even after navigation: its answer is still read, and a read that
+  // ends after a switch marks the previous server's end first, before its caller can show the failure.
+  if (method !== 'GET' && method !== 'HEAD') return markStaleReadEnds(response, scope);
   if (!isRuntimeRequestScopeCurrent(scope)) {
     void response.body?.cancel().catch(() => {});
     assertRuntimeRequestScope(scope);
