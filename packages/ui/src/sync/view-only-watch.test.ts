@@ -12,7 +12,7 @@ function gateway(options: { watch?: boolean; baseline?: boolean; failFirst?: num
   const fetch = async (path: string, init: { query: Record<string, string>; signal?: AbortSignal }) => {
     calls.push({ path, query: init.query });
     if (path === '/api/global/health' && (options.healthFails ?? 0) > 0) { options.healthFails!--; return new Response('down', { status: 503 }); }
-    if (path === '/api/global/health') return Response.json({ healthy: true, capabilities: options.watch === false ? {} : options.baseline === false ? { readOnlyWatch: 1 } : { readOnlyWatch: 1, readOnlyReadBaseline: 1 } });
+    if (path === '/api/global/health') return Response.json({ healthy: true, capabilities: options.watch === false ? {} : options.baseline === false ? { readOnlyWatch: 1, readOnlyReadBaseline: 1 } : { readOnlyWatch: 1, readOnlyReadBaseline: 1, readOnlyWatchResume: 1 } });
     if (failures > 0) { failures--; return Response.json({ name: 'APIError', data: { isRetryable: true } }, { status: 503 }); }
     let closeStream = () => {};
     const body = new ReadableStream<Uint8Array>({
@@ -62,7 +62,7 @@ test('a gateway that does not advertise readOnlyWatch is never asked to watch', 
   expect(g.watches()).toHaveLength(0); release();
 });
 
-test('a gateway whose history reads move its tail baseline (no readOnlyReadBaseline) is never asked to watch', async () => {
+test('a gateway without readOnlyWatchResume (a release drops its tail baseline) is never asked to watch', async () => {
   const g = gateway({ baseline: false }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
   const release = holdViewOnlyWatch('s', '/old-gateway'); await sleep(10);
   expect(g.watches()).toHaveLength(0); release();
