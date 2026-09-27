@@ -12,7 +12,8 @@ let switched = false, watching = false;
 const watchSwitches = () => {
   if (watching || typeof window === 'undefined') return;
   watching = true;
-  runtime.subscribeRuntimeEndpointChanged?.(() => { switched = true; });
+  // Leaving a server is a switch; the first connection from the uninitialized default (a native app's cold boot) is not.
+  runtime.subscribeRuntimeEndpointChanged?.(detail => { if (detail.previousRuntimeKey !== 'url:default') switched = true; });
 };
 watchSwitches();
 

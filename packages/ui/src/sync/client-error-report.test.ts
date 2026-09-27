@@ -124,3 +124,21 @@ test('once the page has switched servers, an error toast is not reported (its fa
   } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
+
+test('a native app\'s first connection (from no server) is not a switch: its error toasts are still reported', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { Window } = await import('happy-dom');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const win = new Window({ url: 'http://localhost' });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: win });
+  try {
+    toast.error('Subscribes on the page window'); await sleep(50);
+    const before = reports().length;
+    // The cold boot's first connection: from the uninitialized default to the first server.
+    win.dispatchEvent(new win.CustomEvent('openchamber:runtime-endpoint-changed', { detail: { apiBaseUrl: 'http://synthetic.invalid',
+      previousApiBaseUrl: '', runtimeKey: 'first-server', previousRuntimeKey: 'url:default' } }) as never);
+    toast.error('An error after the first connection'); await sleep(50);
+    expect(reports().length).toBe(before + 1);
+  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+});
