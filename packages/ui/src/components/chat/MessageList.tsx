@@ -352,8 +352,6 @@ export interface MessageListHandle {
     scrollToBottom: () => void;
 }
 
-import { VoiceTurn } from './message/VoiceTurn';
-import { isVoiceTurn } from './message/voiceTurnData';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };
@@ -761,8 +759,6 @@ const UngroupedMessageRow = React.memo(({
     activeStreamingPhase,
     reviewTransferDirection,
 }: UngroupedMessageRowProps) => {
-    // smarty-code#538: a voice call's spoken turns ("You said" / "Voice said") are display-only rows.
-    if (isVoiceTurn(message.info)) return <VoiceTurn message={message} />;
     return (
         <MessageRow
             message={message}
@@ -1370,8 +1366,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }, [registerList]);
 
     const allEntries = React.useMemo(
-        () => assembleRenderEntries(historyEntries, trailingStreamingEntry, displayMessages),
-        [displayMessages, historyEntries, trailingStreamingEntry],
+        () => assembleRenderEntries(historyEntries, trailingStreamingEntry),
+        [historyEntries, trailingStreamingEntry],
     );
 
     // Stable identities: these reach the list, where a changing callback would
