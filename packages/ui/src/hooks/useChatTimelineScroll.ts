@@ -157,6 +157,10 @@ export const useChatTimelineScroll = ({
     userOwnsScrollRef.current = userOwnsScroll;
 
     const modeRef = React.useRef<TimelineScrollMode>('following-end');
+    // smarty-code#583: true from a user gesture's opt-out until any mode change. A continuous wheel-up then costs
+    // nothing per event: the first one already released follow; repeating it re-rendered and read layout on every
+    // event (88% of the main thread while scrolling back a long session).
+    const gestureOwnsScrollRef = React.useRef(false);
     const isAtEndRef = React.useRef(true);
     // Incremented by every real user gesture. Automatic movement is only valid
     // while `liveFollowGenerationRef` still equals it.
@@ -228,6 +232,7 @@ export const useChatTimelineScroll = ({
     const onManualNavigation = React.useCallback(() => {
         userGenerationRef.current += 1;
         modeRef.current = 'free-scrolling';
+        gestureOwnsScrollRef.current = true;
         liveFollowGenerationRef.current = null;
         setUserOwnsScroll(true);
         // The end may already have been left by our own movement, in which
@@ -318,6 +323,7 @@ export const useChatTimelineScroll = ({
         setIsPinned(true);
         setUserOwnsScroll(false);
         modeRef.current = 'following-end';
+        gestureOwnsScrollRef.current = false;
         // Returning to the end is an explicit opt back IN to live follow.
         liveFollowGenerationRef.current = userGenerationRef.current;
         clearAnchor();
@@ -367,6 +373,7 @@ export const useChatTimelineScroll = ({
         isAtEndRef.current = true;
         setUserOwnsScroll(false);
         modeRef.current = 'anchoring-new-turn';
+        gestureOwnsScrollRef.current = false;
         liveFollowGenerationRef.current = userGenerationRef.current;
         armedForNextUserMessageRef.current = true;
         // The optimistic row is not committed yet; the next NEW user message id
@@ -404,6 +411,7 @@ export const useChatTimelineScroll = ({
         isAtEndRef.current = true;
         setUserOwnsScroll(false);
         modeRef.current = 'following-end';
+        gestureOwnsScrollRef.current = false;
         liveFollowGenerationRef.current = userGenerationRef.current;
         clearAnchor();
         hideScrollButton();
@@ -434,12 +442,14 @@ export const useChatTimelineScroll = ({
         if (isAtEnd) {
             if (modeRef.current !== 'anchoring-new-turn') {
                 modeRef.current = 'following-end';
+                gestureOwnsScrollRef.current = false;
             }
             liveFollowGenerationRef.current = userGenerationRef.current;
             setUserOwnsScroll(false);
             hideScrollButton();
         } else {
             modeRef.current = 'free-scrolling';
+            gestureOwnsScrollRef.current = false;
             liveFollowGenerationRef.current = null;
             scheduleShowScrollButton();
         }
@@ -616,6 +626,7 @@ export const useChatTimelineScroll = ({
                         isAtEndRef.current = false;
                         setIsPinned(false);
                         modeRef.current = 'free-scrolling';
+                        gestureOwnsScrollRef.current = false;
                         liveFollowGenerationRef.current = null;
                         scheduleShowScrollButton();
                         queueSave();
@@ -836,6 +847,7 @@ export const useChatTimelineScroll = ({
             onManualNavigationRef.current();
         };
         const handleWheel = (event: WheelEvent) => {
+            if (gestureOwnsScrollRef.current) return;
             // Scrolling toward the end is not opting out of follow, and an
             // upward wheel that a nested scroller still consumes never
             // reaches the timeline.
@@ -976,6 +988,7 @@ export const useChatTimelineScroll = ({
         isAtEndRef.current = true;
         setUserOwnsScroll(false);
         modeRef.current = 'following-end';
+        gestureOwnsScrollRef.current = false;
         liveFollowGenerationRef.current = userGenerationRef.current;
         clearAnchor();
         hideScrollButton();

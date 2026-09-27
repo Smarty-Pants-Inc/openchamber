@@ -260,6 +260,8 @@ export const useChatTimelineController = ({
     const scrollPinRef = React.useRef<{ turnId: string; expiresAt: number } | null>(null);
     const historyInteractionRef = React.useRef(false);
     const historyInteractionTimerRef = React.useRef<number | null>(null);
+    // smarty-code#583: true only after an older load that ADDED rows; it lets that load chain the next page.
+    const recheckAfterLoadRef = React.useRef(false);
 
     const historySignals = React.useMemo(() => {
         const defaultLimit = getMemoryLimits().HISTORICAL_MESSAGES;
@@ -673,6 +675,8 @@ export const useChatTimelineController = ({
 
         beginHistoryInteraction();
         setIsLoadingOlder(true);
+        // smarty-code#583: set before loading ends, so the effect that chains the next page sees it.
+        recheckAfterLoadRef.current = false;
 
         try {
             let loadedMessageCount = beforeMessageCount;
@@ -704,6 +708,7 @@ export const useChatTimelineController = ({
                         && loadedOldestMessageId !== afterOldestMessageId)
                     || afterLimit > loadedLimit;
                 const turnGrowth = turnModelRef.current.turnCount - beforeTurnCount;
+                recheckAfterLoadRef.current = turnGrowth > 0 || messageGrowth;
 
                 if (turnGrowth > 0) {
                     return true;
@@ -727,6 +732,7 @@ export const useChatTimelineController = ({
                 loadedLimit = afterLimit;
             }
         } catch (error) {
+            recheckAfterLoadRef.current = false;
             clearOwnedPrependSnapshot();
             throw error;
         } finally {
@@ -769,6 +775,17 @@ export const useChatTimelineController = ({
 
         void loadEarlier({ userInitiated: true });
     }, [loadEarlier, scrollRef]);
+
+    // smarty-code#583: the next older page may load as soon as the previous one is in. The scroll event that
+    // reached the threshold fired while that page loaded, and a reader already at the top makes no further
+    // scroll events, so check again once, on the next frame after a load that ADDED rows. A failed or empty
+    // load waits for the user's next scroll, so it never retries in a loop (review/astra OC#303).
+    React.useEffect(() => {
+        if (isLoadingOlder || typeof window === 'undefined' || !recheckAfterLoadRef.current) return;
+        recheckAfterLoadRef.current = false;
+        const frame = window.requestAnimationFrame(() => handleHistoryScroll());
+        return () => window.cancelAnimationFrame(frame);
+    }, [handleHistoryScroll, isLoadingOlder]);
 
     const loadEarlierIfPinnedViewportUnderfilled = React.useCallback(() => {
         // On mobile the initial page is intentionally smaller. Auto-prepending
