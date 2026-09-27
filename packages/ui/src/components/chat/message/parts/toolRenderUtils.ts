@@ -35,9 +35,15 @@ export const getToolDescriptionFallback = (
     description: unknown,
     input: Record<string, unknown> | undefined,
 ): string => {
-    if (typeof description === 'string' && description.trim().length > 0) {
+    // smarty-code#538: a subtitle that only repeats the tool's name ("Fabric exec fabric_exec") is noise; a
+    // Fabric program's own display name says what it did.
+    if (typeof description === 'string' && description.trim().length > 0
+        && normalizeToolName(description.trim()) !== normalizeToolName(toolName)) {
         return description;
     }
+    const display = input?.display;
+    const displayName = display && typeof display === 'object' ? (display as { name?: unknown }).name : undefined;
+    if (typeof displayName === 'string' && displayName.trim()) return displayName.trim();
 
     const globPattern = normalizeToolName(toolName) === 'glob' ? input?.pattern : undefined;
     return typeof globPattern === 'string' ? globPattern : '';
