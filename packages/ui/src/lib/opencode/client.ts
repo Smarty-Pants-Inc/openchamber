@@ -50,6 +50,9 @@ import {
   recordProviderError,
 } from "./provider-tracker";
 
+/** The creation fields this page understands, beyond the base contract (a gateway sends them only when asked: #548). */
+const NATIVE_CREATION_FIELDS = { 'x-smarty-creation-fields': 'stoppedBy' } as const;
+
 // Use relative path by default (works with both dev and nginx proxy server)
 // Can be overridden with VITE_OPENCODE_URL for absolute URLs in special deployments
 const DEFAULT_BASE_URL = import.meta.env.VITE_OPENCODE_URL || "/api";
@@ -720,7 +723,7 @@ class OpencodeService {
         // The SDK's create drops unknown body fields; send the one-field body directly.
         const scope = captureRuntimeRequestScope();
         const response = await runtimeFetch('/api/session', { query: { directory }, method: 'POST',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientRequestId }) });
+          headers: { ...NATIVE_CREATION_FIELDS, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientRequestId }) });
         const body: unknown = await response.json();
         assertRuntimeRequestScope(scope);
         if (!response.ok) throw body;
@@ -738,9 +741,9 @@ class OpencodeService {
   /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
   private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never>) {
     const scope = captureRuntimeRequestScope();
-    const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET' };
+    const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET', headers: { ...NATIVE_CREATION_FIELDS } };
     if (reply) {
-      options.headers = { 'Content-Type': 'application/json' };
+      options.headers = { ...NATIVE_CREATION_FIELDS, 'Content-Type': 'application/json' };
       options.body = JSON.stringify(reply);
     }
     const response = await runtimeFetch(`/api/session/creation${suffix}`, options);

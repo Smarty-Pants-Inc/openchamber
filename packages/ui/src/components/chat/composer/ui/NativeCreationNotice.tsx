@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
@@ -40,6 +40,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   const [, tick] = React.useReducer((value: number) => value + 1, 0);
   const blocking = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
   const lockedRequest = sent && draft.directoryOverride ? sentStartRequest(getRuntimeKey(), draft.directoryOverride) : undefined;
+  const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
   const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
   React.useEffect(() => {
@@ -53,14 +54,15 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     const failed = stop?.id === operation.operationId && !stop.busy && stop.error !== undefined ? stop.error : undefined;
     return <>
       {failed !== undefined ? <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failed)}</p> : null}
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
+      <Button type="button" variant="outline" size="sm" disabled={busy} title={operation.operationId}
+        data-operation-id={operation.operationId} onClick={() => {
         setStop({ id: operation.operationId, busy: true });
         void stopBlockingStart(operation).then(() => {
           setStop(null);
           if (draft.directoryOverride) void resolveSentStart(getRuntimeKey(), draft.directoryOverride, draft.draftId, ownNativeRequestId(draft, getRuntimeKey()));
           native.refresh();
         }, error => setStop({ id: operation.operationId, busy: false, error }));
-      }}>{t('chat.nativeCreation.stopStart')}</Button>
+      }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
     </>;
   };
   if (!draftOpen) return null;
@@ -70,7 +72,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (sent && directory) {
     // Not sent, and why: the text is back in the draft, editable (#117).
     if (isSentStartStopped(sent)) return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
-      {t(STOPPED_LINE[sent])}</p>;
+      {sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy }) : t(STOPPED_LINE[sent])}</p>;
     return <div className="mb-2 space-y-1">
       <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
       <div className="flex gap-2">

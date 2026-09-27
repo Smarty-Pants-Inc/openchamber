@@ -17,6 +17,9 @@ const nativeCreationStateSchema = z.object({
   canInitialReady: z.boolean(),
   // The id this browser sent with its create request, echoed so a lost create response can be recovered exactly.
   clientRequestId: creationUUID.optional(),
+  // Who stopped an abandoned start (smarty-code#523, #548): the gateway's signed-in person, on a 'cancelled' start only.
+  stoppedBy: z.object({ issuer: z.string().min(1).max(256), subject: z.string().min(1).max(256), name: z.string().min(1).max(256) })
+    .strict().optional(),
 }).strict();
 export const nativeCreationResponseSchema = z.object({ nativeCreation: nativeCreationStateSchema }).strict();
 export const nativeCreationListSchema = z.object({ nativeCreations: z.array(nativeCreationStateSchema) }).strict();

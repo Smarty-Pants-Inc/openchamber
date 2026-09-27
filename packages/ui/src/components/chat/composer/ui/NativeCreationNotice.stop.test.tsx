@@ -9,7 +9,8 @@ import type { useNativeCreation } from '../state/useNativeCreation';
 // why and changes nothing else.
 const i18n = await import('@/lib/i18n');
 // SAFETY: every key the notice asks for is a string entry of the English creation messages.
-mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en) => nativeCreationI18n.en[key] ?? key }) }));
+mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en, params: Record<string, string> = {}) =>
+  (nativeCreationI18n.en[key] ?? key).replace(/\{(\w+)\}/g, (_, name: string) => params[name] ?? name) }) }));
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const start = await import('@/sync/native-draft-start');
 mock.module('@/sync/native-draft-start', () => ({ ...start, useNativeDraftStarting: () => false, useUnresolvedNativeStart: () => false }));
@@ -21,7 +22,7 @@ const { Window } = await import('happy-dom');
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
 
-const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'];
+const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'].replace(' {id}', '');
 const blocking = (id: string, expiresIn: number): NativeCreationState => ({ operationId: id, directory: '/project', generation: 'g',
   revision: 2, phase: 'unavailable', expiresAt: Date.now() + expiresIn, canInitialReady: false, clientRequestId: `req-${id}` });
 const native = (operations: NativeCreationState[], refreshed: string[]): ReturnType<typeof useNativeCreation> => ({
@@ -44,7 +45,7 @@ afterAll(async () => {
   }
 });
 const show = (value: ReturnType<typeof useNativeCreation>) => act(async () => root.render(<NativeCreationNotice native={value} draftOpen />));
-const stopButton = () => [...host.querySelectorAll('button')].find(button => button.textContent === STOP);
+const stopButton = () => [...host.querySelectorAll('button')].find(button => button.textContent?.startsWith(STOP));
 
 test('a blocking start past its expiry can be stopped at once; stopping it frees the project', async () => {
   const calls: string[] = [], refreshed: string[] = [];
@@ -138,4 +139,40 @@ test('after a Send the blocking start refused, the notice still offers to stop i
     await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 10)); });
     expect(calls).toEqual(['op-after-send']);
   } finally { opencodeClient.abandonNativeCreation = original; }
+});
+
+// Review of #298: the control names the start it stops, and stays bound to the one it shows.
+test('the stop names its start, and when the blocking start changes it names and stops the new one', async () => {
+  const calls: string[] = [];
+  const original = opencodeClient.abandonNativeCreation;
+  opencodeClient.abandonNativeCreation = (async (_: string, id: string) => { calls.push(id); return { ...blocking(id, -1), phase: 'cancelled' }; }) as typeof original;
+  try {
+    const first = blocking('1111aaaa-first', -1), second = blocking('2222bbbb-second', -1);
+    await show(native([first], []));
+    expect(stopButton()!.textContent).toBe(`${STOP} 1111aaaa`);
+    expect(stopButton()!.getAttribute('data-operation-id')).toBe(first.operationId);
+    await show(native([second], [])); // The first settled elsewhere; another start now blocks.
+    expect(stopButton()!.textContent).toBe(`${STOP} 2222bbbb`);
+    await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 10)); });
+    expect(calls).toEqual([second.operationId]); // Never the stale one.
+  } finally { opencodeClient.abandonNativeCreation = original; }
+});
+
+test('text back after a start someone stopped says who stopped it', async () => {
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  const op = { ...blocking('3333cccc-stopped', -1), phase: 'cancelled' as const, stoppedBy: { issuer: 'https://code.example', subject: 'kate-1', name: 'Kate' } };
+  const markKey = `oc.nativeCreation.sent:${JSON.stringify([getRuntimeKey(), '/project'])}`;
+  localStorage.setItem(markKey, JSON.stringify({ clientRequestId: op.clientRequestId, operationId: op.operationId }));
+  const { createChatDraftIdentity, claimChatDraftOwnership, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+  const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
+  claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
+  const original = opencodeClient.listNativeCreations;
+  opencodeClient.listNativeCreations = (async () => [op]) as typeof original;
+  try {
+    const { resolveSentStart } = await import('@/sync/native-draft-sent');
+    const outcome = await resolveSentStart(getRuntimeKey(), '/project', identity.draftId!);
+    expect(outcome).toBe('cancelled');
+    await act(async () => root.render(<NativeCreationNotice native={native([], [])} draftOpen sent="cancelled" />));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(nativeCreationI18n.en['chat.nativeCreation.sentStoppedBy'].replace('{name}', 'Kate'));
+  } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
 });
