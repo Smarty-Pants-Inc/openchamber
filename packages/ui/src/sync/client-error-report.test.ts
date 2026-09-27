@@ -54,6 +54,8 @@ test('a report is redacted: no query strings, tokens or addresses, and the route
     .toBe('Failed https://code.example/api/x for <email> with <redacted>');
   expect(redactClientError('Could not rename "Merger plan for Friday" session')).toBe('Could not rename "…" session');
   expect(redactClientError('File "payroll.csv" is too large (max 10MB)')).toBe('File "…" is too large (max 10MB)');
+  expect(redactClientError('Failed to attach payroll.xlsx')).toBe('Failed to attach <file>');
+  expect(redactClientError('Cannot read /home/paul/secret/notes.md: denied')).toBe('Cannot read <path>: denied');
 });
 
 test('a report made for one server is never sent after a switch to another', async () => {

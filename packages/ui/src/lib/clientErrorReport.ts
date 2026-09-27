@@ -32,7 +32,7 @@ export type ClientErrorReport = { kind: string; message?: string; sessionID?: st
 const REPORT_INTERVAL_MS = 30_000;
 const lastReport = new Map<string, number>();
 
-/** URLs keep origin and path; long opaque tokens and e-mail addresses are masked; at most 300 characters. */
+/** URLs keep origin and path; long opaque tokens, e-mail addresses, quoted text, file names and paths are masked; at most 300 characters. */
 export function redactClientError(text: string): string {
   return text
     .replace(/https?:\/\/[^\s"'<>]+/g, url => { try { const parsed = new URL(url); return `${parsed.origin}${parsed.pathname}`; } catch { return '<url>'; } })
@@ -40,6 +40,9 @@ export function redactClientError(text: string): string {
     // Quoted text in an error is usually the person's own (a title, a message, a file name): never sent, whatever its length.
     .replace(/"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|`[^`]+`/g, '"…"')
     .replace(/[A-Za-z0-9_+/=-]{24,}/g, '<redacted>')
+    // File names and paths are the person's content too, quoted or not.
+    .replace(/(?<![\w:/.])(?:~|\.{1,2})?\/[^\s"'<>:,;]+/g, '<path>')
+    .replace(/(?<![/\w.-])[^\s"'<>()/]+\.[A-Za-z0-9]{1,8}\b(?!\/)/g, '<file>')
     .slice(0, 300);
 }
 /** Path segments that name a thing (ids, tokens, encoded paths) become ':id'. */
