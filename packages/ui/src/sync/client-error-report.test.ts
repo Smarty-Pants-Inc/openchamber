@@ -53,8 +53,7 @@ test('an error toast is reported without its text, by the code that showed it: d
   // Block bodies: a tail call (JavaScriptCore, Safari) would report its caller's site, which is still one code location.
   const showMerger = () => { toast.error('No commits found in range main...feature/merger'); };
   const showPayroll = () => { toast.error('Failed to attach payroll.xlsx'); };
-  // Separate failures arrive in separate tasks (network answers); within one task they would be one failure.
-  showMerger(); await sleep(0); showMerger(); await sleep(0); showPayroll();
+  showMerger(); showMerger(); showPayroll();
   await sleep(50);
   const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
   expect(bodies).toHaveLength(2); // Two sites, two reports; the repeat of one site within 30 s is not sent again.
@@ -192,7 +191,7 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
 // Review of #301 (P2): no error toast bypasses reporting. A file that shows one without the reporting wrapper (sonner,
 // or the unwrapped toast module) reports that failure itself, with its runtime (context pin, upgrade, small model, ...).
 // One shown error, one report: a send refused by the page's own check, then its caller's toast in the same task.
-test('within one task, a failure\'s first report stands and its consequences are not reported; other sessions and later tasks report', async () => {
+test('one report per error seen: every toast reports; an operation\'s own toast and its same-session consequences in its task do not', async () => {
   fixture = nativeDraftFixture();
   const { reportClientError } = await import('@/lib/clientErrorReport');
   const { toast } = await import('@/components/ui');
@@ -209,19 +208,20 @@ test('within one task, a failure\'s first report stands and its consequences are
     }).then(() => { toast.error('This session is unavailable right now'); }); // ...and its caller's toast, same task.
     await sleep(50);
     expect(kinds).toEqual(['send.unavailable']);
-    await Promise.resolve().then(() => { toast.error('Could not read the mentioned file'); }) // A toast first...
-      .then(() => reportClientError({ kind: 'send.unavailable', sessionID: 'ses_other' })); // ...then the refusal.
+    await Promise.resolve().then(() => { toast.error('Could not read the mentioned file'); }) // A toast shown...
+      .then(() => { toast.error('File is too large'); }) // ...another toast in the same task: a second error seen...
+      .then(() => reportClientError({ kind: 'send.unavailable', sessionID: 'ses_other' })); // ...then a refusal shown.
     await sleep(50);
-    expect(kinds).toHaveLength(2); // One more: the toast, the first report of that failure.
+    expect(kinds).toHaveLength(4); // Three errors seen, three reports.
     await Promise.resolve().then(() => reportClientError({ kind: 'session-messages.initial', sessionID: 'ses_x' }))
       .then(() => reportClientError({ kind: 'start.history', sessionID: 'ses_x' })) // The start that failure refused.
       .then(() => reportClientError({ kind: 'session-messages.initial', sessionID: 'ses_y' })); // Another session: its own.
     await sleep(50);
-    expect(kinds.slice(2)).toEqual(['session-messages.initial', 'session-messages.initial']);
+    expect(kinds.slice(4)).toEqual(['session-messages.initial', 'session-messages.initial']);
     const later = () => { toast.error('Could not load stashes'); };
     later(); await sleep(50); // A new error, in a later task: reported.
-    expect(kinds).toHaveLength(5);
-    expect(kinds[4]!.startsWith('toast.')).toBe(true);
+    expect(kinds).toHaveLength(7);
+    expect(kinds[6]!.startsWith('toast.')).toBe(true);
   } finally { globalThis.fetch = served; }
 });
 

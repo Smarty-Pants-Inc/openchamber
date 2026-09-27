@@ -48,19 +48,24 @@ export function redactClientError(text: string): string {
 }
 
 /**
- * One failure, one report. A failure runs through its callers in one task (their catches are microtasks of it), and
- * each may report or show it: the loader, then the start it refused, then a toast. Within a task, the first report
- * stands; a later one is its consequence, unless both name different sessions (two failures). The record clears at
- * the next task, so nothing later is held back. ponytail: the event loop's own boundary, not a guess by time.
+ * One report per error a person sees. Each error toast is one (told apart by its site), and never holds another back.
+ * An operation that reports its own failure (shown inline or in the transcript) runs through its callers in one task
+ * (their catches are microtasks of it): a toast they show in that task is its display, and a further operation report
+ * for the same session its consequence (the loader, then the start it refused). Neither is reported again. The record
+ * clears at the next task. ponytail: the event loop's own boundary, not a guess by time.
  */
-let reportedThisTask: Array<string | undefined> | undefined;
-const sameFailure = (sessionID: string | undefined) =>
-  reportedThisTask?.some(earlier => !earlier || !sessionID || earlier === sessionID) ?? false;
+let operationsThisTask: Array<string | undefined> | undefined;
+const isGenericToast = (kind: string) => kind === 'toast' || kind.startsWith('toast.');
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (sameFailure(report.sessionID)) return;
-  if (!reportedThisTask) { reportedThisTask = []; setTimeout(() => { reportedThisTask = undefined; }, 0); }
-  reportedThisTask.push(report.sessionID);
+  if (operationsThisTask) {
+    if (isGenericToast(report.kind)) return;
+    if (operationsThisTask.some(earlier => !earlier || !report.sessionID || earlier === report.sessionID)) return;
+  }
+  if (!isGenericToast(report.kind)) {
+    if (!operationsThisTask) { operationsThisTask = []; setTimeout(() => { operationsThisTask = undefined; }, 0); }
+    operationsThisTask.push(report.sessionID);
+  }
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -88,5 +93,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); reportedThisTask = undefined;
+  lastReport.clear(); operationsThisTask = undefined;
 }
