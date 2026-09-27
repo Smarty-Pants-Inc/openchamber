@@ -295,7 +295,13 @@ export function materializeSessionSnapshots(
 
   for (const record of snapshots) {
     const messageID = record.info.id
-    if (isPrepend && nextPartState[messageID]) continue
+    // An older page never replaces a bucket that already has every fetched part. A bucket missing some holds only what
+    // the stream delivered before this page loaded the message (smarty-dev#777 G13): the fetched parts are merged in,
+    // with the same live-field protections as a tail refresh.
+    if (isPrepend && nextPartState[messageID]) {
+      const have = new Set(nextPartState[messageID]!.map((part) => part.id))
+      if (filterMaterializedParts(record.parts ?? [], skipPartTypes).every((part) => have.has(part.id))) continue
+    }
 
     const isAssistant = record.info.role === "assistant"
     const existing = nextPartState[messageID]
