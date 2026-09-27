@@ -60,6 +60,8 @@ type LoaderEntry = {
   resetHistory: boolean
   ordinaryRefresh: Promise<void> | null
   ordinaryDemand: number
+  /** The replies without their prompt that a reload from the start already tried to cover (never twice for them). */
+  repairedOrphans?: string
 }
 
 type FetchedPage = {
@@ -637,6 +639,16 @@ export class SessionMessageLoader {
         if (entry.inflight === promise) entry.inflight = null
       })
     entry.inflight = promise
+    // A load that ends claiming the whole history while the store holds a reply without its prompt (streamed while the
+    // read was out) contradicts itself: the timeline would hide that reply (#126 item 4). Reload it from the start, once
+    // for those replies, while this load's page is still current.
+    void promise.then(() => {
+      if (!isCurrent() || entry.inflight || !entry.snapshot.resolved || !entry.snapshot.complete) return
+      const orphans = repliesWithoutPrompt(store.getState(), target.sessionID)
+      if (!orphans || entry.repairedOrphans === orphans) return
+      entry.repairedOrphans = orphans
+      void this.ensure(target, { force: true, reason: "navigation" }).catch(() => undefined)
+    })
     return promise
   }
 
@@ -837,12 +849,14 @@ type DirectoryStoreSetter = (
   partial: Partial<DirectoryStore> | ((state: DirectoryStore) => Partial<DirectoryStore> | DirectoryStore),
 ) => void
 
-/** An assistant reply whose prompt (its parent message) the store does not have. */
-function hasReplyWithoutPrompt(state: DirectoryStore, sessionID: string): boolean {
+/** The assistant replies whose prompt (their parent message) the store does not have, as one key ('' when none). */
+function repliesWithoutPrompt(state: DirectoryStore, sessionID: string): string {
   const messages = state.message[sessionID] ?? []
   const ids = new Set(messages.map((message) => message.id))
-  return messages.some((message) => message.role === "assistant" && Boolean(message.parentID) && !ids.has(message.parentID))
+  return messages.filter((message) => message.role === "assistant" && Boolean(message.parentID) && !ids.has(message.parentID))
+    .map((message) => message.id).join(",")
 }
+const hasReplyWithoutPrompt = (state: DirectoryStore, sessionID: string): boolean => repliesWithoutPrompt(state, sessionID) !== ""
 
 let imperativeLoader: SessionMessageLoader | null = null
 

@@ -217,6 +217,13 @@ async function mountedSync(history: (sessionID: string) => unknown[] | Promise<u
   return {
     store, reads, settle,
     event: (type: string, properties: unknown) => stream.enqueue(frame({ id: `evt_${Math.random()}`, type, properties })),
+    /** Several events in one network chunk: they reach the page in one batch. */
+    events: (...list: Array<[string, unknown]>) => {
+      const chunks = list.map(([type, properties]) => frame({ id: `evt_${Math.random()}`, type, properties }));
+      const joined = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.length, 0));
+      let at = 0; for (const chunk of chunks) { joined.set(chunk, at); at += chunk.length; }
+      stream.enqueue(joined);
+    },
     session: (id: string, parentID?: string) => store.setState(state => ({ session: [...state.session, { id, slug: id, projectID: 'project',
       directory: '/a', title: id, version: '1', time: { created: 1, updated: 9 }, ...(parentID ? { parentID } : {}) }] as typeof state.session })),
     showPreview: async (id: string) => { preview = id; await act(async () => render()); },
@@ -356,5 +363,45 @@ test('opening while reads of stale coverage are under way shows the replies, and
       await act(async () => { await loader.loadOlder({ directory: '/a', sessionID: S }); });
     }
     expect((sync.store.getState().message[S] ?? [])[0]?.id).toBe('msg_001'); // The prompt is reachable.
+  } finally { await sync.dispose(); }
+}, 15_000);
+
+// Pre-check (Astra, a stale answer): a tail read takes the history while it is still empty, and its answer is late.
+// Meanwhile the reply reaches the store (as the stream's reducer writes it, with nothing left to repair) and she opens
+// the session. The late answer claims the whole history while the store holds a reply without its prompt: the page
+// reloads it from the start, once, so the turn shows.
+test('a late answer taken before the reply existed never leaves the opened session blank', async () => {
+  const S = 'ses_late';
+  let history: unknown[] = [];
+  let release = () => {};
+  let hold: Promise<void> | undefined;
+  const sync = await mountedSync(async () => {
+    const answer = history; // The server answers with the history as it was when the read arrived.
+    if (hold) { const gate = hold; hold = undefined; await gate; }
+    return answer;
+  });
+  try {
+    sync.session(S);
+    const loader = getImperativeSessionMessageLoader()!, target = { directory: '/a', sessionID: S };
+    await act(async () => { await loader.prefetch(target); });
+    hold = new Promise<void>(resolve => { release = resolve; });
+    const late = loader.refreshTail(target, 50); // Reads the empty history; its answer waits.
+    await sync.settle(100);
+    history = [{ info: prompt(S, 'msg_1', 1), parts: [{ id: 'prt_1', sessionID: S, messageID: 'msg_1', type: 'text', text: 'go' }] },
+      { info: reply(S, 'msg_2', 'msg_1', 2), parts: [{ id: 'prt_2', sessionID: S, messageID: 'msg_2', type: 'text', text: 'working' }] }];
+    await act(async () => { sync.store.setState(state => ({
+      message: { ...state.message, [S]: [reply(S, 'msg_2', 'msg_1', 2)] as never },
+      part: { ...state.part, msg_2: [{ id: 'prt_2', sessionID: S, messageID: 'msg_2', type: 'text', text: 'working' }] as never },
+    })); });
+    setActiveSession('/a', S);
+    const opening = fetchMessagesForSession(S, '/a');
+    release();
+    await act(async () => { await late; await opening; });
+    await sync.settle(500);
+    expect((sync.store.getState().message[S] ?? []).map(entry => entry.id)).toEqual(['msg_1', 'msg_2']);
+    const reads = sync.reads.length;
+    expect(reads).toBe(3); // The prefetch, the late read, and one reload.
+    await sync.settle(500);
+    expect(sync.reads).toHaveLength(reads); // Once: no more reads.
   } finally { await sync.dispose(); }
 }, 15_000);
