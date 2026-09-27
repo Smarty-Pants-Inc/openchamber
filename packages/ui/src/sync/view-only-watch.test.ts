@@ -181,3 +181,21 @@ test('smarty-code#616: when the gateway says the watched session is enrolled, th
   expect(reads).toEqual(['ses_e']); // re-read once, at once.
   release(); setViewOnlyWatchDeps();
 });
+
+test('#318 review: an enrollment in the same chunk as the handshake is acted on at once, even if the stream then ends', async () => {
+  const enc = new TextEncoder();
+  const both = `data: ${JSON.stringify({ type: 'smarty.watch', properties: { sessionID: 'ses_c', resumed: false } })}\n\n`
+    + `data: ${JSON.stringify({ type: 'smarty.watch', properties: { sessionID: 'ses_c', enrolled: true } })}\n\n`;
+  for (const end of [false, true]) { // The coalesced chunk alone (stream stays open), then followed by the stream's end.
+    const fetch = async (input: string) => {
+      if (input === '/api/global/health') return Response.json({ capabilities: { readOnlyWatch: 1, readOnlyReadBaseline: 1, readOnlyWatchResume: 1 } });
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(enc.encode(both)); if (end) controller.close(); } }));
+    };
+    const reads: string[] = [];
+    setViewOnlyWatchDeps({ fetch, runtime: () => 'A', onEnrolled: async (id) => { reads.push(id); } });
+    const release = holdViewOnlyWatch('ses_c', '/p');
+    for (let i = 0; i < 50 && reads.length === 0; i++) await sleep(10);
+    expect(reads).toEqual(['ses_c']);
+    release(); setViewOnlyWatchDeps();
+  }
+});

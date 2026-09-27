@@ -117,12 +117,16 @@ async function stream(sessionId: string, directory: string, signal: AbortSignal,
     }
     if (signal.aborted) return;
     opened(said === true);
-    for (;;) { // Other frames are dropped; the session's enrollment is acted on (the page re-reads it as ordinary).
+    // Other frames are dropped; the session's enrollment is acted on (the page re-reads it as ordinary). The buffer is
+    // checked at once (the handshake's own chunk may carry it, #318 review) and once more at the end of the stream.
+    const check = () => { if (enrolledIn(text, sessionId)) { text = ''; enrolled(); } };
+    check();
+    for (;;) {
       if (signal.aborted) return;
       const next = await reader.read();
-      if (next.done) return;
+      if (next.done) { text += decoder.decode(); check(); return; }
       text = (text + decoder.decode(next.value, { stream: true })).slice(-4096);
-      if (enrolledIn(text, sessionId)) { text = ''; enrolled(); }
+      check();
     }
   } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
 }
