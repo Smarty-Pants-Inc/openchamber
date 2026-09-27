@@ -3,6 +3,7 @@ import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
 import type { ChildStoreManager, DirectoryStore } from "./child-store"
 import { isTransientError, retry } from "./retry"
 import { sessionMessageEventCount } from "./event-reducer"
+import { withoutStaleOrdinaryRows } from "./ordinary-stale-rows"
 import { mergeOptimisticPage, type OptimisticItem } from "./optimistic"
 import { findMessageIndex, insertMessageChronologically, sortMessagesChronologically } from "./message-ordering"
 import { stripMessageDiffSnapshots } from "./sanitize"
@@ -945,8 +946,11 @@ export class SessionMessageLoader {
     }, [...entry.optimistic.values()])
     for (const messageID of merged.confirmed) entry.optimistic.delete(messageID)
     const mergedPartsByMessageID = new Map(merged.part.map((candidate) => [candidate.id, candidate.part] as const))
-    const current = store.getState()
     const reset = mode !== "prepend" && entry.resetHistory
+    // A quiet ordinary newest page drops shown rows the gateway removed while this page missed events (#669, #675).
+    const pruned = mode === "merge" && !reset && page.ordinaryView && page.eventsAtRead === sessionMessageEventCount(target.sessionID)
+      ? withoutStaleOrdinaryRows(store.getState(), target.sessionID, page.session, (id) => entry.optimistic.has(id)) : null
+    const current = pruned ?? store.getState()
     const shownByID = new Map((current.message[target.sessionID] ?? []).map((message) => [message.id, message] as const))
     const part = reset ? { ...current.part } : current.part
     if (reset) {
@@ -972,10 +976,10 @@ export class SessionMessageLoader {
     if (!isCurrent()) return null
     // A read that replaced the shown history reflects exactly its journal state: older events are dropped (#278 r11).
     const journalReads = reset ? marked(current.journalReads, target.sessionID, page.journalAt) : undefined
-    if (reset || materialized.messagesChanged || materialized.partsChanged) {
+    if (reset || pruned || materialized.messagesChanged || materialized.partsChanged) {
       const update: Partial<DirectoryStore> = journalReads ? { journalReads } : {}
-      if (reset || materialized.messagesChanged) update.message = materialized.message
-      if (reset || materialized.partsChanged) update.part = materialized.part
+      if (reset || pruned || materialized.messagesChanged) update.message = materialized.message
+      if (reset || pruned || materialized.partsChanged) update.part = materialized.part
       store.setState(update)
     }
     entry.commits++ // Even a page that changed nothing (an accepted view, new coverage) makes a reset read older.
