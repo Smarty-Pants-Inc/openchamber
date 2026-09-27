@@ -405,3 +405,23 @@ test('a late answer taken before the reply existed never leaves the opened sessi
     expect(sync.reads).toHaveLength(reads); // Once: no more reads.
   } finally { await sync.dispose(); }
 }, 15_000);
+
+// Pre-check (Astra, a burst): the server's own history has replies whose prompt is gone, and it keeps growing (a new
+// reply by every read). The missing prompt is one gap: it is reloaded for once, not once per new reply.
+test('replies to a prompt that is gone reload the session once, not once per new reply', async () => {
+  const S = 'ses_gone';
+  const history: unknown[] = [];
+  const grow = () => {
+    const n = history.length, id = `msg_r${String(n).padStart(2, '0')}`;
+    history.push({ info: reply(S, id, 'msg_gone', n + 1, n + 2), parts: [{ id: `prt_${id}`, sessionID: S, messageID: id, type: 'text', text: `r${n}` }] });
+    return history.slice();
+  };
+  const sync = await mountedSync(() => grow()); // The agent keeps working: each read finds one more reply.
+  try {
+    sync.session(S);
+    setActiveSession('/a', S);
+    await act(async () => { await fetchMessagesForSession(S, '/a'); });
+    await sync.settle(1500);
+    expect(sync.reads).toHaveLength(2); // The open and one reload for the missing prompt.
+  } finally { await sync.dispose(); }
+}, 15_000);
