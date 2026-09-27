@@ -13,6 +13,7 @@ import {
   getSessionPrefetch,
   setSessionPrefetch,
 } from "./session-prefetch-cache"
+import { z } from "zod"
 import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
@@ -92,9 +93,14 @@ const getInitialExpansionLimits = () => isConstrainedRuntime()
   ? CONSTRAINED_INITIAL_PAGE_EXPANSION_LIMITS
   : INITIAL_PAGE_EXPANSION_LIMITS
 
+// Wire shapes read here, decoded rather than narrowed field by field (anti-slop; same results as before).
+const clientRoleSchema = z.object({ clientRole: z.string() })
+const gatewayRecoverySchema = z.object({ name: z.literal("APIError"), data: z.object({ message: z.string().min(1) }) })
+const errorMessageSchema = z.object({ message: z.string().min(1) })
+
 const isUserMessage = (message: Message): boolean => {
-  const candidate = message as Message & { clientRole?: unknown; role?: unknown }
-  const role = typeof candidate.clientRole === "string" ? candidate.clientRole : candidate.role
+  // OpenCode sends `clientRole` on the wire, outside the SDK type; a string there wins over `role`.
+  const role = clientRoleSchema.safeParse(message).data?.clientRole ?? message.role
   return role === "user"
 }
 
@@ -104,22 +110,16 @@ const hasUserMessage = (messages: Message[]): boolean => messages.some(isUserMes
  * The Smarty gateway's deliberate recovery message (`{ name: 'APIError', data: { message } }`), the same
  * shape native creation trusts. Other bodies (proxy HTML, plain errors) are never shown to the user.
  */
-export const gatewayRecoveryMessage = (error: unknown): string | null => {
-  const record = error as { name?: unknown; data?: { message?: unknown } } | null
-  return record && typeof record === "object" && record.name === "APIError"
-    && typeof record.data?.message === "string" && record.data.message ? record.data.message : null
-}
+export const gatewayRecoveryMessage = (cause: unknown): string | null =>
+  gatewayRecoverySchema.safeParse(cause).data?.data.message ?? null
 
-const formatSdkError = (error: unknown): string => {
-  if (error instanceof Error) return error.message
-  if (typeof error === "string") return error
-  const recovery = gatewayRecoveryMessage(error)
-  if (recovery) return recovery
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message
-    if (typeof message === "string" && message) return message
-  }
-  return "Session messages could not be loaded"
+const formatSdkError = (cause: unknown): string => {
+  if (cause instanceof Error) return cause.message
+  const text = z.string().safeParse(cause)
+  if (text.success) return text.data
+  return gatewayRecoveryMessage(cause)
+    ?? errorMessageSchema.safeParse(cause).data?.message
+    ?? "Session messages could not be loaded"
 }
 
 const assertSdkSuccess = (result: {
@@ -129,7 +129,7 @@ const assertSdkSuccess = (result: {
   if (!result.error) return
   const status = result.response?.status
   const message = `${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`
-  const error = new Error(message) as Error & { status?: number; serverMessage?: string }
+  const error: Error & { status?: number; serverMessage?: string } = new Error(message)
   if (status !== undefined) error.status = status
   // ponytail: the gateway marks every error isRetryable:false, so retry policy stays unchanged here;
   // only its explanation is kept. Terminal-vs-transient needs an accurate gateway signal first.
@@ -479,10 +479,9 @@ export class SessionMessageLoader {
     const messages = existing ? existing.filter((message) => message.id !== input.messageID) : undefined
     const part = { ...current.part }
     delete part[input.messageID]
-    store.setState({
-      ...(messages ? { message: { ...current.message, [target.sessionID]: messages } } : {}),
-      part,
-    })
+    const next: Partial<DirectoryStore> = { part }
+    if (messages) next.message = { ...current.message, [target.sessionID]: messages }
+    store.setState(next)
   }
 
   optimisticConfirm(input: SessionMessageTarget & { messageID: string }): void {
@@ -622,7 +621,8 @@ export class SessionMessageLoader {
     }
     const promise = loadPromise
       .then(() => finishPerformanceEvent(isCurrent() ? "complete" : "stale", performance))
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
+        const error = cause
         if (!isCurrent()) {
           finishPerformanceEvent("stale", performance)
           return
@@ -731,7 +731,7 @@ export class SessionMessageLoader {
         assertSdkSuccess(response, "session.messages")
         const data = response.data
         if (!Array.isArray(data)) {
-          const error = new Error("session.messages returned no data") as Error & { status?: number }
+          const error: Error & { status?: number } = new Error("session.messages returned no data")
           error.status = 503
           throw error
         }
@@ -744,7 +744,7 @@ export class SessionMessageLoader {
         records.map((record: { info: Message }) => stripMessageDiffSnapshots(record.info)),
       )
       const partsByMessageID = new Map<string, Part[]>()
-      for (const record of records as Array<{ info: { id: string }; parts?: Part[] }>) {
+      for (const record of records) {
         partsByMessageID.set(record.info.id, filterIdentifiedParts(record.parts ?? []))
       }
       const cursor = result.response?.headers?.get?.("x-next-cursor") ?? undefined
