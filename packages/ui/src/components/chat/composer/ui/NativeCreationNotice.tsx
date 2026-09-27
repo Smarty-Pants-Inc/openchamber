@@ -43,13 +43,19 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
   const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
+  // This draft's OWN start that does not finish (smarty-code#587: its shell frozen, the person saw only "Starting…" and
+  // a greyed Cancel): the same Stop after the same threshold as a blocking start.
+  const own = creation?.status === 'pending' && !STOPPED_PHASES.includes(creation.operation.phase) && creation.operation.phase !== 'ready'
+    ? creation.operation : undefined;
+  const ownStopAt = native.canAbandon && own ? stoppableAt(own) : undefined;
   React.useEffect(() => {
-    if (stopAt === undefined || stopAt <= Date.now()) return;
-    const timer = setTimeout(tick, stopAt - Date.now() + 10);
+    const next = [stopAt, ownStopAt].filter((at): at is number => at !== undefined && at > Date.now());
+    if (!next.length) return;
+    const timer = setTimeout(tick, Math.min(...next) - Date.now() + 10);
     return () => clearTimeout(timer);
-  }, [stopAt]);
-  const stopControl = (operation: NativeCreationState | undefined) => {
-    if (!operation || stopAt === undefined || stopAt > Date.now()) return null;
+  }, [stopAt, ownStopAt]);
+  const stopControl = (operation: NativeCreationState | undefined, at = stopAt) => {
+    if (!operation || at === undefined || at > Date.now()) return null;
     const busy = stop?.id === operation.operationId && stop.busy;
     const failed = stop?.id === operation.operationId && !stop.busy && stop.error !== undefined ? stop.error : undefined;
     return <>
@@ -121,6 +127,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
       <p>{t('chat.nativeCreation.starting')}</p>
       {creation?.status === 'pending' && CANCELLABLE.includes(creation.operation.phase) ? <Button type="button" variant="outline" size="sm"
         disabled={creation.busy || creation.unreadable} onClick={() => { void native.cancel(); }}>{t('chat.nativeCreation.cancel')}</Button> : null}
+      {/* A start that does not finish is never a dead end (smarty-code#587): Stop, as for a blocking start (#523). */}
+      {stopControl(own, ownStopAt)}
     </div>;
   }
   // Send stopped while the start could not be read (smarty-code#126): its outcome is unknown. Check again only reads.
