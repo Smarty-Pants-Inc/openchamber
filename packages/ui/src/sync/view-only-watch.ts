@@ -1,6 +1,7 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { sessionMessageEventCount } from './event-reducer';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
 
 /**
@@ -24,9 +25,21 @@ const held = new Map<string, Held>();
 const supported = new Set<string>(); // `${runtime}\0${directory}` whose gateway said readOnlyWatch: 1.
 let fetcher: Fetch = runtimeFetch as unknown as Fetch;
 let runtime: () => string = getRuntimeKey;
-type CatchUp = (sessionId: string, directory: string, signal: AbortSignal) => Promise<void>;
-const readLatest: CatchUp = async (sessionID, directory, signal) => {
-  await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }, undefined, signal); // Ends with the watch.
+type CatchUp = (sessionId: string, directory: string, signal: AbortSignal, resumed: boolean) => Promise<void>;
+/** After the gateway's next tick (5 s) and the event flush: a watch that started fresh re-reads once more then. */
+export const FRESH_REREAD_MS = 6_000;
+const readLatest: CatchUp = async (sessionID, directory, signal, resumed) => {
+  const replace = () => getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }, undefined, signal); // Ends with the watch.
+  await replace();
+  if (resumed || signal.aborted) return;
+  // The gateway kept no baseline for this watch (expired or evicted, #278 review 9): its next tick cannot remove an entry
+  // the page received late from the old branch. The page opens fresh instead: it reads the history again after that
+  // tick, if an event for this session reached it meanwhile (only such a late entry can be stale). A quiet session is
+  // left as it is, with the older pages the person has loaded since.
+  const events = sessionMessageEventCount(sessionID);
+  console.info('[view-only] the watch did not resume its tail; checking again after the next tick');
+  await wait(FRESH_REREAD_MS, signal);
+  if (!signal.aborted && sessionMessageEventCount(sessionID) !== events) await replace();
 };
 let catchUp: CatchUp = readLatest;
 const watchedBefore = new Set<string>(); // Sessions this page has watched (bounded): their next watch catches up.
@@ -57,24 +70,47 @@ const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =>
   const timer = setTimeout(done, ms);
   signal.addEventListener('abort', done, { once: true });
 });
-/** One stream until it ends, fails or `signal` aborts; its frames are dropped. `opened` runs once it is open. */
-async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: () => void) {
+/** Whether a frame's smarty.watch event says the gateway resumed this watch's tail baseline (undefined: no such event). */
+const resumedIn = (text: string, sessionId: string) => {
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    try {
+      const event = JSON.parse(line.slice(6)) as { type?: string; properties?: { sessionID?: string; resumed?: unknown } };
+      if (event.type === 'smarty.watch' && event.properties?.sessionID === sessionId) return event.properties.resumed === true;
+    } catch { /* Not an event. */ }
+  }
+};
+/** One stream until it ends, fails or `signal` aborts. `opened(resumed)` runs once it is open and the gateway said
+ * whether it resumed (at most WATCH_SAID_MS: no word counts as not resumed); other frames are dropped. */
+const WATCH_SAID_MS = 2_000;
+async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: (resumed: boolean) => void) {
   const response = await fetcher('/api/event', { query: { directory, watch: sessionId }, signal, headers: { accept: 'text/event-stream' } });
   const reader = response.ok ? response.body?.getReader() : undefined;
   if (!reader || signal.aborted) { await response.body?.cancel().catch(() => {}); return; } // Released while it opened.
-  opened();
   const cancel = () => { void reader.cancel().catch(() => {}); };
   signal.addEventListener('abort', cancel, { once: true });
-  try { while (!signal.aborted && !(await reader.read()).done) { /* Frames are dropped. */ } }
-  finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
+  const decoder = new TextDecoder(), deadline = Date.now() + WATCH_SAID_MS;
+  let said: boolean | undefined, text = '';
+  try {
+    while (said === undefined && !signal.aborted && Date.now() < deadline) {
+      let timer: ReturnType<typeof globalThis.setTimeout> | undefined; // A plain timer: an abort ends the read (cancel) anyway.
+      const next = await Promise.race([reader.read(), new Promise<undefined>((resolve) => { timer = globalThis.setTimeout(() => resolve(undefined), deadline - Date.now()); })]);
+      clearTimeout(timer);
+      if (!next || next.done) break;
+      text += decoder.decode(next.value, { stream: true }); said = resumedIn(text, sessionId); text = text.slice(-4096);
+    }
+    if (signal.aborted) return;
+    opened(said === true);
+    while (!signal.aborted && !(await reader.read()).done) { /* Frames are dropped. */ }
+  } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
 }
 
 /** Holds the watch until `signal` aborts, on the server it began on: reconnects with a backoff after a failed health
  * read, a 503, an error or a closed stream; stops for good on a gateway without the capability or a server switch. */
 async function hold(key: string, sessionId: string, directory: string, signal: AbortSignal) {
   const server = runtime(), session = `${key}\0${sessionId}`;
-  const opened = () => { // A re-acquired watch (after a hidden spell or a drop) catches up on what it missed.
-    if (watchedBefore.has(session)) void catchUp(sessionId, directory, signal).catch(() => {});
+  const opened = (resumed: boolean) => { // A re-acquired watch (after a hidden spell or a drop) catches up on what it missed.
+    if (watchedBefore.has(session)) void catchUp(sessionId, directory, signal, resumed).catch(() => {});
     watchedBefore.delete(session); watchedBefore.add(session);
     if (watchedBefore.size > 256) watchedBefore.delete(watchedBefore.values().next().value!);
   };

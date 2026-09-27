@@ -5,7 +5,7 @@ import { holdViewOnlyWatch, setViewOnlyWatchDeps, viewOnlyWatchesHeld } from './
 // view closes; a gateway without readOnlyWatch is never asked.
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 type Call = { path: string; query: Record<string, string> };
-function gateway(options: { watch?: boolean; baseline?: boolean; failFirst?: number; healthFails?: number } = {}) {
+function gateway(options: { watch?: boolean; baseline?: boolean; failFirst?: number; healthFails?: number; resumed?: boolean } = {}) {
   const streams: (() => void)[] = []; // Ends each open stream from the server side (a dropped watch).
   const calls: Call[] = [];
   let open = 0, most = 0, failures = options.failFirst ?? 0;
@@ -19,6 +19,8 @@ function gateway(options: { watch?: boolean; baseline?: boolean; failFirst?: num
       start(controller) {
         open++; most = Math.max(most, open);
         controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        const said = { type: 'smarty.watch', properties: { sessionID: init.query.watch, resumed: options.resumed ?? true } };
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(said)}\n\n`));
         closeStream = () => { open--; closeStream = () => {}; };
         const end = () => { closeStream(); try { controller.close(); } catch { /* closed */ } };
         streams.push(end);
@@ -127,3 +129,31 @@ test('hidden, then entries committed, then shown: the entries appear; a dropped 
   expect([...transcript]).toEqual(['a', 'b', 'c']);
   release();
 });
+
+test('a re-acquired watch the gateway could not resume (evicted or expired handoff) opens fresh: it re-reads after the next tick', async () => {
+  const g = gateway({ resumed: false });
+  const reads: boolean[] = [];
+  setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { reads.push(resumed); } });
+  const first = holdViewOnlyWatch('fresh', '/p'); await sleep(10); first(); await sleep(5);
+  const again = holdViewOnlyWatch('fresh', '/p'); await sleep(10);
+  expect(reads).toEqual([false]); // The catch-up is told the watch did not resume, so the page re-reads after the tick.
+  again();
+  const kept = gateway({ resumed: true }), told: boolean[] = [];
+  setViewOnlyWatchDeps({ fetch: kept.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
+  const a = holdViewOnlyWatch('kept', '/p'); await sleep(10); a(); await sleep(5);
+  const b = holdViewOnlyWatch('kept', '/p'); await sleep(10);
+  expect(told).toEqual([true]); b();
+});
+
+test('a gateway that says nothing about resuming counts as not resumed, within a bound, and never hangs the watch', async () => {
+  const silent = async (path: string, init: { query: Record<string, string>; signal?: AbortSignal }) => {
+    if (path === '/api/global/health') return Response.json({ healthy: true, capabilities: { readOnlyWatch: 1, readOnlyReadBaseline: 1, readOnlyWatchResume: 1 } });
+    const body = new ReadableStream<Uint8Array>({ start(controller) { init.signal?.addEventListener('abort', () => { try { controller.close(); } catch { /* closed */ } }, { once: true }); } });
+    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  };
+  const told: boolean[] = [];
+  setViewOnlyWatchDeps({ fetch: silent as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
+  const a = holdViewOnlyWatch('silent', '/p'); await sleep(2_100); a(); await sleep(5);
+  const b = holdViewOnlyWatch('silent', '/p'); await sleep(2_100);
+  expect(told).toEqual([false]); b();
+}, 10_000);
