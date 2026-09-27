@@ -31,6 +31,15 @@ test('a session whose messages cannot be loaded is reported once, with its sessi
   expect(reports()).toHaveLength(1);
 });
 
+test('a history open that timed out is reported as a timeout, with its session', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => { throw new Error('OpenCode request timed out after 30000ms'); };
+  await fixture.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
+  await sleep(50);
+  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
+  expect(bodies.map(body => [body.kind, body.sessionID])).toEqual([['session-messages.initial.timeout', session.id]]);
+});
+
 test('a load that succeeds reports nothing', async () => {
   fixture = nativeDraftFixture();
   await fixture.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
