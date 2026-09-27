@@ -44,6 +44,8 @@ export type SyncPerformanceCounters = {
   materializationMissingPartEnqueues: number
   materializationLifecycleEnqueues: number
   materializationPreflightSkips: number
+  /** Materialization skipped: the page holds none of that session's history (smarty-dev#777 G13). */
+  materializationUnheldSkips: number
   materializationRequests: number
   statusAggregationSessionEntries: number
   statusAggregationCandidates: number
@@ -87,6 +89,7 @@ const createCounters = (): SyncPerformanceCounters => ({
   materializationMissingPartEnqueues: 0,
   materializationLifecycleEnqueues: 0,
   materializationPreflightSkips: 0,
+  materializationUnheldSkips: 0,
   materializationRequests: 0,
   statusAggregationSessionEntries: 0,
   statusAggregationCandidates: 0,

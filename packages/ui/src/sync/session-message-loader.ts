@@ -412,6 +412,18 @@ export class SessionMessageLoader {
     return refresh
   }
 
+  /**
+   * This page holds (or is loading) the session's history: a load resolved or in flight, or a prefetched page. An entry
+   * that only a snapshot read created holds nothing. Never creates an entry.
+   */
+  holdsHistory(target: SessionMessageTarget): boolean {
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed) return false
+    const entry = this.entries.get(this.keyFor(normalized))
+    if (entry && (entry.snapshot.resolved || entry.inflight)) return true
+    return getSessionPrefetch(normalized.directory, normalized.sessionID, this.runtimeKey) !== undefined
+  }
+
   getSnapshot(target: SessionMessageTarget): SessionMessageLoadState {
     const normalized = this.normalizeTarget(target)
     return normalized ? this.getEntry(normalized).snapshot : EMPTY_SESSION_MESSAGE_LOAD_STATE

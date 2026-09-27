@@ -400,6 +400,15 @@ function enqueueSessionMaterialization(
   request: SessionMaterializationRequest,
 ) {
   if (!directory || directory === "global" || !sessionID) return
+  // Only a session the page shows, or whose history it holds, can be incomplete. The fleet's other sessions stream their events
+  // here too; reading each one's messages on every event (then again on each idle) was most of a fresh page's
+  // message reads (smarty-dev#777 G13). Opening a session loads its history itself.
+  const viewed = getViewedSessionMaterializationTarget(directory)?.sessionId === sessionID
+    || (pruneExternallyViewedSessions(), externallyViewedSessions.has(viewedSessionKey(directory, sessionID)))
+  if (!viewed && !getImperativeSessionMessageLoader()?.holdsHistory({ directory, sessionID })) {
+    countSyncPerformance("materializationUnheldSkips")
+    return
+  }
   const runtimeKey = getRuntimeKey()
   const k = getSessionMaterializationRequestKey(runtimeKey, directory, sessionID)
   const existing = pendingSessionMaterializations.get(k)
