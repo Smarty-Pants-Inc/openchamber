@@ -43,6 +43,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "This message was not sent: its session start was cancelled. Your text is back in the draft.",
     'chat.nativeCreation.sentStoppedBy': "This message was not sent: {name} stopped its session start. Your text is back in the draft.",
     'chat.nativeCreation.sentKeep': "Edit it as an unsent message",
+    'chat.managedHold.waiting': "Waiting for this project to finish loading…",
+    'chat.managedHold.notArrived': "This session's project is not in the live catalog.",
+    'chat.managedHold.showProjects': "Show projects",
   },
   de: {
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
@@ -88,6 +91,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Diese Nachricht wurde nicht gesendet: Der Sitzungsstart wurde abgebrochen. Ihr Text ist wieder im Entwurf.",
     'chat.nativeCreation.sentStoppedBy': "Diese Nachricht wurde nicht gesendet: {name} hat den Sitzungsstart gestoppt. Ihr Text ist wieder im Entwurf.",
     'chat.nativeCreation.sentKeep': "Als nicht gesendete Nachricht bearbeiten",
+    'chat.managedHold.waiting': "Warten, bis dieses Projekt fertig geladen ist…",
+    'chat.managedHold.notArrived': "Das Projekt dieser Sitzung ist nicht im Live-Katalog.",
+    'chat.managedHold.showProjects': "Projekte anzeigen",
   },
   es: {
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
@@ -133,6 +139,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Este mensaje no se envió: el inicio de la sesión se canceló. Tu texto vuelve a estar en el borrador.",
     'chat.nativeCreation.sentStoppedBy': "Este mensaje no se envió: {name} detuvo el inicio de la sesión. Tu texto vuelve a estar en el borrador.",
     'chat.nativeCreation.sentKeep': "Editarlo como mensaje no enviado",
+    'chat.managedHold.waiting': "Esperando a que este proyecto termine de cargarse…",
+    'chat.managedHold.notArrived': "El proyecto de esta sesión no está en el catálogo en vivo.",
+    'chat.managedHold.showProjects': "Mostrar proyectos",
   },
   fr: {
     'chat.nativeCreation.discovering': 'Chargement des projets…',
@@ -178,6 +187,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Ce message n'a pas été envoyé : le démarrage de la session a été annulé. Votre texte est de retour dans le brouillon.",
     'chat.nativeCreation.sentStoppedBy': "Ce message n'a pas été envoyé : {name} a arrêté le démarrage de la session. Votre texte est de retour dans le brouillon.",
     'chat.nativeCreation.sentKeep': "Le modifier comme message non envoyé",
+    'chat.managedHold.waiting': "En attente de la fin du chargement de ce projet…",
+    'chat.managedHold.notArrived': "Le projet de cette session n'est pas dans le catalogue en direct.",
+    'chat.managedHold.showProjects': "Afficher les projets",
   },
   ja: {
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
@@ -223,6 +235,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "このメッセージは送信されていません。セッションの開始がキャンセルされました。テキストは下書きに戻っています。",
     'chat.nativeCreation.sentStoppedBy': "このメッセージは送信されていません。{name} がセッションの開始を停止しました。テキストは下書きに戻っています。",
     'chat.nativeCreation.sentKeep': "未送信のメッセージとして編集する",
+    'chat.managedHold.waiting': "このプロジェクトの読み込みが終わるのを待っています…",
+    'chat.managedHold.notArrived': "このセッションのプロジェクトはライブカタログにありません。",
+    'chat.managedHold.showProjects': "プロジェクトを表示",
   },
   ko: {
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
@@ -268,6 +283,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "이 메시지는 전송되지 않았습니다. 세션 시작이 취소되었습니다. 텍스트는 초안으로 돌아왔습니다.",
     'chat.nativeCreation.sentStoppedBy': "이 메시지는 전송되지 않았습니다. {name}님이 세션 시작을 중지했습니다. 텍스트는 초안으로 돌아왔습니다.",
     'chat.nativeCreation.sentKeep': "보내지 않은 메시지로 편집",
+    'chat.managedHold.waiting': "이 프로젝트의 로드가 끝나기를 기다리는 중…",
+    'chat.managedHold.notArrived': "이 세션의 프로젝트가 라이브 카탈로그에 없습니다.",
+    'chat.managedHold.showProjects': "프로젝트 보기",
   },
   pl: {
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
@@ -313,6 +331,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Ta wiadomość nie została wysłana: uruchamianie sesji zostało anulowane. Twój tekst wrócił do szkicu.",
     'chat.nativeCreation.sentStoppedBy': "Ta wiadomość nie została wysłana: {name} zatrzymał(a) uruchamianie sesji. Twój tekst wrócił do szkicu.",
     'chat.nativeCreation.sentKeep': "Edytuj jako niewysłaną wiadomość",
+    'chat.managedHold.waiting': "Czekanie, aż ten projekt skończy się wczytywać…",
+    'chat.managedHold.notArrived': "Projektu tej sesji nie ma w bieżącym katalogu.",
+    'chat.managedHold.showProjects': "Pokaż projekty",
   },
   'pt-BR': {
     'chat.nativeCreation.discovering': 'Carregando projetos…',
@@ -358,6 +379,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Esta mensagem não foi enviada: o início da sessão foi cancelado. Seu texto voltou para o rascunho.",
     'chat.nativeCreation.sentStoppedBy': "Esta mensagem não foi enviada: {name} parou o início da sessão. Seu texto voltou para o rascunho.",
     'chat.nativeCreation.sentKeep': "Editar como mensagem não enviada",
+    'chat.managedHold.waiting': "Aguardando este projeto terminar de carregar…",
+    'chat.managedHold.notArrived': "O projeto desta sessão não está no catálogo ao vivo.",
+    'chat.managedHold.showProjects': "Mostrar projetos",
   },
   tr: {
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
@@ -403,6 +427,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Bu mesaj gönderilmedi: oturum başlatma iptal edildi. Metniniz taslağa geri döndü.",
     'chat.nativeCreation.sentStoppedBy': "Bu mesaj gönderilmedi: {name} oturum başlatmayı durdurdu. Metniniz taslağa geri döndü.",
     'chat.nativeCreation.sentKeep': "Gönderilmemiş mesaj olarak düzenle",
+    'chat.managedHold.waiting': "Bu projenin yüklenmesi bekleniyor…",
+    'chat.managedHold.notArrived': "Bu oturumun projesi canlı katalogda değil.",
+    'chat.managedHold.showProjects': "Projeleri göster",
   },
   uk: {
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
@@ -448,6 +475,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "Це повідомлення не надіслано: запуск сесії скасовано. Ваш текст повернуто до чернетки.",
     'chat.nativeCreation.sentStoppedBy': "Це повідомлення не надіслано: {name} зупинив(ла) запуск сесії. Ваш текст повернуто до чернетки.",
     'chat.nativeCreation.sentKeep': "Редагувати як ненадіслане повідомлення",
+    'chat.managedHold.waiting': "Очікуємо, поки цей проєкт завершить завантаження…",
+    'chat.managedHold.notArrived': "Проєкту цього сеансу немає в живому каталозі.",
+    'chat.managedHold.showProjects': "Показати проєкти",
   },
   'zh-CN': {
     'chat.nativeCreation.discovering': '正在加载项目…',
@@ -493,6 +523,9 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "此消息未发送：会话启动已取消。你的文本已回到草稿中。",
     'chat.nativeCreation.sentStoppedBy': "此消息未发送：{name} 停止了会话启动。你的文本已回到草稿中。",
     'chat.nativeCreation.sentKeep': "作为未发送的消息编辑",
+    'chat.managedHold.waiting': "正在等待此项目加载完成…",
+    'chat.managedHold.notArrived': "此会话的项目不在实时目录中。",
+    'chat.managedHold.showProjects': "显示项目",
   },
   'zh-TW': {
     'chat.nativeCreation.discovering': '正在載入專案…',
@@ -538,5 +571,8 @@ export const nativeCreationI18n = {
     'chat.nativeCreation.sentCancelled': "此訊息未傳送：工作階段啟動已取消。你的文字已回到草稿中。",
     'chat.nativeCreation.sentStoppedBy': "此訊息未傳送：{name} 停止了工作階段啟動。你的文字已回到草稿中。",
     'chat.nativeCreation.sentKeep': "以未傳送的訊息編輯",
+    'chat.managedHold.waiting': "正在等待此專案載入完成…",
+    'chat.managedHold.notArrived': "此工作階段的專案不在即時目錄中。",
+    'chat.managedHold.showProjects': "顯示專案",
   },
 };

@@ -63,6 +63,11 @@ interface ProjectsStore {
   admitManagedCatalog: () => void;
   resetManagedCatalog: () => void;
   applyManagedCatalog: (rows: ManagedProject[]) => void;
+  managedSessionHold: ManagedSessionHold | null;
+  /** An open of a session whose project the live catalog has not admitted yet: remembered, shown as waiting (#608). */
+  holdPendingOpen: (sessionId: string, directory: string) => void;
+  /** A newer explicit choice (another session, a new-session draft) supersedes a pending open. */
+  dropPendingOpen: () => void;
   activeProjectId: string | null;
   manualProjectOrder: string[];
 
@@ -92,6 +97,15 @@ interface ProjectsStore {
   getActiveProject: () => ProjectEntry | null;
 }
 
+/** An open session whose directory the live catalog has not admitted yet, and since when (#608). */
+/** `pending`: the person opened it, but its project is not admitted yet, so it is not selected (no request goes to an
+ * unadmitted directory); the publication that admits the project opens it. */
+export type ManagedSessionHold = { sessionId: string; directory: string; since: number; pending?: boolean };
+export const MANAGED_SESSION_HOLD_MS = 2 * 60_000;
+/** After this bounded wait the notice says the project has not arrived. */
+export const managedSessionHoldExpired = (hold: ManagedSessionHold, now: number = Date.now()): boolean =>
+  now - hold.since >= MANAGED_SESSION_HOLD_MS;
+
 // A bootstrap's shared active pointer held while discovery is pending: a one-shot for the runtime and the
 // local choice it was held under. A stock answer, or a discovery failure (the stock rule), adopts it; a managed
 // catalog, any newer explicit selection and a runtime reset discard it (review/astra on OC#159).
@@ -113,6 +127,14 @@ export const canAddProjects = (state: ProjectsStore): boolean => isVSCodeProject
 const managedProjectAt = (projects: ProjectEntry[], directory: string | null | undefined): string | undefined => {
   const wanted = directory ? normalizeProjectPath(directory) : '';
   return wanted ? projects.find(project => normalizeProjectPath(project.path) === wanted)?.id : undefined;
+};
+
+// The open session, when the live rows do not include its directory.
+const openSessionOutside = (rows: readonly ManagedProject[]): { sessionId: string; directory: string } | null => {
+  const { currentSessionId, currentSessionDirectory } = useSessionUIStore.getState();
+  const directory = currentSessionDirectory ? normalizeProjectPath(currentSessionDirectory) : '';
+  if (!currentSessionId || !directory) return null;
+  return rows.some(row => normalizeProjectPath(row.worktree) === directory) ? null : { sessionId: currentSessionId, directory };
 };
 
 // Presentation selection only. setDirectory() would persist settings and is not suitable here.
@@ -660,22 +682,62 @@ export const useProjectsStore = create<ProjectsStore>()(
       // scope unselected. Later markers keep the rows already admitted (#126 item 8).
       if (useDirectoryStore.getState().managedDirectories !== null) return;
       useDirectoryStore.setState({ managedDirectories: [] });
+      // A session open at admission (an instance restored with its session) is held, not deselected (#608): the
+      // first publication then keeps it, or selects its project.
+      const { currentSessionId, currentSessionDirectory } = useSessionUIStore.getState();
+      if (currentSessionId && currentSessionDirectory) {
+        set({ managedSessionHold: { sessionId: currentSessionId, directory: normalizeProjectPath(currentSessionDirectory) ?? currentSessionDirectory, since: Date.now() } });
+        return;
+      }
       if (useDirectoryStore.getState().currentDirectory) selectManagedDirectory(undefined);
     },
     resetManagedCatalog: () => {
       discardHeldBootstrapPointer();
-      set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
+      set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null });
       useDirectoryStore.setState({ managedDirectories: null });
     },
+    managedSessionHold: null,
+    holdPendingOpen: (sessionId, directory) => {
+      const held = get().managedSessionHold;
+      const since = held?.sessionId === sessionId ? held.since : Date.now();
+      set({ managedSessionHold: { sessionId, directory, since, pending: true } });
+    },
+    dropPendingOpen: () => { if (get().managedSessionHold?.pending) set({ managedSessionHold: null }); },
     applyManagedCatalog: (rows) => {
       const state = get();
       const projects = managedProjectView(rows, state.projects);
+      const published = { managedCatalogAdmitted: true, managedCatalogStatus: 'ready' as const, managedRows: rows, managedProjects: projects };
+      // An open the person asked for before its project was admitted: still waiting, or opened now that it is (#608).
+      const pending = state.managedSessionHold?.pending ? state.managedSessionHold : null;
+      if (pending) {
+        const project = managedProjectAt(projects, pending.directory);
+        useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
+        if (!project) { set(published); return; }
+        set({ ...published, activeProjectId: project, managedSessionHold: null });
+        selectManagedDirectory(projects.find(entry => entry.id === project));
+        useSessionUIStore.getState().setCurrentSession(pending.sessionId, pending.directory);
+        return;
+      }
+      // An open session whose project has not joined the live catalog yet stays open: no project,
+      // directory or session switch and no fallback note while it waits (#608).
+      const outside = openSessionOutside(rows);
+      if (outside) {
+        const held = state.managedSessionHold;
+        const since = held?.sessionId === outside.sessionId && held.directory === outside.directory ? held.since : Date.now();
+        set({ ...published, managedSessionHold: { ...outside, since } });
+        useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
+        return;
+      }
+      // The held session's project arrived: select it.
+      const held = state.managedSessionHold;
+      const arrived = held && held.sessionId === useSessionUIStore.getState().currentSessionId
+        ? managedProjectAt(projects, held.directory) : undefined;
       // First admission: the remembered directory (shared lastDirectory, mirrored locally) names the project
       // the user last worked in; the active pointer is not saved while the catalog is managed, so it can be stale.
       const remembered = state.managedRows ? undefined : managedProjectAt(projects, safeStorage.getItem(BROWSER_LAST_DIRECTORY_KEY))
         ?? managedProjectAt(projects, safeStorage.getItem('lastDirectory'));
-      const activeProjectId = managedActiveProject(projects, remembered ?? state.activeProjectId);
-      set({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: rows, managedProjects: projects, activeProjectId });
+      const activeProjectId = managedActiveProject(projects, arrived ?? remembered ?? state.activeProjectId);
+      set({ ...published, activeProjectId, managedSessionHold: null });
       useDirectoryStore.setState({ managedDirectories: rows.map(row => row.worktree) });
       selectManagedDirectory(projects.find(project => project.id === activeProjectId));
       // Saved settings stay untouched; the live view falls back visibly instead of 403ing (#126 item 8).
@@ -874,6 +936,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (get().managedCatalogAdmitted) {
         const target = get().managedProjects?.find(project => project.id === id);
         if (!target) return;
+        // The person switching project (remembered) is a newer choice than an open waiting for its project (#608).
+        if (options?.remember !== false) get().dropPendingOpen();
         set({ activeProjectId: id }); selectManagedDirectory(target);
         if (options?.remember === false) return;
         // Remember the explicit choice: the next bootstrap restores the project at lastDirectory.
@@ -1149,7 +1213,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextActiveProjectId = projects.some((project) => project.id === activeProjectId)
         ? activeProjectId
         : projects[0]?.id ?? null;
-      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null });
+      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null });
       useDirectoryStore.setState({ managedDirectories: null });
     },
 
@@ -1165,6 +1229,13 @@ export const useProjectsStore = create<ProjectsStore>()(
 
       const current = get();
       if (current.managedCatalogAdmitted) {
+        // A held open session (#608) keeps the selection; only the bookmarks update.
+        if (current.managedSessionHold && (current.managedSessionHold.pending
+          || current.managedSessionHold.sessionId === useSessionUIStore.getState().currentSessionId)) {
+          set({ projects: incomingProjects, managedProjects: current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null });
+          cacheProjects(incomingProjects, incomingActive);
+          return;
+        }
         // A settings echo cannot restore retired membership or a stale active pointer.
         const managedProjects = current.managedRows ? managedProjectView(current.managedRows, incomingProjects) : null;
         // A bootstrap sync carries the shared remembered project; the catalog may have published first.

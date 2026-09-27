@@ -116,6 +116,13 @@ const setReady = (value: boolean): void => {
  * Call from the component that owns those panels; the handlers are torn down on unmount.
  * Registering also flushes any pending intent that was waiting for these handlers.
  */
+/** Opens the sessions and projects list where the shell registered one (the mobile sheet or tablet sidebar). */
+export const openRegisteredSessions = (): boolean => {
+  if (!handlers.openSessions) return false;
+  handlers.openSessions();
+  return true;
+};
+
 export const useDeepLinkHandlers = (next: DeepLinkHandlers): void => {
   React.useEffect(() => {
     handlers = next;

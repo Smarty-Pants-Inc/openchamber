@@ -416,7 +416,9 @@ export type SessionUIState = {
   setCurrentSession: (
     id: string | null,
     directoryHint?: string | null,
-    transition?: "submitted-draft",
+    /** "submitted-draft": the open draft's own new session, once its first message is admitted. "restore": the page
+     * restoring a remembered session by itself. Neither is the person's new choice. */
+    transition?: "submitted-draft" | "restore",
   ) => void
   clearMaterializedDraftSession: (sessionId: string) => void
   /**
@@ -691,6 +693,8 @@ export function markDraftInputEdited(draftId: number): void {
   if (!draft.open || draft.draftId !== draftId) return
   const runtimeKey = getRuntimeKey()
   clearLastActiveSession(runtimeKey)
+  // The person writing a new message is a newer choice than an open still waiting for its project (smarty-code#608).
+  useProjectsStore.getState().dropPendingOpen?.()
   if (pendingGlobalCatalogDraft?.draftId === draftId && pendingGlobalCatalogDraft.runtimeKey === runtimeKey) pendingGlobalCatalogDraft.edited = true
   if (catalogDraftTransfer?.draftId === draftId && catalogDraftTransfer.runtimeKey === runtimeKey) catalogDraftTransfer.edited = true
 }
@@ -710,9 +714,12 @@ export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, 
   return transfer?.edited ? 'retain' : 'restore'
 }
 /** Reconcile reload/route intent only against a published, authoritative managed snapshot. */
-export function restoreManagedSessionSelection(sessions: readonly Session[]): Session | null {
+/** `chosen`: the person navigated to the remembered session (a route: Back, Forward, a link), not the page restoring it. */
+export function restoreManagedSessionSelection(sessions: readonly Session[], options?: { chosen?: boolean }): Session | null {
   const projects = useProjectsStore.getState()
   if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return null
+  // An open still waiting for its project is the person's latest choice: no automatic restore over it (#608).
+  if (projects.managedSessionHold?.pending && !options?.chosen) return null
   const key = runtimeMemoryKey()
   const persisted = readLastActiveSession(key)
   const store = useSessionUIStore.getState()
@@ -725,7 +732,7 @@ export function restoreManagedSessionSelection(sessions: readonly Session[]): Se
   }
   if ((!store.currentSessionId || store.currentSessionId === session.id)
     && (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory)) {
-    store.setCurrentSession(session.id, session.directory)
+    store.setCurrentSession(session.id, session.directory, options?.chosen ? undefined : "restore")
   }
   return session
 }
@@ -1132,12 +1139,28 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // setCurrentSession
   // ---------------------------------------------------------------------------
-  setCurrentSession: (id, directoryHint?: string | null, transition?: "submitted-draft") => {
+  setCurrentSession: (id, directoryHint?: string | null, transition?: "submitted-draft" | "restore") => {
     const selectionProjects = useProjectsStore.getState()
+    // THE rule while an open waits for its project (#608): only the person's own selection (no transition) changes the
+    // view, and it supersedes the waiting open; the page's own selections ("restore", "submitted-draft") are no-ops.
+    const waiting = selectionProjects.managedSessionHold?.pending ? selectionProjects.managedSessionHold : null
+    if (waiting && waiting.sessionId !== id) {
+      if (transition) return
+      selectionProjects.dropPendingOpen?.() // Optional: test doubles of the projects store may omit it.
+    }
     if (id && selectionProjects.managedCatalogAdmitted) {
       const selectedDirectory = directoryHint ? normalizePath(directoryHint)
         : resolveSessionDirectory(id, sid => get().worktreeMetadata.get(sid))
-      if (!visibleProjects(selectionProjects).some(project => project.path === selectedDirectory)) return
+      if (!visibleProjects(selectionProjects).some(project => project.path === selectedDirectory)) {
+        // Its project has not joined the live catalog yet (a new worktree takes about a minute): the open is remembered
+        // and shown as waiting, and opens when the project is admitted. Nothing is requested from that directory
+        // until then (#608).
+        if (selectedDirectory) {
+          selectionProjects.holdPendingOpen?.(id, selectedDirectory)
+          set({ currentSessionId: null, currentSessionDirectory: null })
+        }
+        return
+      }
     }
     // The open draft's own new session while its first message is still being sent: the Send opens it once the message
     // is admitted; opening it now would end that Send and strand the message (smarty-dev#856).
@@ -1365,6 +1388,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // restore races exactly that auto-open.
     if (!options?.automatic) {
       clearLastActiveSession(runtimeMemoryKey())
+      useProjectsStore.getState().dropPendingOpen?.() // A newer choice than an open still waiting for its project (#608).
     }
     const projectsState = useProjectsStore.getState()
     const projects = visibleProjects(projectsState)

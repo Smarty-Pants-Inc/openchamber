@@ -321,6 +321,8 @@ export function useDraftTarget(enabled: boolean) {
     }, [isDiscoveringDraftBranches, projectRootBranchOption, selectedDraftProjectIsGitRepo, worktreeBranchOptions.length]);
 
     const handleDraftProjectChange = React.useCallback((projectId: string) => {
+        // The person's choice in the draft supersedes an open still waiting for its project (smarty-code#608).
+        useProjectsStore.getState().dropPendingOpen?.();
         const draft = useSessionUIStore.getState().newSessionDraft;
         if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
             return;
@@ -343,6 +345,8 @@ export function useDraftTarget(enabled: boolean) {
     }, [activeProjectId, projects, setActiveProjectIdOnly, setNewSessionDraftTarget]);
 
     const handleDraftDirectoryChange = React.useCallback((directory: string) => {
+        // The person's choice in the draft supersedes an open still waiting for its project (smarty-code#608).
+        useProjectsStore.getState().dropPendingOpen?.();
         const draft = useSessionUIStore.getState().newSessionDraft;
         if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
             return;

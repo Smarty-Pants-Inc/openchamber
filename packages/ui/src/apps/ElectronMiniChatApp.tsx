@@ -179,6 +179,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
       selectedProjectId: hasProjectTarget ? config.projectId : CHAT_DRAFT_PROJECT_ID,
       directoryOverride: hasProjectTarget ? config.directory : null,
       preserveDirectoryOverride: Boolean(config.directory),
+      automatic: true, // The window's own draft, not the person's New session (it keeps an open waiting for its project).
     });
   }, [config, currentSessionId, draftOpen, openNewSessionDraft]);
 

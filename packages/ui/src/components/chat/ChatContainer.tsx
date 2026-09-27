@@ -64,6 +64,7 @@ import {
 import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
+import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
 import { isHerdrEnded, isHerdrNoIdentity } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
@@ -1602,6 +1603,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background">
 			{returnToParentButton}
 			{sessionSurface}
+			<ManagedSessionHoldNotice sessionId={currentSessionId} />
 
             <div
                 ref={composerSlotRef}

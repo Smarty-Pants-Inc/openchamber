@@ -23,6 +23,7 @@ let managedSelections: string[] = [];
 let rememberedSelections: string[] = [];
 let managedCatalogAdmitted = false;
 let managedProjects: { id: string; path: string; label: string }[] = [];
+let managedSessionHold: { sessionId: string; directory: string; since: number } | null = null;
 let configListener: ((event: { scopes: string[]; source?: string; timestamp: number }) => void | Promise<void>) | null = null;
 
 const makeStorage = (): Storage => ({
@@ -163,6 +164,7 @@ mock.module('@/stores/useProjectsStore', () => ({
       activeProjectId: managedCatalogAdmitted ? managedProjects[0]?.id ?? null : 'project',
       managedCatalogAdmitted,
       managedProjects,
+      managedSessionHold,
       setActiveProject: (id: string, options?: { remember?: boolean }) => {
         managedSelections.push(id); if (options?.remember !== false) rememberedSelections.push(id);
         selectedDirectory = managedProjects.find(project => project.id === id)!.path;
@@ -270,7 +272,7 @@ describe('useConfigStore provider persistence', () => {
     listAgentsImpl = null;
     withDirectoryCalls = [];
     currentFetchDirectory = DIRECTORY;
-    selectedDirectory = DIRECTORY; managedCatalogAdmitted = false; managedProjects = []; configScopes = []; managedSelections = []; rememberedSelections = [];
+    selectedDirectory = DIRECTORY; managedCatalogAdmitted = false; managedProjects = []; managedSessionHold = null; configScopes = []; managedSelections = []; rememberedSelections = [];
     setSyncRefs({} as never, { children: new Map(), getState: () => undefined } as never, DIRECTORY);
     useSelectionStore.setState({
       sessionModelSelections: new Map(),
@@ -317,6 +319,21 @@ describe('useConfigStore provider persistence', () => {
     await useConfigStore.getState().loadAgents({ directory: OTHER_DIRECTORY });
     expect(configScopes.length).toBe(before);
     expect(storage.get('oc.worktreeProjectMap')).toBe(savedMapping);
+  });
+
+  // smarty-code#608: startup never falls back over a session held open while its project joins the live catalog.
+  test('startup does not select a fallback project while an open session is held', async () => {
+    managedCatalogAdmitted = true;
+    managedProjects = [{ id: 'a', path: '/acceptance/A', label: 'A' }];
+    selectedDirectory = DIRECTORY; // Not in the live catalog yet.
+    managedSessionHold = { sessionId: 'ses_open', directory: DIRECTORY, since: Date.now() };
+    const original = useDirectoryStore.getState().setDirectory;
+    useDirectoryStore.setState({ setDirectory: () => {} });
+    try {
+      await useConfigStore.getState().initializeApp();
+      expect(managedSelections).toEqual([]);
+      expect(selectedDirectory).toBe(DIRECTORY);
+    } finally { useDirectoryStore.setState({ setDirectory: original }); }
   });
 
   test('stale selected Net falls back through managed A selection without persisted selection or draft writes', async () => {
