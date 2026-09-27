@@ -247,6 +247,11 @@ const fetchRuntimeRequest = async (
     // The health probe's own answer is judged by its body in checkHealth, never taken as transport evidence here.
     if (response.ok && !/\/opencode\/health(?:\?|$)/.test(url)) noteRuntimeAnswered(scope.runtimeKey);
   }
+  // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536).
+  if (method === 'POST' && !response.ok && /\/api\/opencode\/upgrade(?:\?|$)/.test(url)) {
+    void import('./clientErrorReport').then(({ reportClientError }) =>
+      reportClientError({ kind: 'opencode-upgrade', status: response.status, runtimeKey: scope.runtimeKey }));
+  }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;
   if (!isRuntimeRequestScopeCurrent(scope)) {

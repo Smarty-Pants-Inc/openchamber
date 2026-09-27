@@ -34,8 +34,6 @@ import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { areOptionalRenderRelevantMessagesEqual, areRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual } from './message/renderCompare';
 import type { ReviewTransferDirection } from '@/lib/reviewFlow';
 import { toast } from 'sonner';
-import { reportClientError } from '@/lib/clientErrorReport';
-import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useI18n } from '@/lib/i18n';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
@@ -411,7 +409,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const handleToggleContextPin = React.useCallback(async () => {
         if (!sessionId || !messageCreatedAt || pinPending) return;
         setPinPending(true);
-        const runtimeKey = getRuntimeKey(); // Its server, before the first await (#536).
         try {
             const directory = useSessionUIStore.getState().getDirectoryForSession(sessionId);
             await setContextObligatoryMessage(sessionId, directory, {
@@ -425,7 +422,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             requestAnimationFrame(focusChatInput);
         } catch (error) {
             console.error('[chat-message] failed to update context pin', error);
-            reportClientError({ kind: 'context-pin', sessionID: sessionId, runtimeKey });
             toast.error(t('chat.messageBody.actions.contextPinFailed'));
         } finally {
             setPinPending(false);

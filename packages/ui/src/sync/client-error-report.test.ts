@@ -162,16 +162,42 @@ test('after a switch, a late toast is not reported, later toasts are, and an ope
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
 
+test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {
+  fixture = nativeDraftFixture();
+  const { setContextObligatoryMessage } = await import('./session-actions');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const served = globalThis.fetch;
+  const kinds: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
+    if (request.method === 'PATCH' || path.endsWith('/opencode/upgrade')) return Response.json({ error: 'refused' }, { status: 500 });
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    await setContextObligatoryMessage(session.id, directory, { id: 'msg_1', createdAt: 1, role: 'user' }, true).catch(() => undefined);
+    await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' });
+    await sleep(50);
+    expect(kinds.sort()).toEqual(['context-pin:', 'opencode-upgrade:500']);
+  } finally { globalThis.fetch = served; }
+});
+
 // Review of #301 (P2): no error toast bypasses reporting. A file that shows one without the reporting wrapper (sonner,
 // or the unwrapped toast module) reports that failure itself, with its runtime (context pin, upgrade, small model, ...).
 test('every error toast shown outside the reporting wrapper is reported by its own code', async () => {
   const { readdirSync, readFileSync } = await import('node:fs');
   const root = new URL('..', import.meta.url).pathname;
+  // A reviewed branded file keeps its bytes: the operation it calls reports instead (checked below).
+  const reportedByOperation: Record<string, [string, RegExp]> = {
+    'components/chat/ChatMessage.tsx': ['sync/session-actions.ts', /kind: "context-pin"/],
+    'components/update/OpenCodeUpdateToast.tsx': ['lib/runtime-fetch.ts', /kind: 'opencode-upgrade'/],
+  };
   const bypass: string[] = [];
   for (const file of readdirSync(root, { recursive: true }) as string[]) {
     if (!/\.tsx?$/.test(file) || /\.test\.|__tests__|components\/ui\/(index|toast)\./.test(file)) continue;
     const text = readFileSync(root + file, 'utf8');
-    if (/from '(sonner|@\/components\/ui\/toast|\.\/toast)'/.test(text) && /toast\.error\(/.test(text) && !/reportClientError\(/.test(text)) bypass.push(file);
+    if (/from '(sonner|@\/components\/ui\/toast|\.\/toast)'/.test(text) && /toast\.error\(/.test(text) && !/reportClientError\(/.test(text)
+      && !(reportedByOperation[file] && reportedByOperation[file]![1].test(readFileSync(root + reportedByOperation[file]![0], 'utf8')))) bypass.push(file);
   }
   expect(bypass).toEqual([]);
 });

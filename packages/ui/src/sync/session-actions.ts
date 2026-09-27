@@ -1013,8 +1013,15 @@ export async function setContextObligatoryMessage(
   message: ContextObligatoryMessage,
   pinned: boolean,
 ): Promise<Session> {
-  return patchSessionMetadata(sessionId, directory, (metadata) =>
-    withContextObligatoryMessage(metadata, message, pinned))
+  const runtimeKey = getRuntimeKey() // Its server, before the first await (#536).
+  try {
+    return await patchSessionMetadata(sessionId, directory, (metadata) =>
+      withContextObligatoryMessage(metadata, message, pinned))
+  } catch (error) {
+    // The message row shows its own toast (a reviewed branded file); the operation reports it (#536).
+    reportClientError({ kind: "context-pin", sessionID: sessionId, runtimeKey })
+    throw error
+  }
 }
 
 async function cleanupReviewMetadataBeforeDelete(

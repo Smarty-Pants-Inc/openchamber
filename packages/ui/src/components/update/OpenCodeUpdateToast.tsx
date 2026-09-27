@@ -7,7 +7,6 @@ import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { updateDesktopSettings } from '@/lib/persistence';
-import { reportClientError } from '@/lib/clientErrorReport';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import {
   resolveOpenCodeUpdateVersion,
@@ -54,8 +53,6 @@ export const OpenCodeUpdateToast: React.FC = () => {
       icon: <Icon name="refresh" className="h-4 w-4 animate-spin text-muted-foreground" />,
     });
 
-    const runtimeKey = getRuntimeKey(); // Its server, before the first await (#536).
-    let status: number | undefined;
     try {
       const response = await runtimeFetch('/api/opencode/upgrade', {
         method: 'POST',
@@ -65,7 +62,6 @@ export const OpenCodeUpdateToast: React.FC = () => {
         },
         body: JSON.stringify({}),
       });
-      status = response.status;
       const payload = await response.json().catch(() => null) as null | { success?: boolean; version?: string; error?: string };
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || response.statusText || t('opencodeUpdate.toast.failed.description'));
@@ -84,7 +80,6 @@ export const OpenCodeUpdateToast: React.FC = () => {
         },
       });
     } catch (error) {
-      reportClientError({ kind: 'opencode-upgrade', status, runtimeKey }); // The status, never the server's words.
       toast.error(t('opencodeUpdate.toast.failed.title'), {
         id: UPGRADE_TOAST_ID,
         description: error instanceof Error ? error.message : t('opencodeUpdate.toast.failed.description'),
