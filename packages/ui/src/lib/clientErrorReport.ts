@@ -2,17 +2,17 @@
 import * as runtime from './runtime-switch';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
 /**
- * A report without its operation's runtime (a toast) cannot say which server its failure came from. Right after a
- * switch it may be the previous server's (an async operation that finished on the new one): dropped for a minute, so it
- * is never sent to the wrong server.
+ * A report without its operation's runtime (a toast) cannot say which server its failure came from. On a page that
+ * has only ever used one server that is never in doubt; once the page has switched servers, such a report may be the
+ * previous server's (an async operation can finish long after the switch), so it is not sent at all. Reports that carry
+ * their operation's runtime are unaffected.
  */
-const UNATTRIBUTED_AFTER_SWITCH_MS = 60_000;
-let lastSwitchAt = 0, watching = false;
+let switched = false, watching = false;
 // The switch event goes through the window: subscribe once there is one (at page load on the page).
 const watchSwitches = () => {
   if (watching || typeof window === 'undefined') return;
   watching = true;
-  runtime.subscribeRuntimeEndpointChanged?.(() => { lastSwitchAt = Date.now(); });
+  runtime.subscribeRuntimeEndpointChanged?.(() => { switched = true; });
 };
 watchSwitches();
 
@@ -47,7 +47,7 @@ const routeTemplate = (path: string) => path.split('/')
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
   watchSwitches();
-  if (!report.runtimeKey && lastSwitchAt && now - lastSwitchAt < UNATTRIBUTED_AFTER_SWITCH_MS) return;
+  if (!report.runtimeKey && switched) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -75,4 +75,4 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 }
 
 /** Tests model a page load. */
-export function resetClientErrorReportsForPage(): void { lastReport.clear(); lastSwitchAt = 0; }
+export function resetClientErrorReportsForPage(): void { lastReport.clear(); switched = false; }
