@@ -337,6 +337,8 @@ interface ChatInputProps {
     scrollToLatest?: () => void;
     active?: boolean;
     draftPresentationExiting?: boolean;
+    /** The open session's history failed to load: say why nothing can be sent (#536). */
+    sessionLoadFailed?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -357,6 +359,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     scrollToLatest,
     active = true,
     draftPresentationExiting = false,
+    sessionLoadFailed = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -3273,6 +3276,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
                 <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void submitComposer(); }} />
+                {sessionLoadFailed ? (
+                    <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
+                        {t('chat.container.sessionLoadError.composer')}
+                    </p>
+                ) : null}
                 {draftEphemeralOnly ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-warning)]">
                         {t('chat.draft.ephemeralOnly')}

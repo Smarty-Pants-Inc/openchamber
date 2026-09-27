@@ -8,6 +8,7 @@ import { Icon } from '@/components/icon/Icon';
 import { useBtwStore } from '@/stores/useBtwStore';
 import { useSync } from '@/sync/use-sync';
 import {
+    useSessionMessageLoadState,
     useSessionMessageRecords,
     useSessionRenderable,
     useSessionStatus,
@@ -93,6 +94,9 @@ type BtwSessionData = {
     sessionPermissions: ReturnType<typeof useScopedBlockingPermissions>;
     sessionQuestions: ReturnType<typeof useScopedBlockingQuestions>;
     isEmpty: boolean;
+    /** Its history failed to load (#536): the panel says so, with Try again, instead of loading forever. */
+    loadFailed: boolean;
+    retry: () => void;
 };
 
 /**
@@ -106,6 +110,8 @@ const useBtwSessionData = (
 ): BtwSessionData => {
     const sync = useSync();
     const renderable = useSessionRenderable(sessionId, directory);
+    const loadState = useSessionMessageLoadState(sessionId, directory);
+    const retry = React.useCallback(() => { void sync.ensureSessionRenderable(sessionId, true, directory); }, [directory, sessionId, sync]);
     React.useEffect(() => {
         if (!renderable) {
             void sync.ensureSessionRenderable(sessionId, false, directory);
@@ -158,6 +164,8 @@ const useBtwSessionData = (
         sessionPermissions,
         sessionQuestions,
         isEmpty: tailRecords.length === 0,
+        loadFailed: loadState.status === 'error',
+        retry,
     };
 };
 
@@ -409,7 +417,7 @@ const BtwExpandedSheet: React.FC<{
     );
 };
 
-const BtwMessages: React.FC<{
+export const BtwMessages: React.FC<{
     data: BtwSessionData;
     bodyRef: React.RefObject<HTMLDivElement | null>;
     contentRef: React.RefObject<HTMLDivElement | null>;
@@ -418,6 +426,14 @@ const BtwMessages: React.FC<{
 }> = ({ data, bodyRef, contentRef, onBodyScroll, maxHeight }) => {
     const { t } = useI18n();
 
+    if (data.isEmpty && data.loadFailed) {
+        return (
+            <div role="alert" className="flex items-center gap-2 px-4 py-4 text-sm text-[var(--status-error)]">
+                <span>{t('chat.container.sessionLoadError.title')}</span>
+                <Button variant="outline" size="sm" onClick={data.retry}>{t('chat.container.sessionLoadError.retry')}</Button>
+            </div>
+        );
+    }
     if (data.isEmpty) {
         return (
             <div className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
