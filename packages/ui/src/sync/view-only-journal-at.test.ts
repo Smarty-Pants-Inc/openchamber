@@ -5,13 +5,11 @@ import { applyDirectoryEvent } from "./event-reducer"
 import { setImperativeSessionMessageLoader } from "./session-message-loader"
 import { record, setup, sleep, target } from "./session-message-loader-replace.fixture"
 import { readLatest } from "./view-only-watch"
-// The web server's real shared hub and WebSocket bridge (the production `auto`/WebSocket path).
-import { createGlobalMessageStreamHub } from "../../../web/server/lib/event-stream/global-hub.js"
-import { createGlobalMessageStreamWsBridge } from "../../../web/server/lib/event-stream/global-ws-bridge.js"
 
 // #278 review 11: the gateway stamps each View only event with the journal state it comes from (`smartyAt`) and each
 // newest-page read with the state it reflects; after a read that replaced the history, an event from an older state
-// is dropped, whatever socket, hub or buffer delayed it. No stream reset.
+// is dropped, whatever socket, hub or buffer delayed it. No stream reset. The web server's shared hub and WebSocket bridge
+// forward the stamp unchanged (packages/web/server/lib/event-stream/global-ws-bridge.stamp.test.js).
 const updated = (id: string, at?: string) => ({ type: "message.updated",
   properties: { sessionID: target.sessionID, info: record(id).info, ...(at ? { smartyAt: at } : {}) } }) as unknown as Event
 /** The fixture's store, updated synchronously as sync-context does. */
@@ -46,41 +44,6 @@ test("SSE: the old branch's frame, delivered after the replacement, is dropped; 
     push(updated("m0004", "7:0:400")); await sleep(80) // Counterexample: committed after the read.
     expect(s.shown()).toEqual(["m0001", "m0003", "m0004"])
   } finally { pipeline.cleanup(); setImperativeSessionMessageLoader(null); s.done() }
-})
-
-test("WebSocket through the shared hub: b held upstream of the hub and released after the replacement is dropped", async () => {
-  const s = setup(); setImperativeSessionMessageLoader(s.loader)
-  const blocks: string[] = [], waiting: (() => void)[] = []
-  const upstream = (text: string) => { blocks.push(text); waiting.shift()?.() }
-  const hub = createGlobalMessageStreamHub({ buildOpenCodeUrl: (p: string) => `http://127.0.0.1:1${p}`, getOpenCodeAuthHeaders: () => ({}),
-    upstreamReconnectDelayMs: 60_000, fetchImpl: async () => ({ ok: true, status: 200, body: { getReader: () => ({ read: async () => {
-      while (!blocks.length) await new Promise<void>(r => waiting.push(r))
-      return { value: new TextEncoder().encode(blocks.shift()!), done: false }
-    }, cancel: async () => {}, releaseLock: () => {} }) } }) })
-  const frames: { type: string; payload?: Event }[] = []
-  const bridge = createGlobalMessageStreamWsBridge({ globalHub: hub, ownsGlobalHub: true, wsClients: new Set(), heartbeatIntervalMs: 60_000,
-    processForwardedEventPayload: () => {}, triggerHealthCheck: () => {} })
-  const socket = (sink: typeof frames) => ({ readyState: 1, send: (data: string) => { sink.push(JSON.parse(data)) }, on: () => {}, ping: () => {}, close: () => {} })
-  const deliver = (from: number) => reducer(s)(frames.slice(from).flatMap(f => f.type === "event" && f.payload ? [f.payload] : []))
-  try {
-    bridge.accept(socket(frames))
-    upstream(`data: ${JSON.stringify({ type: "server.connected", properties: {} })}\n\n`); await sleep(30)
-    await recovered(s)
-    // The browser's socket is even replaced (as round 10 did): the hub makes the new one ready at once, and b, held
-    // upstream of the hub until now, reaches it with the current connection.
-    const second: typeof frames = []; bridge.accept(socket(second)); await sleep(10)
-    expect(second.some(f => f.type === "ready")).toBe(true)
-    const seen = second.length
-    upstream(`id: e2\ndata: ${JSON.stringify({ directory: target.directory, payload: updated("m0002", "7:0:200") })}\n\n`); await sleep(30)
-    const late = second.slice(seen).find(f => f.type === "event")?.payload as { properties?: { smartyAt?: string } } | undefined
-    expect(late?.properties?.smartyAt).toBe("7:0:200") // The bridge forwards the stamp unchanged,
-    frames.length = 0; frames.push(...second); deliver(seen)
-    expect(s.shown()).toEqual(["m0001", "m0003"]) // and the reducer drops b.
-    const next = frames.length
-    upstream(`id: e3\ndata: ${JSON.stringify({ directory: target.directory, payload: updated("m0004", "7:0:400") })}\n\n`); await sleep(30)
-    frames.splice(0, frames.length, ...second); deliver(next)
-    expect(s.shown()).toEqual(["m0001", "m0003", "m0004"])
-  } finally { bridge.close(); setImperativeSessionMessageLoader(null); s.done() }
 })
 
 test("only a replacing read sets the version; another journal and unstamped events are never dropped", async () => {
