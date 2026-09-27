@@ -3,10 +3,23 @@ import { APIError } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
+import { createNodeMembership } from './node-membership.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
-export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
-  const admits = createHumanAudience(allowedDomains);
+export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains, nodeRecord }) {
+  const inAudience = createHumanAudience(allowedDomains);
+  // smarty-net#117 N2: on a Node, only its members (by their Google subject in the Node's record). Without a record: as before.
+  const member = nodeRecord ? createNodeMembership(nodeRecord) : undefined;
+  const googleSubjects = new Map();
+  const googleSubject = async (userId) => {
+    if (googleSubjects.has(userId)) return googleSubjects.get(userId);
+    const { adapter } = await auth.$context;
+    const account = await adapter.findOne({ model: 'account', where: [{ field: 'userId', value: userId }, { field: 'providerId', value: 'google' }],
+      select: ['accountId'] });
+    if (account?.accountId) googleSubjects.set(userId, account.accountId);
+    return account?.accountId;
+  };
+  const admits = async (user) => inAudience(user) && (!member || Boolean(user?.id && await member(await googleSubject(user.id))));
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
@@ -38,7 +51,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       validateUserInfo: async ({ user, source }) => {
         const profile = source.oauth?.profile;
         if (source.method !== 'oauth' || source.oauth?.providerId !== 'google'
-          || profile?.hd !== hostedDomain || !admits(user)) {
+          || profile?.hd !== hostedDomain || !inAudience(user) || (member && !await member(profile?.sub))) {
           return { error: 'account_not_allowed', errorDescription: 'This account is not allowed to use this instance' };
         }
       },
@@ -49,7 +62,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     },
     databaseHooks: {
       user: {
-        create: { before: async (user) => { if (!admits(user)) deny(); } },
+        create: { before: async (user) => { if (!inAudience(user)) deny(); } }, // Membership: validateUserInfo, then each session.
         update: { before: async (user) => {
           if (user.email !== undefined || user.emailVerified !== undefined) deny();
           if (user.name !== undefined && !validName(user.name)) {
@@ -64,7 +77,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
         create: { before: async (session, context) => {
           const runtime = context?.context ?? await auth.$context;
           const user = await runtime.internalAdapter.findUserById(session.userId);
-          if (!admits(user)) deny();
+          if (!await admits(user)) deny();
           return { data: { ...session, workspacePolicy: `google-hd:${hostedDomain}` } };
         } },
         delete: { after: async (session) => { closeSession(session.id); } },
@@ -91,7 +104,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     // Device bearer credentials do not become people through an ambient cookie.
     if (req.headers.authorization) return null;
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
-    if (!session || !admits(session.user)) return null;
+    if (!session || !await admits(session.user)) return null; // A removed member is refused at the next request.
     return session;
   };
   const actor = (session) => {
@@ -110,8 +123,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
         select: ['id', 'userId', 'expiresAt'] });
       if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return false;
       const user = await adapter.findOne({ model: 'user', where: [{ field: 'id', value: session.userId }],
-        select: ['email', 'emailVerified'] });
-      if (!admits(user)) return false;
+        select: ['id', 'email', 'emailVerified'] });
+      if (!await admits(user)) return false;
       const current = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: session.id }],
         select: ['userId', 'expiresAt'] });
       return current?.userId === session.userId && new Date(current.expiresAt).getTime() > Date.now();
