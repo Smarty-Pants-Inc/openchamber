@@ -18,6 +18,8 @@ import { dropSessionCaches } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { syncDebug } from "./debug"
 import { shouldSkipStaleSessionEvent } from "./session-event-freshness"
+import { changedResult, countMessageEvent, journalDecision } from "./view-only-events"
+export { sessionMessageEventCount } from "./view-only-events"
 import { mergeOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import {
   compareMessagesChronologically,
@@ -260,15 +262,22 @@ export function applyGlobalProject(state: GlobalState, project: Project): Global
 // Caller MUST pass a mutable copy of State (e.g. structuredClone or spread).
 // ---------------------------------------------------------------------------
 
-export function applyDirectoryEvent(
-  draft: State,
-  event: Event,
-  callbacks?: {
-    onRefresh?: (directory: string) => void
-    onLoadLsp?: () => void
-    onSetSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
-  },
-): DirectoryEventResult {
+type DirectoryEventCallbacks = {
+  onRefresh?: (directory: string) => void
+  onLoadLsp?: () => void
+  onSetSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+}
+/** A View only event already reflected by the history read is dropped, neither applied nor counted (view-only-events.ts). */
+export function applyDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryEventCallbacks): DirectoryEventResult {
+  const journal = journalDecision(draft.journalReads, event)
+  if (journal.drop) return false
+  const retired = journal.marks !== draft.journalReads
+  draft.journalReads = journal.marks
+  countMessageEvent(event)
+  const result = reduceDirectoryEvent(draft, event, callbacks)
+  return retired ? changedResult(result) : result
+}
+function reduceDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryEventCallbacks): DirectoryEventResult {
   const markSessionEvent = (sessionID: string, deleted: boolean) => {
     const revision = (draft.sessionRevision ?? 0) + 1
     draft.sessionRevision = revision
