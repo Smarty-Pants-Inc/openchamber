@@ -963,9 +963,11 @@ function marked(marks: Record<string, string> | undefined, sessionID: string, at
   return at === undefined ? rest : { ...rest, [sessionID]: at }
 }
 
-/** Whether a newest page (not an older one) is the first ordinary page of a session this loader showed as View only. */
+/** Whether a newest page (not an older one) is the first ordinary page of a session this loader showed only as View only
+ * (read-only, never with an ordinary view): a session already served as ordinary is not leaving anything. */
 function leavesViewOnly(entry: LoaderEntry, page: FetchedPage, mode: "merge" | "prepend"): boolean {
-  return mode !== "prepend" && entry.snapshot.readOnly === true && (!page.readOnly || page.ordinaryView !== undefined)
+  return mode !== "prepend" && !entry.ordinary && entry.snapshot.readOnly === true
+    && (!page.readOnly || page.ordinaryView !== undefined)
 }
 
 type DirectoryStoreSetter = (
