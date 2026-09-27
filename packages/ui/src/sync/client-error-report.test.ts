@@ -49,6 +49,16 @@ test('a history open that timed out is reported as a timeout, with its session',
   expect(bodies.map(body => [body.kind, body.sessionID])).toEqual([['session-messages.initial.timeout', session.id]]);
 });
 
+test('a history open the gateway says timed out on the Pi is reported as a timeout too', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => Response.json({ name: 'APIError', data: { message: 'Pi unavailable',
+    isRetryable: false, code: 'smarty.pi-timed-out' } }, { status: 503 });
+  await fixture.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
+  await sleep(50);
+  const bodies = await Promise.all(reports().map(readReport));
+  expect(bodies.map(body => [body.kind, body.status])).toEqual([['session-messages.initial.timeout', 503]]);
+});
+
 test('a load that succeeds reports nothing', async () => {
   fixture = nativeDraftFixture();
   await fixture.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });

@@ -229,6 +229,11 @@ export function useSync() {
 
       // Dedup inflight requests
       const existing = syncSessionInflightByKey.get(key)
+      // Try again after a failed open reloads the history now, even while the session's detail read is still out.
+      if (existing && force) {
+        return Promise.all([existing, messageLoader.ensure({ directory: targetDirectory, sessionID }, { force, reason: "reactive" })])
+          .then(() => undefined)
+      }
       if (existing) return existing
 
       // This is a new request. Bump generation so any older request that
