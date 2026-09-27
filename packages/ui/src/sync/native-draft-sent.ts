@@ -267,6 +267,9 @@ export function useSentStart(runtimeKey: string, directory: string | null | unde
     () => (key ? outcomes.get(key) ?? null : null), () => null);
 }
 
+/** The start request whose text this project's draft holds as sent, if any (smarty-code#523: it can be stopped). */
+export const sentStartRequest = (runtimeKey: string, directory: string): string | undefined => readMarker(runtimeKey, directory)?.clientRequestId;
+
 /** Read-only while the text may already be taking its start: never editable or sendable as an ordinary draft. */
 export const sentStartLocks = (outcome: Resolved): boolean =>
   outcome === 'resolving' || outcome === 'pending' || outcome === 'unknown';
