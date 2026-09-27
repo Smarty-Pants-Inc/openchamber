@@ -1176,10 +1176,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const handleHistoryScroll = timelineController.handleHistoryScroll;
     React.useEffect(() => {
         if (!scrollNode) return;
-        const onScroll = () => handleHistoryScroll();
+        // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.
+        let frame: number | null = null;
+        const onScroll = () => {
+            if (frame !== null) return;
+            frame = window.requestAnimationFrame(() => { frame = null; handleHistoryScroll(); });
+        };
         scrollNode.addEventListener('scroll', onScroll, { passive: true });
         return () => {
             scrollNode.removeEventListener('scroll', onScroll);
+            if (frame !== null) window.cancelAnimationFrame(frame);
         };
     }, [handleHistoryScroll, scrollNode]);
 
