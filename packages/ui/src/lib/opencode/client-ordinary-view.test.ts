@@ -318,3 +318,37 @@ test('an outcome that beats the 204 is not contradicted by a "delivered while it
     expect(seen).toHaveLength(0);
   } finally { spy.mockRestore(); }
 });
+
+// Paul's everyday path (slice 1 step 6 follow-up): in an existing session, Send right after its idle, while that idle's
+// tail refresh is still reading. The message goes once, at once, with the kept view; a view the session moved past
+// meanwhile is refused by the gateway, re-read and resent once: never lost, never doubled.
+test('a Send right after idle, while the tail refresh reads, goes once with the kept view', async () => {
+  await loader.ensure(target);
+  const gate = deferred<void>();
+  history = async () => { await gate.promise; return page(view); };
+  const refresh = loader.refreshOrdinaryView(target); // The idle's refresh: held.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  expect(await opencodeClient.sendMessage(params)).toBe('msg_client');
+  expect(prompts()).toHaveLength(1);
+  expect(prompts()[0]!.headers.get('x-smarty-ordinary-view')).toBe(view);
+  gate.resolve(); await refresh;
+});
+
+test('a Send with the kept view after the session moved on is refused by the gateway, re-read and resent once', async () => {
+  await loader.ensure(target);
+  const gate = deferred<void>(), fresh = `ov2_${'c'.repeat(64)}`;
+  let reads = 0;
+  history = async () => { if (++reads === 1) await gate.promise; return page(fresh); };
+  const refresh = loader.refreshOrdinaryView(target); // Held: the page still holds the older view.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  let posts = 0;
+  prompt = async () => (++posts === 1 ? staleRefusal() : new Response(null, { status: 204 }));
+  const sending = opencodeClient.sendMessage(params);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  gate.resolve();
+  expect(await sending).toBe('msg_client');
+  await refresh;
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, fresh]);
+  const bodies = await Promise.all(prompts().map(request => request.json()));
+  expect(bodies.map(body => body.messageID)).toEqual(['msg_client', 'msg_client']); // The same message, never a second one.
+});
