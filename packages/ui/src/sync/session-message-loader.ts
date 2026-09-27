@@ -78,6 +78,8 @@ type LoaderEntry = {
   ordinaryDemand: number
   /** Each missing prompt a reload from the start already tried to load: never reloaded for again. */
   repairedPrompts?: Set<string>
+  /** Reads that saw the session leave View only but were stale (a live event during the read), smarty-code#497. */
+  leaveAttempts?: number
 }
 
 /** replaceHistory's retry delays after a stale read (then the last, repeated). */
@@ -93,6 +95,8 @@ type FetchedPage = {
   viewEpoch: number
   /** The journal state a View only newest page reflects (`x-smarty-journal-at`, #278 r11). */
   journalAt?: string
+  /** The session's live message-event revision when the read started (sessionMessageEventCount). */
+  eventsAtRead: number
 }
 
 type LoadPerformanceDetails = {
@@ -376,20 +380,35 @@ export class SessionMessageLoader {
         : null
       const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance)
       if (!isCurrent()) return
-      const committed = this.commitPage(normalized, entry, store, page, "merge", isCurrent)
+      // The first tail page after the session left View only replaces what was shown, as a first open, with its own
+      // coverage (smarty-code#497): merged into the View only coverage it could leave a gap marked complete. Like
+      // replaceHistory, a read during which a live event for the session was applied is older than the page: it commits
+      // nothing, and another read follows with a backoff. (A full initial load already adopts its own page's coverage.)
+      const leaving = leavesViewOnly(entry, page, "merge")
+      const stale = leaving && page.eventsAtRead !== sessionMessageEventCount(normalized.sessionID)
+      if (leaving && !stale) entry.resetHistory = true
+      const committed = stale ? null : this.commitPage(normalized, entry, store, page, "merge", isCurrent)
+      if (stale && isCurrent()) {
+        const attempt = entry.leaveAttempts = (entry.leaveAttempts ?? 0) + 1
+        this.patchEntry(entry, { status: "ready", loadingKind: null })
+        const delay = REPLACE_RETRY_MS[Math.min(attempt - 1, REPLACE_RETRY_MS.length - 1)] ?? 30_000
+        setTimeout(() => { if (isCurrent()) void this.refreshTail(normalized, limit) }, delay)
+        return
+      }
       if (!committed || !isCurrent()) return
+      if (leaving) entry.leaveAttempts = 0
       // A tail page that is not the whole history, while the earlier page claimed it was and a reply now lacks its prompt,
       // proves that claim stale (the session grew after it): its own cursor is the coverage now, so older pages load and
       // the timeline shows the replies (#126 item 4). Otherwise the earlier coverage stays, as before.
       const staleCoverage = previousCoverage?.complete === true && !page.complete
         && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
-      const coverage = staleCoverage ? page : previousCoverage ?? page
+      const coverage = staleCoverage || leaving ? page : previousCoverage ?? page
       this.patchEntry(entry, {
         status: "ready",
         loadingKind: null,
         error: null,
         resolved: true,
-        limit: Math.max(entry.snapshot.limit, committed.messages.length),
+        limit: leaving ? committed.messages.length : Math.max(entry.snapshot.limit, committed.messages.length),
         // A tail refresh uses a deliberately small window. Its cursor only
         // describes that window, so it must not replace the established
         // history coverage and spuriously expose "load older".
@@ -840,6 +859,7 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
+    const eventsAtRead = sessionMessageEventCount(target.sessionID)
     const finishPagePerformance = startSessionLoadPerformanceEvent({
       operation: "session-messages.page",
       caller,
@@ -892,7 +912,7 @@ export class SessionMessageLoader {
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
-      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt }
+      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -990,6 +1010,13 @@ export class SessionMessageLoader {
 function marked(marks: Record<string, string> | undefined, sessionID: string, at: string | undefined): Record<string, string> {
   const rest = Object.fromEntries(Object.entries(marks ?? {}).filter(([id]) => id !== sessionID))
   return at === undefined ? rest : { ...rest, [sessionID]: at }
+}
+
+/** Whether a newest page (not an older one) is the first ordinary page of a session this loader showed only as View only
+ * (read-only, never with an ordinary view): a session already served as ordinary is not leaving anything. */
+function leavesViewOnly(entry: LoaderEntry, page: FetchedPage, mode: "merge" | "prepend"): boolean {
+  return mode !== "prepend" && !entry.ordinary && entry.snapshot.readOnly === true
+    && (!page.readOnly || page.ordinaryView !== undefined)
 }
 
 type DirectoryStoreSetter = (
