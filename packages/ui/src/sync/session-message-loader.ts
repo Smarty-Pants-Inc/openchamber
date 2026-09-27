@@ -638,7 +638,7 @@ export class SessionMessageLoader {
         this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536).
         const status = (error as { status?: unknown } | null)?.status
-        reportClientError({ kind: `session-messages.${kind}`, message: `${failure.name}: ${failure.message}`, sessionID: target.sessionID,
+        reportClientError({ kind: `session-messages.${kind}`, message: `${failure.name}: ${failure.message}`, sessionID: target.sessionID, runtimeKey: this.runtimeKey,
           status: typeof status === "number" ? status : undefined })
       })
       .finally(() => {

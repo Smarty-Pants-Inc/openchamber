@@ -64,3 +64,37 @@ test('a report made for one server is never sent after a switch to another', asy
   await sleep(50);
   expect(reports()).toHaveLength(0);
 });
+
+// Review of #301 (P1): a failure is reported only to the server its operation belonged to, captured before its first
+// await. A fork that fails after the page switched from server A to B is reported nowhere; never to B with B's token.
+test('a fork that fails after a switch to another server is reported nowhere; without a switch, to its own server', async () => {
+  fixture = nativeDraftFixture();
+  const { forkFromMessage } = await import('./session-actions');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const seen: Array<{ runtime: string; path: string }> = [];
+  let release = () => {};
+  const forkHeld = () => new Promise<void>(resolve => { release = resolve; });
+  const served = globalThis.fetch;
+  let hold: Promise<void> | undefined;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), path }); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/fork')) { if (hold) await hold; return Response.json({ name: 'APIError', data: { message: 'fork refused', isRetryable: false } }, { status: 500 }); }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const runtimeA = getRuntimeKey();
+    // With a switch: the fork is sent on A, A goes away while it is out, then it fails.
+    hold = forkHeld();
+    const failing = forkFromMessage(session.id, 'msg_1').catch(() => undefined);
+    await sleep(10);
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    release(); await failing; await sleep(50);
+    expect(seen).toEqual([]); // Nowhere: never B.
+    // Without a switch: back on A, the same failure is reported to A.
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+    hold = undefined;
+    await forkFromMessage(session.id, 'msg_2').catch(() => undefined); await sleep(50);
+    expect(seen).toEqual([{ runtime: runtimeA, path: '/api/client-error' }]);
+  } finally { globalThis.fetch = served; }
+});

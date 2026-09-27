@@ -780,6 +780,7 @@ async function resyncDirectorySessionStatuses(
   candidateSessionIds: string[],
   mode: StatusSnapshotMode,
 ): Promise<DirectorySessionStatusSnapshot | null> {
+  const runtimeKey = getRuntimeKey() // The server this read goes to, before its first await (its reports go there only).
   const nextStatuses = await opencodeClient.getSessionStatusForDirectory(directory)
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
   // of active sessions — reconciled per `mode` (absence ≠ idle under monotonic).
@@ -797,7 +798,7 @@ async function resyncDirectorySessionStatuses(
     for (const sessionId of candidateSessionIds) {
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
-        reportTurnSettledLocally(sessionId, "authoritative status snapshot: idle", interrupted)
+        reportTurnSettledLocally(sessionId, "authoritative status snapshot: idle", interrupted, runtimeKey)
         if (!interrupted.parts) {
           store.setState((state) => ({
             message: { ...state.message, [sessionId]: interrupted.messages },
@@ -2156,7 +2157,7 @@ export function handleEvent(
     if (sessionID) {
       const interrupted = interruptedTurnToolParts(state, sessionID)
       if (interrupted) {
-        reportTurnSettledLocally(sessionID, `event ${payload.type}`, interrupted)
+        reportTurnSettledLocally(sessionID, `event ${payload.type}`, interrupted, expectedRuntimeKey)
         cloneField("message", (value) => ({ ...value }))
         draft.message[sessionID] = interrupted.messages
         if (interrupted.parts) {
@@ -2211,10 +2212,10 @@ export function handleEvent(
  * The page just marked a turn stopped on its own ("The running turn stopped…", running tools "Interrupted"): a wrong
  * idle from the server shows a live turn as stopped (smarty-code#536, org's session on 3.38). Reported at once.
  */
-function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }) {
+function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }, runtimeKey: string) {
   const tools = interrupted.parts?.filter(part => part.type === "tool" && part.state.status === "error"
     && (part.state as { error?: unknown }).error === "Interrupted").length ?? 0
-  reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; message ${interrupted.messageID}; tools interrupted: ${tools}` })
+  reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; message ${interrupted.messageID}; tools interrupted: ${tools}`, runtimeKey })
 }
 
 type AssistantMessage = Extract<Message, { role: "assistant" }>

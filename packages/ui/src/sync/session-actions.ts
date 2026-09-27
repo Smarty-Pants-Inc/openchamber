@@ -2646,8 +2646,9 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  */
 export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
   // The store shows "Failed to fork session" when this throws: the fleet sees it too (smarty-code#536).
+  const runtimeKey = getRuntimeKey() // The server this fork goes to, before its first await.
   try { await forkFromMessageUnreported(sessionId, messageId) }
-  catch (error) { reportClientError({ kind: "fork", message: "Failed to fork session", sessionID: sessionId }); throw error }
+  catch (error) { reportClientError({ kind: "fork", message: "Failed to fork session", sessionID: sessionId, runtimeKey }); throw error }
 }
 
 async function forkFromMessageUnreported(sessionId: string, messageId: string): Promise<void> {

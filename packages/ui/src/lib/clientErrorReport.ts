@@ -8,7 +8,12 @@ const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
  * (no query strings, tokens, addresses or quoted text; the route as a template), never the person's content. One report per
  * diagnostic (kind, session, message) per 30 s. Reporting never fails the page.
  */
-export type ClientErrorReport = { kind: string; message?: string; sessionID?: string; status?: number };
+/**
+ * `runtimeKey`: the server the failing operation belonged to, captured before its first await. The report goes to that
+ * server only, and only while it is still the page's server (its own credentials); after a switch it is dropped, never
+ * sent to another server. Without it, the server shown when the error is shown (a toast has no operation of its own).
+ */
+export type ClientErrorReport = { kind: string; message?: string; sessionID?: string; status?: number; runtimeKey?: string };
 const REPORT_INTERVAL_MS = 30_000;
 const lastReport = new Map<string, number>();
 
@@ -27,13 +32,14 @@ const routeTemplate = (path: string) => path.split('/')
   .map(segment => (/\d/.test(segment) || segment.length > 20 ? ':id' : segment)).join('/').slice(0, 300);
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
+  const runtimeKey = report.runtimeKey ?? currentRuntime();
+  if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
-  const key = `${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
+  const key = `${runtimeKey}\0${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
   const last = lastReport.get(key);
   if (last !== undefined && now - last < REPORT_INTERVAL_MS) return;
   if (lastReport.size > 200) lastReport.clear();
   lastReport.set(key, now);
-  const runtimeKey = currentRuntime();
   const route = typeof location === 'undefined' ? undefined : routeTemplate(location.pathname);
   const body = {
     kind: report.kind.slice(0, 64),
