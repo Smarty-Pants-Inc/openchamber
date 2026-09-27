@@ -1,17 +1,14 @@
-import type { ExternalToast } from 'sonner'
 import { reportClientError } from '@/lib/clientErrorReport'
 import { toast as shownToast } from './toast'
 
 // Every error toast a person sees also reaches the fleet (smarty-code#536): the page's error, never its content.
 // ponytail: wrapped here, not in the branded toast module, which keeps its reviewed baseline.
-const toastText = (message: unknown, data?: ExternalToast): string => {
-  const description = typeof data?.description === 'string' ? data.description : ''
-  return typeof message === 'string' ? (description ? `${message}: ${description}` : message) : description
-}
 export const toast: typeof shownToast = {
   ...shownToast,
   error: (message, data) => {
-    reportClientError({ kind: 'toast', message: toastText(message, data) })
+    // A toast's text is built by many callers and can hold the person's content (a file, a branch, a title): it is not
+    // sent. The fleet sees that an error was shown, where and when; the paths that matter report their own diagnostic.
+    reportClientError({ kind: 'toast' })
     return shownToast.error(message, data)
   },
 }

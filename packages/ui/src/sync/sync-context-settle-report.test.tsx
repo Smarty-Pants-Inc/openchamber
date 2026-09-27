@@ -65,7 +65,7 @@ test('a turn the page settles locally on an idle is reported with its session an
     const settled = reports.filter(report => report.kind === 'turn-settled-locally');
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({ sessionID: S });
-    expect(String(settled[0]!.message)).toContain('event session.idle');
+    expect(String(settled[0]!.message)).toContain('idle event');
     expect(String(settled[0]!.message)).toContain('tools interrupted: 1');
   } finally {
     await act(async () => root.unmount());

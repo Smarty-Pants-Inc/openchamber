@@ -798,7 +798,7 @@ async function resyncDirectorySessionStatuses(
     for (const sessionId of candidateSessionIds) {
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
-        reportTurnSettledLocally(sessionId, "authoritative status snapshot: idle", interrupted, runtimeKey)
+        reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
         if (!interrupted.parts) {
           store.setState((state) => ({
             message: { ...state.message, [sessionId]: interrupted.messages },
@@ -2157,7 +2157,7 @@ export function handleEvent(
     if (sessionID) {
       const interrupted = interruptedTurnToolParts(state, sessionID)
       if (interrupted) {
-        reportTurnSettledLocally(sessionID, `event ${payload.type}`, interrupted, expectedRuntimeKey)
+        reportTurnSettledLocally(sessionID, payload.type === "session.error" ? "error event" : "idle event", interrupted, expectedRuntimeKey)
         cloneField("message", (value) => ({ ...value }))
         draft.message[sessionID] = interrupted.messages
         if (interrupted.parts) {
@@ -2215,7 +2215,7 @@ export function handleEvent(
 function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }, runtimeKey: string) {
   const tools = interrupted.parts?.filter(part => part.type === "tool" && part.state.status === "error"
     && (part.state as { error?: unknown }).error === "Interrupted").length ?? 0
-  reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; message ${interrupted.messageID}; tools interrupted: ${tools}`, runtimeKey })
+  reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; tools interrupted: ${tools}`, runtimeKey })
 }
 
 type AssistantMessage = Extract<Message, { role: "assistant" }>

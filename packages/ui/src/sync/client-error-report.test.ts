@@ -36,16 +36,17 @@ test('a load that succeeds reports nothing', async () => {
   expect(reports()).toHaveLength(0);
 });
 
-test('an error toast is reported once per 30 s for the same error; a different error is its own report', async () => {
+test('an error toast is reported without its text (it can hold the person\'s content), once per 30 s', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
-  toast.error('Failed to send message', { description: 'Pi unavailable' });
-  toast.error('Failed to send message', { description: 'Pi unavailable' });
-  toast.error('Project changes were not saved');
+  toast.error('No commits found in range main...feature/merger');
+  toast.error('Failed to attach payroll.xlsx');
   await sleep(50);
   const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
-  expect(bodies.map(body => [body.kind, body.message])).toEqual([
-    ['toast', 'Failed to send message: Pi unavailable'], ['toast', 'Project changes were not saved']]);
+  expect(bodies).toHaveLength(1); // One toast report per 30 s: 'an error was shown here'.
+  expect(bodies[0]!.kind).toBe('toast');
+  expect(bodies[0]!.message).toBeUndefined();
+  expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
 });
 
 test('a report is redacted: no query strings, tokens or addresses, and the route is a template', async () => {
@@ -138,6 +139,8 @@ test('a native app\'s first connection (from no server) is not a switch: its err
   try {
     toast.error('Subscribes on the page window'); await sleep(50);
     const before = reports().length;
+    const { resetClientErrorReportsForPage } = await import('@/lib/clientErrorReport');
+    resetClientErrorReportsForPage(); // A new 30 s window for the next toast report.
     // The cold boot's first connection: from the uninitialized default to the first server.
     win.dispatchEvent(new win.CustomEvent('openchamber:runtime-endpoint-changed', { detail: { apiBaseUrl: 'http://synthetic.invalid',
       previousApiBaseUrl: '', runtimeKey: 'first-server', previousRuntimeKey: 'url:default' } }) as never);
