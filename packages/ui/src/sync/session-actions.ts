@@ -3,6 +3,7 @@
  * Replaces the action methods from the old useSessionStore.
  */
 
+import { reportClientError } from "@/lib/clientErrorReport"
 import { optimisticStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
@@ -2644,6 +2645,12 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  * 4. Switch to new session and set pending input text
  */
 export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
+  // The store shows "Failed to fork session" when this throws: the fleet sees it too (smarty-code#536).
+  try { await forkFromMessageUnreported(sessionId, messageId) }
+  catch (error) { reportClientError({ kind: "fork", message: "Failed to fork session", sessionID: sessionId }); throw error }
+}
+
+async function forkFromMessageUnreported(sessionId: string, messageId: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
 

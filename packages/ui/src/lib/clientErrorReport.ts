@@ -5,7 +5,7 @@ const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
 /**
  * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
  * sees it without the person telling anyone (smarty-code#536 item 3). The report carries the error as shown, redacted
- * (no query strings, tokens or addresses; the route as a template), never the person's content. One report per
+ * (no query strings, tokens, addresses or quoted text; the route as a template), never the person's content. One report per
  * diagnostic (kind, session, message) per 30 s. Reporting never fails the page.
  */
 export type ClientErrorReport = { kind: string; message?: string; sessionID?: string; status?: number };
@@ -17,6 +17,8 @@ export function redactClientError(text: string): string {
   return text
     .replace(/https?:\/\/[^\s"'<>]+/g, url => { try { const parsed = new URL(url); return `${parsed.origin}${parsed.pathname}`; } catch { return '<url>'; } })
     .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
+    // Quoted text in an error is usually the person's own (a title, a message): never sent.
+    .replace(/"[^"]{12,}"|“[^”]{12,}”|'[^']{12,}'/g, '"…"')
     .replace(/[A-Za-z0-9_+/=-]{24,}/g, '<redacted>')
     .slice(0, 300);
 }
