@@ -293,7 +293,7 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445",
+      "combinedSha256": "4c2cef7df7ccefdf2bf3853d2941c8dc78f16a276c4030c31b1725be092c306c",
       "catalogReloadSource": "b4b815b491de25924df4a9a33554427efff10898",
       "catalogReloadSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "preCatalogReloadCombinedSha256": "bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb",
@@ -325,7 +325,10 @@
       "managedCatalogSha256": "84adc664f096d950651c0d456e49ec4b1e69175ae50ec4d87e11e516736d268f",
       "preFirstSendHandoffCombinedSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "firstSendHandoffSha256": "e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445",
-      "firstSendHandoffNote": "Opening the open draft's own new session while its first message is still being sent is held until the message is admitted (smarty-dev#856); branded strings unchanged."
+      "firstSendHandoffNote": "Opening the open draft's own new session while its first message is still being sent is held until the message is admitted (smarty-dev#856); branded strings unchanged.",
+      "preManagedHoldCombinedSha256": "e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445",
+      "managedHoldSha256": "4c2cef7df7ccefdf2bf3853d2941c8dc78f16a276c4030c31b1725be092c306c",
+      "managedHoldNote": "An open of a session whose project the live catalog has not admitted yet waits, not dropped, and opens on admission; only the person's own selections supersede it (smarty-code#608); branded strings unchanged."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
@@ -522,5 +525,6 @@
   "originGuardSource": "82b714f7ab0987db9ff2774ddda866e02915e0d7",
   "firstSendHandoffSource": "34a811038a1c2160f1bf49b46a22103a9d6a24c7",
   "design538Source": "ba31b74cd2a84d4793f780e470886d822ba80f06",
-  "creationFieldsSource": "43227c1caf9b31f67509ec009bed8ddd4bc7ac64"
+  "creationFieldsSource": "43227c1caf9b31f67509ec009bed8ddd4bc7ac64",
+  "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d"
 }
