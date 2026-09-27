@@ -11,14 +11,16 @@ export const record = (id: string) => ({
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 /** A View only gateway whose reads can be held (`gate`) and can fail once (`failNext`). */
 export function setup() {
-  const g = { branch: ["m0001", "m0002"], reads: 0, gates: [] as (() => void)[], holdNext: false, failNext: false, readOnly: true }
+  const g = { branch: ["m0001", "m0002"], reads: 0, gates: [] as (() => void)[], holdNext: false, failNext: false, readOnly: true,
+    at: undefined as string | undefined } // at: the journal state the next read reflects (x-smarty-journal-at, #278 r11).
   const messages = async ({ limit, before }: { limit?: number; before?: string }) => {
-    const at = [...g.branch], readOnly = g.readOnly; g.reads++
+    const at = [...g.branch], readOnly = g.readOnly, journalAt = g.at; g.reads++
     if (g.failNext) { g.failNext = false; throw new Error("gateway unavailable") }
     if (g.holdNext) await new Promise<void>((resolve) => g.gates.push(resolve))
     const end = before ? at.indexOf(JSON.parse(atob(before)).before) : at.length, start = Math.max(0, end - (limit ?? at.length))
     const cursor = start > 0 ? btoa(JSON.stringify({ before: at[start] })) : null
-    const headers: Record<string, string | null> = { "x-smarty-read-only": readOnly ? "1" : null, "x-next-cursor": cursor }
+    const headers: Record<string, string | null> = { "x-smarty-read-only": readOnly ? "1" : null, "x-next-cursor": cursor,
+      "x-smarty-journal-at": before ? null : journalAt ?? null }
     return { data: at.slice(start, end).map(record), response: { headers: { get: (name: string) => headers[name] ?? null } } }
   }
   const childStores = new ChildStoreManager()

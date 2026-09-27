@@ -67,32 +67,7 @@ export type EventPipelineInput = {
 export type EventPipeline = {
   cleanup: () => void
   reconnect: (reason?: string) => void
-  /** An ordering boundary: delivers the events already received, closes the connection, opens a new one (no
-   * Last-Event-ID), and resolves at its first frame. Nothing of the closed connection reaches the reducer after. */
-  boundary: () => Promise<void>
 }
-
-// The live pipeline's boundary, for a reader that must order a history read after the events it accepts (#278).
-let activeBoundary: (() => void) | undefined
-// Readers waiting for a fresh connection. They outlive a pipeline: one replaced (a new SDK or transport) before its
-// connection's first frame hands them to its successor, whose first connection starts after they asked (#278 r10).
-const boundaryWaiters: (() => void)[] = []
-/** Resolves at the first frame of a page event connection opened after this call (never merely on a cleanup), or
- * when `signal` aborts; an aborted request leaves nothing behind. */
-export const eventStreamBoundary = (signal?: AbortSignal): Promise<void> => new Promise<void>((resolve) => {
-  if (signal?.aborted) return resolve()
-  const done = () => {
-    signal?.removeEventListener("abort", done)
-    const at = boundaryWaiters.indexOf(done)
-    if (at >= 0) boundaryWaiters.splice(at, 1)
-    resolve()
-  }
-  signal?.addEventListener("abort", done, { once: true })
-  boundaryWaiters.push(done)
-  activeBoundary?.() // With no pipeline running, the next one's first connection resolves it.
-})
-/** Waiting boundary requests (a test seam). */
-export const eventStreamBoundaryWaiters = (): number => boundaryWaiters.length
 
 type MessageStreamWsFrame = {
   type: "ready" | "event" | "error" | "backpressure"
@@ -290,8 +265,6 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   const abort = new AbortController()
   let disconnected = false
   let lastEventId: string | undefined
-  // Bumped by boundary(): an attempt of an older generation delivers nothing more.
-  let generation = 0
   let wsFallbackUntil = 0
 
   const directories = new Map<string, DirectoryQueue>()
@@ -596,13 +569,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
     heartbeat = undefined
   }
 
-  const connectedAt = (gen: number) => {
-    if (gen !== generation || abort.signal.aborted) return
-    for (const done of boundaryWaiters.slice()) done()
-  }
-
   const runSseAttempt = async (signal: AbortSignal) => {
-    const gen = generation
     let receivedEvent = false
     const events = await sdk.global.event({
       signal,
@@ -610,7 +577,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
       onSseEvent: (event: { id?: unknown }) => {
         if (signal.aborted) return
         resetHeartbeat()
-        if (gen === generation && typeof event.id === "string" && event.id.length > 0) {
+        if (typeof event.id === "string" && event.id.length > 0) {
           lastEventId = event.id
         }
       },
@@ -637,11 +604,9 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
         continue
       }
       // The SDK stream is lazy and can retry internally without ending this attempt.
-      if (gen !== generation) break
       if (!receivedEvent || disconnected) {
         receivedEvent = true
         markConnected()
-        connectedAt(gen)
       }
       if (signal.aborted) break
       const directory = resolveEventDirectory(event, payload)
@@ -654,7 +619,6 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   }
 
   const runWsAttempt = async (signal: AbortSignal) => {
-    const gen = generation
     // A WebSocket upgrade can't carry an Authorization header, so it
     // authenticates purely via the oc_url_token query param. The sync token
     // getter returns "" while the token is unminted or inside its expiry skew
@@ -769,7 +733,6 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
           }
           streamErrorLogged = false
           markConnected()
-          connectedAt(gen)
           return
         }
 
@@ -800,7 +763,6 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
           return
         }
 
-        if (gen !== generation) return // A frame of a connection closed by boundary().
         if (typeof frame.eventId === "string" && frame.eventId.length > 0) {
           lastEventId = frame.eventId
         }
@@ -1001,17 +963,6 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
     wakeRetry?.()
   }
 
-  const boundary = () => {
-    if (abort.signal.aborted) return
-    // Events already received are delivered now, before the reader's history read (which supersedes them for the
-    // session it reads; other sessions keep them). Nothing of this connection is delivered after this point.
-    flushAll()
-    generation += 1
-    lastEventId = undefined // The new connection replays nothing of the old one.
-    reconnect("boundary")
-  }
-  activeBoundary = boundary
-
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("pageshow", onPageShow)
@@ -1036,9 +987,8 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
       globalThis.window.removeEventListener("offline", onOffline)
     }
     abort.abort()
-    if (activeBoundary === boundary) activeBoundary = undefined
     flushAll()
   }
 
-  return { cleanup, reconnect, boundary: () => eventStreamBoundary() }
+  return { cleanup, reconnect }
 }

@@ -83,6 +83,8 @@ type FetchedPage = {
   ordinaryView?: string
   readOnly: boolean
   viewEpoch: number
+  /** The journal state a View only newest page reflects (`x-smarty-journal-at`, #278 r11). */
+  journalAt?: string
 }
 
 type LoadPerformanceDetails = {
@@ -836,7 +838,8 @@ export class SessionMessageLoader {
       }
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
-      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch }
+      const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
+      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -894,8 +897,10 @@ export class SessionMessageLoader {
       { skipPartTypes: SKIP_PARTS, mode },
     )
     if (!isCurrent()) return null
+    // A read that replaced the shown history reflects exactly its journal state: older events are dropped (#278 r11).
+    const journalReads = reset ? marked(current.journalReads, target.sessionID, page.journalAt) : undefined
     if (reset || materialized.messagesChanged || materialized.partsChanged) {
-      const update: Partial<DirectoryStore> = {}
+      const update: Partial<DirectoryStore> = journalReads ? { journalReads } : {}
       if (reset || materialized.messagesChanged) update.message = materialized.message
       if (reset || materialized.partsChanged) update.part = materialized.part
       store.setState(update)
@@ -926,6 +931,12 @@ export class SessionMessageLoader {
       runtimeKey: this.runtimeKey,
     })
   }
+}
+
+/** The store's replacing-read marks with this session's set to `at`, or removed when the read had none (#278 r11). */
+function marked(marks: Record<string, string> | undefined, sessionID: string, at: string | undefined): Record<string, string> {
+  const { [sessionID]: _, ...rest } = marks ?? {}
+  return at ? { ...rest, [sessionID]: at } : rest
 }
 
 type DirectoryStoreSetter = (

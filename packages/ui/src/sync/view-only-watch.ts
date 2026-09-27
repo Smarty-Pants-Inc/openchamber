@@ -1,7 +1,6 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { eventStreamBoundary } from './event-pipeline';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
 
 /**
@@ -17,8 +16,8 @@ import { getImperativeSessionMessageLoader } from './session-message-loader';
  * stream reconnected) replaces the session's shown history with a fresh newest page once its stream is open, as on a
  * first open (its own cursor and completeness; older pages load from there). On the gateway, that read becomes the new
  * tail's baseline, so entries committed while unwatched appear, a branch changed meanwhile is shown as it is now, and
- * nothing between the read and the tail is lost. When the gateway says it could not resume that baseline
- * (`smarty.watch {resumed:false}`), the page first reopens its event stream (an ordering boundary, event-pipeline.ts).
+ * nothing between the read and the tail is lost. An event from an older journal state than that read
+ * (a stamp the gateway adds) is dropped, even one delayed past a watch the gateway could not resume (#278 review 11).
  */
 type Fetch = (input: string, init: { query: Record<string, string>; signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
 type Held = { views: number; stop: AbortController };
@@ -29,15 +28,10 @@ let runtime: () => string = getRuntimeKey;
 /** The catch-up (exported for its test). */
 type CatchUp = (sessionId: string, directory: string, signal: AbortSignal, resumed: boolean) => Promise<void>;
 export const readLatest: CatchUp = async (sessionID, directory, signal, resumed) => {
-  if (!resumed) {
-    // The gateway kept no baseline for this watch (expired or evicted, #278 review 9/10): its tail cannot remove an entry
-    // of the old branch that the page's event stream still holds. An ordering boundary first: the page drops every event
-    // of its current connection and reads the history only after a new connection's first frame, so what it shows is
-    // the read plus events published after it; nothing older reaches the reducer.
-    console.info('[view-only] the watch did not resume its tail; reopening the event stream before the read');
-    await eventStreamBoundary(signal); // While offline, until the stream reconnects or the watch ends.
-    if (signal.aborted) return;
-  }
+  // A watch the gateway did not resume (its baseline expired or was evicted) may leave an event of the old branch still on
+  // its way: the replacing read below records the journal state it reflects, and the reducer drops every event from an
+  // older state, whatever socket, hub or buffer delayed it (#278 review 11: event-reducer.ts journal stamps).
+  if (!resumed) console.info('[view-only] the watch did not resume its tail; replacing the history');
   await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }, undefined, signal); // Ends with the watch.
 };
 let catchUp: CatchUp = readLatest;

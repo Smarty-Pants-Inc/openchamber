@@ -53,6 +53,9 @@ export type State = {
   sessionTotal: number
   sessionListSource?: "empty" | "persisted" | "live" | "authoritative"
   sessionRevision?: number
+  /** #278 r11: per View only session, the journal state (`<ino>:<rewrite>:<offset>`) of the last history read that replaced
+   * what this directory shows; older stamped events are dropped (event-reducer.ts). Lives and dies with this store. */
+  journalReads?: Record<string, string>
   sessionEventRevision?: Record<string, number>
   sessionDeletedRevision?: Record<string, number>
   session_status: Record<string, SessionStatus>
