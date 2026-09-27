@@ -2020,7 +2020,7 @@ const AssistantMessageBody = React.memo(({
         return formatted.length > 0 ? formatted : null;
     }, [messageCompletedAt, messageCreatedAt, timeFormatPreference, locale]);
 
-    const footerTimestampClassName = 'text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1';
+    const footerTimestampClassName = 'text-xs text-muted-foreground/60 tabular-nums flex items-center gap-1';
     const canOpenMessagePreview = !isMiniChatSurface && !isMobile && !isVSCode;
 
     const finalTurnActionButtons = (
@@ -2203,7 +2203,8 @@ const AssistantMessageBody = React.memo(({
                         className="mt-2 mb-1 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5"
                         style={MESSAGE_FOOTER_CONTAINER_STYLE}
                     >
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground/60">
+                        {/* #538: quieter meta (model, duration, time), so it and the actions share one row on a phone. */}
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/60">
                         {footerModelName ? (
                             <span className="flex min-w-0 items-center gap-1.5">
                                 {footerHasLogo && footerLogoSrc ? (
@@ -2243,7 +2244,7 @@ const AssistantMessageBody = React.memo(({
                         {turnDurationText ? (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <span className="text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1">
+                                    <span className="text-xs text-muted-foreground/60 tabular-nums flex items-center gap-1">
                                         <Icon name="hourglass" className="h-3.5 w-3.5" />
                                         <span className="message-footer__label">{turnDurationText}</span>
                                     </span>
