@@ -730,7 +730,7 @@ class OpencodeService {
         // SAFETY: nativeCreatedSession validates the fields it relies on and refuses anything else.
         return response.status === 202 ? nativeCreationResponseSchema.parse(body) : nativeCreatedSession(body as Session);
       }
-      const response = await this.getScopedSdkClient(directory).session.create({ directory });
+      const response = await this.getScopedSdkClient(directory).session.create({ directory }, { headers: { ...NATIVE_CREATION_FIELDS } });
       if (response.error) throw response.error;
       if (!response.data) throw new Error('Empty native creation response');
       return response.response.status === 202

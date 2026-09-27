@@ -107,6 +107,16 @@ describe('who stopped a start', () => {
     expect((await opencodeClient.abandonNativeCreation('/project', op().operationId)).phase).toBe('cancelled');
     expect(asked).toEqual(['stoppedBy', 'stoppedBy', 'stoppedBy']);
   });
+  test('both create paths ask for stoppedBy', async () => {
+    const asked: Array<string | null> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      asked.push(new Request(input, init).headers.get('x-smarty-creation-fields'));
+      return Response.json({ nativeCreation: op({ phase: 'awaiting-trust' }) }, { status: 202 });
+    });
+    await opencodeClient.createNativeSession('/project');
+    await opencodeClient.createNativeSession('/project', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    expect(asked).toEqual(['stoppedBy', 'stoppedBy']);
+  });
   test('a malformed stoppedBy is still refused', async () => {
     fetchMock.mockImplementation(async () => Response.json({ nativeCreations: [op({ stoppedBy: { name: 'Kate', extra: 1 } })] }));
     await expect(opencodeClient.listNativeCreations('/project')).rejects.toThrow();
