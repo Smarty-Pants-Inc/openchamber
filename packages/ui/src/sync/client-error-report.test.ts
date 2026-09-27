@@ -6,7 +6,8 @@ import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 // smarty-code#536 item 3 (Paul, 3.38): "Session could not be loaded" was shown to him and nothing in the fleet saw it.
 // The loader's error path reports what the page shows to the gateway (POST /api/client-error), once per 30 s per kind.
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
-afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorReportsForPage(); });
+// A test's leftover work fails as stale after its fixture goes (as a switched page's would): let it, then start clean.
+afterEach(async () => { fixture?.dispose(); fixture = undefined; await sleep(50); resetClientErrorReportsForPage(); });
 const reports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
 
 test('a session whose messages cannot be loaded is reported once, with its session and status', async () => {
@@ -207,6 +208,33 @@ test('a previous server\'s error whose body arrives after the switch is not repo
     const shown = response.json().catch(() => undefined).then(() => { toast.error('Could not stage files'); });
     await sleep(1_100); finishBody(); await shown; await sleep(50);
     expect(seen).toBe(0); // A's failure, shown on B: not reported to B.
+  } finally { globalThis.fetch = served; }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
+test('a previous server\'s read whose body arrives after the switch fails as stale, and its toast is not reported to the new server', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  const served = globalThis.fetch;
+  let seen = 0, finishBody = () => {};
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
+    if (path.endsWith('/git/stash')) {
+      const body = new ReadableStream({ start(controller) { finishBody = () => { controller.enqueue(new TextEncoder().encode('[]')); controller.close(); }; } });
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await runtimeFetch('/api/git/stash'); // A 200 read from A: headers now, body later.
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    const shown = response.json().catch(() => { toast.error('Failed to load stashes'); }); // As the stash list does.
+    await sleep(2_200); finishBody(); await shown; await sleep(50);
+    expect(seen).toBe(0);
   } finally { globalThis.fetch = served; }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });

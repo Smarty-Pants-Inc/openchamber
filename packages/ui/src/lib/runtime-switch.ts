@@ -1,3 +1,4 @@
+import { notePreviousRuntimeSettled } from './runtime-work';
 import { getRuntimeAuthGeneration, refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@/lib/runtime-auth';
 import { configureRuntimeUrlResolver, getRuntimeUrlResolver } from '@/lib/runtime-url';
 import {
@@ -42,7 +43,11 @@ export const isRuntimeRequestScopeCurrent = (scope: RuntimeRequestScope): boolea
 );
 
 export const assertRuntimeRequestScope = (scope: RuntimeRequestScope): void => {
-  if (!isRuntimeRequestScopeCurrent(scope)) throw new Error('Runtime request is stale');
+  if (!isRuntimeRequestScopeCurrent(scope)) {
+    // A previous server's work ends here; an error it shows next is that server's, not reported to this one (#536).
+    notePreviousRuntimeSettled();
+    throw new Error('Runtime request is stale');
+  }
 };
 
 const setWindowRuntimeValue = <K extends '__OPENCHAMBER_API_BASE_URL__' | '__OPENCHAMBER_CLIENT_TOKEN__' | '__OPENCHAMBER_RUNTIME_HEADERS__'>(
