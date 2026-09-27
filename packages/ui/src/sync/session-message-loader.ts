@@ -60,8 +60,8 @@ type LoaderEntry = {
   resetHistory: boolean
   ordinaryRefresh: Promise<void> | null
   ordinaryDemand: number
-  /** The missing prompts a reload from the start already tried to load (never twice for the same ones). */
-  repairedOrphans?: string
+  /** Each missing prompt a reload from the start already tried to load: never reloaded for again. */
+  repairedPrompts?: Set<string>
 }
 
 type FetchedPage = {
@@ -641,12 +641,13 @@ export class SessionMessageLoader {
     entry.inflight = promise
     // A load that ends claiming the whole history while the store holds a reply without its prompt (streamed while the
     // read was out) contradicts itself: the timeline would hide that reply (#126 item 4). Reload it from the start, once
-    // for those missing prompts, while this load's page is still current.
+    // for each missing prompt (one not tried before), while this load's page is still current.
     void promise.then(() => {
       if (!isCurrent() || entry.inflight || !entry.snapshot.resolved || !entry.snapshot.complete) return
-      const orphans = missingPrompts(store.getState(), target.sessionID)
-      if (!orphans || entry.repairedOrphans === orphans) return
-      entry.repairedOrphans = orphans
+      const missing = missingPrompts(store.getState(), target.sessionID)
+      const tried = entry.repairedPrompts ??= new Set()
+      if (![...missing].some((id) => !tried.has(id))) return
+      for (const id of missing) tried.add(id)
       void this.ensure(target, { force: true, reason: "navigation" }).catch(() => undefined)
     })
     return promise
@@ -849,20 +850,17 @@ type DirectoryStoreSetter = (
   partial: Partial<DirectoryStore> | ((state: DirectoryStore) => Partial<DirectoryStore> | DirectoryStore),
 ) => void
 
-/**
- * The prompts (parent messages) that assistant replies in the store point to but the store does not have, as one key
- * ('' when none). Keyed by the missing prompt, not the replies: more replies to the same missing prompt are the same gap.
- */
-function missingPrompts(state: DirectoryStore, sessionID: string): string {
+/** The prompts (parent messages) that assistant replies in the store point to but the store does not have. */
+function missingPrompts(state: DirectoryStore, sessionID: string): Set<string> {
   const messages = state.message[sessionID] ?? []
   const ids = new Set(messages.map((message) => message.id))
   const missing = new Set<string>()
   for (const message of messages) {
     if (message.role === "assistant" && message.parentID && !ids.has(message.parentID)) missing.add(message.parentID)
   }
-  return [...missing].sort().join(",")
+  return missing
 }
-const hasReplyWithoutPrompt = (state: DirectoryStore, sessionID: string): boolean => missingPrompts(state, sessionID) !== ""
+const hasReplyWithoutPrompt = (state: DirectoryStore, sessionID: string): boolean => missingPrompts(state, sessionID).size > 0
 
 let imperativeLoader: SessionMessageLoader | null = null
 

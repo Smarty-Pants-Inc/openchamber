@@ -425,3 +425,22 @@ test('replies to a prompt that is gone reload the session once, not once per new
     expect(sync.reads).toHaveLength(2); // The open and one reload for the missing prompt.
   } finally { await sync.dispose(); }
 }, 15_000);
+
+// Pre-check (Astra, a shrinking gap): two prompts are missing, and by the reload one of them has arrived. The other was
+// already tried: no reload for it again.
+test('a missing prompt already reloaded for is never reloaded for again when the gap shrinks', async () => {
+  const S = 'ses_shrink';
+  const r = (id: string, parent: string, t: number) => ({ info: reply(S, id, parent, t, t + 1),
+    parts: [{ id: `prt_${id}`, sessionID: S, messageID: id, type: 'text', text: id }] });
+  let read = 0;
+  const sync = await mountedSync(() => ++read === 1
+    ? [r('msg_a', 'msg_gone', 1), r('msg_b', 'msg_pb', 3)] // Two missing prompts.
+    : [r('msg_a', 'msg_gone', 1), { info: prompt(S, 'msg_pb', 2), parts: [] }, r('msg_b', 'msg_pb', 3)]); // One arrived.
+  try {
+    sync.session(S);
+    setActiveSession('/a', S);
+    await act(async () => { await fetchMessagesForSession(S, '/a'); });
+    await sync.settle(1500);
+    expect(sync.reads).toHaveLength(2); // The open and one reload; 'msg_gone' was tried with it.
+  } finally { await sync.dispose(); }
+}, 15_000);
