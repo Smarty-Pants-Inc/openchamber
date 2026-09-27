@@ -209,7 +209,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // picker, directory picker, every MobileOverlayPanel) can center on the CHAT
   // rather than on the window. Zero on phones, where the two are the same.
   React.useEffect(() => {
-    if (typeof document === 'undefined') return;
+    if (!('document' in globalThis)) return;
     const root = document.documentElement;
     root.style.setProperty('--oc-chat-inset-left', `${sidebarWidth}px`);
     root.style.setProperty('--oc-chat-inset-right', `${workspacePanelWidth}px`);
@@ -225,7 +225,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // every mobile surface; on a phone the viewport is narrower than even the
   // normal clamp, so it is a no-op there.
   React.useEffect(() => {
-    if (typeof document === 'undefined') return;
+    if (!('document' in globalThis)) return;
     const root = document.documentElement;
     root.classList.toggle('wide-chat-layout', wideChatLayoutEnabled);
     return () => root.classList.remove('wide-chat-layout');
@@ -236,7 +236,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // with a hardware keyboard (then no software keyboard eats the screen at
   // all). Landscape on the software keyboard still hides them — see mobile.css.
   React.useEffect(() => {
-    if (typeof document === 'undefined') return;
+    if (!('document' in globalThis)) return;
     const keep = isTabletLayout && (isPortrait || hasHardwareKeyboard);
     const root = document.documentElement;
     root.classList.toggle('oc-keep-draft-starters', keep);
@@ -279,7 +279,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         openChangesSurface(path ? { path, staged: staged === true } : null);
       },
       openSettings: (section?: string) => {
-        if (section) setSettingsPage(section as Parameters<typeof setSettingsPage>[0]);
+        if (section) setSettingsPage(section);
         openSettingsSurface(section ? 'page-content' : 'nav');
       },
     }),
@@ -402,6 +402,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               width: sidebarOpen ? leftResize.width : 0,
               minWidth: sidebarOpen ? leftResize.width : 0,
               maxWidth: sidebarOpen ? leftResize.width : 0,
+              // SAFETY: a `--` key is a CSS custom property, which React applies with
+              // style.setProperty; CSSProperties only lacks a type for such names.
               ['--oc-ipad-sidebar-width' as string]: `${leftResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
@@ -489,6 +491,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               width: workspacePanelWidth,
               minWidth: workspacePanelWidth,
               maxWidth: workspacePanelWidth,
+              // SAFETY: a `--` key is a CSS custom property, which React applies with
+              // style.setProperty; CSSProperties only lacks a type for such names.
               ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
@@ -1097,6 +1101,8 @@ export function MobileApp({ apis }: MobileAppProps) {
     const run = async () => {
       const res = await runtimeFetch('/health', { method: 'GET' }).catch(() => null);
       if (!res || !res.ok || cancelled) return;
+      // SAFETY: parsed JSON is null, a primitive or an object: `!data` below rules out null, a field read
+      // on any other JSON value is safe, and the unknown field is only compared with exact literals.
       const data = (await res.json().catch(() => null)) as null | { planModeExperimentalEnabled?: unknown };
       if (!data || cancelled) return;
       const raw = data.planModeExperimentalEnabled;

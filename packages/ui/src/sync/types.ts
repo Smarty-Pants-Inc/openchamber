@@ -25,7 +25,6 @@ export type FileDiff = {
   additions?: number
   deletions?: number
   patch?: string
-  [key: string]: unknown
 }
 
 export type ProjectMeta = {
