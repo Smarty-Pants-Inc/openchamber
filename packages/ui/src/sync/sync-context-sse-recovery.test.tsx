@@ -142,7 +142,8 @@ for (const mode of ['failed', 'inflight', 'busy-resync'] as const) test(`SyncPro
       await within(recovered.promise);
     });
     expect(runtime.messageLoader.getAcceptedOrdinaryView(target, runtime.runtimeKey)).toBe(newView);
-    expect(requests.filter(request => request.method !== 'GET')
+    // The page's error report (smarty-code#536) is no mutation of the session.
+    expect(requests.filter(request => request.method !== 'GET' && !request.url.endsWith('/client-error'))
       .map(request => [request.method, new URL(request.url).pathname])).toEqual([['POST', '/auth/url-token']]);
     expect(accepted).toEqual([newView]);
     expect(streams).toHaveLength(mode === 'busy-resync' ? 3 : 2);

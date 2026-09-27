@@ -15,6 +15,7 @@ import {
 } from "./session-prefetch-cache"
 import { z } from "zod"
 import { isVSCodeRuntime } from "@/lib/desktop"
+import { reportClientError } from "@/lib/clientErrorReport"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
@@ -633,11 +634,12 @@ export class SessionMessageLoader {
         }
         finishPerformanceEvent("error", performance)
         if (entry.ordinary) this.invalidateOrdinaryView(target, true)
-        this.patchEntry(entry, {
-          status: "error",
-          loadingKind: null,
-          error: error instanceof Error ? error : new Error(formatSdkError(error)),
-        })
+        const failure = error instanceof Error ? error : new Error(formatSdkError(error))
+        this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
+        // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536).
+        const status = (error as { status?: unknown } | null)?.status
+        reportClientError({ kind: `session-messages.${kind}`, message: failure.message, sessionID: target.sessionID,
+          status: typeof status === "number" ? status : undefined })
       })
       .finally(() => {
         if (entry.inflight === promise) entry.inflight = null
