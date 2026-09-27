@@ -5,7 +5,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
 import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { startsElsewhere } from '@/sync/native-draft-creation';
+import { startsElsewhere, STOPPED_PHASES } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import React from 'react';
@@ -111,6 +111,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     {/* A Send refused by the start that blocks this project keeps the way to stop it (smarty-code#523). */}
     {stopControl(stoppable)}
   </div>;
+  // A start that stopped without a session (failed before launch, declined, expired: smarty-code#634) started nothing:
+  // say so. The text stays here, and the next Send clears this start and tries anew (native-draft-start).
+  if (creation?.status === 'pending' && STOPPED_PHASES.includes(creation.operation.phase)) {
+    return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">{t('chat.nativeCreation.stopped')}</p>;
+  }
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
       <p>{t('chat.nativeCreation.starting')}</p>
