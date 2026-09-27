@@ -2,8 +2,8 @@ import React from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { ChatErrorBoundary } from '@/components/chat/ChatErrorBoundary';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessageLoadState, useSyncDirectory } from '@/sync/sync-context';
-import { useViewOnlyWatch, viewOnlyWatchVisible } from '@/sync/view-only-watch';
+import { useShownViewOnlyWatch } from '@/sync/view-only-transcript-watch';
+import { viewOnlyWatchVisible } from '@/sync/view-only-watch';
 
 type ChatViewProps = {
     active?: boolean;
@@ -27,14 +27,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     initialAllowPromptingSubagentSessions,
 }) => {
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-    const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
-    const syncDirectory = useSyncDirectory();
-    const directory = currentSessionDirectory ?? syncDirectory;
-    const loadState = useSessionMessageLoadState(currentSessionId ?? '', directory);
     // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455): hidden
     // (a background tab, another panel) or covered full-screen, none.
-    useViewOnlyWatch(currentSessionId, directory, loadState.readOnly === true,
-        viewOnlyWatchVisible({ active, messagesEnabled: messagesEnabled ?? active, covered: covered === true }));
+    useShownViewOnlyWatch(viewOnlyWatchVisible({ active, messagesEnabled: messagesEnabled ?? active, covered: covered === true }));
 
     return (
         <ChatErrorBoundary sessionId={currentSessionId || undefined}>

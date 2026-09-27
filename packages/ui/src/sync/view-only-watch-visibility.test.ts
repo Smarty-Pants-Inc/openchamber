@@ -21,3 +21,13 @@ test('the shells feed their real visibility into the watch', () => {
   const mobile = source('../apps/MobileApp.tsx'); // A phone's full-screen surfaces, the Plan included.
   expect(mobile).toContain('covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)}');
 });
+
+test('every renderer of the shared transcript holds its watch (review 12): ChatView, the agent group detail, Mini Chat', () => {
+  // Mini Chat's hold is also exercised through its real render (ElectronMiniChatApp.viewonly.test.tsx).
+  expect(source('../components/views/ChatView.tsx')).toContain('useShownViewOnlyWatch(viewOnlyWatchVisible(');
+  expect(source('../components/views/agent-manager/AgentGroupDetail.tsx')).toContain('useShownViewOnlyWatch(selectedSession !== null && isSessionSynced)');
+  expect(source('../apps/ElectronMiniChatApp.tsx')).toContain('useShownViewOnlyWatch(!sessionUnavailable)');
+  // These three are the transcript's renderers today (each renders ChatContainer).
+  const renderers = ['../components/views/ChatView.tsx', '../components/views/agent-manager/AgentGroupDetail.tsx', '../components/mini-chat/MiniChatLayout.tsx'];
+  for (const path of renderers) expect(source(path)).toContain('<ChatContainer');
+});
