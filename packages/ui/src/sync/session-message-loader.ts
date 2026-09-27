@@ -60,6 +60,8 @@ type LoaderEntry = {
   resetHistory: boolean
   ordinaryRefresh: Promise<void> | null
   ordinaryDemand: number
+  /** Each missing prompt a reload from the start already tried to load: never reloaded for again. */
+  repairedPrompts?: Set<string>
 }
 
 type FetchedPage = {
@@ -216,7 +218,13 @@ export class SessionMessageLoader {
     const entry = this.getEntry(normalized)
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const materialization = getSessionMaterializationStatus(store.getState(), normalized.sessionID)
-    if (!options?.force && materialization.renderable && entry.snapshot.resolved
+    // Opening it: a page that claimed the whole history while the store now holds a reply without its prompt (streamed
+    // after that page) is stale coverage. The timeline hides such a reply, so the session would open empty (#126 item 4):
+    // it is loaded again from the start, so its pages, cursor and completeness are re-established.
+    const staleCoverage = !options?.force && options?.reason === "navigation" && entry.snapshot.resolved
+      && entry.snapshot.complete && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
+    const force = options?.force === true || staleCoverage
+    if (!force && materialization.renderable && entry.snapshot.resolved
       && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
     }
@@ -226,10 +234,10 @@ export class SessionMessageLoader {
       }
       return entry.inflight
     }
-    if (entry.ordinary && entry.snapshot.resolved && !options?.force) {
+    if (entry.ordinary && entry.snapshot.resolved && !force) {
       return this.refreshTail(normalized, getInitialPageSize())
     }
-    if (options?.force) this.bumpGeneration(entry)
+    if (force) this.bumpGeneration(entry)
     const kind: SessionMessageLoadKind = options?.reason === "prefetch" ? "prefetch" : "initial"
     return this.startLoad(normalized, entry, store, kind, async (isCurrent, performance) => {
       await this.loadInitial(normalized, entry, store, isCurrent, performance)
@@ -331,7 +339,12 @@ export class SessionMessageLoader {
       if (!isCurrent()) return
       const committed = this.commitPage(normalized, entry, store, page, "merge", isCurrent)
       if (!committed || !isCurrent()) return
-      const coverage = previousCoverage ?? page
+      // A tail page that is not the whole history, while the earlier page claimed it was and a reply now lacks its prompt,
+      // proves that claim stale (the session grew after it): its own cursor is the coverage now, so older pages load and
+      // the timeline shows the replies (#126 item 4). Otherwise the earlier coverage stays, as before.
+      const staleCoverage = previousCoverage?.complete === true && !page.complete
+        && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
+      const coverage = staleCoverage ? page : previousCoverage ?? page
       this.patchEntry(entry, {
         status: "ready",
         loadingKind: null,
@@ -410,6 +423,18 @@ export class SessionMessageLoader {
     })
     entry.ordinaryRefresh = refresh
     return refresh
+  }
+
+  /**
+   * This page holds (or is loading) the session's history: a load resolved or in flight, or a prefetched page. An entry
+   * that only a snapshot read created holds nothing. Never creates an entry.
+   */
+  holdsHistory(target: SessionMessageTarget): boolean {
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed) return false
+    const entry = this.entries.get(this.keyFor(normalized))
+    if (entry && (entry.snapshot.resolved || entry.inflight)) return true
+    return getSessionPrefetch(normalized.directory, normalized.sessionID, this.runtimeKey) !== undefined
   }
 
   getSnapshot(target: SessionMessageTarget): SessionMessageLoadState {
@@ -614,6 +639,17 @@ export class SessionMessageLoader {
         if (entry.inflight === promise) entry.inflight = null
       })
     entry.inflight = promise
+    // A load that ends claiming the whole history while the store holds a reply without its prompt (streamed while the
+    // read was out) contradicts itself: the timeline would hide that reply (#126 item 4). Reload it from the start, once
+    // for each missing prompt (one not tried before), while this load's page is still current.
+    void promise.then(() => {
+      if (!isCurrent() || entry.inflight || !entry.snapshot.resolved || !entry.snapshot.complete) return
+      const missing = missingPrompts(store.getState(), target.sessionID)
+      const tried = entry.repairedPrompts ??= new Set()
+      if (![...missing].some((id) => !tried.has(id))) return
+      for (const id of missing) tried.add(id)
+      void this.ensure(target, { force: true, reason: "navigation" }).catch(() => undefined)
+    })
     return promise
   }
 
@@ -813,6 +849,18 @@ export class SessionMessageLoader {
 type DirectoryStoreSetter = (
   partial: Partial<DirectoryStore> | ((state: DirectoryStore) => Partial<DirectoryStore> | DirectoryStore),
 ) => void
+
+/** The prompts (parent messages) that assistant replies in the store point to but the store does not have. */
+function missingPrompts(state: DirectoryStore, sessionID: string): Set<string> {
+  const messages = state.message[sessionID] ?? []
+  const ids = new Set(messages.map((message) => message.id))
+  const missing = new Set<string>()
+  for (const message of messages) {
+    if (message.role === "assistant" && message.parentID && !ids.has(message.parentID)) missing.add(message.parentID)
+  }
+  return missing
+}
+const hasReplyWithoutPrompt = (state: DirectoryStore, sessionID: string): boolean => missingPrompts(state, sessionID).size > 0
 
 let imperativeLoader: SessionMessageLoader | null = null
 

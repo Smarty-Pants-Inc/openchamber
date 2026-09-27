@@ -295,7 +295,20 @@ export function materializeSessionSnapshots(
 
   for (const record of snapshots) {
     const messageID = record.info.id
-    if (isPrepend && nextPartState[messageID]) continue
+    // An older page never replaces a bucket's parts. A bucket missing some holds only what the stream delivered before
+    // this page loaded the message (smarty-dev#777 G13): the missing fetched parts are added in the page's order, every
+    // part the bucket has stays as it is (live state included), and parts only the stream has stay after them.
+    if (isPrepend && nextPartState[messageID]) {
+      const existing = nextPartState[messageID]!
+      const byID = new Map(existing.map((part) => [part.id, part] as const))
+      const fetched = filterMaterializedParts(record.parts ?? [], skipPartTypes)
+      if (fetched.every((part) => byID.has(part.id))) continue
+      const fetchedIDs = new Set(fetched.map((part) => part.id))
+      if (nextPartState === state.part) nextPartState = { ...state.part }
+      nextPartState[messageID] = [...fetched.map((part) => byID.get(part.id) ?? part), ...existing.filter((part) => !fetchedIDs.has(part.id))]
+      partsChanged = true
+      continue
+    }
 
     const isAssistant = record.info.role === "assistant"
     const existing = nextPartState[messageID]
