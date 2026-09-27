@@ -176,3 +176,29 @@ test('text back after a start someone stopped says who stopped it', async () => 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe(nativeCreationI18n.en['chat.nativeCreation.sentStoppedBy'].replace('{name}', 'Kate'));
   } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
 });
+
+test('a late read of an older start never names the wrong person for a newer one', async () => {
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  const { resolveSentStart, sentStartStoppedBy } = await import('@/sync/native-draft-sent');
+  const { createChatDraftIdentity, claimChatDraftOwnership, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+  const by = (name: string) => ({ issuer: 'https://code.example', subject: name.toLowerCase(), name });
+  const older = { ...blocking('4444dddd-older', -1), phase: 'cancelled' as const, stoppedBy: by('Kate') };
+  const newer = { ...blocking('5555eeee-newer', -1), phase: 'cancelled' as const, stoppedBy: by('Bob') };
+  const markKey = `oc.nativeCreation.sent:${JSON.stringify([getRuntimeKey(), '/project'])}`;
+  const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
+  claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
+  localStorage.setItem(markKey, JSON.stringify({ clientRequestId: older.clientRequestId, operationId: older.operationId }));
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const original = opencodeClient.listNativeCreations;
+  let reads = 0;
+  opencodeClient.listNativeCreations = (async () => { if (reads++ === 0) { await held; return [older]; } return [newer]; }) as typeof original;
+  try {
+    const late = resolveSentStart(getRuntimeKey(), '/project', identity.draftId!); // Reads the older start; its answer waits.
+    await new Promise(done => setTimeout(done, 5));
+    localStorage.setItem(markKey, JSON.stringify({ clientRequestId: newer.clientRequestId, operationId: newer.operationId }));
+    expect(await resolveSentStart(getRuntimeKey(), '/project', identity.draftId!)).toBe('cancelled'); // Bob stopped the newer.
+    release(); await late;
+    expect(sentStartStoppedBy(getRuntimeKey(), '/project')).toBe('Bob');
+  } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
+});

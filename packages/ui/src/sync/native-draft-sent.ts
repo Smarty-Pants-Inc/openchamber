@@ -218,6 +218,8 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
     if (own(read)) start = read;
   }
   if (start && isSentStartStopped(start.phase)) {
+    // Who stopped it is committed with the outcome, under the same check: a late read never names someone else.
+    if (superseded()) return outcomes.get(key) ?? null;
     if (start.stoppedBy?.name) stoppers.set(key, start.stoppedBy.name); else stoppers.delete(key);
     return settle(start.phase);
   }

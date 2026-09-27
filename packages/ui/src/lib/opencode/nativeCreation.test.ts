@@ -112,3 +112,14 @@ describe('who stopped a start', () => {
     await expect(opencodeClient.listNativeCreations('/project')).rejects.toThrow();
   });
 });
+
+// Packaged clients (desktop, Capacitor) call from another origin: a header the page adds must be allowed by the server's
+// CORS preflight, or every creation request from them fails (#523 pre-check).
+test('the creation-fields header is allowed for packaged clients', () => {
+  const server = readFileSync(new URL('../../../../web/server/index.js', import.meta.url), 'utf8');
+  const allowed = /Access-Control-Allow-Headers', '([^']+)'/.exec(server)?.[1]?.toLowerCase().split(',') ?? [];
+  const client = readFileSync(new URL('./client.ts', import.meta.url), 'utf8');
+  const sent = /NATIVE_CREATION_FIELDS = \{ '([^']+)'/.exec(client)?.[1];
+  expect(sent).toBe('x-smarty-creation-fields');
+  expect(allowed).toContain(sent!);
+});
