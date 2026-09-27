@@ -43,7 +43,23 @@ describe("materializeSessionSnapshots", () => {
       { mode: "prepend" },
     )
     expect(result.part.msg_1.map((item) => item.id)).toEqual(["prt_1", "prt_2"])
+    expect(result.part.msg_1[1]).toBe(streamed) // The live record stays.
     expect(result.part.msg_2).toBe(complete)
+  })
+
+  test("an older page only adds: a newer running tool and parts only the stream has are kept", () => {
+    const running = { ...part("prt_2", "msg_1", "tool"), state: { status: "running", input: { cmd: "ls" } } } as unknown as Part
+    const streamedOnly = { ...part("prt_3", "msg_1", "tool"), state: { status: "completed" } } as unknown as Part
+    const stale = { ...part("prt_2", "msg_1", "tool"), state: { status: "pending" } } as unknown as Part
+    const result = materializeSessionSnapshots(
+      { message: { ses_1: [message("msg_1")] }, part: { msg_1: [running, streamedOnly] } },
+      "ses_1",
+      [{ info: message("msg_1"), parts: [part("prt_1", "msg_1"), stale] }],
+      { mode: "prepend" },
+    )
+    expect(result.part.msg_1.map((item) => item.id)).toEqual(["prt_1", "prt_2", "prt_3"])
+    expect(result.part.msg_1[1]).toBe(running)
+    expect(result.part.msg_1[2]).toBe(streamedOnly)
   })
 
   test("marks an empty successful page as materialized", () => {
