@@ -1,6 +1,20 @@
 // A namespace import: test doubles of the runtime module may omit the key; then no report is scoped (nor sent).
 import * as runtime from './runtime-switch';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
+/**
+ * A report without its operation's runtime (a toast) cannot say which server its failure came from. Right after a
+ * switch it may be the previous server's (an async operation that finished on the new one): dropped for a minute, so it
+ * is never sent to the wrong server.
+ */
+const UNATTRIBUTED_AFTER_SWITCH_MS = 60_000;
+let lastSwitchAt = 0, watching = false;
+// The switch event goes through the window: subscribe once there is one (at page load on the page).
+const watchSwitches = () => {
+  if (watching || typeof window === 'undefined') return;
+  watching = true;
+  runtime.subscribeRuntimeEndpointChanged?.(() => { lastSwitchAt = Date.now(); });
+};
+watchSwitches();
 
 /**
  * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
@@ -32,6 +46,8 @@ const routeTemplate = (path: string) => path.split('/')
   .map(segment => (/\d/.test(segment) || segment.length > 20 ? ':id' : segment)).join('/').slice(0, 300);
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
+  watchSwitches();
+  if (!report.runtimeKey && lastSwitchAt && now - lastSwitchAt < UNATTRIBUTED_AFTER_SWITCH_MS) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -59,4 +75,4 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 }
 
 /** Tests model a page load. */
-export function resetClientErrorReportsForPage(): void { lastReport.clear(); }
+export function resetClientErrorReportsForPage(): void { lastReport.clear(); lastSwitchAt = 0; }

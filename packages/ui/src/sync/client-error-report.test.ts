@@ -98,3 +98,24 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
     expect(seen).toEqual([{ runtime: runtimeA, path: '/api/client-error' }]);
   } finally { globalThis.fetch = served; }
 });
+
+test('an error toast shown just after a server switch is not reported (its failure may be the previous server\'s)', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  // The page's window carries the switch event.
+  const { Window } = await import('happy-dom');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new Window({ url: 'http://localhost' }) });
+  try {
+    toast.error('Shown before any switch'); // Subscribes on the page's window (as at page load); reported.
+    await sleep(50);
+    expect(reports()).toHaveLength(1);
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    toast.error('Failed to generate a title'); // A's request finished after the switch.
+    await sleep(50);
+    expect(reports()).toHaveLength(1); // Not reported: it may be A's.
+  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
