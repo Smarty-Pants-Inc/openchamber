@@ -126,3 +126,16 @@ test('text locked as sent to a start that never settles comes back when that sta
     localStorage.clear();
   }
 });
+
+test('after a Send the blocking start refused, the notice still offers to stop it', async () => {
+  const calls: string[] = [];
+  const original = opencodeClient.abandonNativeCreation;
+  opencodeClient.abandonNativeCreation = (async (_: string, id: string) => { calls.push(id); return { ...blocking(id, -1), phase: 'cancelled' }; }) as typeof original;
+  try {
+    const op = blocking('op-after-send', -1);
+    await show({ ...native([op], []), refusal: new NativeCreationError('elsewhere') }); // Send was refused: 'elsewhere'.
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(nativeCreationI18n.en['chat.nativeCreation.elsewhere']);
+    await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 10)); });
+    expect(calls).toEqual(['op-after-send']);
+  } finally { opencodeClient.abandonNativeCreation = original; }
+});

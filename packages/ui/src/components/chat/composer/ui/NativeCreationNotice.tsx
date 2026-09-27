@@ -106,6 +106,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   // start of this draft's own has its own line and controls (above and below), which say more.
   if (native.refusal && !creation && !starting) return <div className="mb-2 space-y-1">
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(native.refusal)}</p>
+    {/* A Send refused by the start that blocks this project keeps the way to stop it (smarty-code#523). */}
+    {stopControl(stoppable)}
   </div>;
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
