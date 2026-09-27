@@ -31,9 +31,18 @@ async function setup(page) {
 async function shot(page, info, name) {
   await info.attach(name, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
 }
+// smarty-code#538: the account is an avatar menu (top bar); the profile form is its "Edit profile" dialog.
 async function open(page) {
   const account = page.getByRole('button', { name: 'Account', exact: true });
   await account.focus(); await account.press('Enter');
+  await expect(page.getByRole('menu')).toBeVisible();
+}
+const item = (page, name) => page.getByRole('menuitem', { name, exact: true });
+async function openProfile(page) {
+  await open(page);
+  await expect(page.getByRole('menu')).toContainText('Current Alice');
+  await item(page, 'Edit profile').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
 }
 function hold(handlers, path, response) {
   let release;
@@ -62,13 +71,19 @@ test('loading, profile save error/success, historical versus unnamed authors', a
   const api = await setup(page);
   const release = hold(api.handlers, '/api/auth/get-session', { json: session });
   await page.goto('/'); await open(page);
-  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Save profile', exact: true })).toBeDisabled();
-  expect(await page.getByRole('dialog').evaluate(element => {
+  await expect(item(page, 'Edit profile')).toBeDisabled();
+  await expect(item(page, 'Sign out other devices')).toBeDisabled();
+  expect(await page.getByRole('menu').evaluate(element => {
     const bounds = element.getBoundingClientRect();
     return bounds.left >= 0 && bounds.right <= window.innerWidth;
   })).toBe(true);
   await shot(page, info, 'account-loading'); release();
+  await expect(page.getByRole('menu')).toContainText('alice@example.test');
+  await item(page, 'Edit profile').click();
+  expect(await page.getByRole('dialog').evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return bounds.left >= 0 && bounds.right <= window.innerWidth;
+  })).toBe(true);
   const name = page.getByRole('textbox', { name: 'Name', exact: true });
   await expect(name).toHaveValue('Current Alice');
   await name.fill('Edited Alice');
@@ -81,7 +96,7 @@ test('loading, profile save error/success, historical versus unnamed authors', a
   api.handlers.set('/api/auth/update-user', route => route.fulfill({ json: { status: true } }));
   await name.focus(); await name.press('Enter');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Account', exact: true })).toContainText('Edited Alice');
+  await open(page); await expect(page.getByRole('menu')).toContainText('Edited Alice'); await page.keyboard.press('Escape');
   expect(api.requests.filter(r => r.path.endsWith('/update-user')).map(r => r.body)).toEqual([
     { name: 'Edited Alice', image: 'https://images.example.test/avatar.png' }, { name: 'Edited Alice', image: '' },
   ]);
@@ -95,7 +110,7 @@ test('session load error is visible and does not enable profile writes', async (
   api.handlers.set('/api/auth/get-session', route => route.fulfill(failure));
   await page.goto('/'); await open(page);
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save profile', exact: true })).toBeDisabled();
+  await expect(item(page, 'Edit profile')).toBeDisabled();
   await shot(page, info, 'load-error'); expect(api.unexpected).toEqual([]);
 });
 
@@ -105,9 +120,9 @@ for (const action of [
 ]) test(`${action.path} failure then success`, async ({ page }, info) => {
   const api = await setup(page);
   await page.goto('/'); await open(page);
-  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Current Alice');
+  await expect(page.getByRole('menu')).toContainText('Current Alice');
   api.handlers.set(`/api/auth/${action.path}`, route => route.fulfill(failure));
-  const button = page.getByRole('button', { name: action.label, exact: true });
+  const button = item(page, action.label);
   await button.click(); await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByTestId('auth-state')).toHaveText('ok');
   await shot(page, info, `${action.path}-error`);
@@ -129,17 +144,20 @@ for (const path of ['get-session', 'update-user', 'sign-out', 'revoke-other-sess
     await page.goto('/');
     if (path === 'sign-in/social') await page.getByRole('button', { name: 'Sign in with Google' }).click();
     else {
-      await open(page);
-      if (path !== 'get-session') {
-        await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Current Alice');
-        if (path === 'update-user') await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Stale Alice');
-        const label = { 'update-user': 'Save profile', 'sign-out': 'Sign out', 'revoke-other-sessions': 'Sign out other devices' }[path];
-        await page.getByRole('button', { name: label, exact: true }).click();
+      if (path === 'get-session') await open(page);
+      else if (path === 'update-user') {
+        await openProfile(page);
+        await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Stale Alice');
+        await page.getByRole('button', { name: 'Save profile', exact: true }).click();
+      } else {
+        await open(page);
+        await expect(page.getByRole('menu')).toContainText('Current Alice');
+        await item(page, { 'sign-out': 'Sign out', 'revoke-other-sessions': 'Sign out other devices' }[path]).click();
       }
     }
     await expect.poll(() => api.requests.some(r => r.path === `/api/auth/${path}`)).toBe(true);
     if (path === 'sign-in/social') expect(api.requests.find(r => r.path.endsWith('/sign-in/social')).body.disableRedirect).toBe(true);
-    // Dialog is modal: invoke the real fixture control without bypassing its handler.
+    // Menu and dialog are modal: invoke the real fixture control without bypassing its handler.
     await page.getByRole('button', { name: 'Fixture: change runtime', includeHidden: true }).evaluate(el => el.click());
     const completed = page.waitForResponse(r => new URL(r.url()).pathname === `/api/auth/${path}`);
     release(); await completed;
@@ -147,7 +165,7 @@ for (const path of ['get-session', 'update-user', 'sign-out', 'revoke-other-sess
     await expect(page.getByTestId('auth-state')).toHaveText('ok');
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Account', exact: true, includeHidden: true })).not.toContainText('Stale Alice');
-    if (path === 'get-session') await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('');
+    if (path === 'get-session') await expect(page.getByText('Current Alice')).toHaveCount(0);
     if (path === 'update-user') await expect(page.getByRole('dialog')).toBeVisible();
     expect(page.url()).toBe(`${origin}/`);
     await shot(page, info, `stale-${path.replaceAll('/', '-')}`); expect(api.unexpected).toEqual([]);

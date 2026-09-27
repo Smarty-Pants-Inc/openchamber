@@ -222,8 +222,7 @@ test('the unsaved label binds its exact fix commit over the message row only (sl
   assert.match(overlay.unsavedLabelSource, /^[a-f0-9]{40}$/);
   assert.deepEqual(overlay.files.filter(file => file.unsavedLabelSha256).map(file => file.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
   const entry = overlays.get('packages/ui/src/components/chat/ChatMessage.tsx');
-  assert.equal(entry.unsavedLabelSha256, entry.combinedSha256);
-  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(entry.unsavedLabelSha256, entry.preDesign538CombinedSha256); // #538 layers the sender row over it.
   assert.equal(entry.preUnsavedLabelCombinedSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8'); // The Stop-wording layer it replaces.
 });
 
@@ -231,8 +230,7 @@ test('the context window binds its exact fix commit over the header only (smarty
   assert.match(overlay.contextWindowSource, /^[a-f0-9]{40}$/);
   assert.deepEqual(overlay.files.filter(file => file.contextWindowSha256).map(file => file.path), ['packages/ui/src/components/layout/Header.tsx']);
   const entry = overlays.get('packages/ui/src/components/layout/Header.tsx');
-  assert.equal(entry.contextWindowSha256, entry.combinedSha256);
-  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(entry.contextWindowSha256, entry.preDesign538CombinedSha256); // #538 layers the account menu over it.
   assert.equal(entry.preContextWindowCombinedSha256, '5fd0340114593d973dcaef295f78b0f647207f35bdc6b3a0afdb3b81639309d4');
 });
 
@@ -265,4 +263,15 @@ test('the first-send handoff binds its exact fix commit over the session store o
   assert.equal(entry.firstSendHandoffSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preFirstSendHandoffCombinedSha256, '8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b');
+});
+
+test('the #538 layer binds its exact feature commit over the message row and the header only (smarty-code#538)', () => {
+  assert.match(overlay.design538Source, /^[a-f0-9]{40}$/);
+  assert.deepEqual(overlay.files.filter(file => file.design538Sha256).map(file => file.path).sort(),
+    ['packages/ui/src/components/chat/ChatMessage.tsx', 'packages/ui/src/components/layout/Header.tsx']);
+  for (const entry of overlay.files.filter(file => file.design538Sha256)) {
+    assert.equal(entry.design538Sha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+    assert.ok(entry.design538Note);
+  }
 });

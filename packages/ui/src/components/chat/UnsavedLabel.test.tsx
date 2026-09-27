@@ -23,11 +23,11 @@ test('a saved record, or anything but exactly true, shows nothing', () => {
   }
 });
 
-test('both message rows render it: the user bubble (beside the author) and the assistant row', async () => {
+test('both message rows render it: the user bubble (the author sits above it, #538) and the assistant row', async () => {
   // ChatMessage needs the whole app to mount; like issue-2903's container checks, this reads its source.
   const { readFileSync } = await import('node:fs');
   const source = readFileSync(new URL('./ChatMessage.tsx', import.meta.url), 'utf8');
-  expect(/<HumanAuthor info=\{message\.info\} \/>\s*<UnsavedLabel info=\{message\.info\} \/>/.test(source)).toBe(true);
+  expect(/<HumanAuthor info=\{message\.info\} \/><\/div>\s*<div[\s\S]{0,1000}?>\s*<UnsavedLabel info=\{message\.info\} \/>\s*<MessageBody/.test(source)).toBe(true);
   expect(/<div className="relative">\s*<UnsavedLabel info=\{message\.info\} \/>\s*<MessageBody/.test(source)).toBe(true);
 });
 
