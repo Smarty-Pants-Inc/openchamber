@@ -1,4 +1,5 @@
 import React from 'react';
+import { z } from 'zod';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
@@ -20,10 +21,11 @@ import { getImperativeSessionMessageLoader } from './session-message-loader';
  * (a stamp the gateway adds) is dropped, even one delayed past a watch the gateway could not resume (#278 review 11).
  */
 type Fetch = (input: string, init: { query: Record<string, string>; signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
+const fetchRuntime: Fetch = (input, init) => runtimeFetch(input, init);
 type Held = { views: number; stop: AbortController };
 const held = new Map<string, Held>();
 const supported = new Set<string>(); // `${runtime}\0${directory}` whose gateway said readOnlyWatch: 1.
-let fetcher: Fetch = runtimeFetch as unknown as Fetch;
+let fetcher: Fetch = fetchRuntime;
 let runtime: () => string = getRuntimeKey;
 /** The catch-up (exported for its test). */
 type CatchUp = (sessionId: string, directory: string, signal: AbortSignal, resumed: boolean) => Promise<void>;
@@ -41,7 +43,7 @@ const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 /** Test seams: the number of watches held, and the fetch and runtime key used. */
 export const viewOnlyWatchesHeld = (): number => held.size;
 export const setViewOnlyWatchDeps = (deps: { fetch?: Fetch; runtime?: () => string; catchUp?: CatchUp } = {}): void => {
-  fetcher = deps.fetch ?? (runtimeFetch as unknown as Fetch); runtime = deps.runtime ?? getRuntimeKey; catchUp = deps.catchUp ?? readLatest;
+  fetcher = deps.fetch ?? fetchRuntime; runtime = deps.runtime ?? getRuntimeKey; catchUp = deps.catchUp ?? readLatest;
   supported.clear(); watchedBefore.clear();
 };
 
@@ -51,12 +53,16 @@ async function supports(key: string, directory: string, signal: AbortSignal): Pr
   try {
     const response = await fetcher('/api/global/health', { query: { directory }, signal });
     if (!response.ok) return 'unknown';
-    const body = await response.json() as { capabilities?: Record<string, unknown> };
-    const has = (name: string) => body?.capabilities?.[name] === 1;
-    if (!has('readOnlyWatch') || !has('readOnlyReadBaseline') || !has('readOnlyWatchResume')) return 'no';
+    if (!watchCapable.safeParse(await response.json()).success) return 'no';
     supported.add(key); return 'yes';
   } catch { return 'unknown'; }
 }
+/** A gateway's health that says every View only watch capability. */
+const watchCapable = z.object({ capabilities: z.object({
+  readOnlyWatch: z.literal(1), readOnlyReadBaseline: z.literal(1), readOnlyWatchResume: z.literal(1),
+}) });
+/** The gateway's word on a watch: `smarty.watch {sessionID, resumed}`. */
+const watchSaid = z.object({ type: z.literal('smarty.watch'), properties: z.object({ sessionID: z.string(), resumed: z.boolean() }) });
 /** Resolves after `ms`, or at once when `signal` aborts; leaves no listener behind either way. */
 const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
   const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
@@ -67,10 +73,9 @@ const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =>
 const resumedIn = (text: string, sessionId: string) => {
   for (const line of text.split('\n')) {
     if (!line.startsWith('data: ')) continue;
-    try {
-      const event = JSON.parse(line.slice(6)) as { type?: string; properties?: { sessionID?: string; resumed?: unknown } };
-      if (event.type === 'smarty.watch' && event.properties?.sessionID === sessionId) return event.properties.resumed === true;
-    } catch { /* Not an event. */ }
+    let said: z.infer<typeof watchSaid> | undefined;
+    try { said = watchSaid.safeParse(JSON.parse(line.slice(6))).data; } catch { /* Not an event. */ }
+    if (said?.properties.sessionID === sessionId) return said.properties.resumed;
   }
 };
 /** One stream until it ends, fails or `signal` aborts. `opened(resumed)` runs once it is open and the gateway said

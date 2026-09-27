@@ -51,7 +51,7 @@ test("a live removal of a message not yet shown, during the read, makes the read
     s.g.branch = ["m0001", "m0003"]; s.g.holdNext = true // m0003 was created while hidden; the read serves it, held.
     const recovering = s.loader.replaceHistory(target, [5])
     await sleep(5); s.g.holdNext = false; s.g.branch = ["m0001"]
-    await s.live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0003" } }) // A no-op here.
+    await s.live({ id: "evt_removed_m0003", type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0003" } }) // A no-op here.
     s.g.gates.shift()?.(); await recovering
     expect(s.shown()).toEqual(["m0001"]) // The stale read was not applied; the retry's read was.
   } finally { s.done() }
@@ -81,7 +81,7 @@ test("while a recovery reads or waits, the page's coverage stays settled and ord
     const newer = s.loader.replaceHistory(target, [30]) // and a newer recovery takes over; its read is held.
     await sleep(5); s.g.holdNext = false
     expect(s.loader.getSnapshot(target)).toMatchObject({ status: settled.status, resolved: true, complete: settled.complete })
-    await s.live({ type: "message.updated", properties: { info: record("m0005").info } }) // Stale for the newer one,
+    await s.live({ id: "evt_updated_m0005", type: "message.updated", properties: { sessionID: target.sessionID, info: record("m0005").info } }) // Stale for the newer one,
     await s.loader.refreshTail(target, 1) // and an ordinary refresh commits meanwhile: it merges as usual.
     expect(s.loader.getSnapshot(target)).toMatchObject({ status: "ready", resolved: true })
     s.g.branch = ["m0001", "m0006"]; s.g.gates.shift()?.()

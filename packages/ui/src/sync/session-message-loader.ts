@@ -935,8 +935,8 @@ export class SessionMessageLoader {
 
 /** The store's replacing-read marks with this session's set to `at`, or removed when the read had none (#278 r11). */
 function marked(marks: Record<string, string> | undefined, sessionID: string, at: string | undefined): Record<string, string> {
-  const { [sessionID]: _, ...rest } = marks ?? {}
-  return at ? { ...rest, [sessionID]: at } : rest
+  const rest = Object.fromEntries(Object.entries(marks ?? {}).filter(([id]) => id !== sessionID))
+  return at === undefined ? rest : { ...rest, [sessionID]: at }
 }
 
 type DirectoryStoreSetter = (

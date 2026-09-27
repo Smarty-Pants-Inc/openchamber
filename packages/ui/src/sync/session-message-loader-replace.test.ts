@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test"
-import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
+import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { ChildStoreManager } from "./child-store"
 import { SessionMessageLoader } from "./session-message-loader"
+import { fakeMessagesClient } from "./session-message-loader-replace.fixture"
 
 // openchamber#278: a View only watch re-acquired after the page missed entries replaces the shown history with a fresh
 // newest page (its own cursor and completeness), through the real loader.
 const target = { directory: "/repo", sessionID: "session-a" }
-const record = (id: string, created: number) => ({
-  info: { id, sessionID: target.sessionID, role: "user", time: { created } } as Message,
-  parts: [{ id: `part_${id}`, messageID: id, sessionID: target.sessionID, type: "text", text: id }] as Part[],
+type MessageRecord = { info: Message; parts: Part[] }
+const record = (id: string, created: number): MessageRecord => ({
+  info: { id, sessionID: target.sessionID, role: "user", time: { created }, agent: "build", model: { providerID: "test", modelID: "test" } },
+  parts: [{ id: `part_${id}`, messageID: id, sessionID: target.sessionID, type: "text", text: id }],
 })
 /** A View only gateway: the persisted branch, newest `limit` before `before`, x-next-cursor while older ones remain. */
 function gateway(branch: string[]) {
@@ -16,11 +18,12 @@ function gateway(branch: string[]) {
     const end = input.before ? branch.indexOf(input.before) : branch.length
     const start = Math.max(0, end - (input.limit ?? branch.length))
     const cursor = start > 0 ? branch[start] : undefined
-    return { data: branch.slice(start, end).map((id) => record(id, Number(id.slice(1)))),
-      response: { headers: { get: (name: string) => name === "x-next-cursor" ? cursor ?? null : name === "x-smarty-read-only" ? "1" : null } } }
+    const headers = new Headers({ "x-smarty-read-only": "1" })
+    if (cursor !== undefined) headers.set("x-next-cursor", cursor)
+    return { data: branch.slice(start, end).map((id) => record(id, Number(id.slice(1)))), headers }
   }
   const childStores = new ChildStoreManager()
-  const loader = new SessionMessageLoader(childStores, { sdk: { session: { messages } } as unknown as OpencodeClient, runtimeKey: "runtime-a" })
+  const loader = new SessionMessageLoader(childStores, { sdk: fakeMessagesClient(messages), runtimeKey: "runtime-a" })
   const shown = () => (childStores.getChild(target.directory)?.getState().message[target.sessionID] ?? []).map((message) => message.id)
   const done = () => { loader.dispose(); childStores.disposeAll() }
   return { loader, shown, done }
@@ -61,16 +64,17 @@ test("a held replacement response, with an update and a removal applied meanwhil
     const at = [...branch]; reads.push(at) // What the gateway had when the read was served (its new baseline),
     if (hold) await hold // and the response reaches the page later.
     const end = input.before ? at.indexOf(input.before) : at.length, start = Math.max(0, end - (input.limit ?? at.length))
-    return { data: at.slice(start, end).map((id) => record(id, Number(id.slice(1)))),
-      response: { headers: { get: (name: string) => name === "x-next-cursor" ? (start > 0 ? at[start] : null) : name === "x-smarty-read-only" ? "1" : null } } }
+    const headers = new Headers({ "x-smarty-read-only": "1" })
+    if (start > 0) headers.set("x-next-cursor", at[start])
+    return { data: at.slice(start, end).map((id) => record(id, Number(id.slice(1)))), headers }
   }
   const childStores = new ChildStoreManager()
-  const loader = new SessionMessageLoader(childStores, { sdk: { session: { messages } } as unknown as OpencodeClient, runtimeKey: "runtime-a" })
+  const loader = new SessionMessageLoader(childStores, { sdk: fakeMessagesClient(messages), runtimeKey: "runtime-a" })
   const store = () => childStores.ensureChild(target.directory, { bootstrap: false })
   const shown = () => (store().getState().message[target.sessionID] ?? []).map((message) => message.id)
-  const live = (event: unknown) => { // The page's event path: a shallow draft, the real reducer, then the store.
+  const live = (event: Event) => { // The page's event path: a shallow draft, the real reducer, then the store.
     const state = store().getState(), draft = { ...state, message: { ...state.message }, part: { ...state.part } }
-    applyDirectoryEvent(draft as never, event as never); store().setState(draft)
+    applyDirectoryEvent(draft, event); store().setState(draft)
   }
   try {
     await loader.ensure(target, { reason: "navigation" }); expect(shown()).toEqual(["m0001", "m0002"])
@@ -78,9 +82,9 @@ test("a held replacement response, with an update and a removal applied meanwhil
     const replacing = loader.replaceHistory(target, [5]) // Its read serves [m0001, m0002] and is held.
     await new Promise((resolve) => setTimeout(resolve, 5))
     branch = ["m0001", "m0003"] // Pi moves the branch; the gateway publishes the change live:
-    live({ type: "message.updated", properties: { info: record("m0003", 3).info } })
-    live({ type: "message.part.updated", properties: { sessionID: target.sessionID, part: record("m0003", 3).parts[0] } })
-    live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
+    live({ id: "evt_updated_m0003", type: "message.updated", properties: { sessionID: target.sessionID, info: record("m0003", 3).info } })
+    live({ id: "evt_part_m0003", type: "message.part.updated", properties: { sessionID: target.sessionID, part: record("m0003", 3).parts[0], time: 3 } })
+    live({ id: "evt_removed_m0002", type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
     expect(shown()).toEqual(["m0001", "m0003"])
     hold = undefined; release(); await replacing // The older response arrives last.
     expect(shown()).toEqual(["m0001", "m0003"]) // The newer state survives,
@@ -95,23 +99,23 @@ test("a page that keeps moving never loses a live update or removal, and the rep
   const quietAfter = 6 // The first open, then four reads each overlapped by a live change, then quiet.
   let reads = 0
   const store = () => childStores.ensureChild(target.directory, { bootstrap: false })
-  const live = (event: unknown) => {
+  const live = (event: Event) => {
     const state = store().getState(), draft = { ...state, message: { ...state.message }, part: { ...state.part } }
-    applyDirectoryEvent(draft as never, event as never); store().setState(draft)
+    applyDirectoryEvent(draft, event); store().setState(draft)
   }
   const messages = async () => {
     const at = [...branch]; reads++
     if (reads > 1 && reads < 5) { // Pi commits while this read is in flight.
       const id = `m${String(reads + 1).padStart(4, "0")}`; branch.push(id)
-      live({ type: "message.updated", properties: { info: record(id, Number(id.slice(1))).info } })
+      live({ id: `evt_updated_${id}`, type: "message.updated", properties: { sessionID: target.sessionID, info: record(id, Number(id.slice(1))).info } })
     }
     if (reads === 5) { // This read (the old merge fallback's) still serves m0002, which is removed while it is in flight.
-      branch.splice(branch.indexOf("m0002"), 1); live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
+      branch.splice(branch.indexOf("m0002"), 1); live({ id: "evt_removed_m0002", type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
     }
-    return { data: at.map((id) => record(id, Number(id.slice(1)))), response: { headers: { get: (name: string) => name === "x-smarty-read-only" ? "1" : null } } }
+    return { data: at.map((id) => record(id, Number(id.slice(1)))), headers: new Headers({ "x-smarty-read-only": "1" }) }
   }
   const childStores = new ChildStoreManager()
-  const loader = new SessionMessageLoader(childStores, { sdk: { session: { messages } } as unknown as OpencodeClient, runtimeKey: "runtime-a" })
+  const loader = new SessionMessageLoader(childStores, { sdk: fakeMessagesClient(messages), runtimeKey: "runtime-a" })
   const shown = () => (store().getState().message[target.sessionID] ?? []).map((message) => message.id)
   try {
     await loader.ensure(target, { reason: "navigation" })

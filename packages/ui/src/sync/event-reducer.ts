@@ -18,6 +18,8 @@ import { dropSessionCaches } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { syncDebug } from "./debug"
 import { shouldSkipStaleSessionEvent } from "./session-event-freshness"
+import { changedResult, countMessageEvent, journalDecision } from "./view-only-events"
+export { sessionMessageEventCount } from "./view-only-events"
 import { mergeOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import {
   compareMessagesChronologically,
@@ -260,64 +262,22 @@ export function applyGlobalProject(state: GlobalState, project: Project): Global
 // Caller MUST pass a mutable copy of State (e.g. structuredClone or spread).
 // ---------------------------------------------------------------------------
 
-/** The revision of each session's last applied live message event, even one that changes nothing (such as removing a
- * message not shown): a View only history replacement read while it moved is older than the page (session-message-
- * loader.ts). Revisions only grow, and an evicted session reads as the highest evicted revision, so a session's value
- * never returns to an earlier one: eviction can only make a read stale, never a stale read clean. */
-const messageEvents = new Map<string, number>()
-let messageRevision = 0, evictedRevision = 0
-export const sessionMessageEventCount = (sessionID: string): number => messageEvents.get(sessionID) ?? evictedRevision
-/** #278 review 11: a View only session's events carry the journal state they come from (`properties.smartyAt`,
- * `<ino>:<rewrite>:<offset>`), and the directory's store keeps the state of its last history read that REPLACED what it
- * shows (`journalReads`, set by the loader). The store then shows exactly that state, and its older pages load from
- * later ones, so an event stamped at or before it on the same journal and rewrite is already reflected: dropped, whichever
- * socket, hub or buffer delayed it. Another journal or rewrite is never compared. An unstamped message event for the
- * session (an enrolled producer) retires the mark: from then on every event applies, as without stamps. */
-const parseJournalAt = (stamp: unknown) => {
-  const match = typeof stamp === "string" ? /^(\d+:[\w.-]+):(\d+)$/.exec(stamp) : null // `<ino>:<rewrite>` is compared whole.
-  return match ? { journal: match[1]!, offset: Number(match[2]) } : undefined
-}
-const messageSessionOf = (event: Event) => {
-  const properties = event.properties as { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
-  return properties.sessionID ?? properties.info?.sessionID ?? properties.part?.sessionID
-}
-/** Whether a message event is already reflected by the draft's last replacing read of its session; retires a mark that an
- * unstamped event for the session makes unsafe. */
-const reflectedByRead = (draft: State, event: Event): boolean => {
-  if (!event.type.startsWith("message.")) return false
-  const sessionID = messageSessionOf(event), mark = sessionID ? draft.journalReads?.[sessionID] : undefined
-  if (!sessionID || mark === undefined) return false
-  const at = parseJournalAt((event.properties as { smartyAt?: unknown }).smartyAt), read = parseJournalAt(mark)
-  if (!at) { const { [sessionID]: _, ...rest } = draft.journalReads!; draft.journalReads = rest; return false }
-  return Boolean(read && read.journal === at.journal && at.offset <= read.offset)
-}
-const countMessageEvent = (event: Event) => {
-  if (!event.type.startsWith("message.")) return
-  const properties = event.properties as { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
-  const sessionID = properties.sessionID ?? properties.info?.sessionID ?? properties.part?.sessionID
-  if (!sessionID) return
-  messageEvents.delete(sessionID); messageEvents.set(sessionID, ++messageRevision) // Most recent last.
-  if (messageEvents.size > 1024) {
-    const [oldest, revision] = messageEvents.entries().next().value!
-    messageEvents.delete(oldest); evictedRevision = Math.max(evictedRevision, revision)
-  }
-}
-
 type DirectoryEventCallbacks = {
   onRefresh?: (directory: string) => void
   onLoadLsp?: () => void
   onSetSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
 }
+/** A View only event already reflected by the history read is dropped, neither applied nor counted (view-only-events.ts). */
 export function applyDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryEventCallbacks): DirectoryEventResult {
-  const marks = draft.journalReads
-  if (reflectedByRead(draft, event)) return false // Older than the history read (#278 r11): neither applied nor counted.
+  const journal = journalDecision(draft.journalReads, event)
+  if (journal.drop) return false
+  const retired = journal.marks !== draft.journalReads
+  draft.journalReads = journal.marks
+  countMessageEvent(event)
   const result = reduceDirectoryEvent(draft, event, callbacks)
-  if (draft.journalReads === marks) return result
-  // A mark retired by an unstamped event is a change even when the event itself changed nothing: the store keeps it.
-  return typeof result === "boolean" ? true : { ...result, changed: true }
+  return retired ? changedResult(result) : result
 }
 function reduceDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryEventCallbacks): DirectoryEventResult {
-  countMessageEvent(event)
   const markSessionEvent = (sessionID: string, deleted: boolean) => {
     const revision = (draft.sessionRevision ?? 0) + 1
     draft.sessionRevision = revision

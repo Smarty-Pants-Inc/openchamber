@@ -80,7 +80,6 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
-import { useViewOnlyWatch, viewOnlyWatchVisible } from '@/sync/view-only-watch';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -676,8 +675,6 @@ type ChatContainerProps = {
      * row — issue #2903).
      */
     messagesEnabled?: boolean;
-    /** A full-screen surface covers this chat (a phone's Settings): it holds no View only watch meanwhile. */
-    covered?: boolean;
     autoOpenDraft?: boolean;
     readOnly?: boolean;
     initialAllowPromptingSubagentSessions?: boolean;
@@ -686,7 +683,6 @@ type ChatContainerProps = {
 export const ChatContainer: React.FC<ChatContainerProps> = ({
     active = true,
     messagesEnabled: messagesEnabledProp,
-    covered = false,
     autoOpenDraft = true,
     readOnly = false,
     initialAllowPromptingSubagentSessions,
@@ -817,10 +813,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         currentSessionId ?? '',
         effectiveSessionDirectory,
     );
-    // A View only session's live tail is held on the gateway only while this view shows it (smarty-code#455).
-    // Only a visible view holds it: hidden (a background tab, another panel) or covered full-screen, none.
-    useViewOnlyWatch(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly === true,
-        viewOnlyWatchVisible({ active, messagesEnabled, covered }));
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
 
     React.useEffect(() => {

@@ -36,7 +36,7 @@ function gateway(options: { watch?: boolean; baseline?: boolean; failFirst?: num
 afterEach(() => { setViewOnlyWatchDeps(); });
 
 test('opening and closing 70 View only session views holds exactly one watch at a time, and none after', async () => {
-  const g = gateway(); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway(); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   let release = () => {};
   for (let i = 0; i < 70; i++) { // The page switches from one View only session to the next.
     release(); release = holdViewOnlyWatch(`session-${i}`, '/project');
@@ -51,7 +51,7 @@ test('opening and closing 70 View only session views holds exactly one watch at 
 });
 
 test('two views of one session share one stream until the last closes; a release is idempotent', async () => {
-  const g = gateway(); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway(); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const first = holdViewOnlyWatch('s', '/p'), second = holdViewOnlyWatch('s', '/p');
   await sleep(5); expect([g.open(), g.watches().length]).toEqual([1, 1]);
   first(); first(); await sleep(5); expect(g.open()).toBe(1); // The other view still shows it.
@@ -59,19 +59,19 @@ test('two views of one session share one stream until the last closes; a release
 });
 
 test('a gateway that does not advertise readOnlyWatch is never asked to watch', async () => {
-  const g = gateway({ watch: false }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway({ watch: false }); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const release = holdViewOnlyWatch('s', '/old'); await sleep(10);
   expect(g.watches()).toHaveLength(0); release();
 });
 
 test('a gateway without readOnlyWatchResume (a release drops its tail baseline) is never asked to watch', async () => {
-  const g = gateway({ baseline: false }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway({ baseline: false }); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const release = holdViewOnlyWatch('s', '/old-gateway'); await sleep(10);
   expect(g.watches()).toHaveLength(0); release();
 });
 
 test('a 503 (the catalog was briefly unavailable) is retried until the watch is held', async () => {
-  const g = gateway({ failFirst: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway({ failFirst: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const release = holdViewOnlyWatch('s', '/p');
   for (let i = 0; i < 150 && g.open() === 0; i++) await sleep(10); // The first retry waits one second.
   expect([g.watches().length, g.open()]).toEqual([2, 1]);
@@ -79,7 +79,7 @@ test('a 503 (the catalog was briefly unavailable) is retried until the watch is 
 });
 
 test('a failed health read is retried while the view is shown, then the watch is held', async () => {
-  const g = gateway({ healthFails: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway({ healthFails: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const release = holdViewOnlyWatch('s', '/p');
   for (let i = 0; i < 150 && g.open() === 0; i++) await sleep(10); // The retry waits one second.
   expect([g.calls.filter((call) => call.path === '/api/global/health').length, g.open()]).toEqual([2, 1]);
@@ -89,7 +89,7 @@ test('a failed health read is retried while the view is shown, then the watch is
 test('a server switch asks the new server again, and a watch begun on the old one stops', async () => {
   const oldServer = gateway(), newServer = gateway({ watch: false });
   let server = 'A';
-  const fetch = ((path: string, init: never) => (server === 'A' ? oldServer : newServer).fetch(path, init)) as never;
+  const fetch = (path: string, init: Parameters<typeof oldServer.fetch>[1]) => (server === 'A' ? oldServer : newServer).fetch(path, init);
   setViewOnlyWatchDeps({ fetch, runtime: () => server });
   const first = holdViewOnlyWatch('s', '/p'); await sleep(10); expect(oldServer.open()).toBe(1);
   server = 'B'; first(); // The app remounts on a server switch: the old view releases,
@@ -99,7 +99,7 @@ test('a server switch asks the new server again, and a watch begun on the old on
 });
 
 test('retries leave no abort listeners behind', async () => {
-  const g = gateway({ failFirst: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A' });
+  const g = gateway({ failFirst: 1 }); setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A' });
   const added = AbortSignal.prototype.addEventListener, removed = AbortSignal.prototype.removeEventListener;
   let live = 0;
   AbortSignal.prototype.addEventListener = function (...args: Parameters<AbortSignal['addEventListener']>) { live++; return added.apply(this, args); };
@@ -116,7 +116,7 @@ test('retries leave no abort listeners behind', async () => {
 test('hidden, then entries committed, then shown: the entries appear; a dropped watch catches up the same way', async () => {
   const g = gateway(), journal = ['a'], transcript = new Set<string>(['a']), order: string[] = [];
   const catchUp = async () => { order.push(`catch-up after ${g.open()} open`); for (const entry of journal) transcript.add(entry); };
-  setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A', catchUp });
+  setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A', catchUp });
   let release = holdViewOnlyWatch('s', '/p'); await sleep(10); // Shown; its first watch reads nothing extra.
   expect(order).toEqual([]);
   release(); await sleep(5); // Hidden: released.
@@ -133,13 +133,13 @@ test('hidden, then entries committed, then shown: the entries appear; a dropped 
 test('a re-acquired watch the gateway could not resume (evicted or expired handoff) is told not resumed; its replacing read sets the version older events are dropped by (view-only-journal-at.test.ts)', async () => {
   const g = gateway({ resumed: false });
   const reads: boolean[] = [];
-  setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { reads.push(resumed); } });
+  setViewOnlyWatchDeps({ fetch: g.fetch, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { reads.push(resumed); } });
   const first = holdViewOnlyWatch('fresh', '/p'); await sleep(10); first(); await sleep(5);
   const again = holdViewOnlyWatch('fresh', '/p'); await sleep(10);
   expect(reads).toEqual([false]); // The catch-up is told the watch did not resume.
   again();
   const kept = gateway({ resumed: true }), told: boolean[] = [];
-  setViewOnlyWatchDeps({ fetch: kept.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
+  setViewOnlyWatchDeps({ fetch: kept.fetch, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
   const a = holdViewOnlyWatch('kept', '/p'); await sleep(10); a(); await sleep(5);
   const b = holdViewOnlyWatch('kept', '/p'); await sleep(10);
   expect(told).toEqual([true]); b();
@@ -152,7 +152,7 @@ test('a gateway that says nothing about resuming counts as not resumed, within a
     return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
   };
   const told: boolean[] = [];
-  setViewOnlyWatchDeps({ fetch: silent as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
+  setViewOnlyWatchDeps({ fetch: silent, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
   const a = holdViewOnlyWatch('silent', '/p'); await sleep(2_100); a(); await sleep(5);
   const b = holdViewOnlyWatch('silent', '/p'); await sleep(2_100);
   expect(told).toEqual([false]); b();

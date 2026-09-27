@@ -14,8 +14,8 @@ test('only a shown, subscribed, uncovered view is visible for its watch', () => 
 });
 
 test('the shells feed their real visibility into the watch', () => {
-  const chat = source('../components/chat/ChatContainer.tsx');
-  expect(chat).toContain('viewOnlyWatchVisible({ active, messagesEnabled, covered })');
+  const chat = source('../components/views/ChatView.tsx');
+  expect(chat).toContain('viewOnlyWatchVisible({ active, messagesEnabled: messagesEnabled ?? active, covered: covered === true })');
   const app = source('../App.tsx'); // The embedded tab: history always on, visibility from its handshake.
   expect(/<ChatView\s+active=\{embeddedBackgroundWorkEnabled\}[\s\S]*?messagesEnabled=\{true\}/.test(app)).toBe(true);
   const mobile = source('../apps/MobileApp.tsx'); // A phone's full-screen surfaces, the Plan included.

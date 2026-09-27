@@ -45,10 +45,10 @@ test("round 7: an old-branch event applied after the recovery commits is undone 
     await s.loader.replaceHistory(target, [5]) // The recovery reads and commits the new branch first,
     expect(s.shown()).toEqual(["m0001", "m0003"])
     const late = { ...record("m0002").info }
-    await s.live({ type: "message.updated", properties: { sessionID: target.sessionID, info: late } }) // then a late frame,
+    await s.live({ id: "evt_updated_m0002", type: "message.updated", properties: { sessionID: target.sessionID, info: late } }) // then a late frame,
     expect(s.shown()).toEqual(["m0001", "m0002", "m0003"])
     // and the tick of a gateway whose read left its baseline at the old branch (readOnlyReadBaseline) removes it.
-    await s.live({ type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
+    await s.live({ id: "evt_removed_m0002", type: "message.removed", properties: { sessionID: target.sessionID, messageID: "m0002" } })
     expect(s.shown()).toEqual(["m0001", "m0003"])
   } finally { s.done() }
 })
