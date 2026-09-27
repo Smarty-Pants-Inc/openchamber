@@ -20,7 +20,7 @@ watchSwitches();
 /**
  * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
  * sees it without the person telling anyone (smarty-code#536 item 3). The report carries the error as shown, redacted
- * (no query strings, tokens, addresses or quoted text; the route as a template), never the person's content. One report per
+ * (codes and fixed text; no route; anything free-form redacted), never the person's content. One report per
  * diagnostic (kind, session, message) per 30 s. Reporting never fails the page.
  */
 /**
@@ -45,9 +45,6 @@ export function redactClientError(text: string): string {
     .replace(/(?<![/\w.-])[^\s"'<>()/]+\.[A-Za-z0-9]{1,8}\b(?!\/)/g, '<file>')
     .slice(0, 300);
 }
-/** Path segments that name a thing (ids, tokens, encoded paths) become ':id'. */
-const routeTemplate = (path: string) => path.split('/')
-  .map(segment => (/\d/.test(segment) || segment.length > 20 ? ':id' : segment)).join('/').slice(0, 300);
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
   watchSwitches();
@@ -60,11 +57,10 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
   if (last !== undefined && now - last < REPORT_INTERVAL_MS) return;
   if (lastReport.size > 200) lastReport.clear();
   lastReport.set(key, now);
-  const route = typeof location === 'undefined' ? undefined : routeTemplate(location.pathname);
   const body = {
     kind: report.kind.slice(0, 64),
     ...(message ? { message } : {}),
-    ...(route ? { route } : {}),
+    // No route: a page path can name the person's own things; the session says where.
     ...(report.sessionID ? { sessionID: report.sessionID.slice(0, 200) } : {}),
     ...(Number.isInteger(report.status) && report.status! >= 0 && report.status! <= 999 ? { status: report.status } : {}),
     at: now,

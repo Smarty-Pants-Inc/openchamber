@@ -23,7 +23,7 @@ test('a session whose messages cannot be loaded is reported once, with its sessi
   expect(typeof body.message).toBe('string');
   expect(JSON.stringify(body).includes('merger')).toBe(false);
   expect(typeof body.at).toBe('number');
-  for (const key of Object.keys(body)) expect(['at', 'kind', 'message', 'route', 'sessionID', 'status']).toContain(key); // No content.
+  for (const key of Object.keys(body)) expect(['at', 'kind', 'message', 'sessionID', 'status']).toContain(key); // No content, no route.
   // The same failure again within 30 s: shown again, not reported again.
   await fixture.loader.ensure(target, { reason: 'navigation', force: true });
   expect(fixture.loader.getSnapshot(target).status).toBe('error');
@@ -51,7 +51,7 @@ test('an error toast is reported without its text (it can hold the person\'s con
   expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
 });
 
-test('a report is redacted: no query strings, tokens or addresses, and the route is a template', async () => {
+test('a report is redacted: no query strings, tokens, addresses, quoted text, file names or paths', async () => {
   const { redactClientError } = await import('@/lib/clientErrorReport');
   expect(redactClientError('Failed https://code.example/api/x?token=abc for paul@example.com with sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ123'))
     .toBe('Failed https://code.example/api/x for <email> with <redacted>');
