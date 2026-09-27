@@ -1,0 +1,53 @@
+openchamber#306 one-recording proof (A frozen Pi, B pending-detail retry, C /btw) on the isolated candidate stack p306 (web 43295, gateway 43296, Herdr wM6; wM6:p1 untouched).
+Sign-in: the reviewed human-auth fixture (integration/direct-ordinary/human-fixture.ts), NOT Google. The normal-sign-in gate is smarty-code#592.
+UI: openchamber#306 head 4d6302d1 merged with #301 7ada23cf as 9d795a98; dist built on the m4 --light slot, served from /tmp/oc-dist-306.
+Gateway: smarty-code#605 e82e5de6 (carries smarty.pi-timed-out) merged with #552 84cffb2c (report endpoint) as ab765758 (/tmp/sc-605c).
+Script: /tmp/sc-cand/integration/candidate/proof-306-onerec.ts (uncommitted; derived from proof-306-frozen2.ts), run under xvfb-run.
+Proof video: proof.webm = ONE Playwright context (fresh profile), parts A, B and C, 12:28:59Z -> 12:31:34Z. proof.gif + proof-sheet.png from smarty-video-proof gif.
+Other videos (setup only, not proof): setup.webm (second setup; the first setup's video was overwritten by the same name), sigstop-observe.webm.
+Evidence: steps.json (all steps; every /message, detail and fork request with start/end/status/body), report-lines.txt, gateway-log-during-proof.txt, NN-*.png per step.
+
+Setup
+ 1st disposable session 01a0e2d4-3580-764e-ab6b-88b69ab0e2c6, Pi pid 1953169, pane wM6:p3 (New session + 'Reply with the word ready.', reply shown).
+ 2nd disposable session 01a0e2d6-bf1c-7298-bace-54db79fdf65c, Pi pid 1988048, pane wM6:p4 (same). Used for A-C.
+
+SIGSTOP attempt (session 01a0e2d4, pid 1953169) - FAILED as a freeze method, same as the previous run
+ 12:26:20.669 kill -STOP 1953169. Within 5 s: pid state Tl, the pane's foreground process group became bash (1952978), Herdr pane agent '-'/unknown,
+ /api/session no longer lists the session, sidebar rows 0 for 40 s (02-sigstop-observe-sidebar.png). Gateway log:
+   {"type":"smarty.ordinary-enrollment-dropped","id":"01a0e2d4-...","reason":"no matching current Herdr row"}
+   {"type":"smarty.ordinary-enrollment-unverified","id":"01a0e2d4-...","pid":1953169,"reason":"Ordinary transport timed out; no automatic replay"}
+ 12:27:23.528 kill -CONT 1953169: pid state Sl (no '+': no longer the terminal's foreground), Herdr still shows no agent, session NOT back in /api/session
+ after 64 s (polled every 2 s). So a new disposable session was made (01a0e2d6) and frozen with the cgroup freezer instead.
+Freezer: busctl StartTransientUnit p306-onerec-pi.scope PIDs=[1988048] (Pi alone; cgroup.procs = 1988048), systemctl --user freeze/thaw.
+
+A. Frozen Pi - PASS
+ 12:28:59.364 freeze (FreezerState=frozen). Fresh page, session clicked in the sidebar 12:29:02.72.
+ Exactly ONE /message for this session: 12:29:02.691 -> 12:29:14.703, 503, 12012 ms, data.code smarty.pi-timed-out
+   (body message 'Pi unavailable; mutation outcome may be unknown. Do not retry automatically.'). It started with the click (sidebar prefetch op;
+   report kind session-messages.prefetch.timeout). 'Session could not be loaded' + try again + red composer line 159 ms after it ended (12.1 s after the click).
+ Other /message from the page before the idle window: 2, both other sessions' sidebar prefetch (01a0e2cc, 01a0e2ca), 200 in ~700 ms.
+ 'keep this text' typed, kept (07-A-typed-kept.png), still there after 60 s.
+ 60 s idle 12:29:17.220 -> 12:30:17.231: ALL /message requests from the page 3 -> 3 (none started).
+ 12:30:17.306 thaw; 12:30:20.349 Try again: /message 200 in 19 ms, 'ready' shown, error and red line gone, composer still 'keep this text'.
+
+B. Pending-detail retry - PASS. The detail GET was HELD BY THE BROWSER (page.route on GET /api/session/<id>, released by the script), not by the gateway.
+ 12:30:22.052 freeze again; page reloaded (same page, same video); the session reopened from the URL.
+ Detail GET 12:30:23.587 held -> released 12:30:50.243 (200, 26656 ms). History /message 12:30:23.550 -> 12:30:36.027, 503, 12477 ms, smarty.pi-timed-out.
+ Error shown ~12:30:36.5 while detail still pending. Try again clicked 12:30:36.572, detail still pending (1).
+ New /message started 12:30:36.614 = 42 ms after the click, detail still pending; it ended 12:30:48.626, 503, 12012 ms. Exactly 1 new /message.
+ Then the held detail was released (200); error stayed (Pi still frozen).
+
+C. /btw - NOT TESTABLE on this gateway (the panel's load-error state could not be reached); record, not a pass.
+ /btw is opened by typing '/btw <question>' in the composer (ChatInput -> startBtwSession in lib/btw.ts, which FORKS the session).
+ Frozen: '/btw what is two plus two?' + Enter -> POST /api/session/01a0e2d6-.../fork 12:30:54.742 -> 12:30:54.766, 501, body
+   {"name":"UnsupportedOperationError","data":{"message":"This OpenCode operation is not supported by the Pi gateway","isRetryable":false}}
+   Toast 'session.fork failed (501): ...'. No btw panel, 'Starting btw session…' never shown, composer text restored. (16-C-btw-after-3s.png)
+ Thaw 12:31:15.635, main Try again: /message 200, 'ready' shown.
+ Thawed, same /btw: same POST fork 501 in 15 ms (12:31:21.781): the refusal is the gateway's (ordinary sessions have no fork), not the freeze.
+
+Report lines (report-lines.txt): 3, all 503 for 01a0e2d6: session-messages.prefetch.timeout (A open), session-messages.initial.timeout (B open),
+ session-messages.initial.timeout (B retry). No report line for the fork 501.
+Gateway log during the proof: 3 slow /session/:id/message 503 (12002, 12002, 12005 ms) = the page's three; 2 slow GET /session/creation 200 (~12 s,
+ while frozen); one slow GET /session/:id 404 10939 ms that is NOT from this page (all page detail GETs were 200; source unknown, log lines carry no time).
+
+Afterwards: scope thawed (FreezerState=running), panes wM6:p3 and wM6:p4 closed (both Pis gone, scope inactive); wM6:p1 and the stack left running.

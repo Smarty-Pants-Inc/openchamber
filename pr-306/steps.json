@@ -1,0 +1,1610 @@
+{
+ "signIn": "human-auth fixture session (integration/direct-ordinary/human-fixture.ts), not Google",
+ "steps": [
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:48.828Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:50.143Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:50.779Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:50.938Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:58.715Z",
+   "name": "reply shown",
+   "sessionID": "01a0e2d4-3580-764e-ab6b-88b69ab0e2c6",
+   "url": "http://127.0.0.1:43295/?session=01a0e2d4-3580-764e-ab6b-88b69ab0e2c6"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:58.767Z",
+   "name": "screenshot",
+   "file": "01-setup-reply.png"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:25:58.767Z",
+   "name": "context done"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:26:21.930Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:26:23.101Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:26:23.641Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:26:23.891Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:27:03.302Z",
+   "name": "sidebar rows",
+   "seen": [
+    {
+     "at": "2026-09-27T12:26:23.108Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:28.167Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:33.203Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:38.217Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:43.231Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:48.247Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:53.265Z",
+     "rows": 0
+    },
+    {
+     "at": "2026-09-27T12:26:58.278Z",
+     "rows": 0
+    }
+   ]
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:27:03.394Z",
+   "name": "screenshot",
+   "file": "02-sigstop-observe-sidebar.png"
+  },
+  {
+   "scene": "sigstop-observe",
+   "at": "2026-09-27T12:27:03.394Z",
+   "name": "context done"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:33.653Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:35.289Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:35.906Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:35.960Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:45.056Z",
+   "name": "reply shown",
+   "sessionID": "01a0e2d6-bf1c-7298-bace-54db79fdf65c",
+   "url": "http://127.0.0.1:43295/?session=01a0e2d6-bf1c-7298-bace-54db79fdf65c"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:45.118Z",
+   "name": "screenshot",
+   "file": "03-setup-reply.png"
+  },
+  {
+   "scene": "setup",
+   "at": "2026-09-27T12:28:45.118Z",
+   "name": "context done"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:28:59.364Z",
+   "name": "systemctl --user freeze p306-onerec-pi.scope",
+   "freezer": "FreezerState=frozen"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:28:59.501Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:29:00.578Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:29:01.176Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:29:01.395Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:02.622Z",
+   "name": "screenshot",
+   "file": "04-A-loaded-frozen.png"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:02.721Z",
+   "name": "session clicked in sidebar",
+   "url": "http://127.0.0.1:43295/?session=01a0e2d6-bf1c-7298-bace-54db79fdf65c",
+   "messageRequestsBeforeClick": 0
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:05.277Z",
+   "name": "screenshot",
+   "file": "05-A-loading.png"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:29:14.702Z",
+   "console": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:14.883Z",
+   "name": "error shown",
+   "secondsAfterOpen": 12.141,
+   "msAfterHistoryEnd": 159,
+   "tryAgainButtons": 2,
+   "historyCount": 1,
+   "history": [
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:29:02.691Z",
+     "startMs": 1790512142691,
+     "end": "2026-09-27T12:29:14.703Z",
+     "status": 503,
+     "endMs": 1790512154703,
+     "durationMs": 12012,
+     "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+    }
+   ],
+   "allMessageRequests": [
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:29:02.691Z",
+     "startMs": 1790512142691,
+     "end": "2026-09-27T12:29:14.703Z",
+     "status": 503,
+     "endMs": 1790512154703,
+     "durationMs": 12012,
+     "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+    },
+    {
+     "kind": "message(01a0e2cc-2fab-73a2-b145-04c9343a74b4)",
+     "method": "GET",
+     "path": "/api/session/01a0e2cc-2fab-73a2-b145-04c9343a74b4/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:29:03.116Z",
+     "startMs": 1790512143116,
+     "end": "2026-09-27T12:29:03.812Z",
+     "status": 200,
+     "endMs": 1790512143812,
+     "durationMs": 696
+    },
+    {
+     "kind": "message(01a0e2ca-6899-70b2-815f-b5ad1112ee45)",
+     "method": "GET",
+     "path": "/api/session/01a0e2ca-6899-70b2-815f-b5ad1112ee45/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:29:03.116Z",
+     "startMs": 1790512143116,
+     "end": "2026-09-27T12:29:03.814Z",
+     "status": 200,
+     "endMs": 1790512143814,
+     "durationMs": 698
+    }
+   ],
+   "detail": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:29:02.722Z",
+     "startMs": 1790512142722,
+     "end": "2026-09-27T12:29:02.768Z",
+     "status": 200,
+     "endMs": 1790512142768,
+     "durationMs": 46
+    }
+   ]
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:14.924Z",
+   "name": "screenshot",
+   "file": "06-A-error.png"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:17.185Z",
+   "name": "typed into composer",
+   "composer": "keep this text",
+   "composerLine": 1
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:29:17.220Z",
+   "name": "screenshot",
+   "file": "07-A-typed-kept.png"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:17.231Z",
+   "name": "60 s idle",
+   "since": "2026-09-27T12:29:17.220Z",
+   "messageRequestsBefore": 3,
+   "messageRequestsAfter": 3,
+   "startedInWindow": [],
+   "composer": "keep this text"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:17.282Z",
+   "name": "screenshot",
+   "file": "08-A-after-60s.png"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:17.306Z",
+   "name": "systemctl --user thaw p306-onerec-pi.scope",
+   "freezer": "FreezerState=running"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:20.349Z",
+   "name": "try again clicked (thawed)"
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:21.995Z",
+   "name": "transcript recovered",
+   "msAfterClick": 1654,
+   "errorShown": 0,
+   "composerLine": 0,
+   "composer": "keep this text",
+   "requestAfterClick": [
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:30:20.349Z",
+     "startMs": 1790512220349,
+     "end": "2026-09-27T12:30:20.368Z",
+     "status": 200,
+     "endMs": 1790512220368,
+     "durationMs": 19
+    }
+   ]
+  },
+  {
+   "scene": "A",
+   "at": "2026-09-27T12:30:22.044Z",
+   "name": "screenshot",
+   "file": "09-A-recovered.png"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:22.052Z",
+   "name": "systemctl --user freeze p306-onerec-pi.scope",
+   "freezer": "FreezerState=frozen"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:22.272Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:23.221Z",
+   "console": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:23.587Z",
+   "name": "detail GET held by the browser"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:24.294Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:24.348Z",
+   "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:24.802Z",
+   "name": "session reopened from the URL on reload",
+   "url": "http://127.0.0.1:43295/?session=01a0e2d6-bf1c-7298-bace-54db79fdf65c"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:27.397Z",
+   "name": "screenshot",
+   "file": "10-B-loading-detail-held.png"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:36.026Z",
+   "console": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:36.519Z",
+   "name": "history error shown while detail pending",
+   "secondsAfterOpen": 11.717,
+   "held": 1,
+   "detail": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:20.348Z",
+     "startMs": 1790512220348,
+     "end": "2026-09-27T12:30:20.367Z",
+     "status": 200,
+     "endMs": 1790512220367,
+     "durationMs": 19
+    },
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:23.587Z",
+     "startMs": 1790512223587,
+     "end": "pending",
+     "status": null
+    }
+   ],
+   "history": [
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:30:20.349Z",
+     "startMs": 1790512220349,
+     "end": "2026-09-27T12:30:20.368Z",
+     "status": 200,
+     "endMs": 1790512220368,
+     "durationMs": 19
+    },
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:30:23.550Z",
+     "startMs": 1790512223550,
+     "end": "2026-09-27T12:30:36.027Z",
+     "status": 503,
+     "endMs": 1790512236027,
+     "durationMs": 12477,
+     "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+    }
+   ]
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:36.572Z",
+   "name": "screenshot",
+   "file": "11-B-error-detail-pending.png"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:36.572Z",
+   "name": "try again clicked",
+   "detailPendingAtClick": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:23.587Z",
+     "startMs": 1790512223587,
+     "end": "pending",
+     "status": null
+    }
+   ],
+   "historyBefore": 3
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:36.615Z",
+   "name": "new history request at click",
+   "msAfterClick": 42,
+   "request": {
+    "kind": "history",
+    "method": "GET",
+    "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+    "start": "2026-09-27T12:30:36.614Z",
+    "startMs": 1790512236614,
+    "end": "pending",
+    "status": null
+   },
+   "detailStillPending": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:23.587Z",
+     "startMs": 1790512223587,
+     "end": "pending",
+     "status": null
+    }
+   ]
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:36.676Z",
+   "name": "screenshot",
+   "file": "12-B-clicked.png"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:48.625Z",
+   "console": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:50.237Z",
+   "name": "retry settled",
+   "request": {
+    "kind": "history",
+    "method": "GET",
+    "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+    "start": "2026-09-27T12:30:36.614Z",
+    "startMs": 1790512236614,
+    "end": "2026-09-27T12:30:48.626Z",
+    "status": 503,
+    "endMs": 1790512248626,
+    "durationMs": 12012,
+    "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+   },
+   "newHistoryAfterClick": 1,
+   "detailStillPending": 1,
+   "errorShown": 1
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:50.237Z",
+   "name": "held detail released",
+   "count": 1
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:52.238Z",
+   "name": "after release",
+   "detail": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:20.348Z",
+     "startMs": 1790512220348,
+     "end": "2026-09-27T12:30:20.367Z",
+     "status": 200,
+     "endMs": 1790512220367,
+     "durationMs": 19
+    },
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:23.587Z",
+     "startMs": 1790512223587,
+     "end": "2026-09-27T12:30:50.243Z",
+     "status": 200,
+     "endMs": 1790512250243,
+     "durationMs": 26656
+    }
+   ]
+  },
+  {
+   "scene": "B",
+   "at": "2026-09-27T12:30:52.321Z",
+   "name": "screenshot",
+   "file": "13-B-released.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:30:53.450Z",
+   "name": "screenshot",
+   "file": "14-C-btw-autocomplete.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:30:54.733Z",
+   "name": "screenshot",
+   "file": "15-C-btw-typed.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:30:54.744Z",
+   "name": "/btw submitted (frozen)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:30:54.766Z",
+   "console": "Failed to load resource: the server responded with a status of 501 (Not Implemented)"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:30:57.978Z",
+   "name": "screenshot",
+   "file": "16-C-btw-after-3s.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:15.566Z",
+   "name": "/btw outcome (frozen)",
+   "seen": [
+    {
+     "t": 1013,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 2076,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 3104,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 4246,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 5278,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 6303,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 7328,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 8365,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 9391,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 10440,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 11476,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 12518,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 13540,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 14563,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 15619,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 16650,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 17672,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 18701,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 19763,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    },
+    {
+     "t": 20802,
+     "starting": 0,
+     "loadErr": 1,
+     "toasts": []
+    }
+   ],
+   "requests": [
+    {
+     "kind": "POST fork",
+     "method": "POST",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/fork?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:30:54.742Z",
+     "startMs": 1790512254742,
+     "end": "2026-09-27T12:30:54.766Z",
+     "status": 501,
+     "postData": "{}",
+     "endMs": 1790512254766,
+     "durationMs": 24,
+     "body": "{\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}"
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:30:58.069Z",
+     "startMs": 1790512258069,
+     "end": "2026-09-27T12:30:58.076Z",
+     "status": 200,
+     "endMs": 1790512258076,
+     "durationMs": 7
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:03.070Z",
+     "startMs": 1790512263070,
+     "end": "2026-09-27T12:31:03.081Z",
+     "status": 200,
+     "endMs": 1790512263081,
+     "durationMs": 11
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:08.070Z",
+     "startMs": 1790512268070,
+     "end": "2026-09-27T12:31:08.076Z",
+     "status": 200,
+     "endMs": 1790512268076,
+     "durationMs": 6
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:08.167Z",
+     "startMs": 1790512268167,
+     "end": "2026-09-27T12:31:08.188Z",
+     "status": 200,
+     "endMs": 1790512268188,
+     "durationMs": 21
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:13.070Z",
+     "startMs": 1790512273070,
+     "end": "2026-09-27T12:31:13.082Z",
+     "status": 200,
+     "endMs": 1790512273082,
+     "durationMs": 12
+    }
+   ],
+   "composer": "/btw what is two plus two?"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:15.625Z",
+   "name": "screenshot",
+   "file": "17-C-btw-frozen-outcome.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:15.635Z",
+   "name": "systemctl --user thaw p306-onerec-pi.scope",
+   "freezer": "FreezerState=running"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:18.649Z",
+   "name": "try again buttons after thaw",
+   "count": 2
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:20.339Z",
+   "name": "after thaw + try again",
+   "readyShown": 1,
+   "errorShown": 0,
+   "requests": [
+    {
+     "kind": "detail",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:31:18.700Z",
+     "startMs": 1790512278700,
+     "end": "2026-09-27T12:31:18.731Z",
+     "status": 200,
+     "endMs": 1790512278731,
+     "durationMs": 31
+    },
+    {
+     "kind": "history",
+     "method": "GET",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+     "start": "2026-09-27T12:31:18.701Z",
+     "startMs": 1790512278701,
+     "end": "2026-09-27T12:31:18.731Z",
+     "status": 200,
+     "endMs": 1790512278731,
+     "durationMs": 30
+    }
+   ]
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:20.392Z",
+   "name": "screenshot",
+   "file": "18-C-thawed-recovered.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:21.782Z",
+   "name": "/btw submitted (thawed)"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:31:21.790Z",
+   "console": "Failed to load resource: the server responded with a status of 501 (Not Implemented)"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:23.977Z",
+   "name": "screenshot",
+   "file": "19-C-btw-thawed-2s.png"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:34.273Z",
+   "name": "/btw outcome (thawed)",
+   "seen": [
+    {
+     "t": 1014,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 2072,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 3210,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": [
+      "session.fork failed (501): {\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}\nCopy"
+     ]
+    },
+    {
+     "t": 4241,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 5276,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 6300,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 7322,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 8352,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 9374,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 10409,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 11435,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    },
+    {
+     "t": 12460,
+     "starting": 0,
+     "loadErr": 0,
+     "toasts": []
+    }
+   ],
+   "requests": [
+    {
+     "kind": "POST fork",
+     "method": "POST",
+     "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/fork?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+     "start": "2026-09-27T12:31:21.781Z",
+     "startMs": 1790512281781,
+     "end": "2026-09-27T12:31:21.796Z",
+     "status": 501,
+     "postData": "{\"messageID\":\"a864d1c8\"}",
+     "endMs": 1790512281796,
+     "durationMs": 15,
+     "body": "{\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}"
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:23.070Z",
+     "startMs": 1790512283070,
+     "end": "2026-09-27T12:31:23.080Z",
+     "status": 200,
+     "endMs": 1790512283080,
+     "durationMs": 10
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:28.069Z",
+     "startMs": 1790512288069,
+     "end": "2026-09-27T12:31:28.078Z",
+     "status": 200,
+     "endMs": 1790512288078,
+     "durationMs": 9
+    },
+    {
+     "kind": "detail(status)",
+     "method": "GET",
+     "path": "/api/session/status",
+     "start": "2026-09-27T12:31:33.070Z",
+     "startMs": 1790512293070,
+     "end": "2026-09-27T12:31:33.077Z",
+     "status": 200,
+     "endMs": 1790512293077,
+     "durationMs": 7
+    }
+   ],
+   "composer": "/btw what is two plus two?"
+  },
+  {
+   "scene": "C",
+   "at": "2026-09-27T12:31:34.321Z",
+   "name": "screenshot",
+   "file": "20-C-btw-thawed-outcome.png"
+  },
+  {
+   "scene": "proof",
+   "at": "2026-09-27T12:31:34.321Z",
+   "name": "context done"
+  }
+ ],
+ "requests": [
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:29:00.960Z",
+   "startMs": 1790512140960,
+   "end": "2026-09-27T12:29:01.135Z",
+   "status": 200,
+   "endMs": 1790512141135,
+   "durationMs": 175
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:00.960Z",
+   "startMs": 1790512140960,
+   "end": "2026-09-27T12:29:01.135Z",
+   "status": 200,
+   "endMs": 1790512141135,
+   "durationMs": 175
+  },
+  {
+   "kind": "detail(creation)",
+   "method": "GET",
+   "path": "/api/session/creation?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:29:02.120Z",
+   "startMs": 1790512142120,
+   "end": "2026-09-27T12:29:14.144Z",
+   "status": 200,
+   "endMs": 1790512154144,
+   "durationMs": 12024
+  },
+  {
+   "kind": "history",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:29:02.691Z",
+   "startMs": 1790512142691,
+   "end": "2026-09-27T12:29:14.703Z",
+   "status": 503,
+   "endMs": 1790512154703,
+   "durationMs": 12012,
+   "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+  },
+  {
+   "kind": "detail",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:29:02.722Z",
+   "startMs": 1790512142722,
+   "end": "2026-09-27T12:29:02.768Z",
+   "status": 200,
+   "endMs": 1790512142768,
+   "durationMs": 46
+  },
+  {
+   "kind": "message(01a0e2cc-2fab-73a2-b145-04c9343a74b4)",
+   "method": "GET",
+   "path": "/api/session/01a0e2cc-2fab-73a2-b145-04c9343a74b4/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:29:03.116Z",
+   "startMs": 1790512143116,
+   "end": "2026-09-27T12:29:03.812Z",
+   "status": 200,
+   "endMs": 1790512143812,
+   "durationMs": 696
+  },
+  {
+   "kind": "message(01a0e2ca-6899-70b2-815f-b5ad1112ee45)",
+   "method": "GET",
+   "path": "/api/session/01a0e2ca-6899-70b2-815f-b5ad1112ee45/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:29:03.116Z",
+   "startMs": 1790512143116,
+   "end": "2026-09-27T12:29:03.814Z",
+   "status": 200,
+   "endMs": 1790512143814,
+   "durationMs": 698
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:05.394Z",
+   "startMs": 1790512145394,
+   "end": "2026-09-27T12:29:06.708Z",
+   "status": 200,
+   "endMs": 1790512146708,
+   "durationMs": 1314
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:10.393Z",
+   "startMs": 1790512150393,
+   "end": "2026-09-27T12:29:10.404Z",
+   "status": 200,
+   "endMs": 1790512150404,
+   "durationMs": 11
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:15.402Z",
+   "startMs": 1790512155402,
+   "end": "2026-09-27T12:29:15.409Z",
+   "status": 200,
+   "endMs": 1790512155409,
+   "durationMs": 7
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:25.392Z",
+   "startMs": 1790512165392,
+   "end": "2026-09-27T12:29:25.399Z",
+   "status": 200,
+   "endMs": 1790512165399,
+   "durationMs": 7
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:30.393Z",
+   "startMs": 1790512170393,
+   "end": "2026-09-27T12:29:30.398Z",
+   "status": 200,
+   "endMs": 1790512170398,
+   "durationMs": 5
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:35.392Z",
+   "startMs": 1790512175392,
+   "end": "2026-09-27T12:29:35.399Z",
+   "status": 200,
+   "endMs": 1790512175399,
+   "durationMs": 7
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:40.392Z",
+   "startMs": 1790512180392,
+   "end": "2026-09-27T12:29:40.400Z",
+   "status": 200,
+   "endMs": 1790512180400,
+   "durationMs": 8
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:45.392Z",
+   "startMs": 1790512185392,
+   "end": "2026-09-27T12:29:45.398Z",
+   "status": 200,
+   "endMs": 1790512185398,
+   "durationMs": 6
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:45.466Z",
+   "startMs": 1790512185466,
+   "end": "2026-09-27T12:29:45.475Z",
+   "status": 200,
+   "endMs": 1790512185475,
+   "durationMs": 9
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:29:50.399Z",
+   "startMs": 1790512190399,
+   "end": "2026-09-27T12:29:50.427Z",
+   "status": 200,
+   "endMs": 1790512190427,
+   "durationMs": 28
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:00.393Z",
+   "startMs": 1790512200393,
+   "end": "2026-09-27T12:30:00.401Z",
+   "status": 200,
+   "endMs": 1790512200401,
+   "durationMs": 8
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:05.392Z",
+   "startMs": 1790512205392,
+   "end": "2026-09-27T12:30:05.400Z",
+   "status": 200,
+   "endMs": 1790512205400,
+   "durationMs": 8
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:10.392Z",
+   "startMs": 1790512210392,
+   "end": "2026-09-27T12:30:10.398Z",
+   "status": 200,
+   "endMs": 1790512210398,
+   "durationMs": 6
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:15.393Z",
+   "startMs": 1790512215393,
+   "end": "2026-09-27T12:30:15.400Z",
+   "status": 200,
+   "endMs": 1790512215400,
+   "durationMs": 7
+  },
+  {
+   "kind": "detail",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:30:20.348Z",
+   "startMs": 1790512220348,
+   "end": "2026-09-27T12:30:20.367Z",
+   "status": 200,
+   "endMs": 1790512220367,
+   "durationMs": 19
+  },
+  {
+   "kind": "history",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:30:20.349Z",
+   "startMs": 1790512220349,
+   "end": "2026-09-27T12:30:20.368Z",
+   "status": 200,
+   "endMs": 1790512220368,
+   "durationMs": 19
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:20.449Z",
+   "startMs": 1790512220449,
+   "end": "2026-09-27T12:30:20.467Z",
+   "status": 200,
+   "endMs": 1790512220467,
+   "durationMs": 18
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:30:23.536Z",
+   "startMs": 1790512223536,
+   "end": "2026-09-27T12:30:24.016Z",
+   "status": 200,
+   "endMs": 1790512224016,
+   "durationMs": 480
+  },
+  {
+   "kind": "history",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:30:23.550Z",
+   "startMs": 1790512223550,
+   "end": "2026-09-27T12:30:36.027Z",
+   "status": 503,
+   "endMs": 1790512236027,
+   "durationMs": 12477,
+   "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:23.550Z",
+   "startMs": 1790512223550,
+   "end": "2026-09-27T12:30:24.264Z",
+   "status": 200,
+   "endMs": 1790512224264,
+   "durationMs": 714
+  },
+  {
+   "kind": "detail",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:30:23.587Z",
+   "startMs": 1790512223587,
+   "end": "2026-09-27T12:30:50.243Z",
+   "status": 200,
+   "endMs": 1790512250243,
+   "durationMs": 26656
+  },
+  {
+   "kind": "message(01a0e2cc-2fab-73a2-b145-04c9343a74b4)",
+   "method": "GET",
+   "path": "/api/session/01a0e2cc-2fab-73a2-b145-04c9343a74b4/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:30:23.941Z",
+   "startMs": 1790512223941,
+   "end": "2026-09-27T12:30:24.311Z",
+   "status": 200,
+   "endMs": 1790512224311,
+   "durationMs": 370
+  },
+  {
+   "kind": "message(01a0e2ca-6899-70b2-815f-b5ad1112ee45)",
+   "method": "GET",
+   "path": "/api/session/01a0e2ca-6899-70b2-815f-b5ad1112ee45/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:30:23.942Z",
+   "startMs": 1790512223942,
+   "end": "2026-09-27T12:30:24.311Z",
+   "status": 200,
+   "endMs": 1790512224311,
+   "durationMs": 369
+  },
+  {
+   "kind": "detail(creation)",
+   "method": "GET",
+   "path": "/api/session/creation?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:30:25.022Z",
+   "startMs": 1790512225022,
+   "end": "2026-09-27T12:30:37.045Z",
+   "status": 200,
+   "endMs": 1790512237045,
+   "durationMs": 12023
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:28.070Z",
+   "startMs": 1790512228070,
+   "end": "2026-09-27T12:30:28.842Z",
+   "status": 200,
+   "endMs": 1790512228842,
+   "durationMs": 772
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:33.070Z",
+   "startMs": 1790512233070,
+   "end": "2026-09-27T12:30:33.076Z",
+   "status": 200,
+   "endMs": 1790512233076,
+   "durationMs": 6
+  },
+  {
+   "kind": "history",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:30:36.614Z",
+   "startMs": 1790512236614,
+   "end": "2026-09-27T12:30:48.626Z",
+   "status": 503,
+   "endMs": 1790512248626,
+   "durationMs": 12012,
+   "body": "{\"name\":\"APIError\",\"data\":{\"message\":\"Pi unavailable; mutation outcome may be unknown. Do not retry automatically.\",\"isRetryable\":false,\"code\":\"smarty.pi-timed-out\"}}"
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:38.070Z",
+   "startMs": 1790512238070,
+   "end": "2026-09-27T12:30:38.078Z",
+   "status": 200,
+   "endMs": 1790512238078,
+   "durationMs": 8
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:43.070Z",
+   "startMs": 1790512243070,
+   "end": "2026-09-27T12:30:43.087Z",
+   "status": 200,
+   "endMs": 1790512243087,
+   "durationMs": 17
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:48.070Z",
+   "startMs": 1790512248070,
+   "end": "2026-09-27T12:30:48.080Z",
+   "status": 200,
+   "endMs": 1790512248080,
+   "durationMs": 10
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:53.070Z",
+   "startMs": 1790512253070,
+   "end": "2026-09-27T12:30:53.076Z",
+   "status": 200,
+   "endMs": 1790512253076,
+   "durationMs": 6
+  },
+  {
+   "kind": "POST fork",
+   "method": "POST",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/fork?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:30:54.742Z",
+   "startMs": 1790512254742,
+   "end": "2026-09-27T12:30:54.766Z",
+   "status": 501,
+   "postData": "{}",
+   "endMs": 1790512254766,
+   "durationMs": 24,
+   "body": "{\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}"
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:30:58.069Z",
+   "startMs": 1790512258069,
+   "end": "2026-09-27T12:30:58.076Z",
+   "status": 200,
+   "endMs": 1790512258076,
+   "durationMs": 7
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:03.070Z",
+   "startMs": 1790512263070,
+   "end": "2026-09-27T12:31:03.081Z",
+   "status": 200,
+   "endMs": 1790512263081,
+   "durationMs": 11
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:08.070Z",
+   "startMs": 1790512268070,
+   "end": "2026-09-27T12:31:08.076Z",
+   "status": 200,
+   "endMs": 1790512268076,
+   "durationMs": 6
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:08.167Z",
+   "startMs": 1790512268167,
+   "end": "2026-09-27T12:31:08.188Z",
+   "status": 200,
+   "endMs": 1790512268188,
+   "durationMs": 21
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:13.070Z",
+   "startMs": 1790512273070,
+   "end": "2026-09-27T12:31:13.082Z",
+   "status": 200,
+   "endMs": 1790512273082,
+   "durationMs": 12
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:18.070Z",
+   "startMs": 1790512278070,
+   "end": "2026-09-27T12:31:18.081Z",
+   "status": 200,
+   "endMs": 1790512278081,
+   "durationMs": 11
+  },
+  {
+   "kind": "detail",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:31:18.700Z",
+   "startMs": 1790512278700,
+   "end": "2026-09-27T12:31:18.731Z",
+   "status": 200,
+   "endMs": 1790512278731,
+   "durationMs": 31
+  },
+  {
+   "kind": "history",
+   "method": "GET",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/message?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate&limit=50",
+   "start": "2026-09-27T12:31:18.701Z",
+   "startMs": 1790512278701,
+   "end": "2026-09-27T12:31:18.731Z",
+   "status": 200,
+   "endMs": 1790512278731,
+   "durationMs": 30
+  },
+  {
+   "kind": "POST fork",
+   "method": "POST",
+   "path": "/api/session/01a0e2d6-bf1c-7298-bace-54db79fdf65c/fork?directory=%2Ftmp%2Fsc-direct-ordinary-candidate-p306%2Fprojects%2Fcandidate",
+   "start": "2026-09-27T12:31:21.781Z",
+   "startMs": 1790512281781,
+   "end": "2026-09-27T12:31:21.796Z",
+   "status": 501,
+   "postData": "{\"messageID\":\"a864d1c8\"}",
+   "endMs": 1790512281796,
+   "durationMs": 15,
+   "body": "{\"name\":\"UnsupportedOperationError\",\"data\":{\"message\":\"This OpenCode operation is not supported by the Pi gateway\",\"isRetryable\":false}}"
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:23.070Z",
+   "startMs": 1790512283070,
+   "end": "2026-09-27T12:31:23.080Z",
+   "status": 200,
+   "endMs": 1790512283080,
+   "durationMs": 10
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:28.069Z",
+   "startMs": 1790512288069,
+   "end": "2026-09-27T12:31:28.078Z",
+   "status": 200,
+   "endMs": 1790512288078,
+   "durationMs": 9
+  },
+  {
+   "kind": "detail(status)",
+   "method": "GET",
+   "path": "/api/session/status",
+   "start": "2026-09-27T12:31:33.070Z",
+   "startMs": 1790512293070,
+   "end": "2026-09-27T12:31:33.077Z",
+   "status": 200,
+   "endMs": 1790512293077,
+   "durationMs": 7
+  }
+ ],
+ "sessionID": "01a0e2d6-bf1c-7298-bace-54db79fdf65c",
+ "pid": 1988048,
+ "scope": "p306-onerec-pi.scope",
+ "finalFreezer": "FreezerState=running",
+ "reportLines": [
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.prefetch.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512154703,\"at\":1790512154712,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}",
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.initial.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512236027,\"at\":1790512236042,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}",
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.initial.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512248625,\"at\":1790512248635,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}"
+ ],
+ "gatewayLogSinceStart": [
+  "{\"type\":\"smarty.ordinary-enrollment-unverified\",\"id\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"pid\":1988048,\"reason\":\"Ordinary transport timed out; no automatic replay\"}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/creation\",\"directory\":true,\"status\":200,\"ms\":12018}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/:id/message\",\"directory\":true,\"status\":503,\"ms\":12002}",
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.prefetch.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512154703,\"at\":1790512154712,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/:id\",\"directory\":true,\"status\":404,\"ms\":10939}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/:id/message\",\"directory\":true,\"status\":503,\"ms\":12002}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/:id/message\",\"directory\":true,\"status\":503,\"ms\":12002}",
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.initial.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512236027,\"at\":1790512236042,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/creation\",\"directory\":true,\"status\":200,\"ms\":12017}",
+  "{\"type\":\"smarty.slow-request\",\"method\":\"GET\",\"path\":\"/session/:id/message\",\"directory\":true,\"status\":503,\"ms\":12005}",
+  "{\"type\":\"smarty.client-error\",\"kind\":\"session-messages.initial.timeout\",\"message\":\"Error\",\"sessionID\":\"01a0e2d6-bf1c-7298-bace-54db79fdf65c\",\"status\":503,\"shownAt\":1790512248625,\"at\":1790512248635,\"human\":\"Owned Browser Fixture\",\"subject\":\"nfdREaLgHIpvgH5qTBWyluyiBn3BHULg\"}"
+ ]
+}
