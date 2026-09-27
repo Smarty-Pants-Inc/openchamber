@@ -82,3 +82,32 @@ describe('notification template message extraction', () => {
     await expect(runtime.fetchLastAssistantMessageText('session-1', 'msg-1')).resolves.toBe('final answer');
   });
 });
+
+describe('notification template session lookup', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // smarty-code#536: the title lookup reached the backend without its credentials and was refused (401) on every
+  // session.idle of a session whose event had no title; every other backend call here sends them.
+  it('sends the backend credentials when it looks up a session title', async () => {
+    const runtime = createNotificationTemplateRuntime({
+      readSettingsFromDisk: async () => ({}),
+      persistSettings: vi.fn(async () => {}),
+      buildOpenCodeUrl: (path) => path,
+      getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer backend-token' }),
+      resolveGitBinaryForSpawn: () => 'git',
+    });
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), headers: init?.headers });
+      return new Response(JSON.stringify({ id: 'session-7', title: 'Fleet session' }), { status: 200 });
+    });
+
+    const variables = await runtime.buildTemplateVariables({ type: 'session.idle', properties: { sessionID: 'session-7' } }, 'session-7');
+
+    const lookup = calls.find(call => call.url === '/session/session-7');
+    expect(lookup?.headers).toMatchObject({ Authorization: 'Bearer backend-token' });
+    expect(variables.session_name).toBe('Fleet session');
+  });
+});
