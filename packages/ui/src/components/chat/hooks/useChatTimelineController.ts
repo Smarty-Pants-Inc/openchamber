@@ -770,6 +770,15 @@ export const useChatTimelineController = ({
         void loadEarlier({ userInitiated: true });
     }, [loadEarlier, scrollRef]);
 
+    // smarty-code#583: the next older page may load as soon as the previous one is in. The scroll event that
+    // reached the threshold fired while that page loaded, and a reader already at the top makes no further
+    // scroll events, so check again once, on the next frame after loading ends.
+    React.useEffect(() => {
+        if (isLoadingOlder || typeof window === 'undefined') return;
+        const frame = window.requestAnimationFrame(() => handleHistoryScroll());
+        return () => window.cancelAnimationFrame(frame);
+    }, [handleHistoryScroll, isLoadingOlder]);
+
     const loadEarlierIfPinnedViewportUnderfilled = React.useCallback(() => {
         // On mobile the initial page is intentionally smaller. Auto-prepending
         // older rows after first paint shifts the narrow timeline; let explicit

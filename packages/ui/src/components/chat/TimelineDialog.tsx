@@ -28,6 +28,14 @@ interface TimelineDialogProps {
     onLoadEarlier?: () => void;
 }
 
+const formats = new Map<string, Intl.DateTimeFormat>();
+const cachedFormat = (locale: string | undefined, kind: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
+    const key = `${locale ?? ''}|${kind}`;
+    let format = formats.get(key);
+    if (!format) { format = new Intl.DateTimeFormat(locale, options); formats.set(key, format); }
+    return format;
+};
+
 export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     open,
     onOpenChange,
@@ -55,20 +63,15 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     const preservingLoadPositionRef = React.useRef(false);
     const wasOpenRef = React.useRef(open);
 
-    const formatDateGroup = React.useCallback((timestamp: number): string => {
-        return new Date(timestamp).toLocaleDateString(getCurrentIntlLocale(), {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
-    }, []);
+    // smarty-code#583: one Intl formatter per locale, not one per call. toLocale*String builds a new formatter
+    // every time, and this list formats each user message three times per render (16 s of a 120 s scroll-back).
+    const formatDateGroup = React.useCallback((timestamp: number): string => (
+        cachedFormat(getCurrentIntlLocale(), 'date', { year: 'numeric', month: 'short', day: 'numeric' }).format(timestamp)
+    ), []);
 
-    const formatMessageTime = React.useCallback((timestamp: number): string => {
-        return new Date(timestamp).toLocaleTimeString(getCurrentIntlLocale(), {
-            hour: 'numeric',
-            minute: '2-digit',
-        });
-    }, []);
+    const formatMessageTime = React.useCallback((timestamp: number): string => (
+        cachedFormat(getCurrentIntlLocale(), 'time', { hour: 'numeric', minute: '2-digit' }).format(timestamp)
+    ), []);
 
     // Timeline actions are only valid for user messages.
     const userMessages = React.useMemo(() => {
@@ -299,7 +302,8 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                         <div className="text-center text-muted-foreground py-8">
                             {searchQuery ? t('chat.timeline.empty.search') : t('chat.timeline.empty.session')}
                         </div>
-                    ) : (
+                    ) : !open ? null : (
+                        // smarty-code#583: a closed dialog builds no rows (its children are evaluated on every render).
                         filteredMessages.map(({ message }, index) => {
                             const preview = getMessagePreview(message.parts, undefined, t);
                             const timestamp = message.info.time.created;
