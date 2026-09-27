@@ -88,3 +88,50 @@ test('all locales translate the create action, readiness and failure copy with m
     expect(source).toContain('...nativeCreationI18n');
   }
 });
+
+// smarty-code#523 with the gateway's #548: the page asks for stoppedBy on every creation request, and a start that carries
+// it parses (the schema is strict, so an unasked field would have failed the whole list).
+describe('who stopped a start', () => {
+  /** The wire fields these cases vary (an unasked field shows the strict schema dropping the list). */
+  type WireExtra = { phase?: string; stoppedBy?: { name: string; issuer?: string; subject?: string; extra?: number } };
+  const op = (extra: WireExtra = {}) => ({ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory: '/project',
+    generation: null, revision: 3, phase: 'cancelled', expiresAt: 1, canInitialReady: false, ...extra });
+  test('creation requests ask for stoppedBy, and a start with it is read', async () => {
+    const asked: Array<string | null> = [];
+    const stoppedBy = { issuer: 'https://code.example', subject: 'kate-1', name: 'Kate' };
+    fetchMock.mockImplementation(async (input, init) => {
+      const request = new Request(input, init); asked.push(request.headers.get('x-smarty-creation-fields'));
+      return new URL(request.url).pathname.endsWith('/session/creation')
+        ? Response.json({ nativeCreations: [op({ stoppedBy })] }) : Response.json({ nativeCreation: op({ stoppedBy }) });
+    });
+    expect((await opencodeClient.listNativeCreations('/project'))[0]?.stoppedBy).toEqual(stoppedBy);
+    expect((await opencodeClient.readNativeCreation('/project', op().operationId)).stoppedBy?.name).toBe('Kate');
+    expect((await opencodeClient.abandonNativeCreation('/project', op().operationId)).phase).toBe('cancelled');
+    expect(asked).toEqual(['stoppedBy', 'stoppedBy', 'stoppedBy']);
+  });
+  test('both create paths ask for stoppedBy', async () => {
+    const asked: Array<string | null> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      asked.push(new Request(input, init).headers.get('x-smarty-creation-fields'));
+      return Response.json({ nativeCreation: op({ phase: 'awaiting-trust' }) }, { status: 202 });
+    });
+    await opencodeClient.createNativeSession('/project');
+    await opencodeClient.createNativeSession('/project', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    expect(asked).toEqual(['stoppedBy', 'stoppedBy']);
+  });
+  test('a malformed stoppedBy is still refused', async () => {
+    fetchMock.mockImplementation(async () => Response.json({ nativeCreations: [op({ stoppedBy: { name: 'Kate', extra: 1 } })] }));
+    await expect(opencodeClient.listNativeCreations('/project')).rejects.toThrow();
+  });
+});
+
+// Packaged clients (desktop, Capacitor) call from another origin: a header the page adds must be allowed by the server's
+// CORS preflight, or every creation request from them fails (#523 pre-check).
+test('the creation-fields header is allowed for packaged clients', () => {
+  const server = readFileSync(new URL('../../../../web/server/index.js', import.meta.url), 'utf8');
+  const allowed = /Access-Control-Allow-Headers', '([^']+)'/.exec(server)?.[1]?.toLowerCase().split(',') ?? [];
+  const client = readFileSync(new URL('./client.ts', import.meta.url), 'utf8');
+  const sent = /NATIVE_CREATION_FIELDS = \{ '([^']+)'/.exec(client)?.[1];
+  expect(sent).toBe('x-smarty-creation-fields');
+  expect(allowed).toContain(sent!);
+});

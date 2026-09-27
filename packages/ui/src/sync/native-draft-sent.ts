@@ -42,6 +42,9 @@ const ADMITTED_MS = 600_000;
 /** Admitted marks this page already consumed from (or sent itself): a later draft with the same text is never touched. */
 const handled = new Set<string>();
 const outcomes = new Map<string, SentStartOutcome>();
+/** Who stopped the start a slot's text was sent to, when its gateway says (smarty-code#523). */
+const stoppers = new Map<string, string>();
+export const sentStartStoppedBy = (runtimeKey: string, directory: string): string | undefined => stoppers.get(slot(runtimeKey, directory));
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
@@ -214,7 +217,12 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
     const read = await opencodeClient.readNativeCreation(directory, marker.operationId).catch(() => undefined);
     if (own(read)) start = read;
   }
-  if (start && isSentStartStopped(start.phase)) return settle(start.phase);
+  if (start && isSentStartStopped(start.phase)) {
+    // Who stopped it is committed with the outcome, under the same check: a late read never names someone else.
+    if (superseded()) return outcomes.get(key) ?? null;
+    if (start.stoppedBy?.name) stoppers.set(key, start.stoppedBy.name); else stoppers.delete(key);
+    return settle(start.phase);
+  }
   // Still starting: pending. Not readable ('unavailable'), not listed, or no user message: unknown.
   if (start && start.phase !== 'ready' && start.phase !== 'unavailable') return settle('pending');
   const history = start?.native ? await opencodeClient.getSessionMessages(start.native.id, 20, directory).catch(() => undefined) : undefined;
@@ -267,6 +275,9 @@ export function useSentStart(runtimeKey: string, directory: string | null | unde
     () => (key ? outcomes.get(key) ?? null : null), () => null);
 }
 
+/** The start request whose text this project's draft holds as sent, if any (smarty-code#523: it can be stopped). */
+export const sentStartRequest = (runtimeKey: string, directory: string): string | undefined => readMarker(runtimeKey, directory)?.clientRequestId;
+
 /** Read-only while the text may already be taking its start: never editable or sendable as an ordinary draft. */
 export const sentStartLocks = (outcome: Resolved): boolean =>
   outcome === 'resolving' || outcome === 'pending' || outcome === 'unknown';
@@ -274,5 +285,5 @@ export const sentStartLocks = (outcome: Resolved): boolean =>
 /** Tests model a page load. */
 export function resetSentStartsForPage(): void {
   for (const release of sending.values()) release();
-  sending.clear(); outcomes.clear(); handled.clear(); notify();
+  sending.clear(); outcomes.clear(); handled.clear(); stoppers.clear(); notify();
 }

@@ -1695,7 +1695,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,If-Match,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,Ngrok-Skip-Browser-Warning');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,If-Match,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,X-Smarty-Creation-Fields,Ngrok-Skip-Browser-Warning');
       res.setHeader('Access-Control-Expose-Headers', exposedProxyResponseHeaders);
       res.setHeader('Vary', 'Origin');
       if (req.method === 'OPTIONS') {
