@@ -3,7 +3,7 @@ import type * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { I18nProvider } from '@/lib/i18n';
 import { projectTurnRecords } from '../lib/turns/projectTurnRecords';
-import { buildStaticRenderEntries } from '../lib/turns/renderEntries';
+import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry } from '../lib/turns/renderEntries';
 import type { ChatMessageEntry } from '../lib/turns/types';
 import { VoiceTurn } from './VoiceTurn';
 import { isVoiceTurn, voiceSpeaker } from './voiceTurnData';
@@ -20,12 +20,27 @@ const user = (id: string) => ({ info: { id, sessionID: 's', role: 'user', time: 
 const reply = (id: string, parentID: string) => ({ info: { id, sessionID: 's', role: 'assistant', parentID, time: { created: 1, completed: 1 }, finish: 'stop' },
   parts: [{ id: `${id}-p`, sessionID: 's', messageID: id, type: 'text', text: 'done' }] }) as unknown as ChatMessageEntry;
 
-test('voice turns are their own rows after the turn they fall in, in journal order, and never join or hide the agent reply', () => {
-  const messages = [user('u1'), voice('v1', 'user', 'check the build', 'u1'), reply('a1', 'u1'), voice('v2', 'voice', 'It is green.', 'u1')];
+// The same assembly MessageList passes to the list: every turn but the last is static; the last is the live row.
+const rows = (messages: ChatMessageEntry[]) => {
   const projection = projectTurnRecords(messages);
-  const entries = buildStaticRenderEntries(projection.turns, projection.lastTurnId, messages, projection.ungroupedMessageIds);
-  expect(entries.map(e => e.kind === 'turn' ? `turn:${e.turn.turnId}` : e.message.info.id)).toEqual(['turn:u1', 'v1', 'v2']);
-  expect(projection.turns[0]!.assistantMessageIds).toEqual(['a1']);
+  const last = projection.turns[projection.turns.length - 1];
+  const trailing = last ? { kind: 'turn' as const, key: `turn:${last.turnId}`, turn: last, isLastTurn: true }
+    : buildTrailingUngroupedEntry(messages, projection.ungroupedMessageIds);
+  const history = buildStaticRenderEntries(projection.turns.slice(0, -1), projection.lastTurnId, messages, projection.ungroupedMessageIds);
+  return assembleRenderEntries(history, trailing, messages).map(e => e.kind === 'turn' ? `turn:${e.turn.turnId}` : e.message.info.id);
+};
+
+test('voice rows keep journal order after the live turn, and do not move when the next prompt arrives (review/astra OC#299)', () => {
+  const journal = [user('u1'), reply('a1', 'u1'), voice('v1', 'user', 'check the build', 'u1'), voice('v2', 'voice', 'It is green.', 'u1')];
+  expect(rows(journal)).toEqual(['turn:u1', 'v1', 'v2']);
+  expect(projectTurnRecords(journal).turns[0]!.assistantMessageIds).toEqual(['a1']);
+  expect(rows([...journal, user('u2'), reply('a2', 'u2')])).toEqual(['turn:u1', 'v1', 'v2', 'turn:u2']);
+});
+
+test('a voice row before a later turn stays before it, interleaved with the normal turns', () => {
+  const journal = [user('u1'), reply('a1', 'u1'), voice('v1', 'user', 'next', 'u1'), user('u2'), reply('a2', 'u2'), voice('v2', 'voice', 'done', 'u2')];
+  expect(rows(journal)).toEqual(['turn:u1', 'v1', 'turn:u2', 'v2']);
+  expect(rows([...journal, user('u3')])).toEqual(['turn:u1', 'v1', 'turn:u2', 'v2', 'turn:u3']);
 });
 
 test('labels follow the speaker: You said, Voice said', () => {

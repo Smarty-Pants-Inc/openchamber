@@ -1370,8 +1370,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }, [registerList]);
 
     const allEntries = React.useMemo(
-        () => assembleRenderEntries(historyEntries, trailingStreamingEntry),
-        [historyEntries, trailingStreamingEntry],
+        () => assembleRenderEntries(historyEntries, trailingStreamingEntry, displayMessages),
+        [displayMessages, historyEntries, trailingStreamingEntry],
     );
 
     // Stable identities: these reach the list, where a changing callback would

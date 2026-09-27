@@ -64,7 +64,18 @@ export const buildTrailingUngroupedEntry = (messages: ChatMessageEntry[], ungrou
  * History rows plus the trailing live row. The trailing row replaces its static copy, so each message renders in
  * exactly one row with a unique list key (an all-assistant first page put its last reply in both, #163 review).
  */
-export const assembleRenderEntries = (history: RenderEntry[], trailing: RenderEntry | undefined): RenderEntry[] => {
+export const assembleRenderEntries = (
+    history: RenderEntry[],
+    trailing: RenderEntry | undefined,
+    messages?: ChatMessageEntry[],
+): RenderEntry[] => {
     if (!trailing) return history;
-    return [...history.filter((entry) => entry.key !== trailing.key), trailing];
+    const rest = history.filter((entry) => entry.key !== trailing.key);
+    // Rows after the live turn's user message in the journal (a voice call's turns, smarty-code#538) stay after
+    // it, so every row keeps journal order and does not move when the next prompt makes this turn static.
+    if (trailing.kind !== 'turn' || !messages || !rest.some((entry) => entry.kind === 'ungrouped')) return [...rest, trailing];
+    const order = new Map(messages.map((message, index) => [message.info.id, index]));
+    const at = order.get(trailing.turn.userMessage.info.id) ?? Number.POSITIVE_INFINITY;
+    const split = rest.findIndex((entry) => entry.kind === 'ungrouped' && (order.get(entry.message.info.id) ?? -1) > at);
+    return split < 0 ? [...rest, trailing] : [...rest.slice(0, split), trailing, ...rest.slice(split)];
 };
