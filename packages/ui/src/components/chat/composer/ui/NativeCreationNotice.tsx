@@ -3,10 +3,12 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere } from '@/sync/native-draft-creation';
-import { abandonedNativeCreations } from '@/sync/native-draft-control';
+import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
+import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
+import React from 'react';
 import type { useNativeCreation } from '../state/useNativeCreation';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
@@ -32,6 +34,37 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     <Button type="button" size="sm" onClick={() => { startNativeDraftAgain(); onSend?.(); }}>{t('chat.nativeCreation.startAgain')}</Button>
   </>;
   const creation = native.creation;
+  // A start that blocks this project and does not finish can be stopped (smarty-code#523), never a dead end: at once
+  // past its expiry, else after a grace. Its text, if held here as sent, comes back (cancelled).
+  const [stop, setStop] = React.useState<{ id: string; busy: boolean; error?: unknown } | null>(null);
+  const [, tick] = React.useReducer((value: number) => value + 1, 0);
+  const blocking = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
+  const lockedRequest = sent && draft.directoryOverride ? sentStartRequest(getRuntimeKey(), draft.directoryOverride) : undefined;
+  const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
+  const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
+  const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
+  React.useEffect(() => {
+    if (stopAt === undefined || stopAt <= Date.now()) return;
+    const timer = setTimeout(tick, stopAt - Date.now() + 10);
+    return () => clearTimeout(timer);
+  }, [stopAt]);
+  const stopControl = (operation: NativeCreationState | undefined) => {
+    if (!operation || stopAt === undefined || stopAt > Date.now()) return null;
+    const busy = stop?.id === operation.operationId && stop.busy;
+    const failed = stop?.id === operation.operationId && !stop.busy && stop.error !== undefined ? stop.error : undefined;
+    return <>
+      {failed !== undefined ? <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failed)}</p> : null}
+      <Button type="button" variant="outline" size="sm" disabled={busy} title={operation.operationId}
+        data-operation-id={operation.operationId} onClick={() => {
+        setStop({ id: operation.operationId, busy: true });
+        void stopBlockingStart(operation).then(() => {
+          setStop(null);
+          if (draft.directoryOverride) void resolveSentStart(getRuntimeKey(), draft.directoryOverride, draft.draftId, ownNativeRequestId(draft, getRuntimeKey()));
+          native.refresh();
+        }, error => setStop({ id: operation.operationId, busy: false, error }));
+      }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
+    </>;
+  };
   if (!draftOpen) return null;
   // Text another tab sent to start a session (#117): say what became of it before anything else, with or without a
   // session here (the composer is locked meanwhile, so its way out is always shown).
@@ -39,7 +72,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (sent && directory) {
     // Not sent, and why: the text is back in the draft, editable (#117).
     if (isSentStartStopped(sent)) return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
-      {t(STOPPED_LINE[sent])}</p>;
+      {sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy }) : t(STOPPED_LINE[sent])}</p>;
     return <div className="mb-2 space-y-1">
       <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
       <div className="flex gap-2">
@@ -47,6 +80,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
           onClick={() => { void resolveSentStart(runtimeKey, directory, draft.draftId, ownNativeRequestId(draft, runtimeKey)); }}>{t('chat.nativeCreation.check')}</Button>
         {sent === 'unknown' ? <Button type="button" variant="outline" size="sm"
           onClick={() => { void keepSentTextAsDraft(runtimeKey, directory); }}>{t('chat.nativeCreation.sentKeep')}</Button> : null}
+        {stopControl(stoppable)}
       </div>
     </div>;
   }
@@ -57,7 +91,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   </div>;
   if (native.session) return null;
   // The same rule Send refuses by, so the line and the refusal agree (smarty-code#114).
-  const running = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
+  const running = blocking;
   const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   const unknown = creation?.status === 'failed' && creation.submitted;
   if (failure) return <div className="mb-2 space-y-1">
@@ -74,6 +108,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   // start of this draft's own has its own line and controls (above and below), which say more.
   if (native.refusal && !creation && !starting) return <div className="mb-2 space-y-1">
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(native.refusal)}</p>
+    {/* A Send refused by the start that blocks this project keeps the way to stop it (smarty-code#523). */}
+    {stopControl(stoppable)}
   </div>;
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
@@ -100,7 +136,10 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (creation?.status === 'pending') {
     return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>;
   }
-  if (running.length > 0) return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.elsewhere')}</p>;
+  if (running.length > 0) return <div className="mb-2 space-y-1">
+    <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.elsewhere')}</p>
+    {stopControl(stoppable)}
+  </div>;
   // Projects are still being discovered (the server may be slow): say so, never "cannot reach the server".
   if (native.mode === 'discovering') return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.discovering')}</p>;
   if (native.mode === 'unavailable') return <div className="mb-2 space-y-1">

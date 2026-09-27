@@ -1,5 +1,5 @@
 import { opencodeClient } from '@/lib/opencode/client';
-import { nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { NATIVE_CREATION_INVALIDATED, nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
@@ -153,4 +153,30 @@ export async function abandonNativeCreation(): Promise<boolean> {
     publishNativeCreation(pending, { ...record, busy: false });
     throw cause instanceof NativeCreationError ? cause : nativeCreationFailure(cause);
   }
+}
+
+/** How long a start may go on before the page offers to stop it (sooner once it is past its own expiry). */
+export const STOP_START_GRACE_MS = 60_000;
+const firstSeen = new Map<string, number>();
+/**
+ * When a start that blocks this project may be stopped (smarty-code#523): at once past its expiry, else after the grace
+ * from when this page first saw it. A never-ending start never blocks New session with no way out.
+ */
+export function stoppableAt(operation: NativeCreationState, now = Date.now()): number {
+  const seen = firstSeen.get(operation.operationId) ?? (firstSeen.set(operation.operationId, now), now);
+  return operation.expiresAt <= now ? now : Math.min(seen + STOP_START_GRACE_MS, operation.expiresAt);
+}
+
+/**
+ * Stop a start that blocks this project (smarty-code#523): the gateway's abandon settles it for good (cancelled), and a
+ * new start is admitted at once. Its text, if this page holds it as sent, comes back through the sent mark (cancelled).
+ * A refusal (it finished meanwhile, or the server would not) throws, and nothing else changes.
+ */
+export async function stopBlockingStart(operation: NativeCreationState): Promise<void> {
+  let next: NativeCreationState;
+  try { next = await opencodeClient.abandonNativeCreation(operation.directory, operation.operationId); }
+  catch (cause) { throw cause instanceof NativeCreationError ? cause : nativeCreationFailure(cause); }
+  if (next.operationId !== operation.operationId || next.phase !== 'cancelled') throw new NativeCreationError('unknown');
+  abandonedNativeCreations.add(next.operationId);
+  window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { runtimeKey: getRuntimeKey(), directory: operation.directory } }));
 }
