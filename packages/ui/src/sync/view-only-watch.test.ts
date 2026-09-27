@@ -130,13 +130,13 @@ test('hidden, then entries committed, then shown: the entries appear; a dropped 
   release();
 });
 
-test('a re-acquired watch the gateway could not resume (evicted or expired handoff) opens fresh: it re-reads after the next tick', async () => {
+test('a re-acquired watch the gateway could not resume (evicted or expired handoff) is told not resumed, so the catch-up opens its ordering boundary (view-only-watch-boundary.test.ts)', async () => {
   const g = gateway({ resumed: false });
   const reads: boolean[] = [];
   setViewOnlyWatchDeps({ fetch: g.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { reads.push(resumed); } });
   const first = holdViewOnlyWatch('fresh', '/p'); await sleep(10); first(); await sleep(5);
   const again = holdViewOnlyWatch('fresh', '/p'); await sleep(10);
-  expect(reads).toEqual([false]); // The catch-up is told the watch did not resume, so the page re-reads after the tick.
+  expect(reads).toEqual([false]); // The catch-up is told the watch did not resume.
   again();
   const kept = gateway({ resumed: true }), told: boolean[] = [];
   setViewOnlyWatchDeps({ fetch: kept.fetch as never, runtime: () => 'A', catchUp: async (_s, _d, _signal, resumed) => { told.push(resumed); } });
