@@ -2,13 +2,22 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { SettingsStackedField } from '@/components/sections/shared/SettingsSection';
 import { useI18n } from '@/lib/i18n';
 import { humanAuthClient, signInWithGoogle } from '@/lib/human-auth';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 
-type Profile = { id: string; name: string; image?: string | null };
+type Profile = { id: string; name: string; email: string; image?: string | null };
+
+const initials = (profile: Profile | null) => (profile?.name || profile?.email || '?')
+  .split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase();
+
+// ponytail: the client has no organization record yet; this deployment is one org. #380 adds orgs and switching.
+const ORGANIZATION = 'Smarty Pants';
 
 export function GoogleSignIn() {
   const { t } = useI18n();
@@ -57,11 +66,36 @@ export function HumanAccount() {
     } catch { if (isRuntimeRequestScopeCurrent(scope)) setFailed(true); }
     finally { if (isRuntimeRequestScopeCurrent(scope)) setBusy(false); }
   };
+  const alert = failed && <p role="alert" className="text-destructive">{t('chat.displayName.accountError')}</p>;
   return <>
-    <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={t('chat.displayName.account')}>
-      {profile?.image && <img src={profile.image} alt="" referrerPolicy="no-referrer" className="size-5 rounded-full" />}
-      <span className="max-w-40 truncate">{profile?.name || t('chat.displayName.account')}</span>
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label={t('chat.displayName.account')}
+          className="inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted typography-ui-meta font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          {profile?.image
+            ? <img src={profile.image} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
+            : initials(profile)}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)]">
+        <div className="px-2 py-1.5">
+          <p className="truncate typography-ui-label font-medium">{profile?.name || t('chat.displayName.account')}</p>
+          {profile?.email && <p className="truncate typography-ui-meta text-muted-foreground">{profile.email}</p>}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="flex items-center justify-between gap-2 font-normal">
+          <span className="text-muted-foreground">{t('chat.displayName.organization')}</span>
+          <span className="truncate">{ORGANIZATION}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuItem disabled={!profile} onClick={() => setOpen(true)}>{t('chat.displayName.editProfile')}</DropdownMenuItem>
+        <DropdownMenuItem disabled={busy || !profile} closeOnClick={false} onClick={() => void run('revoke')}>
+          {t('chat.displayName.revokeOthers')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={busy} closeOnClick={false} onClick={() => void run('logout')}>{t('chat.displayName.signOut')}</DropdownMenuItem>
+        {alert && <div className="px-2 py-1 typography-ui-meta">{alert}</div>}
+      </DropdownMenuContent>
+    </DropdownMenu>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogTitle>{t('chat.displayName.account')}</DialogTitle>
@@ -77,11 +111,7 @@ export function HumanAccount() {
           </SettingsStackedField>
           <Button type="submit" disabled={busy || !profile || !name.trim()}>{t('chat.displayName.saveProfile')}</Button>
         </form>
-        <Button variant="outline" disabled={busy || !profile} onClick={() => void run('revoke')}>
-          {t('chat.displayName.revokeOthers')}
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={() => void run('logout')}>{t('chat.displayName.signOut')}</Button>
-        {failed && <p role="alert" className="text-destructive">{t('chat.displayName.accountError')}</p>}
+        {alert}
       </DialogContent>
     </Dialog>
   </>;

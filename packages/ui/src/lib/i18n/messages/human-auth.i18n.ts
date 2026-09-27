@@ -10,6 +10,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Save profile',
     'chat.displayName.revokeOthers': 'Sign out other devices',
     'chat.displayName.signOut': 'Sign out',
+    'chat.displayName.editProfile': 'Edit profile',
+    'chat.displayName.organization': 'Organization',
   },
   de: {
     'chat.displayName.account': 'Konto',
@@ -22,6 +24,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Profil speichern',
     'chat.displayName.revokeOthers': 'Andere Geräte abmelden',
     'chat.displayName.signOut': 'Abmelden',
+    'chat.displayName.editProfile': 'Profil bearbeiten',
+    'chat.displayName.organization': 'Organisation',
   },
   es: {
     'chat.displayName.account': 'Cuenta',
@@ -34,6 +38,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Guardar perfil',
     'chat.displayName.revokeOthers': 'Cerrar sesión en otros dispositivos',
     'chat.displayName.signOut': 'Cerrar sesión',
+    'chat.displayName.editProfile': 'Editar perfil',
+    'chat.displayName.organization': 'Organización',
   },
   fr: {
     'chat.displayName.account': 'Compte',
@@ -46,6 +52,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Enregistrer le profil',
     'chat.displayName.revokeOthers': 'Déconnecter les autres appareils',
     'chat.displayName.signOut': 'Se déconnecter',
+    'chat.displayName.editProfile': 'Modifier le profil',
+    'chat.displayName.organization': 'Organisation',
   },
   ja: {
     'chat.displayName.account': 'アカウント',
@@ -58,6 +66,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'プロフィールを保存',
     'chat.displayName.revokeOthers': '他のデバイスからログアウト',
     'chat.displayName.signOut': 'ログアウト',
+    'chat.displayName.editProfile': 'プロフィールを編集',
+    'chat.displayName.organization': '組織',
   },
   ko: {
     'chat.displayName.account': '계정',
@@ -70,6 +80,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': '프로필 저장',
     'chat.displayName.revokeOthers': '다른 기기에서 로그아웃',
     'chat.displayName.signOut': '로그아웃',
+    'chat.displayName.editProfile': '프로필 편집',
+    'chat.displayName.organization': '조직',
   },
   pl: {
     'chat.displayName.account': 'Konto',
@@ -82,6 +94,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Zapisz profil',
     'chat.displayName.revokeOthers': 'Wyloguj inne urządzenia',
     'chat.displayName.signOut': 'Wyloguj się',
+    'chat.displayName.editProfile': 'Edytuj profil',
+    'chat.displayName.organization': 'Organizacja',
   },
   'pt-BR': {
     'chat.displayName.account': 'Conta',
@@ -94,6 +108,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Salvar perfil',
     'chat.displayName.revokeOthers': 'Sair dos outros dispositivos',
     'chat.displayName.signOut': 'Sair',
+    'chat.displayName.editProfile': 'Editar perfil',
+    'chat.displayName.organization': 'Organização',
   },
   tr: {
     'chat.displayName.account': 'Hesap',
@@ -106,6 +122,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Profili kaydet',
     'chat.displayName.revokeOthers': 'Diğer cihazlardan çıkış yap',
     'chat.displayName.signOut': 'Çıkış yap',
+    'chat.displayName.editProfile': 'Profili düzenle',
+    'chat.displayName.organization': 'Kuruluş',
   },
   uk: {
     'chat.displayName.account': 'Обліковий запис',
@@ -118,6 +136,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': 'Зберегти профіль',
     'chat.displayName.revokeOthers': 'Вийти на інших пристроях',
     'chat.displayName.signOut': 'Вийти',
+    'chat.displayName.editProfile': 'Редагувати профіль',
+    'chat.displayName.organization': 'Організація',
   },
   'zh-CN': {
     'chat.displayName.account': '账号',
@@ -130,6 +150,8 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': '保存个人资料',
     'chat.displayName.revokeOthers': '退出其他设备',
     'chat.displayName.signOut': '退出登录',
+    'chat.displayName.editProfile': '编辑个人资料',
+    'chat.displayName.organization': '组织',
   },
   'zh-TW': {
     'chat.displayName.account': '帳號',
@@ -142,5 +164,7 @@ export const humanAuthI18n = {
     'chat.displayName.saveProfile': '儲存個人資料',
     'chat.displayName.revokeOthers': '登出其他裝置',
     'chat.displayName.signOut': '登出',
+    'chat.displayName.editProfile': '編輯個人資料',
+    'chat.displayName.organization': '組織',
   },
 };
