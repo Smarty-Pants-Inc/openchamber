@@ -2,6 +2,7 @@ import type { Part } from '@opencode-ai/sdk/v2';
 
 import { filterSyntheticParts } from '@/lib/messages/synthetic';
 import { normalizeParts } from '../message/partUtils';
+import { isVoiceTurn, VOICE_TURN_ROLE } from '../message/voiceTurnData';
 import type { ChatMessageEntry } from './turns/types';
 
 export const hasCompactionPart = (message: ChatMessageEntry): boolean => {
@@ -56,6 +57,12 @@ const normalizeMessageParts = (message: ChatMessageEntry): ChatMessageEntry => {
     };
 };
 
+// smarty-code#538: a voice line arrives as a plain assistant record; the list keeps it out of the turn's replies.
+const normalizeVoiceTurn = (message: ChatMessageEntry): ChatMessageEntry => {
+    if (!isVoiceTurn(message.info) || (message.info as { clientRole?: unknown }).clientRole === VOICE_TURN_ROLE) return message;
+    return { ...message, info: { ...(message.info as unknown as Record<string, unknown>), clientRole: VOICE_TURN_ROLE } as unknown as typeof message.info };
+};
+
 const normalizedMessageBySource = new WeakMap<ChatMessageEntry, ChatMessageEntry>();
 
 export const getNormalizedMessageForDisplay = (message: ChatMessageEntry): ChatMessageEntry => {
@@ -65,7 +72,7 @@ export const getNormalizedMessageForDisplay = (message: ChatMessageEntry): ChatM
     }
 
     const normalizedPartMessage = normalizeMessageParts(message);
-    const normalizedCompactionMessage = normalizeCompactionCommandMessage(normalizedPartMessage);
+    const normalizedCompactionMessage = normalizeVoiceTurn(normalizeCompactionCommandMessage(normalizedPartMessage));
     const filteredParts = filterSyntheticParts(normalizedCompactionMessage.parts);
     const normalized = filteredParts === normalizedCompactionMessage.parts
         ? normalizedCompactionMessage
