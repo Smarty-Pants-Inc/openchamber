@@ -396,13 +396,18 @@ export const MESSAGE_COMPLETION_STATUS_POLL_DELAY_MS = 750
 /** Sessions a mounted view needs messages of (a subagent's preview in its parent, a pinned work status), counted. */
 const shownSessionConsumers = new Map<string, number>()
 
-function isSessionMaterializationWanted(directory: string, sessionID: string): boolean {
+/** The page shows the session: it is the open one, viewed externally, or a mounted view needs its messages. */
+function isSessionShown(directory: string, sessionID: string): boolean {
   if (getViewedSessionMaterializationTarget(directory)?.sessionId === sessionID) return true
   const key = viewedSessionKey(directory, sessionID)
   if (shownSessionConsumers.has(key)) return true
   pruneExternallyViewedSessions()
-  if (externallyViewedSessions.has(key)) return true
-  return getImperativeSessionMessageLoader()?.holdsHistory({ directory, sessionID }) === true
+  return externallyViewedSessions.has(key)
+}
+
+function isSessionMaterializationWanted(directory: string, sessionID: string): boolean {
+  return isSessionShown(directory, sessionID)
+    || getImperativeSessionMessageLoader()?.holdsHistory({ directory, sessionID }) === true
 }
 
 function dropUnownedPartBucket(childStores: ChildStoreManager, directory: string, sessionID: string, messageID: string) {
@@ -846,6 +851,10 @@ export function maybePollStatusAfterMessageCompletion(
   sessionID: string,
 ): void {
   if (!directory || directory === "global" || !sessionID) return
+  // Only a session the page shows needs its idle sooner than the watchdog's next tick (5 s; one fleet-wide read on a
+  // managed gateway). The fleet's other agents finish a step every few seconds and stay busy, so this per-directory read
+  // for each of them was most of a fresh page's status reads (smarty-dev#777 G13).
+  if (!isSessionShown(directory, sessionID)) return
   const current = store.getState().session_status?.[sessionID]
   if (!current || current.type === "idle") return
 
