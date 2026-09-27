@@ -37,13 +37,22 @@ export const readLatest: CatchUp = async (sessionID, directory, signal, resumed)
   await getImperativeSessionMessageLoader()?.replaceHistory({ directory, sessionID }, undefined, signal); // Ends with the watch.
 };
 let catchUp: CatchUp = readLatest;
+/** The session is enrolled now (smarty-code#616): its newest page is read at once, so the page leaves View only without
+ * waiting for the session's next turn; the loader replaces the history with that first ordinary page (#497). */
+type OnEnrolled = (sessionId: string, directory: string) => Promise<void>;
+const ENROLLED_TAIL = 50; // The first page's size: the loader adopts that page's own cursor, and older pages load from it.
+const reReadEnrolled: OnEnrolled = async (sessionID, directory) => {
+  await getImperativeSessionMessageLoader()?.refreshTail({ directory, sessionID }, ENROLLED_TAIL);
+};
+let onEnrolled: OnEnrolled = reReadEnrolled;
 const watchedBefore = new Set<string>(); // Sessions this page has watched (bounded): their next watch catches up.
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
 /** Test seams: the number of watches held, and the fetch and runtime key used. */
 export const viewOnlyWatchesHeld = (): number => held.size;
-export const setViewOnlyWatchDeps = (deps: { fetch?: Fetch; runtime?: () => string; catchUp?: CatchUp } = {}): void => {
+export const setViewOnlyWatchDeps = (deps: { fetch?: Fetch; runtime?: () => string; catchUp?: CatchUp; onEnrolled?: OnEnrolled } = {}): void => {
   fetcher = deps.fetch ?? fetchRuntime; runtime = deps.runtime ?? getRuntimeKey; catchUp = deps.catchUp ?? readLatest;
+  onEnrolled = deps.onEnrolled ?? reReadEnrolled;
   supported.clear(); watchedBefore.clear();
 };
 
@@ -63,6 +72,15 @@ const watchCapable = z.object({ capabilities: z.object({
 }) });
 /** The gateway's word on a watch: `smarty.watch {sessionID, resumed}`. */
 const watchSaid = z.object({ type: z.literal('smarty.watch'), properties: z.object({ sessionID: z.string(), resumed: z.boolean() }) });
+/** The gateway's word that the watched session is enrolled now (smarty-code#616): `smarty.watch {sessionID, enrolled}`. */
+const watchEnrolled = z.object({ type: z.literal('smarty.watch'), properties: z.object({ sessionID: z.string(), enrolled: z.literal(true) }) });
+/** Whether a frame says the watched session is enrolled now. */
+const enrolledIn = (text: string, sessionId: string) => text.split('\n').some((line) => {
+  if (!line.startsWith('data: ')) return false;
+  let said: z.infer<typeof watchEnrolled> | undefined;
+  try { said = watchEnrolled.safeParse(JSON.parse(line.slice(6))).data; } catch { /* Not an event. */ }
+  return said?.properties.sessionID === sessionId;
+});
 /** Resolves after `ms`, or at once when `signal` aborts; leaves no listener behind either way. */
 const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
   const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
@@ -81,7 +99,7 @@ const resumedIn = (text: string, sessionId: string) => {
 /** One stream until it ends, fails or `signal` aborts. `opened(resumed)` runs once it is open and the gateway said
  * whether it resumed (at most WATCH_SAID_MS: no word counts as not resumed); other frames are dropped. */
 const WATCH_SAID_MS = 2_000;
-async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: (resumed: boolean) => void) {
+async function stream(sessionId: string, directory: string, signal: AbortSignal, opened: (resumed: boolean) => void, enrolled: () => void) {
   const response = await fetcher('/api/event', { query: { directory, watch: sessionId }, signal, headers: { accept: 'text/event-stream' } });
   const reader = response.ok ? response.body?.getReader() : undefined;
   if (!reader || signal.aborted) { await response.body?.cancel().catch(() => {}); return; } // Released while it opened.
@@ -99,7 +117,13 @@ async function stream(sessionId: string, directory: string, signal: AbortSignal,
     }
     if (signal.aborted) return;
     opened(said === true);
-    while (!signal.aborted && !(await reader.read()).done) { /* Frames are dropped. */ }
+    for (;;) { // Other frames are dropped; the session's enrollment is acted on (the page re-reads it as ordinary).
+      if (signal.aborted) return;
+      const next = await reader.read();
+      if (next.done) return;
+      text = (text + decoder.decode(next.value, { stream: true })).slice(-4096);
+      if (enrolledIn(text, sessionId)) { text = ''; enrolled(); }
+    }
   } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
 }
 
@@ -117,7 +141,8 @@ async function hold(key: string, sessionId: string, directory: string, signal: A
     if (answer === 'no' || signal.aborted || runtime() !== server) return;
     const started = Date.now();
     if (answer === 'yes') {
-      try { await stream(sessionId, directory, signal, opened); } catch { /* Aborted, or the network failed. */ }
+      try { await stream(sessionId, directory, signal, opened, () => { void onEnrolled(sessionId, directory).catch(() => {}); }); }
+      catch { /* Aborted, or the network failed. */ }
     }
     if (signal.aborted) return;
     failures = Date.now() - started > 60_000 ? 1 : failures + 1; // A stream that lived a while starts the backoff over.

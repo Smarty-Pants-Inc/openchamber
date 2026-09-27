@@ -157,3 +157,27 @@ test('a gateway that says nothing about resuming counts as not resumed, within a
   const b = holdViewOnlyWatch('silent', '/p'); await sleep(2_100);
   expect(told).toEqual([false]); b();
 }, 10_000);
+
+test('smarty-code#616: when the gateway says the watched session is enrolled, the page re-reads it at once', async () => {
+  const enc = new TextEncoder();
+  let push: (text: string) => void = () => {};
+  const fetch = async (input: string) => {
+    if (input === '/api/global/health') return Response.json({ capabilities: { readOnlyWatch: 1, readOnlyReadBaseline: 1, readOnlyWatchResume: 1 } });
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      push = (text) => controller.enqueue(enc.encode(text));
+      push(`data: ${JSON.stringify({ type: 'smarty.watch', properties: { sessionID: 'ses_e', resumed: false } })}\n\n`);
+    } }));
+  };
+  const reads: string[] = [];
+  setViewOnlyWatchDeps({ fetch, runtime: () => 'A', onEnrolled: async (id) => { reads.push(id); } });
+  const release = holdViewOnlyWatch('ses_e', '/p');
+  await sleep(30);
+  push(`data: ${JSON.stringify({ type: 'server.heartbeat', properties: {} })}\n\n`); // Other frames: nothing,
+  push(`data: ${JSON.stringify({ type: 'smarty.watch', properties: { sessionID: 'other', enrolled: true } })}\n\n`); // another session: nothing,
+  await sleep(20);
+  expect(reads).toEqual([]);
+  push(`data: ${JSON.stringify({ type: 'smarty.watch', properties: { sessionID: 'ses_e', enrolled: true } })}\n\n`); // this one:
+  await sleep(20);
+  expect(reads).toEqual(['ses_e']); // re-read once, at once.
+  release(); setViewOnlyWatchDeps();
+});
