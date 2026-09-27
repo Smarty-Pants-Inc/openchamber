@@ -183,6 +183,58 @@ test('one failure is one report: a caller\'s toast right after an explicit repor
   } finally { globalThis.fetch = served; }
 });
 
+// Astra pre-check: the old server's error arrives in two steps, headers then body; its toast shows after the body.
+test('a previous server\'s error whose body arrives after the switch is not reported to the new server', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  const served = globalThis.fetch;
+  let seen = 0, finishBody = () => {};
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
+    if (path.endsWith('/git/stage')) {
+      const body = new ReadableStream({ start(controller) { finishBody = () => { controller.enqueue(new TextEncoder().encode('{"error":"x"}')); controller.close(); }; } });
+      return new Response(body, { status: 500, headers: { 'content-type': 'application/json' } });
+    }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await runtimeFetch('/api/git/stage', { method: 'POST', body: '{}' }); // Headers from A.
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    const shown = response.json().catch(() => undefined).then(() => { toast.error('Could not stage files'); });
+    await sleep(1_100); finishBody(); await shown; await sleep(50);
+    expect(seen).toBe(0); // A's failure, shown on B: not reported to B.
+  } finally { globalThis.fetch = served; }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
+test('a small-model failure whose body is slow is still one report with its caller\'s toast', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { requestSmallModel } = await import('@/lib/smallModelRequest');
+  const served = globalThis.fetch;
+  const kinds: string[] = [];
+  let finishBody = () => {};
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { kinds.push(String((await request.json()).kind)); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/small-model/generate')) {
+      const body = new ReadableStream({ start(controller) { finishBody = () => { controller.enqueue(new TextEncoder().encode('{"error":"no model"}')); controller.close(); }; } });
+      return new Response(body, { status: 503, headers: { 'content-type': 'application/json' } });
+    }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await requestSmallModel({ method: 'POST', body: '{}' });
+    const shown = response.json().catch(() => undefined).then(() => { toast.error('Failed to generate a commit message'); });
+    await sleep(1_100); finishBody(); await shown; await sleep(50);
+    expect(kinds).toEqual(['small-model']);
+  } finally { globalThis.fetch = served; }
+});
+
 test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {
   fixture = nativeDraftFixture();
   const { setContextObligatoryMessage } = await import('./session-actions');

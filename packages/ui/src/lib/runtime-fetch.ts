@@ -1,5 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
-import { beginRuntimeWork, notePreviousRuntimeSettled } from './runtime-work';
+import { beginRuntimeWork, notePreviousRuntimeSettled, readCopy } from './runtime-work';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
@@ -244,6 +244,13 @@ const fetchRuntimeRequest = async (
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
   const endWork = beginRuntimeWork(scope.runtimeKey);
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    endWork();
+    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); // Its failure may show on the next server.
+  };
   let response: Response;
   try {
     response = relay
@@ -252,12 +259,18 @@ const fetchRuntimeRequest = async (
         ? new Request(resolvedInput, { ...requestInit, headers })
         : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
   } catch (error) {
+    settle();
     if (isUpgrade) reportUpgradeFailure(scope.runtimeKey);
     throw error;
-  } finally {
-    endWork();
-    if (!isRuntimeRequestScopeCurrent(scope)) notePreviousRuntimeSettled(); // Its failure may show on the next server.
   }
+  // An error, or an effect's answer, is shown only once its body has arrived: the work lasts until then (at most 60 s,
+  // for a body nobody reads). A clone reads it alongside the caller. Streams never end, and are not counted.
+  const bodyRead = response.body && (!response.ok || (method !== 'GET' && method !== 'HEAD'))
+    && !/text\/event-stream/i.test(response.headers.get('content-type') ?? '') ? readCopy(response) : null;
+  if (bodyRead) {
+    const cap = setTimeout(settle, 60_000);
+    void bodyRead.finally(() => { clearTimeout(cap); settle(); });
+  } else settle();
 
   if (isRuntimeRequestScopeCurrent(scope)) {
     observeRuntimeAuthResponse(url, response.status, scope);
@@ -268,9 +281,9 @@ const fetchRuntimeRequest = async (
   // a refused request, or a 200 whose body says it did not succeed.
   if (isUpgrade) {
     if (!response.ok) reportUpgradeFailure(scope.runtimeKey, response.status);
-    else void response.clone().json().then((payload: { success?: boolean } | null) => {
-      if (payload?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
-    }).catch(() => undefined);
+    else void readCopy(response, 'json')?.then(payload => {
+      if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
+    });
   }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;

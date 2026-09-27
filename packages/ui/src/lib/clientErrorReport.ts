@@ -8,9 +8,16 @@ const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
  * server's. Otherwise it is the current server's, and reported there. Operations that capture their runtime report
  * exactly, at any time. ponytail: the requests' own record, not a scope threaded through every toast caller.
  */
-/** A generic toast right after an explicit report is that failure's display, already reported (one failure, one report). */
-const EXPLICIT_COVERS_MS = 1_000;
-let lastExplicitAt = Number.NEGATIVE_INFINITY;
+/**
+ * A caller's generic toast for a failure already reported explicitly is that failure's display: not reported again (one
+ * failure, one report). The explicit site says how long: until its response body has been read, then a moment more.
+ */
+const COVER_AFTER_MS = 1_000;
+let coveredUntil = Number.NEGATIVE_INFINITY;
+export function coverFollowingToasts(bodyRead: Promise<unknown>): void {
+  coveredUntil = Number.POSITIVE_INFINITY;
+  void bodyRead.catch(() => undefined).finally(() => { coveredUntil = Date.now() + COVER_AFTER_MS; });
+}
 
 /**
  * A generic toast's diagnostic identity: the code location that showed it (bundle file, line, column), read from the
@@ -53,10 +60,9 @@ export function redactClientError(text: string): string {
 }
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (!report.runtimeKey && (previousRuntimeWorkInDoubt(currentRuntime(), now) || now - lastExplicitAt < EXPLICIT_COVERS_MS)) return;
+  if (!report.runtimeKey && (previousRuntimeWorkInDoubt(currentRuntime(), now) || now < coveredUntil)) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
-  if (report.runtimeKey) lastExplicitAt = now;
   const message = report.message ? redactClientError(report.message) : undefined;
   const key = `${runtimeKey}\0${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
   const last = lastReport.get(key);
@@ -82,5 +88,5 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); lastExplicitAt = Number.NEGATIVE_INFINITY; resetRuntimeWorkForPage();
+  lastReport.clear(); coveredUntil = Number.NEGATIVE_INFINITY; resetRuntimeWorkForPage();
 }
