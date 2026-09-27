@@ -2,20 +2,32 @@
 import * as runtime from './runtime-switch';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
 /**
- * A report without its operation's runtime (a toast) cannot say which server its failure came from. On a page that
- * has only ever used one server that is never in doubt; once the page has switched servers, such a report may be the
- * previous server's (an async operation can finish long after the switch), so it is not sent at all. Reports that carry
- * their operation's runtime are unaffected.
+ * A report without its operation's runtime (a generic toast) cannot say which server its failure came from. Right after
+ * a switch it may be the previous server's, finishing late, so for a while such reports are not sent; after that they
+ * report to the page's server again. Operations that capture their runtime report exactly, at any time.
+ * ponytail: a bounded window, not a scope threaded through every toast caller; the sites that matter pass their runtime.
  */
-let switched = false, watching = false;
+const SWITCH_GRACE_MS = 120_000; // Longer than a read's own time limit and the loader's tries of it.
+let switchedAt: number | undefined, watching = false;
 // The switch event goes through the window: subscribe once there is one (at page load on the page).
 const watchSwitches = () => {
   if (watching || typeof window === 'undefined') return;
   watching = true;
   // Leaving a server is a switch; the first connection from the uninitialized default (a native app's cold boot) is not.
-  runtime.subscribeRuntimeEndpointChanged?.(detail => { if (detail.previousRuntimeKey !== 'url:default') switched = true; });
+  runtime.subscribeRuntimeEndpointChanged?.(detail => { if (detail.previousRuntimeKey !== 'url:default') switchedAt = Date.now(); });
 };
 watchSwitches();
+
+/**
+ * A generic toast's diagnostic identity: the code location that showed it (bundle file, line, column), read from the
+ * stack. It names code, never content, and tells one failing site from another. `depth`: frames above the caller.
+ */
+export function callSiteCode(stack: string | undefined, depth: number): string {
+  const frames = (stack ?? '').split('\n')
+    .map(line => /([^/\\\s()@]+?)\.[cm]?[jt]sx?(?:\?[^:\s)]*)?:(\d+):(\d+)/.exec(line)).filter(Boolean) as RegExpExecArray[];
+  const frame = frames[depth];
+  return frame ? `toast.${frame[1].replace(/[^A-Za-z0-9_-]/g, '-')}.${frame[2]}.${frame[3]}`.slice(0, 64) : 'toast';
+}
 
 /**
  * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
@@ -48,7 +60,7 @@ export function redactClientError(text: string): string {
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
   watchSwitches();
-  if (!report.runtimeKey && switched) return;
+  if (!report.runtimeKey && switchedAt !== undefined && now - switchedAt < SWITCH_GRACE_MS) return;
   const runtimeKey = report.runtimeKey ?? currentRuntime();
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
   const message = report.message ? redactClientError(report.message) : undefined;
@@ -75,4 +87,4 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
 }
 
 /** Tests model a page load. */
-export function resetClientErrorReportsForPage(): void { lastReport.clear(); switched = false; }
+export function resetClientErrorReportsForPage(): void { lastReport.clear(); switchedAt = undefined; }

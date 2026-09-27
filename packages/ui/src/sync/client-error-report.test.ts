@@ -38,15 +38,18 @@ test('a load that succeeds reports nothing', async () => {
   expect(reports()).toHaveLength(0);
 });
 
-test('an error toast is reported without its text (it can hold the person\'s content), once per 30 s', async () => {
+test('an error toast is reported without its text, by the code that showed it: different sites each, one site once per 30 s', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
-  toast.error('No commits found in range main...feature/merger');
-  toast.error('Failed to attach payroll.xlsx');
+  // Block bodies: a tail call (JavaScriptCore, Safari) would report its caller's site, which is still one code location.
+  const showMerger = () => { toast.error('No commits found in range main...feature/merger'); };
+  const showPayroll = () => { toast.error('Failed to attach payroll.xlsx'); };
+  showMerger(); showMerger(); showPayroll();
   await sleep(50);
   const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
-  expect(bodies).toHaveLength(1); // One toast report per 30 s: 'an error was shown here'.
-  expect(bodies[0]!.kind).toBe('toast');
+  expect(bodies).toHaveLength(2); // Two sites, two reports; the repeat of one site within 30 s is not sent again.
+  for (const body of bodies) expect(/^toast\.client-error-report-test\.\d+\.\d+$/.test(String(body.kind))).toBe(true);
+  expect(bodies[0]!.kind).not.toBe(bodies[1]!.kind);
   expect(bodies[0]!.message).toBeUndefined();
   expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
 });
@@ -105,30 +108,63 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
   } finally { globalThis.fetch = served; }
 });
 
-test('once the page has switched servers, an error toast is not reported (its failure may be the previous server\'s)', async () => {
+// Review of #301 (P2): a switch does not stop reporting for good. A generic toast (no runtime of its own) is not sent
+// for a while after a switch (a late failure of the previous server's); after that, toasts report again. An operation
+// that captures its runtime reports exactly: begun on B, it reports to B at once.
+test('after a switch, a late toast is not reported, later toasts are, and an operation begun on the new server reports at once', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
+  const { requestSmallModel } = await import('@/lib/smallModelRequest');
   const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
   const runtimeA = getRuntimeKey();
-  // The page's window carries the switch event.
   const { Window } = await import('happy-dom');
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', { configurable: true, value: new Window({ url: 'http://localhost' }) });
+  const served = globalThis.fetch;
+  const seen: Array<{ runtime: string; kind: string }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), kind: String((await request.json()).kind) }); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/small-model/generate')) return Response.json({ error: 'no model' }, { status: 503 });
+    return served(input, init);
+  }) as typeof fetch;
+  const lateToast = () => toast.error('Failed to generate a title');
   try {
     toast.error('Shown before any switch'); // Subscribes on the page's window (as at page load); reported.
     await sleep(50);
-    expect(reports()).toHaveLength(1);
-    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
-    toast.error('Failed to generate a title'); // A's request finished after the switch.
+    expect(seen).toHaveLength(1);
+    const runtimeB = `server-b-${crypto.randomUUID()}`;
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeB });
+    lateToast(); // A's request finished just after the switch: not reported.
     await sleep(50);
-    expect(reports()).toHaveLength(1); // Not reported: it may be A's.
-    // Nor minutes later: an async operation begun on A can fail long after the switch.
-    const now = Date.now; Date.now = () => now() + 10 * 60_000;
-    try { toast.error('Failed to generate a title, later'); } finally { Date.now = now; }
+    expect(seen).toHaveLength(1);
+    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Begun on B, fails on B: reported to B now.
+    expect(seen.slice(1)).toEqual([{ runtime: runtimeB, kind: 'small-model' }]);
+    const now = Date.now; Date.now = () => now() + 3 * 60_000; // Minutes later, a new toast reports again.
+    try { lateToast(); } finally { Date.now = now; }
     await sleep(50);
-    expect(reports()).toHaveLength(1);
-  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+    expect(seen).toHaveLength(3);
+    expect(seen[2]!.runtime).toBe(runtimeB);
+    expect(seen[2]!.kind.startsWith('toast.')).toBe(true);
+  } finally {
+    globalThis.fetch = served;
+    if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window');
+  }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
+// Review of #301 (P2): no error toast bypasses reporting. A file that shows one without the reporting wrapper (sonner,
+// or the unwrapped toast module) reports that failure itself, with its runtime (context pin, upgrade, small model, ...).
+test('every error toast shown outside the reporting wrapper is reported by its own code', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const root = new URL('..', import.meta.url).pathname;
+  const bypass: string[] = [];
+  for (const file of readdirSync(root, { recursive: true }) as string[]) {
+    if (!/\.tsx?$/.test(file) || /\.test\.|__tests__|components\/ui\/(index|toast)\./.test(file)) continue;
+    const text = readFileSync(root + file, 'utf8');
+    if (/from '(sonner|@\/components\/ui\/toast|\.\/toast)'/.test(text) && /toast\.error\(/.test(text) && !/reportClientError\(/.test(text)) bypass.push(file);
+  }
+  expect(bypass).toEqual([]);
 });
 
 test('a native app\'s first connection (from no server) is not a switch: its error toasts are still reported', async () => {
