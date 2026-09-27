@@ -176,9 +176,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const clearFolderRename = React.useCallback(() => setFolderRename(null), []);
   const { expandedParents, toggleParent } = useExpandedParents();
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-  const selectSessionForProject = React.useCallback((sessionId: string, sessionDirectory: string | null) => {
+  const selectSessionForProject = React.useCallback((sessionId: string, sessionDirectory: string | null, transition?: 'restore') => {
     if (sessionId === useSessionUIStore.getState().currentSessionId) return;
-    setCurrentSession(sessionId, sessionDirectory);
+    setCurrentSession(sessionId, sessionDirectory, transition);
   }, [setCurrentSession]);
   const prefetchSession = usePrefetchSessionMessages();
   const { buildGroupedSessions, filterSessionNodesForSearch, buildGroupSearchText } = useSessionGrouping({

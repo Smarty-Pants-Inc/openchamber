@@ -58,13 +58,15 @@ test('at startup without a last-session pointer no session is selected over the 
     clearLastActiveSession(key);
     if (pointer) persistLastActiveSession(key, { sessionId: 'code-lead', directory: '/code' });
     const selected: string[] = [];
+    const transitions: Array<string | undefined> = [];
     let active = 'code';
     const Probe = () => {
       // SAFETY: the hook reads only these fields of each section and session node.
       useProjectSessionSelection({ projectSections: [withSession('code', 'code-lead'), withSession('dev', 'dev-lead')],
         activeProjectId: active, activeSessionByProject: new Map(), setActiveSessionByProject: () => undefined,
         currentSessionId: null, currentSessionOwnerProjectId: null,
-        handleSessionSelect: (id: string) => { selected.push(id); }, newSessionDraftOpen: false, mobileVariant: false,
+        handleSessionSelect: (id: string, _directory: string | null, transition?: string) => { selected.push(id); transitions.push(transition); },
+        newSessionDraftOpen: false, mobileVariant: false,
         openNewSessionDraft: () => undefined, setSessionSwitcherOpen: () => undefined } as never);
       return null;
     };
@@ -74,6 +76,8 @@ test('at startup without a last-session pointer no session is selected over the 
     active = 'dev';
     await act(async () => root.render(<Probe />));
     expect(selected).toEqual([...expected, 'dev-lead']);
+    // The sidebar's own default selection is marked as the page's, never the person's (smarty-code#608).
+    expect(transitions.every(transition => transition === 'restore')).toBe(true);
     await act(async () => root.unmount());
     clearLastActiveSession(key);
   }

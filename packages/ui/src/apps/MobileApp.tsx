@@ -1017,7 +1017,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       if (step.kind === 'clear') clearLastActiveSession(runtimeKey);
       if (step.kind === 'restore') {
         void latest.setCurrentSession(step.session.id,
-          resolveGlobalSessionDirectory(step.session) ?? persisted.directory ?? undefined);
+          resolveGlobalSessionDirectory(step.session) ?? persisted.directory ?? undefined, 'restore');
       }
       setLastSessionRestorePending(false);
     })();

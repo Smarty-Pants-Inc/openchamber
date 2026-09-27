@@ -20,7 +20,8 @@ type Args = {
   setActiveSessionByProject: React.Dispatch<React.SetStateAction<Map<string, string>>>;
   currentSessionId: string | null;
   currentSessionOwnerProjectId?: string | null;
-  handleSessionSelect: (sessionId: string, sessionDirectory: string | null) => void;
+  /** `'restore'`: the sidebar selecting by itself, not the person (it never replaces an open waiting for its project). */
+  handleSessionSelect: (sessionId: string, sessionDirectory: string | null, transition?: 'restore') => void;
   newSessionDraftOpen: boolean;
   mobileVariant: boolean;
   openNewSessionDraft: (options?: { selectedProjectId?: string | null; directoryOverride?: string | null }) => void;
@@ -231,7 +232,7 @@ export const useProjectSessionSelection = (args: Args): void => {
     // VS Code keeps its stock startup: its compact layout opens on the session list, not a restored draft.
     if (initialObservation && !isVSCodeRuntime() && !readLastActiveSession(getRuntimeKey())) return;
     const targetDirectory = projectMap?.get(selection.sessionId)?.directory ?? null;
-    handleSessionSelect(selection.sessionId, targetDirectory);
+    handleSessionSelect(selection.sessionId, targetDirectory, 'restore'); // The sidebar's own default, not the person's (#608).
   }, [
     activeProjectId,
     activeSessionByProject,

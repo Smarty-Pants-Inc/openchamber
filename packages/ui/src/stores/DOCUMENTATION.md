@@ -423,6 +423,16 @@ the path is known, so a cached `lastDirectory` and a later settings
 `activeProjectId` for the same project note once. An admitted saved active
 project is kept. Saved settings stay unchanged.
 
+An open session whose directory the published rows lack (a project that has
+not joined the catalog yet) is held instead (`managedSessionHold`, #608):
+the publication and later settings syncs keep the active project, directory
+and session, and make no note; the session listing does not deselect it. The
+chat column says it is waiting, and after `MANAGED_SESSION_HOLD_MS` (2 min from
+the first publication that lacked it) that the project is not in the live
+catalog, with a control that opens the project sidebar. The publication that
+admits the directory selects its project and clears the hold. With no open
+session the fallback and note above apply unchanged.
+
 ## Selector Rules
 
 Use leaf selectors.

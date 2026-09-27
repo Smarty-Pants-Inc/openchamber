@@ -647,7 +647,8 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     const committed = get();
     raiseSessionOrderingBaselines(committed.activeSessions);
     const selected = useSessionUIStore.getState().currentSessionId;
-    if (selected && !committed.entityById.has(selected)) {
+    // A session held open while its project joins the catalog (#608) is not listed yet; it stays open.
+    if (selected && !committed.entityById.has(selected) && useProjectsStore.getState().managedSessionHold?.sessionId !== selected) {
       useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
     }
     restoreManagedSessionSelection(committed.activeSessions);

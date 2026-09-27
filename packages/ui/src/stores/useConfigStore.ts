@@ -3309,7 +3309,8 @@ export const useConfigStore = create<ConfigStore>()(
                                 if (projectState.managedCatalogAdmitted) {
                                     const project = visibleProjects(projectState).find(entry => entry.path === configDirectory);
                                     // Startup, not a choice: select without publishing the shared lastDirectory (#117, #114).
-                                    if (project) projectState.setActiveProject(project.id, { remember: false });
+                                    // Never over an open session held while its project joins the catalog (#608).
+                                    if (project && !projectState.managedSessionHold) projectState.setActiveProject(project.id, { remember: false });
                                 } else {
                                     opencodeClient.setDirectory(configDirectory);
                                     useDirectoryStore.getState().setDirectory(configDirectory, { showOverlay: false });
