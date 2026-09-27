@@ -28,6 +28,7 @@ const blocking = (id: string, expiresIn: number): NativeCreationState => ({ oper
 const native = (operations: NativeCreationState[], refreshed: string[]): ReturnType<typeof useNativeCreation> => ({
   mode: 'ordinary', session: null, creation: null, canAbandon: true, operations, refusal: null,
   refresh: async () => { refreshed.push('refresh'); }, cancel: async () => {},
+  // SAFETY: the refusal passed here is always a NativeCreationError, and its code names an i18n key.
   describeError: error => nativeCreationFailure(error).detail ?? nativeCreationI18n.en[`chat.nativeCreation.${(error as NativeCreationError).code}` as keyof typeof nativeCreationI18n.en],
   beforeSend: async () => undefined, noteRefusal: () => new NativeCreationError('unavailable') });
 
@@ -50,6 +51,7 @@ const stopButton = () => [...host.querySelectorAll('button')].find(button => but
 test('a blocking start past its expiry can be stopped at once; stopping it frees the project', async () => {
   const calls: string[] = [], refreshed: string[] = [];
   const original = opencodeClient.abandonNativeCreation;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.abandonNativeCreation = (async (directory: string, id: string) => {
     calls.push(`${directory} ${id}`); return { ...blocking(id, -1), phase: 'cancelled' };
   }) as typeof original;
@@ -83,6 +85,7 @@ test('a start within its time is not offered for stopping until the grace passes
 
 test('a stop the gateway refuses says why, keeps the draft text, and the start still blocks', async () => {
   const original = opencodeClient.abandonNativeCreation;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.abandonNativeCreation = (async () => {
     throw nativeCreationFailure({ name: 'APIError', data: { message: 'This start already finished; nothing to abandon', isRetryable: false } }, 409);
   }) as typeof original;
@@ -114,7 +117,9 @@ test('text locked as sent to a start that never settles comes back when that sta
   claimChatDraftOwnership(identity); writeChatDraft(identity, 'Locked text', []);
   localStorage.setItem(markKey, JSON.stringify({ clientRequestId: op.clientRequestId, operationId: op.operationId }));
   const originals = { abandon: opencodeClient.abandonNativeCreation, list: opencodeClient.listNativeCreations };
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.abandonNativeCreation = (async () => ({ ...op, phase: 'cancelled' })) as typeof originals.abandon;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.listNativeCreations = (async () => [{ ...op, phase: 'cancelled' }]) as typeof originals.list;
   try {
     await act(async () => root.render(<NativeCreationNotice native={native([op], [])} draftOpen sent="unknown" />));
@@ -131,6 +136,7 @@ test('text locked as sent to a start that never settles comes back when that sta
 test('after a Send the blocking start refused, the notice still offers to stop it', async () => {
   const calls: string[] = [];
   const original = opencodeClient.abandonNativeCreation;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.abandonNativeCreation = (async (_: string, id: string) => { calls.push(id); return { ...blocking(id, -1), phase: 'cancelled' }; }) as typeof original;
   try {
     const op = blocking('op-after-send', -1);
@@ -145,6 +151,7 @@ test('after a Send the blocking start refused, the notice still offers to stop i
 test('the stop names its start, and when the blocking start changes it names and stops the new one', async () => {
   const calls: string[] = [];
   const original = opencodeClient.abandonNativeCreation;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.abandonNativeCreation = (async (_: string, id: string) => { calls.push(id); return { ...blocking(id, -1), phase: 'cancelled' }; }) as typeof original;
   try {
     const first = blocking('1111aaaa-first', -1), second = blocking('2222bbbb-second', -1);
@@ -167,6 +174,7 @@ test('text back after a start someone stopped says who stopped it', async () => 
   const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
   claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
   const original = opencodeClient.listNativeCreations;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.listNativeCreations = (async () => [op]) as typeof original;
   try {
     const { resolveSentStart } = await import('@/sync/native-draft-sent');
@@ -192,6 +200,7 @@ test('a late read of an older start never names the wrong person for a newer one
   const held = new Promise<void>(resolve => { release = resolve; });
   const original = opencodeClient.listNativeCreations;
   let reads = 0;
+  // SAFETY: a test double with the client method's own call shape.
   opencodeClient.listNativeCreations = (async () => { if (reads++ === 0) { await held; return [older]; } return [newer]; }) as typeof original;
   try {
     const late = resolveSentStart(getRuntimeKey(), '/project', identity.draftId!); // Reads the older start; its answer waits.

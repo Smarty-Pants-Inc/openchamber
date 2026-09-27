@@ -92,7 +92,9 @@ test('all locales translate the create action, readiness and failure copy with m
 // smarty-code#523 with the gateway's #548: the page asks for stoppedBy on every creation request, and a start that carries
 // it parses (the schema is strict, so an unasked field would have failed the whole list).
 describe('who stopped a start', () => {
-  const op = (extra: Record<string, unknown> = {}) => ({ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory: '/project',
+  /** The wire fields these cases vary (an unasked field shows the strict schema dropping the list). */
+  type WireExtra = { phase?: string; stoppedBy?: { name: string; issuer?: string; subject?: string; extra?: number } };
+  const op = (extra: WireExtra = {}) => ({ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory: '/project',
     generation: null, revision: 3, phase: 'cancelled', expiresAt: 1, canInitialReady: false, ...extra });
   test('creation requests ask for stoppedBy, and a start with it is read', async () => {
     const asked: Array<string | null> = [];
