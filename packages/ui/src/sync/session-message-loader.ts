@@ -209,7 +209,7 @@ export class SessionMessageLoader {
 
   ensure(
     target: SessionMessageTarget,
-    options?: { force?: boolean; reason?: "navigation" | "reactive" | "prefetch"; coverageRechecked?: boolean },
+    options?: { force?: boolean; reason?: "navigation" | "reactive" | "prefetch" },
   ): Promise<void> {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
@@ -229,11 +229,6 @@ export class SessionMessageLoader {
     if (entry.inflight) {
       if (options?.reason !== "prefetch" && entry.snapshot.loadingKind === "prefetch") {
         this.patchEntry(entry, { loadingKind: "initial" })
-      }
-      // Stale coverage behind a read already under way (a tail refresh): once it settles, check again, once.
-      if (staleCoverage && !options?.coverageRechecked) {
-        const inflight = entry.inflight
-        return inflight.catch(() => undefined).then(() => this.ensure(normalized, { reason: "navigation", coverageRechecked: true }))
       }
       return entry.inflight
     }
@@ -342,7 +337,12 @@ export class SessionMessageLoader {
       if (!isCurrent()) return
       const committed = this.commitPage(normalized, entry, store, page, "merge", isCurrent)
       if (!committed || !isCurrent()) return
-      const coverage = previousCoverage ?? page
+      // A tail page that is not the whole history, while the earlier page claimed it was and a reply now lacks its prompt,
+      // proves that claim stale (the session grew after it): its own cursor is the coverage now, so older pages load and
+      // the timeline shows the replies (#126 item 4). Otherwise the earlier coverage stays, as before.
+      const staleCoverage = previousCoverage?.complete === true && !page.complete
+        && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
+      const coverage = staleCoverage ? page : previousCoverage ?? page
       this.patchEntry(entry, {
         status: "ready",
         loadingKind: null,

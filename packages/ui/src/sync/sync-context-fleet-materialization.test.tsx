@@ -307,15 +307,23 @@ test('a session read earlier as empty whose reply now has 60 steps opens with it
     setActiveSession('/a', S);
     await act(async () => { await fetchMessagesForSession(S, '/a'); });
     await sync.settle(300);
+    // Its replies show (older history exists above them), and older pages load back to its prompt.
+    const loader = getImperativeSessionMessageLoader()!;
+    const target = { directory: '/a', sessionID: S };
+    expect((sync.store.getState().message[S] ?? []).length).toBeGreaterThan(0);
+    for (let i = 0; i < 5 && !loader.getSnapshot(target).complete && loader.getSnapshot(target).cursor; i++) {
+      await act(async () => { await loader.loadOlder(target); });
+    }
     const ids = (sync.store.getState().message[S] ?? []).map(entry => entry.id);
-    expect(ids[0]).toBe('msg_001'); // Its prompt is there, so the turn shows.
+    expect(ids[0]).toBe('msg_001');
     expect(ids).toHaveLength(61);
   } finally { await sync.dispose(); }
 }, 15_000);
 
-// Pre-check (Astra, overlap): the streamed reply starts a recovery read, and she opens the session before it answers.
-// The open waits for that read, then finds the coverage still stale and reloads it from the start, once.
-test('opening while a recovery read of stale coverage is under way still reaches the prompt', async () => {
+// Pre-check (Astra, overlap): the streamed reply starts a recovery read, the session goes idle (a queued tail refresh),
+// and she opens it before the read answers. The tail read proves the empty page's 'whole history' stale: the replies
+// show, and older pages (the prompt) load.
+test('opening while reads of stale coverage are under way shows the replies, and older pages reach the prompt', async () => {
   const S = 'ses_overlap';
   let history: unknown[] = [];
   let release = () => {};
@@ -331,14 +339,22 @@ test('opening while a recovery read of stale coverage is under way still reaches
     sync.event('message.updated', { info: reply(S, 'msg_061', 'msg_001', 61, 62) }); // A reply with no parts yet: a recovery read.
     await sync.settle(300);
     expect(sync.reads).toEqual([S, S]); // The recovery read is under way (held).
+    sync.event('session.idle', { sessionID: S }); // The session goes idle: a tail refresh queues behind it.
+    await sync.settle(100);
     setActiveSession('/a', S);
     const opening = fetchMessagesForSession(S, '/a');
     await sync.settle(100);
     release();
     await act(async () => { await opening; });
-    await sync.settle(300);
-    const ids = (sync.store.getState().message[S] ?? []).map(entry => entry.id);
-    expect(ids[0]).toBe('msg_001');
-    expect(ids).toHaveLength(61);
+    await sync.settle(500);
+    const loader = getImperativeSessionMessageLoader()!;
+    const snapshot = loader.getSnapshot({ directory: '/a', sessionID: S });
+    expect(snapshot.complete).toBe(false); // Not the empty page's 'whole history' any more...
+    expect(snapshot.cursor).toBeDefined(); // ...so older pages can load.
+    expect((sync.store.getState().message[S] ?? []).length).toBeGreaterThan(0);
+    for (let i = 0; i < 5 && loader.getSnapshot({ directory: '/a', sessionID: S }).cursor; i++) {
+      await act(async () => { await loader.loadOlder({ directory: '/a', sessionID: S }); });
+    }
+    expect((sync.store.getState().message[S] ?? [])[0]?.id).toBe('msg_001'); // The prompt is reachable.
   } finally { await sync.dispose(); }
 }, 15_000);
