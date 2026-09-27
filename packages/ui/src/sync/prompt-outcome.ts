@@ -78,7 +78,7 @@ export function applyPromptOutcome(properties: unknown, runtimeKey: string): voi
   useSteerOutcomes.getState().add({ runtimeKey, sessionID: pending.sessionID, directory: pending.directory, messageID: pending.messageID,
     outcome: props.outcome as 'not-delivered' | 'unconfirmed', text: pending.text, at: Date.now() })
   toast.error(words)
-  reportClientError({ kind: `steer.${props.outcome}`, sessionID: pending.sessionID, runtimeKey }) // The outcome, never the text.
+  reportClientError({ kind: `steer.${props.outcome}`, sessionID: pending.sessionID, runtimeKey, operationId: pending.messageID }) // The outcome, never the text.
   // After the current event batch publishes: a batch that already copied the store would otherwise restore it. Not if a
   // correction in the same batch already said it was delivered (its notice is gone): then the message stays.
   queueMicrotask(() => {

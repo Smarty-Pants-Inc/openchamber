@@ -1,5 +1,5 @@
 import React from 'react';
-import { toast } from '@/components/ui/toast'; // Unwrapped: setContextObligatoryMessage reports its failure (#536).
+import { toast } from 'sonner';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { useDirectorySync, useEnsureSessionMessages, useSession } from '@/sync/sync-context';

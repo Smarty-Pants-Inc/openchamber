@@ -3,7 +3,7 @@
  * Replaces the action methods from the old useSessionStore.
  */
 
-import { reportClientError } from "@/lib/clientErrorReport"
+import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
 import { optimisticStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
@@ -1013,13 +1013,13 @@ export async function setContextObligatoryMessage(
   message: ContextObligatoryMessage,
   pinned: boolean,
 ): Promise<Session> {
-  const runtimeKey = getRuntimeKey() // Its server, before the first await (#536).
+  const runtimeKey = getRuntimeKey(), operationId = newOperationId() // Its server, before the first await (#536).
   try {
     return await patchSessionMetadata(sessionId, directory, (metadata) =>
       withContextObligatoryMessage(metadata, message, pinned))
   } catch (error) {
     // The message row shows its own toast (a reviewed branded file); the operation reports it (#536).
-    reportClientError({ kind: "context-pin", sessionID: sessionId, runtimeKey })
+    reportClientError({ kind: "context-pin", sessionID: sessionId, runtimeKey, operationId })
     throw error
   }
 }
@@ -2653,9 +2653,9 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  */
 export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
   // The store shows "Failed to fork session" when this throws: the fleet sees it too (smarty-code#536).
-  const runtimeKey = getRuntimeKey() // The server this fork goes to, before its first await.
+  const runtimeKey = getRuntimeKey(), operationId = newOperationId() // The server this fork goes to, before its first await.
   try { await forkFromMessageUnreported(sessionId, messageId) }
-  catch (error) { reportClientError({ kind: "fork", message: "Failed to fork session", sessionID: sessionId, runtimeKey }); throw error }
+  catch (error) { reportClientError({ kind: "fork", message: "Failed to fork session", sessionID: sessionId, runtimeKey, operationId }); throw error }
 }
 
 async function forkFromMessageUnreported(sessionId: string, messageId: string): Promise<void> {

@@ -604,6 +604,7 @@ export class SessionMessageLoader {
   ): Promise<void> {
     const generation = entry.snapshot.generation
     const sdkEpoch = this.sdkEpoch
+    const runtimeKey = this.runtimeKey // The server this load started on (#536).
     const finishPerformanceEvent = startSessionLoadPerformanceEvent({
       operation: kind === "prefetch" ? "session-prefetch" : `session-messages.${kind}`,
       caller: kind,
@@ -640,7 +641,7 @@ export class SessionMessageLoader {
         const status = (error as { status?: unknown } | null)?.status
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = /request timed out/i.test(failure.message)
-        reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey: this.runtimeKey, // Never the server's words.
+        reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey, operationId: `${target.sessionID}:${generation}`, // Never the server's words.
           status: typeof status === "number" ? status : undefined })
       })
       .finally(() => {

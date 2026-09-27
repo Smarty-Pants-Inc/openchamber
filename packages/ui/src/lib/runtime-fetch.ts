@@ -217,9 +217,9 @@ const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope
   return response;
 };
 
-const reportUpgradeFailure = (runtimeKey: string, status?: number) => {
+const reportUpgradeFailure = (runtimeKey: string, operationId: string, status?: number) => {
   void import('./clientErrorReport').then(({ reportClientError }) =>
-    reportClientError({ kind: 'opencode-upgrade', status, runtimeKey }));
+    reportClientError({ kind: 'opencode-upgrade', status, runtimeKey, operationId }));
 };
 
 const fetchRuntimeRequest = async (
@@ -241,6 +241,7 @@ const fetchRuntimeRequest = async (
   assertRuntimeRequestScope(scope);
   addRuntimeProxyHeaders(url, headers);
   const isUpgrade = method === 'POST' && /\/api\/opencode\/upgrade(?:\?|$)/.test(url);
+  const upgradeId = `upgrade:${Date.now()}:${Math.random()}`; // This request: its failure is one report.
   // Retain SDK Request bodies, signals and headers. The tunnel consumes stream
   // bodies itself; constructing a relative Request would lose that contract.
   let response: Response;
@@ -251,7 +252,7 @@ const fetchRuntimeRequest = async (
         ? new Request(resolvedInput, { ...requestInit, headers })
         : resolvedInput, resolvedInput instanceof Request ? undefined : { ...requestInit, headers });
   } catch (error) {
-    if (isUpgrade) reportUpgradeFailure(scope.runtimeKey);
+    if (isUpgrade) reportUpgradeFailure(scope.runtimeKey, upgradeId);
     throw error;
   }
 
@@ -263,9 +264,9 @@ const fetchRuntimeRequest = async (
   // The OpenCode upgrade toast lives in a reviewed branded file: its failure is reported here, with its server (#536):
   // a refused or unanswered request, or a 200 whose body says it did not succeed.
   if (isUpgrade) {
-    if (!response.ok) reportUpgradeFailure(scope.runtimeKey, response.status);
+    if (!response.ok) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status);
     else void readCopy(response, 'json')?.then(payload => {
-      if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, response.status);
+      if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status);
     });
   }
   // Once dispatched, an effect belongs to its origin even after navigation.

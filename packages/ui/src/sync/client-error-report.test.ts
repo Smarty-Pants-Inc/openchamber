@@ -4,7 +4,7 @@ import { resetClientErrorReportsForPage } from '@/lib/clientErrorReport';
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 
 // smarty-code#536 item 3 (Paul, 3.38): "Session could not be loaded" was shown to him and nothing in the fleet saw it.
-// The loader's error path reports what the page shows to the gateway (POST /api/client-error), once per 30 s per kind.
+// The loader's error path reports what the page shows to the gateway (POST /api/client-error), once per load.
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
 afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorReportsForPage(); });
 const reports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
@@ -24,11 +24,14 @@ test('a session whose messages cannot be loaded is reported once, with its sessi
   expect(JSON.stringify(body).includes('merger')).toBe(false);
   expect(typeof body.at).toBe('number');
   for (const key of Object.keys(body)) expect(['at', 'kind', 'message', 'sessionID', 'status']).toContain(key); // No content, no route.
-  // The same failure again within 30 s: shown again, not reported again.
-  await fixture.loader.ensure(target, { reason: 'navigation', force: true });
-  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  // Shown again (the page re-renders it): the same load, not reported again.
+  await fixture.loader.ensure(target, { reason: 'navigation' }).catch(() => undefined);
   await sleep(50);
   expect(reports()).toHaveLength(1);
+  // A new attempt (Try again) is a new operation: its failure reports.
+  await fixture.loader.ensure(target, { reason: 'navigation', force: true });
+  await sleep(50);
+  expect(reports()).toHaveLength(2);
 });
 
 test('a history open that timed out is reported as a timeout, with its session', async () => {
@@ -47,20 +50,12 @@ test('a load that succeeds reports nothing', async () => {
   expect(reports()).toHaveLength(0);
 });
 
-test('an error toast is reported without its text, by the code that showed it: different sites each, one site once per 30 s', async () => {
+test('a generic error toast does not report: its operation\'s server is not known where it shows', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
-  // Block bodies: a tail call (JavaScriptCore, Safari) would report its caller's site, which is still one code location.
-  const showMerger = () => { toast.error('No commits found in range main...feature/merger'); };
-  const showPayroll = () => { toast.error('Failed to attach payroll.xlsx'); };
-  showMerger(); showMerger(); showPayroll();
+  toast.error('No commits found in range main...feature/merger');
   await sleep(50);
-  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
-  expect(bodies).toHaveLength(2); // Two sites, two reports; the repeat of one site within 30 s is not sent again.
-  for (const body of bodies) expect(/^toast\.client-error-report-test\.\d+\.\d+$/.test(String(body.kind))).toBe(true);
-  expect(bodies[0]!.kind).not.toBe(bodies[1]!.kind);
-  expect(bodies[0]!.message).toBeUndefined();
-  expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
+  expect(reports()).toHaveLength(0);
 });
 
 test('a report is redacted: no query strings, tokens, addresses, quoted text, file names or paths', async () => {
@@ -76,11 +71,13 @@ test('a report is redacted: no query strings, tokens, addresses, quoted text, fi
 test('a report made for one server is never sent after a switch to another', async () => {
   fixture = nativeDraftFixture();
   const { reportClientError } = await import('@/lib/clientErrorReport');
-  const { switchRuntimeEndpoint } = await import('@/lib/runtime-switch');
-  reportClientError({ kind: 'toast', message: 'shown for A', sessionID: 'ses_a' });
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `other-${crypto.randomUUID()}` });
+  reportClientError({ kind: 'fork', operationId: 'op-a', runtimeKey: runtimeA, sessionID: 'ses_a' }); // A's, late.
   await sleep(50);
   expect(reports()).toHaveLength(0);
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
 
 // Review of #301 (P1): a failure is reported only to the server its operation belonged to, captured before its first
@@ -117,38 +114,66 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
   } finally { globalThis.fetch = served; }
 });
 
-// Review of #301 (P2, 5854326593): old work never gates new reports. A report without scope goes to the page's current
-// server; a report that carries an old server's scope is dropped.
-test('with an old request still pending, a new error on the new server is reported once to it; the old operation\'s late failure is dropped', async () => {
+// Review 5854916574: every report is scoped to the server its operation STARTED on. A small-model request begun on A that
+// fails after the switch to B goes nowhere; one begun on B reports to B, once.
+test('a small-model request begun on A that fails after the switch is dropped; one begun on B reports to B once', async () => {
   fixture = nativeDraftFixture();
-  const { toast } = await import('@/components/ui');
-  const { forkFromMessage } = await import('./session-actions');
+  const { requestSmallModel } = await import('@/lib/smallModelRequest');
   const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
   const runtimeA = getRuntimeKey();
   const served = globalThis.fetch;
-  const seen: Array<{ runtime: string; kind: string }> = [];
-  let releaseA = () => {};
+  const seen: Array<{ runtime: string; kind: string; status: unknown }> = [];
+  let releaseA: (() => void) | undefined;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), kind: String((await request.json()).kind) }); return new Response(null, { status: 204 }); }
-    if (path.endsWith('/fork')) { await new Promise<void>(resolve => { releaseA = resolve; }); return Response.json({ name: 'APIError', data: { message: 'refused' } }, { status: 500 }); }
+    if (path.endsWith('/client-error')) { const body = await request.json(); seen.push({ runtime: getRuntimeKey(), kind: String(body.kind), status: body.status }); return new Response(null, { status: 204 }); }
+    if (path.endsWith('/small-model/generate')) {
+      if (!releaseA) { await new Promise<void>(resolve => { releaseA = resolve; }); }
+      return Response.json({ error: 'no model' }, { status: 503 });
+    }
     return served(input, init);
   }) as typeof fetch;
   try {
-    const lateA = forkFromMessage(session.id, 'msg_1').catch(() => undefined); // A's operation, still pending.
+    const onA = requestSmallModel({ method: 'POST', body: '{}' }); // Begun on A, held.
     await sleep(10);
     const runtimeB = `server-b-${crypto.randomUUID()}`;
     switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeB });
-    toast.error('Could not load stashes'); await sleep(50); // A new error on B, while A's request is out.
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.runtime).toBe(runtimeB);
-    expect(seen[0]!.kind.startsWith('toast.')).toBe(true);
-    releaseA(); await lateA.then(() => { toast.error('Could not rename'); }); await sleep(50);
-    // A's own failure, late, carries A's scope and goes nowhere; B's toast in the same task still reports.
-    expect(seen).toHaveLength(2);
-    expect(seen[1]!.runtime).toBe(runtimeB);
+    await requestSmallModel({ method: 'POST', body: '{}' }); await sleep(50); // Begun on B, fails: reported to B.
+    releaseA!(); await onA; await sleep(50); // A's fails now: dropped.
+    expect(seen).toEqual([{ runtime: runtimeB, kind: 'small-model', status: 503 }]);
   } finally { globalThis.fetch = served; }
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
+// Review 5854916574: deduplicated per error (kind, operation), never per task or session.
+test('two distinct errors in one batch each report; the same error seen twice reports once', async () => {
+  fixture = nativeDraftFixture();
+  const { reportClientError } = await import('@/lib/clientErrorReport');
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeKey = getRuntimeKey();
+  // One synchronous event batch: a steer not delivered, then the same session's turn settled locally.
+  reportClientError({ kind: 'steer.not-delivered', operationId: 'msg_1', sessionID: session.id, runtimeKey });
+  reportClientError({ kind: 'turn-settled-locally', operationId: `${session.id}:msg_2`, sessionID: session.id, runtimeKey, message: 'idle; tools interrupted: 2' });
+  reportClientError({ kind: 'steer.not-delivered', operationId: 'msg_1', sessionID: session.id, runtimeKey }); // Shown again.
+  reportClientError({ kind: 'settings-save', operationId: 'save-1', runtimeKey }); // Sessionless, unrelated.
+  await sleep(50);
+  const kinds = await Promise.all(reports().map(async request => String((await request.json()).kind)));
+  expect(kinds).toEqual(['steer.not-delivered', 'turn-settled-locally', 'settings-save']);
+});
+
+test('an unhandled error reports page.unhandled with its name only; an event without an error object does not', async () => {
+  fixture = nativeDraftFixture();
+  const { listenForUnhandledErrors } = await import('@/lib/clientErrorReport');
+  const listeners = new Map<string, (event: unknown) => void>();
+  listenForUnhandledErrors({ addEventListener: ((type: string, listener: (event: unknown) => void) => { listeners.set(type, listener); }) as never });
+  if (listeners.size === 0) return; // Already listening on this page's window (bun has none): nothing to model.
+  listeners.get('error')!({ error: new TypeError("Cannot read 'merger plan'") });
+  listeners.get('unhandledrejection')!({ reason: new RangeError('payroll.xlsx too big') });
+  listeners.get('error')!({ error: null, message: 'ResizeObserver loop completed' });
+  await sleep(50);
+  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
+  expect(bodies.map(body => [body.kind, body.message])).toEqual([['page.unhandled', 'TypeError'], ['page.unhandled', 'RangeError']]);
+  expect(/merger|payroll/.test(JSON.stringify(bodies))).toBe(false);
 });
 
 test('a failed context pin and a failed OpenCode upgrade each report their own code and status', async () => {
@@ -188,69 +213,4 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
     await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' }).catch(() => undefined); await sleep(50);
     expect(kinds).toEqual(['opencode-upgrade:']);
   } finally { globalThis.fetch = served; }
-});
-
-// Review of #301 (P2): no error toast bypasses reporting. A file that shows one without the reporting wrapper (sonner,
-// or the unwrapped toast module) reports that failure itself, with its runtime (context pin, upgrade, small model, ...).
-// One shown error, one report: a send refused by the page's own check, then its caller's toast in the same task.
-test('one report per error seen: every toast reports; an operation\'s own toast and its same-session consequences in its task do not', async () => {
-  fixture = nativeDraftFixture();
-  const { reportClientError } = await import('@/lib/clientErrorReport');
-  const { toast } = await import('@/components/ui');
-  const kinds: string[] = [];
-  const served = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init), path = new URL(request.url).pathname;
-    if (path.endsWith('/client-error')) { kinds.push(String((await request.json()).kind)); return new Response(null, { status: 204 }); }
-    return served(input, init);
-  }) as typeof fetch;
-  try {
-    await Promise.resolve().then(() => {
-      reportClientError({ kind: 'send.unavailable', sessionID: session.id }); // The operation's own report...
-    }).then(() => { toast.error('This session is unavailable right now'); }); // ...and its caller's toast, same task.
-    await sleep(50);
-    expect(kinds).toEqual(['send.unavailable']);
-    await Promise.resolve().then(() => { toast.error('Could not read the mentioned file'); }) // A toast shown...
-      .then(() => { toast.error('File is too large'); }) // ...another toast in the same task: a second error seen...
-      .then(() => reportClientError({ kind: 'send.unavailable', sessionID: 'ses_other' })); // ...then a refusal shown.
-    await sleep(50);
-    expect(kinds).toHaveLength(4); // Three errors seen, three reports.
-    await Promise.resolve().then(() => reportClientError({ kind: 'session-messages.initial', sessionID: 'ses_x' }))
-      .then(() => reportClientError({ kind: 'start.history', sessionID: 'ses_x' })) // The start that failure refused.
-      .then(() => reportClientError({ kind: 'session-messages.initial', sessionID: 'ses_y' })); // Another session: its own.
-    await sleep(50);
-    expect(kinds.slice(4)).toEqual(['session-messages.initial', 'session-messages.initial']);
-    const later = () => { toast.error('Could not load stashes'); };
-    later(); await sleep(50); // A new error, in a later task: reported.
-    expect(kinds).toHaveLength(7);
-    expect(kinds[6]!.startsWith('toast.')).toBe(true);
-  } finally { globalThis.fetch = served; }
-});
-
-test('every error toast shown outside the reporting wrapper is reported by its own code', async () => {
-  const { readdirSync, readFileSync } = await import('node:fs');
-  const root = new URL('..', import.meta.url).pathname;
-  // A reviewed branded file keeps its bytes: the operation it calls reports instead (checked below).
-  const reportedByOperation: Record<string, [string, RegExp]> = {
-    'components/chat/ChatMessage.tsx': ['sync/session-actions.ts', /kind: "context-pin"/],
-    'components/chat/work-status/WorkStatusPinnedSection.tsx': ['sync/session-actions.ts', /kind: "context-pin"/],
-    'components/update/OpenCodeUpdateToast.tsx': ['lib/runtime-fetch.ts', /kind: 'opencode-upgrade'/],
-  };
-  const bypass: string[] = [];
-  for (const file of readdirSync(root, { recursive: true }) as string[]) {
-    if (!/\.tsx?$/.test(file) || /\.test\.|__tests__|components\/ui\/(index|toast)\./.test(file)) continue;
-    const text = readFileSync(root + file, 'utf8');
-    if (/from '(sonner|@\/components\/ui\/toast|\.\/toast)'/.test(text) && /toast\.error\(/.test(text) && !/reportClientError\(/.test(text)
-      && !(reportedByOperation[file] && reportedByOperation[file]![1].test(readFileSync(root + reportedByOperation[file]![0], 'utf8')))) bypass.push(file);
-  }
-  expect(bypass).toEqual([]);
-  // One shown error, one report: a caller of an operation that reports its own failure (the context pin) shows its
-  // toast unwrapped, or a failed unpin in Work Status would report twice.
-  const twice: string[] = [];
-  for (const file of readdirSync(root, { recursive: true }) as string[]) {
-    if (!/\.tsx?$/.test(file) || /\.test\.|__tests__/.test(file)) continue;
-    const text = readFileSync(root + file, 'utf8');
-    if (/setContextObligatoryMessage\(/.test(text) && /from '@\/components\/ui'/.test(text) && /toast\.error\(/.test(text)) twice.push(file);
-  }
-  expect(twice).toEqual([]);
 });

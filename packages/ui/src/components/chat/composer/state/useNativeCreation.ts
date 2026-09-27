@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, NATIVE_CREATION_INVALIDATED, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
-import { reportClientError } from '@/lib/clientErrorReport';
+import { newOperationId, reportClientError } from '@/lib/clientErrorReport';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -105,7 +105,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       const error = cause instanceof NativeCreationError || parsed.detail ? parsed
         : new NativeCreationError('unavailable', cause, typeof reason === 'string' ? reason : t('chat.chatInput.toast.messageSendFailed'));
       // A second press: the first Send is still under way and says its own outcome.
-      if (error.code !== 'sending' && stillShown()) { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `send.${error.code}`, status: error.status, runtimeKey }); } // The code, never the server's words.
+      if (error.code !== 'sending' && stillShown()) { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `send.${error.code}`, status: error.status, runtimeKey, operationId: newOperationId() }); } // The code, never the server's words.
       return error;
     },
     refresh: () => perform(async () => {
@@ -117,6 +117,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     describeError,
     /** Send on a new-session draft starts its session first (native-draft-start), then sends once. */
     beforeSend: async () => {
+      const operationId = newOperationId(); // This start, before its first await.
       setRefusal(null);
       try {
         guard();
@@ -131,7 +132,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       } catch (cause) {
         const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
         // A second press while the first is still starting needs no line: the first one's own line is showing.
-        if (stillShown() && error.code !== 'sending') { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `start.${error.code}`, status: error.status, runtimeKey }); } // The code, never the server's words.
+        if (stillShown() && error.code !== 'sending') { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `start.${error.code}`, status: error.status, runtimeKey, operationId }); } // The code, never the server's words.
         throw error;
       }
     },

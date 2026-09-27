@@ -1,37 +1,27 @@
 // A namespace import: test doubles of the runtime module may omit the key; then no report is scoped (nor sent).
 import * as runtime from './runtime-switch';
 const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
-/**
- * A report without its operation's runtime (a generic toast) goes to the server that is the page's when it is shown,
- * as a person's action would: it carries no content, only which code showed an error. A report that carries its
- * operation's runtime goes to that server only, and is dropped once the page has left it.
- */
 
 /**
- * A generic toast's diagnostic identity: the code location that showed it (bundle file, line, column), read from the
- * stack. It names code, never content, and tells one failing site from another. `depth`: frames above the caller.
+ * The page's failures reach the fleet without the person telling anyone (smarty-code#536 item 3): the gateway logs each
+ * report as `smarty.client-error`. Reports come only from OPERATIONS (a history load, a send, a start, a steer, a fork,
+ * a settings save, a context pin, an upgrade, the small model, a turn the page settled itself), each scoped to the
+ * server it started on and named by a stable kind and its operation id. Generic error toasts do not report: which
+ * server their operation started on is not known where they are shown. The report carries codes and fixed text, never
+ * the person's content, the server's words or the page's route. Reporting never fails the page.
  */
-export function callSiteCode(stack: string | undefined, depth: number): string {
-  const frames = (stack ?? '').split('\n')
-    .map(line => /([^/\\\s()@]+?)\.[cm]?[jt]sx?(?:\?[^:\s)]*)?:(\d+):(\d+)/.exec(line)).filter(Boolean) as RegExpExecArray[];
-  const frame = frames[depth];
-  return frame ? `toast.${frame[1].replace(/[^A-Za-z0-9_-]/g, '-')}.${frame[2]}.${frame[3]}`.slice(0, 64) : 'toast';
-}
-
-/**
- * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
- * sees it without the person telling anyone (smarty-code#536 item 3). The report carries the error as shown, redacted
- * (codes and fixed text; no route; anything free-form redacted), never the person's content. One report per
- * diagnostic (kind, session, message) per 30 s. Reporting never fails the page.
- */
-/**
- * `runtimeKey`: the server the failing operation belonged to, captured before its first await. The report goes to that
- * server only, and only while it is still the page's server (its own credentials); after a switch it is dropped, never
- * sent to another server. Without it, the server shown when the error is shown (a toast has no operation of its own).
- */
-export type ClientErrorReport = { kind: string; message?: string; sessionID?: string; status?: number; runtimeKey?: string };
-const REPORT_INTERVAL_MS = 30_000;
-const lastReport = new Map<string, number>();
+export type ClientErrorReport = {
+  kind: string;
+  /** The operation that failed: one report per (kind, operation), however often its failure is shown. */
+  operationId: string;
+  /** The server the operation STARTED on, captured before its first await. Only that server gets the report, and only
+   * while it is still the page's server: after a switch the report is dropped, never sent to another server. */
+  runtimeKey: string;
+  message?: string;
+  sessionID?: string;
+  status?: number;
+};
+const reported = new Set<string>();
 
 /** URLs keep origin and path; long opaque tokens, e-mail addresses, quoted text, file names and paths are masked; at most 300 characters. */
 export function redactClientError(text: string): string {
@@ -47,34 +37,17 @@ export function redactClientError(text: string): string {
     .slice(0, 300);
 }
 
-/**
- * One report per error a person sees. Each error toast is one (told apart by its site), and never holds another back.
- * An operation that reports its own failure (shown inline or in the transcript) runs through its callers in one task
- * (their catches are microtasks of it): a toast they show in that task is its display, and a further operation report
- * for the same session its consequence (the loader, then the start it refused). Neither is reported again. The record
- * clears at the next task. ponytail: the event loop's own boundary, not a guess by time.
- */
-let operationsThisTask: Array<string | undefined> | undefined;
-const isGenericToast = (kind: string) => kind === 'toast' || kind.startsWith('toast.');
+/** A new operation's id: an operation that has none of its own (a fork, a save) takes one at its start. */
+export const newOperationId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  if (operationsThisTask) {
-    if (isGenericToast(report.kind)) return;
-    if (operationsThisTask.some(earlier => !earlier || !report.sessionID || earlier === report.sessionID)) return;
-  }
-  const runtimeKey = report.runtimeKey ?? currentRuntime();
+  const { runtimeKey } = report;
   if (!runtimeKey || currentRuntime() !== runtimeKey) return; // Its server is gone: nowhere, never another server.
-  // Only a report that is the page's server's marks its task (a dropped old-server failure holds nothing back).
-  if (!isGenericToast(report.kind)) {
-    if (!operationsThisTask) { operationsThisTask = []; setTimeout(() => { operationsThisTask = undefined; }, 0); }
-    operationsThisTask.push(report.sessionID);
-  }
+  const key = `${runtimeKey}\0${report.kind}\0${report.operationId}`;
+  if (reported.has(key)) return; // The same failure again (shown twice, or re-rendered): one report.
+  if (reported.size > 500) reported.clear();
+  reported.add(key);
   const message = report.message ? redactClientError(report.message) : undefined;
-  const key = `${runtimeKey}\0${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
-  const last = lastReport.get(key);
-  if (last !== undefined && now - last < REPORT_INTERVAL_MS) return;
-  if (lastReport.size > 200) lastReport.clear();
-  lastReport.set(key, now);
   const body = {
     kind: report.kind.slice(0, 64),
     ...(message ? { message } : {}),
@@ -83,8 +56,8 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
     ...(Number.isInteger(report.status) && report.status! >= 0 && report.status! <= 999 ? { status: report.status } : {}),
     at: now,
   };
-  // Loaded on first use (the modules that show errors take no network dependency by importing this); sent only to the
-  // server the error was shown for.
+  // Loaded on first use (the modules that fail take no network dependency by importing this); sent only to the
+  // operation's own server.
   void import('./runtime-fetch').then(({ runtimeFetch }) => {
     if (currentRuntime() !== runtimeKey) return;
     return runtimeFetch('/api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -92,7 +65,32 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
   }).catch(() => undefined); // Best-effort: the page goes on.
 }
 
+/**
+ * The catch-all: an error nothing handled (a crash outside any operation, at boot or later) is reported as
+ * `page.unhandled` to the page's server when it fires, with its error name only (a code, never its message). One per
+ * name per 30 s. Errors without an error object (a cross-origin "Script error.", a ResizeObserver notice) are not.
+ */
+export function reportUnhandled(error: unknown, now = Date.now()): void {
+  if (!(error instanceof Error) && !(typeof error === 'object' && error !== null && 'name' in error)) return;
+  const name = String((error as { name?: unknown }).name ?? '');
+  const code = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(name) ? name : 'Error';
+  const runtimeKey = currentRuntime();
+  if (!runtimeKey) return;
+  reportClientError({ kind: 'page.unhandled', message: code, runtimeKey, operationId: `${code}:${Math.floor(now / 30_000)}` }, now);
+}
+
+let listening = false;
+/** Installed once, as early as the page loads this module (the sync layer imports it at boot). */
+export function listenForUnhandledErrors(target: Pick<Window, 'addEventListener'> | undefined =
+  typeof window === 'undefined' ? undefined : window): void {
+  if (listening || !target) return;
+  listening = true;
+  target.addEventListener('error', event => reportUnhandled((event as ErrorEvent).error));
+  target.addEventListener('unhandledrejection', event => reportUnhandled((event as PromiseRejectionEvent).reason));
+}
+listenForUnhandledErrors();
+
 /** Tests model a page load. */
 export function resetClientErrorReportsForPage(): void {
-  lastReport.clear(); operationsThisTask = undefined;
+  reported.clear();
 }
