@@ -1,5 +1,6 @@
 import React from 'react';
-import type { Message, Part, Session } from '@opencode-ai/sdk/v2';
+import { z } from 'zod';
+import type { Message, Part } from '@opencode-ai/sdk/v2';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 
@@ -86,6 +87,17 @@ const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
 const CHAT_FORCE_SCROLL_BOTTOM_EVENT = 'openchamber:chat-force-scroll-bottom';
 const DEFAULT_RETRY_MESSAGE = 'Quota limit reached. Retrying automatically.';
+
+// Values read here outside their declared types, decoded rather than narrowed with `typeof` (anti-slop; same results
+// as before). Times arrive as JSON numbers (never NaN or Infinity), so z.number() accepts exactly what `typeof` did.
+const completedTimeSchema = z.object({ time: z.object({ completed: z.number() }) });
+const confirmedAtSchema = z.object({ confirmedAt: z.number() });
+const chatSettingsSyncSchema = z.object({
+    type: z.literal('openchamber:chat-settings-sync'),
+    payload: z.object({ allowPromptingSubagentSessions: z.boolean() }),
+});
+const forceScrollBottomSchema = z.object({ detail: z.object({ sessionId: z.unknown() }) });
+const serverMessageSchema = z.object({ serverMessage: z.string() });
 const DRAFT_EXIT_DURATION_MS = 120;
 const COMPOSER_MOVE_DURATION_MS = 180;
 const CHAT_SCROLL_STYLE = {
@@ -125,7 +137,7 @@ const shouldIgnoreChatNavigationTarget = (target: EventTarget | null): boolean =
 };
 
 const shouldIgnoreChatNavigationForFocus = (activeElement: Element | null, scrollContainer: HTMLElement | null): boolean => {
-    if (typeof document === 'undefined') {
+    if (globalThis.document === undefined) {
         return true;
     }
 
@@ -273,6 +285,8 @@ const ChatViewport = React.memo(({
                 if (cached && cached.command === command) {
                     next.set(message.info.id, cached.parts);
                 } else {
+                    // SAFETY: a display-only text part for the prompt navigator, whose preview reads only a part's
+                    // type, text and context metadata; the ids a stored TextPart carries are never read, sent or stored.
                     const parts = [{ type: 'text', text: command ? `$ ${command}` : '/shell' } as Part];
                     shellPreviewCache.current.set(message.info.id, { command, parts });
                     next.set(message.info.id, parts);
@@ -340,7 +354,7 @@ const ChatViewport = React.memo(({
             return;
         }
 
-        if (typeof window !== 'undefined' && window.getSelection()?.type === 'Range') {
+        if (globalThis.window !== undefined && window.getSelection()?.type === 'Range') {
             return;
         }
 
@@ -863,11 +877,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             return true;
         }
 
-        const lastMessage = sessionMessages[sessionMessages.length - 1]?.info as Message | undefined;
+        const lastMessage: Message | undefined = sessionMessages[sessionMessages.length - 1]?.info;
         return Boolean(
             lastMessage
             && lastMessage.role === 'assistant'
-            && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number',
+            && !completedTimeSchema.safeParse(lastMessage).success,
         );
     }, [currentSessionId, sessionMessages, sessionPermissions.length, sessionQuestions.length, sessionStatusForCurrent.type]);
     const activeRetryStatus = React.useMemo(() => {
@@ -875,21 +889,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             return null;
         }
 
-        const rawMessage = typeof (sessionStatusForCurrent as { message?: string }).message === 'string'
-            ? (((sessionStatusForCurrent as { message?: string }).message) ?? '').trim()
-            : '';
+        const rawMessage = z.string().safeParse(sessionStatusForCurrent.message).data?.trim() ?? '';
 
         return {
             sessionId: currentSessionId,
             message: rawMessage || DEFAULT_RETRY_MESSAGE,
-            confirmedAt: (sessionStatusForCurrent as { confirmedAt?: number }).confirmedAt,
+            confirmedAt: confirmedAtSchema.safeParse(sessionStatusForCurrent).data?.confirmedAt,
         };
     }, [currentSessionId, sessionStatusForCurrent]);
     const [retryFallbackTimestamp, setRetryFallbackTimestamp] = React.useState<number>(0);
     const retryFallbackSessionRef = React.useRef<string | null>(null);
 
     React.useEffect(() => {
-        if (!activeRetryStatus || typeof activeRetryStatus.confirmedAt === 'number') {
+        if (!activeRetryStatus || activeRetryStatus.confirmedAt !== undefined) {
             retryFallbackSessionRef.current = null;
             setRetryFallbackTimestamp(0);
             return;
@@ -999,7 +1011,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
     const handleReturnToParentSession = React.useCallback(() => {
         if (!parentSession) return;
-        const parentDirectory = (parentSession as Session & { directory?: string | null }).directory ?? null;
+        const parentDirectory = parentSession.directory ?? null;
         setCurrentSession(parentSession.id, parentDirectory);
     }, [parentSession, setCurrentSession]);
 
@@ -1030,7 +1042,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         // The old `window.parent === window` check does not catch that, so
         // `window.parent.postMessage(...)` threw on chat open:
         // TypeError: Cannot read properties of undefined (reading 'postMessage')
-        if (typeof window === 'undefined' || !window.parent || window.parent === window) {
+        if (globalThis.window === undefined || !window.parent || window.parent === window) {
             return;
         }
 
@@ -1039,17 +1051,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             setEmbeddedAllowPrompting(value);
             useUIStore.getState().setAllowPromptingSubagentSessions(value);
         };
-        const scopedWindow = window as typeof window & {
+        const scopedWindow: typeof window & {
             __openchamberApplyChatSettingsSync?: (payload: { allowPromptingSubagentSessions: boolean }) => void;
-        };
+        } = window;
         const applySync = (payload: { allowPromptingSubagentSessions: boolean }) => {
             applySetting(payload.allowPromptingSubagentSessions);
         };
         const handleMessage = (event: MessageEvent) => {
             if (event.source !== parentWindow || event.origin !== window.location.origin) return;
-            const data = event.data as { type?: unknown; payload?: { allowPromptingSubagentSessions?: unknown } };
-            if (data?.type !== 'openchamber:chat-settings-sync'
-                || typeof data.payload?.allowPromptingSubagentSessions !== 'boolean') return;
+            const data = chatSettingsSyncSchema.safeParse(event.data).data;
+            if (!data) return;
             applySetting(data.payload.allowPromptingSubagentSessions);
         };
 
@@ -1239,22 +1250,22 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }, [showPromptNavigator]);
 
     React.useEffect(() => {
-        if (typeof window === 'undefined' || !currentSessionId) return;
+        if (globalThis.window === undefined || !currentSessionId) return;
 
         const handleForceScrollBottom = (event: Event) => {
-            const customEvent = event as CustomEvent<{ sessionId?: string }>;
-            if (customEvent.detail?.sessionId && customEvent.detail.sessionId !== currentSessionId) return;
+            const sessionId = forceScrollBottomSchema.safeParse(event).data?.detail.sessionId;
+            if (sessionId && sessionId !== currentSessionId) return;
             goToBottom('instant');
         };
 
-        window.addEventListener(CHAT_FORCE_SCROLL_BOTTOM_EVENT, handleForceScrollBottom as EventListener);
+        window.addEventListener(CHAT_FORCE_SCROLL_BOTTOM_EVENT, handleForceScrollBottom);
         return () => {
-            window.removeEventListener(CHAT_FORCE_SCROLL_BOTTOM_EVENT, handleForceScrollBottom as EventListener);
+            window.removeEventListener(CHAT_FORCE_SCROLL_BOTTOM_EVENT, handleForceScrollBottom);
         };
     }, [currentSessionId, goToBottom]);
 
     React.useEffect(() => {
-        if (typeof window === 'undefined' || !currentSessionId || isDesktopExpandedInput) {
+        if (globalThis.window === undefined || !currentSessionId || isDesktopExpandedInput) {
             return;
         }
 
@@ -1314,7 +1325,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             });
         };
 
-        if (typeof ResizeObserver === 'undefined') {
+        if (globalThis.ResizeObserver === undefined) {
             window.addEventListener('resize', scheduleUpdate);
             return () => {
                 if (rafId) cancelAnimationFrame(rafId);
@@ -1362,7 +1373,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         if (!active || !currentSessionId) return;
         if (lastScrolledSessionKeyRef.current === currentSessionKey) return;
 
-        const hasHashTarget = typeof window !== 'undefined' && window.location.hash.length > 0;
+        const hasHashTarget = globalThis.window !== undefined && window.location.hash.length > 0;
         lastScrolledSessionKeyRef.current = currentSessionKey;
         if (hasHashTarget) {
             // Hash navigation handler will scroll to target; we just release auto-follow.
@@ -1373,7 +1384,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         const run = () => {
             void restoreSnapshot();
         };
-        if (typeof window === 'undefined') {
+        if (globalThis.window === undefined) {
             run();
         } else {
             window.requestAnimationFrame(run);
@@ -1488,7 +1499,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                                 {authSessionExpired
                                     ? t('chat.container.sessionLoadError.authDescription')
                                     // Show the server's own explanation (for example an unenrolled fleet session).
-                                    : (sessionMessageLoadState.error as (Error & { serverMessage?: string }) | null)?.serverMessage
+                                    : serverMessageSchema.safeParse(sessionMessageLoadState.error).data?.serverMessage
                                         ?? t('chat.container.sessionLoadError.description')}
                             </p>
                             {authSessionExpired ? (
@@ -1559,7 +1570,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         return (
             <ChatViewport
                 currentSessionId={currentSessionId ?? ''}
-                currentSessionKey={currentSessionKey ?? currentSessionId ?? ''}
+                // The mode is part of the list's identity (smarty-code#616): a View only session that becomes ordinary while
+                // shown remounts its virtualized list, as a fresh open does, so the history the loader then pages in renders.
+                currentSessionKey={`${currentSessionKey ?? currentSessionId ?? ''}:${sessionMessageLoadState.readOnly === true ? 'view-only' : 'ordinary'}`}
                 isDesktopExpandedInput={isDesktopExpandedInput}
                 isMobile={isMobile}
                 directory={effectiveSessionDirectory}
