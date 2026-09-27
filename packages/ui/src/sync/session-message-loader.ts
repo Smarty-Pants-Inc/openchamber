@@ -949,7 +949,8 @@ export class SessionMessageLoader {
     const reset = mode !== "prepend" && entry.resetHistory
     // A quiet ordinary newest page drops shown rows the gateway removed while this page missed events (#669, #675).
     const pruned = mode === "merge" && !reset && page.ordinaryView && page.eventsAtRead === sessionMessageEventCount(target.sessionID)
-      ? withoutStaleOrdinaryRows(store.getState(), target.sessionID, page.session, (id) => entry.optimistic.has(id)) : null
+      ? withoutStaleOrdinaryRows(store.getState(), target.sessionID, page.session, page.complete,
+        (id) => entry.optimistic.has(id)) : null
     const current = pruned ?? store.getState()
     const shownByID = new Map((current.message[target.sessionID] ?? []).map((message) => [message.id, message] as const))
     const part = reset ? { ...current.part } : current.part

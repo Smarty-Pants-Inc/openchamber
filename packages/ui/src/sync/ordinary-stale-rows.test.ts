@@ -86,5 +86,26 @@ test("counterexample: rows older than the page and the page's own unsent message
   const idle: SessionStatus = { type: "idle" }
   const state = { ...base, session_status: { [S]: idle },
     message: { [S]: [user("old", 1).info, user("u5", 5).info, user("unsent", 6).info] } }
-  expect(withoutStaleOrdinaryRows(state, S, [user("u5", 5).info], (id) => id === "unsent")).toBeNull()
+  expect(withoutStaleOrdinaryRows(state, S, [user("u5", 5).info], false, (id) => id === "unsent")).toBeNull()
+})
+
+// The gateway's user record: the entry it shows rides in metadata, which the SDK's Message type does not declare.
+const bound = (id: string, entry: string, created: number): MessageRecord["info"] =>
+  Object.assign(user(id, created).info, { metadata: { pi: { entryID: entry } } })
+const shownState = (rows: MessageRecord["info"][]) => {
+  const base = new ChildStoreManager().ensureChild("/a", { bootstrap: false }).getState()
+  const idle: SessionStatus = { type: "idle" }
+  return { ...base, session_status: { [S]: idle }, message: { [S]: rows } }
+}
+const ids = (state: ReturnType<typeof withoutStaleOrdinaryRows>) => state?.message[S]?.map((m) => m.id)
+
+test("#675 (Astra r2): a complete page drops a raw copy at its oldest timestamp", () => {
+  const state = shownState([user("e1", 1).info, bound("msg_c1", "e1", 1), reply("a2", 2, 3).info])
+  expect(ids(withoutStaleOrdinaryRows(state, S, [bound("msg_c1", "e1", 1), reply("a2", 2, 3).info], true, () => false)))
+    .toEqual(["msg_c1", "a2"])
+})
+
+test("#675 (Astra r2): an incomplete page drops the raw first copy of an entry it shows re-keyed, even at its oldest timestamp", () => {
+  const state = shownState([user("old", 1).info, user("e3", 3).info, bound("msg_c3", "e3", 3)])
+  expect(ids(withoutStaleOrdinaryRows(state, S, [bound("msg_c3", "e3", 3)], false, () => false))).toEqual(["old", "msg_c3"])
 })

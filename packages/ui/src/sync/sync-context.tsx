@@ -2241,6 +2241,15 @@ export function interruptedTurnToolParts(
   }
 
   const messages = state.message[sessionID] ?? []
+  // smarty-code#669: an ordinary (Pi) session is idle only with no reply streaming, and each saved reply has its completed
+  // time: every unfinished reply here is a streamed copy whose removal the page missed (its event stream was cut, a slow
+  // reader), wherever it sits (a turn streams several). They are dropped, not marked stopped: each showed as a cut-off
+  // second copy of its reply, with "The running turn stopped before the next message was sent.".
+  if (status.ordinary) {
+    const orphans = messages.filter((message) => message.role === "assistant" && message.time.completed === undefined)
+    if (orphans.length === 0) return null
+    return { messageID: orphans[0].id, messages: messages.filter((message) => !orphans.includes(message)), dropped: true }
+  }
   let messageIndex = -1
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index]
@@ -2258,10 +2267,6 @@ export function interruptedTurnToolParts(
     // job, not an interruption.
     return null
   }
-  // smarty-code#669: an ordinary (Pi) session is idle only with no reply streaming, and each saved reply has its completed
-  // time: an unfinished reply here is a streamed copy whose removal the page missed (its event stream was cut, a slow
-  // reader). It is dropped, not marked stopped: it showed as a cut-off second copy of the reply, "The running turn stopped".
-  if (status.ordinary) return { messageID: message.id, messages: messages.filter((_, index) => index !== messageIndex), dropped: true }
 
   const messageID = message.id
   const nextMessages = [...messages]

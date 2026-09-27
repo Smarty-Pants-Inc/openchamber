@@ -22,6 +22,16 @@ test("#669: at an ordinary session's idle, a streamed copy that outlived its rem
   expect(settled?.messages.map((m) => m.id)).toEqual(["u1", "a1"]) // One copy, no stop line.
 })
 
+test("#669: an older missed copy is dropped even when a later reply exists (Astra r1)", () => {
+  const settled = interruptedTurnToolParts(store(true, [user, reply("a1", 3), reply("live_a"), reply("b1", 5)]), S)
+  expect(settled?.messages.map((m) => m.id)).toEqual(["u1", "a1", "b1"])
+})
+
+test("#669: several missed copies in one turn are all dropped at once (Astra r1)", () => {
+  const settled = interruptedTurnToolParts(store(true, [user, reply("a1", 3), reply("live_a"), reply("b1", 5), reply("live_b")]), S)
+  expect(settled?.messages.map((m) => m.id)).toEqual(["u1", "a1", "b1"])
+})
+
 test("#669 counterexample: a non-ordinary (OpenCode) turn left unfinished by a crash is still marked stopped", () => {
   const settled = interruptedTurnToolParts(store(false, [user, reply("a1")]), S)
   expect(settled?.dropped).toBeUndefined()
