@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from 'bun:test';
+import * as catalogRead from '@/lib/managed-project-refresh';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import type { NativeCreationReply, NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useInputStore } from './input-store';
@@ -306,6 +307,29 @@ for (const change of ['runtime', 'draft', 'project'] as const) {
     held.resolve(Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1 } }));
     expect(await failure(pending)).not.toBe('resolved');
     expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  });
+}
+
+for (const change of ['runtime', 'draft'] as const) {
+  test(`a ${change} change while a new worktree's catalog read is held creates nothing (smarty-code#629)`, async () => {
+    fixture = nativeDraftFixture(); listed = [];
+    const draft = useSessionUIStore.getState().newSessionDraft, tree = `${draft.directoryOverride ?? '/native-project'}-new`;
+    useSessionUIStore.setState({ newSessionDraft: { ...draft, directoryOverride: tree, bootstrapPendingDirectory: tree } });
+    const saved = useProjectsStore.getState();
+    useProjectsStore.setState({ managedCatalogAdmitted: true, managedRows: [] });
+    const held = deferred<void>(), read = spyOn(catalogRead, 'refreshManagedProjects').mockImplementation(() => held.promise);
+    try {
+      const pending = startNativeDraft([], noWait);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(read).toHaveBeenCalledTimes(1);
+      if (change === 'runtime') fixture.switchRuntime('other-runtime'); else fixture.target('b', '/native-project-b');
+      held.resolve();
+      expect(await failure(pending)).toBe('stale');
+      expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+    } finally {
+      read.mockRestore();
+      useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedRows: saved.managedRows });
+    }
   });
 }
 

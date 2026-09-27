@@ -123,17 +123,69 @@ test('missing capability and changed project target refuse before effects', asyn
 });
 
 test('invalid targets and failed capability reads cannot create or fall back to legacy', async () => {
+  const { markWorktreeBootstrapPending, clearWorktreeBootstrapState } = await import('@/lib/worktrees/worktreeBootstrap');
+  markWorktreeBootstrapPending(directory); // A worktree whose setup is still running.
   for (const change of [{ target: 'chat' as const }, { title: 'title' }, { parentID: 'parent' },
     { selectedProjectId: null }, { pendingWorktreeRequestId: 'pending' }, { bootstrapPendingDirectory: directory }]) {
     useSessionUIStore.setState({ newSessionDraft: { ...draft, ...change } });
     await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
   }
+  clearWorktreeBootstrapState(directory);
   expect(health).not.toHaveBeenCalled();
   useSessionUIStore.setState({ newSessionDraft: { ...draft } });
   health.mockRejectedValue(new Error('offline'));
   await expect(prepareNativeDraft()).rejects.toBeInstanceOf(NativeCreationError);
   await expect(preparedNativeDraft(draft)).rejects.toBeInstanceOf(NativeCreationError);
   expect(create).not.toHaveBeenCalled(); expect(legacy).not.toHaveBeenCalled(); expect(prompt).not.toHaveBeenCalled();
+});
+
+// smarty-code#629: a '+ New' worktree is its own catalog row, parented to the project; a managed draft there is still
+// this project's. Another project's worktree, or an unlisted directory, is not.
+test('a managed project owns its root and the admitted worktrees parented to it, nothing else', async () => {
+  const { isManagedProjectDirectory } = await import('./native-draft-creation');
+  const rows = [{ worktree: '/p/repo' }, { worktree: '/w/repo/brave-otter', parent: '/p/repo' }, { worktree: '/w/other/x', parent: '/p/other' }];
+  expect(isManagedProjectDirectory(rows, '/p/repo', '/p/repo')).toBe(true);
+  expect(isManagedProjectDirectory(rows, '/p/repo', '/w/repo/brave-otter')).toBe(true);
+  expect(isManagedProjectDirectory(rows, '/p/repo', '/w/other/x')).toBe(false);
+  expect(isManagedProjectDirectory(rows, '/p/repo', '/w/repo/not-admitted')).toBe(false);
+  expect(isManagedProjectDirectory(null, '/p/repo', '/w/repo/brave-otter')).toBe(false);
+});
+
+// smarty-code#629: the draft's bootstrap mark after '+ New' was cleared only by the Git view; once the worktree's own
+// setup has finished, the mark no longer refuses Send.
+test('a new worktree whose setup finished is a valid target, though the draft still names it as bootstrapping', async () => {
+  const { isNativeDraftTarget } = await import('./native-draft-creation');
+  const { markWorktreeBootstrapPending, clearWorktreeBootstrapState } = await import('@/lib/worktrees/worktreeBootstrap');
+  const marked = { ...draft, bootstrapPendingDirectory: directory };
+  markWorktreeBootstrapPending(directory);
+  expect(isNativeDraftTarget(marked)).toBe(false);
+  clearWorktreeBootstrapState(directory);
+  expect(isNativeDraftTarget(marked)).toBe(true);
+});
+
+test('on a managed catalog, a new worktree is a target once listed under this project, and no other', async () => {
+  const { isNativeDraftTarget, assertManagedDraftTarget } = await import('./native-draft-creation');
+  const { markWorktreeBootstrapPending, clearWorktreeBootstrapState } = await import('@/lib/worktrees/worktreeBootstrap');
+  const tree = '/w/repo/keen-gecko';
+  const marked = { ...draft, selectedProjectId: 'repo', directoryOverride: tree, bootstrapPendingDirectory: tree };
+  const refused = (check: () => void) => { try { check(); return false; } catch { return true; } };
+  markWorktreeBootstrapPending(tree); // The page's watcher cannot read the tree through the gateway: it stays pending.
+  const saved = useProjectsStore.getState();
+  const projects = [{ id: 'repo', path: '/p/repo', label: 'repo' }, { id: 'other', path: '/p/other', label: 'other' }];
+  try {
+    useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedProjects: projects,
+      managedRows: [{ id: 'repo', worktree: '/p/repo' }] });
+    expect(isNativeDraftTarget(marked)).toBe(true); // No page-side bootstrap wait on a managed catalog.
+    expect(refused(() => assertManagedDraftTarget(marked))).toBe(true); // Not listed yet: the start reads the catalog first.
+    useProjectsStore.setState({ managedRows: [{ id: 'repo', worktree: '/p/repo' }, { id: 'kg', worktree: tree, parent: '/p/repo' }] });
+    expect(refused(() => assertManagedDraftTarget(marked))).toBe(false); // Listed under this project.
+    useProjectsStore.setState({ managedRows: [{ id: 'repo', worktree: '/p/repo' }, { id: 'kg', worktree: tree, parent: '/p/other' }] });
+    expect(refused(() => assertManagedDraftTarget(marked))).toBe(true); // Listed under another project: never this draft's.
+  } finally {
+    useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedCatalogStatus: saved.managedCatalogStatus,
+      managedRows: saved.managedRows, managedProjects: saved.managedProjects });
+    clearWorktreeBootstrapState(tree);
+  }
 });
 
 test('a mismatched returned directory remains an unknown outcome without publication or another POST', async () => {

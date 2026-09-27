@@ -7,6 +7,7 @@ import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publis
 import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
 import { clearSentStart, ensureSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
 import { discoveryPendingNow } from '@/lib/managed-discovery';
+import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 import { forgetRequestId, newRequestId, notifyDraftStart, requestKey, storedRequestId, subscribeDraftStart } from './native-draft-intent';
 import { resetNativeDraftPage as resetDraftIntentPage } from './native-draft-intent';
@@ -95,6 +96,20 @@ const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftI
  * It creates at most once per draft: an outcome not known to have started nothing is never retried, only re-read.
  * A stock backend (no native creation) returns at once and Send goes the ordinary way.
  */
+/** The draft's own '+ New' worktree may not be in the page's catalog yet: the gateway admits a placed tree when a request
+ * names it. Name it (the capability read the start makes anyway), then read the catalog once more, so the gateway's
+ * parentage decides the target (smarty-code#629). */
+async function catalogListsNewWorktree(): Promise<void> {
+  const draft = useSessionUIStore.getState().newSessionDraft, directory = draft.bootstrapPendingDirectory, runtimeKey = getRuntimeKey();
+  const projects = useProjectsStore.getState();
+  if (!directory || directory !== draft.directoryOverride || !projects.managedCatalogAdmitted
+    || (projects.managedRows ?? []).some(row => row.worktree === directory)) return;
+  await opencodeClient.nativeCreationSupport(directory).catch(() => undefined);
+  await refreshManagedProjects(true).catch(() => undefined);
+  // A draft or runtime change during the read: this Send is not the current draft's (the start captures it next).
+  if (getRuntimeKey() !== runtimeKey || !sameDraft(useSessionUIStore.getState().newSessionDraft, draft)) throw new NativeCreationError('stale');
+}
+
 export async function startNativeDraft(operations: readonly NativeCreationState[], wait = (ms: number) =>
   new Promise<void>(done => setTimeout(done, ms))): Promise<void> {
   if (running) throw new NativeCreationError('sending');
@@ -106,7 +121,7 @@ export async function startNativeDraft(operations: readonly NativeCreationState[
   // POST holds it again (native-draft-send). Between the two, other tabs read the sent text as unknown, never unsent.
   let request: string | undefined;
   const hold = (id: string | undefined) => { request = id; if (id) holdSentStart(id); };
-  try { await drive(operations, wait, hold); }
+  try { await catalogListsNewWorktree(); await drive(operations, wait, hold); }
   finally { releaseSentStart(request); setRunning(false); }
 }
 
