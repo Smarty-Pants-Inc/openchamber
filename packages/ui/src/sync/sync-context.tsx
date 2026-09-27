@@ -2649,6 +2649,7 @@ export function SyncProvider(props: {
         })
         const isFirstConnect = !pipelineHasConnectedRef.current
         pipelineHasConnectedRef.current = true
+        messageLoader.connectionRestored() // Before its recovery reloads, which a timed-out open would otherwise skip.
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }

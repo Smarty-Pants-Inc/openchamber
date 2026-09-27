@@ -26,7 +26,7 @@ const TRANSIENT_MESSAGES = [
   "request timed out",
 ]
 
-function isTransientError(error: unknown): boolean {
+export function isTransientError(error: unknown): boolean {
   if (!error) return false
   const message = String(error instanceof Error ? error.message : error).toLowerCase()
   if (TRANSIENT_MESSAGES.some((m) => message.includes(m))) return true

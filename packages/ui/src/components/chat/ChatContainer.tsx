@@ -1657,6 +1657,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         scrollToBottom={scrollToBottomOnSend}
                         scrollToLatest={resumeToLatestInstant}
                         draftPresentationExiting={draftPresentationExiting}
+                        // The composer says why nothing can be sent while the open failed (#536); only with the
+                        // transcript's error and its Try again showing, not over a retained view.
+                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired
+                            && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
                     />
                 )}
             </div>

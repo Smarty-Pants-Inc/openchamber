@@ -1,7 +1,7 @@
 import { keepSavedState, optimisticMessageRecords } from "./unsaved"
 import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
 import type { ChildStoreManager, DirectoryStore } from "./child-store"
-import { retry } from "./retry"
+import { isTransientError, retry } from "./retry"
 import { sessionMessageEventCount } from "./event-reducer"
 import { mergeOptimisticPage, type OptimisticItem } from "./optimistic"
 import { findMessageIndex, insertMessageChronologically, sortMessagesChronologically } from "./message-ordering"
@@ -59,6 +59,10 @@ type LoaderEntry = {
   /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
    * reloads of one failed open are one error, however often they fail. */
   reportId: string
+  /** Its open (a read of a session that never loaded) got no answer: the page's own reloads wait for Try again. */
+  openUnanswered: boolean
+  /** It has loaded once on this page: a later failure is a refresh's, never an open's (even after a disconnect). */
+  loadedOnce: boolean
   queuedRefresh: Promise<void> | null
   queuedRefreshLimit: number
   optimistic: Map<string, OptimisticItem>
@@ -138,6 +142,18 @@ const formatSdkError = (cause: unknown): string => {
     ?? "Session messages could not be loaded"
 }
 
+/**
+ * Nothing answered this read, and asking again at once will not help: the client's own read limit ran out, or the
+ * gateway says its read of the Pi timed out (code smarty.pi-timed-out: a frozen Pi). Any other failure keeps its tries.
+ * An open stops at the first unanswered read, and the page's own reloads wait for the person (#536).
+ */
+const PI_TIMED_OUT = "smarty.pi-timed-out"
+const unanswered = (error: Error): boolean => /timed out/i.test(error.message)
+  || ("code" in error && error.code === PI_TIMED_OUT)
+
+// The gateway's stable refusal code, when its error carries one (smarty-code errors.ts).
+const GatewayCode = z.object({ data: z.object({ code: z.string().optional() }) })
+
 const assertSdkSuccess = (result: {
   error?: unknown
   response?: { status?: number }
@@ -145,13 +161,8 @@ const assertSdkSuccess = (result: {
   if (!result.error) return
   const status = result.response?.status
   const message = `${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`
-  const error: Error & { status?: number; serverMessage?: string } = new Error(message)
-  if (status !== undefined) error.status = status
-  // ponytail: the gateway marks every error isRetryable:false, so retry policy stays unchanged here;
-  // only its explanation is kept. Terminal-vs-transient needs an accurate gateway signal first.
-  const serverMessage = gatewayRecoveryMessage(result.error)
-  if (serverMessage) error.serverMessage = serverMessage
-  throw error
+  throw Object.assign(new Error(message), { status, code: GatewayCode.safeParse(result.error).data?.data.code,
+    serverMessage: gatewayRecoveryMessage(result.error) ?? undefined })
 }
 
 const filterIdentifiedParts = (parts: Part[]): Part[] => parts
@@ -204,6 +215,7 @@ export class SessionMessageLoader {
         generation: entry.snapshot.generation + 1,
       }
       entry.inflight = null
+      entry.openUnanswered = false // A new connection (re-login, reconnect) may answer: the page's reloads may try again.
       if (entry.ordinary) this.invalidateOrdinaryView(entry.target, true)
       this.notify(entry)
     }
@@ -240,6 +252,9 @@ export class SessionMessageLoader {
     const staleCoverage = !options?.force && options?.reason === "navigation" && entry.snapshot.resolved
       && entry.snapshot.complete && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
     const force = options?.force === true || staleCoverage
+    // An open that got no answer stays failed until the person asks again (Try again, or opening it anew): the page's own
+    // effects re-ensure on every session update, and each would start another 30 s read behind the skeleton (#536).
+    if (!force && options?.reason !== "navigation" && this.openUnanswered(entry)) return Promise.resolve()
     if (!force && materialization.renderable && entry.snapshot.resolved
       && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
@@ -312,10 +327,17 @@ export class SessionMessageLoader {
     }
   }
 
+  /** An open (never loaded) whose read timed out: it waits for the person's Try again, not the page's own reloads. */
+  private openUnanswered(entry: LoaderEntry): boolean {
+    return !entry.inflight && entry.openUnanswered
+  }
+
   refreshTail(target: SessionMessageTarget, limit: number): Promise<void> {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
     const entry = this.getEntry(normalized)
+    // Nothing loaded to refresh, and the open timed out (also a refresh queued behind that open): wait for Try again.
+    if (this.openUnanswered(entry)) return Promise.resolve()
     if (entry.inflight) {
       entry.queuedRefreshLimit = Math.max(entry.queuedRefreshLimit, limit)
       entry.demand++
@@ -481,6 +503,11 @@ export class SessionMessageLoader {
     this.patchEntry(entry, patch)
     if (normalized) clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     return true
+  }
+
+  /** The event stream reconnected: a timed-out open may answer now, so the page's own reloads may try it again. */
+  connectionRestored(): void {
+    for (const entry of this.entries.values()) entry.openUnanswered = false
   }
 
   invalidateOrdinaryViews(): void {
@@ -649,6 +676,8 @@ export class SessionMessageLoader {
       listeners: new Set(),
       inflight: null,
       reportId: newOperationId(),
+      openUnanswered: false,
+      loadedOnce: false,
       queuedRefresh: null,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
@@ -690,6 +719,7 @@ export class SessionMessageLoader {
     const generation = entry.snapshot.generation
     const sdkEpoch = this.sdkEpoch
     const runtimeKey = this.runtimeKey, operationId = entry.reportId // Its open and server, at its start (#536).
+    const opening = !entry.loadedOnce // A loaded session's failed refresh is not a failed open.
     const finishPerformanceEvent = startSessionLoadPerformanceEvent({
       operation: kind === "prefetch" ? "session-prefetch" : `session-messages.${kind}`,
       caller: kind,
@@ -712,7 +742,7 @@ export class SessionMessageLoader {
     }
     const promise = loadPromise
       .then(() => {
-        if (isCurrent()) entry.reportId = newOperationId() // Loaded: a later failure is a new error.
+        if (isCurrent()) { entry.openUnanswered = false; entry.loadedOnce = true; entry.reportId = newOperationId() }
         finishPerformanceEvent(isCurrent() ? "complete" : "stale", performance)
       })
       .catch((cause: unknown) => {
@@ -722,13 +752,14 @@ export class SessionMessageLoader {
           return
         }
         finishPerformanceEvent("error", performance)
+        entry.openUnanswered = opening && error instanceof Error && unanswered(error)
         if (entry.ordinary) this.invalidateOrdinaryView(target, true)
         const failure = error instanceof Error ? error : new Error(formatSdkError(error))
         this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536).
         const status = "status" in failure && Number.isInteger(failure.status) ? Number(failure.status) : undefined
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
-        const timedOut = /request timed out/i.test(failure.message)
+        const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
         reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey, operationId, // Never the server's words.
           status })
       })
@@ -817,7 +848,13 @@ export class SessionMessageLoader {
     })
     let attempts = 0
     let recordCount = 0
+    // An open: any read of a session that has not loaded on this page yet. A loaded session's reads (tail refresh,
+    // older pages, a reload after a disconnect) keep their tries.
+    const opening = !this.entries.get(this.keyFor(target))?.loadedOnce
     try {
+      // An open whose read timed out is not tried again: a Pi that did not answer in the read's time (frozen, or its session
+      // too slow to load) will not answer sooner, and three tries kept the page on its loading skeleton for over a
+      // minute with nothing said (smarty-code#536, #562). It fails at once; the page shows why, with Try again.
       const result = await retry(async () => {
         if (cancelled?.()) throw new Error("Session history read cancelled") // Not transient: no retry, no request.
         attempts += 1
@@ -835,7 +872,7 @@ export class SessionMessageLoader {
           throw error
         }
         return { data, response: response.response }
-      })
+      }, { retryIf: error => isTransientError(error) && !(opening && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
