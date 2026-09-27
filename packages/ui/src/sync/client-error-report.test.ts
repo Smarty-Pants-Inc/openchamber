@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { z } from 'zod';
 import { resetClientErrorReportsForPage } from '@/lib/clientErrorReport';
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 
@@ -8,6 +9,12 @@ import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
 afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorReportsForPage(); });
 const reports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
+// Exactly what the gateway accepts (smarty-code#552): a report with any other field fails the parse.
+const Report = z.object({ kind: z.string(), at: z.number(), message: z.string().optional(), sessionID: z.string().optional(),
+  status: z.number().optional() }).strict();
+const readReport = async (request: Request) => Report.parse(await request.json());
+// SAFETY: every fetch double below has fetch's call shape; Bun's fetch type adds preconnect, which the page never uses.
+const asFetch = (double: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) => double as typeof fetch;
 
 test('a session whose messages cannot be loaded is reported once, with its session and status', async () => {
   fixture = nativeDraftFixture();
@@ -18,12 +25,11 @@ test('a session whose messages cannot be loaded is reported once, with its sessi
   expect(fixture.loader.getSnapshot(target).status).toBe('error'); // What the page shows as "Session could not be loaded".
   await sleep(50); // The report goes out in the background.
   expect(reports()).toHaveLength(1);
-  const body = await reports()[0]!.json() as Record<string, unknown>;
+  const body = await readReport(reports()[0]!); // Its fields are only those the gateway accepts: no content, no route.
   expect(body).toMatchObject({ kind: 'session-messages.initial', sessionID: session.id, status: 503 });
-  expect(typeof body.message).toBe('string');
+  expect(body.message).toBe('Error'); // The error's name only, never the server's words.
   expect(JSON.stringify(body).includes('merger')).toBe(false);
-  expect(typeof body.at).toBe('number');
-  for (const key of Object.keys(body)) expect(['at', 'kind', 'message', 'sessionID', 'status']).toContain(key); // No content, no route.
+  expect(body.at).toBeGreaterThan(0);
   // Shown again (the page re-renders it): the same load, not reported again.
   await fixture.loader.ensure(target, { reason: 'navigation' }).catch(() => undefined);
   await sleep(50);
@@ -39,7 +45,7 @@ test('a history open that timed out is reported as a timeout, with its session',
   fixture.handlers.history = async () => { throw new Error('OpenCode request timed out after 30000ms'); };
   await fixture.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
   await sleep(50);
-  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
+  const bodies = await Promise.all(reports().map(readReport));
   expect(bodies.map(body => [body.kind, body.sessionID])).toEqual([['session-messages.initial.timeout', session.id]]);
 });
 
@@ -91,12 +97,12 @@ test('a fork that fails after a switch to another server is reported nowhere; wi
   const forkHeld = () => new Promise<void>(resolve => { release = resolve; });
   const served = globalThis.fetch;
   let hold: Promise<void> | undefined;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.endsWith('/client-error')) { seen.push({ runtime: getRuntimeKey(), path }); return new Response(null, { status: 204 }); }
     if (path.endsWith('/fork')) { if (hold) await hold; return Response.json({ name: 'APIError', data: { message: 'fork refused', isRetryable: false } }, { status: 500 }); }
     return served(input, init);
-  }) as typeof fetch;
+  });
   try {
     const runtimeA = getRuntimeKey();
     // With a switch: the fork is sent on A, A goes away while it is out, then it fails.
@@ -124,7 +130,7 @@ test('a small-model request begun on A that fails after the switch is dropped; o
   const served = globalThis.fetch;
   const seen: Array<{ runtime: string; kind: string; status: unknown }> = [];
   let releaseA: (() => void) | undefined;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.endsWith('/client-error')) { const body = await request.json(); seen.push({ runtime: getRuntimeKey(), kind: String(body.kind), status: body.status }); return new Response(null, { status: 204 }); }
     if (path.endsWith('/small-model/generate')) {
@@ -132,7 +138,7 @@ test('a small-model request begun on A that fails after the switch is dropped; o
       return Response.json({ error: 'no model' }, { status: 503 });
     }
     return served(input, init);
-  }) as typeof fetch;
+  });
   try {
     const onA = requestSmallModel({ method: 'POST', body: '{}' }); // Begun on A, held.
     await sleep(10);
@@ -164,17 +170,18 @@ test('two distinct errors in one batch each report; the same error seen twice re
 test('an unhandled error reports page.unhandled with its name only; an event without an error object does not', async () => {
   fixture = nativeDraftFixture();
   const { listenForUnhandledErrors } = await import('@/lib/clientErrorReport');
-  const listeners = new Map<string, (event: unknown) => void>();
-  listenForUnhandledErrors({ addEventListener: ((type: string, listener: (event: unknown) => void) => { listeners.set(type, listener); }) as never });
-  if (listeners.size === 0) return; // Already listening on this page's window (bun has none): nothing to model.
-  listeners.get('error')!({ error: new TypeError("Cannot read 'merger plan'") });
-  listeners.get('unhandledrejection')!({ reason: new RangeError('payroll.xlsx too big') });
-  listeners.get('error')!({ error: null, message: 'ResizeObserver loop completed' });
-  listeners.get('unhandledrejection')!({ reason: { name: 'PayrollSecret' } }); // Not an Error: may be anything.
-  listeners.get('error')!({ error: Object.assign(new Error('x'), { name: 'MergerPlanError' }) }); // A custom name: 'Error'.
-  listeners.get('error')!({ error: new TypeError('again') }); // The same name within 30 s: not again.
+  const target = new EventTarget();
+  listenForUnhandledErrors(target);
+  type Fired = { error?: Error | null; reason?: Error | { name: string }; message?: string };
+  const fire = (type: string, detail: Fired) => { target.dispatchEvent(Object.assign(new Event(type), detail)); };
+  fire('error', { error: new TypeError("Cannot read 'merger plan'") });
+  fire('unhandledrejection', { reason: new RangeError('payroll.xlsx too big') });
+  fire('error', { error: null, message: 'ResizeObserver loop completed' });
+  fire('unhandledrejection', { reason: { name: 'PayrollSecret' } }); // Not an Error: may be anything.
+  fire('error', { error: Object.assign(new Error('x'), { name: 'MergerPlanError' }) }); // A custom name: 'Error'.
+  fire('error', { error: new TypeError('again') }); // The same name within 30 s: not again.
   await sleep(50);
-  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
+  const bodies = await Promise.all(reports().map(readReport));
   expect(bodies.map(body => [body.kind, body.message])).toEqual([['page.unhandled', 'TypeError'], ['page.unhandled', 'RangeError'], ['page.unhandled', 'Error']]);
   expect(/merger|payroll/i.test(JSON.stringify(bodies))).toBe(false);
 });
@@ -185,12 +192,12 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
   const { runtimeFetch } = await import('@/lib/runtime-fetch');
   const served = globalThis.fetch;
   const kinds: string[] = [];
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = asFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init), path = new URL(request.url).pathname;
     if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
     if (request.method === 'PATCH' || path.endsWith('/opencode/upgrade')) return Response.json({ error: 'refused' }, { status: 500 });
     return served(input, init);
-  }) as typeof fetch;
+  });
   try {
     await setContextObligatoryMessage(session.id, directory, { id: 'msg_1', createdAt: 1, role: 'user' }, true).catch(() => undefined);
     await sleep(0); // The upgrade is a separate failure, in its own task.
@@ -200,19 +207,19 @@ test('a failed context pin and a failed OpenCode upgrade each report their own c
     // A 200 that says it did not succeed, and a request that never got an answer, are failures too.
     const { resetClientErrorReportsForPage } = await import('@/lib/clientErrorReport');
     resetClientErrorReportsForPage(); kinds.length = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = asFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init), path = new URL(request.url).pathname;
       if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
       return Response.json({ success: false, error: 'npm refused' }, { status: 200 });
-    }) as typeof fetch;
+    });
     await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' }); await sleep(50);
     expect(kinds).toEqual(['opencode-upgrade:200']);
     resetClientErrorReportsForPage(); kinds.length = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = asFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init), path = new URL(request.url).pathname;
       if (path.endsWith('/client-error')) { const body = await request.json(); kinds.push(`${body.kind}:${body.status ?? ''}`); return new Response(null, { status: 204 }); }
       throw new TypeError('Failed to fetch');
-    }) as typeof fetch;
+    });
     await runtimeFetch('/api/opencode/upgrade', { method: 'POST', body: '{}' }).catch(() => undefined); await sleep(50);
     expect(kinds).toEqual(['opencode-upgrade:']);
   } finally { globalThis.fetch = served; }

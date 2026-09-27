@@ -2214,7 +2214,7 @@ export function handleEvent(
  */
 function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }, runtimeKey: string) {
   const tools = interrupted.parts?.filter(part => part.type === "tool" && part.state.status === "error"
-    && (part.state as { error?: unknown }).error === "Interrupted").length ?? 0
+    && part.state.error === "Interrupted").length ?? 0
   reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; tools interrupted: ${tools}`, runtimeKey,
     operationId: `${sessionID}:${interrupted.messageID}` })
 }

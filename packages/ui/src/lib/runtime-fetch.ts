@@ -1,5 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
-import { readCopy } from './responseCopy';
+import { answersUnsuccessful } from './responseCopy';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
@@ -265,9 +265,7 @@ const fetchRuntimeRequest = async (
   // a refused or unanswered request, or a 200 whose body says it did not succeed.
   if (isUpgrade) {
     if (!response.ok) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status);
-    else void readCopy(response, 'json')?.then(payload => {
-      if ((payload as { success?: boolean } | null)?.success === false) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status);
-    });
+    else void answersUnsuccessful(response).then(failed => { if (failed) reportUpgradeFailure(scope.runtimeKey, upgradeId, response.status); });
   }
   // Once dispatched, an effect belongs to its origin even after navigation.
   if (method !== 'GET' && method !== 'HEAD') return response;

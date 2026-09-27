@@ -1,5 +1,5 @@
 import React from 'react';
-import { toast } from '@/components/ui';
+import { toast } from 'sonner';
 import { Icon } from '@/components/icon/Icon';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useI18n } from '@/lib/i18n';

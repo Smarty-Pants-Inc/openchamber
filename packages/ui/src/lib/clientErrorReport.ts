@@ -22,6 +22,8 @@ export type ClientErrorReport = {
   status?: number;
 };
 const reported = new Set<string>();
+/** What the gateway receives (smarty-code#552 accepts exactly these fields). */
+type ReportBody = { kind: string; at: number; message?: string; sessionID?: string; status?: number };
 
 /** URLs keep origin and path; long opaque tokens, e-mail addresses, quoted text, file names and paths are masked; at most 300 characters. */
 export function redactClientError(text: string): string {
@@ -48,15 +50,11 @@ export function reportClientError(report: ClientErrorReport, now = Date.now()): 
   reported.add(key);
   // Bounded: the oldest operations are forgotten one by one (a Set keeps insertion order), never all at once.
   if (reported.size > 500) reported.delete(reported.values().next().value!);
-  const message = report.message ? redactClientError(report.message) : undefined;
-  const body = {
-    kind: report.kind.slice(0, 64),
-    ...(message ? { message } : {}),
-    // No route: a page path can name the person's own things; the session says where.
-    ...(report.sessionID ? { sessionID: report.sessionID.slice(0, 200) } : {}),
-    ...(Number.isInteger(report.status) && report.status! >= 0 && report.status! <= 999 ? { status: report.status } : {}),
-    at: now,
-  };
+  // No route: a page path can name the person's own things; the session says where.
+  const body: ReportBody = { kind: report.kind.slice(0, 64), at: now };
+  if (report.message) body.message = redactClientError(report.message);
+  if (report.sessionID) body.sessionID = report.sessionID.slice(0, 200);
+  if (report.status !== undefined && Number.isInteger(report.status) && report.status >= 0 && report.status <= 999) body.status = report.status;
   // Loaded on first use (the modules that fail take no network dependency by importing this); sent only to the
   // operation's own server.
   void import('./runtime-fetch').then(({ runtimeFetch }) => {
@@ -76,8 +74,7 @@ const ERROR_NAMES = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError
   'AggregateError', 'AbortError', 'TimeoutError', 'NetworkError', 'NotFoundError', 'NotAllowedError', 'NotSupportedError',
   'InvalidStateError', 'QuotaExceededError', 'SecurityError', 'DataCloneError', 'ChunkLoadError']);
 const lastUnhandled = new Map<string, number>();
-export function reportUnhandled(error: unknown, now = Date.now()): void {
-  if (!(error instanceof Error)) return; // A thrown non-error (an object, a string) may be anything: not sent.
+export function reportUnhandled(error: Error, now = Date.now()): void {
   const code = ERROR_NAMES.has(error.name) ? error.name : 'Error';
   const runtimeKey = currentRuntime();
   if (!runtimeKey) return;
@@ -89,12 +86,14 @@ export function reportUnhandled(error: unknown, now = Date.now()): void {
 
 let listening = false;
 /** Installed once, as early as the page loads this module (the sync layer imports it at boot). */
-export function listenForUnhandledErrors(target: Pick<Window, 'addEventListener'> | undefined =
-  typeof window === 'undefined' ? undefined : window): void {
+export function listenForUnhandledErrors(target: Pick<Window, 'addEventListener'> | undefined = globalThis.window): void {
   if (listening || !target) return;
   listening = true;
-  target.addEventListener('error', event => reportUnhandled((event as ErrorEvent).error));
-  target.addEventListener('unhandledrejection', event => reportUnhandled((event as PromiseRejectionEvent).reason));
+  // Only an Error object: a thrown non-error (an object, a string) may be anything, and is not sent.
+  target.addEventListener('error', event => { if ('error' in event && event.error instanceof Error) reportUnhandled(event.error); });
+  target.addEventListener('unhandledrejection', event => {
+    if ('reason' in event && event.reason instanceof Error) reportUnhandled(event.reason);
+  });
 }
 listenForUnhandledErrors();
 
