@@ -16,6 +16,7 @@ import {
 } from "./session-prefetch-cache"
 import { z } from "zod"
 import { isVSCodeRuntime } from "@/lib/desktop"
+import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
@@ -55,6 +56,9 @@ type LoaderEntry = {
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
+  /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
+   * reloads of one failed open are one error, however often they fail. */
+  reportId: string
   queuedRefresh: Promise<void> | null
   queuedRefreshLimit: number
   optimistic: Map<string, OptimisticItem>
@@ -249,7 +253,7 @@ export class SessionMessageLoader {
     if (entry.ordinary && entry.snapshot.resolved && !force) {
       return this.refreshTail(normalized, getInitialPageSize())
     }
-    if (force) this.bumpGeneration(entry)
+    if (force) { this.bumpGeneration(entry); entry.reportId = newOperationId() } // Try again: a new open.
     const kind: SessionMessageLoadKind = options?.reason === "prefetch" ? "prefetch" : "initial"
     return this.startLoad(normalized, entry, store, kind, async (isCurrent, performance) => {
       await this.loadInitial(normalized, entry, store, isCurrent, performance)
@@ -644,6 +648,7 @@ export class SessionMessageLoader {
         : createDefaultState(),
       listeners: new Set(),
       inflight: null,
+      reportId: newOperationId(),
       queuedRefresh: null,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
@@ -684,6 +689,7 @@ export class SessionMessageLoader {
     entry.demand++
     const generation = entry.snapshot.generation
     const sdkEpoch = this.sdkEpoch
+    const runtimeKey = this.runtimeKey, operationId = entry.reportId // Its open and server, at its start (#536).
     const finishPerformanceEvent = startSessionLoadPerformanceEvent({
       operation: kind === "prefetch" ? "session-prefetch" : `session-messages.${kind}`,
       caller: kind,
@@ -705,7 +711,10 @@ export class SessionMessageLoader {
       loadPromise = Promise.reject(error)
     }
     const promise = loadPromise
-      .then(() => finishPerformanceEvent(isCurrent() ? "complete" : "stale", performance))
+      .then(() => {
+        if (isCurrent()) entry.reportId = newOperationId() // Loaded: a later failure is a new error.
+        finishPerformanceEvent(isCurrent() ? "complete" : "stale", performance)
+      })
       .catch((cause: unknown) => {
         const error = cause
         if (!isCurrent()) {
@@ -714,11 +723,14 @@ export class SessionMessageLoader {
         }
         finishPerformanceEvent("error", performance)
         if (entry.ordinary) this.invalidateOrdinaryView(target, true)
-        this.patchEntry(entry, {
-          status: "error",
-          loadingKind: null,
-          error: error instanceof Error ? error : new Error(formatSdkError(error)),
-        })
+        const failure = error instanceof Error ? error : new Error(formatSdkError(error))
+        this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
+        // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536).
+        const status = "status" in failure && Number.isInteger(failure.status) ? Number(failure.status) : undefined
+        // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
+        const timedOut = /request timed out/i.test(failure.message)
+        reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey, operationId, // Never the server's words.
+          status })
       })
       .finally(() => {
         if (entry.inflight === promise) entry.inflight = null

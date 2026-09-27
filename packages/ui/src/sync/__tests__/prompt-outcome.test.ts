@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
-import { toast } from "@/components/ui"
+import { toast } from "@/components/ui/toast" // What prompt-outcome shows (it reports without the text itself: #536).
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { ChildStoreManager } from "../child-store"
 import { reloadSteerOutcomesForTest, useSteerOutcomes } from "../steer-outcomes"
@@ -222,4 +222,26 @@ test("a delivered correction retires the page's shadow so a later authoritative 
   await Promise.resolve(); await Promise.resolve()
   expect(confirm).toHaveBeenCalledWith({ directory, sessionID, messageID: "msg_shadow" })
   tail.mockRestore(); confirm.mockRestore()
+})
+
+// smarty-code#536: the failure is reported to the fleet, but never with the person's own text.
+test("a steer that was not delivered is reported with its outcome and session, never its text", async () => {
+  const { resetClientErrorReportsForPage } = await import("@/lib/clientErrorReport")
+  resetClientErrorReportsForPage()
+  const { configureRuntimeUrlResolver } = await import("@/lib/runtime-url")
+  configureRuntimeUrlResolver({ apiBaseUrl: "http://report.invalid" }) // Where the page's /api requests go.
+  const bodies: string[] = []
+  const post = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = new Request(input, init)
+    if (new URL(request.url).pathname.endsWith("/client-error")) bodies.push(await request.text())
+    return new Response(null, { status: 204 })
+  })
+  try {
+    sent("msg_private", "keep the merger plan private until Friday")
+    await deliver("msg_private", "not-delivered")
+    await new Promise(done => setTimeout(done, 50))
+    expect(bodies).toHaveLength(1)
+    expect(JSON.parse(bodies[0]!)).toMatchObject({ kind: "steer.not-delivered", sessionID })
+    expect(bodies[0]).not.toContain("merger")
+  } finally { post.mockRestore() }
 })

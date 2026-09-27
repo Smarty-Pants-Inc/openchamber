@@ -5,7 +5,7 @@ import { useMcpStore } from '@/stores/useMcpStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { McpIcon } from '@/components/icons/McpIcon';
 import { runBackgroundNetworkTask } from '@/lib/background-network';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui';
 import { startMcpAuthorization } from '@/components/sections/mcp/startMcpAuthorization';
 import { WorkStatusCollapsibleSection, WorkStatusRow, WorkStatusRowAction } from './WorkStatusPrimitives';
 import { useReportWorkStatusPresence } from './presenceContext';
