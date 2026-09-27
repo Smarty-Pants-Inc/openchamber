@@ -239,6 +239,33 @@ test('a previous server\'s read whose body arrives after the switch fails as sta
   switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
 });
 
+test('a previous server\'s read already under way whose connection drops after the switch is not reported to the new server', async () => {
+  fixture = nativeDraftFixture();
+  const { toast } = await import('@/components/ui');
+  const { runtimeFetch } = await import('@/lib/runtime-fetch');
+  const { switchRuntimeEndpoint, getRuntimeKey } = await import('@/lib/runtime-switch');
+  const runtimeA = getRuntimeKey();
+  const served = globalThis.fetch;
+  let seen = 0, dropBody = () => {};
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init), path = new URL(request.url).pathname;
+    if (path.endsWith('/client-error')) { seen += 1; return new Response(null, { status: 204 }); }
+    if (path.endsWith('/git/stash')) {
+      const body = new ReadableStream({ start(controller) { dropBody = () => controller.error(new TypeError('network connection was lost')); } });
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return served(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await runtimeFetch('/api/git/stash');
+    const shown = response.json().catch(() => { toast.error('Failed to load stashes'); }); // Reading starts on A.
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `server-b-${crypto.randomUUID()}` });
+    await sleep(2_200); dropBody(); await shown; await sleep(50);
+    expect(seen).toBe(0);
+  } finally { globalThis.fetch = served; }
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: runtimeA });
+});
+
 test('a small-model failure whose body is slow is still one report with its caller\'s toast', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');

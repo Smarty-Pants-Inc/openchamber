@@ -203,7 +203,11 @@ const resolveRuntimeFetchInput = (input: string | URL | Request, query?: Runtime
 const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope): Response => {
   const guard = <T>(read: () => Promise<T>) => async (): Promise<T> => {
     assertRuntimeRequestScope(scope);
-    const value = await read();
+    let value: T;
+    try { value = await read(); } catch (error) {
+      assertRuntimeRequestScope(scope); // A read that failed after a switch is stale too (and marks its server's end).
+      throw error;
+    }
     assertRuntimeRequestScope(scope);
     return value;
   };
