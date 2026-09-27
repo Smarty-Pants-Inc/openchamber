@@ -36,12 +36,30 @@ test('a load that succeeds reports nothing', async () => {
   expect(reports()).toHaveLength(0);
 });
 
-test('an error toast is reported, once per 30 s', async () => {
+test('an error toast is reported once per 30 s for the same error; a different error is its own report', async () => {
   fixture = nativeDraftFixture();
   const { toast } = await import('@/components/ui');
   toast.error('Failed to send message', { description: 'Pi unavailable' });
-  toast.error('Failed to send message');
+  toast.error('Failed to send message', { description: 'Pi unavailable' });
+  toast.error('Project changes were not saved');
   await sleep(50);
-  expect(reports()).toHaveLength(1);
-  expect(await reports()[0]!.json()).toMatchObject({ kind: 'toast', message: 'Failed to send message: Pi unavailable' });
+  const bodies = await Promise.all(reports().map(request => request.json() as Promise<Record<string, unknown>>));
+  expect(bodies.map(body => [body.kind, body.message])).toEqual([
+    ['toast', 'Failed to send message: Pi unavailable'], ['toast', 'Project changes were not saved']]);
+});
+
+test('a report is redacted: no query strings, tokens or addresses, and the route is a template', async () => {
+  const { redactClientError } = await import('@/lib/clientErrorReport');
+  expect(redactClientError('Failed https://code.example/api/x?token=abc for paul@example.com with sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ123'))
+    .toBe('Failed https://code.example/api/x for <email> with <redacted>');
+});
+
+test('a report made for one server is never sent after a switch to another', async () => {
+  fixture = nativeDraftFixture();
+  const { reportClientError } = await import('@/lib/clientErrorReport');
+  const { switchRuntimeEndpoint } = await import('@/lib/runtime-switch');
+  reportClientError({ kind: 'toast', message: 'shown for A', sessionID: 'ses_a' });
+  switchRuntimeEndpoint({ apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `other-${crypto.randomUUID()}` });
+  await sleep(50);
+  expect(reports()).toHaveLength(0);
 });

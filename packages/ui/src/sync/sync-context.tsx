@@ -99,6 +99,7 @@ import { normalizePath } from "@/lib/pathNormalization"
 import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
+import { reportClientError } from "@/lib/clientErrorReport"
 import {
   EMPTY_SESSION_MESSAGE_LOAD_STATE,
   SessionMessageLoader,
@@ -796,6 +797,7 @@ async function resyncDirectorySessionStatuses(
     for (const sessionId of candidateSessionIds) {
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
+        reportTurnSettledLocally(sessionId, "authoritative status snapshot: idle", interrupted)
         if (!interrupted.parts) {
           store.setState((state) => ({
             message: { ...state.message, [sessionId]: interrupted.messages },
@@ -2154,6 +2156,7 @@ export function handleEvent(
     if (sessionID) {
       const interrupted = interruptedTurnToolParts(state, sessionID)
       if (interrupted) {
+        reportTurnSettledLocally(sessionID, `event ${payload.type}`, interrupted)
         cloneField("message", (value) => ({ ...value }))
         draft.message[sessionID] = interrupted.messages
         if (interrupted.parts) {
@@ -2204,6 +2207,16 @@ export function handleEvent(
 // any orphaned parts as `error`/`Interrupted` with an end time — the same shape
 // OpenCode itself writes for cancelled tools. A later terminal event can
 // supersede the mark; a stale refresh cannot regress the locally final state.
+/**
+ * The page just marked a turn stopped on its own ("The running turn stopped…", running tools "Interrupted"): a wrong
+ * idle from the server shows a live turn as stopped (smarty-code#536, org's session on 3.38). Reported at once.
+ */
+function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }) {
+  const tools = interrupted.parts?.filter(part => part.type === "tool" && part.state.status === "error"
+    && (part.state as { error?: unknown }).error === "Interrupted").length ?? 0
+  reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; message ${interrupted.messageID}; tools interrupted: ${tools}` })
+}
+
 type AssistantMessage = Extract<Message, { role: "assistant" }>
 type SdkMessageAbortedError = Extract<NonNullable<AssistantMessage["error"]>, { name: "MessageAbortedError" }>
 type LocalMessageAbortedError = SdkMessageAbortedError & { message: string }

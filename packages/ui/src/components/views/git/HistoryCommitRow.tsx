@@ -17,7 +17,7 @@ import { getLanguageFromExtension } from '@/lib/toolHelpers';
 import type { LanedCommit } from './gitGraph';
 import { GitGraphSegment } from './GitGraphSegment';
 import * as git from '@/lib/gitApi';
-import { toast } from '@/components/ui/toast';
+import { toast } from '@/components/ui';
 import { formatDateTimeForPreference } from '@/lib/timeFormat';
 import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
 

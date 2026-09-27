@@ -1,30 +1,53 @@
+// A namespace import: test doubles of the runtime module may omit the key; then no report is scoped (nor sent).
+import * as runtime from './runtime-switch';
+const currentRuntime = (): string | undefined => runtime.getRuntimeKey?.();
+
 /**
  * Every error the page shows a person is reported to the gateway, which logs it as `smarty.client-error`, so the fleet
- * sees it without the person telling anyone (smarty-code#536 item 3). The report carries the error as shown (never the
- * person's content), where it was shown, and when; at most one per kind per 30 s. Reporting never fails the page.
+ * sees it without the person telling anyone (smarty-code#536 item 3). The report carries the error as shown, redacted
+ * (no query strings, tokens or addresses; the route as a template), never the person's content. One report per
+ * diagnostic (kind, session, message) per 30 s. Reporting never fails the page.
  */
 export type ClientErrorReport = { kind: string; message?: string; sessionID?: string; status?: number };
 const REPORT_INTERVAL_MS = 30_000;
-const MESSAGE_LIMIT = 1000;
 const lastReport = new Map<string, number>();
 
+/** URLs keep origin and path; long opaque tokens and e-mail addresses are masked; at most 300 characters. */
+export function redactClientError(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s"'<>]+/g, url => { try { const parsed = new URL(url); return `${parsed.origin}${parsed.pathname}`; } catch { return '<url>'; } })
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
+    .replace(/[A-Za-z0-9_+/=-]{24,}/g, '<redacted>')
+    .slice(0, 300);
+}
+/** Path segments that name a thing (ids, tokens, encoded paths) become ':id'. */
+const routeTemplate = (path: string) => path.split('/')
+  .map(segment => (/\d/.test(segment) || segment.length > 20 ? ':id' : segment)).join('/').slice(0, 300);
+
 export function reportClientError(report: ClientErrorReport, now = Date.now()): void {
-  const last = lastReport.get(report.kind);
+  const message = report.message ? redactClientError(report.message) : undefined;
+  const key = `${report.kind}\0${report.sessionID ?? ''}\0${message ?? ''}`;
+  const last = lastReport.get(key);
   if (last !== undefined && now - last < REPORT_INTERVAL_MS) return;
-  lastReport.set(report.kind, now);
-  const route = typeof location === 'undefined' ? undefined : location.pathname;
+  if (lastReport.size > 200) lastReport.clear();
+  lastReport.set(key, now);
+  const runtimeKey = currentRuntime();
+  const route = typeof location === 'undefined' ? undefined : routeTemplate(location.pathname);
   const body = {
-    kind: report.kind,
-    ...(report.message ? { message: report.message.slice(0, MESSAGE_LIMIT) } : {}),
-    ...(route ? { route: route.slice(0, 300) } : {}),
+    kind: report.kind.slice(0, 64),
+    ...(message ? { message } : {}),
+    ...(route ? { route } : {}),
     ...(report.sessionID ? { sessionID: report.sessionID.slice(0, 200) } : {}),
     ...(Number.isInteger(report.status) && report.status! >= 0 && report.status! <= 999 ? { status: report.status } : {}),
     at: now,
   };
-  // Loaded on first use: modules that show errors (the toast, the loader) take no network dependency by importing this.
-  void import('./runtime-fetch').then(({ runtimeFetch }) => runtimeFetch('/api/client-error', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }))
-    .catch(() => undefined); // Best-effort: the page goes on.
+  // Loaded on first use (the modules that show errors take no network dependency by importing this); sent only to the
+  // server the error was shown for.
+  void import('./runtime-fetch').then(({ runtimeFetch }) => {
+    if (currentRuntime() !== runtimeKey) return;
+    return runtimeFetch('/api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), keepalive: true });
+  }).catch(() => undefined); // Best-effort: the page goes on.
 }
 
 /** Tests model a page load. */

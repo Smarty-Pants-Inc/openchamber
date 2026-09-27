@@ -29,6 +29,7 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { saveProjectSettings } from '@/lib/projectSettingsMerge';
 import { toast } from 'sonner';
+import { reportClientError } from '@/lib/clientErrorReport';
 import { DEFAULT_OPEN_IN_APP_ID } from '@/lib/openInApps';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 
@@ -2314,6 +2315,7 @@ async function _flushSettingsUpdate({ keepalive = false }: { keepalive?: boolean
     }
   } finally {
     if (changes?.projects && context && isSettingsRuntimeContextCurrent(context) && getSettingsSaveState() === 'error') {
+      reportClientError({ kind: 'toast', message: 'Project changes were not saved' }); // #536: the fleet sees it too.
       toast.error('Project changes were not saved', { description: 'Refresh to load the latest settings, then try again.' });
     }
     waiters.forEach((resolve) => resolve());
