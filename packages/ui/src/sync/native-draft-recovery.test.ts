@@ -232,7 +232,9 @@ test('a start made ready in its terminal (notReady first) is marked when its tex
   interactive(() => h.operation);
   h.reply = () => (h.operation = { ...h.operation, revision: h.operation.revision + 1, phase: 'ready-required',
     native: { id: session.id, generation: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }, canInitialReady: false });
-  expect(await failure(startNativeDraft([], async () => {}))).toBe('notReady');
+  // It stays not ready for the browser until the start's limit (the page waits for it: slice 1 step 6).
+  const now = Date.now; let clock = now(); Date.now = () => clock;
+  try { expect(await failure(startNativeDraft([], async () => { clock += 30_000; }))).toBe('notReady'); } finally { Date.now = now; }
   const id = h.operation.clientRequestId!;
   expect(sentMark()).toBeNull(); // Nothing was sent: the text is this page's own draft again.
   h.operation = { ...h.operation, revision: h.operation.revision + 1, phase: 'ready' }; // Ready in its terminal.

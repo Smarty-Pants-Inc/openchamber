@@ -366,7 +366,11 @@ export class SessionMessageLoader {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return undefined
     const entry = this.entries.get(this.keyFor(normalized))
-    return entry?.snapshot.status === "ready" ? entry.snapshot.ordinaryView : undefined
+    // A plain tail refresh keeps the last accepted view until it commits: a new session's first idle refreshes its
+    // tail right as its first message goes, and withdrawing the view meanwhile refused that Send ("could not be loaded",
+    // slice 1 step 6 on the candidate). A changed view replaces it on commit; a failed read or a reset revokes it.
+    const refreshing = entry?.snapshot.status === "loading" && entry.snapshot.loadingKind === "refresh" && entry.snapshot.resolved
+    return entry?.snapshot.status === "ready" || refreshing ? entry?.snapshot.ordinaryView : undefined
   }
 
   /** True once this session's history was served as an ordinary (view-guarded) transcript. */
@@ -611,7 +615,7 @@ export class SessionMessageLoader {
     )
     const performance = { retryCount: 0, recordCount: 0 }
     const loading: Partial<SessionMessageLoadState> = { status: "loading", loadingKind: kind, error: null }
-    if (kind !== "older") loading.ordinaryView = undefined
+    if (kind !== "older" && kind !== "refresh") loading.ordinaryView = undefined
     this.patchEntry(entry, loading)
     let loadPromise: Promise<void>
     try {
