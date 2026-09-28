@@ -348,7 +348,7 @@
       "path": "packages/ui/src/components/chat/ChatMessage.tsx",
       "brandingSha256": "631e31b58e8ee36b91447ad73f98787e6d89309953be924d754b71c257771a74",
       "behaviorSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
-      "combinedSha256": "5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95",
+      "combinedSha256": "0e77df22ceae998e19e5d300b6e6ace343cae6dd821b0ee5eb0670f58059d227",
       "behaviorSource": "f07077052ba821ad138a931484108d00511fc437",
       "reason": "Human-author display integration in the shared chat message surface; existing message rendering and branding ownership remain unchanged.",
       "preStopWordingCombinedSha256": "207b1c4634166437938dea4966fcb580b217628e2167c66181232e21c2326865",
@@ -360,7 +360,10 @@
       "unsavedLabelNote": "Slice 1 L1: both message rows render UnsavedLabel from info.metadata.smartyCodeUnsaved (the gateway marks a record not yet in the session file). Branded strings are unchanged.",
       "preDesign538CombinedSha256": "04b0c884b8f9ffe1755645906f96f18fa4e89fe9637efb829a05fec1b95d3ed4",
       "design538Sha256": "5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95",
-      "design538Note": "smarty-code#538: the user bubble shows its HumanAuthor sender above the bubble instead of inside it, with tighter padding. Branded strings are unchanged."
+      "design538Note": "smarty-code#538: the user bubble shows its HumanAuthor sender above the bubble instead of inside it, with tighter padding. Branded strings are unchanged.",
+      "preVoiceFabricCombinedSha256": "5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95",
+      "voiceFabricSha256": "0e77df22ceae998e19e5d300b6e6ace343cae6dd821b0ee5eb0670f58059d227",
+      "voiceFabricNote": "smarty-code#739: a user record with the gateway's metadata.smartyFabric renders as a collapsed Fabric message row instead of the person's bubble. Branded strings are unchanged."
     },
     {
       "path": "packages/web/package.json",
@@ -540,5 +543,6 @@
   "creationFieldsSource": "43227c1caf9b31f67509ec009bed8ddd4bc7ac64",
   "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d",
   "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6",
-  "notificationAuthSource": "86c04a8c542da98009b23f5efe174883bfbcfa86"
+  "notificationAuthSource": "86c04a8c542da98009b23f5efe174883bfbcfa86",
+  "voiceFabricSource": "374c56636604616f4b25550a0d6b8b351f37f2d9"
 }
