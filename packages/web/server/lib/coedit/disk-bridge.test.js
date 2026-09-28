@@ -308,6 +308,24 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.leftovers()).toEqual([]);
     });
 
+    it('security round 5 (B): an exception after the rename is a committed conflict; the next sync does not replay', async () => {
+      const t = await setup('a\n');
+      t.at('afterRename', () => { throw new Error('fsync failed'); });
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(t.disk()).toBe('Pa\n');
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('Pa\n'); // Not 'PPa'.
+    });
+
+    it('security round 5 (A): an equal-length change to the published file is a conflict, never a success', async () => {
+      const t = await setup('abc\n');
+      t.at('afterPublish', () => fs.writeFileSync(t.file, fs.readFileSync(t.file, 'utf8').replace('P', 'Q')));
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(t.disk()).toBe('Qabc\n');
+    });
+
     it('is off unless enabled', () => {
       const saved = process.env.OPENCHAMBER_COEDIT;
       delete process.env.OPENCHAMBER_COEDIT;

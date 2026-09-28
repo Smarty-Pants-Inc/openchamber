@@ -44,11 +44,14 @@ person sees. What it cannot see is listed under Accepted limits.
   4. Right before the rename: the staging name must still be our inode with `nlink` 1 (else `unverified`); the file at
      the path must be the same inode with the same hash (else `changed`); and our revision must still have a name
      (`nlink` > 0 on the held fd), and a file must be there (else `gone`).
-  5. Rename, then fsync the directory (an error is thrown, never swallowed). After that our bytes are on disk, and every
-     result says `published`, so the room's base follows what was written (a race is still shown; the edit is never
-     replayed). The file must be our inode with our size (else `unverified`), the directory still inside the root (else
-     `escaped`, plus a `smarty.coedit-escaped` log line). The replaced revision is reread whole through the fd held
-     since step 1; a write through an old fd found there is kept for recovery too (`raced`).
+  5. Rename. **From here the publication is recorded (`published`) before anything that can throw**, and every exit,
+     including an exception (a failed directory fsync, a failed recovery read), is reported as a committed conflict,
+     so the room's base follows what was written and the next sync never replays the edit. An exception keeps the
+     pending marker, so the next load also reports the interrupted save. Then the directory is fsynced; the directory
+     must still be inside the root (else `escaped`, plus a `smarty.coedit-escaped` log line); the file at the path must
+     be our inode **and its content, read back through our own held fd, must hash to the bytes we meant to write**
+     (else `unverified`: another writer changed it, even at equal length). The replaced revision is reread whole
+     through the fd held since step 1; a write through an old fd found there is kept for recovery too (`raced`).
   - **Any result but ok is a conflict:** `onConflict(conflict)` and `state().conflict`, with its recovery path.
     `unverified`, `raced` and `escaped` after the rename carry the notice "Another writer changed this file during your
     save: check the recovery folder."

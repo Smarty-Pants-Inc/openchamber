@@ -138,6 +138,7 @@ export async function publish(parent, name, text, expectedHash, { recoveryDir, t
   let stagingHandle = null;
   let ours = null;
   let published = false;
+  let uncertain = false;
   let marker = null;
   try {
     if (current.hash !== expectedHash) return { conflict: 'changed' };
@@ -163,35 +164,47 @@ export async function publish(parent, name, text, expectedHash, { recoveryDir, t
     // Deleted after the check (no file, or our revision's last name gone): the rename would bring it back.
     if (!again || (await current.handle.stat()).nlink === 0) return { conflict: 'gone', recovery };
     await fs.promises.rename(parent.at(staging), parent.at(name));
-    published = true;
-    await hooks.afterRename?.();
-    await parent.sync();
-    // From here our bytes are on disk: every result says so (`published`), so the room's base follows them.
-    // ponytail: a held directory moved outside the project between the last check and the rename is only detected
-    // here, after the fact (an fd pins no location; true confinement needs a mount namespace). It is reported as a
-    // conflict and logged for an alert; the accepted limit is recorded in DOCUMENTATION.md.
+    published = true; // Recorded before anything that can throw (security pass round 5, item B).
+    // Everything after the rename is reported as committed (`published`), never thrown: an exception here (a failed
+    // directory fsync, a failed recovery read) is an uncertain publication, and the room's base must still follow
+    // what was written, or the next sync would replay the person's edit.
     try {
-      await parent.verify();
-    } catch {
-      console.error(JSON.stringify({ type: 'smarty.coedit-escaped', file: name }));
-      return { conflict: 'escaped', published, recovery, notice: DISTURBED_NOTICE };
-    }
-    // The file must still be exactly what we published (inode, size, mtime); else another writer was at it.
-    const now = await fs.promises.lstat(parent.at(name)).catch(() => null);
-    if (!now || now.ino !== ours.ino || now.size !== intended.length) {
+      await hooks.afterRename?.();
+      await parent.sync();
+      // ponytail: a held directory moved outside the project between the last check and the rename is only detected
+      // here, after the fact (an fd pins no location; true confinement needs a mount namespace). It is reported as a
+      // conflict and logged for an alert; the accepted limit is recorded in DOCUMENTATION.md.
+      try {
+        await parent.verify();
+      } catch {
+        console.error(JSON.stringify({ type: 'smarty.coedit-escaped', file: name }));
+        return { conflict: 'escaped', published, recovery, notice: DISTURBED_NOTICE };
+      }
+      await hooks.afterPublish?.();
+      // What is published is exactly our bytes (security pass round 5, item A): the file at the path is our inode,
+      // and its content, read through our own held fd, hashes to what we meant to write. Else another writer was at
+      // it: a conflict, never a success.
+      const now = await fs.promises.lstat(parent.at(name)).catch(() => null);
+      const content = await readWhole(stagingHandle, (await stagingHandle.stat()).size);
+      if (!now || now.ino !== ours.ino || hashBytes(content) !== hashBytes(intended)) {
+        return { conflict: 'unverified', published, recovery, notice: DISTURBED_NOTICE };
+      }
+      // The replaced revision, reread whole through the fd held since the check: a write made through an old fd
+      // meanwhile is kept for recovery, and shown.
+      const whole = await readWhole(current.handle, (await current.handle.stat()).size);
+      if (hashBytes(whole) !== expectedHash) {
+        return { conflict: 'raced', published, recovery: await keepForRecovery(recoveryDir, name, whole), notice: DISTURBED_NOTICE };
+      }
+      return { ok: true, recovery };
+    } catch (error) {
+      uncertain = true; // Its marker stays, so the next load reports the interrupted save too.
+      console.error(JSON.stringify({ type: 'smarty.coedit-publish-uncertain', file: name, error: String(error?.message ?? error) }));
       return { conflict: 'unverified', published, recovery, notice: DISTURBED_NOTICE };
     }
-    // The replaced revision, reread whole through the fd held since the check: a write made through an old fd
-    // meanwhile is kept for recovery, and shown.
-    const whole = await readWhole(current.handle, (await current.handle.stat()).size);
-    if (hashBytes(whole) !== expectedHash) {
-      return { conflict: 'raced', published, recovery: await keepForRecovery(recoveryDir, name, whole), notice: DISTURBED_NOTICE };
-    }
-    return { ok: true, recovery };
   } finally {
     await stagingHandle?.close();
     await current.handle.close();
-    if (marker) await fs.promises.unlink(marker).catch(() => {}); // Finished (either way): nothing left to finish.
+    if (marker && !uncertain) await fs.promises.unlink(marker).catch(() => {}); // Finished: nothing left to finish.
     if (!published && ours) {
       // Only our own staging inode is removed; a name that now points elsewhere is left alone.
       const named = await fs.promises.lstat(parent.at(staging)).catch(() => null);
