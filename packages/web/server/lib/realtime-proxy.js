@@ -122,11 +122,8 @@ export const buildRealtimeProxyWsUrl = (localOrigin, targetUrl) => {
   return url.toString();
 };
 
-export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getUiAuthController, isRequestOriginAllowed }) => {
-  if (!app || !server || typeof getDesktopRuntimeConfig !== 'function') {
-    return { stop: () => {} };
-  }
-
+/** The checks every app WebSocket upgrade passes: an allowed origin and an authenticated session (co-edit rooms too). */
+export const upgradeGuards = ({ getUiAuthController, isRequestOriginAllowed }) => {
   const originAllowed = async (req) => {
     if (typeof isRequestOriginAllowed !== 'function') return false;
     try {
@@ -151,6 +148,15 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
     const token = await controller.ensureSessionToken(req, response);
     return Boolean(token);
   };
+  return { originAllowed, ensureAuthenticated };
+};
+
+export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getUiAuthController, isRequestOriginAllowed }) => {
+  if (!app || !server || typeof getDesktopRuntimeConfig !== 'function') {
+    return { stop: () => {} };
+  }
+
+  const { originAllowed, ensureAuthenticated } = upgradeGuards({ getUiAuthController, isRequestOriginAllowed });
 
   app.get(PROXY_SSE_PATH, async (req, res) => {
     if (!await ensureAuthenticated(req, res)) {

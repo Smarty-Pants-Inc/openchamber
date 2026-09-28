@@ -11,8 +11,18 @@ round 4); until then no conflict could be seen.
 ## Entrypoints and structure
 - `disk-bridge.js`: `createDiskBridge({ root, file, doc, recoveryDir, onConflict })`, the disk side of one room.
 - `safe-file.js`: the file operations (`openParent`, `readSettled`, `publish`, `keepForRecovery`, `finishInterruptedSaves`).
-- The Hocuspocus room layer (a room per open file, with the Files view's auth and project admission) comes next; it
-  shows conflicts and their notices to the people in the room.
+- `rooms.js`: `attachCoeditRooms(...)`, Hocuspocus rooms on the WebSocket path `/api/coedit?directory=<project>&path=<file>`.
+  - `GET /api/coedit/room?directory=&path=` → `{ name }`: the room's name (the file's canonical path), with sign-in and
+    admission (no Origin check: a browser sends none on a same-origin GET; CORS keeps other sites from reading it). Every
+    spelling of one file joins one room, with one disk bridge.
+  - One room per file, keyed by its canonical path. An upgrade passes the app's WebSocket guards (`upgradeGuards` in
+    `../realtime-proxy.js`: an allowed origin and an authenticated session; in human mode, the signed-in person), then
+    admission. A connection opens only the room it was admitted for; `onAuthenticate` refuses any other name.
+  - Saves are debounced (2 s, at most 10 s); conflicts go to the room's clients as a stateless `coedit-conflict` message.
+  - Recovery copies go under `<OpenChamber config root>/coedit-recovery/<project hash>/`.
+- `admit.js`: `createCoeditAdmission(...)`, the Files view's admission (`resolveWorkspacePathFromContext`) for an explicit
+  project, never the saved last directory. The canonical root must not be inside a managed root (config, chats), and
+  the file must be a regular file inside the root.
 
 ## Design (net-lead's review): never lose bytes silently; any doubt is a visible conflict
 Uncoordinated writers to one file cannot be made lossless by more checks. So the bridge publishes only when it can

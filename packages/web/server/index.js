@@ -105,7 +105,9 @@ import { isAgentMemoryFeatureAvailable } from './lib/agent-memory/feature-flag.j
 import { resolvePrimaryWorktreeRoot } from './lib/git/service.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
-import { attachRealtimeProxy } from './lib/realtime-proxy.js';
+import { attachRealtimeProxy, upgradeGuards } from './lib/realtime-proxy.js';
+import { attachCoeditRooms } from './lib/coedit/rooms.js';
+import { createCoeditAdmission } from './lib/coedit/admit.js';
 import { attachSessionVoiceSocket } from './lib/opencode/session-voice-socket.js';
 import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
@@ -1715,6 +1717,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
   expressApp = app;
   server = http.createServer(app);
   let realtimeProxyRuntime = { stop: () => {} };
+  let coeditRuntime = { stop: async () => {} };
   let sessionVoiceRuntime = { stop: () => {} };
 
   // The relay service is constructed further below (it depends on the tunnel
@@ -1846,6 +1849,19 @@ async function startConfiguredWebUiServer(options, humanAuth) {
     getDesktopRuntimeConfig,
     getUiAuthController: () => uiAuthController,
     isRequestOriginAllowed,
+  });
+  // Co-editing rooms (smartyfs#18): the same WebSocket guards, and the Files view's project admission.
+  coeditRuntime = attachCoeditRooms({
+    server,
+    ...upgradeGuards({ getUiAuthController: () => uiAuthController, isRequestOriginAllowed }),
+    getUiAuthController: () => uiAuthController,
+    rejectWebSocketUpgrade,
+    admit: createCoeditAdmission({
+      resolveProjectDirectory,
+      normalizeDirectoryPath,
+      managedRoots: [OPENCHAMBER_USER_CONFIG_ROOT, OPENCHAMBER_CHATS_DIR],
+    }),
+    recoveryRoot: path.join(OPENCHAMBER_USER_CONFIG_ROOT, 'coedit-recovery'),
   });
   sessionVoiceRuntime = attachSessionVoiceSocket({
     server,
@@ -2082,6 +2098,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
     },
     stop: (shutdownOptions = {}) => {
       realtimeProxyRuntime.stop();
+      void coeditRuntime.stop().catch(() => {});
       sessionVoiceRuntime.stop();
       clearInterval(relayReconcileTimer);
       try {

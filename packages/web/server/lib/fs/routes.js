@@ -331,7 +331,7 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
-const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots, worktrees = true }) => {
+export const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, managedRoots, worktrees = true }) => {
   const resolvedProject = await resolveProjectDirectory(req);
   if (!resolvedProject.directory) {
     return { ok: false, error: resolvedProject.error || 'Active workspace is required' };
