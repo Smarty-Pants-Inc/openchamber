@@ -1,3 +1,5 @@
+import { reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
+import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses } from './optimistic-status';
@@ -2684,6 +2686,13 @@ export function SyncProvider(props: {
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }
+        // A reconnect can follow an install: a page still running the previous build reloads into the new one.
+        void reloadIfNewBuild({
+          running: runningEntry,
+          fetchIndex: async () => (await fetch(`${window.location.origin}/`, { cache: "no-store", credentials: "same-origin" })).text(),
+          busy: () => useInputStore.getState().attachedFiles.length > 0,
+          reload: () => window.location.reload(),
+        }).catch(() => undefined)
         // ponytail: The viewed ordinary token cannot wait for boot or broad resync gates.
         // Its existing loader owns coalescing and rejects stale generations.
         const viewed = getViewedSessionMaterializationTarget(_activeDirectory)
