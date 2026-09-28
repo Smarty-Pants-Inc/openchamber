@@ -6,7 +6,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
-import { managedWorktreeRoot } from './worktree-root.js';
+import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -4528,6 +4528,10 @@ export async function removeWorktree(directory, input = {}) {
       && isInsideOrSameDirectory(worktreeRootCanonical, targetCanonical);
 
     const targetExists = await checkPathExists(targetDirectory);
+    // A shared root (OPENCHAMBER_WORKTREE_ROOT): containment is no proof of ownership; only git removes (#354 review).
+    if (targetExists && isManagedOrphan && isSharedWorktreeRoot()) {
+      throw new Error('Not a registered worktree of this repository; nothing was removed');
+    }
     if (targetExists && isManagedOrphan) {
       await fsp.rm(targetDirectory, { recursive: true, force: true });
     }

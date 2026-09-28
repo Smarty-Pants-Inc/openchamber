@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { managedWorktreeRoot } from './worktree-root.js';
-import { previewWorktreeCreate } from './service.js';
+import { previewWorktreeCreate, removeWorktree } from './service.js';
 
 // smarty-code#629: Code's "+ New" made worktrees in OpenCode's hidden data folder, outside every root its gateway admits
 // (403, Send refused). OPENCHAMBER_WORKTREE_ROOT puts them at <root>/<repository folder>/ instead.
@@ -35,6 +35,31 @@ describe('managed worktree root', () => {
     } finally {
       if (before === undefined) delete process.env.OPENCHAMBER_WORKTREE_ROOT; else process.env.OPENCHAMBER_WORKTREE_ROOT = before;
       if (dataBefore === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = dataBefore;
+    }
+  });
+
+  // #354 review P1: the configured root is shared (Herdr, and other repositories with the same folder name), so an
+  // unregistered folder in it is not provably this repository's. Removal goes through git for registered worktrees only.
+  it('in a shared root, removal never deletes another repository\'s live worktree or an unrelated folder', async () => {
+    const root = path.join(temp, 'shared'), one = path.join(temp, 'one', 'app'), two = path.join(temp, 'two', 'app');
+    const init = (repo) => { fs.mkdirSync(repo, { recursive: true });
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repo, stdio: 'ignore' }); };
+    init(one); init(two);
+    const theirs = path.join(root, 'app', 'their-tree'), mine = path.join(root, 'app', 'my-tree'), unrelated = path.join(root, 'app', 'notes');
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'theirs', theirs], { cwd: two, stdio: 'ignore' });
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'mine', mine], { cwd: one, stdio: 'ignore' });
+    fs.mkdirSync(unrelated); fs.writeFileSync(path.join(unrelated, 'keep.txt'), 'keep');
+    const before = process.env.OPENCHAMBER_WORKTREE_ROOT; process.env.OPENCHAMBER_WORKTREE_ROOT = root;
+    try {
+      await expect(removeWorktree(one, { directory: theirs })).rejects.toThrow(/not a registered worktree/i);
+      await expect(removeWorktree(one, { directory: unrelated })).rejects.toThrow(/not a registered worktree/i);
+      expect(fs.existsSync(path.join(theirs, '.git'))).toBe(true);
+      expect(fs.readFileSync(path.join(unrelated, 'keep.txt'), 'utf8')).toBe('keep');
+      await removeWorktree(one, { directory: mine }); // Its own registered worktree: removed through git, as before.
+      expect(fs.existsSync(mine)).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.OPENCHAMBER_WORKTREE_ROOT; else process.env.OPENCHAMBER_WORKTREE_ROOT = before;
     }
   });
 });
