@@ -372,6 +372,33 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.text.toString()).toBe('Pa\nX\n'); // Not 'PPa\nX\n'.
     });
 
+    it('security round 8: an I/O error looking at the file right after the rename is an uncertain publication, never foreign: no replay', async () => {
+      const t = await setup('a\n');
+      const lstat = fs.promises.lstat;
+      let armed = false;
+      const spy = vi.spyOn(fs.promises, 'lstat').mockImplementation(async (...args) => {
+        if (armed && String(args[0]).endsWith('/notes.md')) { armed = false; throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' }); }
+        return lstat.apply(fs.promises, args);
+      });
+      try {
+        t.at('beforeRename', () => { armed = true; });
+        t.person((x) => x.insert(0, 'P'));
+        expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(t.conflicts.at(-1)).toMatchObject({ published: true });
+      expect(t.conflicts.at(-1).foreign).toBeUndefined();
+      expect(t.disk()).toBe('Pa\n');
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('Pa\n'); // Not 'PPa'.
+      expect(fs.readdirSync(path.join(t.recoveryDir, '.pending'))).toHaveLength(1); // Uncertain: its marker stays.
+      // Reads are back: the next edit saves on top of what was published, still without a second P.
+      t.person((x) => x.insert(0, 'Q'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('QPa\n');
+    });
+
     for (const which of ['staging', 'current']) {
       it(`security round 6 (2): the ${which} handle's close failing after the rename keeps the committed result: no replay, nothing skipped`, async () => {
         const t = await setup('a\n');

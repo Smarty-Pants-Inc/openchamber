@@ -36,6 +36,17 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The co-edit disk bridge's dependencies (smartyfs#18 slice 1) are the newest layer: one file, so unwind it first.
+  assert.match(historical.coeditSource, /^[a-f0-9]{40}$/);
+  delete historical.coeditSource;
+  for (const entry of historical.files.filter(file => file.coeditSha256)) {
+    assert.equal(entry.coeditSha256, entry.combinedSha256);
+    assert.ok(entry.coeditNote);
+    entry.combinedSha256 = entry.preCoeditCombinedSha256;
+    delete entry.preCoeditCombinedSha256;
+    delete entry.coeditSha256;
+    delete entry.coeditNote;
+  }
   // Voice call notes (system notes, smarty-code#360) are the newest layer: they only add the session-assist entry, so
   // unwind it first.
   assert.match(historical.systemNoteSource, /^[a-f0-9]{40}$/);

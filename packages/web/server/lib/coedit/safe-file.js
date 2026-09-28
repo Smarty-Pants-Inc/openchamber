@@ -192,18 +192,18 @@ async function attempt(parent, name, text, expectedHash, { recoveryDir, target, 
   await hooks.beforeRename?.({ staging, entry: parent.at(state.dirName) });
   await fs.promises.rename(staging, parent.at(name));
   state.published = true; // Recorded before anything that can throw (security pass round 5, item B).
-  // What the rename installed, looked at first thing: our inode means our verified bytes were published, even if an
-  // outside writer replaces the file right after (then the base must still follow ours, or the next sync would replay
-  // the edit: round 7). Anything else was substituted before the rename (same account only): `foreign`.
-  const installed = await fs.promises.lstat(parent.at(name)).catch(() => null);
-  const oursInstalled = Boolean(installed && installed.ino === ours.ino && installed.dev === ours.dev);
-  if (!oursInstalled) {
-    return { conflict: 'unverified', published: true, foreign: true, recovery, notice: DISTURBED_NOTICE };
-  }
   // Everything after the rename is reported as committed (`published`), never thrown: an exception here (a failed
-  // directory fsync, a failed recovery read) is an uncertain publication, and the room's base must still follow
-  // what was written, or the next sync would replay the person's edit.
+  // directory fsync, a failed recovery read, a failed look at what was installed) is an uncertain publication, and the
+  // room's base must still follow what was written, or the next sync would replay the person's edit.
   try {
+    // What the rename installed, looked at first thing: our inode means our verified bytes were published, even if an
+    // outside writer replaces the file right after (the base follows ours: round 7). Only a file SEEN there that is not
+    // ours was substituted before the rename (same account only): `foreign`. A look that fails (an I/O error, or the
+    // name already gone) proves nothing foreign: it throws into the uncertain path below (security pass round 8).
+    const installed = await fs.promises.lstat(parent.at(name));
+    if (installed.ino !== ours.ino || installed.dev !== ours.dev) {
+      return { conflict: 'unverified', published: true, foreign: true, recovery, notice: DISTURBED_NOTICE };
+    }
     await hooks.afterRename?.();
     await parent.sync();
     // ponytail: a held directory moved outside the project between the last check and the rename is only detected
