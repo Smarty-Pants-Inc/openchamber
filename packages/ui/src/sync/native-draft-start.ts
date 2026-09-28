@@ -127,6 +127,9 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 async function worktreeReady(): Promise<void> {
   const draft = useSessionUIStore.getState().newSessionDraft, directory = draft.directoryOverride, runtimeKey = getRuntimeKey();
   if (!directory || !useProjectsStore.getState().managedCatalogAdmitted) return;
+  // '+ New' still making the tree: the server has no bootstrap record yet and would read ready by default. Refuse before
+  // any read (the text stays; "…wait until the project finishes setting up"); Send again once '+ New' has finished.
+  if (draft.pendingWorktreeRequestId) throw new NativeCreationError('target', new Error('The new worktree is still being created'));
   const until = Date.now() + worktreeReadyLimits.totalMs;
   for (;;) {
     let status: Awaited<ReturnType<typeof getGitWorktreeBootstrapStatus>>;

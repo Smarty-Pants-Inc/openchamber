@@ -372,6 +372,25 @@ for (const outcome of ['ready', 'failed', 'stalled'] as const) {
   });
 }
 
+test('a Send while \'+ New\' is still making the tree is refused before any read, even though the server would read ready (openchamber#331 review 2)', async () => {
+  interactive();
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  useSessionUIStore.setState({ newSessionDraft: { ...draft, pendingWorktreeRequestId: 'worktree_1', bootstrapPendingDirectory: draft.directoryOverride } });
+  const saved = useProjectsStore.getState();
+  useProjectsStore.setState({ managedCatalogAdmitted: true, managedRows: [] });
+  // The server's default for a directory with no bootstrap record yet.
+  const status = spyOn(gitApiModule, 'getGitWorktreeBootstrapStatus').mockImplementation(async () => ({ status: 'ready', phase: 'setup-ready', error: null, updatedAt: 1 }));
+  const next = spyOn(catalogRead, 'refreshManagedProjects').mockImplementation(async () => {});
+  try {
+    expect(await failure(startNativeDraft([], noWait))).toBe('target');
+    expect(status).not.toHaveBeenCalled(); expect(next).not.toHaveBeenCalled();
+    expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  } finally {
+    status.mockRestore(); next.mockRestore();
+    useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedRows: saved.managedRows });
+  }
+});
+
 test('a saved id blocks a second create after a reload, even while the list is empty or fails; its exact match recovers later', async () => {
   interactive();
   // The create reached no list yet: its operation is not listed (the server has not recorded it, or the read lags).
