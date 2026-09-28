@@ -969,6 +969,9 @@ const timelineKeyExtractor = (item: TimelineEntry): string => item.key;
 // different shapes, so keeping them in separate pools avoids re-measuring a
 // container every time one replaces the other.
 const timelineItemType = (item: TimelineEntry): string => item.kind;
+// smarty-code#583: a gap row's height is known, so the list and its scrollbar are the session's length before any
+// gap is rendered (an estimate would size 21,000 unloaded records like 200 rows).
+const timelineFixedSize = (item: TimelineEntry): number | undefined => (item.kind === 'gap' ? item.heightPx : undefined);
 
 const renderTimelineItem = ({ item }: { item: TimelineEntry }) => <TimelineRow entry={item} />;
 
@@ -1090,6 +1093,7 @@ const TimelineList = React.memo(({
                 data={entries}
                 keyExtractor={timelineKeyExtractor}
                 getItemType={timelineItemType}
+                getFixedItemSize={timelineFixedSize}
                 renderItem={renderTimelineItem}
                 estimatedItemSize={TIMELINE_ESTIMATED_ENTRY_SIZE}
                 initialScrollAtEnd
