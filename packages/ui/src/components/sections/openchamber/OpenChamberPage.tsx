@@ -1,3 +1,4 @@
+import { useSessionAssistAvailable } from '@/lib/sessionAssistAvailable';
 import React from 'react';
 import { OpenChamberVisualSettings } from './OpenChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
@@ -183,11 +184,13 @@ const VisualSectionContent: React.FC = () => {
 // Chat section: User message rendering, Diff layout, Mobile status bar, Show reasoning traces, Follow-up behavior, Persist draft
 const ChatSectionContent: React.FC = () => {
     const isVSCode = isVSCodeRuntime();
+    // Smarty Code: session assist has no small model there, so its two settings are hidden (smarty-code#729).
+    const sessionAssistAvailable = useSessionAssistAvailable();
     return (
         <OpenChamberVisualSettings
             visibleSettings={[
                 'sessionGoal',
-                'sessionAssist',
+                ...(sessionAssistAvailable ? ['sessionAssist' as const] : []),
                 'chatRenderMode',
                 'activityRenderMode',
                 'userMessageRendering',
