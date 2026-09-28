@@ -1,0 +1,5 @@
+{"t":"2026-09-28T09:10:02.867Z","event":"step","note":"Open http://127.0.0.1:43295 (fix)"}
+{"t":"2026-09-28T09:10:09.532Z","event":"step","note":"Click Settings, then Chat; scroll to Session Assistance","label":"fix","recapOption":0,"suggestionOption":0,"screenshot":"settings-chat-fix.png"}
+{"t":"2026-09-28T09:10:11.151Z","event":"step","note":"In \"Search settings\", type \"recap\"","label":"fix","offered":{"recap":0,"suggestion":0},"screenshot":"search-recap-fix.png"}
+{"t":"2026-09-28T09:10:13.054Z","event":"step","note":"In \"Search settings\", type \"suggestion\"","label":"fix","offered":{"recap":0,"suggestion":0},"screenshot":"search-suggestion-fix.png"}
+{"t":"2026-09-28T09:10:13.055Z","event":"done"}
