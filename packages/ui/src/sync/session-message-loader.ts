@@ -66,6 +66,13 @@ type LoaderEntry = {
   loadedOnce: boolean
   queuedRefresh: Promise<void> | null
   queuedRefreshLimit: number
+  /**
+   * smarty-code#583: the reader's older-page requests waiting on an in-flight load, and their chain. A queued tail
+   * refresh runs after them: on a busy session live events queue a refresh behind every load, and when it ran first
+   * the scroll-back got an older page only now and then (none for 185 s on code-lead's session).
+   */
+  olderWaiting: number
+  olderChain: Promise<void> | null
   optimistic: Map<string, OptimisticItem>
   ordinary: boolean
   resetHistory: boolean
@@ -288,7 +295,17 @@ export class SessionMessageLoader {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
     const entry = this.getEntry(normalized)
-    if (entry.inflight) return entry.inflight.then(() => this.loadOlder(normalized))
+    if (entry.inflight) {
+      // Wait for the load in flight, then go before any tail refresh queued behind it. The cursor is read when this load
+      // starts (below), after that load committed, so it always belongs to the coverage it extends.
+      entry.olderWaiting++
+      const chain = entry.inflight.then(() => {
+        entry.olderWaiting--
+        return this.loadOlder(normalized)
+      }).finally(() => { if (entry.olderChain === chain) entry.olderChain = null })
+      entry.olderChain = chain
+      return chain
+    }
     if (entry.snapshot.complete || !entry.snapshot.cursor) return Promise.resolve()
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const cursor = entry.snapshot.cursor
@@ -368,6 +385,9 @@ export class SessionMessageLoader {
         }
         const refreshLimit = entry.queuedRefreshLimit
         clearQueuedRefresh()
+        // The reader's older pages first (smarty-code#583); this refresh follows them.
+        const older = entry.olderWaiting > 0 ? entry.olderChain : null
+        if (older) return older.catch(() => undefined).then(() => this.refreshTail(normalized, refreshLimit))
         return this.refreshTail(normalized, refreshLimit)
       })
       entry.queuedRefresh = queuedRefresh
@@ -699,6 +719,8 @@ export class SessionMessageLoader {
       openUnanswered: false,
       loadedOnce: false,
       queuedRefresh: null,
+      olderWaiting: 0,
+      olderChain: null,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
       ordinary: false,
