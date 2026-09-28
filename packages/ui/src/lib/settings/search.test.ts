@@ -64,4 +64,13 @@ describe('settings search', () => {
     expect(results.some((result) => result.id === 'integrations.linear.add-workspace')).toBe(false);
     expect(results.some((result) => result.id === 'integrations.linear.mapping')).toBe(false);
   });
+
+  test('recap and suggestion are not offered when session assist is unavailable (Smarty Code, smarty-code#729)', () => {
+    const ids = (sessionAssistAvailable?: boolean) => ['recap', 'suggestion'].flatMap(query => buildSettingsSearchResults({
+      query, runtimeCtx: { ...runtimeCtx, ...(sessionAssistAvailable === undefined ? {} : { sessionAssistAvailable }) }, t, getPageTitle: (page) => page,
+    }).map(result => result.id));
+    expect(ids()).toContain('chat.session-recap'); expect(ids()).toContain('chat.session-suggestion'); // Stock: offered.
+    expect(ids(true)).toContain('chat.session-suggestion');
+    expect(ids(false)).not.toContain('chat.session-recap'); expect(ids(false)).not.toContain('chat.session-suggestion');
+  });
 });
