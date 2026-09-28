@@ -10,7 +10,10 @@ export const TEXT = 'content';
 /** Room changes made by the bridge carry this origin, so a room can tell disk merges from people. */
 export const DISK_ORIGIN = 'disk';
 /** A revision this much shorter than the text last read is not merged without a person's word (net-lead round 3). */
-const TRUNCATED = (from, to) => from.length > 0 && (to.length === 0 || (from.length >= 256 && to.length < from.length / 4));
+/** Whether `to` removes any text of `from` (net-lead round 4: a partial write that removes text is not merged unasked). */
+const REMOVES = (from, to) => diff(from, to).some(([op]) => op === diff.DELETE);
+/** Off unless enabled: the room layer that shows conflicts to people is not in production yet (code-lead, round 4). */
+export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
 
 /**
  * The disk side of one co-edited file (smartyfs#18, slice 1). The file stays the truth that agents, git and tools use.
@@ -30,7 +33,9 @@ const TRUNCATED = (from, to) => from.length > 0 && (to.length === 0 || (from.len
  */
 export function createDiskBridge({
   root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks = {},
+  enabled = coeditEnabled(),
 }) {
+  if (!enabled) throw new Error('Co-editing is off (OPENCHAMBER_COEDIT)');
   if (!path.isAbsolute(root) || !path.isAbsolute(file) || !inside(root, file) || file === root) {
     throw new Error('Co-edited file must be inside its project');
   }
@@ -88,28 +93,29 @@ export function createDiskBridge({
     return result;
   };
 
-  // A truncation (a file emptied, or cut to under a quarter) may be a writer that truncated and paused: merging it
-  // would delete the room's text. It is a conflict until the person accepts the disk (acceptDisk) or a fuller
-  // revision arrives; the room keeps its text and the base does not move.
-  let truncated = null;
+  // Outside text is merged unasked only as insertions. A revision that removes text may be a writer that truncated and
+  // paused (net-lead round 4: C, pause, then CB would undo the room's deletion of B): it is a conflict until the person
+  // accepts the disk (acceptDisk) or an insertion-only revision arrives; the room keeps its text, the base stays.
+  let held = null;
   const sync = () => serial(async () => {
     if (closed || base === null) return;
     const disk = await withParent((parent) => readSettled(parent, name, settleMs));
     if (disk === null) gone = true;
     else if (disk.hash === baseHash) {
       gone = false;
-      truncated = null;
-    } else if (TRUNCATED(baseText, disk.text)) {
-      if (truncated?.hash !== disk.hash) raise({ conflict: 'truncated' });
-      truncated = disk;
+      held = null;
+    } else if (REMOVES(baseText, disk.text)) {
+      if (held?.hash !== disk.hash) raise({ conflict: disk.text.length === 0 ? 'truncated' : 'removed' });
+      held = disk;
     } else {
-      truncated = null;
+      held = null;
       merge(disk);
     }
   });
 
   return {
-    async load() {
+    load: () => serial(async () => {
+      if (closed) throw new Error('Co-edited file is closed');
       // Watching starts before the first read, so a write during the load is seen.
       watcher = watch(path.dirname(file), (_event, changed) => {
         if (changed && String(changed) !== name) return;
@@ -118,7 +124,9 @@ export function createDiskBridge({
           console.error(JSON.stringify({ type: 'smarty.coedit-sync-failed', file: name, error: String(error?.message ?? error) }));
         }), debounceMs);
       });
-      watcher.on?.('error', () => {});
+      watcher.on?.('error', (error) => {
+        console.error(JSON.stringify({ type: 'smarty.coedit-watch-failed', file: name, error: String(error?.message ?? error) }));
+      });
       const interrupted = await withParent((parent) => finishInterruptedSaves(parent, recoveryDir, file));
       const disk = await withParent((parent) => readSettled(parent, name, settleMs));
       if (disk === null) throw new Error('Co-edited file does not exist');
@@ -129,12 +137,12 @@ export function createDiskBridge({
       base = Y.encodeStateAsUpdate(doc);
       baseText = disk.text;
       baseHash = disk.hash;
-    },
-    /** The person accepts the truncated revision on disk: it is merged into the room like any outside write. */
+    }),
+    /** The person accepts the held revision on disk (it removes text): it is merged into the room. */
     acceptDisk: () => serial(async () => {
-      if (!truncated) return;
-      merge(truncated);
-      truncated = null;
+      if (closed || !held) return;
+      merge(held);
+      held = null;
       conflict = null;
     }),
     /** Merges a settled outside write into the room now (the watcher also calls it). */
@@ -147,10 +155,13 @@ export function createDiskBridge({
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const result = await withParent((parent) => publish(parent, name, next, baseHash, { recoveryDir, target: file, hooks }));
       if (result.conflict === 'gone') gone = true;
-      if (!result.ok) return raise(result);
+      if (!result.ok && !result.published) return raise(result);
+      // Published (ok, or a conflict found after our bytes reached disk): the base follows what was written, so the
+      // next sync does not replay the room's edit (net-lead round 4); a conflict is still shown.
       base = snapshot;
       baseText = next;
       baseHash = hashBytes(Buffer.from(next, 'utf8'));
+      if (!result.ok) return raise(result);
       conflict = null;
       return { ok: true };
     }),
