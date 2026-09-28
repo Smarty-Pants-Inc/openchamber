@@ -95,3 +95,18 @@ describe('gap rows for the unloaded parts of a session (smarty-code#583)', () =>
         expect(insertGaps(all, [], (id) => positions.get(id), 100)).toBe(all);
     });
 });
+
+// openchamber#363 review round 2 (P1): with the beginning loaded (so no "older history" above), a middle window whose
+// prompt lies in the gap before it holds only replies; they must show, or the gap is gone and nothing takes its place.
+describe('a loaded window that opens with replies (smarty-code#583)', () => {
+    test('its opening replies show as their own rows, after the beginning window, until its first prompt', () => {
+        const messages = [entry('u0', 'user'), entry('a0', 'assistant', 'u0'),
+            entry('b1', 'assistant', 'u_gap'), entry('b2', 'assistant', 'u_gap'), entry('u5', 'user'), entry('a5', 'assistant', 'u5'), entry('late', 'assistant', 'u_other')];
+        const projection = projectTurnRecords(messages, { showLeadingOrphans: false, windowStartIds: new Set(['b1']) });
+        const rows = assembleRenderEntries(buildStaticRenderEntries(projection.turns, projection.lastTurnId, messages, projection.ungroupedMessageIds),
+            buildTrailingUngroupedEntry(messages, projection.ungroupedMessageIds));
+        expect(rows.map((row) => row.key)).toEqual(['turn:u0', 'msg:b1', 'msg:b2', 'turn:u5']);
+        // Without the window start (the old rule) the replies had no row at all.
+        expect([...projectTurnRecords(messages, { showLeadingOrphans: false }).ungroupedMessageIds]).toEqual([]);
+    });
+});

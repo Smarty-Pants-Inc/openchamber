@@ -7,7 +7,7 @@ import { withoutStaleOrdinaryRows } from "./ordinary-stale-rows"
 import { mergeOptimisticPage, type OptimisticItem } from "./optimistic"
 import { findMessageIndex, insertMessageChronologically, sortMessagesChronologically } from "./message-ordering"
 import { stripMessageDiffSnapshots } from "./sanitize"
-import { addRange, type Range } from "./position-windows"
+import { addRange, gapsOf, type Range } from "./position-windows"
 import { getSessionMaterializationStatus, materializeSessionSnapshots } from "./materialization"
 import {
   clearDirectorySessionPrefetch,
@@ -77,6 +77,8 @@ type LoaderEntry = {
   /** smarty-code#583: each loaded message's position in the whole session, and the window reads in flight. */
   positionOf: Map<string, number>
   windowLoads: Map<string, Promise<void>>
+  /** smarty-code#583: this session's pages come from range reads. */
+  rangeReads: boolean
   optimistic: Map<string, OptimisticItem>
   ordinary: boolean
   resetHistory: boolean
@@ -102,6 +104,8 @@ type FetchedPage = {
   at?: number
   total?: number
   indexEpoch?: string
+  /** The page came from a range read (at=), which carries no cursor. */
+  rangeRead?: boolean
   session: Message[]
   partsByMessageID: Map<string, Part[]>
   cursor: string | undefined
@@ -337,10 +341,28 @@ export class SessionMessageLoader {
     await this.ensure(normalized, { force: !initial.resolved })
 
     const visitedCursors = new Set<string>()
+    let stalls = 0, lastCoverage = ""
     while (true) {
       const snapshot = this.getSnapshot(normalized)
       if (snapshot.status === "error") throw snapshot.error ?? new Error("Session history could not be loaded")
       if (snapshot.complete) return
+      // smarty-code#583: with positions (range reads carry no cursor) fill each missing range up to the loaded end, from
+      // the oldest. A newest page read while the index was building has no positions: read it again to learn them.
+      if (snapshot.positions || (!snapshot.cursor && this.servesPositions(normalized))) {
+        const ranges = snapshot.positions?.ranges ?? []
+        const coverage = JSON.stringify(snapshot.positions ?? null)
+        stalls = coverage === lastCoverage ? stalls + 1 : 0
+        lastCoverage = coverage
+        if (stalls >= 3) throw new Error("Session history pagination made no progress")
+        if (!ranges.length) {
+          await this.refreshTail(normalized, Math.min(500, Math.max(HISTORY_MESSAGE_PAGE_SIZE, snapshot.limit)))
+          continue
+        }
+        const hole = gapsOf(ranges, ranges[ranges.length - 1]!.end)[0]
+        if (!hole) return
+        await this.loadAt(normalized, hole.start, Math.min(500, hole.end - hole.start))
+        continue
+      }
       if (!snapshot.cursor) throw new Error("Session history coverage is unresolved")
       if (visitedCursors.has(snapshot.cursor)) {
         throw new Error("Session history pagination made no progress")
@@ -720,6 +742,7 @@ export class SessionMessageLoader {
       queuedRefresh: null,
       positionOf: new Map(),
       windowLoads: new Map(),
+      rangeReads: false,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
       ordinary: false,
@@ -880,6 +903,7 @@ export class SessionMessageLoader {
     performance?: LoadPerformanceDetails,
     cancelled?: () => boolean,
     at?: number,
+    epoch?: string,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
@@ -910,6 +934,8 @@ export class SessionMessageLoader {
           // A newest page asks from the end (`at=-n`): the gateway then tells its position and the session's size. An
           // older gateway ignores `at` and serves the same newest page.
           ...(at !== undefined ? { $query_at: at } : before === undefined && limit <= 500 ? { $query_at: -limit } : {}),
+          // A window names the index epoch its positions came from: the gateway answers 409 once it has changed.
+          ...(at !== undefined && epoch !== undefined ? { $query_epoch: epoch } : {}),
         } as Parameters<OpencodeClient["session"]["messages"]>[0])
         assertSdkSuccess(response, "session.messages")
         const data = response.data
@@ -944,7 +970,7 @@ export class SessionMessageLoader {
       // still builds the index (no positions yet), when it came back short (smarty-code#583).
       const rangeRead = at !== undefined || (before === undefined && limit <= 500)
       const complete = position.at !== undefined ? position.at === 0 : rangeRead && !cursor ? records.length < limit : !cursor
-      return { session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
+      return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -962,6 +988,17 @@ export class SessionMessageLoader {
     isCurrent: () => boolean,
   ): { messages: Message[] } | null {
     if (!isCurrent()) return null
+    // smarty-code#583: a page from another index epoch than the shown one: a window is not merged into the old records;
+    // the loader starts over from a newest page, which replaces them.
+    const knownEpoch = entry.snapshot.positions?.epoch
+    if (page.total !== undefined && knownEpoch !== undefined && page.indexEpoch !== knownEpoch && entry.snapshot.positions!.ranges.length > 0) {
+      if (mode === "prepend") {
+        this.epochChanged(target, entry, page.total, page.indexEpoch)
+        return null
+      }
+      entry.resetHistory = true
+      entry.positionOf.clear()
+    }
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
       throw new Error("Ordinary history view was disconnected before materialization")
     }
@@ -1014,6 +1051,7 @@ export class SessionMessageLoader {
       if (reset || pruned || materialized.partsChanged) update.part = materialized.part
       store.setState(update)
     }
+    entry.rangeReads ||= page.rangeRead === true
     entry.commits++ // Even a page that changed nothing (an accepted view, new coverage) makes a reset read older.
     if (!isCurrent()) return null
     if (mode !== "prepend") {
@@ -1033,8 +1071,9 @@ export class SessionMessageLoader {
     if (fresh) entry.positionOf.clear()
     const ranges = addRange(fresh ? [] : previous.ranges, { start: page.at, end: page.at + page.session.length })
     for (const [index, message] of page.session.entries()) entry.positionOf.set(message.id, page.at + index)
-    // The history above is complete once position 0 is loaded (its first range starts there).
-    this.patchEntry(entry, { positions: { total: page.total, ranges, epoch: page.indexEpoch }, complete: ranges[0]?.start === 0 })
+    // Complete means every position up to the loaded end is loaded: one range from 0. Reaching position 0 with holes
+    // after it is not (openchamber#363 review: an export after Beginning exported only the loaded windows).
+    this.patchEntry(entry, { positions: { total: page.total, ranges, epoch: page.indexEpoch }, complete: ranges.length === 1 && ranges[0]!.start === 0 })
   }
 
   /**
@@ -1051,9 +1090,28 @@ export class SessionMessageLoader {
       if (entry.snapshot.resolved) void this.refreshTail(normalized, Math.min(500, Math.max(1, entry.snapshot.limit))).catch(() => undefined)
       return
     }
-    const fresh = previous.epoch !== epoch
-    if (fresh) entry.positionOf.clear()
-    this.patchEntry(entry, { positions: { total, ranges: fresh ? [] : previous.ranges, epoch } })
+    if (previous.epoch !== epoch) return this.epochChanged(normalized, entry, total, epoch)
+    this.patchEntry(entry, { positions: { total, ranges: previous.ranges, epoch } })
+  }
+
+  /** The session's pages came from range reads (the newest page asks at=-n): they carry no cursor (smarty-code#583). */
+  private servesPositions(target: SessionMessageTarget): boolean {
+    return this.entries.get(this.keyFor(target))?.rangeReads === true
+  }
+
+  /**
+   * smarty-code#583 (joint contract section 3): the session's index epoch changed (a branch rewrite, a compaction): the
+   * known positions and the shown records may no longer match. Reads in flight are fenced (a late old-epoch answer commits
+   * nothing), the next newest page replaces the shown history, and the gap rows then read the windows in view again.
+   */
+  private epochChanged(target: SessionMessageTarget, entry: LoaderEntry, total: number, epoch: string | undefined): void {
+    this.bumpGeneration(entry)
+    entry.inflight = null
+    entry.windowLoads.clear()
+    entry.positionOf.clear()
+    entry.resetHistory = true
+    this.patchEntry(entry, { positions: { total, ranges: [], epoch }, complete: false })
+    void this.refreshTail(target, Math.min(500, Math.max(HISTORY_MESSAGE_PAGE_SIZE, entry.snapshot.limit))).catch(() => undefined)
   }
 
   /** The loaded message's position in the whole session, when the gateway serves positions (smarty-code#583). */
@@ -1079,10 +1137,17 @@ export class SessionMessageLoader {
       && this.childStores.getChild(normalized.directory) === store
     // Windows read beside the loader's own loads: they only add records at known positions, and a stale one (a new
     // open, another view) commits nothing.
-    const load = this.fetchPage(normalized, limit, undefined, "older", undefined, () => !isCurrent(), at)
+    const load = this.fetchPage(normalized, limit, undefined, "older", undefined, () => !isCurrent(), at, entry.snapshot.positions?.epoch)
       .then((page) => {
         if (!isCurrent()) return
         this.commitPage(normalized, entry, store, page, "prepend", isCurrent)
+      }, (error: unknown) => {
+        // 409: the positions this window was asked by belong to an older index epoch: start over (contract section 3).
+        if ((error as { status?: number })?.status === 409 && isCurrent()) {
+          this.epochChanged(normalized, entry, entry.snapshot.positions?.total ?? 0, undefined)
+          return
+        }
+        throw error
       })
       .finally(() => { entry.windowLoads.delete(key) })
     entry.windowLoads.set(key, load)

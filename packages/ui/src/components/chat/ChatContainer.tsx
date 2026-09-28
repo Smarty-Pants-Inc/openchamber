@@ -52,6 +52,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { SessionPositions } from '@/sync/session-message-loader';
 import { ScrollToStartButton } from './components/ScrollToStartButton';
 import { WINDOW_RECORDS } from './components/GapRow';
+import { createWindowQueue } from './lib/windowQueue';
 import { useStreamingStore } from '@/sync/streaming';
 import {
     useSessionMessageCount,
@@ -855,28 +856,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [messageLoader, windowTarget, sessionMessageLoadState.positions]);
     // "Beginning": the session's first window, then its first rows (smarty-code#583).
+    // Window work belongs to one session: a read that answers after the reader switched sessions moves nothing.
+    const currentWindowTarget = React.useRef(windowTarget);
+    currentWindowTarget.current = windowTarget;
     const goToBeginning = React.useCallback(() => {
         if (!windowTarget) return;
         void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
-            .then(() => requestAnimationFrame(() => messageListRef.current?.scrollToStart()));
+            .then(() => requestAnimationFrame(() => {
+                if (currentWindowTarget.current === windowTarget) messageListRef.current?.scrollToStart();
+            }));
     }, [messageLoader, windowTarget]);
-    // One window read at a time, and only the latest request waits: windows asked for while a read runs are places the
-    // reader has already left (smarty-code#583).
-    const windowQueue = React.useRef<{ busy: boolean; next: [number, number] | null }>({ busy: false, next: null });
-    const loadWindow = React.useCallback((start: number, limit: number) => {
-        if (!windowTarget) return;
-        const queue = windowQueue.current;
-        queue.next = [start, limit];
-        if (queue.busy) return;
-        queue.busy = true;
-        void (async () => {
-            for (let next = queue.next; next; next = queue.next) {
-                queue.next = null;
-                await messageLoader.loadAt(windowTarget, next[0], next[1]).catch(() => undefined);
-            }
-            queue.busy = false;
-        })();
-    }, [messageLoader, windowTarget]);
+    // One window read at a time per session, latest wins; another session's requests never enter this one's loop.
+    const loadWindow = React.useMemo(() => (windowTarget
+        ? createWindowQueue((start, limit) => messageLoader.loadAt(windowTarget, start, limit), () => currentWindowTarget.current === windowTarget)
+        : () => undefined), [messageLoader, windowTarget]);
 
     React.useEffect(() => {
         if (!active || !currentSessionKey || !hasRenderableSessionSnapshot || sessionMessages.length === 0) return;

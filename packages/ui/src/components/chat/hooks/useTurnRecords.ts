@@ -10,6 +10,8 @@ interface UseTurnRecordsOptions {
     showTurnChangedFiles: boolean;
     planModeEnabled: boolean;
     showLeadingOrphans?: boolean;
+    /** smarty-code#583: the first message of each loaded window after a gap. */
+    windowStartIds?: ReadonlySet<string>;
 }
 
 export interface TurnRecordsResult {
@@ -58,7 +60,8 @@ export const useTurnRecords = (
         const sessionKey = options.sessionKey ?? '';
         const kept = shownOrphansRef.current;
         const mergeKey = (options.planModeEnabled ? 'merge:plan' : 'merge') + (options.showLeadingOrphans ? ':leading' : '')
-            + (kept.size ? `:kept${kept.size}` : '');
+            + (kept.size ? `:kept${kept.size}` : '')
+            + (options.windowStartIds ? `:w${[...options.windowStartIds].join(',')}` : '');
         const cacheKey = buildProjectionCacheKey(
             sessionKey,
             messages,
@@ -83,6 +86,7 @@ export const useTurnRecords = (
                 mergeHiddenUserTurns: { planModeEnabled: options.planModeEnabled },
                 showLeadingOrphans: options.showLeadingOrphans,
                 ...(kept.size ? { keepUngroupedAssistantIds: new Set(kept) } : {}),
+                ...(options.windowStartIds ? { windowStartIds: options.windowStartIds } : {}),
             });
             previousProjectionRef.current = nextProjection;
             rememberShownOrphans(messages, nextProjection, kept);
@@ -91,7 +95,7 @@ export const useTurnRecords = (
 
             return nextProjection;
         });
-    }, [messages, options.showTextJustificationActivity, options.showTurnChangedFiles, options.sessionKey, options.planModeEnabled, options.showLeadingOrphans]);
+    }, [messages, options.showTextJustificationActivity, options.showTurnChangedFiles, options.sessionKey, options.planModeEnabled, options.showLeadingOrphans, options.windowStartIds]);
 
     const staticTurns = React.useMemo(() => {
         const nextStatic = projection.turns.length <= 1

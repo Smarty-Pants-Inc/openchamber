@@ -99,6 +99,11 @@ interface ProjectTurnRecordsOptions {
      * looking at keep their keys and the list keeps their place; regrouping them into a new turn row moved the view.
      */
     keepUngroupedAssistantIds?: ReadonlySet<string>;
+    /**
+     * smarty-code#583: the first loaded message of each loaded window after a gap. The replies that open such a window
+     * (their user message lies in the gap) show as their own rows, like the leading replies of the first window.
+     */
+    windowStartIds?: ReadonlySet<string>;
 }
 
 const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
@@ -286,19 +291,21 @@ export const projectTurnRecords = (
     // a turn whose user message is not loaded yet. Show them rather than a blank timeline that pages back through
     // megabytes of tool output looking for a user turn (smarty-code#116 pilot). Later orphans stay hidden: those are
     // a reply that arrived before its own user message.
-    const firstUserIndex = messages.findIndex((message) => resolveMessageRole(message) === 'user');
-    messages.forEach((message, index) => {
+    // Each window after a gap (smarty-code#583) opens the same way: its replies before its first user message show.
+    let leading = effectiveOptions.showLeadingOrphans === true;
+    messages.forEach((message) => {
+        if (effectiveOptions.windowStartIds?.has(message.info.id)) leading = true;
         if (resolveMessageRole(message) === 'assistant') {
             if (effectiveOptions.keepUngroupedAssistantIds?.has(message.info.id)) {
                 ungroupedMessageIds.add(message.info.id);
                 return;
             }
-            if (effectiveOptions.showLeadingOrphans && !groupedMessageIds.has(message.info.id)
-                && (firstUserIndex < 0 || index < firstUserIndex)) {
+            if (leading && !groupedMessageIds.has(message.info.id)) {
                 ungroupedMessageIds.add(message.info.id);
             }
             return;
         }
+        leading = false;
         if (!groupedMessageIds.has(message.info.id)) {
             ungroupedMessageIds.add(message.info.id);
         }

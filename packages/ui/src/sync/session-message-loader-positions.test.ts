@@ -6,23 +6,38 @@ import { fakeMessagesClient, record, target } from "./session-message-loader-rep
 // smarty-code#583: the gateway's range read (?at=, x-smarty-at / x-smarty-total / x-smarty-index-epoch) gives every
 // loaded record its position in the whole session, so the page can size the list to the session and load any window.
 function gateway(size: number, cursors = true) {
-  const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[] }
-  const client = fakeMessagesClient(async (input: { limit?: number; before?: string; $query_at?: number }) => {
+  const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[],
+    /** The next reads answer without positions (the index is still building). */
+    unindexed: 0,
+    /** Holds the next window read's answer (computed now, delivered on release). */
+    hold: null as null | { release: () => void } | "next" }
+  const client = fakeMessagesClient(async (input: { limit?: number; before?: string; $query_at?: number; $query_epoch?: string }) => {
+    if (input.$query_epoch !== undefined && input.$query_epoch !== g.epoch) {
+      g.reads.push("409")
+      throw Object.assign(new Error("index epoch changed"), { status: 409 })
+    }
     const limit = input.limit ?? 50
     const at = input.$query_at !== undefined && input.$query_at < 0 ? Math.max(0, g.branch.length + input.$query_at) : input.$query_at
     const end = at !== undefined ? Math.min(g.branch.length, at + limit)
       : input.before ? g.branch.indexOf(JSON.parse(atob(input.before)).before) : g.branch.length
     const start = at !== undefined ? at : Math.max(0, end - limit)
     g.reads.push(input.$query_at !== undefined && input.$query_at >= 0 ? `at=${start}` : input.before ? "older" : "tail")
-    const headers = new Headers({ "x-smarty-at": String(start), "x-smarty-total": String(g.branch.length), "x-smarty-index-epoch": g.epoch })
+    const headers = new Headers(g.unindexed > 0 ? {} : { "x-smarty-at": String(start), "x-smarty-total": String(g.branch.length), "x-smarty-index-epoch": g.epoch })
+    if (g.unindexed > 0) g.unindexed--
     if (start > 0 && (cursors || input.$query_at === undefined)) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
-    return { data: g.branch.slice(start, end).map(record), headers }
+    const data = g.branch.slice(start, end).map(record)
+    if (g.hold === "next" && input.$query_at !== undefined && input.$query_at >= 0) {
+      await new Promise<void>((release) => { g.hold = { release } })
+    }
+    return { data, headers }
   })
   const childStores = new ChildStoreManager()
   const loader = new SessionMessageLoader(childStores, { sdk: client, runtimeKey: "runtime-a" })
   const shown = () => (childStores.getChild(target.directory)?.getState().message[target.sessionID] ?? []).map((m) => m.id)
   return { g, loader, shown, done: () => { loader.dispose(); childStores.disposeAll() } }
 }
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 test("the first page tells the session's size and where the page sits in it", async () => {
   const s = gateway(10_000)
@@ -61,14 +76,38 @@ test("one read per window: the same window asked twice while it loads is read on
   } finally { s.done() }
 })
 
-test("a new index epoch (a branch change) drops the recorded ranges: positions start over", async () => {
-  const s = gateway(1_000)
+test("a delayed window of the old epoch commits nothing after the epoch changes; a rewritten branch replaces the shown records", async () => {
+  const s = gateway(1_000, false)
   try {
     await s.loader.ensure(target, { reason: "navigation" })
-    await s.loader.loadAt(target, 0, 100)
+    s.g.hold = "next"
+    const late = s.loader.loadAt(target, 0, 100) // an e1 window, answered after the change
+    await settle()
+    // The branch is rewritten: the last 200 records are replaced (a compaction or a branch switch), epoch e2.
+    s.g.branch = [...s.g.branch.slice(0, 800), ...Array.from({ length: 150 }, (_, i) => `r${String(i + 1).padStart(5, "0")}`)]
     s.g.epoch = "e2"
-    await s.loader.loadAt(target, 500, 100)
-    expect(s.loader.getSnapshot(target).positions).toMatchObject({ epoch: "e2", ranges: [{ start: 500, end: 600 }] })
+    s.loader.noteIndex(target, s.g.branch.length, "e2")
+    await settle()
+    ;(s.g.hold as unknown as { release: () => void }).release()
+    await late
+    await settle()
+    const shown = s.shown()
+    expect(shown).not.toContain("m00001") // the late e1 window committed nothing
+    expect(shown.some((id) => id.startsWith("m009"))).toBe(false) // records the rewrite removed are gone
+    expect(shown.at(-1)).toBe("r00150")
+    expect(s.loader.getSnapshot(target).positions).toMatchObject({ epoch: "e2", total: 950 })
+  } finally { s.done() }
+})
+
+test("a window asked with an old epoch gets 409: the loader starts over from the newest page", async () => {
+  const s = gateway(1_000, false)
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    s.g.epoch = "e2"
+    await s.loader.loadAt(target, 300, 100)
+    await settle()
+    expect(s.g.reads.slice(-2)).toEqual(["409", "tail"])
+    expect(s.loader.getSnapshot(target).positions).toMatchObject({ epoch: "e2" })
   } finally { s.done() }
 })
 
@@ -83,15 +122,27 @@ test("an older page, with positions, is the window just before the first loaded 
   } finally { s.done() }
 })
 
-test("once position 0 is loaded the history is complete (no older page asked)", async () => {
-  const s = gateway(1_000)
+test("reaching position 0 with holes after it is not complete; a full load (export) fills every hole, each record once", async () => {
+  const s = gateway(1_000, false)
   try {
     await s.loader.ensure(target, { reason: "navigation" })
     await s.loader.loadAt(target, 0, 100)
+    await s.loader.loadAt(target, 500, 100)
+    expect(s.loader.getSnapshot(target).complete).toBe(false)
+    await s.loader.loadComplete(target)
+    expect(s.shown()).toEqual(s.g.branch)
     expect(s.loader.getSnapshot(target).complete).toBe(true)
-    const reads = s.g.reads.length
-    await s.loader.loadOlder(target)
-    expect(s.g.reads.length).toBe(reads)
+  } finally { s.done() }
+})
+
+test("a full load right after an open whose page came without positions (index building) loads every record", async () => {
+  const s = gateway(1_000, false)
+  s.g.unindexed = 1
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    expect(s.loader.getSnapshot(target).positions).toBeUndefined()
+    await s.loader.loadComplete(target)
+    expect(s.shown()).toEqual(s.g.branch)
   } finally { s.done() }
 })
 

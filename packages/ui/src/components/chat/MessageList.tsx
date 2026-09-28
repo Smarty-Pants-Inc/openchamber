@@ -1352,7 +1352,19 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }), [baseDisplayMessages, retryOverlay]);
 
     const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
+    // smarty-code#583: the first loaded message of each window after a gap, so its opening replies show.
+    const windowStartIds = React.useMemo(() => {
+        if (!positions || !positionOf || positions.ranges.length === 0) return undefined;
+        const starts = new Set(positions.ranges.filter((range) => range.start > 0).map((range) => range.start));
+        const ids = new Set<string>();
+        for (const message of displayMessages) {
+            const position = positionOf(message.info.id);
+            if (position !== undefined && starts.has(position)) ids.add(message.info.id);
+        }
+        return ids.size ? ids : undefined;
+    }, [displayMessages, positions, positionOf]);
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
+        windowStartIds,
         sessionKey,
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
