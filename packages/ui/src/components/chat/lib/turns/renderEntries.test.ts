@@ -80,8 +80,9 @@ describe('gap rows for the unloaded parts of a session (smarty-code#583)', () =>
 
     test('each gap sits where its records belong, at its estimated height; gaps after the last row are left to the live tail', () => {
         const listed = insertGaps(rows(), gapsOf([{ start: 10, end: 12 }, { start: 500, end: 502 }], 600), (id) => positions.get(id), 100);
-        expect(listed.map((row) => row.key)).toEqual(['gap:0', 'turn:u10', 'gap:12', 'turn:u500']);
-        expect(listed.filter((row) => row.kind === 'gap').map((row) => (row as { heightPx: number }).heightPx)).toEqual([1_000, 48_800]);
+        // A long gap is several rows of at most 100 records each (a single row millions of px tall left the list blank).
+        expect(listed.map((row) => row.key)).toEqual(['gap:0', 'turn:u10', 'gap:12', 'gap:112', 'gap:212', 'gap:312', 'gap:412', 'turn:u500']);
+        expect(listed.filter((row) => row.kind === 'gap').map((row) => (row as { heightPx: number }).heightPx)).toEqual([1_000, 10_000, 10_000, 10_000, 10_000, 8_800]);
     });
 
     test('without gaps the rows are unchanged', () => {

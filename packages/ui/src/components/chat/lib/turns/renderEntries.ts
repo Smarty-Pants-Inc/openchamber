@@ -94,6 +94,9 @@ export const firstMessageIdOf = (entry: TimelineEntry): string | undefined =>
  * where its records belong: before the first row whose first message sits at or after the gap's end. Gaps after the
  * last loaded row (records appended but not loaded) are left out: the live tail arrives by events.
  */
+/** Records per gap row (smarty-code#583). */
+export const GAP_CHUNK = 100;
+
 export const insertGaps = (
     entries: RenderEntry[],
     gaps: readonly { start: number; end: number; key: string }[],
@@ -108,7 +111,12 @@ export const insertGaps = (
         const position = id === undefined ? undefined : positionOf(id);
         while (position !== undefined && next < gaps.length && gaps[next]!.end <= position) {
             const gap = gaps[next++]!;
-            out.push({ kind: 'gap', key: gap.key, start: gap.start, end: gap.end, heightPx: Math.max(1, Math.round((gap.end - gap.start) * recordPx)) });
+            // One row per GAP_CHUNK records: a virtual list handles many ordinary rows well, and a single row millions
+            // of pixels tall left the list blank (21,795 records, dev-lead's journal on the candidate).
+            for (let start = gap.start; start < gap.end; start += GAP_CHUNK) {
+                const end = Math.min(gap.end, start + GAP_CHUNK);
+                out.push({ kind: 'gap', key: `gap:${start}`, start, end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
+            }
         }
         out.push(entry);
     }
