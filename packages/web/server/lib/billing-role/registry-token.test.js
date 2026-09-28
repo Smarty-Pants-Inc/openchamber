@@ -1,59 +1,46 @@
-import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { takeRegistryToken } from './registry-token.js';
 
-// smarty-net#136 L3 (security pass on openchamber#339): the registry token never reaches a child of the web server.
+// smarty-net#136 L3 (security passes on openchamber#339): the registry token never reaches a child of the web server.
 // A fake canary token goes in; each child reports only whether the canary is visible, never the value.
 const here = dirname(fileURLToPath(import.meta.url));
 const server = join(here, '../..');
 const canary = `canary-${process.pid}-${Date.now()}`;
-const probe = (runtime, code) => execFileSync(runtime, runtime === 'bun' ? ['-e', code] : ['--input-type=module', '-e', code],
-  { cwd: server, env: { ...process.env, NODE_REGISTRY_TOKEN: canary }, encoding: 'utf8', timeout: 60_000 }).trim();
-// The child: load the module as the server does, then spawn children the ways the server does (an inherited
-// environment, an explicit copy of process.env, and under Bun its native environ) and report "seen"/"clean".
-const child = (extra = '') => `
+const env = { ...process.env, NODE_REGISTRY_TOKEN: canary };
+// The child loads the module as the server does, then spawns children the ways the server does: an inherited
+// environment and an explicit copy of process.env. It prints "seen"/"clean" per child.
+const child = `
   const { registryToken } = await import('./lib/billing-role/registry-token.js');
   const { execSync } = await import('node:child_process');
   const c = ${JSON.stringify(canary)}, out = [];
   out.push(registryToken() === c ? 'kept' : 'lost');
   out.push(execSync('env').toString().includes(c) ? 'seen' : 'clean');
   out.push(execSync('env', { env: { ...process.env } }).toString().includes(c) ? 'seen' : 'clean');
-  ${extra}
   console.log(out.join(' '));`;
 
 describe('registry token containment', () => {
   it('Node: the server keeps it; inherited and copied child environments do not have it', () => {
-    expect(probe('node', child())).toBe('kept clean clean');
+    expect(execFileSync('node', ['--input-type=module', '-e', child], { cwd: server, env, encoding: 'utf8', timeout: 60_000 }).trim())
+      .toBe('kept clean clean');
   });
 
-  it('Bun: also its native environ, which a bun-pty terminal merges', () => {
-    const out = probe('bun', child(`
-      const { spawn } = await import('bun-pty');
-      const pty = spawn('/bin/sh', ['-c', 'env'], { name: 'xterm', cols: 200, rows: 50, cwd: '/', env: { ...process.env } });
-      let text = ''; pty.onData((d) => { text += d; });
-      await new Promise((resolve) => pty.onExit(resolve));
-      out.push(text.includes(c) ? 'seen' : 'clean');`));
-    expect(out).toBe('kept clean clean clean');
+  it('Bun: a server given the token does not start (Bun hands children its start-up environment)', () => {
+    const run = spawnSync('bun', ['-e', child], { cwd: server, env, encoding: 'utf8', timeout: 60_000 });
+    expect(run.status).not.toBe(0);
+    expect(run.stdout).not.toContain('kept');
+    expect(run.stderr).toContain('run this server under Node');
+    expect(run.stderr).not.toContain(canary);
   });
 
-  it('fails closed: when the native removal cannot load or does not succeed, startup stops; with no token nothing is needed', async () => {
-    const { takeRegistryToken } = await import('./registry-token.js');
-    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => { throw new Error('no bun:ffi'); })).toThrow(/not starting/);
-    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => () => -1)).toThrow(/not starting/);
-    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => undefined)).toThrow(/not starting/);
-    const env = { NODE_REGISTRY_TOKEN: 'x' };
-    expect(takeRegistryToken(env, () => () => 0)).toBe('x'); expect(env.NODE_REGISTRY_TOKEN).toBeUndefined();
-    expect(takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => null)).toBe('x'); // Node: the JS delete is the real one
-    expect(takeRegistryToken({}, () => { throw new Error('never asked'); })).toBe('');
-  });
-
-  it('the server never uses Bun.spawn with its default environment (Bun keeps its own start-up copy of it)', () => {
-    // The server's own sources (a file walk, not git: CI copies may have no .git).
-    const files = readdirSync(server, { recursive: true }).map(String)
-      .filter((f) => f.endsWith('.js') && !f.includes('.test.') && !f.split('/').includes('node_modules'));
-    expect(files.filter((f) => /Bun\.spawn/.test(readFileSync(join(server, f), 'utf8').replace(/^\s*\/\/.*$/gm, '')))).toEqual([]);
+  it('the rule itself: taken from the environment; refused under Bun only when a token was given', () => {
+    const plain = { NODE_REGISTRY_TOKEN: 'x' };
+    expect(takeRegistryToken(plain, false)).toBe('x'); expect(plain.NODE_REGISTRY_TOKEN).toBeUndefined();
+    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, true)).toThrow(/under Node/);
+    expect(takeRegistryToken({}, true)).toBe('');
   });
 
   it('it is taken before the server body copies the environment: static imports from index.js lead to it', () => {
