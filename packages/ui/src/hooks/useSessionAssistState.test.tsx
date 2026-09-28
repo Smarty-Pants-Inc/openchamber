@@ -17,6 +17,8 @@ mock.module('@/sync/sync-context', () => ({
 }));
 mock.module('@/sync/notification-store', () => ({ useLatestSessionError: () => null }));
 mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
+// Stock OpenChamber (no managed catalog): assist available (smarty-code#729 turns it off only under Smarty Code).
+mock.module('@/lib/sessionAssistAvailable', () => ({ useSessionAssistAvailable: () => true }));
 const { useSessionAssistState } = await import('./useSessionAssist');
 const { SessionErrorNotice } = await import('@/components/chat/SessionErrorNotice');
 

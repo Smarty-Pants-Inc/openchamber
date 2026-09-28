@@ -29,6 +29,8 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
   isLinux: boolean;
   // Windows ARM64 — temporary workaround gate (see opencode#19130).
   isWindowsArm64: boolean;
+  // Session assist has a small model to use (false under Smarty Code's managed catalog; smarty-code#729). Absent: true.
+  sessionAssistAvailable?: boolean;
 }
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
@@ -201,6 +203,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.sessionRecap',
     keywords: ['recap', 'assist', 'small model', 'summary'],
+    isAvailable: (ctx) => ctx.sessionAssistAvailable !== false,
   },
   {
     id: 'chat.session-assistance',
@@ -213,6 +216,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.sessionSuggestion',
     keywords: ['suggestion', 'assist', 'small model', 'follow up'],
+    isAvailable: (ctx) => ctx.sessionAssistAvailable !== false,
   },
   {
     id: 'chat.session-goal',

@@ -2,6 +2,7 @@ import React from 'react';
 import { useDirectoryStore, useSession, useSessionStatus } from '@/sync/sync-context';
 import { getSessionAssist, type SessionAssistPayload } from '@/lib/sessionAssistMetadata';
 import { useUIStore } from '@/stores/useUIStore';
+import { useSessionAssistAvailable } from '@/lib/sessionAssistAvailable';
 import { lastRealMessage } from '@/components/chat/message/systemNote';
 
 // How long the chat must sit untouched before the recap becomes visible.
@@ -66,9 +67,10 @@ export function useSessionAssistState(sessionId: string, directory?: string): Se
   const lastMessage = useLastMessageSnapshot(sessionId, directory);
   const sessionRecapEnabled = useUIStore((state) => state.sessionRecapEnabled);
   const sessionSuggestionEnabled = useUIStore((state) => state.sessionSuggestionEnabled);
+  const available = useSessionAssistAvailable(); // Off under Smarty Code (smarty-code#729).
 
   const isIdle = !status || status.type === 'idle';
-  const payload = getSessionAssist(session);
+  const payload = available ? getSessionAssist(session) : null;
 
   // Fresh = the payload's target message is still the session's last message.
   const assist = payload
