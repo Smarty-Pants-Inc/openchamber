@@ -1,3 +1,4 @@
+import { registerBillingRoleRoute } from '../billing-role/billing-role.js';
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
 import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
 
@@ -95,6 +96,8 @@ export const createBootstrapRuntime = (dependencies) => {
         return scope === 'tunnel' || scope === 'unknown-public'
           ? tunnelAuthController.requireTunnelSession(req, res, next) : next();
       }, humanAuth.handler);
+      // smarty-net#136 L3: whether the signed-in person owns this Node's org (the owner-only billing links).
+      registerBillingRoleRoute(app, humanAuth);
     }
     // smarty-code#391: the passwordless mode's browser-origin rule (lib/security/browser-origin.js), for every mutation
     // before the status and API routes; the WebSocket listeners apply the same rule to their upgrades.

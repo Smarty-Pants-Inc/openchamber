@@ -1,3 +1,4 @@
+import { UsageLimitLinks } from './UsageLimitLinks';
 import React from 'react';
 import type { Part } from '@opencode-ai/sdk/v2';
 
@@ -2178,6 +2179,7 @@ const AssistantMessageBody = React.memo(({
                                             className="[&_.markdown-content>*:first-child]:mt-0 [&_.markdown-content>*:last-child]:mb-0"
                                             enableFileReferences={false}
                                         />
+                                        <UsageLimitLinks sessionId={sessionId} messageId={messageId} />
                                     </div>
                                 </div>
                             </div>
