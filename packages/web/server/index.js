@@ -1852,6 +1852,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
   });
   // Co-editing rooms (smartyfs#18): the same WebSocket guards, and the Files view's project admission.
   coeditRuntime = attachCoeditRooms({
+    app,
     server,
     ...upgradeGuards({ getUiAuthController: () => uiAuthController, isRequestOriginAllowed }),
     getUiAuthController: () => uiAuthController,
