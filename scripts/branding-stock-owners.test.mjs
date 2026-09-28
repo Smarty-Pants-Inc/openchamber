@@ -271,7 +271,8 @@ test('the #538 layer binds its exact feature commit over the message row and the
   assert.deepEqual(overlay.files.filter(file => file.design538Sha256).map(file => file.path).sort(),
     ['packages/ui/src/components/chat/ChatMessage.tsx', 'packages/ui/src/components/layout/Header.tsx']);
   for (const entry of overlay.files.filter(file => file.design538Sha256)) {
-    assert.equal(entry.design538Sha256, entry.combinedSha256);
+    // The #739 Fabric row (voiceFabric) is the layer above it on the message row.
+    assert.equal(entry.design538Sha256, entry.preVoiceFabricCombinedSha256 ?? entry.combinedSha256);
     assert.equal(sha256(read(entry.path)), entry.combinedSha256);
     assert.ok(entry.design538Note);
   }
@@ -312,4 +313,13 @@ test('the notification lookup\'s session directory binds its exact fix commit ov
   assert.equal(entry.notificationAuthSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preNotificationAuthCombinedSha256, '3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2');
+});
+
+test('the #739 Fabric message row binds its exact feature commit over the message row only (smarty-code#739)', () => {
+  assert.match(overlay.voiceFabricSource, /^[a-f0-9]{40}$/);
+  assert.deepEqual(overlay.files.filter(file => file.voiceFabricSha256).map(file => file.path), ['packages/ui/src/components/chat/ChatMessage.tsx']);
+  const entry = overlays.get('packages/ui/src/components/chat/ChatMessage.tsx');
+  assert.equal(entry.voiceFabricSha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(entry.preVoiceFabricCombinedSha256, '5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95');
 });
