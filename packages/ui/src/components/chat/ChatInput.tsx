@@ -1,3 +1,4 @@
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
@@ -1063,7 +1064,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // back as soon as the session does, even with no keystroke.
     const ordinaryNow = currentSessionId ? readOrdinaryModel(
         getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined).find(session => session.id === currentSessionId),
-    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId))
+        // smarty-code#600: an open session one listing left out is kept (useGlobalSessionsStore), shown unavailable.
+        ?? readOrdinaryModel(useGlobalSessionsStore.getState().entityById.get(currentSessionId)) : undefined;
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so

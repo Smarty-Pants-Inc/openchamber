@@ -1,3 +1,4 @@
+import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
 import { herdrSignature } from '@/lib/herdrSession';
 import { useProjectsStore } from './useProjectsStore';
@@ -133,6 +134,8 @@ const getSessionSignature = (session: Session): string => {
     JSON.stringify((session as Session & { metadata?: unknown }).metadata ?? null),
     resolveGlobalSessionDirectory(session) ?? '',
     herdrSignature(session),
+    // An ordinary session's model going unavailable (or back) is a change too (smarty-code#600, #790).
+    readOrdinaryModel(session)?.model ? 'model' : 'no-model',
   ].join(':');
 };
 
@@ -638,8 +641,17 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     loadGeneration += 1;
     inflightLoad = null;
     const { active, archived } = splitGlobalSessionsByArchived(sessions);
+    // smarty-code#600: the open session missing from one listing while its project stays listed (right after its Pi
+    // is relaunched) stays open: kept from the last listing, shown unavailable (Send off with its reason, the draft
+    // kept) until a listing names it again. A session whose project left the catalog is dropped, as before.
+    const open = useSessionUIStore.getState().currentSessionId;
+    const last = open ? get().entityById.get(open) : undefined;
+    const unavailable: Session & { ordinary: OrdinaryModelState } | undefined = last
+      ? { ...last, ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null } } : undefined;
+    const retained = unavailable && !unavailable.time.archived && directories.has(unavailable.directory) && !sessions.some(session => session.id === open)
+      ? [unavailable] : [];
     set(state => {
-      const reconciled = overlayMutationsSince(state, active, archived, baselineRevision);
+      const reconciled = overlayMutationsSince(state, [...active, ...retained], archived, baselineRevision);
       return applySnapshot(state,
         reconciled.activeSessions.filter(session => directories.has(session.directory)),
         reconciled.archivedSessions.filter(session => directories.has(session.directory)), 'ready');
