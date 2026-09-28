@@ -41,6 +41,8 @@ export interface MobilePillComposerProps {
     /** While a turn runs, the trailing action queues, as the expanded composer does. */
     onQueueMessage: () => void;
     sendWhileWorking?: boolean;
+    /** Why Send is off although there is text (smarty-code#790/#778: its session is unavailable), shown on hover. */
+    sendDisabledReason?: string;
     onNewSession: () => void;
     onPickLocalFiles: () => void;
     onOpenIssuePicker: () => void;
@@ -72,6 +74,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onPrimaryAction,
         onQueueMessage,
         sendWhileWorking = false,
+        sendDisabledReason,
         onNewSession,
         onPickLocalFiles,
         onOpenIssuePicker,
@@ -181,7 +184,8 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                         size="icon"
                         className="text-primary hover:text-primary"
                         onClick={onPrimaryAction}
-                        title={t('chat.chatInput.actions.sendMessageAria')}
+                        disabled={Boolean(sendDisabledReason)}
+                        title={sendDisabledReason ?? t('chat.chatInput.actions.sendMessageAria')}
                         aria-label={t('chat.chatInput.actions.sendMessageAria')}
                     >
                         <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
@@ -206,8 +210,9 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     )}
                     style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
                     onClick={showTrailingSendAction ? onQueueMessage : onNewSession}
-                    disabled={newSessionDraftOpen && !showTrailingSendAction}
-                    title={t(!showTrailingSendAction ? 'mobile.sessions.newChat' : sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
+                    disabled={(newSessionDraftOpen && !showTrailingSendAction) || (showTrailingSendAction && Boolean(sendDisabledReason))}
+                    title={showTrailingSendAction && sendDisabledReason ? sendDisabledReason
+                        : t(!showTrailingSendAction ? 'mobile.sessions.newChat' : sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
                     aria-label={t(!showTrailingSendAction ? 'mobile.sessions.newChat' : sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
                 >
                     <Icon
