@@ -581,6 +581,14 @@ export const useChatTimelineController = ({
                 // already virtualized, TanStack is the sole scroll owner.
                 if (!snap.historyVirtualized && snap.anchor) {
                     restoreViewportAnchor(snap.anchor);
+                } else if (snap.anchor) {
+                    // smarty-code#583: the list keeps a prepend's place by row key, but an older page often changes
+                    // the reader's own row: replies regroup into the turn whose user message just loaded (the key
+                    // is gone), or that turn row changes height above the reader. Either moved the view by up to
+                    // ~2k px. Hold the reader's message at its captured offset while the rows measure. The hold
+                    // measures the element and applies only the remaining difference, so where the list already
+                    // kept the place it writes nothing; a user gesture cancels it.
+                    messageListRef.current?.holdViewportAnchor(snap.anchor);
                 }
                 updateTracking();
                 return;
