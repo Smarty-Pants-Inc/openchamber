@@ -8,6 +8,7 @@ import { optimisticStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { isVoiceTurn } from "@/components/chat/message/voiceTurnData"
+import { isSystemNoteMessage } from "@/components/chat/message/systemNote"
 import { useSessionUIStore } from "./session-ui-store"
 import { useInputStore } from "./input-store"
 import type { ChildStoreManager } from "./child-store"
@@ -236,7 +237,7 @@ export function lastAssistantModel(messages: readonly unknown[]): { providerID: 
     if (isVoiceTurn(info)) continue
     // A voice call note or a messaging peer rides the assistant container with a placeholder model
     // (pi-native/system-note, pi-native/peer-message): neither is the model that answered (smarty-code#360).
-    if (info?.clientRole === "system-note" || info?.clientRole === "native-peer") continue
+    if (isSystemNoteMessage(info) || info?.clientRole === "native-peer") continue
     if (info?.role === "assistant" && typeof info.providerID === "string" && info.providerID
       && typeof info.modelID === "string" && info.modelID) {
       return { providerID: info.providerID, modelID: info.modelID }
