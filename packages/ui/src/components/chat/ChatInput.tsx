@@ -1057,7 +1057,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const hasQueuedMessages = queuedMessages.length > 0;
     // Send itself starts a new draft's session (smarty-code#126); only a start already running blocks it.
     // A new-session draft cannot be sent until its project is known (G13: discovery still answering).
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked;
+    // smarty-code#778: while its ordinary (Pi) session is unavailable (the model control reads "Unavailable", for example
+    // right after its Pi was relaunched), Send is shown disabled, with the reason, instead of refusing on press.
+    // Read as Send's own check reads it (every render); while unavailable it is read again each second, so Send comes
+    // back as soon as the session does, even with no keystroke.
+    const ordinaryNow = currentSessionId ? readOrdinaryModel(
+        getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined).find(session => session.id === currentSessionId),
+    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+    const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
+    const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
+    React.useEffect(() => {
+        if (!ordinaryUnavailable) return;
+        const timer = setInterval(recheckOrdinary, 1000);
+        return () => clearInterval(timer);
+    }, [ordinaryUnavailable]);
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
+        && !ordinaryUnavailable;
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
@@ -3583,6 +3598,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend}
+                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         isExpandedInput={isExpandedInput}

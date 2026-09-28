@@ -27,6 +27,8 @@ type ComposerActionButtonsProps = {
     onQueueMessage: () => void;
     /** An ordinary session takes the message while its agent works (the server steers it): Send, not Queue. */
     sendWhileWorking?: boolean;
+    /** Why Send is disabled although there is text (smarty-code#778: its session is unavailable), shown on hover. */
+    sendDisabledReason?: string;
     onAbort: () => void;
 };
 
@@ -44,6 +46,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         onPrimaryAction,
         onQueueMessage,
         sendWhileWorking = false,
+        sendDisabledReason,
         onAbort,
     } = props;
     const { t } = useI18n();
@@ -67,6 +70,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     : 'opacity-30'
             )}
             aria-label={t('chat.chatInput.actions.sendMessageAria')}
+            title={sendDisabledReason}
         >
             <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
         </button>
@@ -118,6 +122,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.sendIconSizeClass === next.sendIconSizeClass
     && prev.stopIconSizeClass === next.stopIconSizeClass
     && prev.canSend === next.canSend
+    && prev.sendDisabledReason === next.sendDisabledReason
     && prev.canAbort === next.canAbort
     && prev.hasContent === next.hasContent
     && prev.currentSessionId === next.currentSessionId

@@ -6,7 +6,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { ComposerActionButtons } from './ComposerActionButtons';
 
 // Co-steer (MVP 1 G5): while an ordinary session works, the button above Stop is a Send, not a Queue.
-const render = async (sendWhileWorking: boolean) => {
+const render = async (sendWhileWorking: boolean, unavailable?: string, working = true) => {
     const win = new Window({ url: 'http://localhost' });
     const values = { window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage, IS_REACT_ACT_ENVIRONMENT: true };
     const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -17,14 +17,16 @@ const render = async (sendWhileWorking: boolean) => {
     try {
         await act(async () => root.render(<I18nProvider>
             <ComposerActionButtons isMobile={false} footerIconButtonClass="b" sendIconSizeClass="s" stopIconSizeClass="t"
-                canSend canAbort hasContent currentSessionId="ordinary-1" newSessionDraftOpen={false}
+                canSend={!unavailable} canAbort={working} hasContent currentSessionId="ordinary-1" newSessionDraftOpen={false} sendDisabledReason={unavailable}
                 onPrimaryAction={() => {}} onQueueMessage={() => { sends += 1; }} sendWhileWorking={sendWhileWorking} onAbort={() => {}} />
         </I18nProvider>));
         const labels = [...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'));
+        const send = [...container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Send message');
+        const sendState = send ? { disabled: (send as HTMLButtonElement).disabled, title: send.getAttribute('title') } : undefined;
         const upper = container.querySelector<HTMLButtonElement>('button.absolute');
         const rotated = Boolean(upper?.querySelector('.-rotate-90'));
         await act(async () => { upper?.click(); });
-        return { labels, rotated, sends };
+        return { labels, rotated, sends, sendState };
     } finally {
         await act(async () => root.unmount());
         for (const [key, descriptor] of previous) {
@@ -45,4 +47,12 @@ test('any other working session keeps Queue above Stop', async () => {
     const result = await render(false);
     expect(result.labels[0]).toBe('Queue message');
     expect(result.rotated).toBe(true);
+});
+
+// smarty-code#778: while its session is unavailable, Send looks and is disabled, and says why on hover.
+test('an unavailable ordinary session shows Send disabled with the reason', async () => {
+    const result = await render(false, 'This session is unavailable right now.', false);
+    expect(result.sendState).toEqual({ disabled: true, title: 'This session is unavailable right now.' });
+    const ok = await render(false, undefined, false);
+    expect(ok.sendState).toEqual({ disabled: false, title: null });
 });
