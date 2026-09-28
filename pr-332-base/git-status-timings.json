@@ -1,0 +1,60 @@
+{
+ "summary": {
+  "label": "base",
+  "calls": 8,
+  "p50": 764,
+  "p95": 2860,
+  "max": 2860,
+  "non200": 0
+ },
+ "timings": [
+  {
+   "page": 1,
+   "ms": 649,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 1289,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 833,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 2860,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 764,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 583,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 381,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 518,
+   "status": 200,
+   "fresh": false
+  }
+ ]
+}
