@@ -1,3 +1,5 @@
+// A namespace import: test doubles of the bootstrap module may omit the state reader (then nothing counts as pending).
+import * as worktreeBootstrap from '@/lib/worktrees/worktreeBootstrap';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, type NativeCreatedSession, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -39,7 +41,26 @@ export function startsElsewhere(operations: readonly NativeCreationState[], runt
 
 export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
   return draft.open && draft.target === 'project' && Boolean(draft.directoryOverride && draft.selectedProjectId)
-    && !draft.parentID && !draft.title && !draft.pendingWorktreeRequestId && !draft.bootstrapPendingDirectory;
+    && !draft.parentID && !draft.title && !draft.pendingWorktreeRequestId && !worktreeStillBootstrapping(draft);
+}
+
+/** A '+ New' worktree's setup is still running. Only the Git view cleared the draft's bootstrap mark, so in the chat it
+ * stayed set after the setup finished and Send was refused (smarty-code#629): the setup's own state decides. On a managed
+ * catalog Send stays available, and the start itself waits for the tree's checkout and setup (native-draft-start
+ * worktreeReady, openchamber#331 review): nothing is created or sent before it is ready, and a failed setup refuses. */
+function worktreeStillBootstrapping(draft: NewSessionDraftState): boolean {
+  const directory = draft.bootstrapPendingDirectory;
+  if (!directory) return false;
+  if (useProjectsStore.getState().managedCatalogAdmitted) return false;
+  return worktreeBootstrap.getWorktreeBootstrapState?.(directory)?.status === 'pending';
+}
+
+/** A managed project's directories: its root, and the worktrees the catalog admits under it (smarty-code#629: the
+ * draft's '+ New' worktree is its own catalog row, parented to the project). */
+export function isManagedProjectDirectory(rows: readonly { worktree: string; parent?: string }[] | null, projectPath: string,
+  directory: string | null | undefined): boolean {
+  if (!directory) return false;
+  return directory === projectPath || (rows ?? []).some(row => row.worktree === directory && row.parent === projectPath);
 }
 
 export function assertManagedDraftTarget(draft: NewSessionDraftState, directory = draft.directoryOverride): void {
@@ -47,8 +68,8 @@ export function assertManagedDraftTarget(draft: NewSessionDraftState, directory 
   if (!state.managedCatalogAdmitted) return;
   if (state.managedCatalogStatus !== 'ready') throw new NativeCreationError('unavailable');
   const project = visibleProjects(state).find(project => project.id === draft.selectedProjectId);
-  if (draft.target !== 'project' || !project || directory !== project.path
-    || draft.directoryOverride !== project.path) throw new NativeCreationError('target');
+  if (draft.target !== 'project' || !project || directory !== draft.directoryOverride
+    || !isManagedProjectDirectory(state.managedRows, project.path, directory)) throw new NativeCreationError('target');
 }
 
 function targetKey(target: DraftTarget): string {

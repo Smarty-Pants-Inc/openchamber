@@ -7,6 +7,8 @@ import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publis
 import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
 import { clearSentStart, ensureSentStart, holdSentStart, markSentStart, releaseSentStart, resolveSentStart, sentStartLocks } from './native-draft-sent';
 import { discoveryPendingNow } from '@/lib/managed-discovery';
+import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { getGitWorktreeBootstrapStatus } from '@/lib/gitApi';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 import { forgetRequestId, newRequestId, notifyDraftStart, requestKey, storedRequestId, subscribeDraftStart } from './native-draft-intent';
 import { resetNativeDraftPage as resetDraftIntentPage } from './native-draft-intent';
@@ -95,6 +97,52 @@ const sameDraft = (a: NewSessionDraftState, b: NewSessionDraftState) => a.draftI
  * It creates at most once per draft: an outcome not known to have started nothing is never retried, only re-read.
  * A stock backend (no native creation) returns at once and Send goes the ordinary way.
  */
+/** The draft's own '+ New' worktree may not be in the page's catalog yet: the gateway admits a placed tree when a request
+ * names it. Name it (the capability read the start makes anyway), then read the catalog once more, so the gateway's
+ * parentage decides the target (smarty-code#629). */
+async function catalogListsNewWorktree(): Promise<void> {
+  const draft = useSessionUIStore.getState().newSessionDraft, directory = draft.bootstrapPendingDirectory, runtimeKey = getRuntimeKey();
+  const projects = useProjectsStore.getState();
+  if (!directory || directory !== draft.directoryOverride || !projects.managedCatalogAdmitted
+    || (projects.managedRows ?? []).some(row => row.worktree === directory)) return;
+  await opencodeClient.nativeCreationSupport(directory).catch(() => undefined);
+  await refreshManagedProjects(true).catch(() => undefined);
+  // A draft or runtime change during the read: this Send is not the current draft's (the start captures it next).
+  if (getRuntimeKey() !== runtimeKey || !sameDraft(useSessionUIStore.getState().newSessionDraft, draft)) throw new NativeCreationError('stale');
+}
+
+/** How long the start waits for a worktree's checkout and setup: each status read, the whole wait, and between reads. */
+export const worktreeReadyLimits = { requestMs: 10_000, totalMs: 300_000, pollMs: 1_000 };
+async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Worktree status read timed out')), ms); });
+  try { return await Promise.race([promise, limit]); } finally { clearTimeout(timer); }
+}
+
+/** A worktree's checkout and setup may still run after '+ New' answers (the server returns the directory at once,
+ * `returnAfterDirectoryCreated`). Nothing starts there before they finish. On a managed catalog the start asks the
+ * server's own bootstrap status for the target directory (authoritative: a directory it is not setting up reads ready),
+ * never the page's in-memory marks, which a reload or reselect loses. Each read and the whole wait are bounded; a failed
+ * or timed-out setup refuses this Send and keeps the text (openchamber#331 review). */
+async function worktreeReady(): Promise<void> {
+  const draft = useSessionUIStore.getState().newSessionDraft, directory = draft.directoryOverride, runtimeKey = getRuntimeKey();
+  if (!directory || !useProjectsStore.getState().managedCatalogAdmitted) return;
+  // '+ New' still making the tree: the server has no bootstrap record yet and would read ready by default. Refuse before
+  // any read (the text stays; "…wait until the project finishes setting up"); Send again once '+ New' has finished.
+  if (draft.pendingWorktreeRequestId) throw new NativeCreationError('target', new Error('The new worktree is still being created'));
+  const until = Date.now() + worktreeReadyLimits.totalMs;
+  for (;;) {
+    let status: Awaited<ReturnType<typeof getGitWorktreeBootstrapStatus>>;
+    try { status = await within(getGitWorktreeBootstrapStatus(directory), worktreeReadyLimits.requestMs); }
+    catch (cause) { throw new NativeCreationError('target', cause); }
+    if (getRuntimeKey() !== runtimeKey || !sameDraft(useSessionUIStore.getState().newSessionDraft, draft)) throw new NativeCreationError('stale');
+    if (status.status === 'ready' || status.phase === 'setup-ready') return;
+    if (status.status === 'failed') throw new NativeCreationError('target', new Error(status.error || 'Worktree setup failed'));
+    if (Date.now() >= until) throw new NativeCreationError('target', new Error('Worktree setup did not finish in time'));
+    await new Promise(done => setTimeout(done, worktreeReadyLimits.pollMs));
+  }
+}
+
 export async function startNativeDraft(operations: readonly NativeCreationState[], wait = (ms: number) =>
   new Promise<void>(done => setTimeout(done, ms))): Promise<void> {
   if (running) throw new NativeCreationError('sending');
@@ -106,7 +154,7 @@ export async function startNativeDraft(operations: readonly NativeCreationState[
   // POST holds it again (native-draft-send). Between the two, other tabs read the sent text as unknown, never unsent.
   let request: string | undefined;
   const hold = (id: string | undefined) => { request = id; if (id) holdSentStart(id); };
-  try { await drive(operations, wait, hold); }
+  try { await worktreeReady(); await catalogListsNewWorktree(); await drive(operations, wait, hold); }
   finally { releaseSentStart(request); setRunning(false); }
 }
 

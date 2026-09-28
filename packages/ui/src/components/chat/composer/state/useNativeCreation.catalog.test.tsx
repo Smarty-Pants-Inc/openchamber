@@ -5,60 +5,145 @@ import { createRoot } from 'react-dom/client';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { NATIVE_CREATION_INVALIDATED } from '@/lib/opencode/nativeCreation';
 import type { NewSessionDraftState } from '@/sync/session-ui-store';
 
 mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 // Operation refresh is covered elsewhere; this test isolates the capability check.
 mock.module('@/sync/native-draft-control', () => ({ refreshNativeCreation: async () => {}, replyNativeCreation: async () => {},
   resumeNativeCreation: async () => {}, abandonNativeCreation: async () => false, abandonedNativeCreations: new Set<string>() }));
-const { useNativeCreation } = await import('./useNativeCreation');
+const { useNativeCreation, NEW_TREE_RETRY_MS } = await import('./useNativeCreation');
 
-// smarty-code#113 / #126: before managed discovery answers, the directory may not be admitted (gateway 403), so no
-// check is sent; once the catalog is ready the check runs, instead of staying on "Cannot check native creation support".
-test('native creation support is checked once the managed catalog becomes ready, not before', async () => {
+type Support = { mode: 'interactive'; clientRequestId: boolean; abandon: boolean };
+// One happy-dom page, the hook mounted on a draft, and the client's capability read replaced (restored afterwards).
+async function withDraft(directory: string, admitted: () => boolean, run: (read: () => { mode: string; checks: number },
+  update: (patch: Partial<NewSessionDraftState>) => Promise<void>) => Promise<void>, initial: Partial<NewSessionDraftState> = {}) {
   const win = new Window({ url: 'http://localhost' });
   const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
-  const client = opencodeClient as unknown as Record<string, unknown>;
-  const original = { support: client.nativeCreationSupport, list: client.listNativeCreations };
-  let admitted = false, checks = 0;
-  client.nativeCreationSupport = async () => { checks++; if (!admitted) throw new Error('403 not admitted');
+  const original = { support: opencodeClient.nativeCreationSupport, list: opencodeClient.listNativeCreations };
+  let checks = 0, mode = '';
+  const support = async (): Promise<Support> => { checks++; if (!admitted()) throw new Error('403 not admitted');
     return { mode: 'interactive', clientRequestId: true, abandon: false }; };
-  client.listNativeCreations = async () => [];
-  useProjectsStore.getState().resetManagedCatalog();
-  useProjectsStore.setState({ projects: [], managedCatalogStatus: 'unknown' });
-  const draft = { open: true, draftId: 1, target: 'project', directoryOverride: '/projects/owned',
-    selectedProjectId: 'owned' } as unknown as NewSessionDraftState;
-  let mode = '';
+  // SAFETY: test doubles with the two capability methods' call shape; restored in finally.
+  Object.assign(opencodeClient, { nativeCreationSupport: support, listNativeCreations: async () => [] });
+  // SAFETY: a draft with the fields the hook reads.
+  let draft = { open: true, draftId: 1, target: 'project', directoryOverride: directory, selectedProjectId: 'owned', ...initial } as NewSessionDraftState;
   const Probe = () => { mode = useNativeCreation(draft, null, undefined, getRuntimeKey()).mode; return null; };
+  // SAFETY: happy-dom's element is a DOM element; its type is happy-dom's own, not lib.dom's.
   const root = createRoot(win.document.createElement('div') as unknown as Element);
   try {
     await act(async () => root.render(<Probe />));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect([mode, checks]).toEqual(['discovering', 0]); // "Loading projects…" (G13), never a home-directory check.
-    // A first discovery that failed and is retrying is still "discovering": no check against the home fallback (G13).
-    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect([mode, checks]).toEqual(['discovering', 0]);
-    admitted = true;
-    await act(async () => useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-owned', worktree: '/projects/owned' }]));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect(checks).toBe(1);
-    expect(mode).toBe('ordinary');
-    // Unavailable AFTER discovery answered keeps the last-known projects: the composer is not sent back to discovering.
-    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect(mode).not.toBe('discovering');
+    await run(() => ({ mode, checks }), async patch => { draft = { ...draft, ...patch }; await act(async () => root.render(<Probe />)); });
   } finally {
     await act(async () => root.unmount());
-    client.nativeCreationSupport = original.support; client.listNativeCreations = original.list;
+    Object.assign(opencodeClient, { nativeCreationSupport: original.support, listNativeCreations: original.list });
     useProjectsStore.getState().resetManagedCatalog();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
     }
     await win.happyDOM.close();
   }
+}
+const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+// smarty-code#113 / #126: before managed discovery answers, the directory may not be admitted (gateway 403), so no
+// check is sent; once the catalog is ready the check runs, instead of staying on "Cannot check native creation support".
+test('native creation support is checked once the managed catalog becomes ready, not before', async () => {
+  let admitted = false;
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.setState({ projects: [], managedCatalogStatus: 'unknown' });
+  await withDraft('/projects/owned', () => admitted, async (read) => {
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['discovering', 0]); // "Loading projects…" (G13), never a home-directory check.
+    // A first discovery that failed and is retrying is still "discovering": no check against the home fallback (G13).
+    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['discovering', 0]);
+    admitted = true;
+    await act(async () => useProjectsStore.getState().applyManagedCatalog([{ id: 'gateway-owned', worktree: '/projects/owned' }]));
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['ordinary', 1]);
+    // Unavailable AFTER discovery answered keeps the last-known projects: the composer is not sent back to discovering.
+    await act(async () => useProjectsStore.setState({ managedCatalogStatus: 'unavailable' }));
+    await settle();
+    expect(read().mode).not.toBe('discovering');
+  });
+});
+
+// smarty-code#629: '+ New' worktree binds the draft to the new tree's path before the tree exists; the first check is
+// refused (403 not admitted). When the next catalog publication admits the tree, the draft checks again and can Send.
+test('a new worktree draft checks again once the catalog admits its tree', async () => {
+  let admitted = false;
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]); // Catalog ready, tree absent.
+  await withDraft('/worktrees/repo/brave-otter', () => admitted, async (read) => {
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['unavailable', 1]); // Before the tree exists: refused.
+    admitted = true;
+    await act(async () => useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' },
+      { id: 'brave-otter', worktree: '/worktrees/repo/brave-otter' }])); // The gateway admits the new tree.
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['ordinary', 2]);
+  });
+});
+
+// smarty-code#629 on the public candidate: the first check of a just-made tree is refused ("not admitted") until the
+// gateway admits it a moment later. The draft checks again shortly and never says the server is unreachable meanwhile.
+test('a just-made worktree that the gateway has not admitted yet is checked again, not reported offline', async () => {
+  let admitted = false;
+  NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, 30, 30);
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+  const tree = '/worktrees/repo/zealous-egret';
+  try {
+    await withDraft(tree, () => admitted, async (read) => {
+      await settle();
+      expect([read().mode, read().checks]).toEqual(['loading', 1]); // Refused once: waiting, not "offline".
+      admitted = true;
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+      expect([read().mode, read().checks]).toEqual(['ordinary', 2]);
+    }, { bootstrapPendingDirectory: tree });
+    // Another directory refused the same way is reported at once, and a new tree still refused after the retries is too.
+    admitted = false;
+    const ready = () => useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    ready();
+    await withDraft('/projects/other', () => admitted, async (read) => { await settle(); expect(read().mode).toBe('unavailable'); });
+    ready();
+    await withDraft(tree, () => false, async (read) => {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+      expect([read().mode, read().checks]).toEqual(['unavailable', 3]);
+    }, { bootstrapPendingDirectory: tree });
+    // An invalidation during the wait replaces the pending recheck: one chain of rechecks, never two (a second chain's
+    // timer would outlive its cleanup).
+    ready();
+    await withDraft(tree, () => false, async (read) => {
+      await settle(); // Refused once; a recheck is pending.
+      await act(async () => { window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { runtimeKey: getRuntimeKey() } })); });
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+      // 1 + the invalidation's check + 1 retry (the retry budget is shared) = 3; a second, orphaned chain made it 4.
+      expect(read().checks).toBe(3);
+    }, { bootstrapPendingDirectory: tree });
+  } finally { NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, 1_000, 2_000, 4_000, 8_000); }
+});
+
+// smarty-code#629 on a candidate: the gateway admits the new tree when a request names it, and nothing re-reads the
+// catalog before Send. A check while '+ New' is still making the tree was refused and stayed "Cannot reach the server";
+// no check runs until the tree is made, and then the one check (it names the tree) succeeds.
+test('a new worktree draft checks only once its tree is made, and that check succeeds', async () => {
+  let made = false;
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]); // Catalog ready, tree absent.
+  await withDraft('/worktrees/repo/lucid-narwhal', () => made, async (read, update) => {
+    await settle();
+    expect(read().checks).toBe(0); // Still being made: no check, so no refusal.
+    expect(read().mode).not.toBe('unavailable');
+    made = true;
+    await update({ pendingWorktreeRequestId: null }); // '+ New' has made the tree.
+    await settle();
+    expect([read().mode, read().checks]).toEqual(['ordinary', 1]);
+  }, { pendingWorktreeRequestId: 'worktree_1', bootstrapPendingDirectory: '/worktrees/repo/lucid-narwhal' });
 });
 
 test('discoveryPendingFor: unknown, or unavailable before any answer; never after an answer (G13)', async () => {
