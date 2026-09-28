@@ -68,6 +68,7 @@ import {
   type SettingsPageMeta,
 } from '@/lib/settings/metadata';
 import { buildSettingsSearchResults, type SettingsSearchResult } from '@/lib/settings/search';
+import { useSessionAssistAvailable } from '@/lib/sessionAssistAvailable';
 
 // UI Kit: fixed settings navigation width
 const SETTINGS_NAV_WIDTH = 256;
@@ -222,6 +223,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const isDesktopApp = React.useMemo(() => {
     return isDesktopShell();
   }, []);
+  // Smarty Code: no session assist, so search does not offer its settings (smarty-code#729).
+  const sessionAssistAvailable = useSessionAssistAvailable();
   const isDesktopLocalOrigin = React.useMemo(() => {
     return isDesktopShell() && isDesktopLocalOriginActive();
   }, []);
@@ -386,12 +389,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const settingsSearchResults = React.useMemo(() => {
     return buildSettingsSearchResults({
       query: settingsSearchQuery,
-      runtimeCtx: { ...runtimeCtx, isDesktopLocalOrigin, isMac, isWindows, isLinux, isWindowsArm64 },
+      runtimeCtx: { ...runtimeCtx, isDesktopLocalOrigin, isMac, isWindows, isLinux, isWindowsArm64, sessionAssistAvailable },
       visiblePageSlugs,
       t,
       getPageTitle,
     });
-  }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, t, visiblePageSlugs]);
+  }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, sessionAssistAvailable, settingsSearchQuery, t, visiblePageSlugs]);
 
   const prepareSettingsSearchTarget = React.useCallback((result: SettingsSearchResult): string => {
     if (result.id.startsWith('agents.')) {
