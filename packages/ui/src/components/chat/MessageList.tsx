@@ -362,7 +362,7 @@ export interface MessageListHandle {
 
 import { VoiceTurn } from './message/VoiceTurn';
 import { isVoiceTurn } from './message/voiceTurnData';
-import type { AnchorHoldOptions } from './lib/scroll/anchorHold';
+import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };
@@ -1562,6 +1562,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return true;
     }, [findMessageElement, resolveScrollContainer]);
 
+    // smarty-code#583: an anchor hold reads the list's CURRENT mapping each frame, and explicit navigation ends it.
+    const cancelActiveHoldRef = React.useRef<(() => void) | null>(null);
+    const latestNavigationRef = React.useRef({ messageIndexMap, scrollHistoryIndexIntoView });
+    latestNavigationRef.current = { messageIndexMap, scrollHistoryIndexIntoView };
+
     React.useEffect(() => {
         if (!ref) {
             return;
@@ -1569,6 +1574,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
         const handle: MessageListHandle = {
             scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => {
+                cancelActiveHoldRef.current?.();
                 const behavior = options?.behavior ?? 'auto';
                 const index = turnIndexMap.get(turnId);
                 if (index === undefined) {
@@ -1595,6 +1601,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             },
 
             scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => {
+                cancelActiveHoldRef.current?.();
                 const behavior = options?.behavior ?? 'auto';
                 const index = messageIndexMap.get(messageId);
                 if (index === undefined) {
@@ -1610,51 +1617,22 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             },
 
             holdViewportAnchor: (anchor, options) => {
-                const stableFrames = options?.stableFrames ?? ANCHOR_HOLD_STABLE_FRAMES;
-                const maxFrames = options?.maxFrames ?? ANCHOR_HOLD_MAX_FRAMES;
                 const container = resolveScrollContainer();
                 if (!container || typeof window === 'undefined') {
                     return;
                 }
-
-                let frames = 0;
-                let stable = 0;
-                let cancelled = false;
-                const cancelOnUserInput = () => {
-                    cancelled = true;
-                    container.removeEventListener('touchstart', cancelOnUserInput);
-                    container.removeEventListener('wheel', cancelOnUserInput);
-                };
-                container.addEventListener('touchstart', cancelOnUserInput, { passive: true });
-                container.addEventListener('wheel', cancelOnUserInput, { passive: true });
-                const step = () => {
-                    if (cancelled) return;
-                    const element = findMessageElement(anchor.messageId);
-                    if (element) {
-                        const delta = element.getBoundingClientRect().top
-                            - container.getBoundingClientRect().top
-                            - anchor.offsetTop;
-                        if (Math.abs(delta) > 0.5) {
-                            container.scrollTop += delta;
-                            stable = 0;
-                        } else {
-                            stable += 1;
-                        }
-                    } else if (options?.restoreMissing && messageIndexMap.has(anchor.messageId)) {
-                        // The row was remounted out of range: bring it back, then keep holding its offset.
-                        const index = messageIndexMap.get(anchor.messageId);
-                        if (typeof index === 'number' && index < historyEntries.length) scrollHistoryIndexIntoView(index);
-                        stable = 0;
-                    }
-                    frames += 1;
-                    if (stable >= stableFrames || frames >= maxFrames) {
-                        container.removeEventListener('touchstart', cancelOnUserInput);
-                        container.removeEventListener('wheel', cancelOnUserInput);
-                        return;
-                    }
-                    window.requestAnimationFrame(step);
-                };
-                window.requestAnimationFrame(step);
+                cancelActiveHoldRef.current?.();
+                cancelActiveHoldRef.current = runAnchorHold({
+                    container,
+                    findElement: findMessageElement,
+                    // The CURRENT mapping (review/astra OC#334): after a regroup the pre-prepend indexes are stale,
+                    // and the latest turn is a valid row too.
+                    scrollAnchorRowIntoView: (messageId) => {
+                        const index = latestNavigationRef.current.messageIndexMap.get(messageId);
+                        return typeof index === 'number' && latestNavigationRef.current.scrollHistoryIndexIntoView(index);
+                    },
+                    requestFrame: (step) => { window.requestAnimationFrame(step); },
+                }, anchor, options, { stableFrames: ANCHOR_HOLD_STABLE_FRAMES, maxFrames: ANCHOR_HOLD_MAX_FRAMES });
             },
 
             // The timeline is always virtualized now; the flag stays so callers
@@ -1736,6 +1714,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             },
 
             scrollToBottom: () => {
+                cancelActiveHoldRef.current?.();
                 const list = listRef.current;
                 if (list) {
                     void list.scrollToEnd({ animated: false });

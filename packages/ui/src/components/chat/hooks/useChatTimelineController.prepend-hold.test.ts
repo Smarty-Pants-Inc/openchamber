@@ -47,11 +47,94 @@ const user = (id: string, created: number) => ({
     info: { id, sessionID: 's', role: 'user', time: { created } } as Message, parts: [],
 });
 
+type Harness = { controller: UseChatTimelineControllerResult; holds: unknown[][]; fire: (name: string) => void;
+    setAnchor: (a: { messageId: string; offsetTop: number }) => void; release: () => void; done: () => Promise<void> };
+
+/** A mounted controller whose older-page read waits for release(); the scroll container records its listeners. */
+async function mount(): Promise<Harness> {
+    const dom = installMinimalDom();
+    const root = createRoot(dom.container);
+    const listeners = new Map<string, Set<() => void>>();
+    const scrollNode = { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, firstElementChild: null,
+        addEventListener: (n: string, fn: () => void) => { (listeners.get(n) ?? listeners.set(n, new Set()).get(n)!).add(fn); },
+        removeEventListener: (n: string, fn: () => void) => { listeners.get(n)?.delete(fn); } };
+    const scrollRef = { current: scrollNode as unknown as HTMLDivElement };
+    let anchor = { messageId: 'm100', offsetTop: 120 };
+    const holds: unknown[][] = [];
+    const messageListRef = { current: {
+        captureViewportAnchor: () => anchor, restoreViewportAnchor: () => true,
+        holdViewportAnchor: (...args: unknown[]) => { holds.push(args); },
+        isHistoryVirtualized: () => true, scrollToTurnId: () => true, scrollToMessageId: () => true,
+    } as unknown as MessageListHandle };
+    let messages = [user('m100', 100)];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let controller!: UseChatTimelineControllerResult;
+    const Harness = () => {
+        controller = useChatTimelineController({
+            sessionId: 's', sessionKey: 'runtime\nA\ns', messages,
+            historyMeta: { limit: 1, complete: false, loading: false }, scrollRef, messageListRef,
+            loadMoreMessages: async () => { await gate; messages = [user('m099', 99), ...messages]; root.render(React.createElement(Harness)); },
+            goToBottom: () => undefined, releaseAutoFollow: () => undefined, isPinned: false, showScrollButton: false,
+        });
+        return null;
+    };
+    await act(async () => root.render(React.createElement(Harness)));
+    return {
+        get controller() { return controller; }, holds,
+        fire: (name) => { for (const fn of listeners.get(name) ?? []) fn(); },
+        setAnchor: (a) => { anchor = a; }, release: () => release(),
+        done: async () => { await act(async () => root.unmount()); dom.restore(); },
+    } as Harness;
+}
+const settleFrames = async (n = 10) => { for (let i = 0; i < n; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 20)); }); };
+
 describe('older history keeps the reader in place (smarty-code#583)', () => {
+    test('review/astra OC#334: a reader who moves while the page is pending is held where they are NOW', async () => {
+        const h = await mount();
+        try {
+            act(() => { void h.controller.loadEarlier({ userInitiated: true }); });
+            await settleFrames(2);
+            h.setAnchor({ messageId: 'm100', offsetTop: 480 }); // the reader scrolls on
+            h.fire('wheel'); h.fire('scroll');
+            await settleFrames(2);
+            h.release();
+            await settleFrames(10);
+            expect(h.holds).toEqual([[{ messageId: 'm100', offsetTop: 480 }, PREPEND_ANCHOR_HOLD]]);
+        } finally { await h.done(); }
+    });
+
+    test('review/astra OC#334: explicit navigation while the page is pending drops the hold', async () => {
+        const h = await mount();
+        try {
+            act(() => { void h.controller.loadEarlier({ userInitiated: true }); });
+            await settleFrames(2);
+            await act(async () => { void h.controller.resumeToBottom(); });
+            h.release();
+            await settleFrames(10);
+            expect(h.holds).toEqual([]);
+        } finally { await h.done(); }
+    });
+
+    test('a programmatic scroll (no reader input) does not re-capture the anchor', async () => {
+        const h = await mount();
+        try {
+            act(() => { void h.controller.loadEarlier({ userInitiated: true }); });
+            await settleFrames(2);
+            h.setAnchor({ messageId: 'm100', offsetTop: 480 });
+            h.fire('scroll');
+            await settleFrames(2);
+            h.release();
+            await settleFrames(10);
+            expect(h.holds).toEqual([[{ messageId: 'm100', offsetTop: 120 }, PREPEND_ANCHOR_HOLD]]);
+        } finally { await h.done(); }
+    });
+
     test('after an older page lands, the reader\'s captured message is held at its offset', async () => {
         const dom = installMinimalDom();
         const root = createRoot(dom.container);
-        const scrollRef = { current: { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, firstElementChild: null } as unknown as HTMLDivElement };
+        const scrollRef = { current: { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, firstElementChild: null,
+            addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as HTMLDivElement };
         const anchor = { messageId: 'm100', offsetTop: 120 };
         const holds: unknown[][] = [];
         const messageListRef = { current: {
