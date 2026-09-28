@@ -1,4 +1,4 @@
-import { reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
+import { reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
 import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
@@ -2690,7 +2690,7 @@ export function SyncProvider(props: {
         void reloadIfNewBuild({
           running: runningEntry,
           fetchIndex: async () => (await fetch(`${window.location.origin}/`, { cache: "no-store", credentials: "same-origin" })).text(),
-          busy: () => useInputStore.getState().attachedFiles.length > 0,
+          busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0,
           reload: () => window.location.reload(),
         }).catch(() => undefined)
         // ponytail: The viewed ordinary token cannot wait for boot or broad resync gates.
