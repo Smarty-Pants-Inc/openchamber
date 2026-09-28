@@ -1,22 +1,20 @@
 // smarty-net#136 L3: whether the signed-in person owns this Node's org, so the page shows "Add credit" and "Manage plan"
 // only to the owner. The Node registry answers (net-lead): POST /v1/login {issuer, subject} -> {smarty_id};
 // GET /v1/placements?smarty_id=... -> [{org:{id,name}, member_role, node}]. The subject is the person's Google account id.
-// The registry token stays in this server's environment (from the credential profile the service is started with); it
-// never reaches argv, a file, a log or the page. Billing itself authorizes again, so a stale "owner" only shows a link
-// the billing page then refuses.
+// The registry token (from the service's credential profile) is taken out of the environment when this module loads
+// (registry-token.js), so it never reaches a child process, argv, a file, a log or the page. Billing itself authorizes
+// again, so a stale "owner" only shows a link the billing page then refuses.
+import { registryToken } from './registry-token.js';
+
 const GOOGLE_ISSUER = 'https://accounts.google.com';
 const CACHE_MS = 5 * 60_000;
 const TIMEOUT_MS = 5_000;
 
-export function createBillingRole({ env = process.env, fetchImpl = fetch, now = Date.now } = {}) {
+export function createBillingRole({ env = process.env, token = registryToken(), fetchImpl = fetch, now = Date.now } = {}) {
   const registry = (env.SMARTY_NODE_REGISTRY_URL || 'http://127.0.0.1:8791').replace(/\/+$/, '');
   const orgId = env.SMARTY_NODE_ORG_ID || '';
   const billing = (env.SMARTY_BILLING_URL || 'https://billing.smartypants.ai').replace(/\/+$/, '');
   const cache = new Map();
-  // The token is read once and removed from this process's environment, so the terminals and tools this server starts
-  // (they copy process.env) never inherit it.
-  const token = env.NODE_REGISTRY_TOKEN || '';
-  delete env.NODE_REGISTRY_TOKEN;
   const call = async (path, init = {}) => {
     if (!token) throw new Error('no registry token');
     const response = await fetchImpl(`${registry}${path}`, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS),

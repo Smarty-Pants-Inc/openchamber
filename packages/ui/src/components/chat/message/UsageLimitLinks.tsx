@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from 'zustand';
-import { readBilling, type Billing } from '@/lib/billingLinks';
+import { isBillingCurrent, readBilling, type Billing, type ScopedBilling } from '@/lib/billingLinks';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useDirectoryStore, useSessionDirectory } from '@/sync/sync-context';
 
 /** Smarty Code's gateway names the org's usage limit SmartyLimitError, a name OpenCode's error union does not list. */
@@ -13,14 +14,18 @@ export const UsageLimitLinks: React.FC<{ sessionId?: string; messageId: string }
     const isLimit = useStore(store, (state) => Boolean(sessionId)
         && (state.message[sessionId!] ?? []).some((info) => info.id === messageId
             && info.role === 'assistant' && isUsageLimit(info.error?.name)));
-    const [links, setLinks] = React.useState<Billing | null>(null);
+    const [links, setLinks] = React.useState<ScopedBilling | null>(null);
+    // A runtime switch reads again; an answer from another runtime or sign-in is never shown (it is checked at render).
+    const [generation, setGeneration] = React.useState(0);
+    React.useEffect(() => subscribeRuntimeEndpointChanged(() => setGeneration((value) => value + 1)), []);
+    const current = links !== null && isBillingCurrent(links);
     React.useEffect(() => {
-        if (!isLimit) return undefined;
+        if (!isLimit || current) return undefined;
         let live = true;
-        void readBilling().then((value) => { if (live) setLinks(value); });
+        void readBilling().then((value) => { if (live && isBillingCurrent(value)) setLinks(value); });
         return () => { live = false; };
-    }, [isLimit]);
-    return isLimit && links ? <BillingLinks links={links} /> : null;
+    }, [isLimit, current, generation]);
+    return isLimit && links && current ? <BillingLinks links={links} /> : null;
 };
 
 /** The two links, for an owner's answer only; anything else renders nothing. */

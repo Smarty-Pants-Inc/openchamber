@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createBillingRole, registerBillingRoleRoute } from './billing-role.js';
 
-const base = { NODE_REGISTRY_TOKEN: 'secret-token', SMARTY_NODE_ORG_ID: 'org-smartypants', SMARTY_NODE_REGISTRY_URL: 'http://127.0.0.1:8791' };
+const token = 'secret-token';
+const base = { SMARTY_NODE_ORG_ID: 'org-smartypants', SMARTY_NODE_REGISTRY_URL: 'http://127.0.0.1:8791' };
 // A registry stand-in with net-lead's examples: paul owns smartypants, kate is a member, an unknown login is 404.
 const registry = (calls = []) => async (url, init) => {
   calls.push({ url: String(url), init });
@@ -22,7 +23,7 @@ const registry = (calls = []) => async (url, init) => {
 describe('billing role (smarty-net#136 L3)', () => {
   it('owner only for the owner of THIS Node\'s org; a member, an owner elsewhere, or an unknown login is not', async () => {
     const calls = [];
-    const role = createBillingRole({ env: { ...base }, fetchImpl: registry(calls) });
+    const role = createBillingRole({ env: { ...base }, token, fetchImpl: registry(calls) });
     expect(await role.isOwner('g-paul')).toBe(true);
     expect(await role.isOwner('g-kate')).toBe(false); // member here; owner only of org-other
     expect(await role.isOwner('g-nobody')).toBe(false);
@@ -31,21 +32,15 @@ describe('billing role (smarty-net#136 L3)', () => {
   });
 
   it('no token, no org, a registry error or a timeout: never a link', async () => {
-    expect(await createBillingRole({ env: { ...base, NODE_REGISTRY_TOKEN: '' }, fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
-    expect(await createBillingRole({ env: { ...base, SMARTY_NODE_ORG_ID: '' }, fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
-    expect(await createBillingRole({ env: { ...base }, fetchImpl: async () => new Response('', { status: 503 }) }).isOwner('g-paul')).toBe(false);
-    expect(await createBillingRole({ env: { ...base }, fetchImpl: async () => { throw new Error('down'); } }).isOwner('g-paul')).toBe(false);
-  });
-
-  it('the token leaves the environment it came from (terminals copy process.env)', () => {
-    const env = { ...base };
-    createBillingRole({ env, fetchImpl: registry() });
-    expect(env.NODE_REGISTRY_TOKEN).toBeUndefined();
+    expect(await createBillingRole({ env: { ...base }, token: '', fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
+    expect(await createBillingRole({ env: { ...base, SMARTY_NODE_ORG_ID: '' }, token, fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
+    expect(await createBillingRole({ env: { ...base }, token, fetchImpl: async () => new Response('', { status: 503 }) }).isOwner('g-paul')).toBe(false);
+    expect(await createBillingRole({ env: { ...base }, token, fetchImpl: async () => { throw new Error('down'); } }).isOwner('g-paul')).toBe(false);
   });
 
   it('the answer is cached briefly per person, then read again', async () => {
     let t = 0; const calls = [];
-    const role = createBillingRole({ env: { ...base }, fetchImpl: registry(calls), now: () => t });
+    const role = createBillingRole({ env: { ...base }, token, fetchImpl: registry(calls), now: () => t });
     await role.isOwner('g-paul'); await role.isOwner('g-paul');
     expect(calls.length).toBe(2); // login + placements once
     t = 5 * 60_000; await role.isOwner('g-paul');
@@ -58,7 +53,7 @@ describe('billing role (smarty-net#136 L3)', () => {
     const humanAuth = (user) => ({ resolve: async () => user && { user: { id: user } },
       auth: { $context: Promise.resolve({ adapter: { findOne: async ({ where }) => ({ accountId: account[where[0].value] }) } }) } });
     const run = async (user) => {
-      routes.clear(); registerBillingRoleRoute(app, humanAuth(user), { billingRole: createBillingRole({ env: { ...base }, fetchImpl: registry() }) });
+      routes.clear(); registerBillingRoleRoute(app, humanAuth(user), { billingRole: createBillingRole({ env: { ...base }, token, fetchImpl: registry() }) });
       let status = 200, body; const res = { set() {}, status(s) { status = s; return this; }, json(b) { body = b; } };
       await routes.get('/api/smarty/billing')({}, res);
       return { status, body };
