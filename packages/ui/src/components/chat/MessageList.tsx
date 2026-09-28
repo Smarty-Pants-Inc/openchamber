@@ -48,8 +48,12 @@ const EMPTY_UNGROUPED_MESSAGE_IDS = new Set<string>();
 //   • `anchoredEndSpace` reserves the tail space that parks a just-sent
 //     message near the top of the viewport.
 const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
-/** smarty-code#583: the estimated height of one not-yet-loaded record (a gap row is its record count times this). */
-const GAP_RECORD_PX = 160;
+/**
+ * smarty-code#583: the estimated height of one not-yet-loaded record (a gap row is its record count times this). Near the
+ * measured mean (~77 px a record in dev-lead's 22,000-record journal): at 160 px each loaded window shrank to half its
+ * gap, the next gap slid into view and the page walked window after window (5,300 -> 5,600) after a drag.
+ */
+const GAP_RECORD_PX = 80;
 
 // Anchor hold for an explicit viewport restore (session re-entry): row
 // measurements settle over several frames, so a single restore can be
