@@ -46,8 +46,8 @@ export function isNativeDraftTarget(draft: NewSessionDraftState): boolean {
 
 /** A '+ New' worktree's setup is still running. Only the Git view cleared the draft's bootstrap mark, so in the chat it
  * stayed set after the setup finished and Send was refused (smarty-code#629): the setup's own state decides. On a managed
- * catalog there is no page-side setup to wait for: the gateway has made the tree when '+ New' returns (its watcher cannot
- * read the tree there, so its state would stay pending), and it admits the tree when a request names it. */
+ * catalog Send stays available, and the start itself waits for the tree's checkout and setup (native-draft-start
+ * worktreeReady, openchamber#331 review): nothing is created or sent before it is ready, and a failed setup refuses. */
 function worktreeStillBootstrapping(draft: NewSessionDraftState): boolean {
   const directory = draft.bootstrapPendingDirectory;
   if (!directory) return false;
