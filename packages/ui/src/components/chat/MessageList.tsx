@@ -1414,7 +1414,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // smarty-code#583: the list as long as the whole session, with a gap row for each unloaded range of positions.
     const allEntries = React.useMemo<TimelineEntry[]>(
         () => positions && positionOf
-            ? insertGaps(renderEntries, gapsOf(positions.ranges, positions.total), positionOf, GAP_RECORD_PX)
+            ? insertGaps(renderEntries, gapsOf(positions.ranges, positions.total), positionOf, GAP_RECORD_PX,
+                positions.ranges[positions.ranges.length - 1]?.end ?? 0)
             : renderEntries,
         [positionOf, positions, renderEntries],
     );

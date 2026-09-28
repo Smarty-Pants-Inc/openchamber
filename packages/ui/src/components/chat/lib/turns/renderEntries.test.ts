@@ -85,6 +85,11 @@ describe('gap rows for the unloaded parts of a session (smarty-code#583)', () =>
         expect(listed.filter((row) => row.kind === 'gap').map((row) => (row as { heightPx: number }).heightPx)).toEqual([1_000, 10_000, 10_000, 10_000, 10_000, 8_800]);
     });
 
+    test('a window whose rows are all hidden still shows the gaps before its end (a blank list on the candidate)', () => {
+        const listed = insertGaps([], gapsOf([{ start: 250, end: 300 }], 400), () => undefined, 100, 300);
+        expect(listed.map((row) => row.key)).toEqual(['gap:0', 'gap:100', 'gap:200']);
+    });
+
     test('without gaps the rows are unchanged', () => {
         const all = rows();
         expect(insertGaps(all, [], (id) => positions.get(id), 100)).toBe(all);

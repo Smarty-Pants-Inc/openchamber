@@ -102,23 +102,30 @@ export const insertGaps = (
     gaps: readonly { start: number; end: number; key: string }[],
     positionOf: (messageId: string) => number | undefined,
     recordPx: number,
+    /** The end of the last loaded range: gaps before it are placed even after the last shown row. */
+    loadedEnd = 0,
 ): TimelineEntry[] => {
     if (gaps.length === 0) return entries;
     const out: TimelineEntry[] = [];
+    // One row per GAP_CHUNK records: a virtual list handles many ordinary rows well, and a single row millions of
+    // pixels tall left the list blank (21,795 records, dev-lead's journal on the candidate).
+    const pushGap = (gap: { start: number; end: number }) => {
+        for (let start = gap.start; start < gap.end; start += GAP_CHUNK) {
+            const end = Math.min(gap.end, start + GAP_CHUNK);
+            out.push({ kind: 'gap', key: `gap:${start}`, start, end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
+        }
+    };
     let next = 0;
     for (const entry of entries) {
         const id = firstMessageIdOf(entry);
         const position = id === undefined ? undefined : positionOf(id);
         while (position !== undefined && next < gaps.length && gaps[next]!.end <= position) {
-            const gap = gaps[next++]!;
-            // One row per GAP_CHUNK records: a virtual list handles many ordinary rows well, and a single row millions
-            // of pixels tall left the list blank (21,795 records, dev-lead's journal on the candidate).
-            for (let start = gap.start; start < gap.end; start += GAP_CHUNK) {
-                const end = Math.min(gap.end, start + GAP_CHUNK);
-                out.push({ kind: 'gap', key: `gap:${start}`, start, end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
-            }
+            pushGap(gaps[next++]!);
         }
         out.push(entry);
     }
+    // Gaps after the last positioned row but before the loaded end (rows the page does not show, such as a window of
+    // replies whose prompt is not loaded yet) still hold their place; the gap after the loaded end is the live tail's.
+    for (; next < gaps.length && gaps[next]!.end <= loadedEnd; next++) pushGap(gaps[next]!);
     return out;
 };

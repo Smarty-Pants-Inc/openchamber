@@ -940,7 +940,11 @@ export class SessionMessageLoader {
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
       const position = readPositionHeaders(result.response?.headers)
-      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
+      // A range read (at=) carries no cursor: its page is complete when it starts at position 0, or, while the gateway
+      // still builds the index (no positions yet), when it came back short (smarty-code#583).
+      const rangeRead = at !== undefined || (before === undefined && limit <= 500)
+      const complete = position.at !== undefined ? position.at === 0 : rangeRead && !cursor ? records.length < limit : !cursor
+      return { session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error

@@ -5,7 +5,7 @@ import { fakeMessagesClient, record, target } from "./session-message-loader-rep
 
 // smarty-code#583: the gateway's range read (?at=, x-smarty-at / x-smarty-total / x-smarty-index-epoch) gives every
 // loaded record its position in the whole session, so the page can size the list to the session and load any window.
-function gateway(size: number) {
+function gateway(size: number, cursors = true) {
   const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[] }
   const client = fakeMessagesClient(async (input: { limit?: number; before?: string; $query_at?: number }) => {
     const limit = input.limit ?? 50
@@ -15,7 +15,7 @@ function gateway(size: number) {
     const start = at !== undefined ? at : Math.max(0, end - limit)
     g.reads.push(input.$query_at !== undefined && input.$query_at >= 0 ? `at=${start}` : input.before ? "older" : "tail")
     const headers = new Headers({ "x-smarty-at": String(start), "x-smarty-total": String(g.branch.length), "x-smarty-index-epoch": g.epoch })
-    if (start > 0) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
+    if (start > 0 && (cursors || input.$query_at === undefined)) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
     return { data: g.branch.slice(start, end).map(record), headers }
   })
   const childStores = new ChildStoreManager()
@@ -105,5 +105,15 @@ test("session.index grows the session without a read; a new epoch drops the rang
     expect(s.g.reads.length).toBe(reads)
     s.loader.noteIndex(target, 900, "e2")
     expect(s.loader.getSnapshot(target).positions).toMatchObject({ total: 900, ranges: [], epoch: "e2" })
+  } finally { s.done() }
+})
+
+test("a range read without a cursor (the gateway's at= answer) is not the whole history: older windows still load", async () => {
+  const s = gateway(1_000, false)
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    expect(s.loader.getSnapshot(target).complete).toBe(false)
+    await s.loader.loadOlder(target)
+    expect(s.loader.getSnapshot(target).positions!.ranges[0]!.start).toBeLessThan(950)
   } finally { s.done() }
 })
