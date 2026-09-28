@@ -100,6 +100,7 @@ import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
 import { getAllSyncSessions, getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
+import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
     assignImageAttachmentFilenames,
@@ -1066,11 +1067,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
+    // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
+    // while it is unavailable its view is also re-read every 2 s: the model control and Send come back on their own.
+    const unavailableTarget = ordinaryUnavailable && currentSessionId
+        ? { sessionID: currentSessionId, directory: currentSessionDirectoryForSync ?? currentDirectory ?? '' } : null;
+    const unavailableKey = unavailableTarget ? `${unavailableTarget.directory}\n${unavailableTarget.sessionID}` : null;
     React.useEffect(() => {
-        if (!ordinaryUnavailable) return;
-        const timer = setInterval(recheckOrdinary, 1000);
+        if (!unavailableKey) return;
+        const [directory, sessionID] = unavailableKey.split('\n');
+        let tick = 0;
+        const timer = setInterval(() => {
+            recheckOrdinary();
+            tick += 1;
+            if (tick % 2 === 0 && directory) void getImperativeSessionMessageLoader()?.refreshOrdinaryView({ directory, sessionID })?.catch(() => undefined);
+        }, 1000);
         return () => clearInterval(timer);
-    }, [ordinaryUnavailable]);
+    }, [unavailableKey]);
     const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
         && !ordinaryUnavailable;
 
