@@ -63,3 +63,14 @@ test("#737 review: a fleet session whose status lost its ordinary mark is known 
   const managed = { id: S } as unknown as Parameters<typeof settledBySnapshot>[2]
   expect(settledBySnapshot(undefined, { type: "idle" }, managed)).toBe(true) // A managed session keeps #2577's rule.
 })
+
+// smarty-code#737, the real cause (the service journal at 06:54:48-52Z): a worktree was added to the catalog, the page read
+// ITS status, and that directory's store held messages of three fleet sessions of other projects: their absence from
+// that directory's snapshot was taken as idle.
+test("#737: a session of another directory is never settled by this directory's snapshot", () => {
+  const other = { id: S, directory: "/fleet/org/" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, other, "/projects/p608-966439-1")).toBe(false)
+  const own = { id: S, directory: "/projects/p608-966439-1/" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, own, "/projects/p608-966439-1")).toBe(true) // Its own: #2577.
+  expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, other, "/projects/p608-966439-1")).toBe(true) // Listed: settles.
+})
