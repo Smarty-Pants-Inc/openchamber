@@ -69,6 +69,9 @@ export const useTurnRecords = (
         const cached = getCachedProjection(cacheKey);
         if (cached) {
             previousProjectionRef.current = cached;
+            // A new hook (a reopen) served from the shared cache still records the replies it shows as their own
+            // rows, so a later prepend of their prompts keeps those rows (openchamber#358 review round 2).
+            rememberShownOrphans(messages, cached, kept);
             return cached;
         }
 
