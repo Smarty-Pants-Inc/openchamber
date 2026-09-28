@@ -188,7 +188,7 @@ import {
     mapInputHistoryEntriesToValues,
     mergeSessionInputHistory,
 } from './inputHistory';
-import { reconcileSessionIdleBeforeSend, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -1057,7 +1057,33 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const hasQueuedMessages = queuedMessages.length > 0;
     // Send itself starts a new draft's session (smarty-code#126); only a start already running blocks it.
     // A new-session draft cannot be sent until its project is known (G13: discovery still answering).
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked;
+    // smarty-code#778: while its ordinary (Pi) session is unavailable (the model control reads "Unavailable", for example
+    // right after its Pi was relaunched), Send is shown disabled, with the reason, instead of refusing on press.
+    // Read as Send's own check reads it (every render); while unavailable it is read again each second, so Send comes
+    // back as soon as the session does, even with no keystroke.
+    const ordinaryNow = currentSessionId ? readOrdinaryModel(
+        getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined).find(session => session.id === currentSessionId),
+    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+    const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
+    const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
+    // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
+    // while it is unavailable its view is also re-read every 2 s: the model control and Send come back on their own.
+    const unavailableTarget = ordinaryUnavailable && currentSessionId
+        ? { sessionID: currentSessionId, directory: currentSessionDirectoryForSync ?? currentDirectory ?? '' } : null;
+    const unavailableKey = unavailableTarget ? `${unavailableTarget.directory}\n${unavailableTarget.sessionID}` : null;
+    React.useEffect(() => {
+        if (!unavailableKey) return;
+        const [directory, sessionID] = unavailableKey.split('\n');
+        let tick = 0;
+        const timer = setInterval(() => {
+            recheckOrdinary();
+            tick += 1;
+            if (tick % 2 === 0 && directory && sessionID) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [unavailableKey]);
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
+        && !ordinaryUnavailable;
 
     const canAbort = sessionPhase !== 'idle'
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
@@ -3583,6 +3609,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend}
+                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         isExpandedInput={isExpandedInput}

@@ -1658,6 +1658,27 @@ async function resyncDirectoryAfterReconnect(
 }
 
 /**
+ * Re-reads one session's record into its directory's store (smarty-code#778: an idle session whose Pi was relaunched
+ * in place sends no event, so its "Unavailable" model and a disabled Send stayed until something else refreshed it).
+ * Best effort: a failed read changes nothing.
+ */
+export async function refreshSessionRecord(sessionId: string, directory: string): Promise<void> {
+  let store: StoreApi<DirectoryStore>
+  try { store = getSyncChildStores().ensureChild(directory, { bootstrap: false }) } catch { return } // Sync is not mounted.
+  const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
+  const response = await opencodeClient.getScopedSdkClient(directory).session.get({ sessionID: sessionId }).catch(() => null)
+  const session = response?.data
+  if (!session || session.id !== sessionId) return
+  const nextSession = stripSessionDiffSnapshots(session)
+  store.setState((state: DirectoryStore) => {
+    const sessions = upsertSessionRecord(state.session, nextSession, {
+      requested: eventRevision, current: state.sessionEventRevision?.[sessionId] ?? 0,
+    })
+    return sessions === state.session ? state : { session: sessions }
+  })
+}
+
+/**
  * A session's turn-complete or error alert (unread count, notification). `parentOf` says whether the session is a
  * subtask ('sub', no alert), top level, or unknown; `unknownAlerts` decides the unknown case.
  */

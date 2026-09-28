@@ -27,6 +27,8 @@ type ComposerActionButtonsProps = {
     onQueueMessage: () => void;
     /** An ordinary session takes the message while its agent works (the server steers it): Send, not Queue. */
     sendWhileWorking?: boolean;
+    /** Why Send is disabled although there is text (smarty-code#778: its session is unavailable), shown on hover. */
+    sendDisabledReason?: string;
     onAbort: () => void;
 };
 
@@ -44,6 +46,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         onPrimaryAction,
         onQueueMessage,
         sendWhileWorking = false,
+        sendDisabledReason,
         onAbort,
     } = props;
     const { t } = useI18n();
@@ -67,6 +70,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     : 'opacity-30'
             )}
             aria-label={t('chat.chatInput.actions.sendMessageAria')}
+            title={sendDisabledReason}
         >
             <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
         </button>
@@ -81,7 +85,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             {hasContent ? (
                 <button
                     type="button"
-                    disabled={!currentSessionId}
+                    disabled={!currentSessionId || Boolean(sendDisabledReason)}
                     onClick={(event) => {
                         if (isMobile) {
                             event.preventDefault();
@@ -91,10 +95,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     className={cn(
                         footerIconButtonClass,
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
-                        currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
+                        currentSessionId && !sendDisabledReason ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
                     aria-label={t(sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
-                    title={sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined}
+                    title={sendDisabledReason ?? (sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined)}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, !sendWhileWorking && '-rotate-90')} />
                 </button>
@@ -118,6 +122,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.sendIconSizeClass === next.sendIconSizeClass
     && prev.stopIconSizeClass === next.stopIconSizeClass
     && prev.canSend === next.canSend
+    && prev.sendDisabledReason === next.sendDisabledReason
     && prev.canAbort === next.canAbort
     && prev.hasContent === next.hasContent
     && prev.currentSessionId === next.currentSessionId
