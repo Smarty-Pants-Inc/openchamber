@@ -15,11 +15,21 @@ const localTime = (iso: string) => (Math.abs(Date.parse(iso) - Date.now()) < 20 
   ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   : new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
 
+/** The gateway's credit clause and link ("…, or add credit: URL", "Add credit to continue: URL"). The notice is the same
+ * for every member; billing actions are shown only to the org owner, beside it (UsageLimitLinks, openchamber#339). */
+const withoutCredit = (message: string) => {
+  const words = message.replace(/,?\s*or add credit:\s*\S+/gi, '').replace(/\s*Add credit[^:.]*:\s*\S+/gi, '')
+    .replace(/\s*https?:\/\/\S+/gi, '').trim();
+  return /[.!?]$/.test(words) ? words : `${words}.`;
+};
+
 /**
- * The org's usage limit (smarty-net#136 L3; the gateway's SmartyLimitError): its own plain message, with a UTC time in it
- * ("… at 10:30Z", or "… at 2026-10-28 13:37Z") shown as the person's local time. No status, no JSON, no "Failed to send".
+ * The org's usage limit (smarty-net#136 L3; the gateway's SmartyLimitError): its own plain message, without the credit
+ * link, with a UTC time in it ("… at 10:30Z", or "… at 2026-10-28 13:37Z") shown as the person's local time. No
+ * status, no JSON, no "Failed to send".
  */
-export function describeUsageLimit(message: string, resetsAt: string | undefined, format = localTime): string {
+export function describeUsageLimit(text: string, resetsAt: string | undefined, format = localTime): string {
+  const message = withoutCredit(text);
   const reset = resetsAt && !Number.isNaN(Date.parse(resetsAt)) ? format(resetsAt) : undefined;
   if (!reset) return message;
   const local = message.replace(/\b(?:\d{4}-\d{2}-\d{2} )?\d{1,2}:\d{2}\s?(?:Z|UTC)\b/g, reset);

@@ -34,8 +34,12 @@ describe('billing role (smarty-net#136 L3)', () => {
   it('no token, no org, a registry error or a timeout: never a link', async () => {
     expect(await createBillingRole({ env: { ...base }, token: '', fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
     expect(await createBillingRole({ env: { ...base, SMARTY_NODE_ORG_ID: '' }, token, fetchImpl: registry() }).isOwner('g-paul')).toBe(false);
-    expect(await createBillingRole({ env: { ...base }, token, fetchImpl: async () => new Response('', { status: 503 }) }).isOwner('g-paul')).toBe(false);
-    expect(await createBillingRole({ env: { ...base }, token, fetchImpl: async () => { throw new Error('down'); } }).isOwner('g-paul')).toBe(false);
+    // A failed lookup is not an answer: it throws, and it is not cached, so the next ask reaches the recovered registry.
+    let down = true; const calls = [];
+    const flaky = createBillingRole({ env: { ...base }, token, fetchImpl: async (url, init) => { if (down) throw new Error('down'); return registry(calls)(url, init); } });
+    await expect(flaky.isOwner('g-paul')).rejects.toThrow();
+    await expect(createBillingRole({ env: { ...base }, token, fetchImpl: async () => new Response('', { status: 503 }) }).isOwner('g-paul')).rejects.toThrow();
+    down = false; expect(await flaky.isOwner('g-paul')).toBe(true);
   });
 
   it('the answer is cached briefly per person, then read again', async () => {
@@ -61,6 +65,16 @@ describe('billing role (smarty-net#136 L3)', () => {
     expect(await run('u-paul')).toEqual({ status: 200, body: { owner: true, checkout: 'https://billing.smartypants.ai/checkout', portal: 'https://billing.smartypants.ai/portal' } });
     expect(await run('u-kate')).toEqual({ status: 200, body: { owner: false } });
     expect(await run(null)).toEqual({ status: 401, body: { owner: false } });
+    // A registry failure: 503 (the page's retry path), not a 200 "not the owner"; after recovery the owner gets the links.
+    let down = true;
+    const failing = createBillingRole({ env: { ...base }, token, fetchImpl: async (url, init) => { if (down) throw new Error('down'); return registry()(url, init); } });
+    const runWith = async (role) => {
+      routes.clear(); registerBillingRoleRoute(app, humanAuth('u-paul'), { billingRole: role });
+      let status = 200, body; const res = { set() {}, status(s) { status = s; return this; }, json(b) { body = b; } };
+      await routes.get('/api/smarty/billing')({}, res); return { status, body };
+    };
+    expect(await runWith(failing)).toEqual({ status: 503, body: { owner: false } });
+    down = false; expect((await runWith(failing)).body.owner).toBe(true);
     expect(JSON.stringify(await run('u-paul'))).not.toContain('secret-token');
   });
 });

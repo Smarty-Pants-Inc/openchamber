@@ -30,7 +30,15 @@ test('a usage limit shows its own plain words with the reset in local time: no s
   // The period window's far reset carries its date: the date and time together become the local time.
   expect(describeAssistantError({ name: 'SmartyLimitError', data: { message: "Your plan's allowance for this period is used up. More at 2026-10-28 13:37Z, or add credit: https://billing.smartypants.ai/checkout",
     resetsAt: '2026-10-28T13:37:00Z' } }, local))
-    .toBe("Your plan's allowance for this period is used up. More at local(2026-10-28T13:37:00Z), or add credit: https://billing.smartypants.ai/checkout");
+    .toBe("Your plan's allowance for this period is used up. More at local(2026-10-28T13:37:00Z).");
+  // The notice is the same for every member: no credit link in it (the owner's links are shown beside it).
+  for (const [words, shown] of [
+    ['Your 5-hour limit is used up. Add credit to continue: https://billing.smartypants.ai/checkout', 'Your 5-hour limit is used up.'],
+    ['Your 5-hour limit is used up, so Flash models now run one request at a time, 10 seconds apart. Add credit for full speed: https://billing.smartypants.ai/checkout',
+      'Your 5-hour limit is used up, so Flash models now run one request at a time, 10 seconds apart.'],
+    ['One request to this model can cost up to $2.00, more than your $1.00 limit. Add credit to use it: https://billing.smartypants.ai/checkout',
+      'One request to this model can cost up to $2.00, more than your $1.00 limit.'],
+  ] as const) expect(describeAssistantError({ name: 'SmartyLimitError', data: { message: words } }, local)).toBe(shown);
   // No UTC time in the words: the reset is added once, in local time.
   expect(describeAssistantError({ name: 'SmartyLimitError', data: { message: 'Your 5-hour limit is used up.', resetsAt: '2026-09-28T10:30:00Z' } }, local))
     .toBe('Your 5-hour limit is used up. It resets at local(2026-09-28T10:30:00Z).');

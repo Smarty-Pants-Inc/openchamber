@@ -23,21 +23,20 @@ export function createBillingRole({ env = process.env, token = registryToken(), 
     if (!response.ok) throw new Error(`registry ${response.status}`);
     return response.json();
   };
-  /** True only when the registry says this Google account owns the Node's org; any failure or doubt is false. */
+  /** True only when the registry says this Google account owns the Node's org, false when it says otherwise. A failed
+   * lookup throws: it is not an answer, so it is never cached and the page asks again (it shows no link meanwhile). */
   const isOwner = async (googleAccountId) => {
     if (!orgId || !token || !googleAccountId) return false;
     const hit = cache.get(googleAccountId);
     if (hit && now() - hit.at < CACHE_MS) return hit.owner;
+    const login = await call('/v1/login', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ issuer: GOOGLE_ISSUER, subject: googleAccountId }) });
+    const smartyId = String(login?.smarty_id ?? '');
     let owner = false;
-    try {
-      const login = await call('/v1/login', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ issuer: GOOGLE_ISSUER, subject: googleAccountId }) });
-      const smartyId = String(login?.smarty_id ?? '');
-      if (smartyId) {
-        const placements = await call(`/v1/placements?smarty_id=${encodeURIComponent(smartyId)}`);
-        owner = Array.isArray(placements) && placements.some((p) => p?.org?.id === orgId && p?.member_role === 'owner');
-      }
-    } catch { owner = false; } // Never a link on doubt; the reason is not logged (it could carry the request).
+    if (smartyId) {
+      const placements = await call(`/v1/placements?smarty_id=${encodeURIComponent(smartyId)}`);
+      owner = Array.isArray(placements) && placements.some((p) => p?.org?.id === orgId && p?.member_role === 'owner');
+    }
     cache.set(googleAccountId, { owner, at: now() });
     return owner;
   };
@@ -57,7 +56,9 @@ export function registerBillingRoleRoute(app, humanAuth, { env = process.env, bi
       const owner = await billingRole.isOwner(account?.accountId);
       return res.json(owner ? { owner: true, ...billingRole.links } : { owner: false });
     } catch {
-      return res.json({ owner: false });
+      // Not an answer (the registry or the sign-in store failed): 503, never a cached "not the owner"; no reason
+      // is logged or returned (it could carry the request).
+      return res.status(503).json({ owner: false });
     }
   });
 }
