@@ -63,14 +63,14 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
       <Button type="button" variant="outline" size="sm" disabled={busy} title={operation.operationId}
         data-operation-id={operation.operationId} onClick={() => {
         setStop({ id: operation.operationId, busy: true });
-        void stopBlockingStart(operation).then(() => {
+        void stopBlockingStart(operation).then(async () => {
           setStop(null);
           const key = getRuntimeKey(), directory = draft.directoryOverride;
           // The person's own explicit Stop settled the start this draft's sent text belongs to (smarty-code#523, 3.45):
           // this tab no longer continues it, so it is read now and the text comes back, not left locked until "check
           // again" (the own-request exemption is for a start this tab still sends through).
           const mine = !!directory && operation.clientRequestId !== undefined && sentStartRequest(key, directory) === operation.clientRequestId;
-          if (mine) releaseSentStart(operation.clientRequestId);
+          if (mine) await releaseSentStart(operation.clientRequestId); // The browser lock is gone before the read below.
           if (directory) void resolveSentStart(key, directory, draft.draftId, mine ? undefined : ownNativeRequestId(draft, key));
           native.refresh();
         }, error => setStop({ id: operation.operationId, busy: false, error }));
