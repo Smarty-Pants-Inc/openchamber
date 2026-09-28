@@ -104,6 +104,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failure)}</p>
     <Button type="button" variant="outline" size="sm" onClick={() => { void native.refresh(); }}>{t('chat.nativeCreation.check')}</Button>
     {unknown ? escape : null}
+    {/* The wait gave up (its limit) but the start is still unsettled: its Stop stays (smarty-code#587 review). */}
+    {stopControl(own, ownStopAt)}
   </div>;
   // After a reload the unknown outcome has no record, only this tab's saved request.
   if (unresolved && !creation && !starting) return <div className="mb-2 space-y-1">
@@ -143,11 +145,15 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
           onClick={() => { void startNativeDraftInstead().then(started => { if (started) onSend?.(); },
             error => { toast.error(native.describeError(error)); void native.refresh(); }); }}>
           {t('chat.nativeCreation.startAgain')}</Button> : null}
+        {stopControl(own, ownStopAt)}
       </div>
     </div>;
   }
   if (creation?.status === 'pending') {
-    return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>;
+    return <div className="mb-2 space-y-1">
+      <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.recover')}</p>
+      {stopControl(own, ownStopAt)}
+    </div>;
   }
   if (running.length > 0) return <div className="mb-2 space-y-1">
     <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.elsewhere')}</p>
