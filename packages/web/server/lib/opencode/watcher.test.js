@@ -47,6 +47,7 @@ describe('createOpenCodeWatcherRuntime', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const payloads = [];
     const fetchCalls = [];
+    const directories = []; // smarty-code#712: the event's own directory goes with its payload.
 
     const watcher = createOpenCodeWatcherRuntime({
       waitForOpenCodePort: async () => {
@@ -54,8 +55,8 @@ describe('createOpenCodeWatcherRuntime', () => {
       },
       buildOpenCodeUrl: (path) => `http://127.0.0.1:4096${path}`,
       getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer test-token' }),
-      onPayload(payload) {
-        payloads.push(payload);
+      onPayload(payload, directory) {
+        payloads.push(payload); directories.push(directory);
         watcher.stop();
       },
       fetchImpl: async (url, options) => {
@@ -83,6 +84,7 @@ describe('createOpenCodeWatcherRuntime', () => {
         },
       },
     ]);
+    expect(directories).toEqual(['/tmp/project']);
     expect(payloads).toEqual([
       {
         type: 'session.updated',

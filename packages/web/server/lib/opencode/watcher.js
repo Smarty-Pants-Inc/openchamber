@@ -17,6 +17,13 @@ export const createOpenCodeWatcherRuntime = (deps) => {
   let unsubscribeEvent = null;
   let unsubscribeStatus = null;
 
+  // The global event's own directory (smarty-code#712): the notification lookups name it, so the gateway need not ask
+  // every project which one owns the session.
+  const envelopeDirectory = (event) => {
+    const directory = event?.directory ?? event?.payload?.directory;
+    return typeof directory === 'string' && directory && directory !== 'global' ? directory : undefined;
+  };
+
   const unwrapGlobalEventPayload = (eventData) => {
     if (!eventData || typeof eventData !== 'object') {
       return null;
@@ -45,7 +52,7 @@ export const createOpenCodeWatcherRuntime = (deps) => {
         if (!payload || typeof payload !== 'object') {
           return;
         }
-        onPayload(payload);
+        onPayload(payload, envelopeDirectory(event));
       });
       unsubscribeStatus = globalEventHub.subscribeStatus((status) => {
         if (signal.aborted) {
@@ -78,7 +85,7 @@ export const createOpenCodeWatcherRuntime = (deps) => {
         if (!payload || typeof payload !== 'object') {
           return;
         }
-        onPayload(payload);
+        onPayload(payload, envelopeDirectory(event));
       },
       onError(error) {
         if (signal.aborted) {
