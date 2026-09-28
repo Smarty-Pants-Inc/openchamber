@@ -63,6 +63,8 @@ export function useCoeditRoom({ directory, path, enabled }: { directory: string 
                 url: getRuntimeUrlResolver().websocket(ROOM_PATH, { directory, path }),
                 name,
                 document: doc,
+                // Hocuspocus requires a token; the server does not check it (auth is the session cookie on the upgrade).
+                token: 'session',
                 onStatus: ({ status }) => {
                     if (cancelled) return;
                     if (status === WebSocketStatus.Disconnected) setPhase((current) => (current === 'connecting' ? current : 'offline'));
