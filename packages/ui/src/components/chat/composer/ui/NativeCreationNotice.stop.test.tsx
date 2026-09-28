@@ -185,6 +185,32 @@ test('text back after a start someone stopped says who stopped it', async () => 
   } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
 });
 
+// smarty-code#523 on 3.45 (17:59Z run): the person sent into a start, left and came back; the sent text is locked and the
+// notice offers Stop for that start. Stop settles it on the server; the text must then come back at once (the stopper
+// named), not stay locked until "check again" because this tab still held its own Send attempt.
+test('Stop on the start a sent text is locked to resolves that text at once, even while this tab held its own send', async () => {
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  const { holdSentStart, sentStartStoppedBy } = await import('@/sync/native-draft-sent');
+  const { createChatDraftIdentity, claimChatDraftOwnership, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+  const op = { ...blocking('9999cccc-sent', -1), phase: 'unavailable' as const };
+  const stopped = { ...op, phase: 'cancelled' as const, stoppedBy: { issuer: 'https://code.example', subject: 'kate-1', name: 'Kate' } };
+  const markKey = `oc.nativeCreation.sent:${JSON.stringify([getRuntimeKey(), '/project'])}`;
+  const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
+  claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
+  localStorage.setItem(markKey, JSON.stringify({ clientRequestId: op.clientRequestId, operationId: op.operationId }));
+  holdSentStart(op.clientRequestId!); // This tab's own Send attempt for it is still open.
+  const originals = { abandon: opencodeClient.abandonNativeCreation, list: opencodeClient.listNativeCreations };
+  // SAFETY: test doubles with the client methods' own call shapes.
+  opencodeClient.abandonNativeCreation = (async () => stopped) as typeof originals.abandon;
+  opencodeClient.listNativeCreations = (async () => [stopped]) as typeof originals.list;
+  try {
+    await act(async () => root.render(<NativeCreationNotice native={native([op], [])} draftOpen sent="pending" />));
+    await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 50)); });
+    expect(localStorage.getItem(markKey)).toBeNull(); // Settled: the text is no longer locked to the start.
+    expect(sentStartStoppedBy(getRuntimeKey(), '/project')).toBe('Kate');
+  } finally { Object.assign(opencodeClient, { abandonNativeCreation: originals.abandon, listNativeCreations: originals.list }); localStorage.clear(); }
+});
+
 test('a late read of an older start never names the wrong person for a newer one', async () => {
   const { getRuntimeKey } = await import('@/lib/runtime-switch');
   const { resolveSentStart, sentStartStoppedBy } = await import('@/sync/native-draft-sent');

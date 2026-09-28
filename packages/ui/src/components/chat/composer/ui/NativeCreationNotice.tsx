@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, releaseSentStart, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere, STOPPED_PHASES } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
@@ -65,7 +65,13 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
         setStop({ id: operation.operationId, busy: true });
         void stopBlockingStart(operation).then(() => {
           setStop(null);
-          if (draft.directoryOverride) void resolveSentStart(getRuntimeKey(), draft.directoryOverride, draft.draftId, ownNativeRequestId(draft, getRuntimeKey()));
+          const key = getRuntimeKey(), directory = draft.directoryOverride;
+          // The person's own explicit Stop settled the start this draft's sent text belongs to (smarty-code#523, 3.45):
+          // this tab no longer continues it, so it is read now and the text comes back, not left locked until "check
+          // again" (the own-request exemption is for a start this tab still sends through).
+          const mine = !!directory && operation.clientRequestId !== undefined && sentStartRequest(key, directory) === operation.clientRequestId;
+          if (mine) releaseSentStart(operation.clientRequestId);
+          if (directory) void resolveSentStart(key, directory, draft.draftId, mine ? undefined : ownNativeRequestId(draft, key));
           native.refresh();
         }, error => setStop({ id: operation.operationId, busy: false, error }));
       }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
