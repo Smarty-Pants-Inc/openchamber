@@ -49,11 +49,15 @@ import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import type { SessionPositions } from '@/sync/session-message-loader';
+import { ScrollToStartButton } from './components/ScrollToStartButton';
+import { WINDOW_RECORDS } from './components/GapRow';
 import { useStreamingStore } from '@/sync/streaming';
 import {
     useSessionMessageCount,
     useSessionMessageRecords,
     useSessionMessageLoadState,
+    useSessionMessageLoader,
     useSyncDirectory,
     useSessionRenderable,
     useSessionStatus,
@@ -220,6 +224,10 @@ type ChatViewportProps = {
     canLoadEarlierPrompts: boolean;
     isLoadingOlderPrompts: boolean;
     onLoadEarlierPrompts: () => void;
+    /** smarty-code#583: the whole session as positions, and the window loader. */
+    positions?: SessionPositions;
+    positionOf?: (messageId: string) => number | undefined;
+    onLoadWindow?: (start: number, limit: number) => void;
 };
 
 const ChatViewport = React.memo(({
@@ -256,6 +264,9 @@ const ChatViewport = React.memo(({
     onSelectTurn,
     showPromptNavigator,
     canLoadEarlierPrompts,
+    positions,
+    positionOf,
+    onLoadWindow,
     isLoadingOlderPrompts,
     onLoadEarlierPrompts,
 }: ChatViewportProps) => {
@@ -514,6 +525,9 @@ const ChatViewport = React.memo(({
                     retryOverlay={retryOverlay}
                     isLoadingOlder={isLoadingOlder}
                     hasOlderHistory={canLoadEarlierPrompts}
+                    positions={positions}
+                    positionOf={positionOf}
+                    onLoadWindow={onLoadWindow}
                     scrollToBottom={scrollToBottom}
                     endPinningReleased={endPinningReleased}
                     directory={directory}
@@ -576,7 +590,10 @@ const ChatViewport = React.memo(({
         && prev.showPromptNavigator === next.showPromptNavigator
         && prev.canLoadEarlierPrompts === next.canLoadEarlierPrompts
         && prev.isLoadingOlderPrompts === next.isLoadingOlderPrompts
-        && prev.onLoadEarlierPrompts === next.onLoadEarlierPrompts;
+        && prev.onLoadEarlierPrompts === next.onLoadEarlierPrompts
+        && prev.positions === next.positions
+        && prev.positionOf === next.positionOf
+        && prev.onLoadWindow === next.onLoadWindow;
 });
 
 ChatViewport.displayName = 'ChatViewport';
@@ -829,6 +846,23 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         effectiveSessionDirectory,
     );
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
+    // smarty-code#583: windows of the whole session by position (the gateway's range read).
+    const messageLoader = useSessionMessageLoader();
+    const windowTarget = React.useMemo(() => (currentSessionId && effectiveSessionDirectory
+        ? { sessionID: currentSessionId, directory: effectiveSessionDirectory } : null), [currentSessionId, effectiveSessionDirectory]);
+    const positionOf = React.useCallback((messageId: string) => (windowTarget ? messageLoader.positionOf(windowTarget, messageId) : undefined),
+        // The loaded ranges change whenever a position is recorded: re-read positions then.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [messageLoader, windowTarget, sessionMessageLoadState.positions]);
+    // "Beginning": the session's first window, then its first rows (smarty-code#583).
+    const goToBeginning = React.useCallback(() => {
+        if (!windowTarget) return;
+        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
+            .then(() => requestAnimationFrame(() => messageListRef.current?.scrollToStart()));
+    }, [messageLoader, windowTarget]);
+    const loadWindow = React.useCallback((start: number, limit: number) => {
+        if (windowTarget) void messageLoader.loadAt(windowTarget, start, limit).catch(() => undefined);
+    }, [messageLoader, windowTarget]);
 
     React.useEffect(() => {
         if (!active || !currentSessionKey || !hasRenderableSessionSnapshot || sessionMessages.length === 0) return;
@@ -1606,6 +1640,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 canLoadEarlierPrompts={canLoadEarlierPrompts}
                 isLoadingOlderPrompts={timelineController.isLoadingOlder}
                 onLoadEarlierPrompts={handleLoadOlderClick}
+                positions={sessionMessageLoadState.positions}
+                positionOf={positionOf}
+                onLoadWindow={loadWindow}
             />
         );
     })();
@@ -1636,6 +1673,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             working={sessionIsWorking}
                             onClick={navigation.resumeToLatest}
                         />
+                        {sessionMessageLoadState.positions ? (
+                            <ScrollToStartButton
+                                visible={timelineController.showScrollToBottom}
+                                onClick={goToBeginning}
+                            />
+                        ) : null}
                         {/* Same anchor and column as the pill, so the status
                             row and the pill it hands off to share the exact
                             distance from the input and the same left edge. */}

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import { projectTurnRecords, rememberShownOrphans } from './projectTurnRecords';
-import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry } from './renderEntries';
+import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, insertGaps } from './renderEntries';
+import { gapsOf } from '@/sync/position-windows';
 import type { ChatMessageEntry } from './types';
 
 const entry = (id: string, role: 'user' | 'assistant', parentID?: string): ChatMessageEntry => ({
@@ -63,5 +64,28 @@ describe('an older page arriving under the reader (smarty-code#583)', () => {
     test('a session opened fresh (nothing shown yet) still groups a turn\'s replies under it', () => {
         const kept = new Set<string>();
         expect(keysOf([entry('u0', 'user'), entry('a0', 'assistant', 'u0')], false, kept).keys).toEqual(['turn:u0']);
+    });
+});
+
+// smarty-code#583: the list as long as the whole session.
+describe('gap rows for the unloaded parts of a session (smarty-code#583)', () => {
+    const positions = new Map<string, number>();
+    const at = (id: string, position: number) => { positions.set(id, position); return id; };
+    const messages = [entry(at('u10', 10), 'user'), entry(at('a11', 11), 'assistant', 'u10'), entry(at('u500', 500), 'user'), entry(at('a501', 501), 'assistant', 'u500')];
+    const rows = () => {
+        const projection = projectTurnRecords(messages, { showLeadingOrphans: true });
+        return assembleRenderEntries(buildStaticRenderEntries(projection.turns, projection.lastTurnId, messages, projection.ungroupedMessageIds),
+            buildTrailingUngroupedEntry(messages, projection.ungroupedMessageIds));
+    };
+
+    test('each gap sits where its records belong, at its estimated height; gaps after the last row are left to the live tail', () => {
+        const listed = insertGaps(rows(), gapsOf([{ start: 10, end: 12 }, { start: 500, end: 502 }], 600), (id) => positions.get(id), 100);
+        expect(listed.map((row) => row.key)).toEqual(['gap:0', 'turn:u10', 'gap:12', 'turn:u500']);
+        expect(listed.filter((row) => row.kind === 'gap').map((row) => (row as { heightPx: number }).heightPx)).toEqual([1_000, 48_800]);
+    });
+
+    test('without gaps the rows are unchanged', () => {
+        const all = rows();
+        expect(insertGaps(all, [], (id) => positions.get(id), 100)).toBe(all);
     });
 });

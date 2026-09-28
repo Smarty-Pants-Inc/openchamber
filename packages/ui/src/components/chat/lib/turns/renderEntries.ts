@@ -10,6 +10,11 @@ export type RenderEntry =
     }
     | { kind: 'turn'; key: string; turn: TurnRecord; isLastTurn: boolean; nextEntryFirstMessage?: ChatMessageEntry };
 
+/** smarty-code#583: the records at positions [start, end) not loaded yet, drawn at their estimated height. */
+export type GapEntry = { kind: 'gap'; key: string; start: number; end: number; heightPx: number };
+/** A row of the list: a message row, or a gap of the whole session not loaded yet. */
+export type TimelineEntry = RenderEntry | GapEntry;
+
 /** Static rows in message order: each turn at its user message, each ungrouped message on its own. */
 export const buildStaticRenderEntries = (
     staticTurns: TurnRecord[],
@@ -78,4 +83,34 @@ export const assembleRenderEntries = (
     const at = order.get(trailing.turn.userMessage.info.id) ?? Number.POSITIVE_INFINITY;
     const split = rest.findIndex((entry) => entry.kind === 'ungrouped' && (order.get(entry.message.info.id) ?? -1) > at);
     return split < 0 ? [...rest, trailing] : [...rest.slice(0, split), trailing, ...rest.slice(split)];
+};
+
+/** The first message a row shows (its user message, or the message itself); none for a gap. */
+export const firstMessageIdOf = (entry: TimelineEntry): string | undefined =>
+    entry.kind === 'turn' ? entry.turn.userMessage.info.id : entry.kind === 'ungrouped' ? entry.message.info.id : undefined;
+
+/**
+ * smarty-code#583: the list sized to the whole session. Each unloaded range of positions becomes one gap row placed
+ * where its records belong: before the first row whose first message sits at or after the gap's end. Gaps after the
+ * last loaded row (records appended but not loaded) are left out: the live tail arrives by events.
+ */
+export const insertGaps = (
+    entries: RenderEntry[],
+    gaps: readonly { start: number; end: number; key: string }[],
+    positionOf: (messageId: string) => number | undefined,
+    recordPx: number,
+): TimelineEntry[] => {
+    if (gaps.length === 0) return entries;
+    const out: TimelineEntry[] = [];
+    let next = 0;
+    for (const entry of entries) {
+        const id = firstMessageIdOf(entry);
+        const position = id === undefined ? undefined : positionOf(id);
+        while (position !== undefined && next < gaps.length && gaps[next]!.end <= position) {
+            const gap = gaps[next++]!;
+            out.push({ kind: 'gap', key: gap.key, start: gap.start, end: gap.end, heightPx: Math.max(1, Math.round((gap.end - gap.start) * recordPx)) });
+        }
+        out.push(entry);
+    }
+    return out;
 };

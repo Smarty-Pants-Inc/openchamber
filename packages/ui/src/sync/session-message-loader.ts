@@ -304,6 +304,10 @@ export class SessionMessageLoader {
     if (!normalized || this.disposed) return Promise.resolve()
     const entry = this.getEntry(normalized)
     if (entry.inflight) return entry.inflight.then(() => this.loadOlder(normalized))
+    // With positions (smarty-code#583) an older page is the window just before the first loaded range.
+    const first = entry.snapshot.positions?.ranges[0]
+    if (first) return first.start > 0 ? this.loadAt(normalized, Math.max(0, first.start - HISTORY_MESSAGE_PAGE_SIZE),
+      first.start - Math.max(0, first.start - HISTORY_MESSAGE_PAGE_SIZE)) : Promise.resolve()
     if (entry.snapshot.complete || !entry.snapshot.cursor) return Promise.resolve()
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     const cursor = entry.snapshot.cursor
@@ -903,7 +907,9 @@ export class SessionMessageLoader {
           limit,
           before,
           // smarty-code#583: a window by position (the gateway's range read); the SDK passes `$query_` keys through.
-          ...(at !== undefined ? { $query_at: at } : {}),
+          // A newest page asks from the end (`at=-n`): the gateway then tells its position and the session's size. An
+          // older gateway ignores `at` and serves the same newest page.
+          ...(at !== undefined ? { $query_at: at } : before === undefined && limit <= 500 ? { $query_at: -limit } : {}),
         } as Parameters<OpencodeClient["session"]["messages"]>[0])
         assertSdkSuccess(response, "session.messages")
         const data = response.data
@@ -1023,7 +1029,27 @@ export class SessionMessageLoader {
     if (fresh) entry.positionOf.clear()
     const ranges = addRange(fresh ? [] : previous.ranges, { start: page.at, end: page.at + page.session.length })
     for (const [index, message] of page.session.entries()) entry.positionOf.set(message.id, page.at + index)
-    this.patchEntry(entry, { positions: { total: page.total, ranges, epoch: page.indexEpoch } })
+    // The history above is complete once position 0 is loaded (its first range starts there).
+    this.patchEntry(entry, { positions: { total: page.total, ranges, epoch: page.indexEpoch }, complete: ranges[0]?.start === 0 })
+  }
+
+  /**
+   * smarty-code#583: the gateway's `session.index` event: the session's record count (and index epoch) changed. The list
+   * grows without a read; a new epoch drops the recorded ranges. A session whose newest page came without positions (a
+   * first open while the gateway built its index) reads its newest page again to learn them.
+   */
+  noteIndex(target: SessionMessageTarget, total: number, epoch: string | undefined): void {
+    const normalized = this.normalizeTarget(target)
+    const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    if (!normalized || !entry || this.disposed || !Number.isInteger(total) || total < 0) return
+    const previous = entry.snapshot.positions
+    if (!previous) {
+      if (entry.snapshot.resolved) void this.refreshTail(normalized, Math.min(500, Math.max(1, entry.snapshot.limit))).catch(() => undefined)
+      return
+    }
+    const fresh = previous.epoch !== epoch
+    if (fresh) entry.positionOf.clear()
+    this.patchEntry(entry, { positions: { total, ranges: fresh ? [] : previous.ranges, epoch } })
   }
 
   /** The loaded message's position in the whole session, when the gateway serves positions (smarty-code#583). */
