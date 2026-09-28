@@ -7,6 +7,7 @@ import { withoutStaleOrdinaryRows } from "./ordinary-stale-rows"
 import { mergeOptimisticPage, type OptimisticItem } from "./optimistic"
 import { findMessageIndex, insertMessageChronologically, sortMessagesChronologically } from "./message-ordering"
 import { stripMessageDiffSnapshots } from "./sanitize"
+import { addRange, type Range } from "./position-windows"
 import { getSessionMaterializationStatus, materializeSessionSnapshots } from "./materialization"
 import {
   clearDirectorySessionPrefetch,
@@ -50,7 +51,14 @@ export type SessionMessageLoadState = {
   ordinaryView?: string
   /** Smarty gateway (#181): a fleet session shown view-only until it is enrolled. */
   readOnly?: boolean
+  /**
+   * smarty-code#583: the whole session as positions, when the gateway serves them (`x-smarty-total`): its record count
+   * and the loaded ranges of positions. The page sizes the list to the whole session and loads the windows it shows.
+   */
+  positions?: SessionPositions
 }
+
+export type SessionPositions = { total: number; ranges: Range[]; epoch?: string }
 
 type LoaderEntry = {
   target: SessionMessageTarget
@@ -66,6 +74,9 @@ type LoaderEntry = {
   loadedOnce: boolean
   queuedRefresh: Promise<void> | null
   queuedRefreshLimit: number
+  /** smarty-code#583: each loaded message's position in the whole session, and the window reads in flight. */
+  positionOf: Map<string, number>
+  windowLoads: Map<string, Promise<void>>
   optimistic: Map<string, OptimisticItem>
   ordinary: boolean
   resetHistory: boolean
@@ -87,6 +98,10 @@ type LoaderEntry = {
 const REPLACE_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
 
 type FetchedPage = {
+  /** smarty-code#583: the position of the page's first record and the session's record count, when served. */
+  at?: number
+  total?: number
+  indexEpoch?: string
   session: Message[]
   partsByMessageID: Map<string, Part[]>
   cursor: string | undefined
@@ -699,6 +714,8 @@ export class SessionMessageLoader {
       openUnanswered: false,
       loadedOnce: false,
       queuedRefresh: null,
+      positionOf: new Map(),
+      windowLoads: new Map(),
       queuedRefreshLimit: 0,
       optimistic: new Map(),
       ordinary: false,
@@ -858,6 +875,7 @@ export class SessionMessageLoader {
     caller: "initial-page" | "older" | "refresh" = "initial-page",
     performance?: LoadPerformanceDetails,
     cancelled?: () => boolean,
+    at?: number,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
@@ -884,7 +902,9 @@ export class SessionMessageLoader {
           directory: target.directory,
           limit,
           before,
-        })
+          // smarty-code#583: a window by position (the gateway's range read); the SDK passes `$query_` keys through.
+          ...(at !== undefined ? { $query_at: at } : {}),
+        } as Parameters<OpencodeClient["session"]["messages"]>[0])
         assertSdkSuccess(response, "session.messages")
         const data = response.data
         if (!Array.isArray(data)) {
@@ -913,7 +933,8 @@ export class SessionMessageLoader {
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
-      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead }
+      const position = readPositionHeaders(result.response?.headers)
+      return { session, partsByMessageID, cursor, complete: !cursor, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -990,7 +1011,52 @@ export class SessionMessageLoader {
       entry.resetHistory = false
       this.patchEntry(entry, { ordinaryView: page.ordinaryView, readOnly: page.readOnly })
     }
+    this.notePositions(entry, page, reset)
     return { messages: materialized.messages }
+  }
+
+  /** smarty-code#583: records which positions a committed page covered; a new index epoch (or a reset) starts over. */
+  private notePositions(entry: LoaderEntry, page: FetchedPage, reset: boolean): void {
+    if (page.total === undefined || page.at === undefined) return
+    const previous = entry.snapshot.positions
+    const fresh = reset || !previous || previous.epoch !== page.indexEpoch
+    if (fresh) entry.positionOf.clear()
+    const ranges = addRange(fresh ? [] : previous.ranges, { start: page.at, end: page.at + page.session.length })
+    for (const [index, message] of page.session.entries()) entry.positionOf.set(message.id, page.at + index)
+    this.patchEntry(entry, { positions: { total: page.total, ranges, epoch: page.indexEpoch } })
+  }
+
+  /** The loaded message's position in the whole session, when the gateway serves positions (smarty-code#583). */
+  positionOf(target: SessionMessageTarget, messageID: string): number | undefined {
+    const normalized = this.normalizeTarget(target)
+    return normalized ? this.entries.get(this.keyFor(normalized))?.positionOf.get(messageID) : undefined
+  }
+
+  /**
+   * smarty-code#583: loads the window of `limit` records from position `at` (a gap the reader reached, a jump, a
+   * scrollbar drag). It merges into the shown history like any page; positions keep it in place in the whole session.
+   */
+  loadAt(target: SessionMessageTarget, at: number, limit: number): Promise<void> {
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed) return Promise.resolve()
+    const entry = this.getEntry(normalized)
+    const key = `${at}:${limit}`
+    const pending = entry.windowLoads.get(key)
+    if (pending) return pending
+    const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
+    const generation = entry.snapshot.generation, sdkEpoch = this.sdkEpoch
+    const isCurrent = () => !this.disposed && this.sdkEpoch === sdkEpoch && entry.snapshot.generation === generation
+      && this.childStores.getChild(normalized.directory) === store
+    // Windows read beside the loader's own loads: they only add records at known positions, and a stale one (a new
+    // open, another view) commits nothing.
+    const load = this.fetchPage(normalized, limit, undefined, "older", undefined, () => !isCurrent(), at)
+      .then((page) => {
+        if (!isCurrent()) return
+        this.commitPage(normalized, entry, store, page, "prepend", isCurrent)
+      })
+      .finally(() => { entry.windowLoads.delete(key) })
+    entry.windowLoads.set(key, load)
+    return load
   }
 
   private persistCoverage(target: SessionMessageTarget, state: SessionMessageLoadState): void {
@@ -1048,4 +1114,16 @@ export function setImperativeSessionMessageLoader(loader: SessionMessageLoader |
 
 export function getImperativeSessionMessageLoader(): SessionMessageLoader | null {
   return imperativeLoader
+}
+
+/** smarty-code#583: the gateway's position headers for a page, when it serves them (the range read contract). */
+function readPositionHeaders(headers: Headers | undefined): { at?: number; total?: number; indexEpoch?: string } {
+  const number = (name: string) => {
+    const value = headers?.get?.(name)
+    const parsed = value === null || value === undefined ? NaN : Number(value)
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+  }
+  const total = number("x-smarty-total"), at = number("x-smarty-at")
+  const indexEpoch = headers?.get?.("x-smarty-index-epoch") ?? undefined
+  return total === undefined || at === undefined ? {} : { at, total, ...(indexEpoch ? { indexEpoch } : {}) }
 }
