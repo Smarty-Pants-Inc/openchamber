@@ -38,6 +38,17 @@ describe('registry token containment', () => {
     expect(out).toBe('kept clean clean clean');
   });
 
+  it('fails closed: when the native removal cannot load or does not succeed, startup stops; with no token nothing is needed', async () => {
+    const { takeRegistryToken } = await import('./registry-token.js');
+    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => { throw new Error('no bun:ffi'); })).toThrow(/not starting/);
+    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => () => -1)).toThrow(/not starting/);
+    expect(() => takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => undefined)).toThrow(/not starting/);
+    const env = { NODE_REGISTRY_TOKEN: 'x' };
+    expect(takeRegistryToken(env, () => () => 0)).toBe('x'); expect(env.NODE_REGISTRY_TOKEN).toBeUndefined();
+    expect(takeRegistryToken({ NODE_REGISTRY_TOKEN: 'x' }, () => null)).toBe('x'); // Node: the JS delete is the real one
+    expect(takeRegistryToken({}, () => { throw new Error('never asked'); })).toBe('');
+  });
+
   it('the server never uses Bun.spawn with its default environment (Bun keeps its own start-up copy of it)', () => {
     // The server's own sources (a file walk, not git: CI copies may have no .git).
     const files = readdirSync(server, { recursive: true }).map(String)
