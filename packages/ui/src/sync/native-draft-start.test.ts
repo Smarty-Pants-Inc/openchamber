@@ -1,10 +1,13 @@
-import { afterEach, expect, test } from 'bun:test';
+import * as catalogRead from '@/lib/managed-project-refresh';
+import * as gitApiModule from '@/lib/gitApi';
+import type { GitWorktreeBootstrapStatus } from '@/lib/api/types';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import type { NativeCreationReply, NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useInputStore } from './input-store';
 import { nativeCreationForDraft } from './native-draft-creation';
 import { deferred, directory, nativeDraftFixture, session } from './native-draft-fixture';
-import { resetNativeDraftPage, startNativeDraft, startNativeDraftAgain } from './native-draft-start';
+import { resetNativeDraftPage, startNativeDraft, startNativeDraftAgain, worktreeReadyLimits } from './native-draft-start';
 import { useSessionUIStore } from './session-ui-store';
 import { opencodeClient } from '@/lib/opencode/client';
 
@@ -308,6 +311,85 @@ for (const change of ['runtime', 'draft', 'project'] as const) {
     expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
   });
 }
+
+for (const change of ['runtime', 'draft'] as const) {
+  test(`a ${change} change while a new worktree's catalog read is held creates nothing (smarty-code#629)`, async () => {
+    fixture = nativeDraftFixture(); listed = [];
+    const draft = useSessionUIStore.getState().newSessionDraft, tree = `${draft.directoryOverride ?? '/native-project'}-new`;
+    useSessionUIStore.setState({ newSessionDraft: { ...draft, directoryOverride: tree, bootstrapPendingDirectory: tree } });
+    const saved = useProjectsStore.getState();
+    useProjectsStore.setState({ managedCatalogAdmitted: true, managedRows: [] });
+    const held = deferred<void>(), read = spyOn(catalogRead, 'refreshManagedProjects').mockImplementation(() => held.promise);
+    const ready = spyOn(gitApiModule, 'getGitWorktreeBootstrapStatus').mockImplementation(async () => ({ status: 'ready', phase: 'setup-ready', error: null, updatedAt: 1 }));
+    try {
+      const pending = startNativeDraft([], noWait);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(read).toHaveBeenCalledTimes(1);
+      if (change === 'runtime') fixture.switchRuntime('other-runtime'); else fixture.target('b', '/native-project-b');
+      held.resolve();
+      expect(await failure(pending)).toBe('stale');
+      expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+    } finally {
+      read.mockRestore(); ready.mockRestore();
+      useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedRows: saved.managedRows });
+    }
+  });
+}
+
+for (const outcome of ['ready', 'failed', 'stalled'] as const) {
+  test(`a managed worktree still being set up: nothing starts until the server reads it ready (${outcome}; openchamber#331 review)`, async () => {
+    interactive();
+    // Failed and stalled: no page-side marks at all (as after a reload): the server's own bootstrap status decides. Ready:
+    // the draft's '+ New' mark is set only so the start's NEXT step (the new tree's catalog read) shows it went past the gate.
+    if (outcome === 'ready') {
+      const draft = useSessionUIStore.getState().newSessionDraft;
+      useSessionUIStore.setState({ newSessionDraft: { ...draft, bootstrapPendingDirectory: draft.directoryOverride } });
+    }
+    const saved = useProjectsStore.getState(), limits = { ...worktreeReadyLimits };
+    useProjectsStore.setState({ managedCatalogAdmitted: true, managedRows: [] });
+    Object.assign(worktreeReadyLimits, { requestMs: 30, totalMs: 5_000, pollMs: 5 });
+    const answers: GitWorktreeBootstrapStatus[] = [{ status: 'pending', phase: 'git-ready', error: null, updatedAt: 1 },
+      { status: 'pending', phase: 'git-ready', error: null, updatedAt: 2 }];
+    let reads = 0;
+    const status = spyOn(gitApiModule, 'getGitWorktreeBootstrapStatus').mockImplementation(async () => {
+      reads += 1;
+      if (reads <= answers.length) return answers[reads - 1]!;
+      if (outcome === 'stalled') return new Promise<GitWorktreeBootstrapStatus>(() => {});
+      return outcome === 'ready' ? { status: 'ready', phase: 'setup-ready', error: null, updatedAt: 3 }
+        : { status: 'failed', phase: 'git-ready', error: 'setup command failed', updatedAt: 3 };
+    });
+    const next = spyOn(catalogRead, 'refreshManagedProjects').mockImplementation(async () => {});
+    try {
+      const result = await failure(startNativeDraft([], noWait));
+      expect(reads).toBe(3); // Pending twice, then the outcome: the start polled the server.
+      expect(fixture.prompts()).toHaveLength(0);
+      if (outcome === 'ready') expect(next).toHaveBeenCalledTimes(1); // Past the gate.
+      else { expect(result).toBe('target'); expect(next).not.toHaveBeenCalled(); expect(fixture.creates()).toHaveLength(0); }
+    } finally {
+      status.mockRestore(); next.mockRestore(); Object.assign(worktreeReadyLimits, limits);
+      useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedRows: saved.managedRows });
+    }
+  });
+}
+
+test('a Send while \'+ New\' is still making the tree is refused before any read, even though the server would read ready (openchamber#331 review 2)', async () => {
+  interactive();
+  const draft = useSessionUIStore.getState().newSessionDraft;
+  useSessionUIStore.setState({ newSessionDraft: { ...draft, pendingWorktreeRequestId: 'worktree_1', bootstrapPendingDirectory: draft.directoryOverride } });
+  const saved = useProjectsStore.getState();
+  useProjectsStore.setState({ managedCatalogAdmitted: true, managedRows: [] });
+  // The server's default for a directory with no bootstrap record yet.
+  const status = spyOn(gitApiModule, 'getGitWorktreeBootstrapStatus').mockImplementation(async () => ({ status: 'ready', phase: 'setup-ready', error: null, updatedAt: 1 }));
+  const next = spyOn(catalogRead, 'refreshManagedProjects').mockImplementation(async () => {});
+  try {
+    expect(await failure(startNativeDraft([], noWait))).toBe('target');
+    expect(status).not.toHaveBeenCalled(); expect(next).not.toHaveBeenCalled();
+    expect(fixture.creates()).toHaveLength(0); expect(fixture.prompts()).toHaveLength(0);
+  } finally {
+    status.mockRestore(); next.mockRestore();
+    useProjectsStore.setState({ managedCatalogAdmitted: saved.managedCatalogAdmitted, managedRows: saved.managedRows });
+  }
+});
 
 test('a saved id blocks a second create after a reload, even while the list is empty or fails; its exact match recovers later', async () => {
   interactive();
