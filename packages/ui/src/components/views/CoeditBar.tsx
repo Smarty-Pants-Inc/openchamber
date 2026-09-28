@@ -28,8 +28,8 @@ export function CoeditBar({ room }: { room: CoeditRoom }) {
             </div>
             {room.conflict && (
                 <div role="alert" data-coedit-conflict={room.conflict.kind}
-                    className="flex items-start gap-2 border-t border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-3 py-2 typography-ui text-[var(--status-warning-foreground)]">
-                    <Icon name="error-warning" className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    className="flex items-start gap-2 border-t border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-3 py-2 typography-ui text-foreground">
+                    <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" aria-hidden />
                     <span className="min-w-0 flex-1">{t(coeditConflictNoticeKey(room.conflict.kind))}</span>
                     <button type="button" onClick={room.dismissConflict} className="shrink-0 underline-offset-2 hover:underline">
                         {t('filesView.coedit.dismiss')}
