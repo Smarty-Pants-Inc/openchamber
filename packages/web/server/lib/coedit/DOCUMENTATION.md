@@ -8,6 +8,9 @@ and tools keep writing the same file (smartyfs#18, co-editing slice 1). The file
 - `disk-bridge.js`: `createDiskBridge({ root, file, doc, recoveryDir, onConflict })`, the disk side of one room.
 - `safe-file.js`: the file operations (`openParent`, `readSettled`, `publish`, `keepForRecovery`).
 - `rooms.js`: `attachCoeditRooms(...)`, Hocuspocus rooms on the WebSocket path `/api/coedit?directory=<project>&path=<file>`.
+  - `GET /api/coedit/room?directory=&path=` → `{ name }`: the room's name (the file's canonical path), with the same checks
+    as the upgrade. The client knows only the Files view's path (a project may be reached through a link), so it asks
+    for the name and gives it to its provider. Every spelling of one file then joins one room, with one disk bridge.
   - One room per file, keyed by its canonical path.
   - An upgrade passes the app's WebSocket guards (`upgradeGuards` in `../realtime-proxy.js`: an allowed origin and an
     authenticated session; in human mode, the signed-in person), then admission.

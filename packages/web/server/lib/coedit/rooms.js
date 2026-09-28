@@ -7,6 +7,8 @@ import { createDiskBridge } from './disk-bridge.js';
 
 /** Co-editing rooms' WebSocket path: `?directory=<project>&path=<file>` names the one file a connection may edit. */
 export const COEDIT_WS_PATH = '/api/coedit';
+/** GET `?directory=&path=` → `{ name }`: the room's name (the file's canonical path), which the client's provider uses. */
+export const COEDIT_ROOM_PATH = '/api/coedit/room';
 /** A stateless message to the room's clients when a save could not be published (the editor shows it). */
 export const CONFLICT_MESSAGE = 'coedit-conflict';
 
@@ -21,7 +23,7 @@ export const CONFLICT_MESSAGE = 'coedit-conflict';
  *   over the revision last read; a conflict is broadcast to the room and kept for recovery.
  */
 export function attachCoeditRooms({
-  server, ensureAuthenticated, originAllowed, getUiAuthController, rejectWebSocketUpgrade, admit, recoveryRoot,
+  app, server, ensureAuthenticated, originAllowed, getUiAuthController, rejectWebSocketUpgrade, admit, recoveryRoot,
   createBridge = createDiskBridge, debounce = 2000,
 }) {
   const bridges = new Map();
@@ -61,7 +63,7 @@ export function attachCoeditRooms({
   const connect = (ws, req, room) => {
     const url = `http://${req.headers.host || '127.0.0.1'}${req.url || '/'}`;
     const headers = new Headers();
-    for (const [name, value] of Object.entries(req.headers)) if (typeof value === 'string') headers.set(name, value);
+    for (const [name, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(name, String(value));
     const connection = hocuspocus.handleConnection(ws, new Request(url, { headers }), room);
     ws.on('message', (data) => connection.handleMessage(new Uint8Array(data)));
     ws.on('close', (code, reason) => connection.handleClose({ code, reason: String(reason) }));
@@ -82,11 +84,27 @@ export function attachCoeditRooms({
       }
       const room = { room: admitted.file, root: admitted.root, file: admitted.file };
       const upgrade = () => wsServer.handleUpgrade(req, socket, head, (ws) => connect(ws, req, room));
-      const controller = typeof getUiAuthController === 'function' ? getUiAuthController() : null;
+      const controller = getUiAuthController?.() ?? null;
       if (controller?.humanMode) await controller.requireUpgradeAuth(req, socket, upgrade, rejectWebSocketUpgrade);
       else upgrade();
     })().catch(() => rejectWebSocketUpgrade(socket, 403, 'Forbidden'));
   };
+
+  // The client knows the Files view's path, not the canonical one (a project reached through a link): the room is
+  // named here, with the same checks as the upgrade, so every client of one file joins one room.
+  app?.get(COEDIT_ROOM_PATH, async (req, res) => {
+    if (!await ensureAuthenticated(req, res).catch(() => false)) {
+      if (!res.headersSent) res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    if (!await originAllowed(req).catch(() => false)) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      const admitted = await admit(req, { directory: String(req.query.directory ?? ''), path: String(req.query.path ?? '') });
+      res.json({ name: admitted.file });
+    } catch {
+      res.status(403).json({ error: 'Forbidden' });
+    }
+  });
 
   server.on('upgrade', upgradeHandler);
   return {
