@@ -12,8 +12,8 @@ import { toast } from '@/components/ui/toast';
 import { resetGoneSessionNotices } from '@/sync/gone-session-notice';
 
 // smarty-code#775 (folds #761): a session that is no longer available used to vanish into an empty draft without a
-// word. The page now says so once, in the gateway's own 404 words (#758), or in the same words when its directory left.
-const GATEWAY = 'This session is no longer available: its Pi ended or its worktree was removed. (gateway)';
+// word. The page now says so once, in #758's words, after the gateway's 404 (or at once when its directory left).
+const GATEWAY = 'Unknown Pi session in requested project'; // One of the gateway's 404 texts: not for a person.
 const DEFAULT = 'This session is no longer available: its Pi ended or its worktree was removed.';
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 const shown: string[] = [];
@@ -60,11 +60,11 @@ async function reloadWithRemembered(listedDirectory: boolean) {
   });
 }
 
-test('reload: a remembered session whose Pi ended is named gone, in the gateway\'s own words, once', async () => {
+test('reload: a remembered session whose Pi ended is named gone after the gateway\'s 404, once, in words for a person', async () => {
   await reloadWithRemembered(true);
   expect(useSessionUIStore.getState().currentSessionId).toBeNull();
   expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true); // The draft stays the next step.
-  expect(shown).toEqual([GATEWAY]);
+  expect(shown).toEqual([DEFAULT]);
   expect(reads).toBe(1);
 });
 
