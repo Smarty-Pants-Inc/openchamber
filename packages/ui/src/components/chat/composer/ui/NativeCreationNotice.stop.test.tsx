@@ -185,6 +185,30 @@ test('text back after a start someone stopped says who stopped it', async () => 
   } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
 });
 
+// smarty-code#768: text back after an expired start says what the start waited for; without a reason, today's line.
+test('text back after an expired start says what it waited for, when its gateway says', async () => {
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  const { resolveSentStart } = await import('@/sync/native-draft-sent');
+  const { createChatDraftIdentity, claimChatDraftOwnership, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+  const markKey = `oc.nativeCreation.sent:${JSON.stringify([getRuntimeKey(), '/project'])}`;
+  const original = opencodeClient.listNativeCreations;
+  try {
+    for (const [id, waitingFor, line] of [
+      ['6666ffff-expired', 'trust not answered', nativeCreationI18n.en['chat.nativeCreation.sentExpiredWaiting'].replace('{waitingFor}', 'trust not answered')],
+      ['7777aaaa-expired', undefined, nativeCreationI18n.en['chat.nativeCreation.sentExpired']]] as const) {
+      const op = { ...blocking(id, -1), phase: 'expired' as const, ...(waitingFor ? { waitingFor } : {}) };
+      const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
+      claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
+      localStorage.setItem(markKey, JSON.stringify({ clientRequestId: op.clientRequestId, operationId: op.operationId }));
+      // SAFETY: a test double with the client method's own call shape.
+      opencodeClient.listNativeCreations = (async () => [op]) as typeof original;
+      expect(await resolveSentStart(getRuntimeKey(), '/project', identity.draftId!)).toBe('expired');
+      await act(async () => root.render(<NativeCreationNotice native={native([], [])} draftOpen sent="expired" />));
+      expect(host.querySelector('[role="alert"]')?.textContent).toBe(line);
+    }
+  } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
+});
+
 test('a late read of an older start never names the wrong person for a newer one', async () => {
   const { getRuntimeKey } = await import('@/lib/runtime-switch');
   const { resolveSentStart, sentStartStoppedBy } = await import('@/sync/native-draft-sent');

@@ -20,6 +20,8 @@ const nativeCreationStateSchema = z.object({
   // Who stopped an abandoned start (smarty-code#523, #548): the gateway's signed-in person, on a 'cancelled' start only.
   stoppedBy: z.object({ issuer: z.string().min(1).max(256), subject: z.string().min(1).max(256), name: z.string().min(1).max(256) })
     .strict().optional(),
+  // What an expired start waited for (smarty-code#768, #757), in the gateway's words: on an 'expired' start only.
+  waitingFor: z.string().min(1).max(64).optional(),
 }).strict();
 export const nativeCreationResponseSchema = z.object({ nativeCreation: nativeCreationStateSchema }).strict();
 export const nativeCreationListSchema = z.object({ nativeCreations: z.array(nativeCreationStateSchema) }).strict();

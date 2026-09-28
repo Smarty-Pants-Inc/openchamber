@@ -45,6 +45,9 @@ const outcomes = new Map<string, SentStartOutcome>();
 /** Who stopped the start a slot's text was sent to, when its gateway says (smarty-code#523). */
 const stoppers = new Map<string, string>();
 export const sentStartStoppedBy = (runtimeKey: string, directory: string): string | undefined => stoppers.get(slot(runtimeKey, directory));
+/** What the expired start a slot's text was sent to waited for, when its gateway says (smarty-code#768). */
+const waits = new Map<string, string>();
+export const sentStartWaitingFor = (runtimeKey: string, directory: string): string | undefined => waits.get(slot(runtimeKey, directory));
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
@@ -221,6 +224,7 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
     // Who stopped it is committed with the outcome, under the same check: a late read never names someone else.
     if (superseded()) return outcomes.get(key) ?? null;
     if (start.stoppedBy?.name) stoppers.set(key, start.stoppedBy.name); else stoppers.delete(key);
+    if (start.phase === 'expired' && start.waitingFor) waits.set(key, start.waitingFor); else waits.delete(key);
     return settle(start.phase);
   }
   // Still starting: pending. Not readable ('unavailable'), not listed, or no user message: unknown.

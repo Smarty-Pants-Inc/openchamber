@@ -107,7 +107,12 @@ describe('who stopped a start', () => {
     expect((await opencodeClient.listNativeCreations('/project'))[0]?.stoppedBy).toEqual(stoppedBy);
     expect((await opencodeClient.readNativeCreation('/project', op().operationId)).stoppedBy?.name).toBe('Kate');
     expect((await opencodeClient.abandonNativeCreation('/project', op().operationId)).phase).toBe('cancelled');
-    expect(asked).toEqual(['stoppedBy', 'stoppedBy', 'stoppedBy']);
+    expect(asked).toEqual(['stoppedBy,waitingFor', 'stoppedBy,waitingFor', 'stoppedBy,waitingFor']);
+  });
+  // smarty-code#768: an expired start says what it waited for (the gateway's #757 reason), and the page reads it.
+  test('an expired start with waitingFor is read', async () => {
+    fetchMock.mockImplementation(async () => Response.json({ nativeCreations: [{ ...op({ phase: 'expired' }), waitingFor: 'trust not answered' }] }));
+    expect((await opencodeClient.listNativeCreations('/project'))[0]?.waitingFor).toBe('trust not answered');
   });
   test('both create paths ask for stoppedBy', async () => {
     const asked: Array<string | null> = [];
@@ -117,7 +122,7 @@ describe('who stopped a start', () => {
     });
     await opencodeClient.createNativeSession('/project');
     await opencodeClient.createNativeSession('/project', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
-    expect(asked).toEqual(['stoppedBy', 'stoppedBy']);
+    expect(asked).toEqual(['stoppedBy,waitingFor', 'stoppedBy,waitingFor']);
   });
   test('a malformed stoppedBy is still refused', async () => {
     fetchMock.mockImplementation(async () => Response.json({ nativeCreations: [op({ stoppedBy: { name: 'Kate', extra: 1 } })] }));

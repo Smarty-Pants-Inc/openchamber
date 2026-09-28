@@ -3,7 +3,7 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, resolveSentStart, sentStartRequest, sentStartStoppedBy, sentStartWaitingFor, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere, STOPPED_PHASES } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
@@ -41,6 +41,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   const blocking = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
   const lockedRequest = sent && draft.directoryOverride ? sentStartRequest(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
+  const waitingFor = draft.directoryOverride ? sentStartWaitingFor(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
   const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
   // This draft's OWN start that does not finish (smarty-code#587: its shell frozen, the person saw only "Starting…" and
@@ -78,7 +79,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (sent && directory) {
     // Not sent, and why: the text is back in the draft, editable (#117).
     if (isSentStartStopped(sent)) return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
-      {sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy }) : t(STOPPED_LINE[sent])}</p>;
+      {sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy })
+        : sent === 'expired' && waitingFor ? t('chat.nativeCreation.sentExpiredWaiting', { waitingFor }) : t(STOPPED_LINE[sent])}</p>;
     return <div className="mb-2 space-y-1">
       <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
       <div className="flex gap-2">
