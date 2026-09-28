@@ -1,14 +1,15 @@
 import React from 'react';
 import { useStore } from 'zustand';
 import { readBilling, type Billing } from '@/lib/billingLinks';
-import { useDirectoryStore } from '@/sync/sync-context';
+import { useDirectoryStore, useSessionDirectory } from '@/sync/sync-context';
 
 /** Smarty Code's gateway names the org's usage limit SmartyLimitError, a name OpenCode's error union does not list. */
 const isUsageLimit = (name: string | undefined): boolean => name === 'SmartyLimitError';
 
 /** Under the org's usage-limit notice: "Add credit" and "Manage plan", for the org owner only (others see no link). */
 export const UsageLimitLinks: React.FC<{ sessionId?: string; messageId: string }> = ({ sessionId, messageId }) => {
-    const store = useDirectoryStore();
+    // The session's own directory store, as the chat reads it (the current directory can be another project).
+    const store = useDirectoryStore(useSessionDirectory(sessionId));
     const isLimit = useStore(store, (state) => Boolean(sessionId)
         && (state.message[sessionId!] ?? []).some((info) => info.id === messageId
             && info.role === 'assistant' && isUsageLimit(info.error?.name)));
