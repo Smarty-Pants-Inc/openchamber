@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
+import { SCROLL_NAVIGATE_EVENT, signalScroll } from '@/lib/scrollIntent';
 import { createScrollSpy } from '@/components/chat/lib/scroll/scrollSpy';
 import { useViewportStore } from '@/sync/viewport-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -319,6 +320,8 @@ export const useChatTimelineScroll = ({
     }, []);
 
     const goToBottom = React.useCallback((mode: 'instant' | 'smooth' = 'instant') => {
+        // Every return to latest (the button, chat navigation) takes the view over from a prepend hold (smarty-code#583).
+        signalScroll(scrollRef.current, SCROLL_NAVIGATE_EVENT);
         isAtEndRef.current = true;
         setIsPinned(true);
         setUserOwnsScroll(false);

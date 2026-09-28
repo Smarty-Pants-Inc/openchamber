@@ -153,6 +153,8 @@ describe('useChatTimelineController identity lifecycle', () => {
             scrollHeight: 1000,
             clientHeight: 500,
             firstElementChild: null,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
         };
         const scrollElement = scrollMetrics as unknown as HTMLDivElement;
         const scrollRef = { current: scrollElement };
