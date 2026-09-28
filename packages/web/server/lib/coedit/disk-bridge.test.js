@@ -326,6 +326,55 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.disk()).toBe('Qabc\n');
     });
 
+    it('security round 6 (1): the staging entry replaced BY NAME after its checks is never installed; our verified bytes are', async () => {
+      // Another account that can write the project can rename and replace the staging entry's name, not what is in it.
+      const t = await setup('a\n');
+      t.at('beforeRename', ({ entry }) => {
+        fs.renameSync(entry, `${entry}-moved`);
+        fs.mkdirSync(entry);
+        fs.writeFileSync(path.join(entry, 'notes.md'), 'substitute\n');
+        fs.symlinkSync('/etc/passwd', path.join(entry, 'link'));
+      });
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa\n');
+      expect(fs.lstatSync(t.file).isFile()).toBe(true);
+    });
+
+    it('security round 6 (1): a file installed in place of ours (same account) is foreign: the base does not follow it, no replay', async () => {
+      const t = await setup('a\n');
+      t.at('beforeRename', ({ staging }) => { fs.unlinkSync(staging); fs.writeFileSync(staging, 'X\n'); });
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(t.conflicts.at(-1)).toMatchObject({ published: true, foreign: true });
+      expect(t.disk()).toBe('X\n');
+      await t.bridge.sync();
+      // Theirs is an outside revision that removes text, so it is held for the person to accept (not merged over
+      // them); the person's edit is never doubled.
+      expect(t.text.toString()).toBe('Pa\n');
+      expect(t.bridge.state().conflict).not.toBeNull();
+      await t.bridge.acceptDisk();
+      expect(t.text.toString()).toBe('PX\n'); // Accepted from the old base: theirs, with the person's edit kept.
+    });
+
+    for (const which of ['staging', 'current']) {
+      it(`security round 6 (2): the ${which} handle's close failing after the rename keeps the committed result: no replay, nothing skipped`, async () => {
+        const t = await setup('a\n');
+        const closed = [];
+        const fail = (label) => { closed.push(label); t.at('afterClose', fail); if (label === which) throw new Error('EIO on close'); };
+        t.at('afterClose', fail);
+        t.person((x) => x.insert(0, 'P'));
+        expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+        expect(t.conflicts.at(-1)).toMatchObject({ published: true });
+        expect(closed).toEqual(['staging', 'current']); // Both handles were released, whichever failed.
+        expect(t.disk()).toBe('Pa\n');
+        await t.bridge.sync();
+        expect(t.text.toString()).toBe('Pa\n'); // Not 'PPa'.
+        expect(fs.readdirSync(path.join(t.recoveryDir, '.pending'))).toHaveLength(1); // The marker stays for the next load.
+        expect(t.leftovers()).toEqual([]);
+      });
+    }
+
     it('is off unless enabled', () => {
       const saved = process.env.OPENCHAMBER_COEDIT;
       delete process.env.OPENCHAMBER_COEDIT;

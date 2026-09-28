@@ -38,7 +38,10 @@ person sees. What it cannot see is listed under Accepted limits.
      the result is `changed` (or `gone` if missing: a deleted file is not recreated).
   2. A copy of those bytes is kept in `recoveryDir` (0700, outside the project, `O_EXCL` names, fsynced, its entry and a
      new directory's entry fsynced).
-  3. The staging file is created `O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW`, and a pending marker (in `recoveryDir/.pending/`,
+  3. The staging file is created `O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW` **inside a private directory** (`mkdir` 0700 next
+     to the file, owner and mode checked, held by its fd), and it is renamed **from that fd**, not by name: another
+     account that can write the project can rename or replace the directory's name but not its content (security pass
+     round 6, item 1). A pending marker (in `recoveryDir/.pending/`,
      its own directory, recording the staging inode) is written and fsynced. The bytes are written, the mode set on the
      fd, the file fsynced, then **read back through the same fd**: bytes other than ours are `unverified`.
   4. Right before the rename: the staging name must still be our inode with `nlink` 1 (else `unverified`); the file at
@@ -52,6 +55,12 @@ person sees. What it cannot see is listed under Accepted limits.
      be our inode **and its content, read back through our own held fd, must hash to the bytes we meant to write**
      (else `unverified`: another writer changed it, even at equal length). The replaced revision is reread whole
      through the fd held since step 1; a write through an old fd found there is kept for recovery too (`raced`).
+     A file at the path that is **not our inode** was installed by someone else (only the same account can reach inside
+     the private directory: the accepted same-uid limit): it is `unverified` with `foreign`, and the room's base does
+     **not** follow it, so the next sync sees it as an outside revision.
+  6. Release: both handles are closed, then our staging inode and our private directory (only while they are still
+     ours) are removed, **each step on its own**. A release error after the rename keeps the committed result (a
+     conflict with `published`, the base follows it) and the pending marker (security pass round 6, item 2).
   - **Any result but ok is a conflict:** `onConflict(conflict)` and `state().conflict`, with its recovery path.
     `unverified`, `raced` and `escaped` after the rename carry the notice "Another writer changed this file during your
     save: check the recovery folder."

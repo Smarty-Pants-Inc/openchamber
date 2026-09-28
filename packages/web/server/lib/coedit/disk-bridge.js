@@ -155,7 +155,9 @@ export function createDiskBridge({
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const result = await withParent((parent) => publish(parent, name, next, baseHash, { recoveryDir, target: file, hooks }));
       if (result.conflict === 'gone') gone = true;
-      if (!result.ok && !result.published) return raise(result);
+      // Not published, or someone else's file was installed in its place (`foreign`): the base stays, so the next
+      // sync reads what is on disk as an outside change (security pass round 6, item 1).
+      if (!result.ok && (!result.published || result.foreign)) return raise(result);
       // Published (ok, or a conflict found after our bytes reached disk): the base follows what was written, so the
       // next sync does not replay the room's edit (net-lead round 4); a conflict is still shown.
       base = snapshot;
