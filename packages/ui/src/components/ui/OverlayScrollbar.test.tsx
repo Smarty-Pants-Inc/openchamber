@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { SCROLL_INTENT_EVENT } from "@/lib/scrollIntent";
 import { Window } from 'happy-dom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -242,6 +243,21 @@ describe('OverlayScrollbar', () => {
       pointerId: 1,
     }));
     expect(scrollTop).toBe(200);
+  });
+
+  test('a thumb drag tells the container the reader is moving the view (smarty-code#583)', async () => {
+    await renderScrollbar();
+    const thumb = host.querySelector<HTMLElement>('[data-overlay-scrollbar-thumb="vertical"]');
+    if (!thumb) throw new Error('OverlayScrollbar did not render its vertical thumb');
+    thumb.setPointerCapture = () => {};
+    thumb.releasePointerCapture = () => {};
+    let intents = 0;
+    scroller.addEventListener(SCROLL_INTENT_EVENT, () => { intents += 1; });
+    thumb.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, clientY: 0, pointerId: 1 }));
+    expect(intents).toBe(1);
+    thumb.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: 26, pointerId: 1 }));
+    expect(intents).toBe(2);
+    thumb.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, clientY: 26, pointerId: 1 }));
   });
 
   test('keeps the minimum thumb size within a short track', async () => {

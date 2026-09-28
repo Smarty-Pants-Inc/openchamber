@@ -51,7 +51,8 @@ const run = async (page: (call: number) => 'fail' | 'empty' | 'grow') => {
     const dom = installMinimalDom();
     const root = createRoot(dom.container);
     // At the top of the timeline (scrollTop under the history threshold), not pinned.
-    const scrollRef = { current: { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, firstElementChild: null } as unknown as HTMLDivElement };
+    const scrollRef = { current: { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, firstElementChild: null,
+        addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as HTMLDivElement };
     const messageListRef = { current: {
         captureViewportAnchor: () => null, restoreViewportAnchor: () => true, isHistoryVirtualized: () => false,
         scrollToTurnId: () => false, scrollToMessageId: () => false,
