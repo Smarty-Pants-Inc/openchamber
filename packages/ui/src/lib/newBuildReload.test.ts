@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { draftAtRisk, entryScript, holdReload, reloadHeld, reloadIfNewBuild } from "./newBuildReload"
+import { entryScript, holdReload, reloadHeld, reloadIfNewBuild } from "./newBuildReload"
 
 // smarty-code (Release 3.41, 01:44Z): after the install restarted the service, Kate's open page reconnected but kept
 // 3.40's JavaScript and marked a finished tool "Interrupted". A reconnect now reloads a page running an older build.
@@ -44,19 +44,14 @@ const reconnect = async () => {
   return reloaded
 }
 
-test("a draft with persistence off, or whose save now fails, holds the reload; one saved now does not", async () => {
-  expect(draftAtRisk("unsent words", false, () => true)).toBe(true) // Persist Draft Messages off.
-  expect(draftAtRisk("unsent words", true, () => false)).toBe(true) // Saving it now failed.
-  expect(draftAtRisk("  ", false, () => true)).toBe(true) // Whitespace is a person's draft too.
-  expect(draftAtRisk("unsent words", true, () => true)).toBe(false) // Saved now: it survives the reload.
-  expect(draftAtRisk("", false, () => false)).toBe(false) // Nothing to lose.
-  let text = "unsent words", persist = false
-  const release = holdReload(() => draftAtRisk(text, persist, () => true)) // As ChatInput registers it: read live.
+test("any text in the composer holds the reload; an empty composer lets it go", async () => {
+  let text = "unsent words"
+  const release = holdReload(() => text !== "") // As ChatInput registers it: the editor's text, read live.
   expect(await reconnect()).toBe(0)
-  persist = true // Persistence on, and the save succeeds: the reload may go.
+  text = "  " // Whitespace is a person's draft too.
+  expect(await reconnect()).toBe(0)
+  text = "" // Sent or cleared: the next reconnect reloads.
   expect(await reconnect()).toBe(1)
-  persist = false; text = ""
-  expect(await reconnect()).toBe(1) // Sent or cleared: a later reconnect reloads.
   release()
 })
 

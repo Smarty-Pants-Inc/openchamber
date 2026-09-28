@@ -36,14 +36,13 @@ import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
-    chatDraftDurablyHolds,
     consumeChatDraft,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
     type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
-import { draftAtRisk, holdReload } from '@/lib/newBuildReload';
+import { holdReload } from '@/lib/newBuildReload';
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
 import { BtwPanel } from './btw/BtwPanel';
 import { useBtwPanelState } from './btw/useBtwPanelState';
@@ -990,23 +989,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         readMessage: () => composerRef.current?.getValue() ?? messageRef.current,
         onDraftConsumed: () => messageHistory.reset(),
     });
-    // A draft a reload would lose (draft persistence off, or storage failing) holds a new-build reload while it has any
-    // text, whitespace included: a person's draft (openchamber#333 review).
-    // Read live at the reload decision: the editor's own text, not a state that can lag a keystroke.
-    const persistChatDraftRef = React.useRef(persistChatDraft);
-    persistChatDraftRef.current = persistChatDraft;
-    const persistDraftImmediatelyRef = React.useRef(persistDraftImmediately);
-    persistDraftImmediatelyRef.current = persistDraftImmediately;
-    React.useEffect(() => holdReload(() => {
-        const text = composerRef.current?.getValue() ?? messageRef.current;
-        // Save it now (a pending debounce is not a save), then confirm storage holds exactly it: another tab's draft in the
-        // same slot is kept, never overwritten, and holds the reload instead (openchamber#333 review 3).
-        return draftAtRisk(text, persistChatDraftRef.current, () => {
-            const identity = currentChatDraftIdentityRef.current;
-            persistDraftImmediatelyRef.current(identity, text);
-            return chatDraftDurablyHolds(identity, text);
-        });
-    }), []);
+    // Any text in the composer holds a new-build reload (openchamber#333 reviews): read live, the editor's own text.
+    React.useEffect(() => holdReload(() => (composerRef.current?.getValue() ?? messageRef.current) !== ''), []);
 
     // Focus textarea when new session draft is opened
     const prevNewSessionDraftOpenRef = React.useRef(newSessionDraftOpen);

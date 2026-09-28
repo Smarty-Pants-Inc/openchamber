@@ -2,8 +2,9 @@
  * A page that outlives an install keeps the previous release's JavaScript: a reconnect restores its event stream, not its
  * bundle (smarty-code: Kate's page marked a finished tool "Interrupted" on 3.41 because it still ran 3.40). On a
  * reconnect, the page compares the hashed entry script it runs with the one the server now serves, and reloads when they
- * differ. It waits while a reload would lose something: attached files, a draft that is not safely saved (persistence off
- * or storage failing), or a send still being prepared or admitted (openchamber#333 review).
+ * differ. It never reloads while that would lose anything: text in the composer (whether and where a draft is saved
+ * depends on settings, storage, tabs and the page's route, so a reload waits while there is any), attached files, or a
+ * send still being prepared or admitted (openchamber#333 reviews). It reloads at the next reconnect instead.
  */
 const ENTRY = /<script[^>]*\btype="module"[^>]*\bsrc="([^"]*\/assets\/[^"]+\.js)"/i;
 
@@ -28,14 +29,6 @@ export function holdReload(when: () => boolean = () => true): () => void {
 }
 /** Whether anything holds automatic reloads now. */
 export const reloadHeld = (): boolean => [...holds].some((when) => { try { return when(); } catch { return true; } });
-
-/**
- * A composer draft a reload would lose: any text (whitespace is a person's draft too) while draft persistence is off, or
- * when saving that exact text now does not succeed. It is saved synchronously at the decision, never trusted to an
- * earlier write's result, a pending debounce or the pagehide flush (openchamber#333 review 2).
- */
-export const draftAtRisk = (text: string, persistEnabled: boolean, saveNow: () => boolean): boolean =>
-  text !== "" && (!persistEnabled || !saveNow());
 
 type Deps = {
   running: () => string | undefined;
