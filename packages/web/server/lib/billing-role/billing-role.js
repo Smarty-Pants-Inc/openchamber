@@ -13,8 +13,11 @@ export function createBillingRole({ env = process.env, fetchImpl = fetch, now = 
   const orgId = env.SMARTY_NODE_ORG_ID || '';
   const billing = (env.SMARTY_BILLING_URL || 'https://billing.smartypants.ai').replace(/\/+$/, '');
   const cache = new Map();
+  // The token is read once and removed from this process's environment, so the terminals and tools this server starts
+  // (they copy process.env) never inherit it.
+  const token = env.NODE_REGISTRY_TOKEN || '';
+  delete env.NODE_REGISTRY_TOKEN;
   const call = async (path, init = {}) => {
-    const token = env.NODE_REGISTRY_TOKEN;
     if (!token) throw new Error('no registry token');
     const response = await fetchImpl(`${registry}${path}`, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}`, accept: 'application/json' } });
@@ -24,7 +27,7 @@ export function createBillingRole({ env = process.env, fetchImpl = fetch, now = 
   };
   /** True only when the registry says this Google account owns the Node's org; any failure or doubt is false. */
   const isOwner = async (googleAccountId) => {
-    if (!orgId || !env.NODE_REGISTRY_TOKEN || !googleAccountId) return false;
+    if (!orgId || !token || !googleAccountId) return false;
     const hit = cache.get(googleAccountId);
     if (hit && now() - hit.at < CACHE_MS) return hit.owner;
     let owner = false;
