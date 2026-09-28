@@ -7,6 +7,7 @@ import { newOperationId, reportClientError } from '@/lib/clientErrorReport';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useSessionUIStore, type NewSessionDraftState } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { nativeCreationForDraft, preparedNativeDraft, recheckNativeDraft } from '@/sync/native-draft-creation';
 import { refreshNativeCreation, replyNativeCreation } from '@/sync/native-draft-control';
 import { startNativeDraft } from '@/sync/native-draft-start';
@@ -20,6 +21,9 @@ export { discoveryPendingFor } from '@/lib/managed-discovery';
 type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[];
   /** The server can settle an unreadable start for good, so a new one may begin (smarty-code#340). */
   abandon?: boolean };
+
+/** Waits before checking a just-made worktree again while the gateway admits it (smarty-code#629): about 15 s in all. */
+export const NEW_TREE_RETRY_MS = [1_000, 2_000, 4_000, 8_000];
 
 export function useNativeCreation(draft: NewSessionDraftState, sessionId: string | null,
   currentDirectory: string | undefined, runtimeKey: string) {
@@ -47,10 +51,16 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const catalogStatus = useProjectsStore(s => s.managedCatalogStatus);
   const answered = useProjectsStore(discoveryAnswered);
   const discoveryPending = discoveryPendingFor(catalogStatus, answered) && !isVSCodeRuntime(getRegisteredRuntimeAPIs());
+  // A new worktree ('+ New') binds the draft before its tree exists: check only once it is made (the check names the tree,
+  // which the gateway admits it on), and again once the catalog admits this directory (smarty-code#629).
+  const admitted = useDirectoryStore(s => s.managedDirectories?.includes(directory ?? '') ?? false);
   React.useEffect(() => {
-    if (!draft.open || !directory || discoveryPending) return;
-    let cancelled = false, request = 0;
+    if (!draft.open || !directory || discoveryPending || draft.pendingWorktreeRequestId) return;
+    let cancelled = false, request = 0, retries = 0, retry: ReturnType<typeof setTimeout> | undefined;
     const check = async () => {
+      // One pending recheck at most: a new check (an invalidation during the wait) replaces it; nothing after cleanup.
+      clearTimeout(retry);
+      if (cancelled || getRuntimeKey() !== runtimeKey) return;
       const ticket = ++request;
       try {
         const { mode: support, abandon } = await opencodeClient.nativeCreationSupport(directory);
@@ -60,9 +70,14 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
         setCapability({ runtimeKey, directory, mode: support === 'legacy' ? 'legacy' : 'ordinary', operations, abandon });
         await refreshNativeCreation();
       } catch {
-        if (!cancelled && ticket === request && getRuntimeKey() === runtimeKey) {
-          setCapability({ runtimeKey, directory, mode: 'unavailable', operations: [] });
+        if (cancelled || ticket !== request || getRuntimeKey() !== runtimeKey) return;
+        // The draft's own '+ New' tree: the gateway admits it a moment after it is made and refuses until then
+        // (smarty-code#629). Check again shortly instead of saying the server is unreachable; only then say so.
+        if (directory === draft.bootstrapPendingDirectory && retries < NEW_TREE_RETRY_MS.length) {
+          retry = setTimeout(() => void check(), NEW_TREE_RETRY_MS[retries++]);
+          return;
         }
+        setCapability({ runtimeKey, directory, mode: 'unavailable', operations: [] });
       }
     };
     const invalidated = (event: Event) => {
@@ -72,8 +87,8 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     };
     window.addEventListener(NATIVE_CREATION_INVALIDATED, invalidated);
     void check();
-    return () => { cancelled = true; window.removeEventListener(NATIVE_CREATION_INVALIDATED, invalidated); };
-  }, [directory, draft.open, draft.draftId, runtimeKey, revision, catalogStatus, discoveryPending]);
+    return () => { cancelled = true; clearTimeout(retry); window.removeEventListener(NATIVE_CREATION_INVALIDATED, invalidated); };
+  }, [directory, draft.open, draft.draftId, draft.pendingWorktreeRequestId, draft.bootstrapPendingDirectory, runtimeKey, revision, catalogStatus, discoveryPending, admitted]);
 
   const mode = discoveryPending ? 'discovering' : capability?.runtimeKey === runtimeKey && capability.directory === directory
     ? capability.mode : 'loading';

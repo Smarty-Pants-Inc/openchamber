@@ -37,6 +37,7 @@ export function nativeDraftFixture() {
   const runtimeA = `native-test-${crypto.randomUUID()}`;
   const requests: Request[] = [];
   const handlers = {
+    bootstrap: async (): Promise<Response> => Response.json({ status: 'ready', phase: 'setup-ready', error: null, updatedAt: 0 }),
     health: async (): Promise<Response> => Response.json({ healthy: true, capabilities: { ordinaryCreateOnly: 1, displayAttribution: 1 } }),
     create: async (request: Request): Promise<Response> => {
       if (request.method !== 'POST') throw new Error('Expected native creation POST');
@@ -57,6 +58,8 @@ export function nativeDraftFixture() {
     const url = new URL(request.url);
     if (url.hostname !== 'synthetic.invalid') throw new Error('Unexpected network target');
     if (url.pathname.endsWith('/global/health')) return handlers.health();
+    // A directory the server is not setting up reads ready (service.getWorktreeBootstrapStatus); the start asks it first.
+    if (url.pathname.endsWith('/git/worktrees/bootstrap-status')) return handlers.bootstrap();
     if (url.pathname.endsWith('/session') && request.method === 'POST') return handlers.create(request);
     if (url.pathname.endsWith('/message') && request.method === 'GET') return handlers.history();
     if (url.pathname.endsWith('/prompt_async')) return handlers.prompt(request);

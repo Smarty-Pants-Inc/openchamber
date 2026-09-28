@@ -21,6 +21,7 @@ import { useWorktreeBootstrapPending } from '@/hooks/useWorktreeBootstrapPending
 import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { isManagedProjectDirectory } from '@/sync/native-draft-creation';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { buildSessionTargetOptions } from '@/sync/session-worktree-contract';
 import { normalizePath } from '../attachments/filePaths';
@@ -50,6 +51,7 @@ export function getProjectDisplayLabel(project: { label?: string; path: string }
 export function useDraftTarget(enabled: boolean) {
     const configuredProjects: readonly DraftTargetProject[] = useProjectsStore(visibleProjects);
     const managed = useProjectsStore(state => state.managedCatalogAdmitted);
+    const managedRows = useProjectsStore(state => state.managedRows);
     const { t } = useI18n();
     const chatProject = React.useMemo<DraftTargetProject>(() => ({
         id: CHAT_DRAFT_PROJECT_ID,
@@ -73,8 +75,12 @@ export function useDraftTarget(enabled: boolean) {
             ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
             : null;
         if (explicit) {
-            if (managed && newSessionDraft.directoryOverride
-                && normalizePath(newSessionDraft.directoryOverride) !== normalizePath(explicit.path)) return null;
+            // A managed draft stays in its project in the project's root or one of its admitted worktrees, and while its
+            // own '+ New' worktree is still being created (smarty-code#629); any other directory is not this project's.
+            const override = normalizePath(newSessionDraft.directoryOverride ?? null);
+            if (managed && override && !isManagedProjectDirectory(managedRows, normalizePath(explicit.path) ?? explicit.path, override)
+                && !newSessionDraft.pendingWorktreeRequestId
+                && normalizePath(newSessionDraft.bootstrapPendingDirectory ?? null) !== override) return null;
             return explicit;
         }
         if (managed && (newSessionDraft.selectedProjectId || newSessionDraft.directoryOverride)) return null;
@@ -87,8 +93,9 @@ export function useDraftTarget(enabled: boolean) {
         }
 
         return configuredProjects[0] ?? (managed ? null : chatProject);
-    }, [activeProjectId, chatProject, configuredProjects, managed, newSessionDraft.directoryOverride,
-        newSessionDraft.selectedProjectId, newSessionDraft.target, projects]);
+    }, [activeProjectId, chatProject, configuredProjects, managed, managedRows, newSessionDraft.bootstrapPendingDirectory,
+        newSessionDraft.directoryOverride, newSessionDraft.pendingWorktreeRequestId, newSessionDraft.selectedProjectId,
+        newSessionDraft.target, projects]);
 
     const selectedDraftProjectPath = React.useMemo(
         () => selectedDraftProject?.kind === 'chat' ? null : normalizePath(selectedDraftProject?.path ?? null),
