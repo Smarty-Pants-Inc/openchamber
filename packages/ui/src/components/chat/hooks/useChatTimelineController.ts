@@ -2,6 +2,11 @@ import React from 'react';
 
 import type { ChatMessageEntry } from '../lib/turns/types';
 import type { MessageListHandle } from '../MessageList';
+import { PREPEND_ANCHOR_HOLD, READER_INTENT_EVENTS } from '../lib/scroll/anchorHold';
+import { SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
+
+// A scroll within this long after the reader's own input is theirs (momentum included), not a programmatic one.
+const READER_SCROLL_WINDOW_MS = 1200;
 import {
     buildTurnWindowModel,
     updateTurnWindowModelIncremental,
@@ -450,6 +455,8 @@ export const useChatTimelineController = ({
         height: number;
         top: number;
         anchor: ViewportAnchor | null;
+        /** Explicit navigation happened while the page was pending: hold nothing when it lands (smarty-code#583). */
+        yielded?: boolean;
         historyVirtualized: boolean;
         oldestId: string | null;
         newestId: string | null;
@@ -535,7 +542,7 @@ export const useChatTimelineController = ({
                 ...pending,
                 height: container.scrollHeight,
                 top: container.scrollTop,
-                anchor: captureViewportAnchor(),
+                anchor: pending.yielded ? null : captureViewportAnchor(),
                 oldestId: currentOldestId,
                 newestId: currentNewestId,
             };
@@ -581,6 +588,14 @@ export const useChatTimelineController = ({
                 // already virtualized, TanStack is the sole scroll owner.
                 if (!snap.historyVirtualized && snap.anchor) {
                     restoreViewportAnchor(snap.anchor);
+                } else if (snap.anchor) {
+                    // smarty-code#583: the list keeps a prepend's place by row key, but an older page often changes
+                    // the reader's own row: replies regroup into the turn whose user message just loaded (the key
+                    // is gone), or that turn row changes height above the reader. Either moved the view by up to
+                    // ~2k px. Hold the reader's message at its captured offset while the rows measure. The hold
+                    // measures the element and applies only the remaining difference, so where the list already
+                    // kept the place it writes nothing; a user gesture cancels it.
+                    messageListRef.current?.holdViewportAnchor(snap.anchor, PREPEND_ANCHOR_HOLD);
                 }
                 updateTracking();
                 return;
@@ -867,10 +882,46 @@ export const useChatTimelineController = ({
         };
     }, [loadEarlierIfPinnedViewportUnderfilled, scrollRef, sessionKey]);
 
+    // smarty-code#583 (review/astra OC#334): an explicit navigation is newer reader intent than a pending prepend's
+    // anchor; drop the anchor so the page landing later does not hold the reader at the old place.
+    const yieldPendingAnchor = React.useCallback(() => {
+        const pending = prePrependScrollRef.current;
+        if (pending) prePrependScrollRef.current = { ...pending, anchor: null, yielded: true };
+    }, []);
+
+    // While an older page is pending, a scroll the reader makes (wheel, touch, scrollbar, keys) re-captures the anchor
+    // once it settles, so the hold after the page lands keeps where the reader is NOW, not where the request started.
+    React.useEffect(() => {
+        const container = scrollRef.current;
+        if (!container || typeof window === 'undefined') return;
+        let readerAt = 0;
+        let frame: number | null = null;
+        const onIntent = () => { readerAt = Date.now(); };
+        const onScroll = () => {
+            if (!prePrependScrollRef.current || Date.now() - readerAt > READER_SCROLL_WINDOW_MS || frame !== null) return;
+            frame = window.requestAnimationFrame(() => {
+                frame = null;
+                const pending = prePrependScrollRef.current;
+                if (pending && !pending.yielded) prePrependScrollRef.current = { ...pending, anchor: captureViewportAnchor() };
+            });
+        };
+        for (const name of READER_INTENT_EVENTS) container.addEventListener(name, onIntent, { passive: true });
+        container.addEventListener('scroll', onScroll, { passive: true });
+        // Every return to latest drops a pending anchor, whichever path called it (review/astra OC#334).
+        container.addEventListener(SCROLL_NAVIGATE_EVENT, yieldPendingAnchor);
+        return () => {
+            for (const name of READER_INTENT_EVENTS) container.removeEventListener(name, onIntent);
+            container.removeEventListener('scroll', onScroll);
+            container.removeEventListener(SCROLL_NAVIGATE_EVENT, yieldPendingAnchor);
+            if (frame !== null) window.cancelAnimationFrame(frame);
+        };
+    }, [captureViewportAnchor, scrollRef, sessionKey, yieldPendingAnchor]);
+
     const scrollToTurn = React.useCallback(async (
         turnId: string,
         options?: { behavior?: ScrollBehavior },
     ): Promise<boolean> => {
+        yieldPendingAnchor();
         if (!turnId || !sessionIdRef.current || !timelineIdentityRef.current.key) {
             return false;
         }
@@ -911,12 +962,13 @@ export const useChatTimelineController = ({
                 setPendingRevealWork(false);
             }
         }
-    }, [attemptPendingScrollRequest, releaseAutoFollow]);
+    }, [attemptPendingScrollRequest, releaseAutoFollow, yieldPendingAnchor]);
 
     const scrollToMessage = React.useCallback(async (
         messageId: string,
         options?: { behavior?: ScrollBehavior },
     ): Promise<boolean> => {
+        yieldPendingAnchor();
         if (!messageId || !sessionIdRef.current || !timelineIdentityRef.current.key) {
             return false;
         }
@@ -959,13 +1011,14 @@ export const useChatTimelineController = ({
                 setPendingRevealWork(false);
             }
         }
-    }, [attemptPendingScrollRequest, releaseAutoFollow]);
+    }, [attemptPendingScrollRequest, releaseAutoFollow, yieldPendingAnchor]);
 
     const resumeToBottom = React.useCallback(async () => {
+        yieldPendingAnchor();
         setPendingRevealWork(false);
         setIsLoadingOlder(false);
         goToBottom('smooth');
-    }, [goToBottom]);
+    }, [goToBottom, yieldPendingAnchor]);
 
     const resumeToBottomInstant = React.useCallback(async () => {
         setPendingRevealWork(false);

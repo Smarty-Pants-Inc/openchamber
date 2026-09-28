@@ -164,6 +164,14 @@ const getMessageParentId = (message: ChatMessageEntry): string | null => {
     return typeof parentID === 'string' && parentID.trim().length > 0 ? parentID : null;
 };
 
+const isInsideSticky = (node: HTMLElement, container: HTMLElement): boolean => {
+    if (typeof window === 'undefined') return false;
+    for (let current: HTMLElement | null = node; current && current !== container; current = current.parentElement) {
+        if (window.getComputedStyle(current).position === 'sticky') return true;
+    }
+    return false;
+};
+
 const isInsideStuckSticky = (node: HTMLElement, container: HTMLElement, containerTop: number): boolean => {
     if (typeof window === 'undefined') return false;
 
@@ -349,13 +357,14 @@ export interface MessageListHandle {
     scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
     captureViewportAnchor: () => { messageId: string; offsetTop: number } | null;
     restoreViewportAnchor: (anchor: { messageId: string; offsetTop: number }) => boolean;
-    holdViewportAnchor: (anchor: { messageId: string; offsetTop: number }) => void;
+    holdViewportAnchor: (anchor: { messageId: string; offsetTop: number }, options?: AnchorHoldOptions) => void;
     isHistoryVirtualized: () => boolean;
     scrollToBottom: () => void;
 }
 
 import { VoiceTurn } from './message/VoiceTurn';
 import { isVoiceTurn } from './message/voiceTurnData';
+import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };
@@ -1557,6 +1566,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return true;
     }, [findMessageElement, resolveScrollContainer]);
 
+    // smarty-code#583: an anchor hold reads the list's CURRENT mapping each frame, and explicit navigation ends it.
+    const cancelActiveHoldRef = React.useRef<(() => void) | null>(null);
+    const latestNavigationRef = React.useRef({ messageIndexMap, scrollHistoryIndexIntoView });
+    latestNavigationRef.current = { messageIndexMap, scrollHistoryIndexIntoView };
+
     React.useEffect(() => {
         if (!ref) {
             return;
@@ -1564,6 +1578,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
         const handle: MessageListHandle = {
             scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => {
+                cancelActiveHoldRef.current?.();
                 const behavior = options?.behavior ?? 'auto';
                 const index = turnIndexMap.get(turnId);
                 if (index === undefined) {
@@ -1590,6 +1605,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             },
 
             scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => {
+                cancelActiveHoldRef.current?.();
                 const behavior = options?.behavior ?? 'auto';
                 const index = messageIndexMap.get(messageId);
                 if (index === undefined) {
@@ -1604,45 +1620,23 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 return didScroll;
             },
 
-            holdViewportAnchor: (anchor) => {
+            holdViewportAnchor: (anchor, options) => {
                 const container = resolveScrollContainer();
                 if (!container || typeof window === 'undefined') {
                     return;
                 }
-
-                let frames = 0;
-                let stable = 0;
-                let cancelled = false;
-                const cancelOnUserInput = () => {
-                    cancelled = true;
-                    container.removeEventListener('touchstart', cancelOnUserInput);
-                    container.removeEventListener('wheel', cancelOnUserInput);
-                };
-                container.addEventListener('touchstart', cancelOnUserInput, { passive: true });
-                container.addEventListener('wheel', cancelOnUserInput, { passive: true });
-                const step = () => {
-                    if (cancelled) return;
-                    const element = findMessageElement(anchor.messageId);
-                    if (element) {
-                        const delta = element.getBoundingClientRect().top
-                            - container.getBoundingClientRect().top
-                            - anchor.offsetTop;
-                        if (Math.abs(delta) > 0.5) {
-                            container.scrollTop += delta;
-                            stable = 0;
-                        } else {
-                            stable += 1;
-                        }
-                    }
-                    frames += 1;
-                    if (stable >= ANCHOR_HOLD_STABLE_FRAMES || frames >= ANCHOR_HOLD_MAX_FRAMES) {
-                        container.removeEventListener('touchstart', cancelOnUserInput);
-                        container.removeEventListener('wheel', cancelOnUserInput);
-                        return;
-                    }
-                    window.requestAnimationFrame(step);
-                };
-                window.requestAnimationFrame(step);
+                cancelActiveHoldRef.current?.();
+                cancelActiveHoldRef.current = runAnchorHold({
+                    container,
+                    findElement: findMessageElement,
+                    // The CURRENT mapping (review/astra OC#334): after a regroup the pre-prepend indexes are stale,
+                    // and the latest turn is a valid row too.
+                    scrollAnchorRowIntoView: (messageId) => {
+                        const index = latestNavigationRef.current.messageIndexMap.get(messageId);
+                        return typeof index === 'number' && latestNavigationRef.current.scrollHistoryIndexIntoView(index);
+                    },
+                    requestFrame: (step) => { window.requestAnimationFrame(step); },
+                }, anchor, options, { stableFrames: ANCHOR_HOLD_STABLE_FRAMES, maxFrames: ANCHOR_HOLD_MAX_FRAMES });
             },
 
             // The timeline is always virtualized now; the flag stays so callers
@@ -1657,7 +1651,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
                 const containerRect = container.getBoundingClientRect();
                 const nodes: HTMLElement[] = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
-                const firstVisible = nodes.find((node) => {
+                // smarty-code#583: prefer a message outside any sticky wrapper. A turn's user message sits in the
+                // sticky header; once it sticks, its on-screen top is the sticky position, not its place in the
+                // list, so holding it after an older page lands scrolled by the wrong amount.
+                const firstUnsticky = nodes.find((node) => node.getBoundingClientRect().top >= containerRect.top - 1
+                    && node.getBoundingClientRect().bottom <= containerRect.bottom && !isInsideSticky(node, container));
+                const firstVisible = firstUnsticky ?? nodes.find((node) => {
                     const rect = node.getBoundingClientRect();
                     if (rect.bottom <= containerRect.top + 1) {
                         return false;
@@ -1719,6 +1718,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             },
 
             scrollToBottom: () => {
+                cancelActiveHoldRef.current?.();
                 const list = listRef.current;
                 if (list) {
                     void list.scrollToEnd({ animated: false });
