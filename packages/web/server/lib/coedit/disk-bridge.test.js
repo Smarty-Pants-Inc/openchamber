@@ -1,26 +1,29 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
 
 const cleanups = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-/** A real project directory and file, and a room bridged to it (no watcher unless asked: tests call sync()). */
-const setup = async (content = 'hello world\n', { watch = false, hooks } = {}) => {
+/** A real project and file, a recovery directory outside it, and a room bridged to the file. */
+const setup = async (content = 'hello world\n', { watch = false } = {}) => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
   const root = path.join(home, 'project');
+  const recoveryDir = path.join(home, 'recovery');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   const file = path.join(root, 'src', 'notes.md');
   fs.writeFileSync(file, content);
   const doc = new Y.Doc();
-  const options = { root, file, doc, debounceMs: 10 };
-  if (hooks) options.hooks = hooks;
+  const hooks = {};
+  const conflicts = [];
+  const options = { root, file, doc, recoveryDir, hooks, debounceMs: 10, settleMs: 20, onConflict: (c) => conflicts.push(c) };
   if (!watch) options.watch = () => ({ close() {} });
   const bridge = createDiskBridge(options);
   cleanups.push(() => { bridge.close(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -34,20 +37,18 @@ const setup = async (content = 'hello world\n', { watch = false, hooks } = {}) =
     edit(other.getText(TEXT));
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
+  /** Runs `fn` once, at the named race point. */
+  const at = (point, fn) => { hooks[point] = async (info) => { delete hooks[point]; await fn(info); }; };
   const leftovers = () => fs.readdirSync(path.dirname(file)).filter((entry) => entry.includes('.coedit-'));
-  return { home, root, file, doc, text, bridge, person, leftovers, disk: () => fs.readFileSync(file, 'utf8') };
-};
-/** Hooks filled in after setup (they need the setup's paths). */
-const lateHooks = () => {
-  const hooks = {};
-  return { hooks, set: (name, fn) => { let done = false; hooks[name] = async () => { if (!done) { done = true; await fn(); } }; } };
+  const kept = () => (fs.existsSync(recoveryDir) ? fs.readdirSync(recoveryDir).map((f) => fs.readFileSync(path.join(recoveryDir, f), 'utf8')) : []);
+  return { home, root, file, doc, text, bridge, person, at, conflicts, leftovers, kept, recoveryDir, disk: () => fs.readFileSync(file, 'utf8') };
 };
 
 describe('co-edit disk bridge (smartyfs#18)', () => {
   it('loads the file into the room', async () => {
     const { text, bridge } = await setup('line one\nline two\n');
     expect(text.toString()).toBe('line one\nline two\n');
-    expect(bridge.state()).toEqual({ gone: false, loaded: true });
+    expect(bridge.state()).toEqual({ gone: false, loaded: true, conflict: null });
   });
 
   it('merges an outside write into the room as a minimal edit, keeping what people typed meanwhile', async () => {
@@ -61,171 +62,177 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     expect(origins).toEqual([DISK_ORIGIN]);
   });
 
-  it('saves the room to disk, and its own write is not merged back', async () => {
-    const { text, bridge, person, disk, leftovers } = await setup('a\n');
-    person((t) => t.insert(1, 'b'));
-    expect(await bridge.save()).toEqual({ ok: true });
-    expect(disk()).toBe('ab\n');
-    await bridge.sync();
-    expect(text.toString()).toBe('ab\n');
-    expect(leftovers()).toEqual([]);
+  it('saves the room to disk; the replaced revision is kept for recovery; nothing is left behind', async () => {
+    const t = await setup('a\n');
+    t.person((x) => x.insert(1, 'b'));
+    expect(await t.bridge.save()).toEqual({ ok: true });
+    expect(t.disk()).toBe('ab\n');
+    expect(t.kept()).toEqual(['a\n']);
+    expect(fs.statSync(t.recoveryDir).mode & 0o777).toBe(0o700);
+    await t.bridge.sync();
+    expect(t.text.toString()).toBe('ab\n');
+    expect(t.leftovers()).toEqual([]);
   });
 
-  it('a stale save merges the outside write first, so neither side is lost', async () => {
-    const { text, file, bridge, person, disk } = await setup('one\ntwo\nthree\n');
-    person((t) => t.insert(0, 'zero\n')); // Kate, in the room.
-    fs.writeFileSync(file, 'one\ntwo\nthree\nfour\n'); // An agent, on disk, not yet seen.
-    expect(await bridge.save()).toEqual({ ok: true });
-    expect(disk()).toBe('zero\none\ntwo\nthree\nfour\n');
-    expect(text.toString()).toBe(disk());
+  it('a save over a file changed since the last read is a visible conflict: nothing written, the base kept', async () => {
+    const t = await setup('one\ntwo\n');
+    t.person((x) => x.insert(0, 'zero\n'));
+    fs.writeFileSync(t.file, 'one\ntwo\nthree\n'); // An agent, not yet seen by the room.
+    expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+    expect(t.disk()).toBe('one\ntwo\nthree\n');
+    expect(t.conflicts.map((c) => c.conflict)).toEqual(['changed']);
+    expect(t.bridge.state().conflict.conflict).toBe('changed');
+    await t.bridge.sync(); // The room shows theirs merged with ours; the person saves again.
+    expect(await t.bridge.save()).toEqual({ ok: true });
+    expect(t.disk()).toBe('zero\none\ntwo\nthree\n');
+    expect(t.bridge.state().conflict).toBe(null);
   });
 
   describe('races injected at the exact points (net-lead review)', () => {
-    it('an outside write between the check and the swap is merged and saved, never overwritten', async () => {
-      const late = lateHooks();
-      const t = await setup('base\n', { hooks: late.hooks });
-      late.set('beforeSwap', () => fs.appendFileSync(t.file, 'agent\n'));
-      t.person((x) => x.insert(0, 'person\n'));
-      expect(await t.bridge.save()).toEqual({ ok: true });
-      expect(t.disk()).toBe('person\nbase\nagent\n');
-      expect(t.text.toString()).toBe(t.disk());
-      expect(t.leftovers()).toEqual([]);
-    });
-
-    it('a replace by rename between the check and the swap is merged, not overwritten', async () => {
-      const late = lateHooks();
-      const t = await setup('base\n', { hooks: late.hooks });
-      late.set('beforeSwap', () => { fs.writeFileSync(`${t.file}.git`, 'base\ncheckout\n'); fs.renameSync(`${t.file}.git`, t.file); });
-      t.person((x) => x.insert(0, 'person\n'));
-      expect(await t.bridge.save()).toEqual({ ok: true });
-      expect(t.disk()).toBe('person\nbase\ncheckout\n');
-    });
-
-    it('a delete between the check and the swap is not undone: the save reports gone', async () => {
-      const late = lateHooks();
-      const t = await setup('base\n', { hooks: late.hooks });
-      late.set('beforeSwap', () => fs.unlinkSync(t.file));
-      t.person((x) => x.insert(0, 'person\n'));
-      expect(await t.bridge.save()).toEqual({ ok: false, reason: 'gone' });
-      expect(fs.existsSync(t.file)).toBe(false);
-      expect(t.leftovers()).toEqual([]);
-    });
-
-    it('a file created at the path after the old one moved aside wins; it is merged, then saved', async () => {
-      const late = lateHooks();
-      const t = await setup('base\n', { hooks: late.hooks });
-      late.set('beforeLink', () => fs.writeFileSync(t.file, 'base\nnew by agent\n', { flag: 'wx' }));
-      t.person((x) => x.insert(0, 'person\n'));
-      expect(await t.bridge.save()).toEqual({ ok: true });
-      expect(t.disk()).toBe('person\nbase\nnew by agent\n');
-    });
-
-    it('an append through an old fd during the swap is caught and merged, never lost', async () => {
-      const late = lateHooks();
-      const t = await setup('log\n', { hooks: late.hooks });
-      const agentFd = fs.openSync(t.file, 'a'); // An agent holding the file open for appends.
-      late.set('beforeLink', () => { fs.writeSync(agentFd, 'appended\n'); });
-      t.person((x) => x.insert(0, 'person\n'));
-      expect(await t.bridge.save()).toEqual({ ok: true });
-      fs.closeSync(agentFd);
-      expect(t.disk()).toBe('person\nlog\nappended\n');
-      expect(t.text.toString()).toBe(t.disk());
-    });
-
-    it('a directory swapped for a link to outside, after the temp file exists, writes nothing outside the project', async () => {
-      const late = lateHooks();
-      const t = await setup('inside\n', { hooks: late.hooks });
-      const elsewhere = path.join(t.home, 'elsewhere');
-      fs.mkdirSync(elsewhere);
-      fs.writeFileSync(path.join(elsewhere, 'notes.md'), 'other\n');
-      late.set('afterTemp', () => {
-        fs.renameSync(path.join(t.root, 'src'), path.join(t.root, 'src-real'));
-        fs.symlinkSync(elsewhere, path.join(t.root, 'src'));
+    for (const [what, race] of [
+      ['an in-place write', (t) => fs.appendFileSync(t.file, 'agent\n')],
+      ['a replace by rename', (t) => { fs.writeFileSync(`${t.file}.git`, 'base\ncheckout\n'); fs.renameSync(`${t.file}.git`, t.file); }],
+      ['a delete', (t) => fs.unlinkSync(t.file)],
+    ]) {
+      it(`${what} after the staging file exists is a conflict: theirs stays exactly as they left it`, async () => {
+        const t = await setup('base\n');
+        let theirs = null;
+        t.at('beforePublish', () => { race(t); theirs = fs.existsSync(t.file) ? t.disk() : null; });
+        t.person((x) => x.insert(0, 'person\n'));
+        const result = await t.bridge.save();
+        expect(result.ok).toBe(false);
+        expect(result.conflict).toBe('changed');
+        expect(fs.existsSync(t.file) ? t.disk() : null).toBe(theirs);
+        expect(t.leftovers()).toEqual([]);
       });
+    }
+
+    it('a staging name swapped for a hardlink to the original is never published', async () => {
+      const t = await setup('original\n');
+      t.at('beforePublish', ({ staging }) => { fs.unlinkSync(staging); fs.linkSync(t.file, staging); });
+      t.person((x) => x.insert(0, 'person\n'));
+      const result = await t.bridge.save();
+      expect(result).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(t.disk()).toBe('original\n');
+    });
+
+    it('a write through an old fd after the check lands in the replaced revision: kept for recovery and shown', async () => {
+      const t = await setup('log\n');
+      const agentFd = fs.openSync(t.file, 'a'); // An agent holding the file open for appends.
+      t.at('afterRename', () => fs.writeSync(agentFd, 'appended\n'));
+      t.person((x) => x.insert(0, 'person\n'));
+      const result = await t.bridge.save();
+      fs.closeSync(agentFd);
+      expect(result).toMatchObject({ ok: false, conflict: 'raced' });
+      expect(fs.readFileSync(result.recovery, 'utf8')).toBe('log\nappended\n');
+      expect(t.disk()).toBe('person\nlog\n');
+    });
+
+    it('the directory moved outside the project after the staging file exists: nothing is written or left outside', async () => {
+      const t = await setup('inside\n');
+      const outside = path.join(t.home, 'moved-out');
+      t.at('beforePublish', () => fs.renameSync(path.join(t.root, 'src'), outside));
       t.person((x) => x.insert(0, 'x'));
       await expect(t.bridge.save()).rejects.toThrow(/left its project/);
-      expect(fs.readdirSync(elsewhere)).toEqual(['notes.md']);
-      expect(fs.readFileSync(path.join(elsewhere, 'notes.md'), 'utf8')).toBe('other\n');
-      expect(fs.readdirSync(path.join(t.root, 'src-real')).filter((e) => e.includes('.coedit-'))).toEqual([]);
+      expect(fs.readdirSync(outside)).toEqual(['notes.md']);
+      expect(fs.readFileSync(path.join(outside, 'notes.md'), 'utf8')).toBe('inside\n');
     });
   });
 
-  it('merges only completed revisions: a writer still writing is waited out, and a paused one converges', async () => {
+  it('a directory swapped for a link to outside is refused before anything is written', async () => {
+    const t = await setup('inside\n');
+    const elsewhere = path.join(t.home, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    fs.writeFileSync(path.join(elsewhere, 'notes.md'), 'other\n');
+    fs.renameSync(path.join(t.root, 'src'), path.join(t.root, 'src-real'));
+    fs.symlinkSync(elsewhere, path.join(t.root, 'src'));
+    t.person((x) => x.insert(0, 'x'));
+    await expect(t.bridge.save()).rejects.toThrow(/left its project/);
+    expect(fs.readdirSync(elsewhere)).toEqual(['notes.md']);
+    expect(fs.readFileSync(path.join(elsewhere, 'notes.md'), 'utf8')).toBe('other\n');
+  });
+
+  it('a file swapped for a link is refused, never followed', async () => {
+    const t = await setup('inside\n');
+    const outside = path.join(t.home, 'outside.md');
+    fs.writeFileSync(outside, 'secret\n');
+    fs.unlinkSync(t.file);
+    fs.symlinkSync(outside, t.file);
+    t.person((x) => x.insert(0, 'x'));
+    await expect(t.bridge.save()).rejects.toThrow(/link/);
+    expect(fs.readFileSync(outside, 'utf8')).toBe('secret\n');
+  });
+
+  it('fails closed where paths cannot be anchored to the held directory', async () => {
+    const t = await setup('x\n');
+    const real = fs.existsSync;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => (p === '/proc/self/fd' ? false : real(p)));
+    t.person((x) => x.insert(0, 'y'));
+    await expect(t.bridge.save()).rejects.toThrow(/anchored/);
+    expect(t.disk()).toBe('x\n');
+  });
+
+  it('merges only settled revisions: a writer still writing is waited out', async () => {
     const { text, file, bridge } = await setup('v1\n');
     const handle = fs.openSync(file, 'w'); // Truncated, then written in pieces.
-    fs.writeSync(handle, 'v2 part one\n');
     const writing = (async () => {
       for (let i = 0; i < 5; i += 1) {
-        await new Promise((done) => setTimeout(done, 5));
         fs.writeSync(handle, `line ${i}\n`);
+        await new Promise((done) => setTimeout(done, 5));
       }
+      fs.closeSync(handle);
     })();
+    const merged = [];
+    text.observe(() => merged.push(text.toString()));
     await bridge.sync();
     await writing;
-    fs.closeSync(handle);
     await bridge.sync();
     expect(text.toString()).toBe(fs.readFileSync(file, 'utf8'));
+    expect(merged.every((shown) => shown === 'line 0\nline 1\nline 2\nline 3\nline 4\n')).toBe(true);
+  });
+
+  it('a deleted file is not recreated by a save; a later outside write brings it back', async () => {
+    const t = await setup('x\n');
+    fs.unlinkSync(t.file);
+    t.person((x) => x.insert(0, 'y'));
+    expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+    expect(fs.existsSync(t.file)).toBe(false);
+    expect(t.bridge.state().gone).toBe(true);
+    fs.writeFileSync(t.file, 'x\nz\n');
+    await t.bridge.sync();
+    expect(t.bridge.state().gone).toBe(false);
+    expect(t.text.toString()).toBe('yx\nz\n');
   });
 
   it('refuses a file that is not UTF-8 text', async () => {
     const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
     cleanups.push(() => fs.rmSync(home, { recursive: true, force: true }));
-    const file = path.join(home, 'image.bin');
+    fs.mkdirSync(path.join(home, 'p'));
+    const file = path.join(home, 'p', 'image.bin');
     fs.writeFileSync(file, Buffer.from([0x89, 0x50, 0xff, 0xfe]));
-    const bridge = createDiskBridge({ root: home, file, doc: new Y.Doc(), watch: () => ({ close() {} }) });
+    const bridge = createDiskBridge({ root: path.join(home, 'p'), file, doc: new Y.Doc(), recoveryDir: path.join(home, 'r'), watch: () => ({ close() {} }), settleMs: 5 });
     await expect(bridge.load()).rejects.toThrow(/not UTF-8/);
   });
 
-  it('a deleted file is not recreated by a save; a later outside write brings it back', async () => {
-    const { text, file, bridge, person } = await setup('x\n');
-    fs.unlinkSync(file);
-    person((t) => t.insert(0, 'y'));
-    expect(await bridge.save()).toEqual({ ok: false, reason: 'gone' });
-    expect(fs.existsSync(file)).toBe(false);
-    expect(bridge.state().gone).toBe(true);
-    fs.writeFileSync(file, 'x\nz\n');
-    await bridge.sync();
-    expect(bridge.state().gone).toBe(false);
-    expect(text.toString()).toBe('yx\nz\n');
-  });
-
-  it('never writes outside the project: a file swapped for a link, or its directory, is refused', async () => {
-    const { home, file, bridge, person, root } = await setup('inside\n');
-    const outside = path.join(home, 'outside.md');
-    fs.writeFileSync(outside, 'secret\n');
-    fs.unlinkSync(file);
-    fs.symlinkSync(outside, file);
-    person((t) => t.insert(0, 'x'));
-    await expect(bridge.save()).rejects.toThrow(/link/);
-    expect(fs.readFileSync(outside, 'utf8')).toBe('secret\n');
-    fs.unlinkSync(file);
-    fs.renameSync(path.join(root, 'src'), path.join(root, 'src-real'));
-    fs.mkdirSync(path.join(home, 'elsewhere'));
-    fs.writeFileSync(path.join(home, 'elsewhere', 'notes.md'), 'other\n');
-    fs.symlinkSync(path.join(home, 'elsewhere'), path.join(root, 'src'));
-    await expect(bridge.save()).rejects.toThrow(/left its project/);
-    expect(fs.readFileSync(path.join(home, 'elsewhere', 'notes.md'), 'utf8')).toBe('other\n');
-  });
-
-  it('refuses a file outside its project root', () => {
-    expect(() => createDiskBridge({ root: '/a/project', file: '/a/projectx/f', doc: new Y.Doc() })).toThrow();
-    expect(() => createDiskBridge({ root: '/a/project', file: '/a/project', doc: new Y.Doc() })).toThrow();
+  it('refuses a file outside its project, or a recovery directory inside it', () => {
+    const doc = new Y.Doc();
+    expect(() => createDiskBridge({ root: '/a/project', file: '/a/projectx/f', doc, recoveryDir: '/r' })).toThrow();
+    expect(() => createDiskBridge({ root: '/a/project', file: '/a/project', doc, recoveryDir: '/r' })).toThrow();
+    expect(() => createDiskBridge({ root: '/a/project', file: '/a/project/f', doc, recoveryDir: '/a/project/.r' })).toThrow();
   });
 
   it('keeps the file mode (an executable script stays executable)', async () => {
-    const { file, bridge, person } = await setup('#!/bin/sh\n');
-    fs.chmodSync(file, 0o755);
-    await bridge.sync(); // The mode change is a new revision (same text).
-    person((t) => t.insert(10, 'echo hi\n'));
-    expect(await bridge.save()).toEqual({ ok: true });
-    expect(fs.statSync(file).mode & 0o777).toBe(0o755);
+    const t = await setup('#!/bin/sh\n');
+    fs.chmodSync(t.file, 0o755);
+    t.person((x) => x.insert(10, 'echo hi\n'));
+    expect(await t.bridge.save()).toEqual({ ok: true });
+    expect(fs.statSync(t.file).mode & 0o777).toBe(0o755);
   });
 
   it('sees an outside write through the real watcher, including a replace by rename (editors, git checkout)', async () => {
     const { text, file } = await setup('v1\n', { watch: true });
-    const tmp = `${file}.new`;
-    fs.writeFileSync(tmp, 'v2\n');
-    fs.renameSync(tmp, file);
+    fs.writeFileSync(`${file}.new`, 'v2\n');
+    fs.renameSync(`${file}.new`, file);
     await expect.poll(() => text.toString(), { timeout: 3000 }).toBe('v2\n');
   });
 });
