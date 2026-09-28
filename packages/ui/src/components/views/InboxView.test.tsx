@@ -42,8 +42,8 @@ afterAll(async () => {
   await win.happyDOM.close();
 });
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 20)); });
-const buttons = (root: ParentNode) => [...root.querySelectorAll('article button')].map(b => b.textContent?.trim());
-const click = (el: Element | null | undefined) => act(async () => { (el as unknown as HTMLElement).click(); });
+const buttons = (root: { querySelectorAll: (s: string) => Iterable<{ textContent: string | null }> }) => [...root.querySelectorAll('article button')].map(b => b.textContent?.trim());
+const click = (el: unknown) => act(async () => { (el as unknown as HTMLElement).click(); });
 
 test('the inbox lists P0 first; an item shows only its actions; Accept resolves at once and Undo reopens', async () => {
   const host = win.document.createElement('div'); win.document.body.appendChild(host);
