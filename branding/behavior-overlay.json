@@ -42,7 +42,7 @@
       "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
       "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
       "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "combinedSha256": "3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2",
+      "combinedSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
       "reason": "Settings event/CORS and transactional writer evidence retained. Human auth successor awaits one shared controller before proxy and notification startup; exact-head review remains required.",
       "preManagedCatalogCombinedSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
       "managedCatalogSha256": "58fe1c7c96785db8bfbaa7674e47cb8f95d17692f63742d304566b03a8830eb3",
@@ -50,7 +50,10 @@
       "sessionVoiceSha256": "d2bd6fbd109195adb3b4cef906cf48db8033792f3e1fdbaec37ef22a6b1292dd",
       "preCreationFieldsCombinedSha256": "d2bd6fbd109195adb3b4cef906cf48db8033792f3e1fdbaec37ef22a6b1292dd",
       "creationFieldsSha256": "3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2",
-      "creationFieldsNote": "Packaged clients' CORS preflight allows X-Smarty-Creation-Fields (the page asks the gateway for stoppedBy, smarty-code#523/#548); branded strings unchanged."
+      "creationFieldsNote": "Packaged clients' CORS preflight allows X-Smarty-Creation-Fields (the page asks the gateway for stoppedBy, smarty-code#523/#548); branded strings unchanged.",
+      "preNotificationAuthCombinedSha256": "3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2",
+      "notificationAuthSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
+      "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
@@ -536,5 +539,6 @@
   "design538Source": "ba31b74cd2a84d4793f780e470886d822ba80f06",
   "creationFieldsSource": "43227c1caf9b31f67509ec009bed8ddd4bc7ac64",
   "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d",
-  "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6"
+  "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6",
+  "notificationAuthSource": "86c04a8c542da98009b23f5efe174883bfbcfa86"
 }
