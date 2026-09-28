@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
 import { ChildStoreManager, type DirectoryStore } from "./child-store"
-import { interruptedTurnToolParts } from "./sync-context"
+import { interruptedTurnToolParts, settledBySnapshot } from "./sync-context"
 
 // smarty-code#669 (3.40, org's session): the page missed a streamed reply's removal (its event stream was cut), so at
 // idle it showed the saved reply and a cut-off copy marked "The running turn stopped before the next message was sent.".
@@ -41,4 +41,17 @@ test("#669 counterexample: a non-ordinary (OpenCode) turn left unfinished by a c
 
 test("#669 counterexample: an ordinary session's saved reply is left as it is", () => {
   expect(interruptedTurnToolParts(store(true, [user, reply("a1", 3)]), S)).toBeNull()
+})
+
+// smarty-code#737 (3.41, 06:54:52Z): one authoritative /session/status read omitted three busy fleet sessions, and the
+// page marked their running tools Interrupted; each tool's result was committed seconds later.
+test("#737: an ordinary session absent from an authoritative snapshot is not settled; an explicit idle is", () => {
+  const ordinary = { type: "idle" as const, ordinary: true, ordinaryTarget: null }
+  expect(settledBySnapshot(undefined, ordinary)).toBe(false) // Absent: not known to have stopped.
+  expect(settledBySnapshot({ type: "idle" }, ordinary)).toBe(true) // Explicit idle settles it.
+})
+
+test("#737 counterexample: a non-ordinary session absent from the snapshot is still settled (#2577)", () => {
+  expect(settledBySnapshot(undefined, { type: "idle" })).toBe(true)
+  expect(settledBySnapshot(undefined, undefined)).toBe(true)
 })

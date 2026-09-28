@@ -777,6 +777,16 @@ export function applySessionStatusSnapshot(
   return changed
 }
 
+/**
+ * Whether an authoritative status snapshot may settle a session's unfinished turn (finalize its running tools). An
+ * ordinary (fleet) session ABSENT from it is not known to have stopped: the listing can omit a busy one (smarty-code#737:
+ * three running tools marked Interrupted at once, each completed seconds later). Only an explicit status settles it;
+ * its own message re-read brings the committed results. Other sessions keep #2577's rule: absence is idle.
+ */
+export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined): boolean {
+  return toSessionStatus(entry) !== undefined || !current?.ordinary
+}
+
 async function resyncDirectorySessionStatuses(
   directory: string,
   store: StoreApi<DirectoryStore>,
@@ -799,6 +809,7 @@ async function resyncDirectorySessionStatuses(
     // which is the gate the helper requires — a session the snapshot reports
     // busy stays untouched.
     for (const sessionId of candidateSessionIds) {
+      if (!settledBySnapshot(nextStatuses[sessionId], store.getState().session_status?.[sessionId])) continue
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
         reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
