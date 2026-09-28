@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
+import { lastRealMessage } from './message/systemNote';
 import { useLatestSessionError } from '@/sync/notification-store';
 import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
 
@@ -28,7 +29,8 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
   const getSnapshot = React.useCallback((): LastMessageState => {
     if (!sessionId) return null;
     const messages = store.getState().message[sessionId];
-    const last = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    // A system note (a voice call started or ended) is no reply and no request: judge the last real message.
+    const last = lastRealMessage(messages);
     // SAFETY: store messages are SDK `Message` records; `error` is the optional
     // assistant-message error the SDK types carry, read here only for presence.
     const info = last as { role?: string; time?: { completed?: number; created?: number }; error?: unknown } | null;

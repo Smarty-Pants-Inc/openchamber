@@ -507,6 +507,15 @@
       "reason": "smarty-code#391: in the passwordless mode the message-stream WebSocket upgrade applies the browser-origin rule (lib/security/browser-origin.js); the donor file carries no branded strings.",
       "originGuardAdded": true,
       "originGuardSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099"
+    },
+    {
+      "path": "packages/web/server/lib/session-assist/runtime.js",
+      "brandingSha256": "8eb38925365c5a8cc6db0b59b50583c4443436b092094b4542cb1ac0205ff07d",
+      "behaviorSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853",
+      "combinedSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853",
+      "reason": "Session assist skips voice call notes (clientRole system-note) when it reads the agent reply; the branded Engine label is unchanged.",
+      "systemNoteAdded": true,
+      "systemNoteSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -526,5 +535,6 @@
   "firstSendHandoffSource": "34a811038a1c2160f1bf49b46a22103a9d6a24c7",
   "design538Source": "ba31b74cd2a84d4793f780e470886d822ba80f06",
   "creationFieldsSource": "43227c1caf9b31f67509ec009bed8ddd4bc7ac64",
-  "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d"
+  "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d",
+  "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6"
 }
