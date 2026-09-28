@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
+    "@hocuspocus/server": "^4.7.0",
     "@octokit/rest": "^22.0.1",
     "@opencode-ai/sdk": "1.18.29",
     "@simplewebauthn/server": "13.3.1",
@@ -53,6 +54,7 @@
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-go": "^6.0.1",
     "@eslint/js": "^9.33.0",
+    "@hocuspocus/provider": "4.7.0",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
