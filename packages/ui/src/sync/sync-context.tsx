@@ -2212,7 +2212,8 @@ export function handleEvent(
  * The page just marked a turn stopped on its own ("The running turn stopped…", running tools "Interrupted"): a wrong
  * idle from the server shows a live turn as stopped (smarty-code#536, org's session on 3.38). Reported at once.
  */
-function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[] }, runtimeKey: string) {
+function reportTurnSettledLocally(sessionID: string, seen: string, interrupted: { messageID: string; parts?: Part[]; dropped?: true }, runtimeKey: string) {
+  if (interrupted.dropped) seen += "; ordinary streamed copy dropped"
   const tools = interrupted.parts?.filter(part => part.type === "tool" && part.state.status === "error"
     && part.state.error === "Interrupted").length ?? 0
   reportClientError({ kind: "turn-settled-locally", sessionID, message: `${seen}; tools interrupted: ${tools}`, runtimeKey,
@@ -2227,7 +2228,7 @@ export function interruptedTurnToolParts(
   state: DirectoryStore,
   sessionID: string,
   now = Date.now(),
-): { messageID: string; messages: Message[]; parts?: Part[] } | null {
+): { messageID: string; messages: Message[]; parts?: Part[]; dropped?: true } | null {
   if ((state.question?.[sessionID] ?? []).length > 0) return null
   if ((state.permission?.[sessionID] ?? []).length > 0) return null
 
@@ -2240,6 +2241,15 @@ export function interruptedTurnToolParts(
   }
 
   const messages = state.message[sessionID] ?? []
+  // smarty-code#669: an ordinary (Pi) session is idle only with no reply streaming, and each saved reply has its completed
+  // time: every unfinished reply here is a streamed copy whose removal the page missed (its event stream was cut, a slow
+  // reader), wherever it sits (a turn streams several). They are dropped, not marked stopped: each showed as a cut-off
+  // second copy of its reply, with "The running turn stopped before the next message was sent.".
+  if (status.ordinary) {
+    const orphans = messages.filter((message) => message.role === "assistant" && message.time.completed === undefined)
+    if (orphans.length === 0) return null
+    return { messageID: orphans[0].id, messages: messages.filter((message) => !orphans.includes(message)), dropped: true }
+  }
   let messageIndex = -1
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index]
