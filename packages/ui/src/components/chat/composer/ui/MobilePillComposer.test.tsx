@@ -11,7 +11,7 @@ import { getDefaultTheme } from '@/lib/theme/themes';
 
 import { MobilePillComposer } from './MobilePillComposer';
 
-const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean }) => {
+const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean; unavailable?: string }) => {
     const win = new Window({ url: 'http://localhost' });
     const values = { window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage, IS_REACT_ACT_ENVIRONMENT: true };
     const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -42,6 +42,7 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
                 onApplySuggestion={() => {}}
                 onPrimaryAction={() => { primaryActions += 1; }}
                 onQueueMessage={() => { queued += 1; }}
+                sendDisabledReason={options.unavailable}
                 onNewSession={() => {}}
                 onPickLocalFiles={() => {}}
                 onOpenIssuePicker={() => {}}
@@ -53,7 +54,18 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
         </I18nProvider>
         </ThemeSystemProvider>
         </SyncProvider>));
-        if (options.hasContent && options.canAbort) {
+        if (options.unavailable) {
+            // smarty-code#790: while its session is unavailable, neither Send (inline) nor the trailing Send/Queue
+            // sends; both say why on hover.
+            const buttons = [...container.querySelectorAll<HTMLButtonElement>('button')]
+                .filter((button) => button.getAttribute('title') === options.unavailable);
+            expect(buttons.length).toBeGreaterThan(0);
+            for (const button of buttons) {
+                expect(button.disabled).toBe(true);
+                await act(async () => { button.click(); });
+            }
+            expect(primaryActions + queued).toBe(0);
+        } else if (options.hasContent && options.canAbort) {
             // While a turn runs the draft can only be queued, never sent past it.
             const queue = container.querySelector<HTMLButtonElement>('[aria-label="Queue message"]');
             expect(queue).not.toBeNull();
@@ -128,4 +140,9 @@ describe('MobilePillComposer', () => {
         expect(markup).toContain('aria-label="New chat"');
         expect(markup).not.toContain('aria-label="Send message"');
     });
+});
+
+test('smarty-code#790: an unavailable session disables the collapsed Send, idle and working, with the reason', async () => {
+    await renderPill({ hasContent: true, newSessionDraftOpen: false, unavailable: 'This session is unavailable right now.' });
+    await renderPill({ hasContent: true, newSessionDraftOpen: false, canAbort: true, unavailable: 'This session is unavailable right now.' });
 });
