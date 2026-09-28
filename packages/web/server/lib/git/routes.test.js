@@ -208,3 +208,42 @@ describe('git routes status discovery', () => {
     expect(response.body).toMatchObject({ current: 'main' });
   });
 });
+
+describe('git status reads are shared (smarty-code#712)', () => {
+  beforeEach(() => {
+    gitLibraries.isGitRepository.mockReset();
+    gitLibraries.getStatus.mockReset();
+    gitLibraries.stageFiles.mockReset();
+  });
+
+  it('concurrent GETs for one directory run one read; a git write in between forces a new one', async () => {
+    gitLibraries.isGitRepository.mockResolvedValue(true);
+    let resolveRead;
+    gitLibraries.getStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveRead = resolve; }))
+      .mockResolvedValue({ current: 'main', files: [{ path: 'a.ts' }], isClean: false, ahead: 0, behind: 0 });
+    gitLibraries.stageFiles.mockResolvedValue({ success: true });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const status = getRoute('GET', '/api/git/status');
+    // Load the (mocked) git libraries once first: vitest can hand two concurrent first imports of a mocked module the real
+    // one. Another directory, so it shares nothing with the reads below.
+    gitLibraries.isGitRepository.mockResolvedValueOnce(false);
+    await status({ query: { directory: '/warm' } }, createMockResponse());
+    const [r1, r2] = [createMockResponse(), createMockResponse()];
+    const p1 = status({ query: { directory: '/repo' } }, r1), p2 = status({ query: { directory: '/repo' } }, r2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    resolveRead({ current: 'main', files: [], isClean: true, ahead: 0, behind: 0 });
+    await Promise.all([p1, p2]);
+    expect(gitLibraries.getStatus).toHaveBeenCalledTimes(1);
+    expect(r1.body).toEqual(r2.body);
+    // A stage (any non-GET git route) invalidates: the next GET reads again and shows the change.
+    const staged = createMockResponse();
+    await getRoute('POST', '/api/git/stage')({ query: { directory: '/repo' }, body: { paths: ['a.ts'] } }, staged);
+    expect(staged.body).toEqual({ success: true });
+    const r3 = createMockResponse();
+    await status({ query: { directory: '/repo' } }, r3);
+    expect(gitLibraries.getStatus).toHaveBeenCalledTimes(2);
+    expect(r3.body.files).toEqual([{ path: 'a.ts' }]);
+  });
+});
+

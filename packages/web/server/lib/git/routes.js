@@ -1,4 +1,13 @@
-export function registerGitRoutes(app) {
+import { createStatusReuse } from './status-reuse.js';
+export function registerGitRoutes(appInput) {
+  // smarty-code#712: shared git status reads; every git write invalidates them, before and after it runs.
+  const statusReuse = createStatusReuse();
+  const writing = (register) => (routePath, ...handlers) => register(routePath, ...handlers.map((handler) => async (req, res, next) => {
+    statusReuse.invalidate();
+    try { return await handler(req, res, next); } finally { statusReuse.invalidate(); }
+  }));
+  const app = { get: appInput.get.bind(appInput), post: writing(appInput.post.bind(appInput)),
+    put: writing(appInput.put.bind(appInput)), delete: writing(appInput.delete.bind(appInput)) };
   let gitLibraries = null;
   const getGitLibraries = async () => {
     if (!gitLibraries) {
@@ -228,13 +237,11 @@ export function registerGitRoutes(app) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const isRepo = await isGitRepository(directory);
-      if (!isRepo) {
-        return res.json(nonRepoStatusPayload());
-      }
-
       const mode = req.query.mode === 'light' ? 'light' : undefined;
-      const status = await getStatus(directory, { mode });
+      const status = await statusReuse.get(`${mode ?? 'full'}\0${directory}`, async () => {
+        if (!(await isGitRepository(directory))) return nonRepoStatusPayload();
+        return getStatus(directory, { mode });
+      });
       res.json(status);
     } catch (error) {
       // Non-repo / GitError must not abort callers that enumerate projects or
