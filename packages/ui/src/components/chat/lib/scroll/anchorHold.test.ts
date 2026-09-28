@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { SCROLL_INTENT_EVENT, SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
 import { READER_INTENT_EVENTS, runAnchorHold, type AnchorHoldTarget } from './anchorHold';
 
 // review/astra OC#334: the prepend hold must yield to the reader and recover a missing anchor from the CURRENT mapping.
@@ -36,6 +37,17 @@ describe('prepend anchor hold (smarty-code#583)', () => {
         t.runFrames(5);
         expect(t.container.scrollTop).toBe(200); // steady: no further writes, then it ends
         expect(t.frames.length).toBe(0);
+    });
+
+    test('the overlay thumb\'s drag counts as reader input', () => { expect(READER_INTENT_EVENTS).toContain(SCROLL_INTENT_EVENT); });
+
+    test('return to latest (the navigate signal) ends an active hold, and it never pulls the view back', () => {
+        const t = makeTarget();
+        runAnchorHold(t.target, { messageId: 'm1', offsetTop: 100 }, {}, defaults);
+        t.listeners.get(SCROLL_NAVIGATE_EVENT)!();
+        t.runFrames(5);
+        expect(t.container.scrollTop).toBe(0);
+        expect(t.listeners.size).toBe(0);
     });
 
     for (const name of READER_INTENT_EVENTS) {

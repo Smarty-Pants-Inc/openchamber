@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { SCROLL_INTENT_EVENT, signalScroll } from "@/lib/scrollIntent";
 
 type OverlayScrollbarProps = {
   /** The authoritative scrolling element. Its identity must stay stable while mounted. */
@@ -200,6 +201,8 @@ function bindScrollbar(
       scrollStartPx: axis === "vertical" ? container.scrollTop : container.scrollLeft,
     };
     markUserIntent();
+    // The thumb is outside the container: tell the chat's listeners the reader is moving the view (smarty-code#583).
+    signalScroll(container, SCROLL_INTENT_EVENT);
     hideDeadlineMs = Number.POSITIVE_INFINITY;
     if (hideTimerId !== null) {
       clearTimeout(hideTimerId);
@@ -217,6 +220,7 @@ function bindScrollbar(
       : horizontalThumbPixelsPerScrollPixel;
     if (scale <= 0) return;
     const scrollOffset = drag.scrollStartPx + (pointer - drag.pointerStartPx) / scale;
+    signalScroll(container, SCROLL_INTENT_EVENT);
     if (drag.axis === "vertical") container.scrollTop = scrollOffset;
     else container.scrollLeft = scrollOffset;
   };

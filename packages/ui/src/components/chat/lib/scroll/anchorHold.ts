@@ -3,8 +3,15 @@
 export type AnchorHoldOptions = { stableFrames?: number; maxFrames?: number; restoreMissing?: boolean };
 export const PREPEND_ANCHOR_HOLD: AnchorHoldOptions = { stableFrames: 90, maxFrames: 360, restoreMissing: true };
 
-/** Every input that means the reader is moving the view themselves: any of these ends a hold (review/astra OC#334). */
-export const READER_INTENT_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+import { SCROLL_INTENT_EVENT, SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
+
+/**
+ * Every input that means the reader is moving the view themselves: any of these ends a hold (review/astra OC#334).
+ * The overlay scrollbar's thumb is outside the container, so its drag arrives as SCROLL_INTENT_EVENT.
+ */
+export const READER_INTENT_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown', SCROLL_INTENT_EVENT] as const;
+/** READER_INTENT_EVENTS plus an explicit navigation ("return to latest"): all of them end a hold. */
+const HOLD_END_EVENTS = [...READER_INTENT_EVENTS, SCROLL_NAVIGATE_EVENT] as const;
 
 export type AnchorHoldTarget = {
     container: Pick<HTMLElement, 'addEventListener' | 'removeEventListener' | 'getBoundingClientRect' | 'scrollTop'>;
@@ -29,9 +36,9 @@ export function runAnchorHold(target: AnchorHoldTarget, anchor: { messageId: str
     const stop = () => {
         if (done) return;
         done = true;
-        for (const name of READER_INTENT_EVENTS) container.removeEventListener(name, stop);
+        for (const name of HOLD_END_EVENTS) container.removeEventListener(name, stop);
     };
-    for (const name of READER_INTENT_EVENTS) container.addEventListener(name, stop, { passive: true });
+    for (const name of HOLD_END_EVENTS) container.addEventListener(name, stop, { passive: true });
     const step = () => {
         if (done) return;
         const element = target.findElement(anchor.messageId);

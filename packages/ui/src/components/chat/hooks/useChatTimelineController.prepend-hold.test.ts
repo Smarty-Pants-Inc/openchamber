@@ -1,4 +1,5 @@
 import React, { act } from 'react';
+import { SCROLL_INTENT_EVENT, SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, test } from 'bun:test';
 import type { Message } from '@opencode-ai/sdk/v2/client';
@@ -113,6 +114,32 @@ describe('older history keeps the reader in place (smarty-code#583)', () => {
             h.release();
             await settleFrames(10);
             expect(h.holds).toEqual([]);
+        } finally { await h.done(); }
+    });
+
+    test('review/astra OC#334: the real return-to-latest path (goToBottom\'s navigate signal) drops the pending hold', async () => {
+        const h = await mount();
+        try {
+            act(() => { void h.controller.loadEarlier({ userInitiated: true }); });
+            await settleFrames(2);
+            h.fire(SCROLL_NAVIGATE_EVENT); // what goToBottom sends: the composer's button, resumeToBottomInstant
+            h.release();
+            await settleFrames(10);
+            expect(h.holds).toEqual([]);
+        } finally { await h.done(); }
+    });
+
+    test('review/astra OC#334: a scrollbar thumb drag while the page is pending re-captures where the reader is NOW', async () => {
+        const h = await mount();
+        try {
+            act(() => { void h.controller.loadEarlier({ userInitiated: true }); });
+            await settleFrames(2);
+            h.setAnchor({ messageId: 'm100', offsetTop: 480 });
+            h.fire(SCROLL_INTENT_EVENT); h.fire('scroll'); // the overlay thumb's drag: no wheel, no pointer on the container
+            await settleFrames(2);
+            h.release();
+            await settleFrames(10);
+            expect(h.holds).toEqual([[{ messageId: 'm100', offsetTop: 480 }, PREPEND_ANCHOR_HOLD]]);
         } finally { await h.done(); }
     });
 

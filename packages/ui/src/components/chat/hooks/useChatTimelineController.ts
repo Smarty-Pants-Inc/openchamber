@@ -3,6 +3,7 @@ import React from 'react';
 import type { ChatMessageEntry } from '../lib/turns/types';
 import type { MessageListHandle } from '../MessageList';
 import { PREPEND_ANCHOR_HOLD, READER_INTENT_EVENTS } from '../lib/scroll/anchorHold';
+import { SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
 
 // A scroll within this long after the reader's own input is theirs (momentum included), not a programmatic one.
 const READER_SCROLL_WINDOW_MS = 1200;
@@ -906,12 +907,15 @@ export const useChatTimelineController = ({
         };
         for (const name of READER_INTENT_EVENTS) container.addEventListener(name, onIntent, { passive: true });
         container.addEventListener('scroll', onScroll, { passive: true });
+        // Every return to latest drops a pending anchor, whichever path called it (review/astra OC#334).
+        container.addEventListener(SCROLL_NAVIGATE_EVENT, yieldPendingAnchor);
         return () => {
             for (const name of READER_INTENT_EVENTS) container.removeEventListener(name, onIntent);
             container.removeEventListener('scroll', onScroll);
+            container.removeEventListener(SCROLL_NAVIGATE_EVENT, yieldPendingAnchor);
             if (frame !== null) window.cancelAnimationFrame(frame);
         };
-    }, [captureViewportAnchor, scrollRef, sessionKey]);
+    }, [captureViewportAnchor, scrollRef, sessionKey, yieldPendingAnchor]);
 
     const scrollToTurn = React.useCallback(async (
         turnId: string,
