@@ -67,6 +67,7 @@ const setup = async ({ allow = true, origin = allow, createBridge } = {}) => {
   return { home, root, file, join, rejected, roomName, disk: () => fs.readFileSync(file, 'utf8') };
 };
 
+process.env.OPENCHAMBER_COEDIT = '1'; // The bridge is off unless enabled.
 describe('co-edit rooms (smartyfs#18)', { timeout: 30_000 }, () => {
   it('two people in one room: each sees the file and the other, the save reaches the disk, an outside write reaches both', async () => {
     const t = await setup();
