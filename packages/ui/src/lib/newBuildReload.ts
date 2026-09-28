@@ -29,10 +29,13 @@ export function holdReload(when: () => boolean = () => true): () => void {
 /** Whether anything holds automatic reloads now. */
 export const reloadHeld = (): boolean => [...holds].some((when) => { try { return when(); } catch { return true; } });
 
-/** A composer draft a reload would lose: any text (whitespace is a person's draft too) while draft persistence is off or
- * its storage is failing (then it lives only in the page). */
-export const draftAtRisk = (text: string, persistEnabled: boolean, ephemeral: boolean): boolean =>
-  text !== "" && (!persistEnabled || ephemeral);
+/**
+ * A composer draft a reload would lose: any text (whitespace is a person's draft too) while draft persistence is off, or
+ * when saving that exact text now does not succeed. It is saved synchronously at the decision, never trusted to an
+ * earlier write's result, a pending debounce or the pagehide flush (openchamber#333 review 2).
+ */
+export const draftAtRisk = (text: string, persistEnabled: boolean, saveNow: () => boolean): boolean =>
+  text !== "" && (!persistEnabled || !saveNow());
 
 type Deps = {
   running: () => string | undefined;

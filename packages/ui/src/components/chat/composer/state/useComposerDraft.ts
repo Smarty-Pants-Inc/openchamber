@@ -75,7 +75,8 @@ export interface ComposerDraftControls {
      * Write a draft now, bypassing the debounce. Used on submit, where the
      * cleared composer must be stored before the send resolves.
      */
-    persistNow: (identity: ChatDraftIdentity | null, draft: string) => void;
+    /** Saves `draft` now; true only when storage holds exactly it (a reload may then rely on it, openchamber#333). */
+    persistNow: (identity: ChatDraftIdentity | null, draft: string) => boolean;
 }
 
 export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftControls {
@@ -125,8 +126,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         currentIdentityRef.current = identity;
     }, [identity]);
 
-    const persistNow = React.useCallback((target: ChatDraftIdentity | null, draft: string) => {
-        if (!target) return;
+    const persistNow = React.useCallback((target: ChatDraftIdentity | null, draft: string): boolean => {
+        if (!target) return false;
         const key = getChatDraftIdentityKey(target);
 
         // Only keep confirmed mentions the draft still contains: a mention the
@@ -141,12 +142,13 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         // of what was saved: the same words set again later (edited away and back) are saved again with their new start.
         const since = draft && typeof liveSinceRef.current === 'number' ? liveSinceRef.current : undefined;
         const signature = since === undefined ? draftSignature(draft, activeMentions) : `${draftSignature(draft, activeMentions)}\u0000${since}`;
-        if (lastPersistedRef.current.get(key) === signature && !isChatDraftEphemeral()) return;
+        if (lastPersistedRef.current.get(key) === signature && !isChatDraftEphemeral()) return true;
 
         const stored = writeChatDraft(target, draft, activeMentions, since);
-        if (stored === undefined) return;
+        if (stored === undefined) return false; // Not this editor's to write (another tab owns it): not saved by us.
         if (stored) lastPersistedRef.current.set(key, signature);
         else lastPersistedRef.current.delete(key);
+        return stored;
     }, [confirmedMentionsRef]);
 
     const clearPending = React.useCallback(() => {

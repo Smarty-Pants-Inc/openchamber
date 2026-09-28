@@ -37,7 +37,6 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
     consumeChatDraft,
-    isChatDraftEphemeral,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -995,9 +994,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Read live at the reload decision: the editor's own text, not a state that can lag a keystroke.
     const persistChatDraftRef = React.useRef(persistChatDraft);
     persistChatDraftRef.current = persistChatDraft;
+    const persistDraftImmediatelyRef = React.useRef(persistDraftImmediately);
+    persistDraftImmediatelyRef.current = persistDraftImmediately;
     React.useEffect(() => holdReload(() => {
         const text = composerRef.current?.getValue() ?? messageRef.current;
-        return draftAtRisk(text, persistChatDraftRef.current, isChatDraftEphemeral());
+        return draftAtRisk(text, persistChatDraftRef.current, () => persistDraftImmediatelyRef.current(currentChatDraftIdentityRef.current, text));
     }), []);
 
     // Focus textarea when new session draft is opened

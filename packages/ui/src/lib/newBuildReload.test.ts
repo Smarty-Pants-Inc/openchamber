@@ -44,16 +44,16 @@ const reconnect = async () => {
   return reloaded
 }
 
-test("a draft with persistence off or failing storage holds the reload; a safely saved or empty one does not", async () => {
-  expect(draftAtRisk("unsent words", false, false)).toBe(true) // Persist Draft Messages off.
-  expect(draftAtRisk("unsent words", true, true)).toBe(true) // Storage write failed: ephemeral only.
-  expect(draftAtRisk("  ", false, false)).toBe(true) // Whitespace is a person's draft too.
-  expect(draftAtRisk("unsent words", true, false)).toBe(false) // Saved: it survives the reload.
-  expect(draftAtRisk("", false, true)).toBe(false) // Nothing to lose.
+test("a draft with persistence off, or whose save now fails, holds the reload; one saved now does not", async () => {
+  expect(draftAtRisk("unsent words", false, () => true)).toBe(true) // Persist Draft Messages off.
+  expect(draftAtRisk("unsent words", true, () => false)).toBe(true) // Saving it now failed.
+  expect(draftAtRisk("  ", false, () => true)).toBe(true) // Whitespace is a person's draft too.
+  expect(draftAtRisk("unsent words", true, () => true)).toBe(false) // Saved now: it survives the reload.
+  expect(draftAtRisk("", false, () => false)).toBe(false) // Nothing to lose.
   let text = "unsent words", persist = false
-  const release = holdReload(() => draftAtRisk(text, persist, false)) // As ChatInput registers it: read live.
+  const release = holdReload(() => draftAtRisk(text, persist, () => true)) // As ChatInput registers it: read live.
   expect(await reconnect()).toBe(0)
-  persist = true // The person turns persistence on: the draft is saved now.
+  persist = true // Persistence on, and the save succeeds: the reload may go.
   expect(await reconnect()).toBe(1)
   persist = false; text = ""
   expect(await reconnect()).toBe(1) // Sent or cleared: a later reconnect reloads.
