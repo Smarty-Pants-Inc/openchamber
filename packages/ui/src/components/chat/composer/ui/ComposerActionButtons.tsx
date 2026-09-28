@@ -85,7 +85,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             {hasContent ? (
                 <button
                     type="button"
-                    disabled={!currentSessionId}
+                    disabled={!currentSessionId || Boolean(sendDisabledReason)}
                     onClick={(event) => {
                         if (isMobile) {
                             event.preventDefault();
@@ -95,10 +95,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     className={cn(
                         footerIconButtonClass,
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
-                        currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
+                        currentSessionId && !sendDisabledReason ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
                     aria-label={t(sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
-                    title={sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined}
+                    title={sendDisabledReason ?? (sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined)}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, !sendWhileWorking && '-rotate-90')} />
                 </button>

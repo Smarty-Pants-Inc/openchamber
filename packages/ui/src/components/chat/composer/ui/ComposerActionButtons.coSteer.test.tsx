@@ -24,9 +24,10 @@ const render = async (sendWhileWorking: boolean, unavailable?: string, working =
         const send = [...container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Send message');
         const sendState = send ? { disabled: (send as HTMLButtonElement).disabled, title: send.getAttribute('title') } : undefined;
         const upper = container.querySelector<HTMLButtonElement>('button.absolute');
+        const upperState = upper ? { disabled: upper.disabled, title: upper.getAttribute('title') } : undefined;
         const rotated = Boolean(upper?.querySelector('.-rotate-90'));
         await act(async () => { upper?.click(); });
-        return { labels, rotated, sends, sendState };
+        return { labels, rotated, sends, sendState, upperState };
     } finally {
         await act(async () => root.unmount());
         for (const [key, descriptor] of previous) {
@@ -55,4 +56,11 @@ test('an unavailable ordinary session shows Send disabled with the reason', asyn
     expect(result.sendState).toEqual({ disabled: true, title: 'This session is unavailable right now.' });
     const ok = await render(false, undefined, false);
     expect(ok.sendState).toEqual({ disabled: false, title: null });
+});
+
+// #343 review: while its agent works, the Send shown above Stop is disabled too, with the reason, and sends nothing.
+test('an unavailable ordinary session that is working shows the Send above Stop disabled with the reason', async () => {
+    const result = await render(true, 'This session is unavailable right now.', true);
+    expect(result.upperState).toEqual({ disabled: true, title: 'This session is unavailable right now.' });
+    expect(result.sends).toBe(0);
 });
