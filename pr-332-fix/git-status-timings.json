@@ -1,0 +1,60 @@
+{
+ "summary": {
+  "label": "fix",
+  "calls": 8,
+  "p50": 2002,
+  "p95": 7990,
+  "max": 7990,
+  "non200": 0
+ },
+ "timings": [
+  {
+   "page": 1,
+   "ms": 889,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 1295,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 2002,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 7990,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 666,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 1017,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 1,
+   "ms": 4435,
+   "status": 200,
+   "fresh": false
+  },
+  {
+   "page": 2,
+   "ms": 2354,
+   "status": 200,
+   "fresh": false
+  }
+ ]
+}

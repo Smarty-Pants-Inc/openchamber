@@ -1,0 +1,4 @@
+{"t":"2026-09-28T05:57:01.039Z","event":"step","note":"Open http://127.0.0.1:43295 in two signed-in pages; open the Git panel in each"}
+{"t":"2026-09-28T05:59:01.546Z","event":"step","note":"Both pages stay open for 120 s; every GET /api/git/status is timed","label":"fix","calls":8,"p50":2002,"p95":7990,"max":7990,"non200":0}
+{"t":"2026-09-28T05:59:17.655Z","event":"step","note":"In page 1, click \"Stage stage-me.txt\": page 1 shows it staged after 560 ms, page 2 after 15104 ms","before":{"one":false,"two":false},"oneMs":560,"twoMs":15104}
+{"t":"2026-09-28T05:59:17.663Z","event":"done"}
