@@ -97,7 +97,9 @@ export function attachCoeditRooms({
       if (!res.headersSent) res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-    if (!await originAllowed(req).catch(() => false)) return res.status(403).json({ error: 'Forbidden' });
+    // No origin check here: a browser sends no Origin on a same-origin GET (code-design, 13:0xZ). This read is answered
+    // only to a signed-in person and after admission, and CORS keeps other sites from reading it (no ACAO header).
+    // The WebSocket upgrade keeps its origin check.
     try {
       const admitted = await admit(req, { directory: String(req.query.directory ?? ''), path: String(req.query.path ?? '') });
       res.json({ name: admitted.file });

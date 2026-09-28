@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 
 /** A real server with co-edit rooms over a temp project; `allow` decides the auth and origin checks. */
-const setup = async ({ allow = true, createBridge } = {}) => {
+const setup = async ({ allow = true, origin = allow, createBridge } = {}) => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-rooms-')));
   const root = path.join(home, 'project');
   fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
@@ -33,7 +33,7 @@ const setup = async ({ allow = true, createBridge } = {}) => {
     app,
     server,
     ensureAuthenticated: async () => allow,
-    originAllowed: async () => allow,
+    originAllowed: async () => origin,
     rejectWebSocketUpgrade: (socket, status) => { rejected.push(status); socket.destroy(); },
     admit: createCoeditAdmission({
       // Like the real one: the canonical project, and the directory as the client named it.
@@ -118,9 +118,11 @@ describe('co-edit rooms (smartyfs#18)', { timeout: 30_000 }, () => {
     await expect.poll(() => kate.text.toString(), { timeout: 10000 }).toBe('xplan\n');
   });
 
-  it('the room name needs a signed-in, allowed request', async () => {
+  it('the room name needs a signed-in request; a same-origin GET without an Origin header is answered', async () => {
     const t = await setup({ allow: false });
     expect((await t.roomName(t.root, t.file)).status).toBe(401);
+    const signedIn = await setup({ origin: false }); // Signed in, but no allowed Origin (a browser's same-origin GET).
+    expect(await signedIn.roomName(signedIn.root, signedIn.file)).toEqual({ status: 200, body: { name: signedIn.file } });
   });
 
   it('a conflict reaches the people in the room as a stateless message', async () => {
