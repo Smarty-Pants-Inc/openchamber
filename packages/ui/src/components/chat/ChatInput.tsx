@@ -3430,6 +3430,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onPrimaryAction={handlePrimaryAction}
                         onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : () => { void handleQueueMessage(); }}
                         sendWhileWorking={sendsWhileWorking}
+                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
