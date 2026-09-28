@@ -1,5 +1,8 @@
 import React from 'react';
 import { HumanAuthor } from '@/components/auth/HumanAuthor';
+import { FabricMessageRow } from './message/FabricMessageRow';
+import { fabricMessageOf } from './message/fabricMessageData';
+import { voiceText } from './message/voiceTurnData';
 import { UnsavedLabel } from '@/components/chat/UnsavedLabel';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import { useShallow } from 'zustand/react/shallow';
@@ -803,6 +806,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         ? (stickyUserHeader ? (isMobile ? 'pt-4' : 'pt-6') : 'pt-0')
         : 'pt-0';
     const userMessageRadius = 'var(--radius-xl)';
+    const fabric = isUser ? fabricMessageOf(message.info) : undefined;
 
     return (
         <>
@@ -817,7 +821,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 ref={messageContainerRef}
             >
                 <div className="chat-message-column relative">
-                    {isUser ? (
+                    {isUser && fabric ? (
+                        // #739: a Fabric message from another agent: a collapsed row with its sender, not a person's bubble.
+                        <FabricMessageRow fabric={fabric}>
+                            <p className="whitespace-pre-wrap break-words typography-markdown">{fabric.text ?? voiceText(displayParts)}</p>
+                        </FabricMessageRow>
+                    ) : isUser ? (
                         displayParts.length === 0 ? null : (
                             <FadeInOnReveal
                                 forceAnimation
