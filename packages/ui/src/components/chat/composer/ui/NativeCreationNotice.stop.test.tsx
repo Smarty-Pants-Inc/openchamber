@@ -185,6 +185,19 @@ test('text back after a start someone stopped says who stopped it', async () => 
   } finally { opencodeClient.listNativeCreations = original; localStorage.clear(); }
 });
 
+// smarty-code#768 (#751's case): the person waits on the page and the start expires there: the line says what it waited for.
+test('a start that expires while the page waits says what it waited for; without a reason, today\'s line', async () => {
+  for (const [waitingFor, line] of [
+    ['terminal input received', nativeCreationI18n.en['chat.nativeCreation.stoppedExpiredWaiting'].replace('{waitingFor}', 'terminal input received')],
+    [undefined, nativeCreationI18n.en['chat.nativeCreation.stopped']]] as const) {
+    const operation = { ...blocking('8888bbbb-expired', -1), phase: 'expired' as const, ...(waitingFor ? { waitingFor } : {}) };
+    // SAFETY: the notice reads only status and operation from a pending creation.
+    const state = { ...native([], []), creation: { status: 'pending', operation } } as unknown as ReturnType<typeof useNativeCreation>;
+    await act(async () => root.render(<NativeCreationNotice native={state} draftOpen />));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(line);
+  }
+});
+
 // smarty-code#768: text back after an expired start says what the start waited for; without a reason, today's line.
 test('text back after an expired start says what it waited for, when its gateway says', async () => {
   const { getRuntimeKey } = await import('@/lib/runtime-switch');

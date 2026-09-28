@@ -124,7 +124,10 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   // A start that stopped without a session (failed before launch, declined, expired: smarty-code#634) started nothing:
   // say so. The text stays here, and the next Send clears this start and tries anew (native-draft-start).
   if (creation?.status === 'pending' && STOPPED_PHASES.includes(creation.operation.phase)) {
-    return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">{t('chat.nativeCreation.stopped')}</p>;
+    // An expired one says what it waited for, when its gateway says (smarty-code#768).
+    const waited = creation.operation.phase === 'expired' ? creation.operation.waitingFor : undefined;
+    return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
+      {waited ? t('chat.nativeCreation.stoppedExpiredWaiting', { waitingFor: waited }) : t('chat.nativeCreation.stopped')}</p>;
   }
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
     return <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" role="status">
