@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -39,7 +39,9 @@ describe('registry token containment', () => {
   });
 
   it('the server never uses Bun.spawn with its default environment (Bun keeps its own start-up copy of it)', () => {
-    const files = execFileSync('git', ['ls-files', '*.js'], { cwd: server, encoding: 'utf8' }).split('\n').filter((f) => f && !f.includes('.test.'));
+    // The server's own sources (a file walk, not git: CI copies may have no .git).
+    const files = readdirSync(server, { recursive: true }).map(String)
+      .filter((f) => f.endsWith('.js') && !f.includes('.test.') && !f.split('/').includes('node_modules'));
     expect(files.filter((f) => /Bun\.spawn/.test(readFileSync(join(server, f), 'utf8').replace(/^\s*\/\/.*$/gm, '')))).toEqual([]);
   });
 
