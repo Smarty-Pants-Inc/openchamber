@@ -204,6 +204,77 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     expect(t.text.toString()).toBe('yx\nz\n');
   });
 
+  describe('net-lead round 3 and org\'s conditions (smartyfs#32)', () => {
+    it('a truncate-and-pause is a conflict, not a merge: the room keeps its deletion, and the full write converges', async () => {
+      const t = await setup('AB');
+      t.person((x) => x.delete(1, 1)); // The room deletes B.
+      fs.writeFileSync(t.file, ''); // A writer truncated, and pauses.
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('A');
+      expect(t.conflicts.map((c) => c.conflict)).toEqual(['truncated']);
+      fs.writeFileSync(t.file, 'CB'); // Its full write: A replaced by C.
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('C');
+    });
+
+    it('a truncation the person accepts is merged', async () => {
+      const t = await setup('keep me\n');
+      fs.writeFileSync(t.file, '');
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('keep me\n');
+      await t.bridge.acceptDisk();
+      expect(t.text.toString()).toBe('');
+      expect(t.bridge.state().conflict).toBe(null);
+    });
+
+    it('a write into the file right after the save is a visible notice to check the recovery folder', async () => {
+      const t = await setup('base\n');
+      t.at('afterRename', () => fs.appendFileSync(t.file, 'late agent\n'));
+      t.person((x) => x.insert(0, 'person\n'));
+      const result = await t.bridge.save();
+      expect(result).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(result.notice).toMatch(/Another writer changed this file during your save: check the recovery folder/);
+      expect(t.conflicts.at(-1).notice).toBe(result.notice);
+    });
+
+    it('a directory moved outside during the save is caught after the rename: a conflict with the notice', async () => {
+      const t = await setup('inside\n');
+      t.at('afterRename', () => fs.renameSync(path.join(t.root, 'src'), path.join(t.home, 'moved-out')));
+      t.person((x) => x.insert(0, 'x'));
+      expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'escaped' });
+    });
+
+    it('a save a crash interrupted is finished on the next load: staging removed, recovery kept, a notice shown', async () => {
+      const t = await setup('before crash\n');
+      const recovery = path.join(t.recoveryDir, 'crashed-notes.md');
+      fs.mkdirSync(t.recoveryDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(recovery, 'before crash\n');
+      const staging = '.notes.md.coedit-4242-0123456789ab';
+      fs.writeFileSync(path.join(path.dirname(t.file), staging), 'half-saved');
+      fs.writeFileSync(`${recovery}.pending.json`, JSON.stringify({ target: t.file, staging, recovery, at: 1 }));
+      t.bridge.close();
+      const conflicts = [];
+      const again = createDiskBridge({ root: t.root, file: t.file, doc: new Y.Doc(), recoveryDir: t.recoveryDir, settleMs: 20,
+        watch: () => ({ close() {} }), onConflict: (c) => conflicts.push(c) });
+      await again.load();
+      again.close();
+      expect(fs.existsSync(path.join(path.dirname(t.file), staging))).toBe(false);
+      expect(fs.readFileSync(recovery, 'utf8')).toBe('before crash\n');
+      expect(fs.existsSync(`${recovery}.pending.json`)).toBe(false);
+      expect(conflicts.map((c) => [c.conflict, c.recovery])).toEqual([['interrupted', recovery]]);
+    });
+
+    it('a deleted file restored with the same content is no longer gone', async () => {
+      const t = await setup('same\n');
+      fs.unlinkSync(t.file);
+      await t.bridge.sync();
+      expect(t.bridge.state().gone).toBe(true);
+      fs.writeFileSync(t.file, 'same\n');
+      await t.bridge.sync();
+      expect(t.bridge.state().gone).toBe(false);
+    });
+  });
+
   it('refuses a file that is not UTF-8 text', async () => {
     const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
     cleanups.push(() => fs.rmSync(home, { recursive: true, force: true }));

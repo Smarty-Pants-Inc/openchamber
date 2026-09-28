@@ -105,6 +105,12 @@ export async function keepForRecovery(recoveryDir, name, bytes) {
   } finally {
     await handle.close();
   }
+  const dir = await fs.promises.open(recoveryDir, O_RDONLY | O_DIRECTORY);
+  try {
+    await dir.sync(); // The entry itself is durable, not only its bytes.
+  } finally {
+    await dir.close();
+  }
   return kept;
 }
 
@@ -117,7 +123,11 @@ export async function keepForRecovery(recoveryDir, name, bytes) {
  *    whose bytes are kept too. Any doubt is a conflict for the person to see, never a silent success.
  * Returns { ok: true } or { conflict, recovery? }.
  */
-export async function publish(parent, name, text, expectedHash, { recoveryDir, hooks = {} }) {
+/** Shown with a conflict whose save may have displaced another writer's revision (org's condition on smartyfs#32). */
+export const DISTURBED_NOTICE = 'Another writer changed this file during your save: check the recovery folder.';
+const MARKER = '.pending.json';
+
+export async function publish(parent, name, text, expectedHash, { recoveryDir, target, hooks = {} }) {
   await parent.verify();
   const current = await openFile(parent, name);
   if (current === null) return { conflict: 'gone' };
@@ -125,12 +135,17 @@ export async function publish(parent, name, text, expectedHash, { recoveryDir, h
   let stagingHandle = null;
   let ours = null;
   let published = false;
+  let marker = null;
   try {
     if (current.hash !== expectedHash) return { conflict: 'changed' };
     const recovery = await keepForRecovery(recoveryDir, name, current.bytes);
+    // A crash from here on leaves this marker; the next load finishes the recovery (finishInterruptedSaves).
+    marker = `${recovery}${MARKER}`;
+    await writeMarker(marker, { target, staging, recovery, at: Date.now() });
     await parent.verify();
     stagingHandle = await fs.promises.open(parent.at(staging), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, current.stat.mode & 0o7777);
     await stagingHandle.writeFile(text, 'utf8');
+    await stagingHandle.chmod(current.stat.mode & 0o7777); // The creation mode passes through the umask; this does not.
     await stagingHandle.sync();
     ours = await stagingHandle.stat();
     await hooks.beforePublish?.({ staging: parent.at(staging) });
@@ -144,18 +159,31 @@ export async function publish(parent, name, text, expectedHash, { recoveryDir, h
     published = true;
     await hooks.afterRename?.();
     await parent.sync();
+    // ponytail: a held directory moved outside the project between the last check and the rename is only detected
+    // here, after the fact (an fd pins no location; true confinement needs a mount namespace). It is reported as a
+    // conflict and logged for an alert; the accepted limit is recorded in DOCUMENTATION.md.
+    try {
+      await parent.verify();
+    } catch {
+      console.error(JSON.stringify({ type: 'smarty.coedit-escaped', file: name }));
+      return { conflict: 'escaped', recovery, notice: DISTURBED_NOTICE };
+    }
+    // The file must still be exactly what we published (inode, size, mtime); else another writer was at it.
     const now = await fs.promises.lstat(parent.at(name)).catch(() => null);
-    if (!now || now.ino !== ours.ino) return { conflict: 'unverified', recovery };
+    if (!now || now.ino !== ours.ino || now.size !== ours.size || now.mtimeMs !== ours.mtimeMs) {
+      return { conflict: 'unverified', recovery, notice: DISTURBED_NOTICE };
+    }
     // The replaced revision, reread whole through the fd held since the check: a write made through an old fd
     // meanwhile is kept for recovery, and shown.
     const whole = await readWhole(current.handle, (await current.handle.stat()).size);
     if (hashBytes(whole) !== expectedHash) {
-      return { conflict: 'raced', recovery: await keepForRecovery(recoveryDir, name, whole) };
+      return { conflict: 'raced', recovery: await keepForRecovery(recoveryDir, name, whole), notice: DISTURBED_NOTICE };
     }
     return { ok: true, recovery };
   } finally {
     await stagingHandle?.close();
     await current.handle.close();
+    if (marker) await fs.promises.unlink(marker).catch(() => {}); // Finished (either way): nothing left to finish.
     if (!published && ours) {
       // Only our own staging inode is removed; a name that now points elsewhere is left alone.
       const named = await fs.promises.lstat(parent.at(staging)).catch(() => null);
@@ -173,4 +201,35 @@ async function readWhole(handle, size) {
     offset += bytesRead;
   }
   return buffer.subarray(0, offset);
+}
+
+async function writeMarker(file, value) {
+  const handle = await fs.promises.open(file, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
+  try {
+    await handle.writeFile(JSON.stringify(value));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Finishes saves of `target` that a crash interrupted (their markers in `recoveryDir`): a staging file left in the
+ * project is removed (only one named as ours), the recovery copy is kept, and the marker cleared. Returns the recovery
+ * copies of the interrupted saves, for a notice.
+ */
+export async function finishInterruptedSaves(parent, recoveryDir, target) {
+  const names = await fs.promises.readdir(recoveryDir).catch(() => []);
+  const finished = [];
+  for (const entry of names.filter((n) => n.endsWith(MARKER))) {
+    const file = path.join(recoveryDir, entry);
+    const marker = await fs.promises.readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+    if (!marker || marker.target !== target) continue;
+    if (/^\.[^/]+\.coedit-\d+-[0-9a-f]{12}$/.test(String(marker.staging))) { // Only a name we would create.
+      await fs.promises.unlink(parent.at(marker.staging)).catch(() => {});
+    }
+    finished.push(marker.recovery);
+    await fs.promises.unlink(file).catch(() => {});
+  }
+  return finished;
 }
