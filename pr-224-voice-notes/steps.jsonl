@@ -1,0 +1,6 @@
+{"t":"2026-09-28T04:22:20.744Z","event":"step","note":"Open http://127.0.0.1:43295"}
+{"t":"2026-09-28T04:22:53.643Z","event":"step","note":"New session; type \"Reply with only the word ready2ea4.\", Enter; the reply \"ready2ea4\" shows (a completed turn)","session":"01a0e640-374a-77d3-8f18-c5bfa735a7a6"}
+{"t":"2026-09-28T04:23:05.655Z","event":"step","note":"In the session's Pi terminal, run \"/voice-note start\": the page shows \"Voice call started (reason: fixture).\" as a quiet line","pane":"wW3:p3"}
+{"t":"2026-09-28T04:24:22.080Z","event":"step","note":"Run \"/voice-note end\": the page shows the start and end as two quiet lines with their times, outside the turn and after it","lines":["Voice call started (reason: fixture).4:23 AM","Voice call ended (reason: fixture), after 1 min.4:24 AM"],"roles":["note","note"],"insideMessage":0,"order":["msg:turn","msg:turn","note:Voice call started (reason: fixture).4:23 AM","note:Voice call ended (reason: fixture), after 1 min.4:24 AM"],"screenshot":"1-start-and-end-lines.png"}
+{"t":"2026-09-28T04:24:31.603Z","event":"step","note":"Type \"Reply with only the word again2ea4.\", Enter: the reply \"again2ea4\" shows after the two note lines","screenshot":"2-newer-message-after-notes.png"}
+{"t":"2026-09-28T04:24:31.604Z","event":"done"}
