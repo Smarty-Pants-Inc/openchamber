@@ -7,7 +7,8 @@ import type { useNativeCreation } from '../state/useNativeCreation';
 
 const i18n = await import('@/lib/i18n');
 // SAFETY: every key the notice asks for is a string entry of the English creation messages.
-mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en) => nativeCreationI18n.en[key] ?? key }) }));
+mock.module('@/lib/i18n', () => ({ ...i18n, useI18n: () => ({ t: (key: keyof typeof nativeCreationI18n.en, params?: Record<string, string>) =>
+  (nativeCreationI18n.en[key] ?? key).replace(/\{(\w+)\}/g, (_: string, name: string) => params?.[name] ?? `{${name}}`) }) }));
 mock.module('@/lib/search/fuzzySearch', () => ({ matchesFuzzyQuery: () => false }));
 const start = await import('@/sync/native-draft-start');
 mock.module('@/sync/native-draft-start', () => ({ ...start, useNativeDraftStarting: () => false, useUnresolvedNativeStart: () => false }));
@@ -36,4 +37,14 @@ test('a start that stopped (failed before launch, declined or expired) says it d
 test('control: a start still in progress keeps its own line', () => {
   expect(render(native('awaiting-trust'))).toContain(nativeCreationI18n.en['chat.nativeCreation.recover']);
   expect(render(native('awaiting-trust'))).not.toContain(nativeCreationI18n.en['chat.nativeCreation.stopped']);
+});
+
+test('smarty-code#751: an expired start names what it was waiting for; one without a recorded reason, or not expired, does not', () => {
+  const at = (phase: NativeCreationState['phase'], waitingFor?: string): ReturnType<typeof useNativeCreation> => ({ ...native(phase),
+    creation: { status: 'pending', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', operation: { ...operation, phase, ...(waitingFor ? { waitingFor } : {}) } } });
+  const html = render(at('expired', 'terminal input received'));
+  expect(html).toContain(nativeCreationI18n.en['chat.nativeCreation.stopped']);
+  expect(html).toContain('It was waiting for: terminal input received.');
+  expect(render(at('expired'))).not.toContain('It was waiting for');
+  expect(render(at('cancelled', 'x'))).not.toContain('It was waiting for');
 });
