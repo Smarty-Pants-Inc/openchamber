@@ -357,6 +357,21 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.text.toString()).toBe('PX\n'); // Accepted from the old base: theirs, with the person's edit kept.
     });
 
+    it('round 7: our bytes published, then the file atomically replaced by an outside writer: the base follows ours, no replay', async () => {
+      const t = await setup('a\n');
+      t.at('afterRename', () => {
+        const next = path.join(path.dirname(t.file), '.agent-tmp');
+        fs.writeFileSync(next, `${fs.readFileSync(t.file, 'utf8')}X\n`);
+        fs.renameSync(next, t.file);
+      });
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified' });
+      expect(t.conflicts.at(-1).foreign).toBeUndefined();
+      expect(t.disk()).toBe('Pa\nX\n');
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('Pa\nX\n'); // Not 'PPa\nX\n'.
+    });
+
     for (const which of ['staging', 'current']) {
       it(`security round 6 (2): the ${which} handle's close failing after the rename keeps the committed result: no replay, nothing skipped`, async () => {
         const t = await setup('a\n');

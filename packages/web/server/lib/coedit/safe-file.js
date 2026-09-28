@@ -192,6 +192,14 @@ async function attempt(parent, name, text, expectedHash, { recoveryDir, target, 
   await hooks.beforeRename?.({ staging, entry: parent.at(state.dirName) });
   await fs.promises.rename(staging, parent.at(name));
   state.published = true; // Recorded before anything that can throw (security pass round 5, item B).
+  // What the rename installed, looked at first thing: our inode means our verified bytes were published, even if an
+  // outside writer replaces the file right after (then the base must still follow ours, or the next sync would replay
+  // the edit: round 7). Anything else was substituted before the rename (same account only): `foreign`.
+  const installed = await fs.promises.lstat(parent.at(name)).catch(() => null);
+  const oursInstalled = Boolean(installed && installed.ino === ours.ino && installed.dev === ours.dev);
+  if (!oursInstalled) {
+    return { conflict: 'unverified', published: true, foreign: true, recovery, notice: DISTURBED_NOTICE };
+  }
   // Everything after the rename is reported as committed (`published`), never thrown: an exception here (a failed
   // directory fsync, a failed recovery read) is an uncertain publication, and the room's base must still follow
   // what was written, or the next sync would replay the person's edit.
@@ -208,13 +216,11 @@ async function attempt(parent, name, text, expectedHash, { recoveryDir, target, 
       return { conflict: 'escaped', published: true, recovery, notice: DISTURBED_NOTICE };
     }
     await hooks.afterPublish?.();
-    // What is published is exactly our bytes (security pass round 5, item A): the file at the path is our inode,
-    // and its content, read through our own held fd, hashes to what we meant to write. A file that is not our inode
-    // was installed by someone else: `foreign`, so the room's base does not follow it (round 6, item 1).
+    // What is published is exactly our bytes (security pass round 5, item A): the file at the path is still our
+    // inode, and its content, read through our own held fd, hashes to what we meant to write. Replaced since the
+    // rename: our bytes were published, then another writer changed the file (a conflict; the base follows ours).
     const now = await fs.promises.lstat(parent.at(name)).catch(() => null);
-    if (!now || now.ino !== ours.ino || now.dev !== ours.dev) {
-      return { conflict: 'unverified', published: true, foreign: true, recovery, notice: DISTURBED_NOTICE };
-    }
+    if (!now || now.ino !== ours.ino || now.dev !== ours.dev) return { conflict: 'unverified', published: true, recovery, notice: DISTURBED_NOTICE };
     const content = await readWhole(state.staging, (await state.staging.stat()).size);
     if (hashBytes(content) !== hashBytes(intended)) return { conflict: 'unverified', published: true, recovery, notice: DISTURBED_NOTICE };
     // The replaced revision, reread whole through the fd held since the check: a write made through an old fd

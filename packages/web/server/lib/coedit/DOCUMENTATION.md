@@ -55,9 +55,11 @@ person sees. What it cannot see is listed under Accepted limits.
      be our inode **and its content, read back through our own held fd, must hash to the bytes we meant to write**
      (else `unverified`: another writer changed it, even at equal length). The replaced revision is reread whole
      through the fd held since step 1; a write through an old fd found there is kept for recovery too (`raced`).
-     A file at the path that is **not our inode** was installed by someone else (only the same account can reach inside
-     the private directory: the accepted same-uid limit): it is `unverified` with `foreign`, and the room's base does
-     **not** follow it, so the next sync sees it as an outside revision.
+     What the rename installed is looked at **first thing after it**: a file that is **not our inode** there was
+     substituted before the rename (only the same account can reach inside the private directory: the accepted
+     same-uid limit). It is `unverified` with `foreign`, and the room's base does **not** follow it, so the next sync
+     sees it as an outside revision. Our inode there means our bytes were published: a replacement found by the later
+     checks is a conflict, but the base still follows our bytes, so the next sync never replays the edit (round 7).
   6. Release: both handles are closed, then our staging inode and our private directory (only while they are still
      ours) are removed, **each step on its own**. A release error after the rename keeps the committed result (a
      conflict with `published`, the base follows it) and the pending marker (security pass round 6, item 2).
