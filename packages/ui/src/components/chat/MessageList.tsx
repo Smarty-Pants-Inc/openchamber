@@ -162,6 +162,14 @@ const getMessageParentId = (message: ChatMessageEntry): string | null => {
     return typeof parentID === 'string' && parentID.trim().length > 0 ? parentID : null;
 };
 
+const isInsideSticky = (node: HTMLElement, container: HTMLElement): boolean => {
+    if (typeof window === 'undefined') return false;
+    for (let current: HTMLElement | null = node; current && current !== container; current = current.parentElement) {
+        if (window.getComputedStyle(current).position === 'sticky') return true;
+    }
+    return false;
+};
+
 const isInsideStuckSticky = (node: HTMLElement, container: HTMLElement, containerTop: number): boolean => {
     if (typeof window === 'undefined') return false;
 
@@ -1661,7 +1669,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
                 const containerRect = container.getBoundingClientRect();
                 const nodes: HTMLElement[] = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
-                const firstVisible = nodes.find((node) => {
+                // smarty-code#583: prefer a message outside any sticky wrapper. A turn's user message sits in the
+                // sticky header; once it sticks, its on-screen top is the sticky position, not its place in the
+                // list, so holding it after an older page lands scrolled by the wrong amount.
+                const firstUnsticky = nodes.find((node) => node.getBoundingClientRect().top >= containerRect.top - 1
+                    && node.getBoundingClientRect().bottom <= containerRect.bottom && !isInsideSticky(node, container));
+                const firstVisible = firstUnsticky ?? nodes.find((node) => {
                     const rect = node.getBoundingClientRect();
                     if (rect.bottom <= containerRect.top + 1) {
                         return false;
