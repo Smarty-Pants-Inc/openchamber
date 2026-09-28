@@ -21,15 +21,16 @@ describe('smarty-code#701 inbox data', () => {
 
   test('a 403 is "no inbox" (no badge); other failures are errors', async () => {
     const fetcher = mock(async () => json({ data: { message: 'This account has no inbox' } }, 403));
-    await expect(loadInbox('open', fetcher)).resolves.toEqual({ available: false, items: [] });
+    expect(await loadInbox('open', fetcher)).toEqual({ available: false, items: [] });
     await expect(loadInbox('open', async () => json({ data: { message: 'Inbox command failed: x' } }, 502))).rejects.toThrow('Inbox command failed: x');
   });
 
   test('loads the list, drops malformed items and sorts it', async () => {
-    const fetcher = mock(async () => json({ person: 'paul', items: [item({ id: 'x' }), { id: 'bad' }, item({ id: 'p', priority: 'p0' })] }));
+    const urls: string[] = [];
+    const fetcher = async (url: string) => { urls.push(url); return json({ person: 'paul', items: [item({ id: 'x' }), { id: 'bad' }, item({ id: 'p', priority: 'p0' })] }); };
     const result = await loadInbox('open', fetcher);
-    expect(fetcher).toHaveBeenCalledWith('/api/inbox?state=open', expect.anything());
-    expect(result).toEqual({ available: true, items: [expect.objectContaining({ id: 'p' }), expect.objectContaining({ id: 'x' })] });
+    expect(urls).toEqual(['/api/inbox?state=open']);
+    expect([result.available, ...result.items.map(i => i.id)]).toEqual([true, 'p', 'x']);
   });
 
   test('an action posts only the documented body to the encoded id; the error message is kept (413)', async () => {

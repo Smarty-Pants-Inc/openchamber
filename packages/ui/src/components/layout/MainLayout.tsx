@@ -33,6 +33,8 @@ import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import { useSessionListSync } from '@/components/session/sidebar/list/useSessionListSync';
 
 import { ChatView } from '@/components/views/ChatView';
+import { InboxView } from '@/components/views/InboxView';
+import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
 
 const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/SettingsWindow').then(m => ({ default: m.SettingsWindow })));
 
@@ -69,10 +71,12 @@ export const MainLayout: React.FC = () => {
     // Any full-page surface replacing the chat area. While open, the chat is
     // fully hidden (not just covered) so none of its floating chrome bleeds
     // through, and selecting a session or draft anywhere closes the surface.
-    const isSurfacePageOpen = isScheduledTasksPageOpen || isArchivePageOpen || Boolean(worktreesPageProjectId) || isMultiRunLauncherOpen;
+    const isInboxOpen = useInboxStore((state) => state.pageOpen);
+    React.useEffect(() => watchInbox(), []);
+    const isSurfacePageOpen = isScheduledTasksPageOpen || isArchivePageOpen || Boolean(worktreesPageProjectId) || isMultiRunLauncherOpen || isInboxOpen;
 
     React.useEffect(() => {
-        const closeSurfacePages = () => useUIStore.getState().closeMainSurfaces();
+        const closeSurfacePages = () => { useUIStore.getState().closeMainSurfaces(); useInboxStore.getState().setPageOpen(false); };
         const unsubscribeSession = useSessionUIStore.subscribe((state, prev) => {
             const sessionSelected = Boolean(state.currentSessionId) && state.currentSessionId !== prev.currentSessionId;
             // Draft identity change covers re-opening a draft while one is
@@ -80,8 +84,15 @@ export const MainLayout: React.FC = () => {
             const draftOpened = Boolean(state.newSessionDraft?.open) && state.newSessionDraft !== prev.newSessionDraft;
             if (sessionSelected || draftOpened) closeSurfacePages();
         });
+        // Another surface opening replaces the inbox (they share the chat area).
+        const unsubscribeSurfaces = useUIStore.subscribe((state, prev) => {
+            const opened = (state.isScheduledTasksDialogOpen && !prev.isScheduledTasksDialogOpen) || (state.isArchivePageOpen && !prev.isArchivePageOpen)
+                || (Boolean(state.worktreesPageProjectId) && !prev.worktreesPageProjectId) || (state.isMultiRunLauncherOpen && !prev.isMultiRunLauncherOpen);
+            if (opened) useInboxStore.getState().setPageOpen(false);
+        });
         return () => {
             unsubscribeSession();
+            unsubscribeSurfaces();
         };
     }, []);
     const { isMobile } = useDeviceInfo();
@@ -157,6 +168,11 @@ export const MainLayout: React.FC = () => {
                                             )}
                                             <ErrorBoundary><ScheduledTasksDialog /></ErrorBoundary>
                                             <ErrorBoundary><ArchiveView /></ErrorBoundary>
+                                            {isInboxOpen ? (
+                                                <div className="absolute inset-0 z-10 bg-background">
+                                                    <ErrorBoundary><InboxView onClose={() => useInboxStore.getState().setPageOpen(false)} /></ErrorBoundary>
+                                                </div>
+                                            ) : null}
                                             <ErrorBoundary><WorktreesView /></ErrorBoundary>
                                         </main>
                                         <ContextPanel />
