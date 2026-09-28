@@ -522,6 +522,15 @@
       "reason": "Session assist skips voice call notes (clientRole system-note) when it reads the agent reply; the branded Engine label is unchanged.",
       "systemNoteAdded": true,
       "systemNoteSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853"
+    },
+    {
+      "path": "packages/web/server/lib/git/service.js",
+      "brandingSha256": "e0b51a40a1bfbfe3b8a52a84bb56d64ce6ffee9195b704ed9362eb423fb03d8f",
+      "behaviorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "combinedSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "reason": "OPENCHAMBER_WORKTREE_ROOT (smarty-code#629) places managed worktrees at <root>/<repository folder>/; in that shared root, removal deletes only git-registered worktrees, never an unregistered folder (#354 review). Branded strings are unchanged.",
+      "worktreeRootAdded": true,
+      "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -544,5 +553,6 @@
   "managedHoldSource": "a85fddcfe6a437d678c5a83fa1b3839df8acb37d",
   "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6",
   "notificationAuthSource": "86c04a8c542da98009b23f5efe174883bfbcfa86",
-  "voiceFabricSource": "374c56636604616f4b25550a0d6b8b351f37f2d9"
+  "voiceFabricSource": "374c56636604616f4b25550a0d6b8b351f37f2d9",
+  "worktreeRootSource": "eb67e441840a09e303d91f035e79aab2b4b4245c"
 }
