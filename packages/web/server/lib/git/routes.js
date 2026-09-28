@@ -238,10 +238,11 @@ export function registerGitRoutes(appInput) {
       }
 
       const mode = req.query.mode === 'light' ? 'light' : undefined;
+      const fresh = req.query.fresh === '1';
       const status = await statusReuse.get(`${mode ?? 'full'}\0${directory}`, async () => {
         if (!(await isGitRepository(directory))) return nonRepoStatusPayload();
         return getStatus(directory, { mode });
-      });
+      }, { fresh });
       res.json(status);
     } catch (error) {
       // Non-repo / GitError must not abort callers that enumerate projects or

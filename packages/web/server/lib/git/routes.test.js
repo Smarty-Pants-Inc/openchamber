@@ -247,3 +247,31 @@ describe('git status reads are shared (smarty-code#712)', () => {
   });
 });
 
+describe('a forced status read is fresh on the server (smarty-code#712 review)', () => {
+  beforeEach(() => { gitLibraries.isGitRepository.mockReset(); gitLibraries.getStatus.mockReset(); });
+
+  it('fresh=1 never joins a read in flight nor reuses a settled one', async () => {
+    gitLibraries.isGitRepository.mockResolvedValue(true);
+    let resolveOld;
+    gitLibraries.getStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValue({ current: 'main', files: [{ path: 'after.ts' }], isClean: false, ahead: 0, behind: 0 });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const status = getRoute('GET', '/api/git/status');
+    gitLibraries.isGitRepository.mockResolvedValueOnce(false);
+    await status({ query: { directory: '/warm' } }, createMockResponse()); // Load the mocked libraries once (see above).
+    const old = createMockResponse(), forced = createMockResponse();
+    const p1 = status({ query: { directory: '/repo' } }, old);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await status({ query: { directory: '/repo', fresh: '1' } }, forced); // A read in flight: not joined.
+    expect(forced.body.files).toEqual([{ path: 'after.ts' }]);
+    resolveOld({ current: 'main', files: [], isClean: true, ahead: 0, behind: 0 }); await p1;
+    const later = createMockResponse();
+    await status({ query: { directory: '/repo' } }, later); // Within 2 s: the fresh answer, not the older one.
+    expect(later.body.files).toEqual([{ path: 'after.ts' }]);
+    const again = createMockResponse();
+    await status({ query: { directory: '/repo', fresh: '1' } }, again); // A settled answer: not reused.
+    expect(gitLibraries.getStatus).toHaveBeenCalledTimes(3);
+  });
+});
+

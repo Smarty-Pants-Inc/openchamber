@@ -3,13 +3,15 @@
 // and worktree asks for it on its own timer. So one read per (directory, mode) at a time: callers join the read in
 // flight, and its answer is reused for a short time after it SETTLES. Any git write (a non-GET /api/git route) starts a
 // new generation: no read begun before it is joined or reused after it, so a person's own stage or commit always shows.
+// A caller that must see the current state (`fresh`: after a background checkout or setup) starts its own read, and
+// later callers join that one: an older read in flight still answers only its own callers.
 export function createStatusReuse({ reuseMs = 2000, now = () => Date.now() } = {}) {
   const entries = new Map();
   let generation = 0;
   return {
-    get(key, load) {
+    get(key, load, { fresh = false } = {}) {
       const entry = entries.get(key);
-      if (entry && entry.generation === generation && (!entry.settledAt || now() - entry.settledAt < reuseMs)) return entry.promise;
+      if (!fresh && entry && entry.generation === generation && (!entry.settledAt || now() - entry.settledAt < reuseMs)) return entry.promise;
       const mine = { generation, settledAt: 0, promise: null };
       mine.promise = Promise.resolve().then(load).then(
         (value) => { mine.settledAt = now(); return value; },

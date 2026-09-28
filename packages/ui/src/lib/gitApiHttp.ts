@@ -190,7 +190,11 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
 
   const task = (async () => {
     const cacheVersion = getStatusCacheVersion(runtimeKey, directory);
-    const response = await runtimeFetch(buildUrl(`${API_BASE}/status`, directory, mode ? { mode } : undefined));
+    // A forced read is fresh on the server too: it bypasses the server's shared status read (smarty-code#712).
+    const query: Record<string, string> = {};
+    if (mode) query.mode = mode;
+    if (options?.fresh) query.fresh = '1';
+    const response = await runtimeFetch(buildUrl(`${API_BASE}/status`, directory, Object.keys(query).length ? query : undefined));
     if (!response.ok) {
       throw new Error(`Failed to get git status: ${response.statusText}`);
     }

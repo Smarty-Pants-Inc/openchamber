@@ -41,4 +41,18 @@ describe('git status reuse (smarty-code#712)', () => {
     expect(await before).toBe('before'); expect(await after).toBe('after'); expect(reads).toBe(2);
     await reuse.get('k', async () => { reads += 1; return 'x'; }); expect(reads).toBe(2); // 'after' is reused.
   });
+
+  it('a fresh read bypasses a settled answer and a read in flight; later callers join the fresh one, never the older', async () => {
+    let t = 0, reads = 0; const older = deferred(), fresher = deferred();
+    const reuse = createStatusReuse({ reuseMs: 2000, now: () => t });
+    await reuse.get('k', async () => { reads += 1; return 'settled'; });
+    expect(await reuse.get('k', async () => { reads += 1; return 'fresh-1'; }, { fresh: true })).toBe('fresh-1'); // Not the settled one.
+    const before = reuse.get('k', () => { reads += 1; return older.promise; }, { fresh: true }); // A read in flight...
+    const forced = reuse.get('k', () => { reads += 1; return fresher.promise; }, { fresh: true }); // ...and a forced one after it.
+    const joined = reuse.get('k', async () => { reads += 1; return 'never'; });
+    fresher.resolve('after bootstrap'); older.resolve('before bootstrap');
+    expect(await forced).toBe('after bootstrap'); expect(await joined).toBe('after bootstrap'); expect(await before).toBe('before bootstrap');
+    expect(await reuse.get('k', async () => { reads += 1; return 'never'; })).toBe('after bootstrap'); // The older never replaced it.
+    expect(reads).toBe(4);
+  });
 });

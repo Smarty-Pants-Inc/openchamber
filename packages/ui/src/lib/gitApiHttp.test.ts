@@ -215,8 +215,10 @@ describe('gitApiHttp status cache', () => {
   test('fresh status bypasses an unexpired cached snapshot', async () => {
     installWindowMock();
     let statusRequestCount = 0;
-    globalThis.fetch = (async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
       statusRequestCount += 1;
+      urls.push(String(input));
       return jsonResponse(statusPayload({ behind: statusRequestCount }));
     }) as typeof fetch;
 
@@ -230,6 +232,8 @@ describe('gitApiHttp status cache', () => {
       expect(cached.behind).toBe(1);
       expect(fresh.behind).toBe(2);
       expect(statusRequestCount).toBe(2);
+      // The forced read is fresh on the server too (smarty-code#712: the server shares status reads).
+      expect(urls).toEqual(['/api/git/status?directory=%2Frepo-cache-fresh', '/api/git/status?fresh=1&directory=%2Frepo-cache-fresh']);
     } finally {
       restoreMocks();
     }
