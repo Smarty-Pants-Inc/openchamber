@@ -860,8 +860,22 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
             .then(() => requestAnimationFrame(() => messageListRef.current?.scrollToStart()));
     }, [messageLoader, windowTarget]);
+    // One window read at a time, and only the latest request waits: windows asked for while a read runs are places the
+    // reader has already left (smarty-code#583).
+    const windowQueue = React.useRef<{ busy: boolean; next: [number, number] | null }>({ busy: false, next: null });
     const loadWindow = React.useCallback((start: number, limit: number) => {
-        if (windowTarget) void messageLoader.loadAt(windowTarget, start, limit).catch(() => undefined);
+        if (!windowTarget) return;
+        const queue = windowQueue.current;
+        queue.next = [start, limit];
+        if (queue.busy) return;
+        queue.busy = true;
+        void (async () => {
+            for (let next = queue.next; next; next = queue.next) {
+                queue.next = null;
+                await messageLoader.loadAt(windowTarget, next[0], next[1]).catch(() => undefined);
+            }
+            queue.busy = false;
+        })();
     }, [messageLoader, windowTarget]);
 
     React.useEffect(() => {
