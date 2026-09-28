@@ -300,7 +300,7 @@ export const createNotificationTriggerRuntime = (deps) => {
     }
   };
 
-  const maybeSendPushForTrigger = async (payload) => {
+  const maybeSendPushForTrigger = async (payload, envelopeDirectory) => {
     if (!payload || typeof payload !== 'object') {
       return;
     }
@@ -308,7 +308,7 @@ export const createNotificationTriggerRuntime = (deps) => {
     maybeCacheSessionParentFromPayload(payload);
 
     const sessionId = extractSessionIdFromPayload(payload);
-    const notificationDirectory = extractDirectoryFromPayload(payload);
+    const notificationDirectory = extractDirectoryFromPayload(payload) ?? envelopeDirectory;
     if ((payload.type === 'session.idle' || payload.type === 'session.error') && sessionId) {
       const error = payload.properties?.error;
       const errorText = typeof error?.message === 'string'
@@ -326,7 +326,7 @@ export const createNotificationTriggerRuntime = (deps) => {
             ...(errorText ? { parts: [{ type: 'text', text: errorText }] } : {}),
           },
         },
-      });
+      }, notificationDirectory);
       return;
     }
 
@@ -379,13 +379,13 @@ export const createNotificationTriggerRuntime = (deps) => {
             ? (templates.subtask || templates.completion || { title: '{agent_name} is ready', message: '{model_name} completed the task' })
             : (templates.completion || { title: '{agent_name} is ready', message: '{model_name} completed the task' });
 
-          const variables = await buildTemplateVariables(payload, sessionId);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
 
           const messageId = info?.id;
           let lastMessage = extractLastMessageText(payload);
           if (!lastMessage) {
-            lastMessage = await fetchLastAssistantMessageText(sessionId, messageId);
+            lastMessage = await fetchLastAssistantMessageText(sessionId, messageId, undefined, notificationDirectory);
           }
 
           variables.last_message = await prepareNotificationLastMessage({
@@ -449,12 +449,12 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           const errorMessageId = info?.id;
           let lastMessage = extractLastMessageText(payload);
           if (!lastMessage) {
-            lastMessage = await fetchLastAssistantMessageText(sessionId, errorMessageId);
+            lastMessage = await fetchLastAssistantMessageText(sessionId, errorMessageId, undefined, notificationDirectory);
           }
 
           variables.last_message = await prepareNotificationLastMessage({
@@ -535,7 +535,7 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           variables.last_message = questionText || header || '';
 
@@ -654,7 +654,7 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           variables.last_message = fallbackMessage;
 

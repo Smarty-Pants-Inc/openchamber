@@ -132,12 +132,15 @@ export const createNotificationTemplateRuntime = (deps) => {
     return '';
   };
 
-  const fetchLastAssistantMessageText = async (sessionId, messageId, maxLength = NOTIFICATION_BODY_MAX_CHARS) => {
+  // With the session's directory when the event named it, so the backend reads that project directly (smarty-code#712).
+  const inDirectory = (url, directory) => directory ? `${url}${url.includes('?') ? '&' : '?'}directory=${encodeURIComponent(directory)}` : url;
+
+  const fetchLastAssistantMessageText = async (sessionId, messageId, maxLength = NOTIFICATION_BODY_MAX_CHARS, directory) => {
     if (!sessionId) return '';
 
     try {
       const url = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}/message`, '');
-      const response = await fetch(`${url}?limit=5`, {
+      const response = await fetch(inDirectory(`${url}?limit=5`, directory), {
         method: 'GET',
         headers: {
           Accept: 'application/json',
@@ -192,7 +195,7 @@ export const createNotificationTemplateRuntime = (deps) => {
     cacheSessionTitle(info.id, info.title);
   };
 
-  const fetchSessionInfo = async (sessionId) => {
+  const fetchSessionInfo = async (sessionId, directory) => {
     if (!sessionId) return null;
 
     const cached = sessionInfoCache.get(sessionId);
@@ -202,7 +205,7 @@ export const createNotificationTemplateRuntime = (deps) => {
 
     try {
       const url = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}`, '');
-      const response = await fetch(url, {
+      const response = await fetch(inDirectory(url, directory), {
         method: 'GET',
         headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
         signal: AbortSignal.timeout(2000),
@@ -223,7 +226,7 @@ export const createNotificationTemplateRuntime = (deps) => {
     }
   };
 
-  const buildTemplateVariables = async (payload, sessionId) => {
+  const buildTemplateVariables = async (payload, sessionId, directory) => {
     const info = payload?.properties?.info || {};
 
     let sessionTitle = payload?.properties?.sessionTitle || payload?.properties?.session?.title || (typeof info.sessionTitle === 'string' ? info.sessionTitle : '') || '';
@@ -237,7 +240,7 @@ export const createNotificationTemplateRuntime = (deps) => {
 
     let sessionInfo = null;
     if (!sessionTitle && sessionId) {
-      sessionInfo = await fetchSessionInfo(sessionId);
+      sessionInfo = await fetchSessionInfo(sessionId, directory);
       if (sessionInfo && typeof sessionInfo.title === 'string') {
         sessionTitle = sessionInfo.title;
         cacheSessionTitle(sessionId, sessionTitle);

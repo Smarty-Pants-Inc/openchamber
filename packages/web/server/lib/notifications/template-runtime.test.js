@@ -106,8 +106,31 @@ describe('notification template session lookup', () => {
 
     const variables = await runtime.buildTemplateVariables({ type: 'session.idle', properties: { sessionID: 'session-7' } }, 'session-7');
 
-    const lookup = calls.find(call => call.url === '/session/session-7');
+    const lookup = calls.find(call => call.url.startsWith('/session/session-7'));
     expect(lookup?.headers).toMatchObject({ Authorization: 'Bearer backend-token' });
     expect(variables.session_name).toBe('Fleet session');
+  });
+});
+
+describe('notification lookups name the session directory', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // smarty-code#712: a lookup without a directory made the gateway list every project (40 on the fleet) to find the
+  // session's owner, on each fleet session.idle. The event's directory goes with each lookup.
+  it('sends the directory with the title and last-message lookups', async () => {
+    const runtime = createRuntime();
+    const urls = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(String(url).includes('/message') ? [] : { id: 's7', title: 'T' }), { status: 200 });
+    });
+    await runtime.buildTemplateVariables({ type: 'session.idle', properties: { sessionID: 's7' } }, 's7', '/home/p/project');
+    await runtime.fetchLastAssistantMessageText('s7', 'm1', undefined, '/home/p/project');
+    expect(urls).toEqual(['/session/s7?directory=%2Fhome%2Fp%2Fproject', '/session/s7/message?limit=5&directory=%2Fhome%2Fp%2Fproject']);
+    urls.length = 0;
+    await runtime.fetchLastAssistantMessageText('s8', 'm1'); // No directory known: as before.
+    expect(urls).toEqual(['/session/s8/message?limit=5']);
   });
 });

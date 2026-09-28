@@ -902,9 +902,9 @@ const openCodeWatcherRuntime = createOpenCodeWatcherRuntime({
   getOpenCodeAuthHeaders,
   parseSseDataPayload: (...args) => parseSseDataPayload(...args),
   globalEventHub: globalMessageStreamHub,
-  onPayload: (payload) => {
+  onPayload: (payload, directory) => {
     maybeCacheSessionInfoFromEvent(payload);
-    void maybeSendPushForTrigger(payload);
+    void maybeSendPushForTrigger(payload, directory);
     sessionRuntime.processOpenCodeSsePayload(payload);
   },
 });
