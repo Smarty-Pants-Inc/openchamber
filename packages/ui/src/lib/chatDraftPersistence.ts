@@ -156,6 +156,13 @@ export const writeChatDraft = (
   return writeEnvelope({ version: 2, drafts: Object.fromEntries(retained) });
 };
 
+/**
+ * Whether durable storage holds exactly `text` for this draft now: read back, not inferred from an earlier write (another
+ * tab may have replaced the shared slot since) and never a memory-only copy (openchamber#333 review 3).
+ */
+export const chatDraftDurablyHolds = (identity: ChatDraftIdentity | null, text: string): boolean =>
+  !ephemeralOnly && readChatDraft(identity).text === text;
+
 /** When the saved draft's current text was set (older entries: when it was last saved); undefined when none is saved. */
 export const readChatDraftSince = (identity: ChatDraftIdentity | null): number | undefined => {
   const persisted = identity ? readEnvelope().drafts[getChatDraftIdentityKey(identity)] : undefined;

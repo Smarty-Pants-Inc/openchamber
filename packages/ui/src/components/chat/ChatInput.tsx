@@ -36,6 +36,7 @@ import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
+    chatDraftDurablyHolds,
     consumeChatDraft,
     readChatDraft,
     writeChatDraft,
@@ -998,7 +999,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     persistDraftImmediatelyRef.current = persistDraftImmediately;
     React.useEffect(() => holdReload(() => {
         const text = composerRef.current?.getValue() ?? messageRef.current;
-        return draftAtRisk(text, persistChatDraftRef.current, () => persistDraftImmediatelyRef.current(currentChatDraftIdentityRef.current, text));
+        // Save it now (a pending debounce is not a save), then confirm storage holds exactly it: another tab's draft in the
+        // same slot is kept, never overwritten, and holds the reload instead (openchamber#333 review 3).
+        return draftAtRisk(text, persistChatDraftRef.current, () => {
+            const identity = currentChatDraftIdentityRef.current;
+            persistDraftImmediatelyRef.current(identity, text);
+            return chatDraftDurablyHolds(identity, text);
+        });
     }), []);
 
     // Focus textarea when new session draft is opened

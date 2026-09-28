@@ -43,3 +43,22 @@ test("a draft whose first save fails on quota holds the reload; saved now, the r
   expect(readChatDraft(identity).text).toBe(text) // and the new page restores exactly this text.
   release()
 })
+
+test("review 3: two editors share a draft slot; the other saved beta, so this one's alpha holds the reload and beta is kept", async () => {
+  const { chatDraftDurablyHolds, claimChatDraftOwnership, createChatDraftIdentity, readChatDraft, writeChatDraft } =
+    await import("./chatDraftPersistence")
+  const { draftAtRisk } = await import("./newBuildReload")
+  quotaFull = false
+  const identity = createChatDraftIdentity("runtime-333", "/repo", "session-shared")!
+  claimChatDraftOwnership(identity)
+  expect(writeChatDraft(identity, "alpha", [])).toBe(true) // Tab A saved alpha; its write-skip cache now says alpha.
+  // Tab B, the same session in another tab, saves beta into the same slot of the shared Storage.
+  const envelope = JSON.parse(backing.get("openchamber.chatDrafts.v2")!)
+  for (const draft of Object.values(envelope.drafts) as { text: string }[]) draft.text = "beta"
+  backing.set("openchamber.chatDrafts.v2", JSON.stringify(envelope))
+  // Tab A's reload check: its save would be skipped as unchanged, so only a read-back can tell.
+  expect(chatDraftDurablyHolds(identity, "alpha")).toBe(false)
+  expect(draftAtRisk("alpha", true, () => chatDraftDurablyHolds(identity, "alpha"))).toBe(true) // Held: alpha is kept.
+  expect(readChatDraft(identity).text).toBe("beta") // And tab B's draft is not overwritten.
+  expect(draftAtRisk("beta", true, () => chatDraftDurablyHolds(identity, "beta"))).toBe(false) // Counterexample.
+})
