@@ -51,7 +51,7 @@ import {
 } from "./provider-tracker";
 
 /** The creation fields this page understands, beyond the base contract (a gateway sends them only when asked: #548). */
-const NATIVE_CREATION_FIELDS = { 'x-smarty-creation-fields': 'stoppedBy' } as const;
+const NATIVE_CREATION_FIELDS = { 'x-smarty-creation-fields': 'stoppedBy,waitingFor' } as const;
 
 // Use relative path by default (works with both dev and nginx proxy server)
 // Can be overridden with VITE_OPENCODE_URL for absolute URLs in special deployments
