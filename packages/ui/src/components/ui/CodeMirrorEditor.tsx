@@ -143,6 +143,12 @@ type CodeMirrorEditorProps = {
   searchOpen?: boolean;
   onSearchOpenChange?: (open: boolean) => void;
   vimMode?: boolean;
+  /**
+   * smartyfs#18: a co-editing room's binding. The editor starts from `text` and the room owns the document: `value`
+   * is never pushed into it (a whole-document replace would erase the others' edits) and undo is the room's own
+   * (per person), not CodeMirror's history. Fixed for the editor's lifetime: key the editor by room.
+   */
+  collab?: { text: string; extension: Extension };
 };
 
 const lineNumbersCompartment = new Compartment();
@@ -269,10 +275,12 @@ export function CodeMirrorEditor({
   searchOpen,
   onSearchOpenChange,
   vimMode,
+  collab,
 }: CodeMirrorEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const viewRef = React.useRef<EditorView | null>(null);
   const valueRef = React.useRef(value);
+  const collabRef = React.useRef(collab);
   const onChangeRef = React.useRef(onChange);
   const onViewReadyRef = React.useRef(onViewReady);
   const onViewDestroyRef = React.useRef(onViewDestroy);
@@ -365,15 +373,15 @@ export function CodeMirrorEditor({
     })();
 
     const state = EditorState.create({
-      doc: valueRef.current,
+      doc: collabRef.current ? collabRef.current.text : valueRef.current,
       extensions: [
         ...(cspNonce ? [EditorView.cspNonce.of(cspNonce)] : []),
         gutters({ fixed: true }),
         lineNumbersCompartment.of(lineNumbers(lineNumbersConfig)),
-        history(),
+        ...(collabRef.current ? [collabRef.current.extension] : [history()]),
         indentUnit.of('  '),
         vimCompartment.of(createVimModeExtensions(vimMode)),
-        keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([indentWithTab, ...defaultKeymap, ...(collabRef.current ? [] : historyKeymap)]),
         EditorView.updateListener.of((update) => {
           syncEditorCssVars(update.view);
           if (update.viewportChanged || update.geometryChanged) {
@@ -496,7 +504,7 @@ export function CodeMirrorEditor({
     }
 
     const current = view.state.doc.toString();
-    if (current !== value) {
+    if (current !== value && !collabRef.current) {
       view.dispatch({
         changes: { from: 0, to: current.length, insert: value },
       });
