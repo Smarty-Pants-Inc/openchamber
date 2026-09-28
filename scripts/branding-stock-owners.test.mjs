@@ -36,6 +36,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     ...overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.testDeterminismAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.originGuardAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.systemNoteAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -292,4 +293,14 @@ test('the waiting open binds its exact commit over the session store only (smart
   assert.equal(entry.managedHoldSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preManagedHoldCombinedSha256, 'e9ef552f2295536c7b61236f09c1f5fc57e4f29238d0a56c737f6920b5e40445');
+});
+
+test('voice call notes: session assist binds its exact fix commit as a new overlay entry (system notes, smarty-code#360)', () => {
+  assert.match(overlay.systemNoteSource, /^[a-f0-9]{40}$/);
+  const added = overlay.files.filter(entry => entry.systemNoteAdded);
+  assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/session-assist/runtime.js']);
+  for (const entry of added) {
+    assert.equal(entry.systemNoteSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  }
 });

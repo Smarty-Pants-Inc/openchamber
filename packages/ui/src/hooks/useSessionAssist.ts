@@ -2,6 +2,7 @@ import React from 'react';
 import { useDirectoryStore, useSession, useSessionStatus } from '@/sync/sync-context';
 import { getSessionAssist, type SessionAssistPayload } from '@/lib/sessionAssistMetadata';
 import { useUIStore } from '@/stores/useUIStore';
+import { lastRealMessage } from '@/components/chat/message/systemNote';
 
 // How long the chat must sit untouched before the recap becomes visible.
 // The suggestion has no such delay — it shows as soon as it arrives.
@@ -20,8 +21,8 @@ function useLastMessageSnapshot(sessionId: string, directory?: string): LastMess
 
   const getSnapshot = React.useCallback((): LastMessageSnapshot | null => {
     if (!sessionId) return null;
-    const messages = store.getState().message[sessionId];
-    const last = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    // A voice call note after the agent's reply is not "the last message": the assist targets the reply (smarty-code#360).
+    const last = lastRealMessage(store.getState().message[sessionId]);
     const info = last as { id?: string; role?: string; time?: { completed?: number; created?: number } } | null;
     if (!info?.id) {
       cacheRef.current = null;

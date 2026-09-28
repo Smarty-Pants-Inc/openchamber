@@ -8,6 +8,7 @@ import { optimisticStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { isVoiceTurn } from "@/components/chat/message/voiceTurnData"
+import { isSystemNoteMessage } from "@/components/chat/message/systemNote"
 import { useSessionUIStore } from "./session-ui-store"
 import { useInputStore } from "./input-store"
 import type { ChildStoreManager } from "./child-store"
@@ -231,9 +232,12 @@ function dirStoreForSession(sessionId: string): { store: DirectoryStoreApi; dire
 /** The newest real assistant record's provider/model; a voice call's display-only line never counts. */
 export function lastAssistantModel(messages: readonly unknown[]): { providerID: string; modelID: string } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const info = messages[i] as { role?: string; providerID?: string; modelID?: string }
+    const info = messages[i] as { role?: string; clientRole?: string; providerID?: string; modelID?: string }
     // A voice call's line (smarty-code#538) is display-only: its `smarty-voice` provider cannot serve utility calls.
     if (isVoiceTurn(info)) continue
+    // A voice call note or a messaging peer rides the assistant container with a placeholder model
+    // (pi-native/system-note, pi-native/peer-message): neither is the model that answered (smarty-code#360).
+    if (isSystemNoteMessage(info) || info?.clientRole === "native-peer") continue
     if (info?.role === "assistant" && typeof info.providerID === "string" && info.providerID
       && typeof info.modelID === "string" && info.modelID) {
       return { providerID: info.providerID, modelID: info.modelID }

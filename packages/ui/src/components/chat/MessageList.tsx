@@ -1,4 +1,6 @@
 import React from 'react';
+import { SystemNoteLine } from './message/SystemNoteLine';
+import { isSystemNoteMessage } from './message/systemNote';
 import type { Part } from '@opencode-ai/sdk/v2';
 import { LegendList, type LegendListRef } from '@legendapp/list/react';
 
@@ -763,6 +765,8 @@ const UngroupedMessageRow = React.memo(({
 }: UngroupedMessageRowProps) => {
     // smarty-code#538: a voice call's spoken turns ("You said" / "Voice said") are display-only rows.
     if (isVoiceTurn(message.info)) return <VoiceTurn message={message} />;
+    // smarty-code#360: a voice call note (smarty-voice-state) is a quiet system line.
+    if (isSystemNoteMessage(message.info)) return <SystemNoteLine message={message} />;
     return (
         <MessageRow
             message={message}
