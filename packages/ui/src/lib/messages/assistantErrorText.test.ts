@@ -27,6 +27,10 @@ test('a usage limit shows its own plain words with the reset in local time: no s
   const error = { name: 'SmartyLimitError', data: { message: 'Your 5-hour limit is used up, so Flash models now run one request at a time. Full speed again at 10:30Z.',
     resetsAt: '2026-09-28T10:30:00Z', window: '5h', isRetryable: false } };
   expect(describeAssistantError(error, local)).toBe('Your 5-hour limit is used up, so Flash models now run one request at a time. Full speed again at local(2026-09-28T10:30:00Z).');
+  // The period window's far reset carries its date: the date and time together become the local time.
+  expect(describeAssistantError({ name: 'SmartyLimitError', data: { message: "Your plan's allowance for this period is used up. More at 2026-10-28 13:37Z, or add credit: https://billing.smartypants.ai/checkout",
+    resetsAt: '2026-10-28T13:37:00Z' } }, local))
+    .toBe("Your plan's allowance for this period is used up. More at local(2026-10-28T13:37:00Z), or add credit: https://billing.smartypants.ai/checkout");
   // No UTC time in the words: the reset is added once, in local time.
   expect(describeAssistantError({ name: 'SmartyLimitError', data: { message: 'Your 5-hour limit is used up.', resetsAt: '2026-09-28T10:30:00Z' } }, local))
     .toBe('Your 5-hour limit is used up. It resets at local(2026-09-28T10:30:00Z).');

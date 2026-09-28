@@ -9,17 +9,20 @@ const assistantErrorSchema = z.object({
   data: z.object({ message: optionalString, resetsAt: optionalString }).loose().optional().catch(undefined),
 }).loose();
 
-/** A reset time as the person's own local clock time (e.g. "6:30 AM"). */
-const localTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+/** A reset time as the person's own local clock time ("6:30 AM"), with the date when it is not within the next day
+ * ("Oct 28, 9:37 AM"), as the gateway words it (a date only beyond 20 hours). */
+const localTime = (iso: string) => (Math.abs(Date.parse(iso) - Date.now()) < 20 * 3600_000
+  ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  : new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
 
 /**
  * The org's usage limit (smarty-net#136 L3; the gateway's SmartyLimitError): its own plain message, with a UTC time in it
- * ("… at 10:30Z") shown as the person's local time. No status, no JSON, no "Failed to send".
+ * ("… at 10:30Z", or "… at 2026-10-28 13:37Z") shown as the person's local time. No status, no JSON, no "Failed to send".
  */
 export function describeUsageLimit(message: string, resetsAt: string | undefined, format = localTime): string {
   const reset = resetsAt && !Number.isNaN(Date.parse(resetsAt)) ? format(resetsAt) : undefined;
   if (!reset) return message;
-  const local = message.replace(/\b\d{1,2}:\d{2}\s?(?:Z|UTC)\b/g, reset);
+  const local = message.replace(/\b(?:\d{4}-\d{2}-\d{2} )?\d{1,2}:\d{2}\s?(?:Z|UTC)\b/g, reset);
   return local === message ? `${message} It resets at ${reset}.` : local;
 }
 
