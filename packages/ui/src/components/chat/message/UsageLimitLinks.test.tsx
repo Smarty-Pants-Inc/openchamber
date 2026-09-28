@@ -1,52 +1,32 @@
-import React, { act } from 'react';
-import { Window } from 'happy-dom';
-import { expect, mock, test } from 'bun:test';
-import { createRoot } from 'react-dom/client';
-import { createStore } from 'zustand/vanilla';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { expect, test } from 'bun:test';
+import { readBilling, resetBillingForTests } from '@/lib/billingLinks';
+import { BillingLinks } from './UsageLimitLinks';
 
 // smarty-net#136 L3: the usage-limit notice offers "Add credit" and "Manage plan" to the org owner only.
 const owner = { owner: true, checkout: 'https://billing.smartypants.ai/checkout', portal: 'https://billing.smartypants.ai/portal' };
-const member = { owner: false };
-let answer: typeof owner | typeof member = member;
-let calls = 0;
-mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: async () => { calls += 1; return Response.json(answer); } }));
-const { resetBillingForTests } = await import('@/lib/billingLinks');
-const store = createStore(() => ({ message: { s: [{ id: 'a1', role: 'assistant', error: { name: 'SmartyLimitError', data: { message: 'Limit used up.' } } },
-  { id: 'a2', role: 'assistant', error: { name: 'APIError', data: { message: '503' } } }] } }));
-mock.module('@/sync/sync-context', () => ({ useDirectoryStore: () => store }));
-const { UsageLimitLinks } = await import('./UsageLimitLinks');
 
-async function html(node: React.ReactNode) {
-  const win = new Window({ url: 'http://localhost' });
-  const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
-  const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-  for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
-  const host = document.createElement('div'); // The global document is happy-dom's (defined just above).
-  const root = createRoot(host);
-  try {
-    await act(async () => root.render(node));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-    return host.innerHTML;
-  } finally {
-    await act(async () => root.unmount());
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
-    }
-    await win.happyDOM.close();
-  }
-}
-
-test('the org owner sees Add credit and Manage plan under the usage-limit notice', async () => {
-  resetBillingForTests(); answer = owner;
-  const out = await html(<UsageLimitLinks sessionId="s" messageId="a1" />);
+test('the org owner sees Add credit and Manage plan', () => {
+  const out = renderToStaticMarkup(<BillingLinks links={owner} />);
   expect(out).toContain('href="https://billing.smartypants.ai/checkout"'); expect(out).toContain('Add credit');
   expect(out).toContain('href="https://billing.smartypants.ai/portal"'); expect(out).toContain('Manage plan');
 });
 
-test('a member sees no billing link; other errors never show links nor ask', async () => {
-  resetBillingForTests(); answer = member;
-  expect(await html(<UsageLimitLinks sessionId="s" messageId="a1" />)).toBe('');
-  resetBillingForTests(); calls = 0; answer = owner;
-  expect(await html(<UsageLimitLinks sessionId="s" messageId="a2" />)).toBe('');
-  expect(calls).toBe(0);
+test('a member, or an owner answer without both links, sees no billing link', () => {
+  expect(renderToStaticMarkup(<BillingLinks links={{ owner: false }} />)).toBe('');
+  expect(renderToStaticMarkup(<BillingLinks links={{ owner: true, checkout: owner.checkout }} />)).toBe('');
+});
+
+test('the server answer is read once; a failure, an error status or a malformed answer reads as no links', async () => {
+  let calls = 0;
+  const answer = (value: Response | Error) => async () => { calls += 1; if (value instanceof Error) throw value; return value; };
+  resetBillingForTests();
+  expect(await readBilling(answer(Response.json(owner)))).toEqual(owner);
+  expect(await readBilling(answer(Response.json({ owner: false })))).toEqual(owner);
+  expect(calls).toBe(1);
+  for (const value of [new Error('offline'), new Response('', { status: 401 }), Response.json({ owner: 'yes', checkout: 'javascript:alert(1)' })]) {
+    resetBillingForTests();
+    expect(await readBilling(answer(value))).toEqual({ owner: false });
+  }
 });

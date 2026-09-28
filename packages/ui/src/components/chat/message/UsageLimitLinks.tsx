@@ -19,7 +19,12 @@ export const UsageLimitLinks: React.FC<{ sessionId?: string; messageId: string }
         void readBilling().then((value) => { if (live) setLinks(value); });
         return () => { live = false; };
     }, [isLimit]);
-    if (!isLimit || !links?.owner || !links.checkout || !links.portal) return null;
+    return isLimit && links ? <BillingLinks links={links} /> : null;
+};
+
+/** The two links, for an owner's answer only; anything else renders nothing. */
+export const BillingLinks: React.FC<{ links: Billing }> = ({ links }) => {
+    if (!links.owner || !links.checkout || !links.portal) return null;
     return (
         <div className="mt-2 flex gap-4 text-sm">
             <a href={links.checkout} target="_blank" rel="noreferrer" className="underline">Add credit</a>

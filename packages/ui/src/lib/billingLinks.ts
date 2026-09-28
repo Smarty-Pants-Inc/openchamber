@@ -7,7 +7,7 @@ export type Billing = z.infer<typeof billingSchema>;
 const none: Billing = { owner: false };
 let billing: Promise<Billing> | null = null;
 /** Asked once per page; any failure reads as no links. */
-export const readBilling = (): Promise<Billing> => (billing ??= runtimeFetch('/api/smarty/billing', { credentials: 'include' })
+export const readBilling = (fetcher: typeof runtimeFetch = runtimeFetch): Promise<Billing> => (billing ??= fetcher('/api/smarty/billing', { credentials: 'include' })
   .then(async (response) => (response.ok ? billingSchema.catch(none).parse(await response.json()) : none))
   .catch(() => none));
 export const resetBillingForTests = (): void => { billing = null; };
