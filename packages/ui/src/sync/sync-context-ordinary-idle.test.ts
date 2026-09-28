@@ -55,3 +55,11 @@ test("#737 counterexample: a non-ordinary session absent from the snapshot is st
   expect(settledBySnapshot(undefined, { type: "idle" })).toBe(true)
   expect(settledBySnapshot(undefined, undefined)).toBe(true)
 })
+
+test("#737 review: a fleet session whose status lost its ordinary mark is known by its session metadata, not settled", () => {
+  const fleetSession = { id: S, nativeRuntime: "ordinary" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, fleetSession)).toBe(false) // The incident: status not marked ordinary.
+  expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, fleetSession)).toBe(true) // Explicit idle still settles.
+  const managed = { id: S } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, managed)).toBe(true) // A managed session keeps #2577's rule.
+})

@@ -1,6 +1,7 @@
 import { reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
 import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses } from './optimistic-status';
 import { applyPromptOutcome } from './prompt-outcome';
@@ -783,8 +784,11 @@ export function applySessionStatusSnapshot(
  * three running tools marked Interrupted at once, each completed seconds later). Only an explicit status settles it;
  * its own message re-read brings the committed results. Other sessions keep #2577's rule: absence is idle.
  */
-export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined): boolean {
-  return toSessionStatus(entry) !== undefined || !current?.ordinary
+export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined,
+  session?: Session): boolean {
+  // Its status may have lost the ordinary mark (the incident's did: its tools were marked Interrupted, the non-ordinary
+  // path), so the session's own metadata counts too: only it marks native ownership (readOrdinaryModel).
+  return toSessionStatus(entry) !== undefined || !(current?.ordinary || readOrdinaryModel(session) !== undefined)
 }
 
 async function resyncDirectorySessionStatuses(
@@ -809,7 +813,8 @@ async function resyncDirectorySessionStatuses(
     // which is the gate the helper requires — a session the snapshot reports
     // busy stays untouched.
     for (const sessionId of candidateSessionIds) {
-      if (!settledBySnapshot(nextStatuses[sessionId], store.getState().session_status?.[sessionId])) continue
+      const state = store.getState()
+      if (!settledBySnapshot(nextStatuses[sessionId], state.session_status?.[sessionId], state.session.find((s) => s.id === sessionId))) continue
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
         reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
