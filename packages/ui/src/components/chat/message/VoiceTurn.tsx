@@ -5,7 +5,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ChatMessageEntry } from '../lib/turns/types';
 
-import { isVoiceFiller, spokenBelongsToReply, voiceDiffers, voiceSpeaker, voiceText } from './voiceTurnData';
+import { voiceMatched, voiceRelayed, voiceSpeaker, voiceText } from './voiceTurnData';
 
 /** The "You said" mark on a voice delegation's request bubble (smarty-code#538). */
 export function VoiceRequestLabel() {
@@ -18,35 +18,33 @@ export function VoiceRequestLabel() {
     );
 }
 
-/** #739: what the voice said while reading a written reply: one collapsed line under it; open and amber if it differs. */
-function SpokenLine({ text, differs }: { text: string; differs: boolean }) {
-    const { t } = useI18n();
-    const [open, setOpen] = React.useState(differs);
+/** #739: a collapsed line; one click opens it. `warn`: amber (replies the voice was given and did not say). */
+function Fold({ label, warn = false, children }: { label: string; warn?: boolean; children: React.ReactNode }) {
+    const [open, setOpen] = React.useState(false);
     return (
         <div className="typography-ui-meta">
             <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
                 className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5',
-                    differs ? 'bg-[var(--status-warning-background)] text-[var(--status-warning)]' : 'bg-muted/60 text-muted-foreground hover:text-foreground')}>
+                    warn ? 'bg-[var(--status-warning-background)] text-[var(--status-warning)]' : 'bg-muted/60 text-muted-foreground hover:text-foreground')}>
                 <Icon name="volume-up" className="size-3.5" aria-hidden />
-                <span>{t('chat.voiceTurn.spoken')}</span>
-                {differs && <span className="font-semibold">{t('chat.voiceTurn.differs')}</span>}
+                <span>{label}</span>
                 <Icon name={open ? 'arrow-down-s' : 'arrow-right-s'} className="size-3.5" aria-hidden />
             </button>
             {open && (
-                <p className={cn('mt-1.5 whitespace-pre-wrap break-words border-l-2 pl-3 typography-markdown',
-                    differs ? 'border-[var(--status-warning)] text-foreground' : 'border-border text-muted-foreground')}>
-                    {text}
-                </p>
+                <div className={cn('mt-1.5 space-y-1 whitespace-pre-wrap break-words border-l-2 pl-3 typography-markdown',
+                    warn ? 'border-[var(--status-warning)] text-foreground' : 'border-border text-muted-foreground')}>
+                    {children}
+                </div>
             )}
         </div>
     );
 }
 
-export function VoiceTurn({ message, previousMessage }: { message: ChatMessageEntry; previousMessage?: ChatMessageEntry }) {
+export function VoiceTurn({ message }: { message: ChatMessageEntry }) {
     const { t } = useI18n();
     const speaker = voiceSpeaker(message.info);
     const text = voiceText(message.parts);
-    if (!text || isVoiceFiller(message.info)) return null;
+    if (!text) return null;
     const row = (children: React.ReactNode, mine = false) => (
         <div className="group w-full pt-1 pb-1" id={`message-${message.info.id}`} data-message-id={message.info.id}
             data-voice-turn={speaker}>
@@ -54,15 +52,23 @@ export function VoiceTurn({ message, previousMessage }: { message: ChatMessageEn
         </div>
     );
     if (speaker === 'voice') {
-        // #739: one turn, one message. Reading a written reply: a collapsed line under it. No written reply: its words
-        // are the reply, one plain line.
-        if (spokenBelongsToReply(message, previousMessage)) return row(<SpokenLine text={text} differs={voiceDiffers(message.info)} />);
+        // #739: one turn, one message. An exact repeat of the written reply folds under it; any other spoken line
+        // shows in full, with the replies the voice was given and did not say beside it.
+        if (voiceMatched(message.info)) return row(<Fold label={t('chat.voiceTurn.spoken')}><p>{text}</p></Fold>);
+        const relayed = voiceRelayed(message.info);
         return row(
-            <p className="flex min-w-0 max-w-[85%] items-start gap-2 whitespace-pre-wrap break-words typography-markdown text-foreground"
-                aria-label={t('chat.voiceTurn.voice')}>
-                <Icon name="volume-up" className="mt-[0.3em] size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <span>{text}</span>
-            </p>,
+            <div className="min-w-0 max-w-[85%] space-y-1.5">
+                <p className="flex items-start gap-2 whitespace-pre-wrap break-words typography-markdown text-foreground"
+                    aria-label={t('chat.voiceTurn.voice')}>
+                    <Icon name="volume-up" className="mt-[0.3em] size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span>{text}</span>
+                </p>
+                {relayed.length > 0 && (
+                    <Fold warn label={t('chat.voiceTurn.notSaid', { count: relayed.length })}>
+                        {relayed.map((reply, index) => <p key={index}>{reply}</p>)}
+                    </Fold>
+                )}
+            </div>,
         );
     }
     return row(

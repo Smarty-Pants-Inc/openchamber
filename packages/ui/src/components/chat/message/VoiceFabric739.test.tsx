@@ -15,38 +15,29 @@ const entry = (id: string, role: string, text: string, metadata?: unknown) => ({
   parts: [{ id: `${id}-p`, sessionID: 's', messageID: id, type: 'text', text }],
 }) as unknown as ChatMessageEntry;
 const spoken = (id: string, text: string, extra: Record<string, unknown> = {}) => entry(id, 'assistant', text, { smartyVoice: { speaker: 'voice', ...extra } });
-const written = entry('a1', 'assistant', 'Checked, Paul, and everything looks good: the proxy is running from the new location.');
-const youSaid = entry('u2', 'user', 'Thank you', { smartyVoice: { speaker: 'user' } });
 
-test('a spoken reading of the written reply is one collapsed "spoken" line under it, not a second message', () => {
-  const html = render(<VoiceTurn message={spoken('v1', "Checked, Paul, and everything looks good. Sleep well.")} previousMessage={written} />);
+test('an exact repeat of the written reply (matched) is one collapsed "spoken" line, not a second message', () => {
+  const html = render(<VoiceTurn message={spoken('v1', 'Checked, Paul, and everything looks good.', { matched: true, turn: 'a1' })} />);
   expect(html).toContain('spoken');
   expect(html).toContain('aria-expanded="false"');
-  expect(html).not.toContain('Sleep well.'); // collapsed: one click shows it
+  expect(html).not.toContain('everything looks good'); // collapsed: one click shows it
   expect(html).not.toContain('Voice said');
 });
 
-test('the gateway\'s turn mark attaches the line to its reply even when another row sits between', () => {
-  expect(render(<VoiceTurn message={spoken('v1', 'Sleep well.', { turn: 'a1' })} previousMessage={youSaid} />)).toContain('aria-expanded="false"');
-});
-
-test('a spoken line that differs from the text opens by itself, flagged', () => {
-  const html = render(<VoiceTurn message={spoken('v1', 'Nothing is left for you tonight.', { differs: true })} previousMessage={written} />);
-  expect(html).toContain('aria-expanded="true"');
-  expect(html).toContain('differs from the text');
-  expect(html).toContain('Nothing is left for you tonight.');
-  expect(html).toContain('--status-warning');
-});
-
-test('filler is never shown', () => {
-  expect(render(<VoiceTurn message={spoken('v0', 'Let me check that.', { filler: true })} previousMessage={written} />)).toBe('');
-});
-
-test('a voice-only reply (no written reply before it) is the reply: its words in one plain line', () => {
-  const html = render(<VoiceTurn message={spoken('v2', "You're welcome.")} previousMessage={youSaid} />);
+test('a spoken line that is not a repeat shows in full, as the reply', () => {
+  const html = render(<VoiceTurn message={spoken('v2', "You're welcome.")} />);
   expect(html).toContain("You&#x27;re welcome.");
   expect(html).not.toContain('aria-expanded');
   expect(html).not.toContain('>Voice said<');
+});
+
+test('replies the voice was given and did not say sit beside the line, collapsed and amber', () => {
+  const html = render(<VoiceTurn message={spoken('v3', 'Everything is done.', { relayed: ['The deploy key still needs your approval.', ' ', 7] })} />);
+  expect(html).toContain('Everything is done.');
+  expect(html).toContain('Not said (1)');
+  expect(html).toContain('--status-warning');
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain('The deploy key still needs your approval.');
 });
 
 test('a Fabric message needs the gateway\'s envelope sender; message text is never evidence', () => {

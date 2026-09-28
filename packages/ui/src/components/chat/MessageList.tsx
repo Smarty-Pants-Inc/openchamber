@@ -764,7 +764,7 @@ const UngroupedMessageRow = React.memo(({
     reviewTransferDirection,
 }: UngroupedMessageRowProps) => {
     // smarty-code#538: a voice call's spoken turns ("You said" / "Voice said") are display-only rows.
-    if (isVoiceTurn(message.info)) return <VoiceTurn message={message} previousMessage={previousMessage} />;
+    if (isVoiceTurn(message.info)) return <VoiceTurn message={message} />;
     // smarty-code#360: a voice call note (smarty-voice-state) is a quiet system line.
     if (isSystemNoteMessage(message.info)) return <SystemNoteLine message={message} />;
     return (
