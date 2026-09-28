@@ -23,6 +23,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CodeMirrorEditor } from '@/components/ui/CodeMirrorEditor';
+import { useCoeditRoom } from '@/lib/coedit/useCoeditRoom';
+import { CoeditBar } from './CoeditBar';
 import { GoToLineDialog } from './GoToLineDialog';
 import { MarkdownPreviewSearch } from './MarkdownPreviewSearch';
 import { PreviewToggleButton } from './PreviewToggleButton';
@@ -1659,9 +1661,17 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     [fileContent]
   );
 
-  const isDirty = draftContent !== displayedContent;
+  // smartyfs#18: a project text file the person can write is co-edited in its room. The room owns the text and
+  // saves it (the server's disk bridge); the draft only mirrors it, so it is never dirty and never saved here.
+  const coeditEligible = Boolean(selectedFile?.path && currentDirectory && files.writeFile && !selectedFileIsOutsideWorkspace
+    && !fileLoading && loadedFilePath === selectedFile?.path && fileContent.length <= MAX_VIEW_CHARS
+    && !isBinaryFile(selectedFile?.path ?? '') && !contentDetectedBinary && !isImageFile(selectedFile?.path ?? ''));
+  const coedit = useCoeditRoom({ directory: currentDirectory || null, path: coeditEligible ? selectedFile?.path ?? null : null, enabled: coeditEligible });
+  const coeditLive = coedit.binding !== null;
+  const isDirty = !coeditLive && draftContent !== displayedContent;
 
   const saveDraft = React.useCallback(async () => {
+    if (coeditLive) return true; // the room saves it
     if (!selectedFile || !files.writeFile) {
       toast.error(t('filesView.toast.savingNotSupported'));
       return false;
@@ -1741,7 +1751,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     } finally {
       setIsSaving(false);
     }
-  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile, t]);
+  }, [coeditLive, contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile, t]);
 
   React.useEffect(() => {
     if (autoSaveEnabled) {
@@ -4056,14 +4066,17 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             renderShikiFileView(selectedFile, isLargeFile ? fileContent : draftContent, mainViewVirtualizer)
           ) : (
             <div
-              className={cn('relative h-full', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}
+              className={cn('relative flex h-full flex-col', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}
               ref={editorWrapperRef}
             >
-              <div className={cn('h-full', shouldMaskEditorForPendingNavigation && 'invisible')}>
+              <CoeditBar room={coedit} />
+              <div className={cn('min-h-0 flex-1', shouldMaskEditorForPendingNavigation && 'invisible')}>
                 <CodeMirrorEditor
+                  key={coedit.binding ? `coedit:${selectedFile?.path}` : 'plain'}
+                  collab={coedit.binding ?? undefined}
                   value={draftContent}
                   onChange={setDraftContent}
-                  readOnly={!canEdit}
+                  readOnly={!canEdit || coedit.phase === 'connecting'}
                   vimMode={fileEditorKeymap === 'vim'}
                   extensions={editorExtensions}
                   className="h-full"
@@ -4424,12 +4437,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           ) : canUseShikiFileView && textViewMode === 'view' ? (
             renderShikiFileView(selectedFile, isLargeFile ? fileContent : draftContent, fullscreenViewVirtualizer)
           ) : (
-            <div className={cn('relative h-full', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}>
-              <div className={cn('h-full', shouldMaskEditorForPendingNavigation && 'invisible')}>
+            <div className={cn('relative flex h-full flex-col', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}>
+              <CoeditBar room={coedit} />
+              <div className={cn('min-h-0 flex-1', shouldMaskEditorForPendingNavigation && 'invisible')}>
               <CodeMirrorEditor
+                key={coedit.binding ? `coedit:${selectedFile?.path}` : 'plain'}
+                collab={coedit.binding ?? undefined}
                 value={draftContent}
                 onChange={setDraftContent}
-                readOnly={!canEdit}
+                readOnly={!canEdit || coedit.phase === 'connecting'}
                 vimMode={fileEditorKeymap === 'vim'}
                 extensions={editorExtensions}
                 className="h-full"
