@@ -100,7 +100,6 @@ import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
 import { getAllSyncSessions, getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
-import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
     assignImageAttachmentFilenames,
@@ -189,7 +188,7 @@ import {
     mapInputHistoryEntriesToValues,
     mergeSessionInputHistory,
 } from './inputHistory';
-import { reconcileSessionIdleBeforeSend, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -1079,7 +1078,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const timer = setInterval(() => {
             recheckOrdinary();
             tick += 1;
-            if (tick % 2 === 0 && directory) void getImperativeSessionMessageLoader()?.refreshOrdinaryView({ directory, sessionID })?.catch(() => undefined);
+            if (tick % 2 === 0 && directory && sessionID) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);
