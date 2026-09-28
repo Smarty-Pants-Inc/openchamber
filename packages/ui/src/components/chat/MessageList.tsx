@@ -347,13 +347,14 @@ export interface MessageListHandle {
     scrollToMessageId: (messageId: string, options?: { behavior?: ScrollBehavior }) => boolean;
     captureViewportAnchor: () => { messageId: string; offsetTop: number } | null;
     restoreViewportAnchor: (anchor: { messageId: string; offsetTop: number }) => boolean;
-    holdViewportAnchor: (anchor: { messageId: string; offsetTop: number }) => void;
+    holdViewportAnchor: (anchor: { messageId: string; offsetTop: number }, options?: AnchorHoldOptions) => void;
     isHistoryVirtualized: () => boolean;
     scrollToBottom: () => void;
 }
 
 import { VoiceTurn } from './message/VoiceTurn';
 import { isVoiceTurn } from './message/voiceTurnData';
+import type { AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
 
 type TurnUiState = { isExpanded: boolean };
@@ -1600,7 +1601,9 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 return didScroll;
             },
 
-            holdViewportAnchor: (anchor) => {
+            holdViewportAnchor: (anchor, options) => {
+                const stableFrames = options?.stableFrames ?? ANCHOR_HOLD_STABLE_FRAMES;
+                const maxFrames = options?.maxFrames ?? ANCHOR_HOLD_MAX_FRAMES;
                 const container = resolveScrollContainer();
                 if (!container || typeof window === 'undefined') {
                     return;
@@ -1629,9 +1632,14 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                         } else {
                             stable += 1;
                         }
+                    } else if (options?.restoreMissing && messageIndexMap.has(anchor.messageId)) {
+                        // The row was remounted out of range: bring it back, then keep holding its offset.
+                        const index = messageIndexMap.get(anchor.messageId);
+                        if (typeof index === 'number' && index < historyEntries.length) scrollHistoryIndexIntoView(index);
+                        stable = 0;
                     }
                     frames += 1;
-                    if (stable >= ANCHOR_HOLD_STABLE_FRAMES || frames >= ANCHOR_HOLD_MAX_FRAMES) {
+                    if (stable >= stableFrames || frames >= maxFrames) {
                         container.removeEventListener('touchstart', cancelOnUserInput);
                         container.removeEventListener('wheel', cancelOnUserInput);
                         return;

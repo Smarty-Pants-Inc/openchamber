@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { ChatMessageEntry } from '../lib/turns/types';
 import type { MessageListHandle } from '../MessageList';
+import { PREPEND_ANCHOR_HOLD } from '../lib/scroll/anchorHold';
 import {
     buildTurnWindowModel,
     updateTurnWindowModelIncremental,
@@ -588,7 +589,7 @@ export const useChatTimelineController = ({
                     // ~2k px. Hold the reader's message at its captured offset while the rows measure. The hold
                     // measures the element and applies only the remaining difference, so where the list already
                     // kept the place it writes nothing; a user gesture cancels it.
-                    messageListRef.current?.holdViewportAnchor(snap.anchor);
+                    messageListRef.current?.holdViewportAnchor(snap.anchor, PREPEND_ANCHOR_HOLD);
                 }
                 updateTracking();
                 return;
