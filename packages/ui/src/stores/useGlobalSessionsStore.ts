@@ -1,5 +1,6 @@
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
+import { noteGoneSession } from '@/sync/gone-session-notice';
 import { herdrSignature } from '@/lib/herdrSession';
 import { useProjectsStore } from './useProjectsStore';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
@@ -664,7 +665,10 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     const selected = useSessionUIStore.getState().currentSessionId;
     // A session held open while its project joins the catalog (#608) is not listed yet; it stays open.
     if (selected && !committed.entityById.has(selected) && useProjectsStore.getState().managedSessionHold?.sessionId !== selected) {
+      const directory = useSessionUIStore.getState().currentSessionDirectory;
       useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
+      // The open session left the list (its Pi ended, or its worktree left the catalog): say so (smarty-code#775, #761).
+      void noteGoneSession(selected, directory, directories.has(directory ?? ''));
     }
     restoreManagedSessionSelection(committed.activeSessions);
   },
