@@ -6,6 +6,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
+import { managedWorktreeRoot } from './worktree-root.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -1587,7 +1588,7 @@ const resolveWorktreeProjectContext = async (directory) => {
   const commonDir = path.resolve(sandbox, commonResult.stdout.trim());
   const primaryWorktree = path.dirname(commonDir);
   const projectID = await ensureOpenCodeProjectId(primaryWorktree);
-  const worktreeRoot = path.join(getOpenCodeDataPath(), 'worktree', projectID);
+  const worktreeRoot = managedWorktreeRoot({ dataPath: getOpenCodeDataPath(), projectID, primaryWorktree });
 
   return {
     projectID,
