@@ -2,7 +2,7 @@ import { expect, mock, test } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createStore } from 'zustand/vanilla';
-import type { Message, Part } from '@opencode-ai/sdk/v2';
+import type { AssistantMessage, Message, TextPart, UserMessage } from '@opencode-ai/sdk/v2';
 
 // A store the notice reads, standing in for SyncProvider's directory store (no network).
 const directoryStore = createStore<{ message: Record<string, Message[]> }>(() => ({ message: {} }));
@@ -21,16 +21,25 @@ const { I18nProvider } = await import('@/lib/i18n');
 type Entry = import('../../lib/turns/types').ChatMessageEntry;
 
 // The gateway's projection of smarty-voice bd10f169 'smarty-voice-state' notes (smarty-code gateway voiceStateNote).
-const note = (id: string, text: string, created: number, parentID = 'ask'): Entry => ({
-  info: { id, sessionID: 's', role: 'assistant', clientRole: 'system-note', nativeRole: 'custom', parentID,
-    time: { created, completed: created }, metadata: { smartyNote: { customType: 'smarty-voice-state' } } } as unknown as Message,
-  parts: [{ id: `${id}-p`, sessionID: 's', messageID: id, type: 'text', text } as unknown as Part],
-});
-const user = (id: string, created: number): Entry => ({ info: { id, sessionID: 's', role: 'user', time: { created } } as Message,
-  parts: [{ id: `${id}-p`, sessionID: 's', messageID: id, type: 'text', text: 'hello' } as unknown as Part] });
-const reply = (id: string, created: number, completed?: number): Entry => ({
-  info: { id, sessionID: 's', role: 'assistant', parentID: 'ask', time: { created, ...(completed ? { completed } : {}) } } as unknown as Message,
-  parts: [] });
+const textPart = (messageID: string, text: string): TextPart => ({ id: `${messageID}-p`, sessionID: 's', messageID, type: 'text', text });
+const assistantInfo = (id: string, created: number): AssistantMessage => ({ id, sessionID: 's', role: 'assistant', parentID: 'ask',
+  time: { created }, modelID: 'm', providerID: 'p', mode: 'build', agent: 'build', path: { cwd: '/', root: '/' }, cost: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } });
+type NoteInfo = AssistantMessage & { clientRole: string; nativeRole: string; metadata: { smartyNote: { customType: string } } };
+const note = (id: string, text: string, created: number, parentID = 'ask'): Entry => {
+  const info: NoteInfo = { ...assistantInfo(id, created), parentID, time: { created, completed: created },
+    clientRole: 'system-note', nativeRole: 'custom', metadata: { smartyNote: { customType: 'smarty-voice-state' } } };
+  return { info, parts: [textPart(id, text)] };
+};
+const user = (id: string, created: number): Entry => {
+  const info: UserMessage = { id, sessionID: 's', role: 'user', time: { created }, agent: 'build', model: { providerID: 'p', modelID: 'm' } };
+  return { info, parts: [textPart(id, 'hello')] };
+};
+const reply = (id: string, created: number, completed?: number): Entry => {
+  const info = assistantInfo(id, created);
+  if (completed) info.time.completed = completed;
+  return { info, parts: [] };
+};
 const rows = (messages: Entry[]) => {
   const projection = projectTurnRecords(messages, {});
   return { projection, rows: assembleRenderEntries(
@@ -85,8 +94,7 @@ test('a call note after a real reply adds no notice', () => {
 
 test('a call note is never a turn summary, even when the reply has no finish yet', async () => {
   const { projectTurnSummary } = await import('../../lib/turns/projectTurnSummary');
-  const replyText: Entry = { info: { id: 'reply', role: 'assistant', parentID: 'ask', time: { created: 1 } } as unknown as Message,
-    parts: [{ id: 'rp', sessionID: 's', messageID: 'reply', type: 'text', text: 'the answer' } as unknown as Part] };
+  const replyText: Entry = { info: assistantInfo('reply', 1), parts: [textPart('reply', 'the answer')] };
   expect(projectTurnSummary([replyText, note('end', 'Voice call ended (reason: x), after 3 s.', 2)]).text).toBe('the answer');
   expect(projectTurnSummary([note('start', 'Voice call started (reason: attached page).', 1)])).toEqual({});
 });
