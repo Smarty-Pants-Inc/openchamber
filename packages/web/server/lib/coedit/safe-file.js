@@ -278,7 +278,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);
-    return { ...uncertain, unsynced: true }; // Sent, but no reply: it may or may not have been published, or flushed.
+    return { ...uncertain, unsynced: true, lost: true }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
     if (reply.conflict) return { conflict: reply.conflict, recovery };
@@ -297,8 +297,12 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   }
   const unsynced = !synced || done.unsynced === true;
   let result = { ok: true, recovery };
-  if (reply.uncertain) result = { ...uncertain };
-  else if (done.late || reply.conflict === 'raced') result = { conflict: 'raced', published: true, recovery: done.late ?? recovery, notice: DISTURBED_NOTICE };
+  // The exchange is certain (the helper replied). A writer that replaced ours, or wrote into it, right after is an
+  // outside write to a published file, shown as raced: the base follows ours, so the next sync never replays it.
+  // Only an observation or relocation that cannot be read holds the room.
+  const outside = reply.uncertain === 'replaced' || reply.uncertain === 'bytes';
+  if (reply.uncertain && !outside) result = { ...uncertain };
+  else if (outside || done.late || reply.conflict === 'raced') result = { conflict: 'raced', published: true, recovery: done.late ?? recovery, notice: DISTURBED_NOTICE };
   else if (unsynced) result = { conflict: 'unverified', published: true, recovery, notice: UNSYNCED_NOTICE };
   if (unsynced) result.unsynced = true;
   if (done.busy) result.pending = { entry: reply.displaced, hash: done.hash };

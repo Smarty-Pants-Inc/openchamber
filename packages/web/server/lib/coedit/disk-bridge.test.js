@@ -493,6 +493,45 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(fs.statSync(t.file).ino).toBe(ino);
     });
 
+    for (const point of ['beforeExchange', 'afterExchange']) {
+      it(`a reply lost at ${point}, then an agent's revision: settled by the private dir, never held and never replayed (stress run)`, async () => {
+        const t = await setup('a');
+        t.person((x) => x.insert(0, 'P'));
+        t.hooks.helper = { pause: point, pauseMs: 5000 };
+        const saving = t.bridge.save();
+        if (point === 'beforeExchange') await expect.poll(() => t.staged().length, { timeout: 3000 }).toBe(1);
+        else await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        killHelper(t.root);
+        expect(await saving).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+        delete t.hooks.helper;
+        const before = t.disk();
+        fs.writeFileSync(t.file, `${before}\nagent`); // An agent's revision, built on whatever it found.
+        await t.bridge.sync();
+        expect(t.bridge.state().conflict).toBe(null);
+        // Published: the base is ours, so the agent's line merges in once (Pa, not PPa). Not: P is still the room's.
+        expect(t.text.toString()).toBe('Pa\nagent');
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        expect(t.disk()).toBe('Pa\nagent');
+        expect(t.staged()).toEqual([]);
+        if (point === 'afterExchange') expect(t.kept()).toContain('a');
+      });
+    }
+
+    it('an agent replacing the file right after our exchange: ours was published (the base follows it), theirs is the next revision, never held (stress run)', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const result = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        fs.writeFileSync(`${t.file}.agent`, 'Pa\nagent');
+        fs.renameSync(`${t.file}.agent`, t.file); // Built on ours.
+      });
+      expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('Pa\nagent'); // Merged once from ours: no replay, and not held.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa\nagent');
+    });
+
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {
       const t = await setup('hello\n', { watch: true });
       killHelper(t.root);

@@ -178,9 +178,35 @@ export function createDiskBridge({
       if (!closed) void serial(disposePending).catch(() => {});
     }, retryMs);
   };
+  /**
+   * Settles a save whose reply was lost by the private dir, the authoritative record, whatever the file holds now
+   * (an agent may have written since): a new entry holding OUR bytes means the exchange never ran (it is removed, and
+   * the base stays); a new entry holding anything else is the revision our exchange displaced (published: the base
+   * follows ours, and the entry is kept for recovery as a pending one); no new entry means it never got that far.
+   */
+  const settleByPrivateDir = async () => {
+    const reply = await helper.call({ op: 'list', key }).catch(() => null);
+    if (!reply?.ok) return false;
+    const known = new Set(pending.map((revision) => revision.entry));
+    const fresh = reply.entries.filter((entry) => !known.has(entry.entry));
+    const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
+    if (displaced) {
+      base = uncertain.snapshot;
+      baseText = uncertain.next;
+      baseHash = uncertain.nextHash;
+      gone = false;
+      pending.push({ entry: displaced.entry, hash: uncertain.baseHash }); // Late bytes differ, so they are kept.
+    } else {
+      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, name, hooks);
+    }
+    uncertain = null;
+    if (!unsynced) conflict = null;
+    return true;
+  };
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
   const settleUncertain = async () => {
     if (!uncertain) return true;
+    if (uncertain.lost && (await settleByPrivateDir())) return true;
     const disk = await readFile(helper, rel);
     if (disk?.hash === uncertain.nextHash) {
       base = uncertain.snapshot;
@@ -313,14 +339,14 @@ export function createDiskBridge({
       const next = text.toString();
       if (next === baseText) return { ok: true };
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
-      const { pending: displaced, unsynced: notFlushed, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
+      const { pending: displaced, unsynced: notFlushed, lost, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
       if (notFlushed) unsynced = { raised: true, entry: displaced?.entry }; // Raised with this result; a flush confirms it.
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost === true, seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.

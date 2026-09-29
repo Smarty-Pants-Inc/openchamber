@@ -73,6 +73,9 @@ round 4); until then no conflict could be seen.
        and shown (`raced`, notice "Another writer changed this file during your save: check the recovery folder.").
      - The displaced object is not the checked revision (someone replaced the file just before the exchange): `raced`,
        their revision kept for recovery.
+     - Ours was replaced, or written into, right after the exchange (`replaced`, `bytes`): the exchange is certain,
+       so this is an outside write to a published file. It is `raced` (published), the base follows ours, and the
+       next sync treats the writer's revision as any other (so an agent's steady writes never stall the room).
      - Anything it cannot prove (a failed observation, the directory moved out of the project): `unverified` with
        `published: 'uncertain'`. A lost reply, a helper exit or a deadline after the request was sent is the same.
      - Durability is reported on its own (`synced`). A failed directory fsync (after the exchange, or when `dispose`
@@ -85,7 +88,11 @@ round 4); until then no conflict could be seen.
        private entries are kept for recovery but not disposed, `unverified` is raised, and `save()` holds until a
        flush succeeds. A failed flush while disposing them holds it the same way.
   - **Published** (ok or `raced`): the room's base moves to our bytes, so the next sync never replays the edit.
-  - **Uncertain**: the base stays and the room holds. `sync()` and `save()` first read the disk: our bytes there mean
+  - **Uncertain**: the base stays and the room holds. After a **lost reply**, `sync()` and `save()` first ask the
+    private directory, the authoritative record, whatever the file holds now: a new entry with our bytes means the
+    exchange never ran (it is removed; not published); a new entry with other bytes is the revision our exchange
+    displaced (published: the base follows ours, and the entry is kept as pending); no new entry means it never got
+    that far (not published). Otherwise they read the disk: our bytes there mean
     it was published (adopted as the base); the base's bytes mean it was not (cleared). Anything else stays an
     `unverified` conflict (raised once per disk revision): nothing is merged, and `save()` publishes nothing.
   - Any result but ok is a conflict (`onConflict`, `state().conflict`), with its recovery path.
@@ -97,6 +104,10 @@ round 4); until then no conflict could be seen.
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
   now"); watching restarts after `retryMs` (at most `retryLimit` tries), catches up with a sync, and clears it.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
+- **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch>` runs three direct
+  writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
+  helper and the whole bridge process are SIGKILLed at random. It exits 1 if any token a writer wrote, or any token of
+  a save that reported published, is missing from the disk, the recovery directory and the private directory.
 - **Crash recovery:** `load()` lists the file's private entries (`list`), keeps each in `recoveryDir`, disposes it and
   raises `interrupted` with a notice. One still open for writing is enrolled as pending; a late write is `raced`. After
   a crash or kill at any point the file holds either the old or the new revision, whole.
