@@ -1,0 +1,14 @@
+{
+ "steps": 6,
+ "failed": false,
+ "fleetPolls": 9,
+ "askedUnknown": 0,
+ "statuses": [
+  200
+ ],
+ "withUnknownMarker": 0,
+ "sessions": {
+  "A": "01a0edc6-f4f4-706e-88fa-b672c9f099f0",
+  "B": "01a0edc7-4322-71ca-a058-edfed87a4049"
+ }
+}
