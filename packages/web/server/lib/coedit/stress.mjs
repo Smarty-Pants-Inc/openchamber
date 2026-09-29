@@ -106,7 +106,13 @@ async function main() {
   fs.mkdirSync(path.join(dir, 'recovery'), { mode: 0o700 });
   fs.chmodSync(path.join(dir, 'project'), 0o755);
   fs.writeFileSync(path.join(dir, 'project', 'notes.md'), 'start\n');
-  const child = (...args) => spawn(process.execPath, [import.meta.filename, '--home', dir, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+  // stdin is a pipe from this process: when it dies, even by SIGKILL, each child sees EOF and exits (#37 item 4).
+  const children = [];
+  const child = (...args) => {
+    const c = spawn(process.execPath, [import.meta.filename, '--home', dir, ...args], { stdio: ['pipe', 'ignore', 'ignore'] });
+    children.push(c);
+    return c;
+  };
   const writers = [0, 1, 2].map((id) => child('--role', 'writer', '--id', String(id)));
   let servers = 0;
   let serverProc = child('--role', 'server', '--id', String(servers));
@@ -115,8 +121,10 @@ async function main() {
     fs.writeFileSync(path.join(dir, 'stop'), '');
     for (const w of writers) kill(w.pid);
     kill(serverProc.pid);
+    if (last) kill(last.pid);
     for (const pid of helperPids()) kill(pid);
   };
+  let last = null;
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => { teardown(); process.exit(1); });
   let kills = { server: 0, helper: 0 };
   const helperPids = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p)).filter((p) => {
@@ -147,7 +155,7 @@ async function main() {
   await sleep(300);
   // A last server finishes whatever the kills interrupted (its load keeps private entries in recovery).
   servers += 1;
-  const last = child('--role', 'server', '--id', String(servers));
+  last = child('--role', 'server', '--id', String(servers));
   await sleep(3000);
   last.kill('SIGKILL');
   for (const pid of helperPids()) kill(pid);
@@ -174,9 +182,15 @@ async function main() {
     lostWrites: lostWrites.length, lostSaves: lostSaves.length, onlyInOurCopy: onlyInOurCopy.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
   };
   console.log(JSON.stringify(report, null, 2));
+  for (const c of children) c.stdin.end(); // Our open pipes would otherwise keep this process alive.
   process.exitCode = lostWrites.length || lostSaves.length ? 1 : 0;
 }
 
-if (role === 'writer') await writer(Number(arg('id', '0')));
+// A child ends with its parent: EOF on the stdin pipe (the helper, the server's child, ends on its own EOF).
+if (role !== 'main') process.stdin.on('end', () => process.exit(0)).resume();
+if (role === 'writer') {
+  await writer(Number(arg('id', '0')));
+  process.exit(0); // The open stdin pipe would keep it alive.
+}
 else if (role === 'server') await server(Number(arg('id', '0')));
 else await main();
