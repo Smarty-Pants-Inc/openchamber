@@ -13,7 +13,10 @@ import { readLastActiveSession } from './last-session-cache'
  * text: the gateway has more than one ("Unknown Pi session in requested project" is not for a person). The draft stays usable.
  * ponytail: a toast, not a new layout slot; it is the first sign, and the draft underneath is the person's next step.
  */
+// Sessions already checked (told gone, or answered by anything but a 404): never read again until listed again. Forgetting
+// a non-404 answer made every store commit read it again: the 3.52 read storm (code-catalog, #126).
 const told = new Set<string>()
+const keyOf = (runtimeKey: string, sessionId: string) => JSON.stringify([runtimeKey, sessionId])
 
 type Read = (sessionId: string, directory: string) => Promise<{ status?: number }>
 const readSession: Read = async (sessionId, directory) => {
@@ -23,13 +26,14 @@ const readSession: Read = async (sessionId, directory) => {
 
 /** `listed`: the session's directory is still a live project (then its own read decides: only a 404 is "gone"). */
 export async function noteGoneSession(sessionId: string, directory: string | null, listed: boolean, read: Read = readSession): Promise<boolean> {
-  const runtimeKey = getRuntimeKey(), key = JSON.stringify([runtimeKey, sessionId])
+  const runtimeKey = getRuntimeKey(), key = keyOf(runtimeKey, sessionId)
   if (told.has(key)) return false
   told.add(key)
   if (listed && directory) {
     const answer = await read(sessionId, directory).catch(() => null)
-    // Only the gateway's definite 404 says gone; a failed or other read says nothing (it may be back in a moment).
-    if (answer?.status !== 404) { told.delete(key); return false }
+    // Only the gateway's definite 404 says gone; a failed or other read says nothing, and is not read again until the
+    // session is listed again (then it may be checked afresh).
+    if (answer?.status !== 404) return false
   }
   if (getRuntimeKey() !== runtimeKey) { told.delete(key); return false }
   toast.warning(formatMessage(useI18nStore.getState().dictionary, 'chat.container.sessionGone', {}), { duration: 15_000 })
@@ -46,7 +50,10 @@ export function noteRememberedGone(sessions: readonly Session[], options?: { cho
   const projects = useProjectsStore.getState()
   if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== 'ready') return
   if (projects.managedSessionHold?.pending && !options?.chosen) return
-  const persisted = readLastActiveSession(getRuntimeKey().trim() || 'default')
+  const runtimeKey = getRuntimeKey()
+  // A listed session may be checked afresh if it leaves the list again.
+  for (const entry of sessions) told.delete(keyOf(runtimeKey, entry.id))
+  const persisted = readLastActiveSession(runtimeKey.trim() || 'default')
   if (!persisted || sessions.some(entry => entry.id === persisted.sessionId)) return
   void noteGoneSession(persisted.sessionId, persisted.directory ?? null,
     visibleProjects(projects).some(project => project.path === persisted.directory))
