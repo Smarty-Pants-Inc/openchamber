@@ -42,8 +42,10 @@ export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Ses
  */
 export const isOrdinaryCodeMade = (session: unknown): boolean =>
   (session as { ordinaryCodeMade?: unknown } | null | undefined)?.ordinaryCodeMade === true;
-/** Its composer says the Pi lost Code's connection and how to reconnect (smarty-code#957); an ended session has its own words. */
-export const isPiDisconnected = (session: Session | null | undefined): boolean => isOrdinaryCodeMade(session) && !isHerdrEnded(session);
+/** Its composer says the Pi lost Code's connection and how to reconnect (smarty-code#957). An ended session has its own
+ * words, and a reloading one says it is reloading (#870; openchamber#411 r3: a healthy /reload is no disconnect). */
+export const isPiDisconnected = (session: Session | null | undefined): boolean =>
+  isOrdinaryCodeMade(session) && !isHerdrEnded(session) && !isOrdinaryReloading(session);
 
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>

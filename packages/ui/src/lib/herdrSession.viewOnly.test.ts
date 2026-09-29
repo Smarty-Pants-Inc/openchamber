@@ -44,3 +44,12 @@ test('a Code-made unavailable session says its Pi lost Code and how to reconnect
   }
   expect(/lost its connection to Code.*Quit Pi.*start it again/.test(sidebarHerdrI18n.en['sessions.sidebar.herdr.disconnected'])).toBe(true);
 });
+
+// openchamber#411 round 3: a HEALTHY /reload of a Code-made session (its descriptor marked reloading, no endpoint for a
+// moment) says it is reloading (#870), never the quit-and-relaunch guidance.
+test('reloading wins over the disconnected reason: reloading + Code-made + no endpoint shows the reloading line only', async () => {
+  const { isPiDisconnected, isOrdinaryReloading } = await import('./herdrSession');
+  const reloading = { id: 's', herdrState: 'working', ordinaryCodeMade: true, ordinaryReloading: true } as unknown as Session;
+  expect(isOrdinaryReloading(reloading)).toBe(true);
+  expect(isPiDisconnected(reloading)).toBe(false);
+});
