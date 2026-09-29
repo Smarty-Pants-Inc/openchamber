@@ -1230,19 +1230,25 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
-    // The window above the loaded tail is read ahead once the session's positions are known, while the reader is still
-    // at the live end (where the list keeps the end in place). Read on leaving the end instead, its commit moved the
-    // view by 600-850 px (candidate 05:18Z); without it, the first placeholder up is requested only when the list
-    // mounts it, ~1,800 px ahead: under the rate check's lead (readAhead.test.ts). Once per session.
-    const tailStart = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
-    const tailKnown = tailStart !== undefined;
-    const tailStartRef = React.useRef(tailStart);
-    tailStartRef.current = tailStart;
+    // The window above the loaded tail is read ahead once the reader is a screen away from the live end (once per
+    // session): early enough for the rate check (readAhead.test.ts), and late enough for the list to hold the reader's
+    // rows while it lands. Read at the end, it left the list blank on open (the list kept an end it had mis-estimated,
+    // candidate on forge 07:2xZ); read on the first step away, it moved the view once by 600-850 px (05:18Z).
+    const tailStartRef = React.useRef<number | undefined>(undefined);
+    tailStartRef.current = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
     React.useEffect(() => {
-        const start = tailStartRef.current;
-        if (!tailKnown || start === undefined || start <= 0) return;
-        loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);
-    }, [tailKnown, loadWindow]);
+        if (!scrollNode) return;
+        let done = false;
+        const onScroll = () => {
+            const start = tailStartRef.current;
+            if (done || start === undefined || start <= 0) return;
+            if (scrollNode.scrollHeight - scrollNode.scrollTop - scrollNode.clientHeight < scrollNode.clientHeight) return;
+            done = true;
+            loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);
+        };
+        scrollNode.addEventListener('scroll', onScroll, { passive: true });
+        return () => scrollNode.removeEventListener('scroll', onScroll);
+    }, [loadWindow, scrollNode]);
     React.useEffect(() => {
         if (!scrollNode) return;
         // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.
