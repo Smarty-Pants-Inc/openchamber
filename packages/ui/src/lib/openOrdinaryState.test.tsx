@@ -19,14 +19,18 @@ const dir = '/live-a';
 const live: Session = { id: 'open-a', directory: dir, title: 't', slug: 'open-a', projectID: dir, version: '1', time: { created: 1, updated: 1 },
   ...{ ordinary: { generation: 'g1', sequence: 1, model: { providerID: 'p', modelID: 'm', name: 'M' }, thinkingLevel: 'high' } } };
 
-test('the composer\'s check: an omitted listing makes the open session unavailable over its live directory row, and a listing brings it back', async () => {
+// The managed listing's row is detailed (it carries the model) or, as the gateway's connected listings are, a lightweight
+// summary without one (round 5): the mark alone must still change the global row, both ways.
+const summary: Session = { id: 'open-a', directory: dir, title: 't', slug: 'open-a', projectID: dir, version: '1', time: { created: 1, updated: 1 } };
+const listings: [string, Session][] = [['detailed', live], ['lightweight', summary]];
+for (const [kind, listed] of listings) test(`the composer's check (${kind} listing row): an omitted listing makes the open session unavailable over its live directory row, and a listing brings it back`, async () => {
   // The directory sync store (child store) holds the open session's live row, as when it was opened.
   // A child-store manager with just what the sync reads use (the test's stand-in; the real one needs a live SDK).
   const store = { getState: () => ({ session: [live] }) };
   const manager: Parameters<typeof setSyncRefs>[1] = Object.assign(Object.create(null), { children: new Map([[dir, store]]), getState: () => store.getState() });
   setSyncRefs(Object.create(null), manager, dir);
   useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready', managedRows: [{ id: 'a', worktree: dir }], managedProjects: [{ id: 'a', path: dir }] });
-  useGlobalSessionsStore.getState().applyManagedSessions([live], useGlobalSessionsStore.getState().mutationRevision, new Set([dir]));
+  useGlobalSessionsStore.getState().applyManagedSessions([listed], useGlobalSessionsStore.getState().mutationRevision, new Set([dir]));
   useSessionUIStore.setState({ currentSessionId: 'open-a', currentSessionDirectory: dir });
 
   const seen: (string | null)[] = [];
@@ -48,7 +52,7 @@ test('the composer\'s check: an omitted listing makes the open session unavailab
     expect(useSessionUIStore.getState().currentSessionId).toBe('open-a'); // still open
     expect(seen.at(-1)).toBeNull(); // re-rendered: Send off, with its reason
     // A listing names it again: back, with no keystroke.
-    await act(async () => { useGlobalSessionsStore.getState().applyManagedSessions([live], useGlobalSessionsStore.getState().mutationRevision, new Set([dir])); });
+    await act(async () => { useGlobalSessionsStore.getState().applyManagedSessions([listed], useGlobalSessionsStore.getState().mutationRevision, new Set([dir])); });
     expect(seen.at(-1)).toBe('M');
   } finally {
     await act(async () => root.unmount());

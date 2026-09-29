@@ -136,6 +136,9 @@ const getSessionSignature = (session: Session): string => {
     herdrSignature(session),
     // An ordinary session's model going unavailable (or back) is a change too (smarty-code#600, #790).
     readOrdinaryModel(session)?.model ? 'model' : 'no-model',
+    // Kept while one listing left it out (#600): the mark alone is a change, both ways, also against a lightweight
+    // listing row that carries no model (openchamber#364 review round 5).
+    'smartyRetainedUnavailable' in session && session.smartyRetainedUnavailable === true ? 'retained' : '',
   ].join(':');
 };
 
