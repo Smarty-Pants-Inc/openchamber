@@ -211,6 +211,36 @@ test('Stop on the start a sent text is locked to resolves that text at once, eve
   } finally { Object.assign(opencodeClient, { abandonNativeCreation: originals.abandon, listNativeCreations: originals.list }); localStorage.clear(); }
 });
 
+// smarty-code#849: on the sent path too, your own stop reads "You stopped this start"; another person's names them.
+for (const [who, subject, expected] of [['you', 'kate-1', 'You stopped this start. Your text is back in the draft.'],
+  ['another person', 'bob-2', 'This message was not sent: Kate stopped its session start. Your text is back in the draft.']] as const) {
+  test(`the sent text's line after a stop by ${who}`, async () => {
+    const { getRuntimeKey } = await import('@/lib/runtime-switch');
+    const { holdSentStart } = await import('@/sync/native-draft-sent');
+    const { useHumanSelf } = await import('@/lib/humanSelf');
+    const { createChatDraftIdentity, claimChatDraftOwnership, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+    const op = { ...blocking(`9999dddd-${subject}`, -1), phase: 'unavailable' as const };
+    const stopped = { ...op, phase: 'cancelled' as const, stoppedBy: { issuer: 'https://code.example', subject: 'kate-1', name: 'Kate' } };
+    const markKey = `oc.nativeCreation.sent:${JSON.stringify([getRuntimeKey(), '/project'])}`;
+    const identity = createChatDraftIdentity(getRuntimeKey(), '/project', null, useSessionUIStore.getState().newSessionDraft.draftId)!;
+    claimChatDraftOwnership(identity); writeChatDraft(identity, 'Held text', []);
+    localStorage.setItem(markKey, JSON.stringify({ clientRequestId: op.clientRequestId, operationId: op.operationId }));
+    holdSentStart(op.clientRequestId!);
+    const originals = { abandon: opencodeClient.abandonNativeCreation, list: opencodeClient.listNativeCreations };
+    // SAFETY: test doubles with the client methods' own call shapes.
+    opencodeClient.abandonNativeCreation = (async () => stopped) as typeof originals.abandon;
+    opencodeClient.listNativeCreations = (async () => [stopped]) as typeof originals.list;
+    useHumanSelf.setState({ subject });
+    try {
+      await act(async () => root.render(<NativeCreationNotice native={native([op], [])} draftOpen sent="pending" />));
+      await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 50)); });
+      await act(async () => root.render(<NativeCreationNotice native={native([], [])} draftOpen sent="cancelled" />));
+      expect(host.textContent).toContain(expected);
+    } finally { Object.assign(opencodeClient, { abandonNativeCreation: originals.abandon, listNativeCreations: originals.list });
+      localStorage.clear(); useHumanSelf.setState({ subject: undefined }); }
+  });
+}
+
 // openchamber#357 review 1: a real LockManager releases a lock only after the request's own promise settles, a tick after
 // its callback's promise resolved (checked in headless Chrome 153 and Node 24): query() still reports it held meanwhile.
 // This manager keeps that ordering, so the held-own-send Stop must await the release before it reads the lock.

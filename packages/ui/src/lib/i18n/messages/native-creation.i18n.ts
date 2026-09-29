@@ -1,5 +1,6 @@
 export const nativeCreationI18n = {
   en: {
+    'chat.nativeCreation.stoppedByYou': 'You stopped this start. Your text is back in the draft.',
     'chat.sessionError.sending': "Sending… The session has not taken this message yet; the reply starts when it does.",
     'chat.sessionError.taken': "Sent: the session has this message. Its reply shows here as soon as the session reports it.",
     'chat.nativeCreation.discovering': 'Loading projects…',
@@ -54,6 +55,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Show projects",
   },
   de: {
+    'chat.nativeCreation.stoppedByYou': 'Du hast diesen Start gestoppt. Dein Text ist wieder im Entwurf.',
     'chat.sessionError.sending': "Wird gesendet… Die Sitzung hat diese Nachricht noch nicht angenommen; die Antwort beginnt, sobald sie es tut.",
     'chat.sessionError.taken': "Gesendet: Die Sitzung hat diese Nachricht. Ihre Antwort erscheint hier, sobald die Sitzung sie meldet.",
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
@@ -108,6 +110,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Projekte anzeigen",
   },
   es: {
+    'chat.nativeCreation.stoppedByYou': 'Detuviste este inicio. Tu texto ha vuelto al borrador.',
     'chat.sessionError.sending': "Enviando… La sesión aún no ha recibido este mensaje; la respuesta empieza cuando lo haga.",
     'chat.sessionError.taken': "Enviado: la sesión tiene este mensaje. Su respuesta aparece aquí en cuanto la sesión la comunique.",
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
@@ -162,6 +165,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Mostrar proyectos",
   },
   fr: {
+    'chat.nativeCreation.stoppedByYou': 'Vous avez arrêté ce démarrage. Votre texte est de retour dans le brouillon.',
     'chat.sessionError.sending': "Envoi… La session n'a pas encore pris ce message ; la réponse commence dès qu'elle le fait.",
     'chat.sessionError.taken': "Envoyé : la session a ce message. Sa réponse s'affiche ici dès que la session la signale.",
     'chat.nativeCreation.discovering': 'Chargement des projets…',
@@ -216,6 +220,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Afficher les projets",
   },
   ja: {
+    'chat.nativeCreation.stoppedByYou': 'この開始はあなたが停止しました。テキストは下書きに戻っています。',
     'chat.sessionError.sending': "送信中… セッションはまだこのメッセージを受け取っていません。受け取ると返信が始まります。",
     'chat.sessionError.taken': "送信済み: セッションはこのメッセージを受け取りました。セッションが報告するとすぐに返信がここに表示されます。",
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
@@ -270,6 +275,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "プロジェクトを表示",
   },
   ko: {
+    'chat.nativeCreation.stoppedByYou': '이 시작을 직접 중지했습니다. 텍스트가 초안으로 돌아왔습니다.',
     'chat.sessionError.sending': "보내는 중… 세션이 아직 이 메시지를 받지 않았습니다. 받으면 답장이 시작됩니다.",
     'chat.sessionError.taken': "보냄: 세션이 이 메시지를 받았습니다. 세션이 알리는 즉시 답장이 여기에 표시됩니다.",
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
@@ -324,6 +330,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "프로젝트 보기",
   },
   pl: {
+    'chat.nativeCreation.stoppedByYou': 'Zatrzymałeś ten start. Twój tekst wrócił do szkicu.',
     'chat.sessionError.sending': "Wysyłanie… Sesja jeszcze nie przyjęła tej wiadomości; odpowiedź zacznie się, gdy to zrobi.",
     'chat.sessionError.taken': "Wysłano: sesja ma tę wiadomość. Odpowiedź pojawi się tutaj, gdy tylko sesja ją zgłosi.",
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
@@ -378,6 +385,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Pokaż projekty",
   },
   'pt-BR': {
+    'chat.nativeCreation.stoppedByYou': 'Você interrompeu este início. Seu texto voltou ao rascunho.',
     'chat.sessionError.sending': "Enviando… A sessão ainda não recebeu esta mensagem; a resposta começa quando receber.",
     'chat.sessionError.taken': "Enviado: a sessão tem esta mensagem. A resposta aparece aqui assim que a sessão a informar.",
     'chat.nativeCreation.discovering': 'Carregando projetos…',
@@ -432,6 +440,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Mostrar projetos",
   },
   tr: {
+    'chat.nativeCreation.stoppedByYou': 'Bu başlatmayı siz durdurdunuz. Metniniz taslağa geri döndü.',
     'chat.sessionError.sending': "Gönderiliyor… Oturum bu mesajı henüz almadı; aldığında yanıt başlar.",
     'chat.sessionError.taken': "Gönderildi: oturum bu mesajı aldı. Yanıtı, oturum bildirir bildirmez burada görünür.",
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
@@ -486,6 +495,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Projeleri göster",
   },
   uk: {
+    'chat.nativeCreation.stoppedByYou': 'Ви зупинили цей запуск. Ваш текст повернувся до чернетки.',
     'chat.sessionError.sending': "Надсилання… Сесія ще не прийняла це повідомлення; відповідь почнеться, щойно вона це зробить.",
     'chat.sessionError.taken': "Надіслано: сесія має це повідомлення. Відповідь з’явиться тут, щойно сесія про неї повідомить.",
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
@@ -540,6 +550,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Показати проєкти",
   },
   'zh-CN': {
+    'chat.nativeCreation.stoppedByYou': '你停止了这次启动。你的文本已回到草稿中。',
     'chat.sessionError.sending': "正在发送… 会话尚未接收此消息；接收后回复即开始。",
     'chat.sessionError.taken': "已发送：会话已收到此消息。会话一报告，回复就会显示在这里。",
     'chat.nativeCreation.discovering': '正在加载项目…',
@@ -594,6 +605,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "显示项目",
   },
   'zh-TW': {
+    'chat.nativeCreation.stoppedByYou': '你停止了這次啟動。你的文字已回到草稿中。',
     'chat.sessionError.sending': "正在傳送… 工作階段尚未接收此訊息；接收後回覆即開始。",
     'chat.sessionError.taken': "已傳送：工作階段已收到此訊息。工作階段一回報，回覆就會顯示在這裡。",
     'chat.nativeCreation.discovering': '正在載入專案…',

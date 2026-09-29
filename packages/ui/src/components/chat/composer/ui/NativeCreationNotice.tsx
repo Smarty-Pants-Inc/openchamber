@@ -3,13 +3,14 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
-import { isSentStartStopped, keepSentTextAsDraft, releaseSentStart, resolveSentStart, sentStartRequest, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
+import { isSentStartStopped, keepSentTextAsDraft, releaseSentStart, resolveSentStart, sentStartRequest, sentStartStopperSubject, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere, STOPPED_PHASES } from '@/sync/native-draft-creation';
 import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import React from 'react';
 import type { useNativeCreation } from '../state/useNativeCreation';
+import { useHumanSelfSubject } from '@/lib/humanSelf';
 
 const CANCELLABLE = ['starting', 'awaiting-trust', 'ready-required'];
 const STOPPED_LINE = { expired: 'chat.nativeCreation.sentExpired', denied: 'chat.nativeCreation.sentDenied',
@@ -41,6 +42,9 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   const blocking = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
   const lockedRequest = sent && draft.directoryOverride ? sentStartRequest(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
+  // smarty-code#849: a stop by the person themself reads "You stopped this start", on both paths; another person is named.
+  const self = useHumanSelfSubject();
+  const stoppedByYou = !!self && !!draft.directoryOverride && sentStartStopperSubject(getRuntimeKey(), draft.directoryOverride) === self;
   const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
   const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
   // This draft's OWN start that does not finish (smarty-code#587: its shell frozen, the person saw only "Starting…" and
@@ -84,7 +88,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (sent && directory) {
     // Not sent, and why: the text is back in the draft, editable (#117).
     if (isSentStartStopped(sent)) return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
-      {sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy }) : t(STOPPED_LINE[sent])}</p>;
+      {sent === 'cancelled' && stoppedByYou ? t('chat.nativeCreation.stoppedByYou')
+        : sent === 'cancelled' && stoppedBy ? t('chat.nativeCreation.sentStoppedBy', { name: stoppedBy }) : t(STOPPED_LINE[sent])}</p>;
     return <div className="mb-2 space-y-1">
       <p role="status" className="text-sm text-muted-foreground">{t('chat.nativeCreation.sentPending')}</p>
       <div className="flex gap-2">
@@ -130,7 +135,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (creation?.status === 'pending' && STOPPED_PHASES.includes(creation.operation.phase)) {
     // smarty-code#751: an expired start names what it was waiting for (for example text typed in its terminal).
     const reason = creation.operation.phase === 'expired' ? creation.operation.waitingFor : undefined;
-    return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">{t('chat.nativeCreation.stopped')}
+    const ownStop = creation.operation.phase === 'cancelled' && !!self && creation.operation.stoppedBy?.subject === self;
+    return <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">{t(ownStop ? 'chat.nativeCreation.stoppedByYou' : 'chat.nativeCreation.stopped')}
       {reason ? <> {t('chat.nativeCreation.stoppedWaiting', { reason })}</> : null}</p>;
   }
   if (starting || creation?.status === 'creating' || creation?.status === 'checking') {
