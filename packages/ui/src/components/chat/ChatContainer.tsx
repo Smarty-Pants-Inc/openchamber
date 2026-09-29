@@ -51,7 +51,7 @@ import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { SessionPositions } from '@/sync/session-message-loader';
 import { ScrollToStartButton } from './components/ScrollToStartButton';
-import { WINDOW_RECORDS } from './components/GapRow';
+import { WINDOW_RECORDS } from './lib/gapWindow';
 import { createWindowQueue } from './lib/windowQueue';
 import { useStreamingStore } from '@/sync/streaming';
 import {

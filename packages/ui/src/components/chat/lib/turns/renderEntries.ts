@@ -11,7 +11,8 @@ export type RenderEntry =
     | { kind: 'turn'; key: string; turn: TurnRecord; isLastTurn: boolean; nextEntryFirstMessage?: ChatMessageEntry };
 
 /** smarty-code#583: the records at positions [start, end) not loaded yet, drawn at their estimated height. */
-export type GapEntry = { kind: 'gap'; key: string; start: number; end: number; heightPx: number };
+/** A chunk (start..end) of an unloaded gap (gapStart..gapEnd): windows are read within the whole gap, not the chunk. */
+export type GapEntry = { kind: 'gap'; key: string; start: number; end: number; gapStart: number; gapEnd: number; heightPx: number };
 /** A row of the list: a message row, or a gap of the whole session not loaded yet. */
 export type TimelineEntry = RenderEntry | GapEntry;
 
@@ -112,7 +113,7 @@ export const insertGaps = (
     const pushGap = (gap: { start: number; end: number }) => {
         for (let start = gap.start; start < gap.end; start += GAP_CHUNK) {
             const end = Math.min(gap.end, start + GAP_CHUNK);
-            out.push({ kind: 'gap', key: `gap:${start}`, start, end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
+            out.push({ kind: 'gap', key: `gap:${start}`, start, end, gapStart: gap.start, gapEnd: gap.end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
         }
     };
     let next = 0;
