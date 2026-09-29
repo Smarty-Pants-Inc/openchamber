@@ -7,6 +7,7 @@ import type { WorktreeMetadata } from '@/types/worktree';
 import type { SessionFoldersMap } from '@/stores/useSessionFoldersStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { splitRootGroupByWorkspace } from './workspaceGroups';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 
 type ProjectItem = {
   id: string;
@@ -106,6 +107,8 @@ export const useSessionSidebarSections = (args: Args) => {
   // Folding it into the parent queued a scope bootstrap the gateway refuses and left the parent
   // spinning. Stock OC keeps its worktree groups. Cached per input array and excluded paths.
   const ownWorktreesCacheRef = React.useRef<WeakMap<WorktreeMetadata[], { key: string; value: WorktreeMetadata[] }>>(new WeakMap());
+  // A worktree that left the live catalog (removed) is gone, though the published git topology still lists it (#881).
+  const departedDirectories = useProjectsStore((state) => state.departedDirectories);
 
   const projectSections = React.useMemo<ProjectSection[]>(() => {
     const previousCache = projectSectionCacheRef.current;
@@ -116,7 +119,7 @@ export const useSessionSidebarSections = (args: Args) => {
       left.length === right.length && left.every((session, index) => session === right[index])
     );
 
-    const projectPaths = new Set(normalizedProjects.map((project) => project.normalizedPath));
+    const projectPaths = new Set([...normalizedProjects.map((project) => project.normalizedPath), ...departedDirectories]);
     const worktreesOwnedBy = (projectPath: string): WorktreeMetadata[] => {
       const all = availableWorktreesByProject.get(projectPath) ?? EMPTY_WORKTREES;
       if (!excludeWorktreeProjects) return all;
@@ -206,6 +209,7 @@ export const useSessionSidebarSections = (args: Args) => {
     projectRootBranches,
     gitBranches,
     excludeWorktreeProjects,
+    departedDirectories,
   ]);
 
   const visibleProjectSections = React.useMemo(() => {

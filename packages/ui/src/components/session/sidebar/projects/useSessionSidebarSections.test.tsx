@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { I18nProvider } from '@/lib/i18n';
 import { useSessionGrouping } from './useSessionGrouping';
 import { useSessionSidebarSections } from './useSessionSidebarSections';
 import type { SessionGroup } from '../types';
+import type { WorktreeMetadata } from '@/types/worktree';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { installHookTestDom } from '../test-utils/testDom';
 
 const CHATS_ROOT = '/home/user/.config/openchamber/chats';
 
@@ -165,5 +169,52 @@ describe('worktrees that are their own projects', () => {
     // The flat view's bootstrap scopes follow the same rule.
     const flatScopes = (captured as Sections).flatSectionsForRender.find((section) => section.project.id === 'herdr')!.groups[0]!.folderScopes!.map((scope) => scope.directory);
     expect(flatScopes.includes(child.normalizedPath)).toBe(!managed);
+  });
+});
+
+// smarty-code#881: a worktree removed (Herdr workspace closed, `git worktree remove`) leaves the live catalog, but the
+// published git topology still lists it under its parent, so the sidebar kept a dead group ("Could not refresh sessions").
+describe('managed catalog: a worktree that leaves the catalog', () => {
+  const parent = { id: 'herdr', path: '/p/herdr', normalizedPath: '/p/herdr', label: 'herdr' };
+  const gone = '/p/herdr/worktrees/gone', kept = '/p/herdr/worktrees/kept', unlisted = '/p/herdr/worktrees/unlisted';
+  const worktrees = new Map<string, WorktreeMetadata[]>([[parent.normalizedPath,
+    [gone, kept, unlisted].map((path) => ({ path, projectDirectory: parent.path, branch: path, label: path }))]]);
+  const catalog = (...paths: string[]) => useProjectsStore.getState().applyManagedCatalog(
+    [parent.path, ...paths].map((worktree) => ({ id: worktree, worktree })));
+
+  test('its group is gone once the catalog drops it; a listed worktree stays; one never listed is unaffected; it returns when listed again', async () => {
+    const initial = useProjectsStore.getState();
+    const dom = installHookTestDom(), root = createRoot(dom.container);
+    let captured: Sections | undefined;
+    const Harness = () => {
+      const grouping = useSessionGrouping({ homeDirectory: '/home/user', worktreeMetadata: new Map(), pinnedSessionIds: new Set(),
+        sessionOrderRanks: new Map(), gitBranches: new Map(), isVSCode: false });
+      captured = useSessionSidebarSections({
+        normalizedProjects: [parent],
+        getSessionsForProject: () => [], getArchivedSessionsForProject: () => [],
+        availableWorktreesByProject: worktrees,
+        projectRepoStatus: new Map([['herdr', true]]), projectRootBranches: new Map(), gitBranches: new Map(),
+        lastRepoStatus: true, buildGroupedSessions: grouping.buildGroupedSessions, hasSessionSearchQuery: false,
+        normalizedSessionSearchQuery: '', filterSessionNodesForSearch: grouping.filterSessionNodesForSearch,
+        buildGroupSearchText: grouping.buildGroupSearchText, foldersMap: {}, standaloneGroups: [], excludeWorktreeProjects: true,
+      });
+      return null;
+    };
+    const groupDirs = () => captured?.projectSections[0]?.groups.map((group) => group.directory) ?? [];
+    try {
+      // `gone` and `kept` are live catalog worktrees; `unlisted` never was in the catalog (not departed).
+      catalog(gone, kept);
+      await act(async () => root.render(React.createElement(I18nProvider, null, React.createElement(Harness))));
+      for (const path of [gone, kept, unlisted]) expect(groupDirs()).toContain(path);
+      await act(async () => catalog(kept));
+      expect(groupDirs()).not.toContain(gone);
+      for (const path of [kept, unlisted]) expect(groupDirs()).toContain(path);
+      await act(async () => catalog(gone, kept));
+      expect(groupDirs()).toContain(gone);
+    } finally {
+      await act(async () => root.unmount());
+      dom.restore();
+      useProjectsStore.setState(initial, true);
+    }
   });
 });
