@@ -232,6 +232,10 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   // showed OpenCode's activity instead of Herdr's words until each row's next live update.
   'herdrState',
   'herdrNoIdentity',
+  // A re-keyed pane row's successor (smarty-code#863) and a fleet Pi mid-reload (smarty-code#870): the page reads both from
+  // the list row, so a page that opens the session from the list says "reloading", not View only.
+  'herdrSuccessor',
+  'ordinaryReloading',
 ];
 
 const sanitizeSessionListItem = (session) => {

@@ -11,11 +11,13 @@ const listen = (app) => new Promise((resolve, reject) => {
 const servers = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise((done) => server.close(done)))); });
 
-it('session lists keep Herdr state and the no-identity mark, and still drop detail fields', async () => {
+it('session lists keep Herdr state, the no-identity mark, the successor and the reloading mark (smarty-code#863, #870), and still drop detail fields', async () => {
   const upstream = express();
   upstream.get('/experimental/session', (_req, res) => res.json([
     { id: 'ses_1', title: 'dev-lead', time: { created: 1, updated: 2 }, herdrState: 'working', permission: [] },
     { id: 'herdr-pane-wA9-p2', title: 'org', time: { created: 0, updated: 0 }, herdrState: 'done', herdrNoIdentity: true },
+    { id: 'herdr-pane-wA9-p3', title: 'lane', time: { created: 0, updated: 0 }, herdrNoIdentity: true, herdrSuccessor: 'ses_3' },
+    { id: 'ses_2', title: 'code-lead', time: { created: 1, updated: 2 }, herdrState: 'idle', ordinaryReloading: true },
   ]));
   const upstreamServer = await listen(upstream); servers.push(upstreamServer);
   const base = `http://127.0.0.1:${upstreamServer.address().port}`;
@@ -33,5 +35,7 @@ it('session lists keep Herdr state and the no-identity mark, and still drop deta
   expect(await response.json()).toEqual([
     { id: 'ses_1', title: 'dev-lead', time: { created: 1, updated: 2 }, herdrState: 'working' },
     { id: 'herdr-pane-wA9-p2', title: 'org', time: { created: 0, updated: 0 }, herdrState: 'done', herdrNoIdentity: true },
+    { id: 'herdr-pane-wA9-p3', title: 'lane', time: { created: 0, updated: 0 }, herdrNoIdentity: true, herdrSuccessor: 'ses_3' },
+    { id: 'ses_2', title: 'code-lead', time: { created: 1, updated: 2 }, herdrState: 'idle', ordinaryReloading: true },
   ]);
 });
