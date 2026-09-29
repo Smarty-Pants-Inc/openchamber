@@ -46,6 +46,7 @@ import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
 import { Icon } from "@/components/icon/Icon";
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { normalizeProjectPath } from '@/lib/projectResolution';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -761,6 +762,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const sync = useSync();
     const syncDirectory = useSyncDirectory();
     const effectiveSessionDirectory = currentSessionDirectory ?? syncDirectory;
+    const sessionDirectoryGone = useProjectsStore((state) => Boolean(currentSessionDirectory)
+        && state.departedDirectories.includes(normalizeProjectPath(currentSessionDirectory) ?? ''));
     const currentSessionKey = currentSessionId
         ? JSON.stringify([getRuntimeKey(), effectiveSessionDirectory, currentSessionId])
         : null;
@@ -1508,6 +1511,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             <p className="typography-meta mt-1 text-muted-foreground">
                                 {authSessionExpired
                                     ? t('chat.container.sessionLoadError.authDescription')
+                                    // Its worktree left the catalog: gone, whatever the failed read said (smarty-code#775, #761).
+                                    : sessionDirectoryGone ? t('chat.container.sessionGone')
                                     // Show the server's own explanation (for example an unenrolled fleet session).
                                     : serverMessageSchema.safeParse(sessionMessageLoadState.error).data?.serverMessage
                                         ?? t('chat.container.sessionLoadError.description')}
@@ -1683,8 +1688,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         scrollToLatest={resumeToLatestInstant}
                         draftPresentationExiting={draftPresentationExiting}
                         // The composer says why nothing can be sent while the open failed (#536); only with the
-                        // transcript's error and its Try again showing, not over a retained view.
-                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired
+                        // transcript's error and its Try again showing, not over a retained view, and not for a session
+                        // that is gone (its "try again" would mislead; the transcript says why, smarty-code#775).
+                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired && !sessionDirectoryGone
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
                     />
                 )}
