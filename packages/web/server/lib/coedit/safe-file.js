@@ -268,6 +268,9 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   if (current === null) return { conflict: 'gone' };
   if (current.hash !== expectedHash) return { conflict: 'changed' };
   const recovery = await keepForRecovery(recoveryDir, name, current.bytes);
+  // Ours too: a writer that read before this save may replace the file after it, and a crash of the room would then
+  // lose our revision (the smartyfs#32 stress test, seed 32). Every revision we publish is also in recovery.
+  await keepForRecovery(recoveryDir, name, Buffer.from(text, 'utf8'));
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   if (!helper.alive()) throw new Error('coedit-fs is not running');
   let reply;

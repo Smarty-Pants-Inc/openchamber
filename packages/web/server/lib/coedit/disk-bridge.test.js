@@ -134,7 +134,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     t.person((x) => x.insert(1, 'b'));
     expect(await t.bridge.save()).toEqual({ ok: true });
     expect(t.disk()).toBe('ab\n');
-    expect(t.kept()).toEqual(['a\n']);
+    expect(t.kept().sort()).toEqual(['a\n', 'ab\n']); // The replaced revision, and ours.
     expect(fs.statSync(t.recoveryDir).mode & 0o777).toBe(0o700);
     await t.bridge.sync();
     expect(t.text.toString()).toBe('ab\n');
@@ -530,6 +530,20 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.text.toString()).toBe('Pa\nagent'); // Merged once from ours: no replay, and not held.
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(t.disk()).toBe('Pa\nagent');
+    });
+
+    it('a writer that read before our save and replaces the file after it: our revision is kept in recovery, not only in the room (stress run, seed 32)', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const result = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        fs.writeFileSync(`${t.file}.agent`, 'a\nagent'); // Built on what it read before our save.
+        fs.renameSync(`${t.file}.agent`, t.file);
+      });
+      expect(result).toMatchObject({ published: true });
+      expect(t.disk()).toBe('a\nagent');
+      expect(t.kept()).toContain('Pa'); // Ours survives a crash of the room.
+      expect(t.kept()).toContain('a');
     });
 
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {

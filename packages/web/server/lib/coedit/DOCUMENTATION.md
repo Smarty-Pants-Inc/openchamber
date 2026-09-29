@@ -52,7 +52,8 @@ round 4); until then no conflict could be seen.
   insertion-only revision arrives or the person accepts the disk (`acceptDisk()`).
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
-     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced).
+     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours**: a writer that
+     read before the save may replace the file after it, and our revision must not then live only in the room.
   2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
      original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
      set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
