@@ -345,6 +345,8 @@ interface ChatInputProps {
     sessionLoadFailed?: boolean;
     /** Its fleet Pi is reloading (smarty-code#870): say why Send is off for now; the draft stays. */
     piReloading?: boolean;
+    /** A Code-made session whose Pi lost Code's connection (smarty-code#957): say so, and how to reconnect. */
+    piDisconnected?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -367,6 +369,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     draftPresentationExiting = false,
     sessionLoadFailed = false,
     piReloading = false,
+    piDisconnected = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -3326,6 +3329,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 {piReloading ? (
                     <p role="status" data-testid="pi-reloading" className="mb-2 text-sm text-muted-foreground">
                         {t('sessions.sidebar.herdr.reloading')}
+                    </p>
+                ) : null}
+                {piDisconnected && ordinaryUnavailable ? (
+                    <p role="status" data-testid="pi-disconnected" className="mb-2 text-sm text-muted-foreground">
+                        {t('sessions.sidebar.herdr.disconnected')}
                     </p>
                 ) : null}
                 {statusUnavailable ? (
