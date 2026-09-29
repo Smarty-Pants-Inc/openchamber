@@ -81,7 +81,7 @@ const VSCODE_TURN_MODEL_CACHE_MAX = 4
 const VSCODE_TURN_MODEL_CACHE_MAX_MESSAGES = 30
 const MOBILE_TURN_MODEL_CACHE_MAX = 4
 const MOBILE_TURN_MODEL_CACHE_MAX_MESSAGES = 30
-const HISTORY_RENDER_WAIT_TIMEOUT_MS = 250
+export const HISTORY_RENDER_WAIT_TIMEOUT_MS = 250
 const HISTORY_INTERACTION_GUARD_MS = 2000
 // Long smooth scrolls across a big session can take a couple of seconds;
 // the pin releases early as soon as the spy reports the target turn.
