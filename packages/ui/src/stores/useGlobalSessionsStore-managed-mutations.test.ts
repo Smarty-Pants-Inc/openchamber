@@ -3,6 +3,7 @@ import type { Session } from '@opencode-ai/sdk/v2';
 import { useGlobalSessionsStore } from './useGlobalSessionsStore';
 import { useProjectsStore } from './useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 
 const initial = useGlobalSessionsStore.getState(), projects = useProjectsStore.getState(), ui = useSessionUIStore.getState();
 const a = '/live-a', b = '/retired-b', c = '/new-c';
@@ -56,4 +57,20 @@ test('same-view snapshot prunes excluded event cache and cannot preserve retired
   useProjectsStore.setState({ managedCatalogAdmitted: false });
   useGlobalSessionsStore.getState().upsertSession(session('b', b));
   expect(useGlobalSessionsStore.getState().activeSessions.map(s => s.id)).toContain('b');
+});
+
+// smarty-code#600 (Release 3.47, run 1): right after a Pi relaunch, one listing left the open session out while its
+// project stayed listed; the page cleared the selection and showed New session. The open session stays open, shown
+// unavailable (Send off with its reason, the draft kept), and comes back when it is listed again.
+test('an open session missing from one listing of a live project stays open, unavailable, and comes back when listed', () => {
+  const open: Session & { ordinary: OrdinaryModelState } = { ...session('open-a', a),
+    ordinary: { generation: 'g1', sequence: 1, model: { providerID: 'p', modelID: 'm', name: 'M' }, thinkingLevel: 'high' } };
+  const modelOf = (id: string) => readOrdinaryModel(useGlobalSessionsStore.getState().entityById.get(id))?.model;
+  useGlobalSessionsStore.getState().applyManagedSessions([session('a', a), open], useGlobalSessionsStore.getState().mutationRevision, new Set([a]));
+  useSessionUIStore.setState({ currentSessionId: 'open-a', currentSessionDirectory: a });
+  useGlobalSessionsStore.getState().applyManagedSessions([session('a', a)], useGlobalSessionsStore.getState().mutationRevision, new Set([a]));
+  expect(useSessionUIStore.getState().currentSessionId).toBe('open-a'); // not dropped for New session
+  expect(modelOf('open-a')).toBeNull(); // shown unavailable: Send off, with its reason
+  useGlobalSessionsStore.getState().applyManagedSessions([session('a', a), open], useGlobalSessionsStore.getState().mutationRevision, new Set([a]));
+  expect(modelOf('open-a')).toEqual({ providerID: 'p', modelID: 'm', name: 'M' });
 });

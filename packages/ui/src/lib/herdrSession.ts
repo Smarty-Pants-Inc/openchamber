@@ -27,6 +27,14 @@ export const HERDR_STATE_DOT: Record<HerdrState, string> = {
 /** A Code-created session whose Pi has ended: read-only, with that plain reason. */
 export const isHerdrEnded = (session: Session | null | undefined): boolean => readHerdrState(session) === 'ended';
 
+/**
+ * The chat shows the View only banner instead of the composer: its history read said read-only, OR the open session's own
+ * row says its Pi has ended (smarty-code#811: the gateway pushes that state at once, but the history read that sets the
+ * read-only flag is not repeated while the page stays open, so the composer stayed as if the Pi were live).
+ */
+export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined): boolean =>
+  historyReadOnly === true || isHerdrEnded(session);
+
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>
   (session as { herdrNoIdentity?: unknown } | null | undefined)?.herdrNoIdentity === true;
