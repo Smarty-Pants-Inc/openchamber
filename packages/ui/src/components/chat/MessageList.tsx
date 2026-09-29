@@ -48,6 +48,7 @@ const EMPTY_UNGROUPED_MESSAGE_IDS = new Set<string>();
 //   • `anchoredEndSpace` reserves the tail space that parks a just-sent
 //     message near the top of the viewport.
 const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
+const TIMELINE_DRAW_DISTANCE = 1800;
 /**
  * smarty-code#583: the estimated height of one not-yet-loaded record (a gap row is its record count times this). Near the
  * measured mean (~77 px a record in dev-lead's 22,000-record journal): at 160 px each loaded window shrank to half its
@@ -1104,6 +1105,10 @@ const TimelineList = React.memo(({
                 getFixedItemSize={timelineFixedSize}
                 renderItem={renderTimelineItem}
                 estimatedItemSize={TIMELINE_ESTIMATED_ENTRY_SIZE}
+                // smarty-code#583: a placeholder is mounted (and reads its window) two screens before the reader gets to
+                // it; at the default 250 px it mounted and read only on arrival, so a fast wheel (~2,800 px/s) reached it
+                // 2-3 times in 40 s (candidate 04:11Z).
+                drawDistance={TIMELINE_DRAW_DISTANCE}
                 initialScrollAtEnd
                 // Chat rows own internal state (expanded tool calls, reveal
                 // animations); recycling a container into a different row would

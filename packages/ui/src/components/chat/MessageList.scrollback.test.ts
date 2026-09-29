@@ -9,6 +9,9 @@ const source = readFileSync(new URL('./MessageList.tsx', import.meta.url), 'utf8
 
 test('size compensation is on while reading history and during a width resize, and off at the live end', () => {
     expect(source).toContain('maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory, shouldRestorePosition: isContentRow }}');
+    // smarty-code#583: placeholders mount (and read) two screens ahead of the reader.
+    expect(source).toContain('drawDistance={TIMELINE_DRAW_DISTANCE}');
+    expect(source).toContain('const TIMELINE_DRAW_DISTANCE = 1800;');
     // smarty-code#583: a gap row is never the anchor.
     expect(source).toContain("const isContentRow = (item: TimelineEntry): boolean => item.kind !== 'gap';");
     // readingHistory follows the list's own end state: away from the end = reading history.
