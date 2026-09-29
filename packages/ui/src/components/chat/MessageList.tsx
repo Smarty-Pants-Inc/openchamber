@@ -48,7 +48,6 @@ const EMPTY_UNGROUPED_MESSAGE_IDS = new Set<string>();
 //   • `anchoredEndSpace` reserves the tail space that parks a just-sent
 //     message near the top of the viewport.
 const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
-const TIMELINE_DRAW_DISTANCE = 1800;
 /**
  * smarty-code#583: the estimated height of one not-yet-loaded record (a gap row is its record count times this). Near the
  * measured mean (~77 px a record in dev-lead's 22,000-record journal): at 160 px each loaded window shrank to half its
@@ -337,7 +336,7 @@ interface MessageListProps {
      * and the window loader: the list is then as long as the session, with a gap row for each unloaded range. */
     positions?: SessionPositions;
     positionOf?: (messageId: string) => number | undefined;
-    onLoadWindow?: (start: number, limit: number) => void;
+    onLoadWindow?: (windows: Window[]) => void;
     /** Older history exists above the loaded window (its leading assistant messages then render). */
     hasOlderHistory?: boolean;
     scrollToBottom?: () => void;
@@ -381,6 +380,8 @@ import { isVoiceTurn } from './message/voiceTurnData';
 import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, firstMessageIdOf, insertGaps, type RenderEntry, type TimelineEntry } from './lib/turns/renderEntries';
 import { GapRow } from './components/GapRow';
+import { TIMELINE_DRAW_DISTANCE } from './lib/gapWindow';
+import type { Window } from './lib/windowQueue';
 import { gapsOf } from '@/sync/position-windows';
 import type { SessionPositions } from '@/sync/session-message-loader';
 
@@ -897,7 +898,7 @@ MessageListEntry.displayName = 'MessageListEntry';
 // `renderItem` so the render callback keeps a stable identity — a changing
 // `renderItem` makes the list re-render every mounted row on every commit.
 type TimelineRowContextValue = {
-    onLoadWindow?: (start: number, limit: number) => void;
+    onLoadWindow?: (windows: Window[]) => void;
     scrollToBottom?: () => void;
     stickyUserHeader: boolean;
     defaultActivityExpanded: boolean;
@@ -1835,7 +1836,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         };
     }, [allEntries, anchorMessageId, onAnchorReady, onAnchorSizeChanged]);
 
-    const loadWindow = useStableEvent((start: number, limit: number) => { onLoadWindow?.(start, limit); });
+    const loadWindow = useStableEvent((windows: Window[]) => { onLoadWindow?.(windows); });
     const rowContext = React.useMemo(() => ({
         onLoadWindow: onLoadWindow ? loadWindow : undefined,
         scrollToBottom: stableScrollToBottom,

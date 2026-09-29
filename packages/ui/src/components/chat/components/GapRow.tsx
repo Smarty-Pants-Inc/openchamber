@@ -1,10 +1,10 @@
 import React from 'react';
 
 import type { GapEntry } from '../lib/turns/renderEntries';
-import { gapWindow } from '../lib/gapWindow';
+import { GAP_SETTLE_MS, gapWindows } from '../lib/gapWindow';
+import type { Window } from '../lib/windowQueue';
 
 /** How long a gap stays on screen before it is read (smarty-code#583). */
-const GAP_SETTLE_MS = 90;
 
 /**
  * smarty-code#583: records of the session not loaded yet, drawn at their estimated height so the list is as long as the
@@ -12,7 +12,7 @@ const GAP_SETTLE_MS = 90;
  * into it from below, its start when scrolling down into it, or around the point the reader landed on (a jump or a
  * scrollbar drag). The loaded records then take its place.
  */
-export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (start: number, limit: number) => void }) {
+export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (windows: Window[]) => void }) {
     const ref = React.useRef<HTMLDivElement | null>(null);
     // The chunk by value: the row object is rebuilt on each list render, and re-observing then restarted the settle timer.
     const { key, start, end, gapStart, gapEnd, heightPx } = gap;
@@ -25,8 +25,7 @@ export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (s
         const load = () => {
             const box = node.getBoundingClientRect(), view = root?.getBoundingClientRect();
             const viewTop = view?.top ?? 0, viewBottom = view?.bottom ?? window.innerHeight;
-            const next = gapWindow(chunk, { top: box.top, bottom: box.bottom }, { top: viewTop, bottom: viewBottom });
-            onLoadWindow(next.start, next.end - next.start);
+            onLoadWindow(gapWindows(chunk, { top: box.top, bottom: box.bottom }, { top: viewTop, bottom: viewBottom }));
         };
         const observer = new IntersectionObserver((entries) => {
             const seen = entries[entries.length - 1];

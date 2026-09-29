@@ -52,7 +52,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { SessionPositions } from '@/sync/session-message-loader';
 import { ScrollToStartButton } from './components/ScrollToStartButton';
 import { WINDOW_RECORDS } from './lib/gapWindow';
-import { createWindowQueue } from './lib/windowQueue';
+import { createWindowQueue, type Window } from './lib/windowQueue';
 import { useStreamingStore } from '@/sync/streaming';
 import {
     useSessionMessageCount,
@@ -228,7 +228,7 @@ type ChatViewportProps = {
     /** smarty-code#583: the whole session as positions, and the window loader. */
     positions?: SessionPositions;
     positionOf?: (messageId: string) => number | undefined;
-    onLoadWindow?: (start: number, limit: number) => void;
+    onLoadWindow?: (windows: Window[]) => void;
 };
 
 const ChatViewport = React.memo(({
