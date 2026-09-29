@@ -31,7 +31,10 @@ round 4); until then no conflict could be seen.
   by path. The helper holds it by fd and exits unless we own it and it has no group or other bits. All staging, displaced revisions and cleanup live there, under
   `<key>.<unique>.staged` (`key`: the first 16 hex characters of sha256 of the project root, a NUL and the file's project-relative path, so two
   projects that share a recovery directory never collect each other's entries). A default ACL on it (inherited from
-  its parent) is removed when the helper starts, and an access ACL on it is refused. Another
+  its parent) is removed when the helper starts, and an access ACL on it is refused: so a parent whose default ACL
+  has named entries (which also gives `.staging` an access ACL) makes the helper exit, and co-editing fails closed.
+  Each publish names its staged entry `<key>.<txn>-<unique>.staged`: after a lost reply, the bridge finds exactly
+  that save's entry. Another
   account cannot name, replace or write anything in it. The project namespace is changed only by the publishing
   exchange; the bridge never reads the project directory for cleanup, so a project file such as `.x.coedit-foo` is
   never touched.
@@ -52,8 +55,9 @@ round 4); until then no conflict could be seen.
   insertion-only revision arrives or the person accepts the disk (`acceptDisk()`).
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
-     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours**: a writer that
-     read before the save may replace the file after it, and our revision must not then live only in the room.
+     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
+     `…-ours-<name>`) once the helper says, or may have, published: a writer that read before the save may replace
+     the file after it, and our revision must not then live only in the room. A refused save writes no second copy.
   2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
      original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
      set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.

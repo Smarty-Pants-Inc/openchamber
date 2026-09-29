@@ -97,7 +97,8 @@ fn split(rel: &str) -> Result<(String, String), String> {
     Ok((dir, name))
 }
 
-/// The request's key: hex only (JS sends the first 16 hex characters of sha256(rel)).
+/// The request's key: hex only (JS sends the first 16 hex characters of sha256(root NUL rel)).
+/// A publish's optional `txn` (hex) names its staged entry, so a caller whose reply was lost finds exactly its own.
 fn key(req: &Value) -> Result<&str, String> {
     let k = req["key"].as_str().unwrap_or("");
     if k.is_empty() || k.len() > 64 || !k.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
@@ -416,7 +417,11 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
     }
     let ours = fstat(tmp.as_raw_fd())?;
     // 4. Named in the private dir only.
-    let staged = format!("{key}.{}.staged", unique());
+    let txn = req["txn"].as_str().unwrap_or("");
+    if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return Err("invalid txn".into());
+    }
+    let staged = if txn.is_empty() { format!("{key}.{}.staged", unique()) } else { format!("{key}.{txn}-{}.staged", unique()) };
     let staged_c = cstr(&staged)?;
     let proc_path = CString::new(format!("/proc/self/fd/{}", tmp.as_raw_fd())).unwrap();
     // SAFETY: links our unnamed inode (through its fd) under a fresh private name; EEXIST if taken.
@@ -450,15 +455,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
     }
     // 9. Durability: the target dir, then the private dir. Reported on its own: a cached read proves no flush.
     let synced = !test_fault(req, "dirSync") && fsync(d) && fsync(priv_fd);
-    // 10. Observe.
-    if !fstatat(d, &name).map(|s| same(&s, ours.st_ino as u64, ours.st_dev as u64)).unwrap_or(false) {
-        uncertain = uncertain.or(Some("replaced"));
-    }
-    match read_all(&tmp) {
-        Ok(b) if b == data => {}
-        Ok(_) => uncertain = uncertain.or(Some("bytes")),
-        Err(_) => uncertain = uncertain.or(Some("observation")),
-    }
+    // 10. Observe. Containment first: an escaped directory is uncertain, whatever else happened to the file.
     let still = open_beneath(root, &dir_rel, libc::O_PATH | libc::O_DIRECTORY)
         .ok()
         .and_then(|f| fstat(f.as_raw_fd()).ok())
@@ -466,6 +463,14 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
         .unwrap_or(false);
     if !still {
         uncertain = uncertain.or(Some("escaped"));
+    }
+    if !fstatat(d, &name).map(|s| same(&s, ours.st_ino as u64, ours.st_dev as u64)).unwrap_or(false) {
+        uncertain = uncertain.or(Some("replaced"));
+    }
+    match read_all(&tmp) {
+        Ok(b) if b == data => {}
+        Ok(_) => uncertain = uncertain.or(Some("bytes")),
+        Err(_) => uncertain = uncertain.or(Some("observation")),
     }
     let checked = match open_private(priv_fd, &staged) {
         Ok(fd) => match fstat(fd.as_raw_fd()) {

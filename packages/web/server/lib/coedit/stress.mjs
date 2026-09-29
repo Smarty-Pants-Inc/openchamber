@@ -144,17 +144,26 @@ async function main() {
   last.kill('SIGKILL');
   for (const pid of helperPids()) kill(pid);
   const read = (name) => (fs.existsSync(path.join(dir, 'logs', name)) ? fs.readFileSync(path.join(dir, 'logs', name), 'utf8').split('\n').filter(Boolean) : []);
-  const found = new Set([fs.readFileSync(path.join(dir, 'project', 'notes.md'), 'utf8'), ...everything(path.join(dir, 'recovery'))]
-    .flatMap((text) => text.split('\n')));
+  // Two oracles. `found`: anywhere at all (no loss). `withoutOurs`: without the copies of our own published revisions
+  // (`-ours-`), so a save that is ONLY safe because of that copy is counted apart (`onlyInOurCopy`): those are saves a
+  // stale writer overwrote after they were published.
+  const recovered = fs.readdirSync(path.join(dir, 'recovery'), { withFileTypes: true }).filter((e) => e.isFile());
+  const tokens = (texts) => new Set(texts.flatMap((text) => text.split('\n')));
+  const disk = fs.readFileSync(path.join(dir, 'project', 'notes.md'), 'utf8');
+  const privateDir = everything(path.join(dir, 'recovery', '.staging'));
+  const read2 = (e) => fs.readFileSync(path.join(dir, 'recovery', e.name), 'utf8');
+  const found = tokens([disk, ...privateDir, ...recovered.map(read2)]);
+  const withoutOurs = tokens([disk, ...privateDir, ...recovered.filter((e) => !e.name.includes('-ours-')).map(read2)]);
   const written = [0, 1, 2].flatMap((id) => read(`writer-${id}`));
   const saved = read('saved');
   const lostWrites = written.filter((t) => !found.has(t));
   const lostSaves = saved.filter((t) => !found.has(t));
+  const onlyInOurCopy = saved.filter((t) => found.has(t) && !withoutOurs.has(t));
   const conflicts = {};
   for (const line of read('conflicts')) conflicts[line.split(' ')[1]] = (conflicts[line.split(' ')[1]] ?? 0) + 1;
   const report = {
     seconds, seed, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
-    lostWrites: lostWrites.length, lostSaves: lostSaves.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
+    lostWrites: lostWrites.length, lostSaves: lostSaves.length, onlyInOurCopy: onlyInOurCopy.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
   };
   console.log(JSON.stringify(report, null, 2));
   process.exitCode = lostWrites.length || lostSaves.length ? 1 : 0;

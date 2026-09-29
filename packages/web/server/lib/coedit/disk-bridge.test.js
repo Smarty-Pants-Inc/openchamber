@@ -543,7 +543,36 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(result).toMatchObject({ published: true });
       expect(t.disk()).toBe('a\nagent');
       expect(t.kept()).toContain('Pa'); // Ours survives a crash of the room.
+      expect(fs.readdirSync(t.recoveryDir).some((n) => n.includes('-ours-'))).toBe(true);
       expect(t.kept()).toContain('a');
+    });
+
+    it('a lost reply is matched to its own staged entry: another save\'s leftover entry does not make it published (round 2 note)', async () => {
+      const t = await setup('a');
+      // A leftover of an earlier save, not pending: a displaced-looking entry for this key.
+      fs.writeFileSync(path.join(t.privateDir, `${keyOf(t.root, 'src/notes.md')}.0badc0de-1.staged`), 'something else');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'beforeExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.staged().length, { timeout: 3000 }).toBe(2);
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      delete t.hooks.helper;
+      await t.bridge.sync();
+      expect(t.disk()).toBe('a'); // Never exchanged.
+      expect(await t.bridge.save()).toEqual({ ok: true }); // So the room's P is saved now, not taken as published.
+      expect(t.disk()).toBe('Pa');
+    });
+
+    it('close during a helper restart starts no helper after it (round 2 note)', async () => {
+      const t = await setup('a');
+      killHelper(t.root);
+      await expect.poll(() => helperPids(t.root).filter(alive).length, { timeout: 3000 }).toBe(0);
+      const syncing = t.bridge.sync().catch(() => {});
+      await t.bridge.close();
+      await syncing;
+      await sleep(300);
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
     });
 
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {

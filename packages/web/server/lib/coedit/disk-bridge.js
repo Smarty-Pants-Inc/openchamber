@@ -75,6 +75,7 @@ export function createDiskBridge({
         if (respawns >= retryLimit) throw new Error('coedit-fs keeps failing');
         respawns += 1;
         await current.close();
+        if (closed) throw new Error('Co-edited file is closed'); // close() ran meanwhile: start nothing after it.
         current = spawnHelper();
       }
       const reply = await current.call(request);
@@ -188,7 +189,8 @@ export function createDiskBridge({
     const reply = await helper.call({ op: 'list', key }).catch(() => null);
     if (!reply?.ok) return false;
     const known = new Set(pending.map((revision) => revision.entry));
-    const fresh = reply.entries.filter((entry) => !known.has(entry.entry));
+    // Only the lost call's own entry (its txn names it), never another save's leftover.
+    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${uncertain.lost}-`));
     const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
     if (displaced) {
       base = uncertain.snapshot;
@@ -346,7 +348,7 @@ export function createDiskBridge({
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost === true, seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
