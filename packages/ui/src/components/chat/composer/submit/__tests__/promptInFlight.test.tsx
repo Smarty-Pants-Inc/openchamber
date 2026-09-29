@@ -24,7 +24,7 @@ test('a send to an existing session is pending until the owner answers its promp
   const c = await existingSession();
   let answer!: () => void;
   const held = new Promise<void>(resolve => { answer = resolve; });
-  c.handlers.prompt = async () => { await held; return new Response(null, { status: 204 }); };
+  c.handlers.prompt = async () => { await held; return new Response(null, { status: 204, headers: { 'x-smarty-prompt-receipt': 'queued' } }); };
   await c.replace('a message to a busy session'); await c.submit(); await act(() => sleep(0));
   expect(c.prompts().length).toBe(2);
   expect(pending()).toBe(1);
@@ -32,6 +32,7 @@ test('a send to an existing session is pending until the owner answers its promp
   await act(async () => { answer(); await sleep(0); await sleep(0); });
   expect(pending()).toBe(0);
   expect(usePromptsInFlight.getState().answeredAt[session.id]).toBeGreaterThanOrEqual(before);
+  expect(usePromptsInFlight.getState().receipt[session.id]).toBe('queued'); // The gateway's receipt, kept.
 });
 
 test('counterexample: a refused prompt ends pending with its answer (its refusal shows as before)', async () => {
@@ -40,4 +41,5 @@ test('counterexample: a refused prompt ends pending with its answer (its refusal
   await c.replace('a refused message'); await c.submit(); await act(() => sleep(0)); await act(() => sleep(0));
   expect(c.prompts().length).toBe(2);
   expect(pending()).toBe(0);
+  expect(usePromptsInFlight.getState().receipt[session.id]).toBeUndefined(); // A refusal is no receipt.
 });

@@ -29,7 +29,7 @@ const notice = () => {
   act(() => root.unmount());
   return text;
 };
-beforeEach(() => usePromptsInFlight.setState({ pending: {}, answeredAt: {} }));
+beforeEach(() => usePromptsInFlight.setState({ pending: {}, answeredAt: {}, receipt: {} }));
 
 test('the prompt call is still pending at +7 s: "Sending…", never "did not start a reply"', () => {
   asked(Date.now() - 7_000);
@@ -51,7 +51,21 @@ test('the owner took it at +18 s: the clock starts at the answer, so no verdict 
   expect(notice()).toBe('');
 });
 
-test('counterexample: answered and still nothing 5 s later: "did not start a reply" as before', () => {
+test('the owner answered "queued" at +16 s and the run has not started by +21 s: "Queued…", never "did not start"', () => {
+  asked(Date.now() - 21_000);
+  usePromptsInFlight.setState({ pending: {}, answeredAt: { s: Date.now() - 6_000 }, receipt: { s: 'queued' } });
+  const text = notice();
+  expect(text).toContain('Queued:');
+  expect(text).not.toContain(NO_REPLY);
+});
+
+test('the owner answered "accepted" (a run started) and the status lags: no verdict', () => {
+  asked(Date.now() - 21_000);
+  usePromptsInFlight.setState({ pending: {}, answeredAt: { s: Date.now() - 6_000 }, receipt: { s: 'accepted' } });
+  expect(notice()).toBe('');
+});
+
+test('counterexample: answered without a receipt (not taken) and still nothing 5 s later: "did not start a reply" as before', () => {
   asked(Date.now() - 20_000);
   usePromptsInFlight.setState({ pending: {}, answeredAt: { s: Date.now() - 6_000 } });
   expect(notice()).toContain(NO_REPLY);

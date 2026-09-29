@@ -1,6 +1,7 @@
 export const nativeCreationI18n = {
   en: {
     'chat.sessionError.sending': "Sending… The session has not taken this message yet; the reply starts when it does.",
+    'chat.sessionError.queued': "Queued: the session took this message and starts the reply when its current run reaches a turn boundary or ends.",
     'chat.nativeCreation.discovering': 'Loading projects…',
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
     'chat.terminalDialog.waitingTitled': "Pi is waiting for an answer in the terminal: {title}. Answer it there; nothing is answered from here.",
@@ -54,6 +55,7 @@ export const nativeCreationI18n = {
   },
   de: {
     'chat.sessionError.sending': "Wird gesendet… Die Sitzung hat diese Nachricht noch nicht angenommen; die Antwort beginnt, sobald sie es tut.",
+    'chat.sessionError.queued': "In der Warteschlange: Die Sitzung hat diese Nachricht angenommen und beginnt die Antwort, wenn ihr aktueller Lauf eine Zuggrenze erreicht oder endet.",
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
     'chat.ordinary.viewMissing': "Der Verlauf dieses Chats ist noch nicht geladen, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld. Drücken Sie gleich noch einmal auf Senden.",
     'chat.terminalDialog.waitingTitled': "Pi wartet im Terminal auf eine Antwort: {title}. Antworten Sie dort; von hier wird nichts beantwortet.",
@@ -107,6 +109,7 @@ export const nativeCreationI18n = {
   },
   es: {
     'chat.sessionError.sending': "Enviando… La sesión aún no ha recibido este mensaje; la respuesta empieza cuando lo haga.",
+    'chat.sessionError.queued': "En cola: la sesión recibió este mensaje y empieza la respuesta cuando su ejecución actual llegue a un límite de turno o termine.",
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
     'chat.ordinary.viewMissing': "El historial de este chat aún no ha terminado de cargarse, así que no se envió nada. Tu mensaje sigue en el editor. Pulsa Enviar de nuevo en un momento.",
     'chat.terminalDialog.waitingTitled': "Pi espera una respuesta en el terminal: {title}. Respóndela allí; desde aquí no se responde nada.",
@@ -160,6 +163,7 @@ export const nativeCreationI18n = {
   },
   fr: {
     'chat.sessionError.sending': "Envoi… La session n'a pas encore pris ce message ; la réponse commence dès qu'elle le fait.",
+    'chat.sessionError.queued': "En file d'attente : la session a pris ce message et commence la réponse quand son exécution en cours atteint une fin de tour ou se termine.",
     'chat.nativeCreation.discovering': 'Chargement des projets…',
     'chat.ordinary.viewMissing': "L'historique de cette discussion n'est pas encore chargé, donc rien n'a été envoyé. Votre message reste dans la zone de saisie. Appuyez à nouveau sur Envoyer dans un instant.",
     'chat.terminalDialog.waitingTitled': "Pi attend une réponse dans le terminal : {title}. Répondez-y là-bas ; rien n'est répondu d'ici.",
@@ -213,6 +217,7 @@ export const nativeCreationI18n = {
   },
   ja: {
     'chat.sessionError.sending': "送信中… セッションはまだこのメッセージを受け取っていません。受け取ると返信が始まります。",
+    'chat.sessionError.queued': "キュー済み: セッションはこのメッセージを受け取りました。現在の実行がターンの区切りに達するか終了すると返信が始まります。",
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
     'chat.ordinary.viewMissing': "このチャットの履歴がまだ読み込まれていないため、何も送信されていません。メッセージは入力欄に残っています。少し待ってからもう一度送信してください。",
     'chat.terminalDialog.waitingTitled': "Pi はターミナルで回答を待っています: {title}。そちらで回答してください。ここからは何も回答しません。",
@@ -266,6 +271,7 @@ export const nativeCreationI18n = {
   },
   ko: {
     'chat.sessionError.sending': "보내는 중… 세션이 아직 이 메시지를 받지 않았습니다. 받으면 답장이 시작됩니다.",
+    'chat.sessionError.queued': "대기 중: 세션이 이 메시지를 받았으며 현재 실행이 턴 경계에 이르거나 끝나면 답장을 시작합니다.",
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
     'chat.ordinary.viewMissing': "이 채팅의 기록이 아직 로드되지 않아 아무것도 보내지 않았습니다. 메시지는 입력란에 그대로 있습니다. 잠시 후 다시 보내기를 누르세요.",
     'chat.terminalDialog.waitingTitled': "Pi가 터미널에서 답을 기다리고 있습니다: {title}. 그곳에서 답하세요. 여기서는 아무것도 답하지 않습니다.",
@@ -319,6 +325,7 @@ export const nativeCreationI18n = {
   },
   pl: {
     'chat.sessionError.sending': "Wysyłanie… Sesja jeszcze nie przyjęła tej wiadomości; odpowiedź zacznie się, gdy to zrobi.",
+    'chat.sessionError.queued': "W kolejce: sesja przyjęła tę wiadomość i zacznie odpowiedź, gdy bieżące uruchomienie dojdzie do granicy tury lub się zakończy.",
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
     'chat.terminalDialog.waitingTitled': "Pi czeka na odpowiedź w terminalu: {title}. Odpowiedz tam; stąd nic nie jest odpowiadane.",
@@ -372,6 +379,7 @@ export const nativeCreationI18n = {
   },
   'pt-BR': {
     'chat.sessionError.sending': "Enviando… A sessão ainda não recebeu esta mensagem; a resposta começa quando receber.",
+    'chat.sessionError.queued': "Na fila: a sessão recebeu esta mensagem e começa a resposta quando a execução atual chegar a um limite de turno ou terminar.",
     'chat.nativeCreation.discovering': 'Carregando projetos…',
     'chat.ordinary.viewMissing': "O histórico deste chat ainda não terminou de carregar, então nada foi enviado. Sua mensagem continua no editor. Pressione Enviar novamente em instantes.",
     'chat.terminalDialog.waitingTitled': "O Pi está esperando uma resposta no terminal: {title}. Responda lá; nada é respondido daqui.",
@@ -425,6 +433,7 @@ export const nativeCreationI18n = {
   },
   tr: {
     'chat.sessionError.sending': "Gönderiliyor… Oturum bu mesajı henüz almadı; aldığında yanıt başlar.",
+    'chat.sessionError.queued': "Sırada: oturum bu mesajı aldı; mevcut çalışma bir tur sınırına ulaştığında veya bittiğinde yanıta başlar.",
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
     'chat.ordinary.viewMissing': "Bu sohbetin geçmişi henüz yüklenmedi, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor. Birazdan yeniden Gönder'e basın.",
     'chat.terminalDialog.waitingTitled': "Pi terminalde bir yanıt bekliyor: {title}. Orada yanıtlayın; buradan hiçbir şey yanıtlanmaz.",
@@ -478,6 +487,7 @@ export const nativeCreationI18n = {
   },
   uk: {
     'chat.sessionError.sending': "Надсилання… Сесія ще не прийняла це повідомлення; відповідь почнеться, щойно вона це зробить.",
+    'chat.sessionError.queued': "У черзі: сесія прийняла це повідомлення й почне відповідь, коли поточний запуск дійде до межі ходу або завершиться.",
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
     'chat.ordinary.viewMissing': "Історія цього чату ще не завантажилася, тому нічого не надіслано. Ваше повідомлення лишається в полі введення. Натисніть «Надіслати» ще раз за мить.",
     'chat.terminalDialog.waitingTitled': "Pi чекає на відповідь у терміналі: {title}. Відповідайте там; звідси нічого не відповідається.",
@@ -531,6 +541,7 @@ export const nativeCreationI18n = {
   },
   'zh-CN': {
     'chat.sessionError.sending': "正在发送… 会话尚未接收此消息；接收后回复即开始。",
+    'chat.sessionError.queued': "已排队：会话已接收此消息，当前运行到达回合边界或结束时开始回复。",
     'chat.nativeCreation.discovering': '正在加载项目…',
     'chat.ordinary.viewMissing': "此聊天的历史记录尚未加载完成，因此未发送任何内容。你的消息仍在输入框中。请稍后再次点击发送。",
     'chat.terminalDialog.waitingTitled': "Pi 正在终端中等待回答：{title}。请在那里回答；这里不会回答任何内容。",
@@ -584,6 +595,7 @@ export const nativeCreationI18n = {
   },
   'zh-TW': {
     'chat.sessionError.sending': "正在傳送… 工作階段尚未接收此訊息；接收後回覆即開始。",
+    'chat.sessionError.queued': "已排入佇列：工作階段已接收此訊息，目前執行到達回合邊界或結束時開始回覆。",
     'chat.nativeCreation.discovering': '正在載入專案…',
     'chat.ordinary.viewMissing': "此聊天的歷史記錄尚未載入完成，因此未傳送任何內容。你的訊息仍在輸入框中。請稍後再次按下傳送。",
     'chat.terminalDialog.waitingTitled': "Pi 正在終端機中等待回答：{title}。請在那裡回答；這裡不會回答任何內容。",
