@@ -973,6 +973,10 @@ const timelineKeyExtractor = (item: TimelineEntry): string => item.key;
 // different shapes, so keeping them in separate pools avoids re-measuring a
 // container every time one replaces the other.
 const timelineItemType = (item: TimelineEntry): string => item.kind;
+// smarty-code#583: a gap row is never the row the list holds in place. With a gap chunk above the reader as the anchor,
+// the rows a window load put under it pushed the reader's rows down by their height less the gap's (+399 px on the
+// candidate); anchored on the first real row in view, the reader's rows stay where they are.
+const isContentRow = (item: TimelineEntry): boolean => item.kind !== 'gap';
 // smarty-code#583: a gap row's height is known, so the list and its scrollbar are the session's length before any
 // gap is rendered (an estimate would size 21,000 unloaded records like 200 rows).
 const timelineFixedSize = (item: TimelineEntry): number | undefined => (item.kind === 'gap' ? item.heightPx : undefined);
@@ -1130,7 +1134,7 @@ const TimelineList = React.memo(({
                 // Prepending older history must not move what the user is
                 // reading. Size restoration applies only during a width
                 // resize — see the observer above.
-                maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory }}
+                maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory, shouldRestorePosition: isContentRow }}
                 onScroll={handleScroll}
                 ListHeaderComponent={header}
                 ListFooterComponent={footer}
