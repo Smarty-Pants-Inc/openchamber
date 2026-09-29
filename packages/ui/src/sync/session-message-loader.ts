@@ -79,6 +79,8 @@ type LoaderEntry = {
   windowLoads: Map<string, Promise<void>>
   /** smarty-code#583: this session's pages come from range reads. */
   rangeReads: boolean
+  /** smarty-code#583: bumped whenever a window read in flight must commit nothing (not by a same-epoch tail refresh). */
+  windowGeneration: number
   optimistic: Map<string, OptimisticItem>
   ordinary: boolean
   resetHistory: boolean
@@ -238,6 +240,7 @@ export class SessionMessageLoader {
         ordinaryView: undefined,
         generation: entry.snapshot.generation + 1,
       }
+      entry.windowGeneration++ // A new connection: windows read over the old one commit nothing.
       entry.inflight = null
       entry.openUnanswered = false // A new connection (re-login, reconnect) may answer: the page's reloads may try again.
       if (entry.ordinary) this.invalidateOrdinaryView(entry.target, true)
@@ -415,7 +418,7 @@ export class SessionMessageLoader {
       return queuedRefresh
     }
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
-    this.bumpGeneration(entry)
+    this.bumpGeneration(entry, true)
     return this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
       const previousCoverage = entry.snapshot.resolved
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
@@ -454,8 +457,11 @@ export class SessionMessageLoader {
         // A tail refresh uses a deliberately small window. Its cursor only
         // describes that window, so it must not replace the established
         // history coverage and spuriously expose "load older".
-        cursor: coverage.cursor,
-        complete: coverage.complete,
+        // smarty-code#583 (openchamber#363 r13): with positions, coverage is what the positions say after this commit
+        // (notePositions): a tail that found a new index epoch replaced the history, so the old epoch's completeness
+        // must not come back (an export would then stop at the tail).
+        cursor: entry.snapshot.positions ? entry.snapshot.cursor : coverage.cursor,
+        complete: entry.snapshot.positions ? entry.snapshot.complete : coverage.complete,
         updatedAt: Date.now(),
       })
       this.persistCoverage(normalized, entry.snapshot)
@@ -673,6 +679,7 @@ export class SessionMessageLoader {
     entry.optimistic.clear()
     // Keep the last known read-only marker until a fresh newest page replaces it.
     entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
+    entry.windowGeneration++
     entry.resetHistory = entry.ordinary
     clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     this.notify(entry)
@@ -743,6 +750,7 @@ export class SessionMessageLoader {
       positionOf: new Map(),
       windowLoads: new Map(),
       rangeReads: false,
+      windowGeneration: 0,
       queuedRefreshLimit: 0,
       optimistic: new Map(),
       ordinary: false,
@@ -762,7 +770,9 @@ export class SessionMessageLoader {
     this.notify(entry)
   }
 
-  private bumpGeneration(entry: LoaderEntry): number {
+  /** keepWindows: a same-epoch tail refresh; window reads in flight stay valid (openchamber#363 r13). */
+  private bumpGeneration(entry: LoaderEntry, keepWindows = false): number {
+    if (!keepWindows) entry.windowGeneration++
     const generation = entry.snapshot.generation + 1
     entry.snapshot = { ...entry.snapshot, generation }
     return generation
@@ -1132,8 +1142,10 @@ export class SessionMessageLoader {
     const pending = entry.windowLoads.get(key)
     if (pending) return pending
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
-    const generation = entry.snapshot.generation, sdkEpoch = this.sdkEpoch
-    const isCurrent = () => !this.disposed && this.sdkEpoch === sdkEpoch && entry.snapshot.generation === generation
+    // Fenced by the window generation: an epoch change, a reset or a reopen cancels the read; an ordinary same-epoch tail
+    // refresh (session.idle) does not (openchamber#363 r13: the reader was left on the placeholder).
+    const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch
+    const isCurrent = () => !this.disposed && this.sdkEpoch === sdkEpoch && entry.windowGeneration === generation
       && this.childStores.getChild(normalized.directory) === store
     // Windows read beside the loader's own loads: they only add records at known positions, and a stale one (a new
     // open, another view) commits nothing.

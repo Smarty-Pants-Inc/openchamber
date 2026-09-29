@@ -260,6 +260,17 @@ export const projectTurnRecords = (
         groupedMessageIds.add(message.info.id);
     });
 
+    // smarty-code#583 (openchamber#363 r13): each loaded window after a gap is its own segment. A reply joins its prompt's
+    // turn only within one segment: a prompt loaded in an EARLIER range would otherwise pull the reply back before the
+    // gap. Such a reply opens its window as its own row (the orphan pass below).
+    const segmentOf = new Map<string, number>();
+    if (effectiveOptions.windowStartIds?.size) {
+        let segment = 0;
+        for (const message of messages) {
+            if (effectiveOptions.windowStartIds.has(message.info.id)) segment++;
+            segmentOf.set(message.info.id, segment);
+        }
+    }
     messages.forEach((message, index) => {
         const role = resolveMessageRole(message);
         if (role !== 'assistant') {
@@ -272,6 +283,9 @@ export const projectTurnRecords = (
         const parentId = getMessageParentId(message);
         const targetTurn = parentId ? turnByUserId.get(parentId) : undefined;
         if (!targetTurn) {
+            return;
+        }
+        if (parentId && segmentOf.size && segmentOf.get(parentId) !== segmentOf.get(message.info.id)) {
             return;
         }
 

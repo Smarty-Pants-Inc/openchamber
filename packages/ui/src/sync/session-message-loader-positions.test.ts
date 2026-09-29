@@ -168,3 +168,40 @@ test("a range read without a cursor (the gateway's at= answer) is not the whole 
     expect(s.loader.getSnapshot(target).positions!.ranges[0]!.start).toBeLessThan(950)
   } finally { s.done() }
 })
+
+// openchamber#363 round 13 P1 1: fully load E1, then a TAIL refresh (not the index event) discovers E2: the coverage is
+// the new one, so a full load (export) reads the whole new branch, each record once.
+test("an epoch first discovered by a tail refresh does not keep the old epoch's completeness; a full load then reads the new branch", async () => {
+  const s = gateway(300, false)
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    await s.loader.loadComplete(target)
+    expect(s.loader.getSnapshot(target).complete).toBe(true)
+    s.g.branch = [...s.g.branch.slice(0, 100), ...Array.from({ length: 250 }, (_, i) => `r${String(i + 1).padStart(5, "0")}`)]
+    s.g.epoch = "e2"
+    await s.loader.refreshTail(target, 50)
+    expect(s.loader.getSnapshot(target).complete).toBe(false)
+    await s.loader.loadComplete(target)
+    // Every record of the current branch, each exactly once (the fixture's creation times order r* among m*, so compare as sets).
+    const shown = s.shown()
+    expect(shown.length).toBe(s.g.branch.length)
+    expect(new Set(shown)).toEqual(new Set(s.g.branch))
+  } finally { s.done() }
+})
+
+// openchamber#363 round 13 follow-up (P2): an ordinary same-epoch tail refresh (session.idle) while a window is being
+// read must not cancel that window: the reader is looking at its placeholder.
+test("a same-epoch tail refresh does not cancel a window in flight", async () => {
+  const s = gateway(1_000, false)
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    s.g.hold = "next"
+    const window = s.loader.loadAt(target, 400, 100)
+    await settle()
+    await s.loader.refreshTail(target, 50)
+    ;(s.g.hold as unknown as { release: () => void }).release()
+    await window
+    expect(s.shown()).toContain("m00401")
+    expect(s.loader.getSnapshot(target).positions!.ranges.some((r) => r.start <= 400 && r.end >= 500)).toBe(true)
+  } finally { s.done() }
+})

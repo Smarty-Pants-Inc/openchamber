@@ -110,3 +110,16 @@ describe('a loaded window that opens with replies (smarty-code#583)', () => {
         expect([...projectTurnRecords(messages, { showLeadingOrphans: false }).ungroupedMessageIds]).toEqual([]);
     });
 });
+
+// openchamber#363 round 13 P1 2: replies in a later window whose prompt is LOADED in an earlier range stay in their
+// window (after the gap), not grouped back into the earlier turn.
+test('a later window keeps its replies even when their prompt is loaded in an earlier range', () => {
+    const messages = [entry('u0', 'user'), entry('a0', 'assistant', 'u0'),
+        entry('b1', 'assistant', 'u0'), entry('b2', 'assistant', 'u0'), entry('u5', 'user'), entry('a5', 'assistant', 'u5')];
+    const projection = projectTurnRecords(messages, { showLeadingOrphans: false, windowStartIds: new Set(['b1']) });
+    const rows = assembleRenderEntries(buildStaticRenderEntries(projection.turns, projection.lastTurnId, messages, projection.ungroupedMessageIds),
+        buildTrailingUngroupedEntry(messages, projection.ungroupedMessageIds));
+    expect(rows.map((row) => row.key)).toEqual(['turn:u0', 'msg:b1', 'msg:b2', 'turn:u5']);
+    const u0 = rows.find((row) => row.key === 'turn:u0');
+    expect(u0 && u0.kind === 'turn' ? u0.turn.messages.map((m) => m.messageId) : []).toEqual(['u0', 'a0']);
+});
