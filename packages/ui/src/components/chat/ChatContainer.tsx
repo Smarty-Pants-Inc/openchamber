@@ -859,17 +859,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     // Window work belongs to one session: a read that answers after the reader switched sessions moves nothing.
     const currentWindowTarget = React.useRef(windowTarget);
     currentWindowTarget.current = windowTarget;
-    const goToBeginning = React.useCallback(() => {
-        if (!windowTarget) return;
-        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
-            .then(() => requestAnimationFrame(() => {
-                if (currentWindowTarget.current === windowTarget) messageListRef.current?.scrollToStart();
-            }));
-    }, [messageLoader, windowTarget]);
     // One window read at a time per session, latest wins; another session's requests never enter this one's loop.
     const loadWindow = React.useMemo(() => (windowTarget
         ? createWindowQueue((start, limit) => messageLoader.loadAt(windowTarget, start, limit), () => currentWindowTarget.current === windowTarget)
         : () => undefined), [messageLoader, windowTarget]);
+    const goToBeginning = React.useCallback(() => {
+        if (!windowTarget) return;
+        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
+            .then(() => requestAnimationFrame(() => {
+                if (currentWindowTarget.current !== windowTarget) return;
+                messageListRef.current?.scrollToStart();
+                // The reader goes down from here: the next window is read ahead, as a placeholder's request would.
+                loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);
+            }));
+    }, [loadWindow, messageLoader, windowTarget]);
 
     React.useEffect(() => {
         if (!active || !currentSessionKey || !hasRenderableSessionSnapshot || sessionMessages.length === 0) return;
@@ -1227,6 +1230,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
+    // Leaving the live end: the window above the loaded tail is read ahead (the first placeholder up is otherwise only
+    // requested when the list mounts it, ~1,800 px ahead: under the rate check's lead, readAhead.test.ts).
+    const awayFromEnd = timelineController.showScrollToBottom;
+    const tailStart = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
+    React.useEffect(() => {
+        if (!awayFromEnd || tailStart === undefined || tailStart <= 0) return;
+        loadWindow([{ start: Math.max(0, tailStart - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, tailStart) }]);
+    }, [awayFromEnd, loadWindow, tailStart]);
     React.useEffect(() => {
         if (!scrollNode) return;
         // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.

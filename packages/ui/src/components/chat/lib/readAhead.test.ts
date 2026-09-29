@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'bun:test';
 import { GAP_SETTLE_MS, READ_AHEAD_WINDOWS, TIMELINE_DRAW_DISTANCE, WINDOW_RECORDS } from './gapWindow';
 
@@ -22,6 +23,16 @@ test('the next window is requested far enough ahead of the reader at the fastest
 test('one window lasts longer than a read, so the reads keep up with the wheel', () => {
     const windowSeconds = WINDOW_RECORDS * MIN_RECORD_PX / FASTEST_WHEEL_PX_PER_S;
     expect(windowSeconds * 1000).toBeGreaterThanOrEqual(READ_AHEAD_WINDOWS * P90_WINDOW_READ_MS * MARGIN);
+});
+
+test('the first boundary is read ahead too: leaving the end (or Beginning) reads a whole window before any placeholder shows', () => {
+    // ChatContainer reads the window above the tail when the reader leaves the live end, and the window after the first
+    // one after Beginning: the first placeholder is a window (not the draw distance) away when its read starts.
+    const firstLeadPx = WINDOW_RECORDS * MIN_RECORD_PX;
+    expect(firstLeadPx).toBeGreaterThanOrEqual(leadNeededPx);
+    const source = readFileSync(new URL('../ChatContainer.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('loadWindow([{ start: Math.max(0, tailStart - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, tailStart) }]);');
+    expect(source).toContain('loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);');
 });
 
 test('the draw distance alone (the 979ed9f4e page: one window per request) is not enough: the check catches it', () => {
