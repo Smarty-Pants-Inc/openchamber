@@ -37,6 +37,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     ...overlay.files.filter(entry => entry.testDeterminismAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.originGuardAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.systemNoteAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.worktreeRootAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -322,4 +323,14 @@ test('the #739 Fabric message row binds its exact feature commit over the messag
   assert.equal(entry.voiceFabricSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preVoiceFabricCombinedSha256, '5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95');
+});
+
+test('the shared worktree root binds its exact fix commit as a new overlay entry over the git service only (smarty-code#629)', () => {
+  assert.match(overlay.worktreeRootSource, /^[a-f0-9]{40}$/);
+  const added = overlay.files.filter(entry => entry.worktreeRootAdded);
+  assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/git/service.js']);
+  for (const entry of added) {
+    assert.equal(entry.worktreeRootSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  }
 });

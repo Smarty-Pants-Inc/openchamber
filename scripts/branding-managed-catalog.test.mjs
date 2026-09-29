@@ -36,7 +36,11 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // The #739 Fabric message row (smarty-code#739) is the newest layer: one file, so unwind it first.
+  // The shared worktree root (smarty-code#629) is the newest layer: it only adds the git service entry, so unwind it first.
+  assert.match(historical.worktreeRootSource, /^[a-f0-9]{40}$/);
+  delete historical.worktreeRootSource;
+  historical.files = historical.files.filter(entry => !entry.worktreeRootAdded);
+  // The #739 Fabric message row (smarty-code#739) is the next layer: one file, so unwind it next.
   assert.match(historical.voiceFabricSource, /^[a-f0-9]{40}$/);
   delete historical.voiceFabricSource;
   for (const entry of historical.files.filter(file => file.voiceFabricSha256)) {
