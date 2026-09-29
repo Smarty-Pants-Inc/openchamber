@@ -56,8 +56,9 @@ round 4); until then no conflict could be seen.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
-     `…-ours-<name>`) once the helper says, or may have, published: a writer that read before the save may replace
-     the file after it, and our revision must not then live only in the room. A refused save writes no second copy.
+     `…-ours-<name>`), both **before** the helper call: a writer that read before the save may replace the file after
+     it, and our revision must not then live only in the room. A failed copy throws with nothing sent; after the call
+     nothing throws. A save the helper refuses removes its `-ours-` copy again.
   2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
      original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
      set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
@@ -111,8 +112,10 @@ round 4); until then no conflict could be seen.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
 - **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch> [--seed <n>]` (`stress.test.js` runs it for 20 s in CI) runs three direct
   writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
-  helper and the whole bridge process are SIGKILLed at random. It exits 1 if any token a writer wrote, or any token of
-  a save that reported published, is missing from the disk, the recovery directory and the private directory.
+  helper and the whole bridge process are SIGKILLed at random (a killed run takes its children with it). It exits 1 if any token a writer wrote, or any token of
+  a save that reported published, is missing from the disk, the recovery directory and the private directory. For a
+  published save that holds by construction (its `-ours-` copy), so the report also gives `onlyInOurCopy`: the
+  saves that only that copy keeps, which a stale writer overwrote after they were published.
 - **Crash recovery:** `load()` lists the file's private entries (`list`), keeps each in `recoveryDir`, disposes it and
   raises `interrupted` with a notice. One still open for writing is enrolled as pending; a late write is `raced`. After
   a crash or kill at any point the file holds either the old or the new revision, whole.

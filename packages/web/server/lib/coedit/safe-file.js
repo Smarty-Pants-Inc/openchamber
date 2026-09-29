@@ -5,6 +5,8 @@ import path from 'path';
 import { createInterface } from 'readline';
 
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW } = fs.constants;
+/** The helper's limit (fs-helper MAX_BYTES): refused before any copy or call. */
+const MAX_BYTES = 64 << 20;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 export const hashBytes = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -254,7 +256,7 @@ export async function dispose(helper, key, revision, recoveryDir, name, hooks = 
 /**
  * Publishes `text` as `rel` only over the revision whose hash is `expectedHash`. One attempt, never undone:
  *  - the current bytes must still hash to `expectedHash`, else { conflict: 'changed' } ('gone' when missing): no write;
- *  - those bytes are kept for recovery first; ours are kept too (`-ours-`) once the helper says, or may have, published;
+ *  - those bytes are kept for recovery first, and ours too (`-ours-`), removed again if the helper refuses;
  *  - the helper stages ours in the private dir and publishes with one exchange (DOCUMENTATION.md, protocol);
  *  - the displaced revision (now a private entry) is removed only when no one writes to it; a late write through an
  *    old descriptor is kept and shown ('raced'). `pending`: still open for writing, retried later.
@@ -271,30 +273,32 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   if (current === null) return { conflict: 'gone' };
   if (current.hash !== expectedHash) return { conflict: 'changed' };
   const recovery = await keepForRecovery(recoveryDir, name, current.bytes);
-  // Ours too, once published (or maybe published): a writer that read before this save may replace the file after it,
-  // and a crash of the room would then lose our revision (the smartyfs#32 stress test, seed 32). A refused save
-  // writes no second copy.
-  const keepOurs = () => keepForRecovery(recoveryDir, name, Buffer.from(text, 'utf8'), 'ours');
+  // Ours too, BEFORE the helper call: a writer that read before this save may replace the file after it, and a crash
+  // of the room would then lose our revision (the smartyfs#32 stress test, seed 32). Before the call, a failed copy
+  // throws with nothing sent; after it, nothing may throw (#396 review round 3). A refused save removes the copy.
+  const data = Buffer.from(text, 'utf8');
+  if (data.length > MAX_BYTES) throw new Error('Co-edited file is too large');
+  if (!helper.alive()) throw new Error('coedit-fs is not running');
+  const ours = await keepForRecovery(recoveryDir, name, data, 'ours');
+  const dropOurs = () => fs.promises.unlink(ours).catch((error) => log('smarty.coedit-recovery-cleanup-failed', name, error));
   const txn = randomBytes(6).toString('hex');
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
-  if (!helper.alive()) throw new Error('coedit-fs is not running');
   let reply;
   try {
     reply = await helper.call({
       ...testHooks(hooks),
-      op: 'publish', path: rel, key, txn, ino: current.ino, dev: current.dev, hash: expectedHash, data: Buffer.from(text, 'utf8').toString('base64'),
+      op: 'publish', path: rel, key, txn, ino: current.ino, dev: current.dev, hash: expectedHash, data: data.toString('base64'),
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);
-    await keepOurs();
     return { ...uncertain, unsynced: true, lost: txn }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
+    await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
     if (reply.conflict) return { conflict: reply.conflict, recovery };
     throw refused(reply);
   }
-  // Published: from here on, nothing may be reported as not written.
-  await keepOurs();
+  // Published: from here on, nothing may be reported as not written, and nothing below may throw.
   const synced = reply.synced === true;
   // Not durable: the displaced revision stays until a flush succeeds (the caller holds it as pending).
   let done = { busy: true, hash: expectedHash };

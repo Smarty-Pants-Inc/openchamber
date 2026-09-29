@@ -110,6 +110,14 @@ async function main() {
   const writers = [0, 1, 2].map((id) => child('--role', 'writer', '--id', String(id)));
   let servers = 0;
   let serverProc = child('--role', 'server', '--id', String(servers));
+  // A killed or timed-out run takes its writers, server and helpers with it (security note: nothing outlives it).
+  const teardown = () => {
+    fs.writeFileSync(path.join(dir, 'stop'), '');
+    for (const w of writers) kill(w.pid);
+    kill(serverProc.pid);
+    for (const pid of helperPids()) kill(pid);
+  };
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => { teardown(); process.exit(1); });
   let kills = { server: 0, helper: 0 };
   const helperPids = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p)).filter((p) => {
     try {

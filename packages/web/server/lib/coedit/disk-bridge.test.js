@@ -575,6 +575,24 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(helperPids(t.root).filter(alive)).toEqual([]);
     });
 
+    it('a failing recovery write never turns a published save into a thrown error that replays the edit (review round 3)', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const open = fs.promises.open;
+      const spy = vi.spyOn(fs.promises, 'open').mockImplementation((p, ...rest) => (String(p).includes('-ours-')
+        ? Promise.reject(Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }))
+        : open(p, ...rest)));
+      const saving = await t.bridge.save().then((r) => r, (error) => ({ threw: String(error.message) }));
+      spy.mockRestore();
+      // Either nothing was published (the disk is the base), or it was and the base follows ours: never both a throw
+      // and a changed disk.
+      if (saving.threw) expect(t.disk()).toBe('a');
+      await t.bridge.sync();
+      expect(t.text.toString()).toBe('Pa'); // Not PPa.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa');
+    });
+
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {
       const t = await setup('hello\n', { watch: true });
       killHelper(t.root);
