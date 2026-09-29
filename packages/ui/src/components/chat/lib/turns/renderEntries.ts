@@ -10,6 +10,12 @@ export type RenderEntry =
     }
     | { kind: 'turn'; key: string; turn: TurnRecord; isLastTurn: boolean; nextEntryFirstMessage?: ChatMessageEntry };
 
+/** smarty-code#583: the records at positions [start, end) not loaded yet, drawn at their estimated height. */
+/** A chunk (start..end) of an unloaded gap (gapStart..gapEnd): windows are read within the whole gap, not the chunk. */
+export type GapEntry = { kind: 'gap'; key: string; start: number; end: number; gapStart: number; gapEnd: number; heightPx: number };
+/** A row of the list: a message row, or a gap of the whole session not loaded yet. */
+export type TimelineEntry = RenderEntry | GapEntry;
+
 /** Static rows in message order: each turn at its user message, each ungrouped message on its own. */
 export const buildStaticRenderEntries = (
     staticTurns: TurnRecord[],
@@ -78,4 +84,49 @@ export const assembleRenderEntries = (
     const at = order.get(trailing.turn.userMessage.info.id) ?? Number.POSITIVE_INFINITY;
     const split = rest.findIndex((entry) => entry.kind === 'ungrouped' && (order.get(entry.message.info.id) ?? -1) > at);
     return split < 0 ? [...rest, trailing] : [...rest.slice(0, split), trailing, ...rest.slice(split)];
+};
+
+/** The first message a row shows (its user message, or the message itself); none for a gap. */
+export const firstMessageIdOf = (entry: TimelineEntry): string | undefined =>
+    entry.kind === 'turn' ? entry.turn.userMessage.info.id : entry.kind === 'ungrouped' ? entry.message.info.id : undefined;
+
+/**
+ * smarty-code#583: the list sized to the whole session. Each unloaded range of positions becomes one gap row placed
+ * where its records belong: before the first row whose first message sits at or after the gap's end. Gaps after the
+ * last loaded row (records appended but not loaded) are left out: the live tail arrives by events.
+ */
+/** Records per gap row (smarty-code#583). */
+export const GAP_CHUNK = 100;
+
+export const insertGaps = (
+    entries: RenderEntry[],
+    gaps: readonly { start: number; end: number; key: string }[],
+    positionOf: (messageId: string) => number | undefined,
+    recordPx: number,
+    /** The end of the last loaded range: gaps before it are placed even after the last shown row. */
+    loadedEnd = 0,
+): TimelineEntry[] => {
+    if (gaps.length === 0) return entries;
+    const out: TimelineEntry[] = [];
+    // One row per GAP_CHUNK records: a virtual list handles many ordinary rows well, and a single row millions of
+    // pixels tall left the list blank (21,795 records, dev-lead's journal on the candidate).
+    const pushGap = (gap: { start: number; end: number }) => {
+        for (let start = gap.start; start < gap.end; start += GAP_CHUNK) {
+            const end = Math.min(gap.end, start + GAP_CHUNK);
+            out.push({ kind: 'gap', key: `gap:${start}`, start, end, gapStart: gap.start, gapEnd: gap.end, heightPx: Math.max(1, Math.round((end - start) * recordPx)) });
+        }
+    };
+    let next = 0;
+    for (const entry of entries) {
+        const id = firstMessageIdOf(entry);
+        const position = id === undefined ? undefined : positionOf(id);
+        while (position !== undefined && next < gaps.length && gaps[next]!.end <= position) {
+            pushGap(gaps[next++]!);
+        }
+        out.push(entry);
+    }
+    // Gaps after the last positioned row but before the loaded end (rows the page does not show, such as a window of
+    // replies whose prompt is not loaded yet) still hold their place; the gap after the loaded end is the live tail's.
+    for (; next < gaps.length && gaps[next]!.end <= loadedEnd; next++) pushGap(gaps[next]!);
+    return out;
 };

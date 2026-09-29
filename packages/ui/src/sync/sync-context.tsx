@@ -1738,6 +1738,16 @@ export function handleEvent(
   batch?: DirectoryEventBatch,
   globalEffectsAlreadyApplied = false,
 ) {
+  // smarty-code#583: the session's record count changed (the gateway's position index): the list grows without a read.
+  if ((payload as { type?: unknown }).type === "session.index") {
+    const props = (payload as unknown as { properties?: { sessionID?: unknown; total?: unknown; epoch?: unknown } }).properties
+    if (typeof props?.sessionID === "string" && typeof props.total === "number") {
+      getImperativeSessionMessageLoader()?.noteIndex({ directory: rawDirectory, sessionID: props.sessionID }, props.total,
+        typeof props.epoch === "string" ? props.epoch : undefined)
+    }
+    return
+  }
+
   // Settles this tab's own steered message by session and message ID; no directory routing needed (co-steer, G5).
   if ((payload as { type?: unknown }).type === "smarty.prompt.outcome") {
     applyPromptOutcome((payload as unknown as { properties?: unknown }).properties, expectedRuntimeKey)

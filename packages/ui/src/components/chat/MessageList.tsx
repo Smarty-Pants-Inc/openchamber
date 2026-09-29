@@ -48,6 +48,12 @@ const EMPTY_UNGROUPED_MESSAGE_IDS = new Set<string>();
 //   • `anchoredEndSpace` reserves the tail space that parks a just-sent
 //     message near the top of the viewport.
 const TIMELINE_ESTIMATED_ENTRY_SIZE = 320;
+/**
+ * smarty-code#583: the estimated height of one not-yet-loaded record (a gap row is its record count times this). Near the
+ * measured mean (~77 px a record in dev-lead's 22,000-record journal): at 160 px each loaded window shrank to half its
+ * gap, the next gap slid into view and the page walked window after window (5,300 -> 5,600) after a drag.
+ */
+const GAP_RECORD_PX = 80;
 
 // Anchor hold for an explicit viewport restore (session re-entry): row
 // measurements settle over several frames, so a single restore can be
@@ -326,6 +332,11 @@ interface MessageListProps {
         fallbackTimestamp?: number;
     } | null;
     isLoadingOlder: boolean;
+    /** smarty-code#583: the whole session as positions (when the gateway serves them), each loaded message's position,
+     * and the window loader: the list is then as long as the session, with a gap row for each unloaded range. */
+    positions?: SessionPositions;
+    positionOf?: (messageId: string) => number | undefined;
+    onLoadWindow?: (windows: Window[]) => void;
     /** Older history exists above the loaded window (its leading assistant messages then render). */
     hasOlderHistory?: boolean;
     scrollToBottom?: () => void;
@@ -360,12 +371,19 @@ export interface MessageListHandle {
     holdViewportAnchor: (anchor: { messageId: string; offsetTop: number }, options?: AnchorHoldOptions) => void;
     isHistoryVirtualized: () => boolean;
     scrollToBottom: () => void;
+    /** smarty-code#583: shows the session's first loaded rows (after the window at position 0 loaded). */
+    scrollToStart: () => void;
 }
 
 import { VoiceTurn } from './message/VoiceTurn';
 import { isVoiceTurn } from './message/voiceTurnData';
 import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
-import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, type RenderEntry } from './lib/turns/renderEntries';
+import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, firstMessageIdOf, insertGaps, type RenderEntry, type TimelineEntry } from './lib/turns/renderEntries';
+import { GapRow } from './components/GapRow';
+import { TIMELINE_DRAW_DISTANCE } from './lib/gapWindow';
+import type { Window } from './lib/windowQueue';
+import { gapsOf } from '@/sync/position-windows';
+import type { SessionPositions } from '@/sync/session-message-loader';
 
 type TurnUiState = { isExpanded: boolean };
 
@@ -880,6 +898,7 @@ MessageListEntry.displayName = 'MessageListEntry';
 // `renderItem` so the render callback keeps a stable identity — a changing
 // `renderItem` makes the list re-render every mounted row on every commit.
 type TimelineRowContextValue = {
+    onLoadWindow?: (windows: Window[]) => void;
     scrollToBottom?: () => void;
     stickyUserHeader: boolean;
     defaultActivityExpanded: boolean;
@@ -901,9 +920,11 @@ type TimelineRowContextValue = {
 
 const TimelineRowContext = React.createContext<TimelineRowContextValue | null>(null);
 
-const TimelineRow = React.memo(({ entry }: { entry: RenderEntry }) => {
+
+const TimelineRow = React.memo(({ entry }: { entry: TimelineEntry }) => {
     const context = React.useContext(TimelineRowContext);
     if (!context) return null;
+    if (entry.kind === 'gap') return <GapRow gap={entry} onLoadWindow={context.onLoadWindow} />;
 
     if (context.streamingTailKey === entry.key) {
         return (
@@ -948,17 +969,24 @@ const TimelineRow = React.memo(({ entry }: { entry: RenderEntry }) => {
 
 TimelineRow.displayName = 'TimelineRow';
 
-const timelineKeyExtractor = (item: RenderEntry): string => item.key;
+const timelineKeyExtractor = (item: TimelineEntry): string => item.key;
 
 // Row type drives container reuse. Turn blocks and ungrouped messages have very
 // different shapes, so keeping them in separate pools avoids re-measuring a
 // container every time one replaces the other.
-const timelineItemType = (item: RenderEntry): string => item.kind;
+const timelineItemType = (item: TimelineEntry): string => item.kind;
+// smarty-code#583: a gap row is never the row the list holds in place. With a gap chunk above the reader as the anchor,
+// the rows a window load put under it pushed the reader's rows down by their height less the gap's (+399 px on the
+// candidate); anchored on the first real row in view, the reader's rows stay where they are.
+const isContentRow = (item: TimelineEntry): boolean => item.kind !== 'gap';
+// smarty-code#583: a gap row's height is known, so the list and its scrollbar are the session's length before any
+// gap is rendered (an estimate would size 21,000 unloaded records like 200 rows).
+const timelineFixedSize = (item: TimelineEntry): number | undefined => (item.kind === 'gap' ? item.heightPx : undefined);
 
-const renderTimelineItem = ({ item }: { item: RenderEntry }) => <TimelineRow entry={item} />;
+const renderTimelineItem = ({ item }: { item: TimelineEntry }) => <TimelineRow entry={item} />;
 
 type TimelineListProps = {
-    entries: RenderEntry[];
+    entries: TimelineEntry[];
     streamingTailKey: string | null;
     registerList: (list: LegendListRef | null) => void;
     endPinningReleased: boolean;
@@ -1070,13 +1098,18 @@ const TimelineList = React.memo(({
 
     return (
         <TimelineRowContext.Provider value={rowContext}>
-            <LegendList<RenderEntry>
+            <LegendList<TimelineEntry>
                 ref={setListRef}
                 data={entries}
                 keyExtractor={timelineKeyExtractor}
                 getItemType={timelineItemType}
+                getFixedItemSize={timelineFixedSize}
                 renderItem={renderTimelineItem}
                 estimatedItemSize={TIMELINE_ESTIMATED_ENTRY_SIZE}
+                // smarty-code#583: a placeholder is mounted (and reads its window) two screens before the reader gets to
+                // it; at the default 250 px it mounted and read only on arrival, so a fast wheel (~2,800 px/s) reached it
+                // 2-3 times in 40 s (candidate 04:11Z).
+                drawDistance={TIMELINE_DRAW_DISTANCE}
                 initialScrollAtEnd
                 // Chat rows own internal state (expanded tool calls, reveal
                 // animations); recycling a container into a different row would
@@ -1107,7 +1140,7 @@ const TimelineList = React.memo(({
                 // Prepending older history must not move what the user is
                 // reading. Size restoration applies only during a width
                 // resize — see the observer above.
-                maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory }}
+                maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory, shouldRestorePosition: isContentRow }}
                 onScroll={handleScroll}
                 ListHeaderComponent={header}
                 ListFooterComponent={footer}
@@ -1198,6 +1231,9 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     activeStreamingPhase = null,
     retryOverlay = null,
     hasOlderHistory = false,
+    positions,
+    positionOf,
+    onLoadWindow,
     scrollToBottom,
     directory,
     registerList,
@@ -1326,7 +1362,19 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }), [baseDisplayMessages, retryOverlay]);
 
     const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
+    // smarty-code#583: the first loaded message of each window after a gap, so its opening replies show.
+    const windowStartIds = React.useMemo(() => {
+        if (!positions || !positionOf || positions.ranges.length === 0) return undefined;
+        const starts = new Set(positions.ranges.filter((range) => range.start > 0).map((range) => range.start));
+        const ids = new Set<string>();
+        for (const message of displayMessages) {
+            const position = positionOf(message.info.id);
+            if (position !== undefined && starts.has(position)) ids.add(message.info.id);
+        }
+        return ids.size ? ids : undefined;
+    }, [displayMessages, positions, positionOf]);
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
+        windowStartIds,
         sessionKey,
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
@@ -1389,9 +1437,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         registerList?.(list);
     }, [registerList]);
 
-    const allEntries = React.useMemo(
+    const renderEntries = React.useMemo(
         () => assembleRenderEntries(historyEntries, trailingStreamingEntry, displayMessages),
         [displayMessages, historyEntries, trailingStreamingEntry],
+    );
+    // smarty-code#583: the list as long as the whole session, with a gap row for each unloaded range of positions.
+    const allEntries = React.useMemo<TimelineEntry[]>(
+        () => positions && positionOf
+            ? insertGaps(renderEntries, gapsOf(positions.ranges, positions.total), positionOf, GAP_RECORD_PX,
+                positions.ranges[positions.ranges.length - 1]?.end ?? 0)
+            : renderEntries,
+        [positionOf, positions, renderEntries],
     );
 
     // Stable identities: these reach the list, where a changing callback would
@@ -1455,6 +1511,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         const indexMap = new Map<string, number>();
 
         allEntries.forEach((entry, index) => {
+            if (entry.kind === 'gap') return;
             if (entry.kind === 'ungrouped') {
                 indexMap.set(entry.message.info.id, index);
                 return;
@@ -1724,6 +1781,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 return applyAnchor();
             },
 
+            scrollToStart: () => {
+                cancelActiveHoldRef.current?.();
+                void listRef.current?.scrollToOffset({ offset: 0, animated: false });
+            },
+
             scrollToBottom: () => {
                 cancelActiveHoldRef.current?.();
                 const list = listRef.current;
@@ -1757,7 +1819,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         const resolved = resolveChatListAnchoredEndSpace(
             allEntries,
             anchorMessageId,
-            (entry) => (entry.kind === 'turn' ? entry.turn.userMessage.info.id : entry.message.info.id),
+            (entry) => firstMessageIdOf(entry) ?? null,
         );
         if (!resolved || !anchorMessageId) {
             return undefined;
@@ -1774,7 +1836,9 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         };
     }, [allEntries, anchorMessageId, onAnchorReady, onAnchorSizeChanged]);
 
+    const loadWindow = useStableEvent((windows: Window[]) => { onLoadWindow?.(windows); });
     const rowContext = React.useMemo(() => ({
+        onLoadWindow: onLoadWindow ? loadWindow : undefined,
         scrollToBottom: stableScrollToBottom,
         stickyUserHeader,
         defaultActivityExpanded,
@@ -1791,6 +1855,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         activeStreamingMessageId,
         activeStreamingPhase,
     }), [
+        onLoadWindow, loadWindow,
         activeStreamingMessageId,
         activeStreamingPhase,
         chatRenderMode,
