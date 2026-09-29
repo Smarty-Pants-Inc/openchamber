@@ -437,7 +437,7 @@
       "path": "packages/web/server/lib/opencode/proxy.js",
       "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
       "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
-      "combinedSha256": "914309d73880ae6b89a80192e9ad45702f7125057565d8afa4ac7e2f35eaf7b1",
+      "combinedSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication.",
       "preHerdrListCombinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
@@ -448,7 +448,10 @@
       "fleetListNote": "smarty-code#863 and #870: the session-list allowlist also keeps herdrSuccessor and ordinaryReloading",
       "preInboxStreamCombinedSha256": "499560c09fe2b3af9ae2819e92402b6cf95f6c4baba7e92f12c4b09ad627e6c3",
       "inboxStreamSha256": "914309d73880ae6b89a80192e9ad45702f7125057565d8afa4ac7e2f35eaf7b1",
-      "inboxStreamNote": "smarty-code#701: /api/inbox/events is forwarded as a stream (the inbox badge), like /api/event"
+      "inboxStreamNote": "smarty-code#701: /api/inbox/events is forwarded as a stream (the inbox badge), like /api/event",
+      "preCodeMadeListCombinedSha256": "914309d73880ae6b89a80192e9ad45702f7125057565d8afa4ac7e2f35eaf7b1",
+      "codeMadeListSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
+      "codeMadeListNote": "smarty-code#957: the session-list allowlist also keeps ordinaryCodeMade"
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
@@ -586,6 +589,7 @@
   "herdrListSource": "b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38",
   "fleetListSource": "47eb1c68d3f64129018078eed1e218cb23baff50",
   "inboxStreamSource": "d16efdf6a265496d06a68e8f76a7721905d0bab1",
+  "codeMadeListSource": "ebf56e66943ee912b727dab8ebb0e336d50f733d",
   "modelPrefsUnloadSource": "f554a19157eb47dc8b28b70b1b79ef482de836c8",
   "unsavedLabelSource": "ae4e2929e6e995504c1c3ec172198475f701f11c",
   "contextWindowSource": "72f0bf0eb7c21f4a2eb4bf5f5cf139d5bd4d57d8",
