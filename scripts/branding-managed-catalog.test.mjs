@@ -152,6 +152,15 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.modelPrefsUnloadSha256;
     delete entry.modelPrefsUnloadNote;
   }
+  // smarty-code#701 forwards the inbox stream: the newest proxy layer, unwound first.
+  assert.equal(historical.inboxStreamSource, 'd16efdf6a265496d06a68e8f76a7721905d0bab1');
+  delete historical.inboxStreamSource;
+  for (const entry of historical.files.filter(file => file.inboxStreamSha256)) {
+    entry.combinedSha256 = entry.preInboxStreamCombinedSha256;
+    delete entry.preInboxStreamCombinedSha256;
+    delete entry.inboxStreamSha256;
+    delete entry.inboxStreamNote;
+  }
   // smarty-code#863/#870 add the successor and the reloading mark to the session-list allowlist: unwound before F4.
   assert.equal(historical.fleetListSource, '47eb1c68d3f64129018078eed1e218cb23baff50');
   delete historical.fleetListSource;

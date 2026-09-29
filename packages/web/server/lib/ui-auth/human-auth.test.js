@@ -41,6 +41,8 @@ test('real Better Auth sessions keep one person across devices and editable prof
     assert.equal(updated.user.id, first.user.id);
     assert.equal(updated.user.name, 'New Name');
     assert.equal(f.human.actor(updated).image, 'https://example.test/photo');
+    // smarty-code#701: the admitted (verified) email names the person's inbox at the gateway.
+    assert.equal(f.human.actor(first).email, 'person@example.test');
     assert.equal(await f.human.resolve({ headers: {} }), null);
     assert.equal(await f.human.resolve({ headers: { ...Object.fromEntries(a), authorization: 'Bearer old-device' } }), null);
   } finally { f.close(); }

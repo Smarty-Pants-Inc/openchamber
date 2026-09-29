@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { HumanAccount } from '@/components/auth/HumanAccount';
+import { useInboxStore } from '@/lib/smartyInbox';
 import { useHumanAuth } from '@/lib/human-auth';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -138,6 +139,7 @@ export const MobileHeader: React.FC<{
           >
             <Icon name="pencil-ruler-2" className="size-5" />
           </button>
+          <MobileInboxBadge />
           {/* #538: the signed-in account, top right, as on desktop. */}
           {humanAuthEnabled ? <div className="flex size-10 shrink-0 items-center justify-center"><HumanAccount /></div> : null}
         </div>
@@ -150,3 +152,16 @@ export const MobileHeader: React.FC<{
     </>
   );
 };
+
+/** smarty-code#701: the inbox badge in the chat header, next to the avatar (Paul's Q1 answer); only with an inbox. */
+function MobileInboxBadge(): React.ReactNode {
+  const { available, openCount, p0Count } = useInboxStore();
+  if (!available) return null;
+  return (
+    <button type="button" aria-label={`Needs you: ${openCount} open${p0Count ? `, ${p0Count} P0` : ''}`} onClick={() => useInboxStore.getState().setPageOpen(true)}
+      className="relative flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover" style={{ touchAction: 'manipulation' }}>
+      <span aria-hidden className="text-lg">⚑</span>
+      {openCount ? <span data-inbox-count className={cn('absolute right-0.5 top-1 min-w-4 rounded-full px-1 text-center typography-micro font-semibold text-white', p0Count ? 'bg-destructive' : 'bg-[var(--primary-base)]')}>{openCount}</span> : null}
+    </button>
+  );
+}
