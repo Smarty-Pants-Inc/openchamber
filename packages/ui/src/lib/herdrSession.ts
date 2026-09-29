@@ -56,6 +56,10 @@ export const successorTarget = (currentId: string | null | undefined, sessions: 
   return next && next !== currentId ? next : undefined;
 };
 
+/** A fleet Pi reloading (smarty-code#870): unavailable only until its reload finishes; not the View-only case. */
+export const isOrdinaryReloading = (session: unknown): boolean =>
+  (session as { ordinaryReloading?: unknown } | null | undefined)?.ordinaryReloading === true;
+
 /** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
 export const herdrSignature = (session: unknown): string =>
-  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}`;
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}`;
