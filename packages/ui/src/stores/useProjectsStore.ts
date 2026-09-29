@@ -60,6 +60,8 @@ interface ProjectsStore {
   managedCatalogStockConfirmed: boolean;
   managedRows: ManagedProject[] | null;
   managedProjects: ProjectEntry[] | null;
+  /** Worktrees that left the live catalog since this runtime admitted it (normalized): gone, not pending (smarty-code#775). */
+  departedDirectories: readonly string[];
   admitManagedCatalog: () => void;
   resetManagedCatalog: () => void;
   applyManagedCatalog: (rows: ManagedProject[]) => void;
@@ -676,6 +678,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     managedCatalogStockConfirmed: false,
     managedRows: null,
     managedProjects: null,
+    departedDirectories: [],
     admitManagedCatalog: () => {
       set({ managedCatalogAdmitted: true });
       // First marker: deny every directory until rows are published, and leave the pre-discovery
@@ -693,7 +696,7 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
     resetManagedCatalog: () => {
       discardHeldBootstrapPointer();
-      set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null });
+      set({ managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null, departedDirectories: [] });
       useDirectoryStore.setState({ managedDirectories: null });
     },
     managedSessionHold: null,
@@ -706,7 +709,12 @@ export const useProjectsStore = create<ProjectsStore>()(
     applyManagedCatalog: (rows) => {
       const state = get();
       const projects = managedProjectView(rows, state.projects);
-      const published = { managedCatalogAdmitted: true, managedCatalogStatus: 'ready' as const, managedRows: rows, managedProjects: projects };
+      // A worktree that leaves the catalog is gone (a lane retired), unlike one that has not joined yet (#608): an open
+      // session there says so instead of "the server may be offline" (smarty-code#775, #761). One that returns is live again.
+      const live = new Set(rows.map(row => normalizeProjectPath(row.worktree) ?? row.worktree));
+      const departedDirectories = [...new Set([...state.departedDirectories,
+        ...(state.managedRows ?? []).map(row => normalizeProjectPath(row.worktree) ?? row.worktree)])].filter(path => !live.has(path));
+      const published = { managedCatalogAdmitted: true, managedCatalogStatus: 'ready' as const, managedRows: rows, managedProjects: projects, departedDirectories };
       // An open the person asked for before its project was admitted: still waiting, or opened now that it is (#608).
       const pending = state.managedSessionHold?.pending ? state.managedSessionHold : null;
       if (pending) {
@@ -1213,7 +1221,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextActiveProjectId = projects.some((project) => project.id === activeProjectId)
         ? activeProjectId
         : projects[0]?.id ?? null;
-      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null });
+      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [], managedCatalogAdmitted: false, managedCatalogStatus: 'unknown', managedRows: null, managedProjects: null, managedSessionHold: null, departedDirectories: [] });
       useDirectoryStore.setState({ managedDirectories: null });
     },
 
