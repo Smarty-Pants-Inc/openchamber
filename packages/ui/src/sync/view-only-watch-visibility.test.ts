@@ -19,7 +19,8 @@ test('the shells feed their real visibility into the watch', () => {
   const app = source('../App.tsx'); // The embedded tab: history always on, visibility from its handshake.
   expect(/<ChatView\s+active=\{embeddedBackgroundWorkEnabled\}[\s\S]*?messagesEnabled=\{true\}/.test(app)).toBe(true);
   const mobile = source('../apps/MobileApp.tsx'); // A phone's full-screen surfaces, the Plan included.
-  expect(mobile).toContain('covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)}');
+  // smarty-code#701: the inbox is a full-screen surface too; it covers the chat like the others.
+  expect(mobile).toContain("covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)}");
 });
 
 test('every renderer of the shared transcript holds its watch (review 12): ChatView, the agent group detail, Mini Chat', () => {

@@ -22,9 +22,18 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const reload = React.useCallback(() => loadInbox(tab).then(r => { setItems(r.items); setError(null); }, e => setError(String((e as Error).message))), [tab]);
+  // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved).
+  const request = React.useRef(0);
+  const reload = React.useCallback(() => {
+    const mine = ++request.current;
+    return loadInbox(tab).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
+      e => { if (mine === request.current) setError(String((e as Error).message)); });
+  }, [tab]);
   React.useEffect(() => { void reload(); }, [reload, revision]);
-  const selected = items?.find(i => i.id === selectedId) ?? (compact ? null : items?.[0] ?? null);
+  // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
+  // response being typed) away (#365 review).
+  React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
+  const selected = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
 
   const list = (
     <div className={cn('flex min-h-0 flex-col', !compact && 'w-[390px] shrink-0 border-r border-border')}>

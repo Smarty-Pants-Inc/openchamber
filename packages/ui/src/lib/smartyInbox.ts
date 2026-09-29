@@ -66,14 +66,25 @@ export const useInboxStore = create<Store>(set => ({
 
 export const refreshInboxBadge = () => loadInbox('open').then(r => useInboxStore.getState().setOpenItems(r.available, r.items), () => {});
 
-/** The badge: the open list now, then again on each watch event (the event carries no priorities). */
-export function watchInbox(): () => void {
-  let source: EventSource | undefined, closed = false;
-  void loadInbox('open').then(r => {
-    useInboxStore.getState().setOpenItems(r.available, r.items);
-    if (!r.available || typeof EventSource === 'undefined' || closed) return;
-    source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
-    source.onmessage = () => { void refreshInboxBadge(); };
-  }, () => {});
-  return () => { closed = true; source?.close(); };
+/** Retries of a first load that failed (a network error, a gateway restart): 5 s, 15 s, then every 60 s. */
+export const INBOX_RETRY_MS = [5_000, 15_000, 60_000];
+
+/**
+ * The badge: the open list now, then again on each watch event (the event carries no priorities). A first load that
+ * fails is retried (#365 review: one transient error must not remove the only entry point for the whole visit); a 403
+ * (this account has no inbox) is an answer, and ends it.
+ */
+export function watchInbox(load = () => loadInbox('open'), retryMs = INBOX_RETRY_MS): () => void {
+  let source: EventSource | undefined, closed = false, timer: ReturnType<typeof setTimeout> | undefined;
+  const attempt = (n: number) => {
+    void load().then(r => {
+      if (closed) return;
+      useInboxStore.getState().setOpenItems(r.available, r.items);
+      if (!r.available || typeof EventSource === 'undefined') return;
+      source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
+      source.onmessage = () => { void refreshInboxBadge(); };
+    }, () => { if (!closed) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
+  };
+  attempt(0);
+  return () => { closed = true; clearTimeout(timer); source?.close(); };
 }

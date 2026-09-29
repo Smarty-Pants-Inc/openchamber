@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { actOnInboxItem, inboxItemState, loadInbox, sortInboxItems, useInboxStore, type InboxItem } from './smartyInbox';
+import { actOnInboxItem, inboxItemState, loadInbox, sortInboxItems, useInboxStore, watchInbox, type InboxItem } from './smartyInbox';
 
 const item = (over: Partial<InboxItem>): InboxItem => ({ id: 'a', to: 'paul', title: 'T', actions: ['accept', 'respond', 'ignore'],
   links: [], priority: 'normal', created: '2026-09-28T10:00:00.000Z', updated: '2026-09-28T10:00:00.000Z', ...over });
@@ -51,5 +51,25 @@ describe('smarty-code#701 inbox data', () => {
     expect(useInboxStore.getState()).toMatchObject({ available: true, openCount: 2, p0Count: 1 });
     useInboxStore.getState().setOpenItems(false, []);
     expect(useInboxStore.getState()).toMatchObject({ available: false, openCount: 0 });
+  });
+});
+
+describe('#365 review: the badge survives a transient failure', () => {
+  test('a failed first load is retried until it answers; then the badge shows', async () => {
+    useInboxStore.getState().setOpenItems(false, []);
+    let calls = 0;
+    const load = async () => { calls += 1; if (calls < 3) throw new Error('gateway restarting'); return { available: true, items: [item({ id: 'a' })] }; };
+    const stop = watchInbox(load, [5, 5, 5]);
+    for (let i = 0; i < 100 && !useInboxStore.getState().available; i++) await new Promise(r => setTimeout(r, 5));
+    stop();
+    expect(calls).toBe(3);
+    expect(useInboxStore.getState()).toMatchObject({ available: true, openCount: 1 });
+  });
+
+  test('a 403 (no inbox) is an answer: no retry', async () => {
+    let calls = 0;
+    const stop = watchInbox(async () => { calls += 1; return { available: false, items: [] }; }, [5]);
+    await new Promise(r => setTimeout(r, 40)); stop();
+    expect(calls).toBe(1);
   });
 });

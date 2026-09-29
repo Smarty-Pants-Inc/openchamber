@@ -14,6 +14,7 @@ const items = [
   { ...base, id: 'p0x', title: 'Codex accounts nearly out', actions: ['accept', 'respond', 'ignore'], priority: 'p0', recommendation: 'Add accounts.',
     links: [{ url: 'https://github.com/Smarty-Pants-Inc/smarty-dev/issues/9' }, { url: 'javascript:alert(1)' }] },
 ];
+let listResponder: (url: string) => Promise<Response> | Response = () => json({ person: 'paul', items });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: async (url: string, init: RequestInit = {}) => {
   if (init.method === 'POST') {
@@ -21,7 +22,7 @@ mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: async (url: string, in
     if (url.endsWith('/answer') && answerStatus !== 200) return json({ data: { message: 'Answer text is too long for the inbox (at most 3500 bytes); nothing was sent' } }, answerStatus);
     return json({ person: 'paul', item: items[0] });
   }
-  return json({ person: 'paul', items });
+  return listResponder(url);
 } }));
 const ui = await import('@/components/ui');
 mock.module('@/components/ui', () => ({ ...ui, toast: { ...ui.toast,
@@ -84,4 +85,41 @@ test('a response too long for the store keeps the text and shows the gateway mes
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('too long');
   expect((host.querySelector('textarea') as unknown as HTMLTextAreaElement).value).toBe('a long answer');
   await act(async () => root.unmount());
+});
+
+// openchamber#365 review round 1: an incoming item never swaps the shown item (and a response being typed) away; a late
+// answer for a tab the person already left never fills the current one.
+test('a newer item arriving keeps the shown item and the response being typed', async () => {
+  answerStatus = 200; listResponder = () => json({ person: 'paul', items });
+  const { useInboxStore } = await import('@/lib/smartyInbox');
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  expect(host.querySelector('article')?.getAttribute('aria-label')).toBe('Codex accounts nearly out');
+  await click([...host.querySelectorAll('article button')].find(b => b.textContent?.includes('Respond')));
+  const box = host.querySelector('textarea') as unknown as HTMLTextAreaElement;
+  await act(async () => { (Object.entries(box).find(([k]) => k.startsWith('__reactProps$'))![1] as { onChange: (e: unknown) => void }).onChange({ target: { value: 'half written' } }); });
+  const newer = { ...base, id: 'p0new', title: 'A newer P0', actions: ['accept'], priority: 'p0', created: '2026-09-29T10:00:00.000Z' };
+  listResponder = () => json({ person: 'paul', items: [newer, ...items] });
+  await act(async () => { useInboxStore.getState().setOpenItems(true, [newer as never]); }); await settle(); // An SSE refresh.
+  expect([...host.querySelectorAll('[data-inbox-item]')].map(e => e.getAttribute('data-inbox-item'))[0]).toBe('p0new');
+  expect(host.querySelector('article')?.getAttribute('aria-label')).toBe('Codex accounts nearly out');
+  expect((host.querySelector('textarea') as unknown as HTMLTextAreaElement).value).toBe('half written');
+  await act(async () => root.unmount());
+});
+
+test('a late answer for the tab the person left never fills the tab they are on', async () => {
+  let releaseOpen!: () => void;
+  const resolvedItem = { ...base, id: 'done1', title: 'Already resolved', actions: ['accept'], priority: 'normal', resolved: { at: '2026-09-28T11:00:00.000Z', by: 'paul' } };
+  listResponder = (url) => url.includes('state=open')
+    ? new Promise<Response>(res => { releaseOpen = () => res(json({ person: 'paul', items })); })
+    : json({ person: 'paul', items: [resolvedItem] });
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  await click([...host.querySelectorAll('[role="tab"]')].find(b => b.textContent?.startsWith('Resolved'))); await settle();
+  await act(async () => { releaseOpen(); }); await settle();
+  expect([...host.querySelectorAll('[data-inbox-item]')].map(e => e.getAttribute('data-inbox-item'))).toEqual(['done1']);
+  await act(async () => root.unmount());
+  listResponder = () => json({ person: 'paul', items });
 });
