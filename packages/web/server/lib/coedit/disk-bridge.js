@@ -1,0 +1,327 @@
+import fs from 'fs';
+import path from 'path';
+import diff from 'fast-diff';
+import * as Y from 'yjs';
+
+import {
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, readSettled, startHelper, UNCERTAIN_NOTICE,
+  UNSYNCED_NOTICE,
+} from './safe-file.js';
+
+/** Shown while outside writes cannot reach the room (the watcher failed); cleared once watching resumes. */
+export const UNWATCHED_NOTICE = 'Changes on disk are not being followed right now: this file may be out of date.';
+
+/** The room's shared text (y-codemirror.next binds any Y.Text; the client uses this name). */
+export const TEXT = 'content';
+/** Room changes made by the bridge carry this origin, so a room can tell disk merges from people. */
+export const DISK_ORIGIN = 'disk';
+/** A revision this much shorter than the text last read is not merged without a person's word (net-lead round 3). */
+/** Whether `to` removes any text of `from` (net-lead round 4: a partial write that removes text is not merged unasked). */
+const REMOVES = (from, to) => diff(from, to).some(([op]) => op === diff.DELETE);
+/** Off unless enabled: the room layer that shows conflicts to people is not in production yet (code-lead, round 4). */
+export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
+
+/**
+ * The disk side of one co-edited file (smartyfs#18, slice 1). The file stays the truth that agents, git and tools use.
+ * File operations and their rules are in safe-file.js; this module keeps the room and the disk in step.
+ *
+ * - load(): the room starts from the file's text.
+ * - Outside writes (agent, git, a tool) are merged INTO the room as the minimal diff from the text last read to the
+ *   settled text now on disk, applied to a copy of the room as it was at that read, so what people typed meanwhile is
+ *   kept. This only changes what the room shows.
+ * - save(): one attempt to publish the room's text over exactly the revision last read. Anything else (the file
+ *   changed since, a revision replaced meanwhile) is a CONFLICT: reported to the room (`onConflict`,
+ *   `state().conflict`), never retried or merged silently. Every revision a save replaces is kept in `recoveryDir`.
+ * - A save whose outcome is unknown (`published: 'uncertain'`) holds the room: nothing is merged or saved until the
+ *   disk shows ours (adopted) or the base (not published); any other revision stays a conflict.
+ * - A published save whose flush failed (`unsynced`) is not acknowledged, and its displaced revision is not removed,
+ *   until a later flush succeeds; a cached read of our bytes is no durability receipt.
+ * - A deleted file is never recreated by a save (`gone`); a later outside write brings it back into the room.
+ * - A watcher error is shown (`unwatched`); watching restarts on its own (at most `retryLimit` tries) and catches up.
+ *
+ * `root` and `file` must be canonical (realpath) absolute paths, as the room's admission resolves them.
+ */
+export function createDiskBridge({
+  root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks = {},
+  enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000,
+}) {
+  if (!enabled) throw new Error('Co-editing is off (OPENCHAMBER_COEDIT)');
+  if (!path.isAbsolute(root) || !path.isAbsolute(file) || !inside(root, file) || file === root) {
+    throw new Error('Co-edited file must be inside its project');
+  }
+  if (!recoveryDir || !path.isAbsolute(recoveryDir) || inside(root, recoveryDir)) {
+    throw new Error('Co-editing needs a recovery directory outside the project');
+  }
+  const name = path.basename(file);
+  const rel = path.relative(root, file);
+  const text = doc.getText(TEXT);
+  const key = keyOf(rel);
+  // Fails closed where the helper cannot run (smartyfs#32). Its private dir holds staging and displaced revisions.
+  const helper = startHelper(root, path.join(recoveryDir, '.staging'), { timeoutMs });
+  let pending = []; // Private entries still open for writing: removed once no one writes to them.
+  let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
+  let unsynced = null; // A published save not yet flushed: { raised }. Nothing is acknowledged until a flush succeeds.
+  let base = null; // The room's state whose text was on disk at the last read or publish.
+  let baseText = '';
+  let baseHash = null;
+  let gone = false;
+  let conflict = null;
+  let queue = Promise.resolve();
+  let watcher = null;
+  let timer = null;
+  let retryTimer = null;
+  let retries = 0;
+  let rewatchTimer = null;
+  let rewatches = 0;
+  let closed = false;
+  const serial = (work) => (queue = queue.then(work, work));
+
+  const merge = (disk) => {
+    const fork = new Y.Doc();
+    Y.applyUpdate(fork, base);
+    const forkText = fork.getText(TEXT);
+    fork.transact(() => {
+      let index = 0;
+      for (const [op, part] of diff(baseText, disk.text)) {
+        if (op === diff.EQUAL) index += part.length;
+        else if (op === diff.DELETE) forkText.delete(index, part.length);
+        else {
+          forkText.insert(index, part);
+          index += part.length;
+        }
+      }
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(fork, Y.encodeStateVectorFromUpdate(base)), DISK_ORIGIN);
+    base = Y.encodeStateAsUpdate(fork);
+    baseText = disk.text;
+    baseHash = disk.hash;
+    gone = false;
+  };
+  const raise = (found) => {
+    conflict = { ...found, at: Date.now() };
+    onConflict(conflict);
+    const result = { ok: false, conflict: found.conflict };
+    if (found.published) result.published = found.published;
+    if (found.recovery) result.recovery = found.recovery;
+    if (found.notice) result.notice = found.notice;
+    return result;
+  };
+
+  // Outside text is merged unasked only as insertions. A revision that removes text may be a writer that truncated and
+  // paused (net-lead round 4: C, pause, then CB would undo the room's deletion of B): it is a conflict until the person
+  // accepts the disk (acceptDisk) or an insertion-only revision arrives; the room keeps its text, the base stays.
+  let held = null;
+  /**
+   * Completes a failed flush (the file's directory, then the private dir). Until it succeeds the save stays a conflict
+   * (raised once) and nothing is acknowledged; a helper that cannot answer keeps it held.
+   */
+  const confirmDurable = async () => {
+    if (!unsynced) return true;
+    const reply = await helper.call({ op: 'flush', path: rel, ...hooks.helper }).catch(() => null);
+    if (reply?.ok) {
+      unsynced = null;
+      if (!uncertain && conflict?.conflict === 'unverified') conflict = null;
+      return true;
+    }
+    if (!unsynced.raised) raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+    unsynced.raised = true;
+    return false;
+  };
+  /** Retries the removal of displaced revisions; bytes written into one meanwhile are kept and shown (residual 4). */
+  const disposePending = async () => {
+    // A displaced revision stays while the save that displaced it is not durable.
+    if (!(await confirmDurable())) return scheduleRetry();
+    const still = [];
+    for (const revision of pending) {
+      const done = await dispose(helper, key, revision, recoveryDir, name, hooks).catch(() => ({ busy: true, hash: revision.hash }));
+      if (done.late) raise({ conflict: 'raced', published: true, recovery: done.late, notice: DISTURBED_NOTICE });
+      if (done.busy) still.push({ entry: revision.entry, hash: done.hash });
+      if (done.unsynced) unsynced ??= { raised: false };
+    }
+    pending = still;
+    if (unsynced) await confirmDurable();
+    scheduleRetry();
+  };
+  /** While revisions are pending or a flush failed, retries on its own (at most `retryLimit` times). */
+  const scheduleRetry = () => {
+    const waiting = pending.length > 0 || unsynced !== null;
+    if (!waiting) retries = 0;
+    if (closed || retryTimer || !waiting || retries >= retryLimit) return;
+    retries += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (!closed) void serial(disposePending).catch(() => {});
+    }, retryMs);
+  };
+  /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
+  const settleUncertain = async () => {
+    if (!uncertain) return true;
+    const disk = await readFile(helper, rel);
+    if (disk?.hash === uncertain.nextHash) {
+      base = uncertain.snapshot;
+      baseText = uncertain.next;
+      baseHash = uncertain.nextHash;
+    } else if (disk === null || disk.hash !== baseHash) {
+      const seen = disk?.hash ?? 'gone';
+      if (uncertain.seen !== seen) raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+      uncertain.seen = seen;
+      return false;
+    }
+    uncertain = null;
+    if (!unsynced) conflict = null; // Adopted by its hash; a pending flush still holds the conflict.
+    return true;
+  };
+  const logError = (type, error) => console.error(JSON.stringify({ type, file: name, error: String(error?.message ?? error) }));
+  /** Watches the file's directory; a watcher error stops it, is shown, and watching restarts (bounded). */
+  const startWatch = () => {
+    watcher?.close(); // Never two live watchers.
+    watcher = null;
+    const current = watch(path.dirname(file), (_event, changed) => {
+      if (changed && String(changed) !== name) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void sync().catch((error) => logError('smarty.coedit-sync-failed', error)), debounceMs);
+    });
+    watcher = current;
+    current.on?.('error', (error) => {
+      logError('smarty.coedit-watch-failed', error);
+      if (watcher !== current) return;
+      current.close();
+      watcher = null;
+      if (closed) return;
+      raise({ conflict: 'unwatched', notice: UNWATCHED_NOTICE });
+      scheduleRewatch();
+    });
+  };
+  const scheduleRewatch = () => {
+    if (closed || rewatchTimer || rewatches >= retryLimit) return;
+    rewatches += 1;
+    rewatchTimer = setTimeout(() => {
+      rewatchTimer = null;
+      if (closed) return;
+      try {
+        startWatch();
+      } catch (error) {
+        logError('smarty.coedit-watch-failed', error);
+        scheduleRewatch();
+        return;
+      }
+      rewatches = 0;
+      // Outside writes made while unwatched are caught up now.
+      void sync().then(() => {
+        if (conflict?.conflict === 'unwatched') conflict = null;
+      }).catch((error) => logError('smarty.coedit-sync-failed', error));
+    }, retryMs);
+  };
+  const sync = () => serial(async () => {
+    if (closed || base === null) return;
+    await disposePending();
+    if (!(await settleUncertain())) return;
+    const disk = await readSettled(helper, rel, settleMs);
+    if (disk === null) gone = true;
+    else if (disk.hash === baseHash) {
+      gone = false;
+      held = null;
+    } else if (REMOVES(baseText, disk.text)) {
+      if (held?.hash !== disk.hash) raise({ conflict: disk.text.length === 0 ? 'truncated' : 'removed' });
+      held = disk;
+    } else {
+      held = null;
+      merge(disk);
+    }
+  });
+
+  return {
+    load: () => serial(async () => {
+      if (closed) throw new Error('Co-edited file is closed');
+      if (base !== null) throw new Error('Co-edited file is already loaded');
+      // Watching starts before the first read, so a write during the load is seen; a failed load releases it.
+      startWatch();
+      let interrupted;
+      let disk;
+      let flushed;
+      try {
+        // A flush that failed before a reopen or restart is not forgotten: the file's directory is flushed first, and
+        // until that succeeds nothing is disposed or acknowledged (a cached read is no durability receipt).
+        flushed = await helper.call({ op: 'flush', path: rel, ...hooks.helper }).then((reply) => reply.ok === true, () => false);
+        interrupted = await finishInterruptedSaves(helper, key, rel, recoveryDir, { durable: flushed, hooks });
+        disk = await readSettled(helper, rel, settleMs);
+        if (disk === null) throw new Error('Co-edited file does not exist');
+      } catch (error) {
+        // The failed load owns its watcher and any restart it scheduled.
+        clearTimeout(rewatchTimer);
+        rewatchTimer = null;
+        rewatches = 0;
+        watcher?.close();
+        watcher = null;
+        throw error;
+      }
+      if (interrupted.finished.length) {
+        raise({ conflict: 'interrupted', recovery: interrupted.finished[0], notice: 'A save of this file was interrupted: its previous version is in the recovery folder.' });
+      }
+      for (const late of interrupted.late) raise({ conflict: 'raced', published: true, recovery: late, notice: DISTURBED_NOTICE });
+      pending.push(...interrupted.pending);
+      if (!flushed || interrupted.unsynced) {
+        unsynced = { raised: true };
+        raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+      }
+      scheduleRetry();
+      doc.transact(() => text.insert(0, disk.text), DISK_ORIGIN);
+      base = Y.encodeStateAsUpdate(doc);
+      baseText = disk.text;
+      baseHash = disk.hash;
+    }),
+    /** The person accepts the held revision on disk (it removes text): it is merged into the room. */
+    acceptDisk: () => serial(async () => {
+      if (closed || !held) return;
+      merge(held);
+      held = null;
+      conflict = null;
+    }),
+    /** Merges a settled outside write into the room now (the watcher also calls it). */
+    sync,
+    /** { ok: true } | { ok: false, conflict: 'gone' | 'changed' | 'unverified' | 'raced', published?, recovery?, notice? }. */
+    save: () => serial(async () => {
+      if (closed || base === null) throw new Error('Co-edited file is not loaded');
+      if (!(await settleUncertain())) return { ok: false, conflict: 'unverified', published: 'uncertain' };
+      await disposePending(); // Completes a failed flush first, then removes what it held.
+      if (unsynced) return { ok: false, conflict: 'unverified', published: true };
+      const next = text.toString();
+      if (next === baseText) return { ok: true };
+      const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
+      const { pending: displaced, unsynced: notFlushed, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
+      if (displaced) pending.push(displaced);
+      if (notFlushed) unsynced = { raised: true }; // Raised with this result; a later flush confirms it.
+      scheduleRetry();
+      if (result.conflict === 'gone') gone = true;
+      // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
+      if (result.published === 'uncertain') {
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), seen: null };
+        return raise(result);
+      }
+      // Not published: the base stays, so the next sync reads what is on disk as an outside change.
+      if (!result.ok && !result.published) return raise(result);
+      // Published (ok, or a conflict found after our bytes reached disk): the base follows what was written, so the
+      // next sync does not replay the room's edit (net-lead round 4); a conflict is still shown.
+      base = snapshot;
+      baseText = next;
+      baseHash = hashBytes(Buffer.from(next, 'utf8'));
+      gone = false; // Ours is the file now.
+      if (!result.ok) return raise(result);
+      conflict = null;
+      return { ok: true };
+    }),
+    state: () => ({ gone, loaded: base !== null, conflict }),
+    /** Stops watching and retrying; waits for work in progress (at most `closeMs`), then ends the helper. */
+    close() {
+      closed = true;
+      clearTimeout(timer);
+      clearTimeout(retryTimer);
+      clearTimeout(rewatchTimer);
+      watcher?.close();
+      // A displaced revision still pending stays in the private dir; the next load keeps and removes it.
+      let bound;
+      const waited = new Promise((done) => { bound = setTimeout(done, closeMs); });
+      return Promise.race([queue.catch(() => {}), waited]).finally(() => clearTimeout(bound)).then(() => helper.close());
+    },
+  };
+}
