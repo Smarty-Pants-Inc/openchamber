@@ -226,6 +226,17 @@ describe('projectSidebarCollection', () => {
     expect(partitionSidebarSessions([promoted], false).chatSessions.map((entry) => entry.id)).toEqual(['fork']);
   });
 
+  test('hides a re-keyed Herdr row whose record names its successor, so one Pi is one row (smarty-code#863)', () => {
+    const old = { ...session('herdr-pane-p1', '/workspace/a'), herdrSuccessor: 'ses-new' };
+    const next = session('ses-new', '/workspace/a');
+    expect(projectSidebarCollection({
+      globalActiveSessions: [old, next],
+      liveSessions: [],
+      knownDirectories: new Set(['/workspace/a']),
+      isVSCode: false,
+    }).map((entry) => entry.id)).toEqual(['ses-new']);
+  });
+
   test('keeps a ranked managed root and its active child in the Chats hierarchy', () => {
     const managedRoot = { ...session('managed-root', '/home/.config/openchamber/chats/2026-08-24/session-root'), time: { created: 1, updated: 1 } };
     const managedChild = {
