@@ -1040,6 +1040,12 @@ const TimelineList = React.memo(({
         };
     }, []);
 
+    // smarty-code#583: away from the live end the reader is going back through history, and rows above the view keep
+    // measuring (estimated rows entering from above, an older page's rows): with size compensation off each measurement
+    // moved the view (a continuous scroll-back jumped 50-500 px many times). There, compensate sizes so the view stays
+    // where the reader is; at the live end keep it off, where a tool result expanding in place grows downward.
+    const [readingHistory, setReadingHistory] = React.useState(false);
+
     // The list reports scroll continuously; only end-crossings are interesting,
     // so the edge is debounced to a state transition here rather than pushing a
     // callback on every frame.
@@ -1049,6 +1055,7 @@ const TimelineList = React.memo(({
         const isAtEnd = resolveTimelineIsAtEnd(state);
         if (typeof isAtEnd !== 'boolean' || isAtEnd === isAtEndRef.current) return;
         isAtEndRef.current = isAtEnd;
+        setReadingHistory(!isAtEnd);
         onIsAtEndChange(isAtEnd);
     }, [onIsAtEndChange]);
 
@@ -1100,7 +1107,7 @@ const TimelineList = React.memo(({
                 // Prepending older history must not move what the user is
                 // reading. Size restoration applies only during a width
                 // resize — see the observer above.
-                maintainVisibleContentPosition={{ data: true, size: isWidthResizing }}
+                maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory }}
                 onScroll={handleScroll}
                 ListHeaderComponent={header}
                 ListFooterComponent={footer}
