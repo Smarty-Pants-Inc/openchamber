@@ -103,10 +103,27 @@ test('forwards only the materialized tail header through the real SDK, preservin
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
 });
 
-test('a second send waits for the revoked view to be re-read instead of sending without one', async () => {
+// smarty-code#827 (slice 1 on 3.48): a steer right after your own prompt sat for the whole 5 s view refresh (5-7 s under
+// load) before its POST left. The gateway accepts an earlier view of the same branch, so it goes at once with the last one.
+test('a second send goes at once with the last view of the branch; it never waits for the revoked view\'s re-read', async () => {
   await loader.ensure(target);
   await opencodeClient.sendMessage(params);
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); }; // A re-read that never answers.
+  const started = Date.now();
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(reads).toBe(0);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST', 'POST']);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, view]);
+});
+
+test('after a reset (a changed branch) the last view is gone: the send waits for a fresh read, as before', async () => {
+  await loader.ensure(target);
+  await opencodeClient.sendMessage(params);
+  loader.invalidateOrdinaryView(target, true); // A 409 or a changed branch resets it.
+  expect(loader.getSendableOrdinaryView(target, 'a')).toBeUndefined();
   const second = `ov2_${'c'.repeat(64)}`;
   history = async () => page(second);
   await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });

@@ -1048,9 +1048,12 @@ class OpencodeService {
     const viewRuntimeKey = params.runtimeKey ?? getRuntimeKey();
     const viewLoader = getImperativeSessionMessageLoader();
     const viewTarget = { directory: requestDirectory ?? '', sessionID: params.id };
-    let ordinaryView = viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey);
-    // Each send revokes the view, and the reply's session.idle refreshes it. A send before that read lands would go
-    // without a view and be refused 409 (#126 R3.6 item 4). Wait for the (coalesced) refresh first, at most 5 s.
+    // smarty-code#827: each send revokes the accepted view (to refresh it), but the gateway accepts an earlier view of
+    // the same branch, so the next send (a steer right after your own prompt) goes with the last one at once. Under load
+    // that refresh took 5-7 s, and every such steer sat silently for the whole 5 s wait below.
+    let ordinaryView = viewLoader?.getSendableOrdinaryView(viewTarget, viewRuntimeKey);
+    // No view of this branch at all (never loaded, or reset): the send would be refused 409 (#126 R3.6 item 4).
+    // Wait for the (coalesced) refresh first, at most 5 s.
     // A session whose history this page never loaded is loaded first when its record says it is ordinary (F11).
     const recordIsOrdinary = () => readOrdinaryModel(getAllSyncSessionMap().get(params.id)) !== undefined;
     if (!ordinaryView && viewLoader && (viewLoader.isOrdinary(viewTarget, viewRuntimeKey) || recordIsOrdinary())) {
@@ -1168,10 +1171,15 @@ class OpencodeService {
     assertProviderCircuitClosed(params.providerID);
     this.assertRuntimeUnchanged(params.runtimeKey);
 
-    if (ordinaryView && (viewLoader !== getImperativeSessionMessageLoader()
-      || getRuntimeKey() !== viewRuntimeKey
-      || viewLoader?.getAcceptedOrdinaryView(viewTarget, viewRuntimeKey) !== ordinaryView)) {
+    if (ordinaryView && (viewLoader !== getImperativeSessionMessageLoader() || getRuntimeKey() !== viewRuntimeKey)) {
       throw new Error('Ordinary history view changed before submission');
+    }
+    if (ordinaryView) {
+      // A newer view of the same branch may have committed meanwhile: it goes (the gateway accepts either). Only a reset
+      // (a changed branch) leaves none, and then nothing is sent.
+      const current = viewLoader?.getSendableOrdinaryView(viewTarget, viewRuntimeKey);
+      if (!current) throw new Error('Ordinary history view changed before submission');
+      ordinaryView = current;
     }
     assertRuntimeRequestScope(scope);
     params.beforeDispatch?.();

@@ -77,6 +77,10 @@ type LoaderEntry = {
   replaceEpoch: number
   ordinaryRefresh: Promise<void> | null
   ordinaryDemand: number
+  /** smarty-code#827: the last view this page committed on this branch. A send revokes the accepted view (to refresh it),
+   * but the gateway accepts an earlier view of the same branch, so the next send need not wait for that refresh. A reset
+   * (a changed branch, a 409, a new runtime) clears it. */
+  lastOrdinaryView?: string
   /** Each missing prompt a reload from the start already tried to load: never reloaded for again. */
   repairedPrompts?: Set<string>
   /** Reads that saw the session leave View only but were stale (a live event during the read), smarty-code#497. */
@@ -219,6 +223,7 @@ export class SessionMessageLoader {
         ordinaryView: undefined,
         generation: entry.snapshot.generation + 1,
       }
+      entry.lastOrdinaryView = undefined
       entry.inflight = null
       entry.openUnanswered = false // A new connection (re-login, reconnect) may answer: the page's reloads may try again.
       if (entry.ordinary) this.invalidateOrdinaryView(entry.target, true)
@@ -495,6 +500,16 @@ export class SessionMessageLoader {
     return entry?.snapshot.status === "ready" || refreshing ? entry?.snapshot.ordinaryView : undefined
   }
 
+  /** smarty-code#827: the view a send may carry now: the accepted one, else the last one committed on this branch (a
+   * send's own revocation keeps it; a reset clears it). Undefined only when the page has no view of this branch. */
+  getSendableOrdinaryView(target: SessionMessageTarget, runtimeKey: string): string | undefined {
+    const accepted = this.getAcceptedOrdinaryView(target, runtimeKey)
+    if (accepted) return accepted
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return undefined
+    return this.entries.get(this.keyFor(normalized))?.lastOrdinaryView
+  }
+
   /** True once this session's history was served as an ordinary (view-guarded) transcript. */
   isOrdinary(target: SessionMessageTarget, runtimeKey: string): boolean {
     const normalized = this.normalizeTarget(target)
@@ -515,6 +530,7 @@ export class SessionMessageLoader {
       status: entry.snapshot.resolved ? "ready" : "idle",
     }
     if (resetHistory) {
+      entry.lastOrdinaryView = undefined
       patch.status = "idle"
       patch.resolved = false
       patch.cursor = undefined
@@ -632,6 +648,7 @@ export class SessionMessageLoader {
     entry.optimistic.clear()
     // Keep the last known read-only marker until a fresh newest page replaces it.
     entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
+    entry.lastOrdinaryView = undefined
     entry.resetHistory = entry.ordinary
     clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
     this.notify(entry)
@@ -715,6 +732,7 @@ export class SessionMessageLoader {
 
   private patchEntry(entry: LoaderEntry, patch: Partial<SessionMessageLoadState>): void {
     entry.snapshot = { ...entry.snapshot, ...patch }
+    if (typeof patch.ordinaryView === "string") entry.lastOrdinaryView = patch.ordinaryView
     this.notify(entry)
   }
 
