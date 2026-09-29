@@ -31,7 +31,9 @@ test('the first boundary is read ahead too: leaving the end (or Beginning) reads
     const firstLeadPx = WINDOW_RECORDS * MIN_RECORD_PX;
     expect(firstLeadPx).toBeGreaterThanOrEqual(leadNeededPx);
     const source = readFileSync(new URL('../ChatContainer.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('loadWindow([{ start: Math.max(0, tailStart - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, tailStart) }]);');
+    expect(source).toContain('loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);');
+    // Once per leaving the end, not on every new tail start (that chained through the whole session).
+    expect(source).toContain('}, [awayFromEnd, loadWindow]);');
     expect(source).toContain('loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);');
 });
 

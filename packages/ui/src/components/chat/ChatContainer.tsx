@@ -1234,10 +1234,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     // requested when the list mounts it, ~1,800 px ahead: under the rate check's lead, readAhead.test.ts).
     const awayFromEnd = timelineController.showScrollToBottom;
     const tailStart = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
+    // Once per leaving: the loaded window joins the tail's range, and reading again on each new tail start chained
+    // through the whole session (13,758 records in 20 s, candidate 05:03Z).
+    const tailStartRef = React.useRef(tailStart);
+    tailStartRef.current = tailStart;
     React.useEffect(() => {
-        if (!awayFromEnd || tailStart === undefined || tailStart <= 0) return;
-        loadWindow([{ start: Math.max(0, tailStart - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, tailStart) }]);
-    }, [awayFromEnd, loadWindow, tailStart]);
+        const start = tailStartRef.current;
+        if (!awayFromEnd || start === undefined || start <= 0) return;
+        loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);
+    }, [awayFromEnd, loadWindow]);
     React.useEffect(() => {
         if (!scrollNode) return;
         // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.
