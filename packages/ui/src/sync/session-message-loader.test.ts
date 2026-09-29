@@ -83,6 +83,41 @@ describe("SessionMessageLoader", () => {
     childStores.disposeAll()
   })
 
+  // smarty-code#963 residual (3.54): a session shown live whose Pi then ended is read from its journal (read-only, no
+  // ordinary view). The loader still expected a view and failed the refresh and the next open: "could not be loaded".
+  test("a live session whose Pi ended loads its read-only journal page; a live page without a view still fails", async () => {
+    const view = `ov2_${"d".repeat(64)}`
+    let ended = false, liveWithoutView = false
+    const { childStores, loader } = createLoader(async () => ({
+      data: [createRecord("session-a")],
+      response: { headers: { get: (name: string) => name === "x-smarty-read-only" ? (ended ? "1" : null)
+        : name === "x-smarty-ordinary-view" ? (ended || liveWithoutView ? null : view) : null } },
+    }))
+    const target = { directory: "/repo", sessionID: "session-a" }
+    try {
+      await loader.ensure(target, { reason: "navigation" })
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(view)
+      ended = true
+      await loader.refreshTail(target, 50)
+      expect(loader.getSnapshot(target).status).toBe("ready")
+      expect(loader.getSnapshot(target).readOnly).toBe(true)
+      loader.invalidateSession(target)
+      await loader.ensure(target, { reason: "navigation" })
+      expect(loader.getSnapshot(target).status).toBe("ready")
+      expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.length).toBe(1)
+    } finally { loader.dispose(); childStores.disposeAll() }
+    // Counterexample: a live (not read-only) page without the view is still refused.
+    ended = false
+    const second = createLoader(async () => ({ data: [createRecord("session-a")], response: { headers: { get: (name: string) =>
+      name === "x-smarty-ordinary-view" && !liveWithoutView ? view : null } } }))
+    try {
+      await second.loader.ensure(target, { reason: "navigation" })
+      liveWithoutView = true
+      await second.loader.refreshTail(target, 50).catch(() => undefined)
+      expect(second.loader.getSnapshot(target).status).toBe("error")
+    } finally { second.loader.dispose(); second.childStores.disposeAll() }
+  })
+
   test("an older page never clears the read-only marker", async () => {
     const { childStores, loader } = createLoader(async (input) => ({
       data: [createRecord("session-a", input.before ? "msg-0" : "msg-1")],
