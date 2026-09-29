@@ -48,7 +48,7 @@ export const sentStartStoppedBy = (runtimeKey: string, directory: string): strin
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
-const sending = new Map<string, () => void>();
+const sending = new Map<string, { release: () => void; request: Promise<unknown> }>();
 
 const parseMarker = (raw: string | null): Marker | undefined => {
   try {
@@ -74,15 +74,22 @@ export function holdSentStart(clientRequestId: string): void {
   if (sending.has(clientRequestId)) return;
   let release = () => {};
   const done = new Promise<void>(resolve => { release = resolve; });
-  sending.set(clientRequestId, release);
-  void locks()?.request(lockName(clientRequestId), () => done).catch(() => undefined);
+  // The request's own promise settles only once the browser has released the lock (not when `done` resolves): kept,
+  // so a release can be awaited before the lock is read again (smarty-code#523, openchamber#357 review 1).
+  const request = locks()?.request(lockName(clientRequestId), () => done).catch(() => undefined) ?? Promise.resolve();
+  sending.set(clientRequestId, { release, request });
 }
 
-/** This page's Send attempt for the request ended (admitted, refused, stopped or given up). The mark stays. */
-export function releaseSentStart(clientRequestId: string | undefined): void {
-  if (!clientRequestId) return;
-  sending.get(clientRequestId)?.();
+/**
+ * This page's Send attempt for the request ended (admitted, refused, stopped or given up). The mark stays. The returned
+ * promise settles when the browser has actually released the lock (callers that read the lock next must await it).
+ */
+export function releaseSentStart(clientRequestId: string | undefined): Promise<void> {
+  if (!clientRequestId) return Promise.resolve();
+  const held = sending.get(clientRequestId);
+  held?.release();
   sending.delete(clientRequestId);
+  return held ? held.request.then(() => undefined, () => undefined) : Promise.resolve();
 }
 
 /** The start for this Send was accepted: its text is sent, not an ordinary draft, until the start resolves. */
@@ -284,6 +291,6 @@ export const sentStartLocks = (outcome: Resolved): boolean =>
 
 /** Tests model a page load. */
 export function resetSentStartsForPage(): void {
-  for (const release of sending.values()) release();
+  for (const held of sending.values()) held.release();
   sending.clear(); outcomes.clear(); handled.clear(); stoppers.clear(); notify();
 }
