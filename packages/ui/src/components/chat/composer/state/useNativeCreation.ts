@@ -56,7 +56,9 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
   const admitted = useDirectoryStore(s => s.managedDirectories?.includes(directory ?? '') ?? false);
   React.useEffect(() => {
     if (!draft.open || !directory || discoveryPending || draft.pendingWorktreeRequestId) return;
-    let cancelled = false, request = 0, retries = 0, retry: ReturnType<typeof setTimeout> | undefined;
+    // A finished check is kept unless a newer one was already applied: under steady invalidations (a frozen start's
+    // ~12 s reads) dropping every superseded one would leave the stuck start, and its Stop, unshown (smarty-code#523).
+    let cancelled = false, request = 0, applied = 0, retries = 0, retry: ReturnType<typeof setTimeout> | undefined;
     const check = async () => {
       // One pending recheck at most: a new check (an invalidation during the wait) replaces it; nothing after cleanup.
       clearTimeout(retry);
@@ -66,17 +68,20 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
         const { mode: support, abandon } = await opencodeClient.nativeCreationSupport(directory);
         const operations = support === 'interactive' ? await opencodeClient.listNativeCreations(directory) : [];
         if (operations.some(operation => operation.directory !== directory)) throw new NativeCreationError('stale');
-        if (cancelled || ticket !== request || getRuntimeKey() !== runtimeKey) return;
+        if (cancelled || ticket <= applied || getRuntimeKey() !== runtimeKey) return;
+        applied = ticket;
         setCapability({ runtimeKey, directory, mode: support === 'legacy' ? 'legacy' : 'ordinary', operations, abandon });
         await refreshNativeCreation();
       } catch {
-        if (cancelled || ticket !== request || getRuntimeKey() !== runtimeKey) return;
+        // Never over a newer applied result; the same check failing after its own result (refresh) still says so.
+        if (cancelled || ticket < applied || getRuntimeKey() !== runtimeKey) return;
         // The draft's own '+ New' tree: the gateway admits it a moment after it is made and refuses until then
         // (smarty-code#629). Check again shortly instead of saying the server is unreachable; only then say so.
         if (directory === draft.bootstrapPendingDirectory && retries < NEW_TREE_RETRY_MS.length) {
-          retry = setTimeout(() => void check(), NEW_TREE_RETRY_MS[retries++]);
+          if (ticket === request) retry = setTimeout(() => void check(), NEW_TREE_RETRY_MS[retries++]);
           return;
         }
+        applied = ticket;
         setCapability({ runtimeKey, directory, mode: 'unavailable', operations: [] });
       }
     };
