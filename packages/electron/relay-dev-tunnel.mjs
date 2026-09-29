@@ -2,6 +2,7 @@ import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 
 const CONNECTION_READY_TIMEOUT_MS = 15_000;
+const PORT_CLOSE_DELAY_MS = 1_000;
 
 const listen = (server) => new Promise((resolve, reject) => {
   server.once('error', reject);
@@ -61,7 +62,9 @@ export const createRelayDevTunnelBridge = ({ createMessageChannel, logger = cons
           connections.delete(connectionId);
           try { port1.postMessage({ type: 'close' }); } catch { /* already closed */ }
           try { socket.destroy(); } catch { /* already closed */ }
-          try { port1.close(); } catch { /* already closed */ }
+          // The renderer learns of the close only from that message: closing the port in the same turn can drop it
+          // (bun 1.3.14 lost 7 of 100, a next-turn close 1 of 200; smarty-code#674). ponytail: the port stays open 1 s.
+          setTimeout(() => { try { port1.close(); } catch { /* already closed */ } }, PORT_CLOSE_DELAY_MS).unref?.();
         };
         connections.set(connectionId, { close });
 

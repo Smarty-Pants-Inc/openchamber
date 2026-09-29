@@ -77,6 +77,40 @@ describe('relay dev tunnel bridge', () => {
     await rendererClosed;
   });
 
+  test('the renderer is told of a close even when closing the port drops undelivered messages (smarty-code#674)', async () => {
+    // Bun 1.3.14's MessagePort sometimes dropped a close posted in the same turn as the port's own close (7 of 100 runs
+    // of the test above). This channel does that every time: a close drops what it has not delivered yet.
+    const lossyChannel = () => {
+      let open = true;
+      const port = () => {
+        const listeners = { message: [], close: [] };
+        return { listeners, on: (event, fn) => listeners[event]?.push(fn), start: () => {} };
+      };
+      const port1 = port(), port2 = port();
+      const send = (to) => (message) => setImmediate(() => { if (open) for (const fn of to.listeners.message) fn(message); });
+      const close = () => { if (!open) return; open = false; for (const p of [port1, port2]) for (const fn of p.listeners.close) fn(); };
+      Object.assign(port1, { postMessage: send(port2), close }); Object.assign(port2, { postMessage: send(port1), close });
+      return { port1, port2 };
+    };
+    const rendererClosed = new Promise((resolve) => {
+      const webContents = {
+        id: 12,
+        isDestroyed: () => false,
+        once: () => {},
+        postMessage: (_channel, _payload, ports) => {
+          ports[0].on('message', (message) => { if (message.type === 'close') resolve('told'); });
+          ports[0].postMessage({ type: 'ready' });
+        },
+      };
+      const bridge = createRelayDevTunnelBridge({ createMessageChannel: lossyChannel });
+      bridges.push(bridge);
+      void bridge.open({ targetKey: 'host:exe', remotePort: 4322, webContents }).then(({ localPort }) => {
+        const socket = net.connect({ host: '127.0.0.1', port: localPort }, () => socket.destroy());
+      });
+    });
+    expect(await Promise.race([rendererClosed, new Promise((resolve) => setTimeout(() => resolve('not told'), 3000))])).toBe('told');
+  });
+
   test('closes only listeners owned by the requested desktop window', async () => {
     const bridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannel() });
     bridges.push(bridge);
