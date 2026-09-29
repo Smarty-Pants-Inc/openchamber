@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { lastRealMessage } from './message/systemNote';
 import { useLatestSessionError } from '@/sync/notification-store';
 import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
+import { usePromptsInFlight } from '@/sync/prompts-in-flight';
 
 interface SessionErrorNoticeProps {
   sessionId: string;
@@ -77,17 +78,32 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
   // A user message that the session is idle on, with nothing after it for a
   // while, is a reply that never began: the send was accepted but OpenCode
   // produced neither a message nor an error for it.
-  const unansweredSince = !reportedError && isIdle && lastMessage?.role === 'user' ? lastMessage.timestamp : null;
+  // While this page's prompt call is pending, the owner has not answered yet: "Sending…", never "did not start". The
+  // clock starts when the call answers (a busy owner under load takes 15-18 s, smarty-code#902). A refusal is an answer
+  // with an error, shown by the send's own error path at once.
+  const sending = usePromptsInFlight((state) => (state.pending[sessionId] ?? 0) > 0);
+  const answeredAt = usePromptsInFlight((state) => state.answeredAt[sessionId] ?? 0);
+  const waitingSince = !reportedError && isIdle && lastMessage?.role === 'user' ? Math.max(lastMessage.timestamp, answeredAt) : null;
+  // One clock: while sending, from the message (after the same wait it says "Sending…"); after, from the answer.
+  const clockSince = waitingSince === null ? null : sending ? lastMessage?.timestamp ?? waitingSince : waitingSince;
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
-    if (unansweredSince === null) return undefined;
-    const remaining = UNANSWERED_AFTER_MS - (Date.now() - unansweredSince);
+    if (clockSince === null) return undefined;
+    const remaining = UNANSWERED_AFTER_MS - (Date.now() - clockSince);
     if (remaining <= 0) return undefined;
     const timer = window.setTimeout(() => setNow(Date.now()), remaining + 50);
     return () => window.clearTimeout(timer);
-  }, [unansweredSince]);
-  const unanswered = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= UNANSWERED_AFTER_MS;
+  }, [clockSince, sending]);
+  const waited = clockSince !== null && Math.max(now, Date.now()) - clockSince >= UNANSWERED_AFTER_MS;
+  const unanswered = !sending && waited;
 
+  if (sending && waited) {
+    return (
+      <div className="chat-message-column">
+        <div role="status" className="mt-3 text-sm text-muted-foreground">{t('chat.sessionError.sending')}</div>
+      </div>
+    );
+  }
   if (!reportedError && !unanswered) return null;
 
   const detail = reportedError
