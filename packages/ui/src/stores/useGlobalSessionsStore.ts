@@ -646,8 +646,8 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     // kept) until a listing names it again. A session whose project left the catalog is dropped, as before.
     const open = useSessionUIStore.getState().currentSessionId;
     const last = open ? get().entityById.get(open) : undefined;
-    const unavailable: Session & { ordinary: OrdinaryModelState } | undefined = last
-      ? { ...last, ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null } } : undefined;
+    const unavailable: Session & { ordinary: OrdinaryModelState; smartyRetainedUnavailable: true } | undefined = last
+      ? { ...last, ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null }, smartyRetainedUnavailable: true } : undefined;
     const retained = unavailable && !unavailable.time.archived && directories.has(unavailable.directory) && !sessions.some(session => session.id === open)
       ? [unavailable] : [];
     set(state => {

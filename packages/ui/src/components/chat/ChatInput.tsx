@@ -1,3 +1,4 @@
+import { isRetainedUnavailable, readOpenOrdinaryState, useOpenOrdinaryState } from '@/hooks/useOpenOrdinaryState';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
@@ -1062,11 +1063,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // right after its Pi was relaunched), Send is shown disabled, with the reason, instead of refusing on press.
     // Read as Send's own check reads it (every render); while unavailable it is read again each second, so Send comes
     // back as soon as the session does, even with no keystroke.
-    const ordinaryNow = currentSessionId ? readOrdinaryModel(
-        getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined).find(session => session.id === currentSessionId),
-    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId))
-        // smarty-code#600: an open session one listing left out is kept (useGlobalSessionsStore), shown unavailable.
-        ?? readOrdinaryModel(useGlobalSessionsStore.getState().entityById.get(currentSessionId)) : undefined;
+    // The open session's availability (hooks/useOpenOrdinaryState): a session the managed listing left out is unavailable
+    // over any older sync row, and this composer re-renders when that mark changes (openchamber#364 review).
+    const ordinaryNow = useOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
@@ -1432,11 +1431,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             toast.error(message);
             if (nativeIntent) nativeCreation.noteRefusal(new NativeCreationError('unavailable', undefined, message));
         };
-        const ordinary = currentSessionId ? readOrdinaryModel(
-            getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
-                .find(session => session.id === currentSessionId),
-        // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b).
-        ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+        // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b); a session
+        // the managed listing left out is unavailable over them (openchamber#364).
+        const ordinary = readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
+            isRetainedUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
         if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
