@@ -25,15 +25,15 @@ test('one window lasts longer than a read, so the reads keep up with the wheel',
     expect(windowSeconds * 1000).toBeGreaterThanOrEqual(READ_AHEAD_WINDOWS * P90_WINDOW_READ_MS * MARGIN);
 });
 
-test('the first boundary is read ahead too: leaving the end (or Beginning) reads a whole window before any placeholder shows', () => {
-    // ChatContainer reads the window above the tail when the reader leaves the live end, and the window after the first
+test('the first boundary is read ahead too: opening (or Beginning) reads a whole window before any placeholder shows', () => {
+    // ChatContainer reads the window above the tail once positions are known (at the live end), and the window after the first
     // one after Beginning: the first placeholder is a window (not the draw distance) away when its read starts.
     const firstLeadPx = WINDOW_RECORDS * MIN_RECORD_PX;
     expect(firstLeadPx).toBeGreaterThanOrEqual(leadNeededPx);
     const source = readFileSync(new URL('../ChatContainer.tsx', import.meta.url), 'utf8');
     expect(source).toContain('loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);');
-    // Once per leaving the end, not on every new tail start (that chained through the whole session).
-    expect(source).toContain('}, [awayFromEnd, loadWindow]);');
+    // Once per session, while still at the end (not on every new tail start: that chained through the whole session).
+    expect(source).toContain('}, [tailKnown, loadWindow]);');
     expect(source).toContain('loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);');
 });
 

@@ -1230,19 +1230,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
-    // Leaving the live end: the window above the loaded tail is read ahead (the first placeholder up is otherwise only
-    // requested when the list mounts it, ~1,800 px ahead: under the rate check's lead, readAhead.test.ts).
-    const awayFromEnd = timelineController.showScrollToBottom;
+    // The window above the loaded tail is read ahead once the session's positions are known, while the reader is still
+    // at the live end (where the list keeps the end in place). Read on leaving the end instead, its commit moved the
+    // view by 600-850 px (candidate 05:18Z); without it, the first placeholder up is requested only when the list
+    // mounts it, ~1,800 px ahead: under the rate check's lead (readAhead.test.ts). Once per session.
     const tailStart = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
-    // Once per leaving: the loaded window joins the tail's range, and reading again on each new tail start chained
-    // through the whole session (13,758 records in 20 s, candidate 05:03Z).
+    const tailKnown = tailStart !== undefined;
     const tailStartRef = React.useRef(tailStart);
     tailStartRef.current = tailStart;
     React.useEffect(() => {
         const start = tailStartRef.current;
-        if (!awayFromEnd || start === undefined || start <= 0) return;
+        if (!tailKnown || start === undefined || start <= 0) return;
         loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);
-    }, [awayFromEnd, loadWindow]);
+    }, [tailKnown, loadWindow]);
     React.useEffect(() => {
         if (!scrollNode) return;
         // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.
