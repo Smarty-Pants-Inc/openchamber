@@ -563,7 +563,14 @@ export class SessionMessageLoader {
     const normalized = this.normalizeTarget(target)
     const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
     if (!normalized || !entry?.ordinary || this.disposed) return Promise.resolve()
-    if (resetHistory) this.invalidateOrdinaryView(normalized, true)
+    if (resetHistory) {
+      // smarty-code#827: an event reset (a removed row: while an agent works the gateway removes its live rows all the
+      // time, or an error) re-reads history from the start but is no changed branch: the last view stays sendable, so a
+      // steer does not sit through that re-read. The gateway refuses a view its branch moved past (409, re-read, resent).
+      const last = entry.lastOrdinaryView
+      this.invalidateOrdinaryView(normalized, true)
+      entry.lastOrdinaryView = last
+    }
     entry.ordinaryDemand += 1
     if (entry.ordinaryRefresh) return entry.ordinaryRefresh
     const sdkEpoch = this.sdkEpoch

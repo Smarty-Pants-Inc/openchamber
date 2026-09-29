@@ -385,3 +385,18 @@ test('a Send with the kept view after the session moved on is refused by the gat
   const bodies = await Promise.all(prompts().map(request => request.json()));
   expect(bodies.map(body => body.messageID)).toEqual(['msg_client', 'msg_client']); // The same message, never a second one.
 });
+
+// smarty-code#827: while an agent works, each removed live row resets the view (message.removed); a steer then found no
+// view and waited the whole 5 s re-read. The reset re-reads history, but the last view stays sendable.
+test('an event reset (a removed live row) keeps the last view sendable: a steer goes at once', async () => {
+  await loader.ensure(target);
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); };
+  void loader.refreshOrdinaryView(target, true);
+  expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
+  const started = Date.now();
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_steer' });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view]);
+  expect(reads).toBe(1); // The reset's own re-read, not one the send waited for.
+});
