@@ -45,6 +45,22 @@ export async function resumeNativeCreation(operation: NativeCreationState): Prom
   await refreshNativeCreation();
 }
 
+/** The new session, read after 'ready'. A read replays nothing: one without a definite answer (a timeout, network error,
+ * 5xx, 408, 429) is read again with backoff (smarty-code#931: a read burst made a started session look unclear). */
+const READY_READ_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000];
+async function readReadySession(record: Pending, id: string) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await opencodeClient.getSession(id, record.directory); }
+    catch (error) {
+      const status = (error as { status?: number }).status;
+      const definite = status !== undefined && status < 500 && status !== 408 && status !== 429;
+      if (definite || attempt >= READY_READ_BACKOFF_MS.length) throw error;
+      await new Promise(resolve => setTimeout(resolve, READY_READ_BACKOFF_MS[attempt]));
+      assertCurrent(record);
+    }
+  }
+}
+
 async function acceptState(record: Pending, next: NativeCreationState) {
   const previous = record.operation;
   // A stopped operation is final whatever generation it reports (an abandoned one reports none, #340): accept it.
@@ -69,7 +85,7 @@ async function acceptState(record: Pending, next: NativeCreationState) {
   assertCurrent(record);
   if (next.phase === 'ready') {
     if (!next.native) throw new NativeCreationError('unknown');
-    const detail = await opencodeClient.getSession(next.native.id, record.directory);
+    const detail = await readReadySession(record, next.native.id);
     assertCurrent(record);
     const ordinary = readOrdinaryModel(detail);
     if (detail.id !== next.native.id || detail.directory !== record.directory
