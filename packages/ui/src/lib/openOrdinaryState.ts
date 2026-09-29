@@ -1,4 +1,5 @@
 import type { Session } from '@opencode-ai/sdk/v2';
+import { isHerdrEnded } from '@/lib/herdrSession';
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getAllSyncSessions, getSyncSessions } from '@/sync/sync-refs';
@@ -6,6 +7,13 @@ import { getAllSyncSessions, getSyncSessions } from '@/sync/sync-refs';
 /** The global store's mark on an open session one managed listing left out (smarty-code#600): kept, unavailable. */
 export const isRetainedUnavailable = (session: Session | undefined): boolean =>
     Boolean(session && 'smartyRetainedUnavailable' in session && session.smartyRetainedUnavailable === true);
+
+/**
+ * The global (managed listing) row says the open session cannot take a message now, whatever its older directory row
+ * says: one listing left it out (the retained mark, #600), or its Pi has ended (herdrState 'ended', smarty-code#811: on a
+ * busy fleet the directory row can miss that update, as the directory stream closes whenever any row leaves).
+ */
+export const isGloballyUnavailable = (session: Session | undefined): boolean => isRetainedUnavailable(session) || isHerdrEnded(session);
 
 /**
  * The open ordinary session's model state, as Send's own check reads it (smarty-code#778, #790, #600): its directory's

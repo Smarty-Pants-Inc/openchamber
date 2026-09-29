@@ -1,3 +1,4 @@
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { z } from 'zod';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
@@ -1043,6 +1044,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const messageListRef = React.useRef<MessageListHandle | null>(null);
 
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
+    // smarty-code#811: the managed listing's row can say 'ended' while this directory row missed the update (busy fleet).
+    const globalEnded = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isHerdrEnded(state.entityById.get(currentSessionId!)));
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
     const needsOrdinaryDetail = Boolean(currentSession && readOrdinaryModel(currentSession)
         && !Object.hasOwn(currentSession, 'ordinary'));
@@ -1749,8 +1752,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         </div>
                     </>
                 )}
-                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession) ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)} reloading={isOrdinaryReloading(currentSession)} />
+                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded) ? (
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession) || globalEnded} reloading={isOrdinaryReloading(currentSession)} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
