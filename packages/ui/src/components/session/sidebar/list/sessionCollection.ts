@@ -15,6 +15,7 @@ import { deriveRecentSessions } from '../recent/activitySections';
 import { normalizePath } from '../utils';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
 import { isBtwSession } from '@/lib/sessionBtwMetadata';
+import { herdrSuccessorOf } from '@/lib/herdrSession';
 import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
 import { countSyncPerformance } from '@/sync/performance-diagnostics';
 
@@ -46,6 +47,8 @@ export const partitionSidebarSessions = (
   const chatSessions: Session[] = [];
   for (const session of sessions) {
     if (isBtwSession(session)) continue;
+    // A re-keyed Herdr Pi: its successor is the row; the old record must not stay as a second one (smarty-code#863).
+    if (herdrSuccessorOf(session)) continue;
     if (isChatDirectoryPath(session.directory)) {
       if (isVSCode) continue;
       chatSessions.push(session);

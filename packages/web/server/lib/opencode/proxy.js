@@ -232,6 +232,10 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   // showed OpenCode's activity instead of Herdr's words until each row's next live update.
   'herdrState',
   'herdrNoIdentity',
+  // A re-keyed pane row's successor (smarty-code#863) and a fleet Pi mid-reload (smarty-code#870): the page reads both from
+  // the list row, so a page that opens the session from the list says "reloading", not View only.
+  'herdrSuccessor',
+  'ordinaryReloading',
 ];
 
 const sanitizeSessionListItem = (session) => {
@@ -866,6 +870,8 @@ export const registerOpenCodeProxy = (app, deps) => {
 
   app.get('/api/global/event', forwardSseRequest);
   app.get('/api/event', forwardSseRequest);
+  // smarty-code#701: the inbox badge's stream; the generic proxy's response deadline would cut it.
+  app.get('/api/inbox/events', forwardSseRequest);
 
   app.get('/api/experimental/session', (req, res, next) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'experimental.session');

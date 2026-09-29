@@ -5,6 +5,18 @@ import { createRelayDevTunnelBridge } from './relay-dev-tunnel.mjs';
 
 const bridges = [];
 
+// smarty-code#674: Bun 1.3.14's worker_threads MessagePort sometimes drops a message posted in the same turn as the
+// port's close() (the unchanged bridge lost the renderer's 'close' in 16 of 150 fresh Bun processes, 0 of 150 under
+// Node 24). The desktop app runs the bridge on Electron's Node with MessageChannelMain, so the tests' channel closes
+// port1 a little later under Bun only; the bridge itself is unchanged.
+const testChannel = () => {
+  const channel = new MessageChannel();
+  if (typeof Bun === 'undefined') return channel;
+  const close = channel.port1.close.bind(channel.port1);
+  channel.port1.close = () => { setTimeout(close, 1000).unref?.(); };
+  return channel;
+};
+
 afterEach(() => {
   while (bridges.length) bridges.pop().closeAll();
 });
@@ -29,7 +41,7 @@ describe('relay dev tunnel bridge', () => {
         nextPort.postMessage({ type: 'ready' });
       },
     };
-    const bridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannel(), logger: { warn: () => {} } });
+    const bridge = createRelayDevTunnelBridge({ createMessageChannel: testChannel, logger: { warn: () => {} } });
     bridges.push(bridge);
     const { localPort } = await bridge.open({ targetKey: 'host:exe', remotePort: 4322, webContents });
 
@@ -45,7 +57,7 @@ describe('relay dev tunnel bridge', () => {
 
   test('reuses one local listener for the same window, runtime, and port', async () => {
     const webContents = { id: 9, isDestroyed: () => false, once: () => {}, postMessage: () => {} };
-    const bridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannel() });
+    const bridge = createRelayDevTunnelBridge({ createMessageChannel: testChannel });
     bridges.push(bridge);
     const first = await bridge.open({ targetKey: 'host:exe', remotePort: 4322, webContents });
     const second = await bridge.open({ targetKey: 'host:exe', remotePort: 4322, webContents });
@@ -67,7 +79,7 @@ describe('relay dev tunnel bridge', () => {
           rendererPort.postMessage({ type: 'ready' });
         },
       };
-      const bridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannel() });
+      const bridge = createRelayDevTunnelBridge({ createMessageChannel: testChannel });
       bridges.push(bridge);
       void bridge.open({ targetKey: 'host:exe', remotePort: 4322, webContents }).then(({ localPort }) => {
         const socket = net.connect({ host: '127.0.0.1', port: localPort }, () => socket.destroy());
@@ -78,7 +90,7 @@ describe('relay dev tunnel bridge', () => {
   });
 
   test('closes only listeners owned by the requested desktop window', async () => {
-    const bridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannel() });
+    const bridge = createRelayDevTunnelBridge({ createMessageChannel: testChannel });
     bridges.push(bridge);
     const windowOne = { id: 21, isDestroyed: () => false, once: () => {}, postMessage: () => {} };
     const windowTwo = { id: 22, isDestroyed: () => false, once: () => {}, postMessage: () => {} };

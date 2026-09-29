@@ -93,6 +93,12 @@ interface ProjectTurnRecordsOptions {
     mergeHiddenUserTurns?: { planModeEnabled: boolean };
     /** Older history exists above the loaded window: show the leading assistant messages. */
     showLeadingOrphans?: boolean;
+    /**
+     * smarty-code#583: replies the list already showed as their own rows (leading orphans, their user message not yet
+     * loaded). They stay their own rows when that user message arrives with an older page, so the rows the reader is
+     * looking at keep their keys and the list keeps their place; regrouping them into a new turn row moved the view.
+     */
+    keepUngroupedAssistantIds?: ReadonlySet<string>;
 }
 
 const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
@@ -255,6 +261,9 @@ export const projectTurnRecords = (
             return;
         }
 
+        if (effectiveOptions.keepUngroupedAssistantIds?.has(message.info.id)) {
+            return;
+        }
         const parentId = getMessageParentId(message);
         const targetTurn = parentId ? turnByUserId.get(parentId) : undefined;
         if (!targetTurn) {
@@ -280,6 +289,10 @@ export const projectTurnRecords = (
     const firstUserIndex = messages.findIndex((message) => resolveMessageRole(message) === 'user');
     messages.forEach((message, index) => {
         if (resolveMessageRole(message) === 'assistant') {
+            if (effectiveOptions.keepUngroupedAssistantIds?.has(message.info.id)) {
+                ungroupedMessageIds.add(message.info.id);
+                return;
+            }
             if (effectiveOptions.showLeadingOrphans && !groupedMessageIds.has(message.info.id)
                 && (firstUserIndex < 0 || index < firstUserIndex)) {
                 ungroupedMessageIds.add(message.info.id);
@@ -295,4 +308,13 @@ export const projectTurnRecords = (
         ...projection,
         ungroupedMessageIds,
     };
+};
+
+/** smarty-code#583: adds the replies this projection shows as their own leading-orphan rows to `kept`. */
+export const rememberShownOrphans = (messages: ChatMessageEntry[], projection: TurnProjectionResult, kept: Set<string>): void => {
+    for (const message of messages) {
+        if (projection.ungroupedMessageIds.has(message.info.id) && resolveMessageRole(message) === 'assistant') {
+            kept.add(message.info.id);
+        }
+    }
 };

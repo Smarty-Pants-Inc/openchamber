@@ -1,3 +1,5 @@
+import { isRetainedUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
@@ -41,6 +43,7 @@ import {
     type ChatDraftIdentity,
     type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
+import { holdReload } from '@/lib/newBuildReload';
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
 import { BtwPanel } from './btw/BtwPanel';
 import { useBtwPanelState } from './btw/useBtwPanelState';
@@ -193,6 +196,7 @@ import {
     mergeSessionInputHistory,
 } from './inputHistory';
 import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { useStatusUnavailable } from '@/sync/status-unavailable';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -343,6 +347,8 @@ interface ChatInputProps {
     draftPresentationExiting?: boolean;
     /** The open session's history failed to load: say why nothing can be sent (#536). */
     sessionLoadFailed?: boolean;
+    /** Its fleet Pi is reloading (smarty-code#870): say why Send is off for now; the draft stays. */
+    piReloading?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -364,6 +370,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     active = true,
     draftPresentationExiting = false,
     sessionLoadFailed = false,
+    piReloading = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -511,7 +518,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const consumePendingSyntheticParts = useInputStore((s) => s.consumePendingSyntheticParts);
     const acknowledgeSessionAbort = useSessionUIStore((s) => s.acknowledgeSessionAbort);
     const stopSessionId = isBtwActive && btwSessionId ? btwSessionId : currentSessionId;
-    const displayedStopStatus = useSessionStatus(stopSessionId ?? '', (isBtwActive ? btwDirectory : currentSessionDirectoryForSync ?? currentDirectory) ?? undefined);
+    const stopDirectory = (isBtwActive ? btwDirectory : currentSessionDirectoryForSync ?? currentDirectory) ?? undefined;
+    const displayedStopStatus = useSessionStatus(stopSessionId ?? '', stopDirectory);
+    // The open session's project status is unknown (smarty-code#539): say so instead of a stale Stop.
+    const statusUnavailable = useStatusUnavailable(stopSessionId && !newSessionDraftOpen ? stopDirectory : null);
     const abortCurrentOperation = React.useCallback(
         () => sessionActions.abortCurrentOperation(stopSessionId ?? '', { status: displayedStopStatus }),
         [displayedStopStatus, stopSessionId],
@@ -990,6 +1000,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         readMessage: () => composerRef.current?.getValue() ?? messageRef.current,
         onDraftConsumed: () => messageHistory.reset(),
     });
+    // Any text in the composer holds a new-build reload (openchamber#333 reviews): read live, the editor's own text.
+    React.useEffect(() => holdReload(() => (composerRef.current?.getValue() ?? messageRef.current) !== ''), []);
 
     // Focus textarea when new session draft is opened
     const prevNewSessionDraftOpenRef = React.useRef(newSessionDraftOpen);
@@ -1065,9 +1077,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // right after its Pi was relaunched), Send is shown disabled, with the reason, instead of refusing on press.
     // Read as Send's own check reads it (every render); while unavailable it is read again each second, so Send comes
     // back as soon as the session does, even with no keystroke.
-    const ordinaryNow = currentSessionId ? readOrdinaryModel(
-        getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined).find(session => session.id === currentSessionId),
-    ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+    // The open session's availability (lib/openOrdinaryState): a session the managed listing left out is unavailable
+    // over any older sync row, and this composer re-renders when that mark changes (openchamber#364 review).
+    // Observed (a change re-renders this composer): a session the managed listing left out is unavailable over any older sync row.
+    const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isRetainedUnavailable(state.entityById.get(currentSessionId!)));
+    const ordinaryNow = currentSessionId ? readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined, retainedUnavailable) : undefined;
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
@@ -1089,7 +1103,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
         && !ordinaryUnavailable;
 
-    const canAbort = sessionPhase !== 'idle'
+    const canAbort = sessionPhase !== 'idle' && !statusUnavailable
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
 
     const getCurrentInputSnapshot = React.useCallback(() => {
@@ -1393,9 +1407,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
+        // The whole send, from preparation to its settled request, holds a new-build reload: the composer is cleared
+        // before the prompt is sent, so a reload in between would lose it (openchamber#333 review).
+        const releaseReload = holdReload();
         try { await handleSubmit(options, attempt); }
         finally {
-            const end = () => endFirstSend(attempt.hold);
+            const end = () => { releaseReload(); endFirstSend(attempt.hold); };
             if (attempt.sent) void attempt.sent.then(end, end); else end();
         }
     };
@@ -1467,11 +1484,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             toast.error(message);
             if (nativeIntent) nativeCreation.noteRefusal(new NativeCreationError('unavailable', undefined, message));
         };
-        const ordinary = currentSessionId ? readOrdinaryModel(
-            getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
-                .find(session => session.id === currentSessionId),
-        // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b).
-        ) ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === currentSessionId)) : undefined;
+        // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b); a session
+        // the managed listing left out is unavailable over them (openchamber#364).
+        const ordinary = readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
+            isRetainedUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
         if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
@@ -3390,6 +3406,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 {sessionLoadFailed ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
                         {t('chat.container.sessionLoadError.composer')}
+                    </p>
+                ) : null}
+                {piReloading ? (
+                    <p role="status" data-testid="pi-reloading" className="mb-2 text-sm text-muted-foreground">
+                        {t('sessions.sidebar.herdr.reloading')}
+                    </p>
+                ) : null}
+                {statusUnavailable ? (
+                    <p role="status" data-testid="status-unavailable" className="mb-2 text-sm text-muted-foreground">
+                        {t('sessions.sidebar.session.status.unavailable')}
                     </p>
                 ) : null}
                 {draftEphemeralOnly ? (

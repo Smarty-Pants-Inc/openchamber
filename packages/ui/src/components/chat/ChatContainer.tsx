@@ -46,6 +46,7 @@ import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
 import { Icon } from "@/components/icon/Icon";
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
+import { normalizeProjectPath } from '@/lib/projectResolution';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -66,7 +67,7 @@ import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
-import { isHerdrEnded, isHerdrNoIdentity } from '@/lib/herdrSession';
+import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, showsViewOnly, successorTarget } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -761,6 +762,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const sync = useSync();
     const syncDirectory = useSyncDirectory();
     const effectiveSessionDirectory = currentSessionDirectory ?? syncDirectory;
+    const sessionDirectoryGone = useProjectsStore((state) => Boolean(currentSessionDirectory)
+        && state.departedDirectories.includes(normalizeProjectPath(currentSessionDirectory) ?? ''));
     const currentSessionKey = currentSessionId
         ? JSON.stringify([getRuntimeKey(), effectiveSessionDirectory, currentSessionId])
         : null;
@@ -999,6 +1002,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
     const needsOrdinaryDetail = Boolean(currentSession && readOrdinaryModel(currentSession)
         && !Object.hasOwn(currentSession, 'ordinary'));
+    // A starting Herdr Pi re-keyed to its real session: open that session, as a sidebar click would, once per old id,
+    // and only while the old id is still the selection (smarty-code#863).
+    const followedSuccessorRef = React.useRef<string | null>(null);
+    const successorId = successorTarget(currentSessionId, currentSession ? [currentSession] : []);
+    React.useEffect(() => {
+        if (!successorId || !currentSessionId || followedSuccessorRef.current === currentSessionId) return;
+        if (useSessionUIStore.getState().currentSessionId !== currentSessionId) return;
+        followedSuccessorRef.current = currentSessionId;
+        setCurrentSession(successorId, effectiveSessionDirectory ?? null);
+    }, [currentSessionId, effectiveSessionDirectory, setCurrentSession, successorId]);
 
     // In the embedded session-chat iframe, hide "Return to parent" when
     // viewing the panel's anchor session (the one recorded in the URL). Going
@@ -1498,6 +1511,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             <p className="typography-meta mt-1 text-muted-foreground">
                                 {authSessionExpired
                                     ? t('chat.container.sessionLoadError.authDescription')
+                                    // Its worktree left the catalog: gone, whatever the failed read said (smarty-code#775, #761).
+                                    : sessionDirectoryGone ? t('chat.container.sessionGone')
                                     // Show the server's own explanation (for example an unenrolled fleet session).
                                     : serverMessageSchema.safeParse(sessionMessageLoadState.error).data?.serverMessage
                                         ?? t('chat.container.sessionLoadError.description')}
@@ -1662,8 +1677,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         </div>
                     </>
                 )}
-                {sessionMessageLoadState.readOnly ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)} />
+                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession) ? (
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession)} reloading={isOrdinaryReloading(currentSession)} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
@@ -1673,9 +1688,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         scrollToLatest={resumeToLatestInstant}
                         draftPresentationExiting={draftPresentationExiting}
                         // The composer says why nothing can be sent while the open failed (#536); only with the
-                        // transcript's error and its Try again showing, not over a retained view.
-                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired
+                        // transcript's error and its Try again showing, not over a retained view, and not for a session
+                        // that is gone (its "try again" would mislead; the transcript says why, smarty-code#775).
+                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired && !sessionDirectoryGone
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
+                        piReloading={isOrdinaryReloading(currentSession)}
                     />
                 )}
             </div>

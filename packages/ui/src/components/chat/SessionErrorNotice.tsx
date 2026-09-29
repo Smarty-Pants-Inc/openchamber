@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { lastRealMessage } from './message/systemNote';
 import { useLatestSessionError } from '@/sync/notification-store';
 import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
+import { usePromptsInFlight } from '@/sync/prompts-in-flight';
 
 interface SessionErrorNoticeProps {
   sessionId: string;
@@ -40,7 +41,8 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
     }
     const next: LastMessageState = {
       role: typeof info.role === 'string' ? info.role : '',
-      timestamp: info.time?.completed ?? info.time?.created ?? 0,
+      // An optimistic user message has `completed: 0` (session-actions): its time is when it was created (#902 review).
+      timestamp: info.time?.completed || info.time?.created || 0,
       hasError: Boolean(info.error),
     };
     const cached = cacheRef.current;
@@ -77,17 +79,38 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
   // A user message that the session is idle on, with nothing after it for a
   // while, is a reply that never began: the send was accepted but OpenCode
   // produced neither a message nor an error for it.
-  const unansweredSince = !reportedError && isIdle && lastMessage?.role === 'user' ? lastMessage.timestamp : null;
+  // While this page's prompt call is pending, the owner has not answered yet: "Sending…", never "did not start". The
+  // clock starts when the call answers (a busy owner under load takes 15-18 s, smarty-code#902). A refusal is an answer
+  // with an error, shown by the send's own error path at once.
+  const sending = usePromptsInFlight((state) => (state.pending[sessionId] ?? 0) > 0);
+  const answeredAt = usePromptsInFlight((state) => state.answeredAt[sessionId] ?? 0);
+  const waitingSince = !reportedError && isIdle && lastMessage?.role === 'user' ? Math.max(lastMessage.timestamp, answeredAt) : null;
+  // One clock: while sending, from the message (after the same wait it says "Sending…"); after, from the answer.
+  const clockSince = waitingSince === null ? null : sending ? lastMessage?.timestamp ?? waitingSince : waitingSince;
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
-    if (unansweredSince === null) return undefined;
-    const remaining = UNANSWERED_AFTER_MS - (Date.now() - unansweredSince);
+    if (clockSince === null) return undefined;
+    const remaining = UNANSWERED_AFTER_MS - (Date.now() - clockSince);
     if (remaining <= 0) return undefined;
     const timer = window.setTimeout(() => setNow(Date.now()), remaining + 50);
     return () => window.clearTimeout(timer);
-  }, [unansweredSince]);
-  const unanswered = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= UNANSWERED_AFTER_MS;
+  }, [clockSince, sending]);
+  const waited = clockSince !== null && Math.max(now, Date.now()) - clockSince >= UNANSWERED_AFTER_MS;
+  // The gateway took it (its receipt, accepted or queued): never "did not start".
+  const receipt = usePromptsInFlight((state) => state.receipt[sessionId]);
+  const taken = !sending && waitingSince !== null && answeredAt >= (lastMessage?.timestamp ?? 0) && receipt !== undefined;
+  const unanswered = !sending && !taken && waited;
 
+  // Taken, whatever the receipt: a Dev1 run answered 'queued' for an idle Pi that then ran it, while the page's live view
+  // lagged. So the note says only what is known: the session has it, and its reply shows when the session reports it.
+  const waitingNote = sending ? 'chat.sessionError.sending' : taken ? 'chat.sessionError.taken' : null;
+  if (waitingNote && waited) {
+    return (
+      <div className="chat-message-column">
+        <div role="status" className="mt-3 text-sm text-muted-foreground">{t(waitingNote)}</div>
+      </div>
+    );
+  }
   if (!reportedError && !unanswered) return null;
 
   const detail = reportedError

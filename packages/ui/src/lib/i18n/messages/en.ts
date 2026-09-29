@@ -2,6 +2,7 @@ import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
+import { statusUnavailableI18n } from './status-unavailable.i18n';
 import { settingsDict } from './en.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -13,6 +14,7 @@ export const dict = {
   ...nativeCreationI18n.en,
   ...piVoiceI18n.en,
   ...sidebarHerdrI18n.en,
+  ...statusUnavailableI18n.en,
   ...linearIssuePickerI18n.en,
   ...linearPanelI18n.en,
   'terminalView.actions.attachSelection': 'Attach selected output',

@@ -28,7 +28,9 @@ export const ManagedSessionHoldNoticeView: React.FC<{ notArrived: boolean; onSho
 export const ManagedSessionHoldNotice: React.FC<{ sessionId: string | null }> = ({ sessionId }) => {
     const hold = useProjectsStore((state) => state.managedSessionHold);
     // The open session held, or an open still waiting for its project (nothing selected meanwhile).
-    const held = hold && (hold.sessionId === sessionId || hold.pending) ? hold : null;
+    // A worktree that left the catalog is not loading: the transcript says it is gone (smarty-code#775).
+    const departed = useProjectsStore((state) => Boolean(hold && state.departedDirectories.includes(hold.directory)));
+    const held = hold && !departed && (hold.sessionId === sessionId || hold.pending) ? hold : null;
     const [now, setNow] = React.useState(() => Date.now());
     // Re-render once the bounded wait ends, even if no publication arrives.
     React.useEffect(() => {

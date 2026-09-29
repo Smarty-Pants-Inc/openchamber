@@ -1,0 +1,17 @@
+[package]
+name = "coedit-fs"
+version = "0.1.0"
+edition = "2021"
+description = "Atomic, root-confined file publication for the co-edit disk bridge (smartyfs#32)"
+license = "MIT"
+publish = false
+
+[dependencies]
+libc = "0.2"
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+
+[profile.release]
+panic = "abort"
+lto = true

@@ -56,6 +56,7 @@ import {
 } from '@/lib/worktrees/sessionWorktreeMove';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useStatusUnavailable } from '@/sync/status-unavailable';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -412,6 +413,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const isActive = useSessionUIStore((state) => state.currentSessionId === session.id);
 
   const sessionDirectory = normalizePath(session.directory ?? null) ?? normalizePath(groupDirectory ?? null);
+  const statusUnavailable = useStatusUnavailable(sessionDirectory);
   // Multi-select scope: sessions are flat per project, so selection groups by
   // project (falling back to the directory when no project is known) — a
   // selection must survive mixing sessions from different worktrees.
@@ -731,22 +733,25 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     hideOnHoverClass,
   });
   const herdrState = readHerdrState(session);
-  const { showStatusMarker, showActivityDuration } = rowActivity({
-    herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration,
+  const { showStatusMarker, showActivityDuration, showStatusUnavailable } = rowActivity({
+    herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration, statusUnavailable,
   });
   // Both states are the same static dot; only the color separates "running"
   // from "unread". The elapsed-turn readout on the right carries the motion
   // that a spinner used to, at one repaint per second instead of per frame.
-  const statusMarkerLabel = herdrState ? t(`sessions.sidebar.herdr.state.${herdrState}`) : isStreaming
+  const statusMarkerLabel = herdrState ? t(`sessions.sidebar.herdr.state.${herdrState}`)
+    : showStatusUnavailable ? t('sessions.sidebar.session.status.unavailable') : isStreaming
     ? t('sessions.sidebar.session.status.active')
     : t('sessions.sidebar.session.status.unread');
   const statusMarkerContent = (
     <span
       className={cn(
         'h-1.5 w-1.5 rounded-full',
-        herdrState ? HERDR_STATE_DOT[herdrState] : isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
+        herdrState ? HERDR_STATE_DOT[herdrState] : showStatusUnavailable ? 'bg-muted-foreground/60'
+          : isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
       )}
       data-herdr-state={herdrState}
+      data-status-unavailable={showStatusUnavailable || undefined}
       aria-label={statusMarkerLabel}
       title={statusMarkerLabel}
     />

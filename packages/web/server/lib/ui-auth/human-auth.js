@@ -1,3 +1,4 @@
+import { startWebTiming } from './web-timing.js';
 import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
@@ -100,6 +101,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       name: validName(session.user.name) ? session.user.name : 'User',
     };
     if (validImage(session.user.image)) identity.image = session.user.image;
+    // smarty-code#701: the admitted (verified, allowed-domain) email names the person's inbox. The gateway must accept
+    // it (installed first) and never copy it into message metadata.
+    identity.email = session.user.email;
     return identity;
   };
   const authorizeUiSession = async (groupKey) => {
@@ -119,6 +123,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   };
   const unauthorized = (res) => res.status(401).json({ authenticated: false, locked: true, humanAuthRequired: true });
   const protect = async (req, res, next, reject = unauthorized) => {
+    const checked = startWebTiming(req); // smarty-code#827: the web server's share of a request, forwarded to Code.
     const session = await resolve(req);
     if (!session) return reject(res);
     const responses = liveResponses.get(session.session.id) || new Set();
@@ -142,6 +147,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     if (closed || res.destroyed || res.writableEnded || !current || current.session.id !== session.session.id) {
       cleanup(); res.destroy(); return;
     }
+    checked();
     req.humanIdentity = actor(current);
     return next();
   };

@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.sendClientIdSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sendClientIdSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -47,7 +47,31 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.sendClientIdSha256;
     delete entry.sendClientIdNote;
   }
-  // The shared worktree root (smarty-code#629) is the newest layer: it only adds the git service entry, so unwind it first.
+  // smarty-code#539 imports the "Status unavailable" string into the eleven locale outputs: the newest layer, unwound first.
+  assert.equal(historical.statusUnavailableSource, '3ce8d22f06df56604bc170ad6fcfc4631336682b');
+  delete historical.statusUnavailableSource;
+  const statusUnavailable = historical.files.filter(file => file.statusUnavailableSha256);
+  assert.deepEqual(statusUnavailable.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
+  for (const entry of statusUnavailable) {
+    assert.equal(entry.statusUnavailableSha256, entry.combinedSha256);
+    assert.ok(entry.statusUnavailableNote);
+    entry.combinedSha256 = entry.preStatusUnavailableCombinedSha256;
+    delete entry.preStatusUnavailableCombinedSha256;
+    delete entry.statusUnavailableSha256;
+    delete entry.statusUnavailableNote;
+  }
+  // The co-edit disk bridge's dependencies (smartyfs#18 slice 1) are the newest layer: one file, so unwind it first.
+  assert.match(historical.coeditSource, /^[a-f0-9]{40}$/);
+  delete historical.coeditSource;
+  for (const entry of historical.files.filter(file => file.coeditSha256)) {
+    assert.equal(entry.coeditSha256, entry.combinedSha256);
+    assert.ok(entry.coeditNote);
+    entry.combinedSha256 = entry.preCoeditCombinedSha256;
+    delete entry.preCoeditCombinedSha256;
+    delete entry.coeditSha256;
+    delete entry.coeditNote;
+  }
+  // The shared worktree root (smarty-code#629) is the next layer: it only adds the git service entry, so unwind it next.
   assert.match(historical.worktreeRootSource, /^[a-f0-9]{40}$/);
   delete historical.worktreeRootSource;
   historical.files = historical.files.filter(entry => !entry.worktreeRootAdded);
@@ -163,7 +187,25 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.modelPrefsUnloadSha256;
     delete entry.modelPrefsUnloadNote;
   }
-  // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; it is the newest layer, so unwind it first.
+  // smarty-code#701 forwards the inbox stream: the newest proxy layer, unwound first.
+  assert.equal(historical.inboxStreamSource, 'd16efdf6a265496d06a68e8f76a7721905d0bab1');
+  delete historical.inboxStreamSource;
+  for (const entry of historical.files.filter(file => file.inboxStreamSha256)) {
+    entry.combinedSha256 = entry.preInboxStreamCombinedSha256;
+    delete entry.preInboxStreamCombinedSha256;
+    delete entry.inboxStreamSha256;
+    delete entry.inboxStreamNote;
+  }
+  // smarty-code#863/#870 add the successor and the reloading mark to the session-list allowlist: unwound before F4.
+  assert.equal(historical.fleetListSource, '47eb1c68d3f64129018078eed1e218cb23baff50');
+  delete historical.fleetListSource;
+  for (const entry of historical.files.filter(file => file.fleetListSha256)) {
+    entry.combinedSha256 = entry.preFleetListCombinedSha256;
+    delete entry.preFleetListCombinedSha256;
+    delete entry.fleetListSha256;
+    delete entry.fleetListNote;
+  }
+  // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; unwound next.
   assert.equal(historical.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   delete historical.herdrListSource;
   for (const entry of historical.files.filter(file => file.herdrListSha256)) {

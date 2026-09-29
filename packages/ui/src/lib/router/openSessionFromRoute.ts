@@ -1,6 +1,7 @@
 import { ensureGlobalSessionsLoaded, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
+import { noteRememberedGone } from '@/sync/gone-session-notice';
 import { persistLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
@@ -40,6 +41,7 @@ export async function openSessionFromRoute(sessionId: string): Promise<void> {
   // An open the person made after this navigation began (still waiting for its project) is the newer choice (#608).
   const hold = useProjectsStore.getState().managedSessionHold;
   if (hold?.pending && hold.sessionId !== id && hold.since >= startedAt) return;
+  if (useProjectsStore.getState().managedCatalogAdmitted) noteRememberedGone(snapshot.activeSessions, { chosen: true }); // smarty-code#775.
   const session = useProjectsStore.getState().managedCatalogAdmitted
     ? restoreManagedSessionSelection(snapshot.activeSessions, { chosen: true }) // The person's navigation.
     : [...snapshot.activeSessions, ...snapshot.archivedSessions].find(entry => entry.id === id);

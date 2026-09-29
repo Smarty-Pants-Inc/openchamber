@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Message } from '@opencode-ai/sdk/v2/client';
 
 import {
+    HISTORY_RENDER_WAIT_TIMEOUT_MS,
     isOlderHistoryPrependCommit,
     shouldAutoLoadEarlierForUnderfilledPinnedViewport,
     useChatTimelineController,
@@ -128,9 +129,43 @@ const installMinimalDom = () => {
     };
 };
 
+/**
+ * The controller's render waiters, observed and held (smarty-code#674): each waiter arms a HISTORY_RENDER_WAIT_TIMEOUT_MS
+ * fallback timer. `waiting(n)` resolves once n waiters exist; a fallback never fires by itself, only by `fire(n)`, so a
+ * waiter leaves by the render commit or by the fallback the test fires, never by wall-clock time. The test used to wait
+ * out the 250 ms and assume one microtask; a slow machine (CI run 36337222540 attempt 2, 322 ms) raced it. Other timers
+ * run as usual.
+ */
+const observeRenderWaiters = () => {
+    const original = globalThis.setTimeout;
+    let armed = 0;
+    const callbacks: Array<() => void> = [];
+    const watchers: Array<{ n: number; resolve: () => void }> = [];
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+        if (ms !== HISTORY_RENDER_WAIT_TIMEOUT_MS) return original(callback, ms, ...args);
+        armed += 1;
+        callbacks.push(() => callback(...args));
+        for (const w of watchers.filter((x) => x.n <= armed)) { watchers.splice(watchers.indexOf(w), 1); w.resolve(); }
+        const held = original(callback, 2 ** 31 - 1, ...args);
+        (held as { unref?: () => void }).unref?.();
+        return held;
+    }) as typeof setTimeout;
+    // Frames too: after B's page grows the timeline, the controller chains the next page from a frame (smarty-code#583).
+    // In this minimal DOM a frame is setTimeout(0), which raced the test's final reads (a third load, 3 of 60 runs).
+    const frame = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (() => 0) as typeof requestAnimationFrame;
+    return {
+        waiting: (n: number) => armed >= n ? Promise.resolve() : new Promise<void>((resolve) => { watchers.push({ n, resolve }); }),
+        /** The nth waiter's fallback, fired now (a no-op for a waiter its commit already released). */
+        fire: (n: number) => callbacks[n - 1]?.(),
+        restore: () => { globalThis.setTimeout = original; globalThis.requestAnimationFrame = frame; },
+    };
+};
+
 describe('useChatTimelineController identity lifecycle', () => {
     test('preserves the new identity while an old load is waiting for its render', async () => {
         const dom = installMinimalDom();
+        const renderWaiters = observeRenderWaiters();
         const root: Root = createRoot(dom.container);
         const pendingA = deferred();
         const pendingB = deferred();
@@ -221,7 +256,7 @@ describe('useChatTimelineController identity lifecycle', () => {
             // releases A's waiter, so A must not clear B's new snapshot.
             await act(async () => {
                 pendingA.resolve();
-                await Promise.resolve();
+                await renderWaiters.waiting(1); // A is in its render waiter: the switch below is the commit that releases it.
             });
             directory = 'B';
             // Growth within the existing user turn means stale A would request
@@ -230,6 +265,9 @@ describe('useChatTimelineController identity lifecycle', () => {
             startBOnLayout = true;
             await act(async () => {
                 root.render(React.createElement(Harness));
+                // act holds this render until its callback ends, so A leaves its waiter by its fallback, as it did
+                // after 250 ms of wall clock; the test fires it (smarty-code#674). B then starts in the switch commit.
+                renderWaiters.fire(1);
                 await loadA;
             });
             expect(calls).toEqual(['A', 'B']);
@@ -239,7 +277,7 @@ describe('useChatTimelineController identity lifecycle', () => {
 
             await act(async () => {
                 pendingB.resolve();
-                await new Promise((resolve) => setTimeout(resolve, 0));
+                await renderWaiters.waiting(2); // B is in its render waiter: the render below releases it.
             });
             messages = [olderMessage, message, assistantMessage];
             scrollMetrics.scrollHeight = 1200;
@@ -254,6 +292,7 @@ describe('useChatTimelineController identity lifecycle', () => {
             expect(restoredAnchors).toEqual(['anchor-B']);
         } finally {
             await act(async () => root.unmount());
+            renderWaiters.restore();
             dom.restore();
         }
     });

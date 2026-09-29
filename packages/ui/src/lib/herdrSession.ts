@@ -27,10 +27,39 @@ export const HERDR_STATE_DOT: Record<HerdrState, string> = {
 /** A Code-created session whose Pi has ended: read-only, with that plain reason. */
 export const isHerdrEnded = (session: Session | null | undefined): boolean => readHerdrState(session) === 'ended';
 
+/**
+ * The chat shows the View only banner instead of the composer: its history read said read-only, OR the open session's own
+ * row says its Pi has ended (smarty-code#811: the gateway pushes that state at once, but the history read that sets the
+ * read-only flag is not repeated while the page stays open, so the composer stayed as if the Pi were live).
+ */
+export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined): boolean =>
+  historyReadOnly === true || isHerdrEnded(session);
+
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>
   (session as { herdrNoIdentity?: unknown } | null | undefined)?.herdrNoIdentity === true;
 
+/**
+ * The session that replaced this one: a new pane's Pi is first listed by its pane, then re-keyed once it reports its
+ * session id; the gateway marks the old record with the new id (smarty-code#863).
+ */
+export const herdrSuccessorOf = (session: unknown): string | undefined => {
+  const value = (session as { herdrSuccessor?: unknown } | null | undefined)?.herdrSuccessor;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+};
+
+/** The session to open instead of the viewed one, once its record names a successor (smarty-code#863). */
+export const successorTarget = (currentId: string | null | undefined, sessions: readonly unknown[]): string | undefined => {
+  if (!currentId) return undefined;
+  const current = sessions.find((session) => (session as { id?: unknown } | null)?.id === currentId);
+  const next = herdrSuccessorOf(current);
+  return next && next !== currentId ? next : undefined;
+};
+
+/** A fleet Pi reloading (smarty-code#870): unavailable only until its reload finishes; not the View-only case. */
+export const isOrdinaryReloading = (session: unknown): boolean =>
+  (session as { ordinaryReloading?: unknown } | null | undefined)?.ordinaryReloading === true;
+
 /** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
 export const herdrSignature = (session: unknown): string =>
-  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}`;
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}`;

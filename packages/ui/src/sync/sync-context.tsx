@@ -1,3 +1,5 @@
+import { reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
+import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses, sendingStatuses } from './optimistic-status';
@@ -100,6 +102,7 @@ import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
 import { reportClientError } from "@/lib/clientErrorReport"
+import { isStatusUnavailable, noteStatusUnavailablePoll } from "./status-unavailable"
 import {
   EMPTY_SESSION_MESSAGE_LOAD_STATE,
   SessionMessageLoader,
@@ -2686,6 +2689,13 @@ export function SyncProvider(props: {
         if (isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }
+        // A reconnect can follow an install: a page still running the previous build reloads into the new one.
+        void reloadIfNewBuild({
+          running: runningEntry,
+          fetchIndex: async () => (await fetch(`${window.location.origin}/`, { cache: "no-store", credentials: "same-origin" })).text(),
+          busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0,
+          reload: () => window.location.reload(),
+        }).catch(() => undefined)
         // ponytail: The viewed ordinary token cannot wait for boot or broad resync gates.
         // Its existing loader owns coalescing and rejects stale generations.
         const viewed = getViewedSessionMaterializationTarget(_activeDirectory)
@@ -2814,6 +2824,15 @@ export function SyncProvider(props: {
         // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
         // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
         const shared = fleet ? await fleet : null
+        // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
+        // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
+        if (fleet && isStatusUnavailable(directory)) {
+          if (noteStatusUnavailablePoll(directory)) {
+            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
+            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+          }
+          return
+        }
         const statuses = shared
           ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
           : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
