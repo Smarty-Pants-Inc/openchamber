@@ -17,7 +17,8 @@
 //! - `publish {path,ino,dev,hash,data,key}` -> not published: `{ok:false,conflict:"gone"|"changed"}` | `{ok:false,error}`;
 //!   published: `{ok,published,synced,ino,dev,displaced}` (ok only when synced) | `{ok:false,published,synced,conflict:"raced",displaced}`
 //!   | `{ok:false,published,synced,uncertain,displaced}`. `displaced` is the private entry holding the replaced object.
-//! - `flush {path}` -> `{ok:true}` | `{ok:false,synced:false}`: fsyncs the file's directory, then the private dir.
+//! - `flush {path,entry?}` -> `{ok:true,ino}` | `{ok:false,synced:false}`: fsyncs the directory a publish went into (held
+//!   by its displaced `entry` since its flush failed; else the file's directory now), then the private dir.
 //! - `dispose {key,entry,hash}` -> `{ok:true,synced?}` | `{ok:false,busy:true}` | `{ok:false,changed:true,hash,data}`
 //! - `list {key}` -> `{ok:true,entries:[{entry,hash,data}]}`
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -96,7 +97,8 @@ fn split(rel: &str) -> Result<(String, String), String> {
     Ok((dir, name))
 }
 
-/// The request's key: hex only (JS sends the first 16 hex characters of sha256(rel)).
+/// The request's key: hex only (JS sends the first 16 hex characters of sha256(root NUL rel)).
+/// A publish's optional `txn` (hex) names its staged entry, so a caller whose reply was lost finds exactly its own.
 fn key(req: &Value) -> Result<&str, String> {
     let k = req["key"].as_str().unwrap_or("");
     if k.is_empty() || k.len() > 64 || !k.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
@@ -272,7 +274,12 @@ fn movable_by_others(root: RawFd, dir_rel: &str, req: &Value) -> Result<bool, St
     let parts: Vec<&str> = dir_rel.split('/').collect();
     for i in 0..parts.len() {
         let p = if i == 0 { ".".to_string() } else { parts[..i].join("/") };
-        let st = stat_at(&p)?;
+        let fd = open_beneath(root, &p, libc::O_PATH | libc::O_DIRECTORY).map_err(|e| os_err("directory", e))?;
+        // An extended access ACL can grant a named account write access that the mode bits (then the ACL mask) hide.
+        if xattr(fd.as_raw_fd(), ACCESS_ACL)?.is_some() {
+            return Err("a directory on the file's path has an extended ACL".into());
+        }
+        let st = fstat(fd.as_raw_fd())?;
         if foreign(owner(&p, &st)) {
             return Ok(true);
         }
@@ -291,6 +298,24 @@ fn movable_by_others(root: RawFd, dir_rel: &str, req: &Value) -> Result<bool, St
     Ok(false)
 }
 
+const ACCESS_ACL: &str = "system.posix_acl_access";
+const DEFAULT_ACL: &str = "system.posix_acl_default";
+
+/// An xattr of the object held by `fd` (an O_PATH fd works, through its /proc link), or None when it has none.
+fn xattr(fd: RawFd, name: &str) -> Result<Option<Vec<u8>>, String> {
+    let p = CString::new(format!("/proc/self/fd/{fd}")).unwrap();
+    let n = cstr(name)?;
+    let mut buf = vec![0u8; 4096];
+    // SAFETY: getxattr into a buffer of the given size; the /proc link names our own open object.
+    let len = unsafe { libc::getxattr(p.as_ptr(), n.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
+    if len < 0 {
+        let e = errno();
+        return if e == libc::ENODATA || e == libc::EOPNOTSUPP { Ok(None) } else { Err(os_err("getxattr", e)) };
+    }
+    buf.truncate(len as usize);
+    Ok(Some(buf))
+}
+
 fn read_op(root: RawFd, req: &Value) -> Result<Value, String> {
     let rel = req["path"].as_str().ok_or("path")?;
     split(rel)?;
@@ -307,7 +332,11 @@ fn read_op(root: RawFd, req: &Value) -> Result<Value, String> {
     Ok(json!({"ok": true, "ino": st.st_ino as u64, "dev": st.st_dev as u64, "hash": hex(&bytes), "data": B64.encode(&bytes)}))
 }
 
-fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String> {
+/// The directories of publishes whose flush failed, by their displaced entry: a later `flush` syncs the directory we
+/// published into, even if it has since moved (smartyfs#34 item 2).
+type Unsynced = std::collections::HashMap<String, OwnedFd>;
+
+fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -> Result<Value, String> {
     let rel = req["path"].as_str().ok_or("path")?;
     let (dir_rel, name) = split(rel)?;
     let key = key(req)?;
@@ -342,6 +371,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
     if !same(&st, ino, dev) || hex(&read_all(&current)?) != hash {
         return Ok(json!({"ok": false, "conflict": "changed"}));
     }
+    let acl = xattr(current.as_raw_fd(), ACCESS_ACL)?;
     drop(current);
     // 3. Staging: an unnamed file in the private dir; chmod, then fsync, then read back.
     let dot = CString::new(".").unwrap();
@@ -361,8 +391,22 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
         let mut file = unsafe { std::fs::File::from_raw_fd(dup) };
         file.write_all(&data).map_err(|e| e.to_string())?;
     }
+    // Our file takes the original's group and access ACL, never our own group (smartyfs#34 item 13).
+    // SAFETY: fchown of our own fd to a group; -1 keeps the owner.
+    if unsafe { libc::fchown(tmp.as_raw_fd(), u32::MAX, st.st_gid) } != 0 {
+        return Err(fail("the file's group cannot be kept (fchown)"));
+    }
+    if let Some(acl) = &acl {
+        let n = cstr(ACCESS_ACL)?;
+        // SAFETY: sets the copied ACL on our own fd.
+        if unsafe { libc::fsetxattr(tmp.as_raw_fd(), n.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) } != 0 {
+            return Err(fail("the file's ACL cannot be kept"));
+        }
+    }
+    // The mode, without set-user-ID or set-group-ID: our file must not run as us (item 11). After the ACL, so the
+    // mask follows the original's group bits.
     // SAFETY: fchmod on our fd.
-    if unsafe { libc::fchmod(tmp.as_raw_fd(), st.st_mode & 0o7777) } != 0 {
+    if unsafe { libc::fchmod(tmp.as_raw_fd(), st.st_mode & 0o1777) } != 0 {
         return Err(fail("fchmod"));
     }
     if !fsync(tmp.as_raw_fd()) {
@@ -373,7 +417,11 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
     }
     let ours = fstat(tmp.as_raw_fd())?;
     // 4. Named in the private dir only.
-    let staged = format!("{key}.{}.staged", unique());
+    let txn = req["txn"].as_str().unwrap_or("");
+    if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return Err("invalid txn".into());
+    }
+    let staged = if txn.is_empty() { format!("{key}.{}.staged", unique()) } else { format!("{key}.{txn}-{}.staged", unique()) };
     let staged_c = cstr(&staged)?;
     let proc_path = CString::new(format!("/proc/self/fd/{}", tmp.as_raw_fd())).unwrap();
     // SAFETY: links our unnamed inode (through its fd) under a fresh private name; EEXIST if taken.
@@ -407,15 +455,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
     }
     // 9. Durability: the target dir, then the private dir. Reported on its own: a cached read proves no flush.
     let synced = !test_fault(req, "dirSync") && fsync(d) && fsync(priv_fd);
-    // 10. Observe.
-    if !fstatat(d, &name).map(|s| same(&s, ours.st_ino as u64, ours.st_dev as u64)).unwrap_or(false) {
-        uncertain = uncertain.or(Some("replaced"));
-    }
-    match read_all(&tmp) {
-        Ok(b) if b == data => {}
-        Ok(_) => uncertain = uncertain.or(Some("bytes")),
-        Err(_) => uncertain = uncertain.or(Some("observation")),
-    }
+    // 10. Observe. Containment first: an escaped directory is uncertain, whatever else happened to the file.
     let still = open_beneath(root, &dir_rel, libc::O_PATH | libc::O_DIRECTORY)
         .ok()
         .and_then(|f| fstat(f.as_raw_fd()).ok())
@@ -423,6 +463,14 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
         .unwrap_or(false);
     if !still {
         uncertain = uncertain.or(Some("escaped"));
+    }
+    if !fstatat(d, &name).map(|s| same(&s, ours.st_ino as u64, ours.st_dev as u64)).unwrap_or(false) {
+        uncertain = uncertain.or(Some("replaced"));
+    }
+    match read_all(&tmp) {
+        Ok(b) if b == data => {}
+        Ok(_) => uncertain = uncertain.or(Some("bytes")),
+        Err(_) => uncertain = uncertain.or(Some("observation")),
     }
     let checked = match open_private(priv_fd, &staged) {
         Ok(fd) => match fstat(fd.as_raw_fd()) {
@@ -446,6 +494,9 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
             true
         }
     };
+    if !synced {
+        unsynced.insert(staged.clone(), dir);
+    }
     // 11. Reply.
     Ok(match uncertain {
         Some(u) => json!({"ok": false, "published": true, "synced": synced, "uncertain": u, "displaced": staged}),
@@ -454,13 +505,27 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String>
     })
 }
 
-/// Completes a publish's durability after a failed directory fsync: the file's directory, then the private dir.
-fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value) -> Result<Value, String> {
+/// Completes a publish's durability after a failed directory fsync: the directory it published into (held since, by
+/// its displaced `entry`; else the file's directory now), then the private dir. `ino` is the directory synced.
+fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -> Result<Value, String> {
     let rel = req["path"].as_str().ok_or("path")?;
     let (dir_rel, _) = split(rel)?;
-    let dir = open_beneath(root, &dir_rel, libc::O_RDONLY | libc::O_DIRECTORY).map_err(|e| os_err("directory", e))?;
-    let synced = !test_fault(req, "dirSync") && fsync(dir.as_raw_fd()) && !test_fault(req, "privSync") && fsync(priv_fd);
-    Ok(if synced { json!({"ok": true}) } else { json!({"ok": false, "synced": false}) })
+    let entry = req["entry"].as_str().unwrap_or("").to_string();
+    let opened;
+    let d = match unsynced.get(&entry) {
+        Some(fd) => fd.as_raw_fd(),
+        None => {
+            opened = open_beneath(root, &dir_rel, libc::O_RDONLY | libc::O_DIRECTORY).map_err(|e| os_err("directory", e))?;
+            opened.as_raw_fd()
+        }
+    };
+    let ino = fstat(d)?.st_ino as u64;
+    let synced = !test_fault(req, "dirSync") && fsync(d) && !test_fault(req, "privSync") && fsync(priv_fd);
+    if !synced {
+        return Ok(json!({"ok": false, "synced": false}));
+    }
+    unsynced.remove(&entry);
+    Ok(json!({"ok": true, "ino": ino}))
 }
 
 fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
@@ -548,6 +613,17 @@ fn main() {
     if pst.st_uid != unsafe { libc::geteuid() } || pst.st_mode & 0o077 != 0 {
         die("the private dir must be ours with mode 0700");
     }
+    // A default ACL (inherited from its parent) would give our staged files named entries once fchmod sets the mask:
+    // removed before anything is created (smartyfs#34 item 13). An access ACL could let others in: refused.
+    let dflt = cstr(DEFAULT_ACL).unwrap_or_else(|e| die(&e));
+    // SAFETY: removes an xattr of our own directory, by its fd.
+    if unsafe { libc::fremovexattr(priv_fd, dflt.as_ptr()) } != 0 && ![libc::ENODATA, libc::EOPNOTSUPP].contains(&errno()) {
+        die(&fail("the private dir's default ACL cannot be removed"));
+    }
+    if xattr(priv_fd, ACCESS_ACL).unwrap_or_else(|e| die(&e)).is_some() {
+        die("the private dir must have no extended ACL");
+    }
+    let mut unsynced = Unsynced::new();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -556,8 +632,8 @@ fn main() {
             Ok(req) => {
                 let result = match req["op"].as_str() {
                     Some("read") => read_op(root_fd, &req),
-                    Some("publish") => publish_op(root_fd, priv_fd, &req),
-                    Some("flush") => flush_op(root_fd, priv_fd, &req),
+                    Some("publish") => publish_op(root_fd, priv_fd, &req, &mut unsynced),
+                    Some("flush") => flush_op(root_fd, priv_fd, &req, &mut unsynced),
                     Some("dispose") => dispose_op(priv_fd, &req),
                     Some("list") => list_op(priv_fd, &req),
                     _ => Err("unknown op".into()),

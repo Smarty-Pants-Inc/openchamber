@@ -5,6 +5,8 @@ import path from 'path';
 import { createInterface } from 'readline';
 
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW } = fs.constants;
+/** The helper's limit (fs-helper MAX_BYTES): refused before any copy or call. */
+const MAX_BYTES = 64 << 20;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 export const hashBytes = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -22,8 +24,18 @@ export const UNCERTAIN_NOTICE = 'This save could not be confirmed: the previous 
 /** Shown while a published save is not yet durable (a directory flush failed): it is confirmed once a flush succeeds. */
 export const UNSYNCED_NOTICE = 'This save is on disk but not yet flushed: the previous version is in the recovery folder.';
 
-/** The helper's name prefix for a file's private entries: the first 16 hex characters of sha256(rel). */
-export const keyOf = (rel) => hashBytes(Buffer.from(rel, 'utf8')).slice(0, 16);
+/**
+ * The helper's name prefix for a file's private entries: the first 16 hex characters of sha256(root NUL rel). The root
+ * is in it, so two projects sharing a recovery directory never collect each other's entries (smartyfs#34 item 14).
+ */
+export const keyOf = (root, rel) => hashBytes(Buffer.from(`${root}\0${rel}`, 'utf8')).slice(0, 16);
+
+const TEST_HOOKS = new Set(['pause', 'pauseMs', 'fault', 'testOwners', 'testGroupMembers']);
+/**
+ * Tests only: the helper's named pauses and faults from `hooks.helper`, and nothing else. They go FIRST in a request,
+ * so they can never replace its fields (item 15); a helper honours them only if started with `testHooks` (item 12).
+ */
+export const testHooks = (hooks) => Object.fromEntries(Object.entries(hooks?.helper ?? {}).filter(([k]) => TEST_HOOKS.has(k)));
 
 function syncDirectorySync(dir) {
   const fd = fs.openSync(dir, O_RDONLY | O_DIRECTORY);
@@ -88,12 +100,16 @@ function preparePrivateDir(privateDir) {
 /**
  * One coedit-fs process for a project root, with `privateDir` (0700, ours) for its staging and displaced revisions.
  * A bad or truncated reply line, or a call past its deadline (`timeoutMs`), ends the helper: SIGKILL, and every waiting
- * call rejects. `close()` resolves once the process has exited.
+ * call rejects. `close()` resolves once the process has exited. The helper honours test pauses and faults only when
+ * `testHooks` is set: COEDIT_FS_TEST is removed from its environment otherwise.
  */
-export function startHelper(root, privateDir, { timeoutMs = 30_000 } = {}) {
+export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: forTests = false } = {}) {
   if (!anchoredFilesAvailable()) throw new Error('Co-editing needs the coedit-fs helper, which this system lacks');
   preparePrivateDir(privateDir);
-  const child = spawn(helperPath(), [root, privateDir], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const env = { ...process.env };
+  delete env.COEDIT_FS_TEST;
+  if (forTests) env.COEDIT_FS_TEST = '1';
+  const child = spawn(helperPath(), [root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = new Map();
   let next = 0;
   let ended = null;
@@ -191,9 +207,12 @@ export async function readSettled(helper, rel, settleMs) {
   throw new Error('Co-edited file keeps changing');
 }
 
-/** Keeps `bytes` in the recovery directory under a new name (never replacing one); returns its path. */
-export async function keepForRecovery(recoveryDir, name, bytes) {
-  const kept = path.join(recoveryDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${name}`);
+/**
+ * Keeps `bytes` in the recovery directory under a new name (never replacing one); returns its path. `kind` marks the
+ * copy (`ours`: a revision we published; otherwise one we replaced).
+ */
+export async function keepForRecovery(recoveryDir, name, bytes, kind = '') {
+  const kept = path.join(recoveryDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${kind ? `${kind}-` : ''}${name}`);
   const handle = await fs.promises.open(kept, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
   try {
     await handle.writeFile(bytes);
@@ -224,7 +243,7 @@ export async function dispose(helper, key, revision, recoveryDir, name, hooks = 
   let { hash } = revision;
   let late;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const reply = await helper.call({ op: 'dispose', key, entry: revision.entry, hash, ...hooks.helper });
+    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', key, entry: revision.entry, hash });
     if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
     if (reply.busy) return { busy: true, late, hash };
     if (!reply.changed) throw refused(reply);
@@ -237,7 +256,7 @@ export async function dispose(helper, key, revision, recoveryDir, name, hooks = 
 /**
  * Publishes `text` as `rel` only over the revision whose hash is `expectedHash`. One attempt, never undone:
  *  - the current bytes must still hash to `expectedHash`, else { conflict: 'changed' } ('gone' when missing): no write;
- *  - those bytes are kept for recovery first;
+ *  - those bytes are kept for recovery first, and ours too (`-ours-`), removed again if the helper refuses;
  *  - the helper stages ours in the private dir and publishes with one exchange (DOCUMENTATION.md, protocol);
  *  - the displaced revision (now a private entry) is removed only when no one writes to it; a late write through an
  *    old descriptor is kept and shown ('raced'). `pending`: still open for writing, retried later.
@@ -254,23 +273,32 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   if (current === null) return { conflict: 'gone' };
   if (current.hash !== expectedHash) return { conflict: 'changed' };
   const recovery = await keepForRecovery(recoveryDir, name, current.bytes);
-  const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
+  // Ours too, BEFORE the helper call: a writer that read before this save may replace the file after it, and a crash
+  // of the room would then lose our revision (the smartyfs#32 stress test, seed 32). Before the call, a failed copy
+  // throws with nothing sent; after it, nothing may throw (#396 review round 3). A refused save removes the copy.
+  const data = Buffer.from(text, 'utf8');
+  if (data.length > MAX_BYTES) throw new Error('Co-edited file is too large');
   if (!helper.alive()) throw new Error('coedit-fs is not running');
+  const ours = await keepForRecovery(recoveryDir, name, data, 'ours');
+  const dropOurs = () => fs.promises.unlink(ours).catch((error) => log('smarty.coedit-recovery-cleanup-failed', name, error));
+  const txn = randomBytes(6).toString('hex');
+  const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   let reply;
   try {
     reply = await helper.call({
-      op: 'publish', path: rel, key, ino: current.ino, dev: current.dev, hash: expectedHash, data: Buffer.from(text, 'utf8').toString('base64'),
-      ...hooks.helper, // Tests only: a pause or fault at a named point, honoured only by a helper started with COEDIT_FS_TEST.
+      ...testHooks(hooks),
+      op: 'publish', path: rel, key, txn, ino: current.ino, dev: current.dev, hash: expectedHash, data: data.toString('base64'),
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);
-    return { ...uncertain, unsynced: true }; // Sent, but no reply: it may or may not have been published, or flushed.
+    return { ...uncertain, unsynced: true, lost: txn }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
+    await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
     if (reply.conflict) return { conflict: reply.conflict, recovery };
     throw refused(reply);
   }
-  // Published: from here on, nothing may be reported as not written.
+  // Published: from here on, nothing may be reported as not written, and nothing below may throw.
   const synced = reply.synced === true;
   // Not durable: the displaced revision stays until a flush succeeds (the caller holds it as pending).
   let done = { busy: true, hash: expectedHash };
@@ -283,8 +311,12 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   }
   const unsynced = !synced || done.unsynced === true;
   let result = { ok: true, recovery };
-  if (reply.uncertain) result = { ...uncertain };
-  else if (done.late || reply.conflict === 'raced') result = { conflict: 'raced', published: true, recovery: done.late ?? recovery, notice: DISTURBED_NOTICE };
+  // The exchange is certain (the helper replied). A writer that replaced ours, or wrote into it, right after is an
+  // outside write to a published file, shown as raced: the base follows ours, so the next sync never replays it.
+  // Only an observation or relocation that cannot be read holds the room.
+  const outside = reply.uncertain === 'replaced' || reply.uncertain === 'bytes';
+  if (reply.uncertain && !outside) result = { ...uncertain };
+  else if (outside || done.late || reply.conflict === 'raced') result = { conflict: 'raced', published: true, recovery: done.late ?? recovery, notice: DISTURBED_NOTICE };
   else if (unsynced) result = { conflict: 'unverified', published: true, recovery, notice: UNSYNCED_NOTICE };
   if (unsynced) result.unsynced = true;
   if (done.busy) result.pending = { entry: reply.displaced, hash: done.hash };
