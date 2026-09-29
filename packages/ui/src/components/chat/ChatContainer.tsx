@@ -50,11 +50,16 @@ import { normalizeProjectPath } from '@/lib/projectResolution';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import type { SessionPositions } from '@/sync/session-message-loader';
+import { ScrollToStartButton } from './components/ScrollToStartButton';
+import { WINDOW_RECORDS } from './lib/gapWindow';
+import { createWindowQueue, type Window } from './lib/windowQueue';
 import { useStreamingStore } from '@/sync/streaming';
 import {
     useSessionMessageCount,
     useSessionMessageRecords,
     useSessionMessageLoadState,
+    useSessionMessageLoader,
     useSyncDirectory,
     useSessionRenderable,
     useSessionStatus,
@@ -221,6 +226,10 @@ type ChatViewportProps = {
     canLoadEarlierPrompts: boolean;
     isLoadingOlderPrompts: boolean;
     onLoadEarlierPrompts: () => void;
+    /** smarty-code#583: the whole session as positions, and the window loader. */
+    positions?: SessionPositions;
+    positionOf?: (messageId: string) => number | undefined;
+    onLoadWindow?: (windows: Window[]) => void;
 };
 
 const ChatViewport = React.memo(({
@@ -257,6 +266,9 @@ const ChatViewport = React.memo(({
     onSelectTurn,
     showPromptNavigator,
     canLoadEarlierPrompts,
+    positions,
+    positionOf,
+    onLoadWindow,
     isLoadingOlderPrompts,
     onLoadEarlierPrompts,
 }: ChatViewportProps) => {
@@ -515,6 +527,9 @@ const ChatViewport = React.memo(({
                     retryOverlay={retryOverlay}
                     isLoadingOlder={isLoadingOlder}
                     hasOlderHistory={canLoadEarlierPrompts}
+                    positions={positions}
+                    positionOf={positionOf}
+                    onLoadWindow={onLoadWindow}
                     scrollToBottom={scrollToBottom}
                     endPinningReleased={endPinningReleased}
                     directory={directory}
@@ -577,7 +592,10 @@ const ChatViewport = React.memo(({
         && prev.showPromptNavigator === next.showPromptNavigator
         && prev.canLoadEarlierPrompts === next.canLoadEarlierPrompts
         && prev.isLoadingOlderPrompts === next.isLoadingOlderPrompts
-        && prev.onLoadEarlierPrompts === next.onLoadEarlierPrompts;
+        && prev.onLoadEarlierPrompts === next.onLoadEarlierPrompts
+        && prev.positions === next.positions
+        && prev.positionOf === next.positionOf
+        && prev.onLoadWindow === next.onLoadWindow;
 });
 
 ChatViewport.displayName = 'ChatViewport';
@@ -832,6 +850,32 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         effectiveSessionDirectory,
     );
     const [firstVisiblePerformance] = React.useState(createFirstVisibleSessionPerformanceTracker);
+    // smarty-code#583: windows of the whole session by position (the gateway's range read).
+    const messageLoader = useSessionMessageLoader();
+    const windowTarget = React.useMemo(() => (currentSessionId && effectiveSessionDirectory
+        ? { sessionID: currentSessionId, directory: effectiveSessionDirectory } : null), [currentSessionId, effectiveSessionDirectory]);
+    const positionOf = React.useCallback((messageId: string) => (windowTarget ? messageLoader.positionOf(windowTarget, messageId) : undefined),
+        // The loaded ranges change whenever a position is recorded: re-read positions then.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [messageLoader, windowTarget, sessionMessageLoadState.positions]);
+    // "Beginning": the session's first window, then its first rows (smarty-code#583).
+    // Window work belongs to one session: a read that answers after the reader switched sessions moves nothing.
+    const currentWindowTarget = React.useRef(windowTarget);
+    currentWindowTarget.current = windowTarget;
+    // One window read at a time per session, latest wins; another session's requests never enter this one's loop.
+    const loadWindow = React.useMemo(() => (windowTarget
+        ? createWindowQueue((start, limit) => messageLoader.loadAt(windowTarget, start, limit), () => currentWindowTarget.current === windowTarget)
+        : () => undefined), [messageLoader, windowTarget]);
+    const goToBeginning = React.useCallback(() => {
+        if (!windowTarget) return;
+        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
+            .then(() => requestAnimationFrame(() => {
+                if (currentWindowTarget.current !== windowTarget) return;
+                messageListRef.current?.scrollToStart();
+                // The reader goes down from here: the next window is read ahead, as a placeholder's request would.
+                loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);
+            }));
+    }, [loadWindow, messageLoader, windowTarget]);
 
     React.useEffect(() => {
         if (!active || !currentSessionKey || !hasRenderableSessionSnapshot || sessionMessages.length === 0) return;
@@ -1199,6 +1243,25 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     });
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
+    // The window above the loaded tail is read ahead once the reader is a screen away from the live end (once per
+    // session): early enough for the rate check (readAhead.test.ts), and late enough for the list to hold the reader's
+    // rows while it lands. Read at the end, it left the list blank on open (the list kept an end it had mis-estimated,
+    // candidate on forge 07:2xZ); read on the first step away, it moved the view once by 600-850 px (05:18Z).
+    const tailStartRef = React.useRef<number | undefined>(undefined);
+    tailStartRef.current = sessionMessageLoadState.positions?.ranges.at(-1)?.start;
+    React.useEffect(() => {
+        if (!scrollNode) return;
+        let done = false;
+        const onScroll = () => {
+            const start = tailStartRef.current;
+            if (done || start === undefined || start <= 0) return;
+            if (scrollNode.scrollHeight - scrollNode.scrollTop - scrollNode.clientHeight < scrollNode.clientHeight) return;
+            done = true;
+            loadWindow([{ start: Math.max(0, start - WINDOW_RECORDS), limit: Math.min(WINDOW_RECORDS, start) }]);
+        };
+        scrollNode.addEventListener('scroll', onScroll, { passive: true });
+        return () => scrollNode.removeEventListener('scroll', onScroll);
+    }, [loadWindow, scrollNode]);
     React.useEffect(() => {
         if (!scrollNode) return;
         // smarty-code#583: at most one history check (a layout read) per frame, not one per scroll event.
@@ -1621,6 +1684,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 canLoadEarlierPrompts={canLoadEarlierPrompts}
                 isLoadingOlderPrompts={timelineController.isLoadingOlder}
                 onLoadEarlierPrompts={handleLoadOlderClick}
+                positions={sessionMessageLoadState.positions}
+                positionOf={positionOf}
+                onLoadWindow={loadWindow}
             />
         );
     })();
@@ -1651,6 +1717,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             working={sessionIsWorking}
                             onClick={navigation.resumeToLatest}
                         />
+                        {sessionMessageLoadState.positions ? (
+                            <ScrollToStartButton
+                                visible={timelineController.showScrollToBottom}
+                                onClick={goToBeginning}
+                            />
+                        ) : null}
                         {/* Same anchor and column as the pill, so the status
                             row and the pill it hands off to share the exact
                             distance from the input and the same left edge. */}
