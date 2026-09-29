@@ -61,10 +61,16 @@ test('another runtime reads again: owner then member, member then owner; a read 
 });
 
 test('a mounted notice recovers: a failed first lookup is asked again later and the owner then sees the links', async () => {
-  const answers = [Response.json({}, { status: 503 }), Response.json(owner)];
-  let calls = 0;
-  const read = () => { resetBillingForTests(); const next = answers[Math.min(calls, answers.length - 1)]!; calls += 1; return readBilling(async () => next.clone()); };
-  const Probe = () => { const links = useBillingLinks(true, read, 20); return links ? <BillingLinks links={links} /> : null; };
+  // Each lookup's answer is released by the test (never a wall-clock sleep): the first fails, the retry answers "owner".
+  const lookups: ((value: Response) => void)[] = [];
+  const read = () => { resetBillingForTests(); return readBilling(() => new Promise<Response>((resolve) => { lookups.push(resolve); })); };
+  const Probe = () => { const links = useBillingLinks(true, read, 0); return links ? <BillingLinks links={links} /> : null; };
+  /** Lets React, the pending promises and the (0 ms) retry timer run until `done()`: a bounded number of event-loop
+   * turns (each a 0 ms timer turn, so the retry timer gets its turn), never a fixed sleep the result could race. */
+  const settle = async (done: () => boolean) => {
+    for (let turn = 0; turn < 200 && !done(); turn++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(done()).toBe(true);
+  };
   const win = new Window({ url: 'http://localhost' });
   const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -73,11 +79,14 @@ test('a mounted notice recovers: a failed first lookup is asked again later and 
   const root = createRoot(host);
   try {
     await act(async () => root.render(<Probe />));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-    expect(host.innerHTML).toBe(''); // the first lookup failed: no links yet
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)); });
-    expect(calls).toBe(2);
-    expect(host.innerHTML).toContain('Add credit');
+    await settle(() => lookups.length === 1);
+    lookups[0]!(Response.json({}, { status: 503 }));
+    // The first lookup failed: no links, and the retry is asked; it is still unanswered, so still no links.
+    await settle(() => lookups.length === 2);
+    expect(host.innerHTML).toBe('');
+    lookups[1]!(Response.json(owner));
+    await settle(() => host.innerHTML.includes('Add credit'));
+    expect(lookups.length).toBe(2);
   } finally {
     await act(async () => root.unmount());
     for (const [key, descriptor] of previous) {
