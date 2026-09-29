@@ -184,29 +184,33 @@ export function createDiskBridge({
     }, retryMs);
   };
   /**
-   * Settles a save whose reply was lost by the private dir, the authoritative record, whatever the file holds now
-   * (an agent may have written since): a new entry holding OUR bytes means the exchange never ran (it is removed, and
-   * the base stays); a new entry holding anything else is the revision our exchange displaced (published: the base
-   * follows ours, and the entry is kept for recovery as a pending one); no new entry means it never got that far.
+   * Settles a save whose reply was lost by its transaction record in the private dir (#412 round 3), the authoritative
+   * outcome, whatever the file holds now (an agent may have written since). The helper creates the record before any
+   * change and resolves it when its owner is gone; it outlives the entry (another bridge may already have recovered
+   * that) until this bridge acks it. `published`: the base follows ours, and a displaced entry still there is kept as
+   * pending. `aborted`, or no record at all (the helper died before any change): not published. Still owned by a live
+   * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async () => {
     const reply = await helper.call({ op: 'list', path: rel }).catch(() => null);
     if (!reply?.ok) return false;
+    const txn = uncertain.lost;
+    const record = (reply.records ?? []).find((r) => r.txn === txn);
+    if (record && record.state !== 'published' && record.state !== 'aborted') return false; // Owned, or unknown.
+    if (!record && Date.now() - uncertain.since > 29 * 86_400_000) return false;
     const known = new Set(pending.map((revision) => revision.entry));
-    // Only the lost call's own entry (its txn names it), never another save's leftover.
-    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${uncertain.lost}-`));
-    // Its entry is still held by the lost call's own helper (alive, finishing or exiting): not settled yet (#412).
+    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${txn}-`));
     if (fresh.some((entry) => entry.owned)) return false;
-    const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
-    if (displaced) {
+    if (record?.state === 'published') {
       base = uncertain.snapshot;
       baseText = uncertain.next;
       baseHash = uncertain.nextHash;
       gone = false;
-      pending.push({ entry: displaced.entry, hash: uncertain.baseHash }); // Late bytes differ, so they are kept.
+      for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash }); // Late bytes are kept.
     } else {
       for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
+    await helper.call({ op: 'ack', path: rel, txn }).catch(() => null); // Settled here: the record may go.
     uncertain = null;
     if (!unsynced) conflict = null;
     return true;
@@ -373,7 +377,7 @@ export function createDiskBridge({
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, since: Date.now(), seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.

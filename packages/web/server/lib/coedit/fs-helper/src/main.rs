@@ -141,15 +141,81 @@ fn lock_key(priv_fd: RawFd, key: &str) -> Result<OwnedFd, String> {
     Err("another operation on this file is still in progress".into())
 }
 
-/// The private entries this connection owns (#412 round 2, finding 1): each held open with an exclusive flock from the
-/// moment the entry exists until this connection's own dispose removes it, or this process ends. Another connection
-/// sees such an entry only as owned by a live connection: it cannot read, dispose or recover it. Once the owner's
-/// process is gone (its bridge closed or crashed) the lock is released and the entry is an orphan anyone may recover.
+/// The transactions this connection owns, by txn (#412 rounds 2 and 3, finding 1): each publish first creates a
+/// transaction record `<key>.<txn>.txn` in the private dir (O_EXCL) and holds an exclusive flock on it until this
+/// connection's own dispose of its displaced entry succeeds, or this process ends. The record is a private inode: no
+/// program outside this account can open it, so no writer's lock on the project file can take its place. Another
+/// connection sees the transaction's entry only as owned by a live connection: it cannot read, dispose or recover it.
 type Owned = std::collections::HashMap<String, OwnedFd>;
 
-/// Takes ownership of a private entry: Some(fd holding its flock), or None while another live connection owns it.
-fn lock_entry(priv_fd: RawFd, name: &str) -> Result<Option<OwnedFd>, i32> {
-    let fd = open_private(priv_fd, name)?;
+/// A transaction's record: its state ("prepared" with our staged inode, "published" or "aborted").
+fn read_record(fd: RawFd) -> Option<Value> {
+    // SAFETY: a dup, so the File's drop leaves the fd open.
+    let dup = unsafe { libc::dup(fd) };
+    if dup < 0 {
+        return None;
+    }
+    let mut file = unsafe { std::fs::File::from_raw_fd(dup) };
+    let mut text = String::new();
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).ok()?;
+    Read::take(&mut file, 4096).read_to_string(&mut text).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Writes a record's state durably (the file, then the private dir).
+fn write_record(fd: RawFd, priv_fd: RawFd, record: &Value) -> bool {
+    let text = record.to_string();
+    // SAFETY: pwrite/ftruncate/fsync on our own fd.
+    let written = unsafe {
+        libc::pwrite(fd, text.as_ptr().cast(), text.len(), 0) == text.len() as isize
+            && libc::ftruncate(fd, text.len() as libc::off_t) == 0
+            && libc::fsync(fd) == 0
+    };
+    written && fsync(priv_fd)
+}
+
+/// The authoritative outcome of an unowned transaction (its owner is gone): a prepared record is resolved by what its
+/// staged name holds now. Our staged inode means the exchange never ran (aborted); another inode means it ran
+/// (published); no entry means it never got that far (a recovery writes its verdict BEFORE it disposes an entry).
+fn resolve_record(fd: RawFd, priv_fd: RawFd, key: &str, txn: &str) -> Option<Value> {
+    let mut record = read_record(fd)?;
+    if record["state"] == "prepared" {
+        let staged = staged_name(priv_fd, key, txn);
+        let state = match staged.as_deref().and_then(|n| fstatat(priv_fd, n)) {
+            Some(st) if Some(st.st_ino as u64) != record["ino"].as_u64() => "published",
+            _ => "aborted",
+        };
+        record["state"] = json!(state);
+        write_record(fd, priv_fd, &record);
+    }
+    Some(record)
+}
+
+/// The staged entry of a transaction, `<key>.<txn>-<unique>.staged`, if any.
+fn staged_name(priv_fd: RawFd, key: &str, txn: &str) -> Option<String> {
+    let prefix = format!("{key}.{txn}-");
+    std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.starts_with(&prefix) && n.ends_with(".staged"))
+}
+
+/// A staged entry's txn: `<key>.<txn>-<unique>.staged`.
+fn txn_of(entry: &str, key: &str) -> Option<String> {
+    let rest = entry.strip_prefix(key)?.strip_prefix('.')?;
+    let (txn, _) = rest.split_once('-')?;
+    txn.bytes().all(|b| b.is_ascii_hexdigit()).then(|| txn.to_string())
+}
+
+/// Takes a transaction's record lock: Some(fd), None while another live connection owns it, or Err (no record: ENOENT).
+fn lock_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<OwnedFd>, i32> {
+    let name = format!("{key}.{txn}.txn");
+    let c = CString::new(name).map_err(|_| libc::EINVAL)?;
+    // SAFETY: openat on the held private dir, one component, never following a link.
+    let raw = unsafe { libc::openat(priv_fd, c.as_ptr(), libc::O_RDWR | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+    if raw < 0 {
+        return Err(errno());
+    }
+    // SAFETY: a new owned descriptor.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     // SAFETY: flock on our own fd.
     if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
         return Ok(Some(fd));
@@ -224,7 +290,7 @@ fn entry(req: &Value) -> Result<String, String> {
     let k = key(req)?;
     let e = req["entry"].as_str().unwrap_or("");
     let rest = e.strip_prefix(k.as_str()).and_then(|r| r.strip_prefix('.')).unwrap_or("");
-    if rest.is_empty() || e.contains('/') || e.contains('\0') || rest.starts_with('.') {
+    if rest.is_empty() || e.contains('/') || e.contains('\0') || rest.starts_with('.') || !rest.ends_with(".staged") {
         return Err("invalid entry".into());
     }
     Ok(e.to_string())
@@ -658,19 +724,45 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     }
     let ours = fstat(tmp.as_raw_fd())?;
     // 4. Named in the private dir only.
-    let txn = req["txn"].as_str().unwrap_or("");
+    let txn = match req["txn"].as_str() {
+        Some(t) if !t.is_empty() => t.to_string(),
+        _ => hex(unique().as_bytes())[..12].to_string(),
+    };
     if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
         return Err("invalid txn".into());
     }
-    let staged = if txn.is_empty() { format!("{key}.{}.staged", unique()) } else { format!("{key}.{txn}-{}.staged", unique()) };
+    // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
+    // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
+    let record_c = cstr(&format!("{key}.{txn}.txn"))?;
+    // SAFETY: openat on the held private dir, one component, new file only.
+    let raw = unsafe { libc::openat(priv_fd, record_c.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC, 0o600 as libc::c_uint) };
+    if raw < 0 {
+        return Err(fail("the transaction record"));
+    }
+    // SAFETY: a new owned descriptor.
+    let record = unsafe { OwnedFd::from_raw_fd(raw) };
+    // SAFETY: removes our own record (nothing was published).
+    let drop_record = || unsafe { libc::unlinkat(priv_fd, record_c.as_ptr(), 0) };
+    // SAFETY: flock on our own fd.
+    if unsafe { libc::flock(record.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
+        || !write_record(record.as_raw_fd(), priv_fd, &json!({"state": "prepared", "ino": ours.st_ino as u64}))
+    {
+        drop_record();
+        return Err("the transaction record cannot be established: nothing published".into());
+    }
+    let staged = format!("{key}.{txn}-{}.staged", unique());
     let staged_c = cstr(&staged)?;
     let proc_path = CString::new(format!("/proc/self/fd/{}", tmp.as_raw_fd())).unwrap();
     // SAFETY: links our unnamed inode (through its fd) under a fresh private name; EEXIST if taken.
     if unsafe { libc::linkat(libc::AT_FDCWD, proc_path.as_ptr(), priv_fd, staged_c.as_ptr(), libc::AT_SYMLINK_FOLLOW) } != 0 {
+        drop_record();
         return Err(fail("linkat"));
     }
-    // SAFETY: unlinks our own private entry (nothing was published).
-    let unlink_staged = || unsafe { libc::unlinkat(priv_fd, staged_c.as_ptr(), 0) };
+    // SAFETY: unlinks our own private entry and record (nothing was published).
+    let unlink_staged = || unsafe {
+        libc::unlinkat(priv_fd, staged_c.as_ptr(), 0);
+        libc::unlinkat(priv_fd, record_c.as_ptr(), 0)
+    };
     if !fsync(priv_fd) {
         unlink_staged();
         return Err(fail("fsync private dir"));
@@ -692,8 +784,10 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
         }
         return Err(os_err("renameat2", e));
     }
-    // 7. Published: from here the private entry holds the displaced object, and nothing is undone.
+    // 7. Published: from here the private entry holds the displaced object, and nothing is undone. The record says so
+    // (if this write fails, a recovery still decides it from the staged inode).
     test_pause(req, "afterExchange");
+    write_record(record.as_raw_fd(), priv_fd, &json!({"state": "published", "ino": ours.st_ino as u64}));
     let mut uncertain: Option<&str> = None;
     if test_fault(req, "afterExchange") {
         uncertain = Some("observation");
@@ -742,11 +836,8 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     if !synced {
         unsynced.insert(staged.clone(), dir);
     }
-    // This connection owns the displaced entry until its own dispose: taken before the file's lock is released, so no
-    // other connection ever sees it unowned while this one lives.
-    if let Ok(Some(fd)) = lock_entry(priv_fd, &staged) {
-        owned.insert(staged.clone(), fd);
-    }
+    // This connection owns the transaction (its locked record) until its own dispose of the displaced entry.
+    owned.insert(txn, record);
     // 11. Reply.
     Ok(match uncertain {
         Some(u) => json!({"ok": false, "published": true, "synced": synced, "uncertain": u, "displaced": staged}),
@@ -781,24 +872,70 @@ fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -
 
 fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, String> {
     let entry = entry(req)?;
-    let _lock = lock_key(priv_fd, &key(req)?)?;
+    let key = key(req)?;
+    let _lock = lock_key(priv_fd, &key)?;
     let hash = req["hash"].as_str().ok_or("hash")?;
-    // Ours already, or an orphan taken over now; another live connection's entry is refused, never touched.
-    let fd = match owned.remove(&entry) {
-        Some(fd) => fd,
-        None => match lock_entry(priv_fd, &entry) {
-            Ok(Some(fd)) => fd,
-            Ok(None) => return Ok(json!({"ok": false, "owned": true})),
-            Err(libc::ENOENT) => return Ok(json!({"ok": true})),
-            Err(e) => return Err(os_err("open", e)),
-        },
+    // An entry from before transaction records (no txn in its name) has no owner to ask: an orphan.
+    let Some(txn) = txn_of(&entry, &key) else {
+        return dispose_named(priv_fd, req, &entry, hash);
     };
-    let result = dispose_entry(priv_fd, req, &entry, hash, &fd);
-    // Still there (busy, late bytes, an error): this connection keeps owning it.
-    if !matches!(&result, Ok(v) if v["ok"] == true) {
-        owned.insert(entry, fd);
+    // Its transaction: ours (the owner's own dispose, after it heard the reply), an orphan (its owner is gone: its
+    // verdict is written into the record first, and the record stays for the originating bridge), or another live
+    // connection's (refused, never touched).
+    if let Some(record) = owned.remove(&txn) {
+        let done = dispose_named(priv_fd, req, &entry, hash);
+        if matches!(&done, Ok(v) if v["ok"] == true) {
+            // Removed by its owner, who heard the reply: the record's work is done.
+            if let Ok(c) = cstr(&format!("{key}.{txn}.txn")) {
+                // SAFETY: unlinks our own record.
+                unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+            }
+        } else {
+            owned.insert(txn, record);
+        }
+        return done;
     }
-    result
+    let _record = match lock_record(priv_fd, &key, &txn) {
+        Ok(Some(fd)) => {
+            resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn);
+            Some(fd)
+        }
+        Ok(None) => return Ok(json!({"ok": false, "owned": true})),
+        Err(libc::ENOENT) => None, // No record: an entry from before records, or one aged out.
+        Err(e) => return Err(os_err("the transaction record", e)),
+    };
+    dispose_named(priv_fd, req, &entry, hash)
+}
+
+/// Disposes a private entry by name; one already gone is ok.
+fn dispose_named(priv_fd: RawFd, req: &Value, entry: &str, hash: &str) -> Result<Value, String> {
+    match open_private(priv_fd, entry) {
+        Ok(fd) => dispose_entry(priv_fd, req, entry, hash, &fd),
+        Err(libc::ENOENT) => Ok(json!({"ok": true})),
+        Err(e) => Err(os_err("open", e)),
+    }
+}
+
+/// `ack {path, txn}`: the originating bridge has settled a transaction whose reply it lost, so its record may go. A
+/// record still locked by a live connection is left alone.
+fn ack_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
+    let key = key(req)?;
+    let txn = req["txn"].as_str().ok_or("txn")?;
+    if txn.is_empty() || txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return Err("invalid txn".into());
+    }
+    let _lock = lock_key(priv_fd, &key)?;
+    match lock_record(priv_fd, &key, txn) {
+        Ok(Some(_fd)) => {
+            let c = cstr(&format!("{key}.{txn}.txn"))?;
+            // SAFETY: unlinks one record of the private dir, under its lock.
+            unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+            Ok(json!({"ok": true}))
+        }
+        Ok(None) => Ok(json!({"ok": false, "owned": true})),
+        Err(libc::ENOENT) => Ok(json!({"ok": true})),
+        Err(e) => Err(os_err("the transaction record", e)),
+    }
 }
 
 fn dispose_entry(priv_fd: RawFd, req: &Value, entry: &str, hash: &str, fd: &OwnedFd) -> Result<Value, String> {
@@ -846,38 +983,62 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     // Waits for any operation on this file by another connection: a live transaction is never listed as a leftover.
     let _lock = lock_key(priv_fd, &key)?;
     let prefix = format!("{key}.");
-    let mut entries = Vec::new();
-    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
-        let name = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
-        if !name.starts_with(&prefix) {
+    let names: Vec<String> = std::fs::read_dir(format!("/proc/self/fd/{priv_fd}"))
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&prefix))
+        .collect();
+    // Transaction records (#412 round 3): each with its authoritative outcome, and whether a live connection owns it.
+    // An unowned prepared record is resolved (and written) here. Records outlive their entries: they go only when their
+    // owner disposes its entry, when the originating bridge acks, or after 30 days.
+    let mut records = Vec::new();
+    let mut live = std::collections::HashSet::new();
+    for name in names.iter().filter(|n| n.ends_with(".txn")) {
+        let txn = name[prefix.len()..name.len() - 4].to_string();
+        if owned.contains_key(&txn) {
+            records.push(json!({"txn": txn, "state": "owned-here"}));
             continue;
         }
-        if name.ends_with("-lock") {
-            continue;
-        }
-        // Another live connection's entry: named, but with no bytes to take over (#412 round 2, finding 1).
-        let held;
-        let fd = match owned.get(&name) {
-            Some(fd) => fd,
-            None => match lock_entry(priv_fd, &name) {
-                Ok(Some(fd)) => {
-                    held = fd;
-                    &held
-                }
-                Ok(None) => {
-                    entries.push(json!({"entry": name, "owned": true}));
+        match lock_record(priv_fd, &key, &txn) {
+            Ok(Some(fd)) => {
+                let old = fstat(fd.as_raw_fd()).map(|st| now_secs() - st.st_mtime as i64 > 30 * 86_400).unwrap_or(false);
+                if old {
+                    if let Ok(c) = cstr(name) {
+                        // SAFETY: unlinks one aged record of the private dir, under its lock.
+                        unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+                    }
                     continue;
                 }
-                Err(_) => continue,
-            },
-        };
+                let state = resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn).map(|r| r["state"].clone()).unwrap_or(json!("unknown"));
+                records.push(json!({"txn": txn, "state": state}));
+            }
+            Ok(None) => {
+                live.insert(txn.clone());
+                records.push(json!({"txn": txn, "owned": true}));
+            }
+            Err(_) => {}
+        }
+    }
+    let mut entries = Vec::new();
+    for name in names.iter().filter(|n| n.ends_with(".staged")) {
+        // Another live connection's entry: named, but with no bytes to take over (#412 rounds 2 and 3, finding 1).
+        if txn_of(name, &key).is_some_and(|t| live.contains(&t)) {
+            entries.push(json!({"entry": name, "owned": true}));
+            continue;
+        }
+        let Ok(fd) = open_private(priv_fd, name) else { continue };
         if !fstat(fd.as_raw_fd()).map(|s| is_reg(&s)).unwrap_or(false) {
             continue;
         }
-        let bytes = read_all(fd)?;
+        let bytes = read_all(&fd)?;
         entries.push(json!({"entry": name, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
-    Ok(json!({"ok": true, "entries": entries}))
+    Ok(json!({"ok": true, "entries": entries, "records": records}))
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 fn die(msg: &str) -> ! {
@@ -983,11 +1144,12 @@ fn main() {
                         (true, Some(_), Some(_)) => Err("the root is already set".into()),
                         _ => Ok(json!({"ok": true, "protocol": 3})),
                     },
-                    Some("read" | "publish" | "flush" | "list" | "dispose") if root_fd.is_none() => Err("hello with the root first".into()),
+                    Some("read" | "publish" | "flush" | "list" | "dispose" | "ack") if root_fd.is_none() => Err("hello with the root first".into()),
                     Some("read") => read_op(root_fd.unwrap_or(-1), &req),
                     Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced, &mut owned),
                     Some("flush") => flush_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
                     Some("dispose") => dispose_op(priv_fd, &req, &mut owned),
+                    Some("ack") => ack_op(priv_fd, &req),
                     Some("list") => list_op(priv_fd, &req, &owned),
                     // A closing bridge's proof of quiescence (#412 round 2, finding 2): operations run one at a time,
                     // so this reply means none is in flight; the helper then exits and releases what it owned.

@@ -74,7 +74,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock')); // Per-file lock files are not entries.
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn')); // Locks and transaction records are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -510,6 +510,52 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       const seen = await h.call({ op: 'list', path: 'docs/a.md' });
       expect(seen.entries).toMatchObject([{ entry: p.displaced, hash: sha('one\nlate\n') }]);
       expect(Buffer.from(seen.entries[0].data, 'base64').toString()).toBe('one\nlate\n');
+    });
+
+    test('#412 round 3, finding 1: a writer\'s own flock on the file cannot take the transaction\'s ownership', async () => {
+      // A writer that opens the project file for appending and holds an exclusive advisory flock on it.
+      const writer = spawn('python3', ['-c', "import fcntl,sys\nf=open(sys.argv[1],'a')\nfcntl.flock(f,fcntl.LOCK_EX)\nprint('ready',flush=True)\nsys.stdin.readline()\nf.write('late\\n');f.flush()\nfcntl.flock(f,fcntl.LOCK_UN)\nf.close()", target()], { stdio: ['pipe', 'pipe', 'inherit'] });
+      await new Promise((done) => createInterface({ input: writer.stdout }).once('line', done));
+      const r = await read();
+      const p = await publish(r);
+      expect(p).toMatchObject({ ok: true });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      writer.stdin.end('go\n'); // It appends through its old descriptor, unlocks and closes.
+      await new Promise((done) => writer.on('exit', done));
+      const other = helper(root, priv);
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]);
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+      } finally {
+        other.stop();
+      }
+    });
+
+    test('#412 round 3, finding 2: orphan recovery keeps the transaction record, so the lost reply is still decided', async () => {
+      const r = await read();
+      const pending = publish(r, { txn: 'abc123', pause: 'afterExchange', pauseMs: 5000 });
+      await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
+      h.stop(); // The reply is lost: the helper dies right after the exchange (its call never answers).
+      void pending;
+      await sleep(200);
+      const recoverer = helper(root, priv); // Another bridge's load: recovers the orphan entry.
+      try {
+        const seen = await recoverer.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.records).toEqual([{ txn: 'abc123', state: 'published' }]);
+        const [entry] = seen.entries;
+        expect(Buffer.from(entry.data, 'base64').toString()).toBe('one\n');
+        expect(await recoverer.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash })).toMatchObject({ ok: true });
+      } finally {
+        recoverer.stop();
+      }
+      h = helper(root, priv); // The originating bridge reconnects.
+      const later = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(later.entries).toEqual([]);
+      expect(later.records).toEqual([{ txn: 'abc123', state: 'published' }]); // Still decided: never "not published".
+      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc123' })).toMatchObject({ ok: true });
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
     });
 
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {

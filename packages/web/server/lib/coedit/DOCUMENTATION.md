@@ -36,12 +36,21 @@ round 4); until then no conflict could be seen.
     whose connection has already closed when it gets the lock (or just before its exchange) is abandoned before any
     change. So recovery after a lost reply, which lists through the lock, never races a publish nobody will hear of.
     The lock files stay (one empty file per co-edited file).
-  - **Each connection owns the entries it creates** (#412 round 2). Its helper holds an exclusive `flock` on every
-    displaced revision it leaves, from before it releases the file's lock until its own `dispose` removes it, or its
-    process ends. Another connection's `list` shows such an entry only as `owned` (no bytes), and its `dispose` refuses
-    it, so it can neither remove a pending revision (and the late bytes a writer may still add) nor erase the record a
-    lost reply is settled by. A lost-reply settlement that sees its entry still owned holds. Only when the owner's
-    process is gone (its bridge closed or crashed) is the entry an orphan that the next load recovers, bytes included.
+  - **Transaction records** (#412 rounds 2 and 3). Before any change, each publish creates a record
+    `<key>.<txn>.txn` in the private directory (exclusively), writes it durably with its staged inode (`prepared`),
+    and holds an exclusive `flock` on it. After the exchange the record says `published`. The record is a private
+    inode, so no writer's lock on the project file can stand in for it, and a publish that cannot establish it changes
+    nothing.
+    - **Ownership:** a connection owns its transaction while it holds the record's lock: until its own `dispose` of the
+      displaced entry succeeds (it heard the reply), or its process ends. Another connection's `list` shows that entry
+      only as `owned` (no bytes), and its `dispose` refuses it. So a pending revision, and the late bytes a writer
+      may still add, stay with their owner.
+    - **Outcome:** once the owner is gone, whoever lists or disposes first resolves a `prepared` record from its staged
+      name (our inode: `aborted`; another inode: `published`; none: `aborted`) and writes the verdict **before**
+      recovering the entry. Recovery never removes the record, so a live bridge whose reply was lost still decides
+      its save by it: `published` adopts the room's snapshot; `aborted` or no record (the helper died before any
+      change) is not published; still owned or unreadable holds. That bridge then `ack`s, and only then does the record
+      go. Records are also removed by their owner's successful dispose, and after 30 days.
   - **Closing** says whether the helper is **quiescent** (`close()` resolves `{ quiescent }`). A spawned helper is
     killed and awaited. A service helper, which this account cannot kill, is sent `bye`: operations run one at a time,
     so its answer means none is in flight, and it then exits. Only that answer within `closeMs` gives

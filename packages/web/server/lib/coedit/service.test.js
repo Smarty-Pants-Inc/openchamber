@@ -2,9 +2,10 @@
 // Runs only against a live service: OPENCHAMBER_COEDIT_TEST_SOCKET (its socket), OPENCHAMBER_COEDIT_TEST_BASE (a
 // directory of this account whose ancestors already grant the service's account search-only `x`), and setfacl. The
 // forge rig (Light's coedit-test units) or Dev1 after smarty-dev#2251 provide one; elsewhere these tests skip.
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { createInterface } from 'readline';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 
@@ -114,6 +115,28 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       await other.close();
       fs.closeSync(writer);
     }
+  });
+
+  it('#412 round 3: a writer\'s own flock on the file cannot take ownership: another connection is still refused', async () => {
+    const t = setup('log\n');
+    const writer = spawn('python3', ['-c', "import fcntl,sys\nf=open(sys.argv[1],'a')\nfcntl.flock(f,fcntl.LOCK_EX)\nprint('ready',flush=True)\nsys.stdin.readline()\nf.write('late\\n');f.flush()\nfcntl.flock(f,fcntl.LOCK_UN)\nf.close()", t.file], { stdio: ['pipe', 'pipe', 'inherit'] });
+    await new Promise((done) => createInterface({ input: writer.stdout }).once('line', done));
+    const { bridge, doc, conflicts } = bridgeFor(t);
+    await bridge.load();
+    doc.getText(TEXT).insert(0, 'P');
+    expect(await bridge.save()).toEqual({ ok: true });
+    writer.stdin.end('go\n');
+    await new Promise((done) => writer.on('exit', done));
+    const other = startHelper(t.root, path.join(t.recoveryDir, '.staging'));
+    try {
+      const { entries } = await other.call({ op: 'list', path: 'docs/a.md' });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ owned: true });
+    } finally {
+      await other.close();
+    }
+    await expect.poll(() => conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+    expect(fs.readFileSync(conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('log\nlate\n');
   });
 
   it('#412 round 2: closing proves the service helper quiescent (bye answered)', async () => {

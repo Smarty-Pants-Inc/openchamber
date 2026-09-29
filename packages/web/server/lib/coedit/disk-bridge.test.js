@@ -77,7 +77,7 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } 
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
   /** The helper's private staging entries (displaced or staged revisions). */
-  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock')) : []);
+  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn')) : []);
   /** Saves with the helper paused at `point`, running `fn` inside that window. */
   const saveDuring = async (point, fn) => {
     hooks.helper = { pause: point, pauseMs: 3000 };
@@ -601,6 +601,25 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       if (saving.threw) expect(t.disk()).toBe('a');
       await t.bridge.sync();
       expect(t.text.toString()).toBe('Pa'); // Not PPa.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa');
+    });
+
+    it('#412 round 3: a second bridge recovers the orphan of a lost reply; the first still settles it as published, no replay', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      delete t.hooks.helper;
+      const second = t.open(); // Another bridge on the same file: its load recovers the orphan and disposes it.
+      await second.bridge.load();
+      expect(t.staged()).toEqual([]);
+      await t.bridge.sync(); // The first bridge settles its lost reply.
+      expect(t.bridge.state().conflict).toBe(null);
+      expect(t.text.toString()).toBe('Pa'); // Adopted, not replayed as PPa.
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(t.disk()).toBe('Pa');
     });
