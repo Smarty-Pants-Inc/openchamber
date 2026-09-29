@@ -4,8 +4,8 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, readSettled, startHelper, UNCERTAIN_NOTICE,
-  UNSYNCED_NOTICE,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, readSettled, startHelper, testHooks,
+  UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
 /** Shown while outside writes cannot reach the room (the watcher failed); cleared once watching resumes. */
@@ -42,7 +42,7 @@ export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
  * `root` and `file` must be canonical (realpath) absolute paths, as the room's admission resolves them.
  */
 export function createDiskBridge({
-  root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks = {},
+  root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks,
   enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000,
 }) {
   if (!enabled) throw new Error('Co-editing is off (OPENCHAMBER_COEDIT)');
@@ -55,12 +55,38 @@ export function createDiskBridge({
   const name = path.basename(file);
   const rel = path.relative(root, file);
   const text = doc.getText(TEXT);
-  const key = keyOf(rel);
+  const key = keyOf(root, rel);
+  // Tests pass `hooks` (named helper pauses and faults); only then is the helper started to honour them.
+  const forTests = hooks !== undefined;
+  hooks ??= {};
   // Fails closed where the helper cannot run (smartyfs#32). Its private dir holds staging and displaced revisions.
-  const helper = startHelper(root, path.join(recoveryDir, '.staging'), { timeoutMs });
+  const spawnHelper = () => startHelper(root, path.join(recoveryDir, '.staging'), { timeoutMs, testHooks: forTests });
+  let current = spawnHelper();
+  let respawns = 0;
+  /**
+   * The helper, started again when it was lost (killed, crashed, past its deadline), at most `retryLimit` times in a row
+   * (smartyfs#34 item 1). What a lost call may have done is already held (uncertain, unsynced); the new one settles it.
+   */
+  const helper = {
+    alive: () => !closed,
+    call: async (request) => {
+      if (!current.alive()) {
+        if (closed) throw new Error('Co-edited file is closed');
+        if (respawns >= retryLimit) throw new Error('coedit-fs keeps failing');
+        respawns += 1;
+        await current.close();
+        if (closed) throw new Error('Co-edited file is closed'); // close() ran meanwhile: start nothing after it.
+        current = spawnHelper();
+      }
+      const reply = await current.call(request);
+      respawns = 0;
+      return reply;
+    },
+    close: () => current.close(),
+  };
   let pending = []; // Private entries still open for writing: removed once no one writes to them.
   let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
-  let unsynced = null; // A published save not yet flushed: { raised }. Nothing is acknowledged until a flush succeeds.
+  let unsynced = null; // A published save not yet flushed: { raised, entry }. Nothing is acknowledged until a flush succeeds.
   let base = null; // The room's state whose text was on disk at the last read or publish.
   let baseText = '';
   let baseHash = null;
@@ -117,7 +143,7 @@ export function createDiskBridge({
    */
   const confirmDurable = async () => {
     if (!unsynced) return true;
-    const reply = await helper.call({ op: 'flush', path: rel, ...hooks.helper }).catch(() => null);
+    const reply = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel, entry: unsynced.entry }).catch(() => null);
     if (reply?.ok) {
       unsynced = null;
       if (!uncertain && conflict?.conflict === 'unverified') conflict = null;
@@ -153,9 +179,36 @@ export function createDiskBridge({
       if (!closed) void serial(disposePending).catch(() => {});
     }, retryMs);
   };
+  /**
+   * Settles a save whose reply was lost by the private dir, the authoritative record, whatever the file holds now
+   * (an agent may have written since): a new entry holding OUR bytes means the exchange never ran (it is removed, and
+   * the base stays); a new entry holding anything else is the revision our exchange displaced (published: the base
+   * follows ours, and the entry is kept for recovery as a pending one); no new entry means it never got that far.
+   */
+  const settleByPrivateDir = async () => {
+    const reply = await helper.call({ op: 'list', key }).catch(() => null);
+    if (!reply?.ok) return false;
+    const known = new Set(pending.map((revision) => revision.entry));
+    // Only the lost call's own entry (its txn names it), never another save's leftover.
+    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${uncertain.lost}-`));
+    const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
+    if (displaced) {
+      base = uncertain.snapshot;
+      baseText = uncertain.next;
+      baseHash = uncertain.nextHash;
+      gone = false;
+      pending.push({ entry: displaced.entry, hash: uncertain.baseHash }); // Late bytes differ, so they are kept.
+    } else {
+      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, name, hooks);
+    }
+    uncertain = null;
+    if (!unsynced) conflict = null;
+    return true;
+  };
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
   const settleUncertain = async () => {
     if (!uncertain) return true;
+    if (uncertain.lost && (await settleByPrivateDir())) return true;
     const disk = await readFile(helper, rel);
     if (disk?.hash === uncertain.nextHash) {
       base = uncertain.snapshot;
@@ -242,7 +295,7 @@ export function createDiskBridge({
       try {
         // A flush that failed before a reopen or restart is not forgotten: the file's directory is flushed first, and
         // until that succeeds nothing is disposed or acknowledged (a cached read is no durability receipt).
-        flushed = await helper.call({ op: 'flush', path: rel, ...hooks.helper }).then((reply) => reply.ok === true, () => false);
+        flushed = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel }).then((reply) => reply.ok === true, () => false);
         interrupted = await finishInterruptedSaves(helper, key, rel, recoveryDir, { durable: flushed, hooks });
         disk = await readSettled(helper, rel, settleMs);
         if (disk === null) throw new Error('Co-edited file does not exist');
@@ -288,14 +341,14 @@ export function createDiskBridge({
       const next = text.toString();
       if (next === baseText) return { ok: true };
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
-      const { pending: displaced, unsynced: notFlushed, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
+      const { pending: displaced, unsynced: notFlushed, lost, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
-      if (notFlushed) unsynced = { raised: true }; // Raised with this result; a later flush confirms it.
+      if (notFlushed) unsynced = { raised: true, entry: displaced?.entry }; // Raised with this result; a flush confirms it.
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
