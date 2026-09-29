@@ -32,7 +32,7 @@ const getXattr = (p, name) => py('import os,sys\ntry: print(os.getxattr(sys.argv
 const extended = (perm) => [[ACL.USER_OBJ, 7, ANY], [ACL.USER, perm, 4242], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 0, ANY]];
 
 function helper(root, priv) {
-  const child = spawn(BIN, [root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = new Map();
   let next = 0;
   createInterface({ input: child.stdout }).on('line', (line) => {
@@ -381,10 +381,62 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     const loose = path.join(dir, 'loose');
     fs.mkdirSync(loose);
     fs.chmodSync(loose, 0o750);
-    expect(spawnSync(BIN, [root, loose], { input: '' }).status).toBe(2);
-    expect(spawnSync(BIN, [root], { input: '' }).status).toBe(2);
-    expect(spawnSync(BIN, [root, path.join(dir, 'missing')], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, loose], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, path.join(dir, 'missing')], { input: '' }).status).toBe(2);
     fs.symlinkSync(priv, path.join(dir, 'privlink'));
-    expect(spawnSync(BIN, [root, path.join(dir, 'privlink')], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, path.join(dir, 'privlink')], { input: '' }).status).toBe(2);
+  });
+
+  describe('its own account (smartyfs#32: the helper never serves the account it runs as)', () => {
+    const hello = `${JSON.stringify({ op: 'hello', id: 1 })}\n`;
+    test('started as the account it serves (the peer on its stdin socket is its own uid) it refuses, exit 2', () => {
+      // Node's stdio pipes are socketpairs, so the helper sees this test's uid (its own) as its peer.
+      const direct = spawnSync(BIN, [root, priv], { input: hello, encoding: 'utf8' });
+      expect(direct.status).toBe(2);
+      expect(direct.stderr).toMatch(/own account/);
+      const service = spawnSync(BIN, ['--socket', priv], { input: hello, encoding: 'utf8' });
+      expect(service.status).toBe(2);
+      expect(service.stderr).toMatch(/own account/);
+    });
+
+    test('socket mode takes its root from hello, then works as before (with --same-account, tests only)', async () => {
+      const child = spawn(BIN, ['--socket', priv, '--same-account'], { stdio: ['pipe', 'pipe', 'inherit'] });
+      const lines = createInterface({ input: child.stdout });
+      const replies = [];
+      lines.on('line', (l) => replies.push(JSON.parse(l)));
+      child.stdin.write(`${JSON.stringify({ op: 'read', path: 'docs/a.md', id: 1 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'hello', root, id: 2 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'read', path: 'docs/a.md', id: 3 })}\n`);
+      await until(() => replies.length === 3);
+      child.kill();
+      expect(replies[0]).toMatchObject({ ok: false, error: expect.stringMatching(/hello/) }); // No root yet.
+      expect(replies[1]).toMatchObject({ ok: true, protocol: 3 });
+      expect(Buffer.from(replies[2].data, 'base64').toString()).toBe('one\n');
+    });
+
+    test('an ACL on a path directory that names only trusted accounts (the helper, its peer) is allowed', async () => {
+      const r = await read();
+      setAcl(root, 'system.posix_acl_access', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 7, process.geteuid()], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 5, ANY]]);
+      expect(await publish(r)).toMatchObject({ ok: true });
+    });
+
+    test('a file of another owner is published with an access-equivalent ACL: its owner and group keep their access', async () => {
+      fs.chmodSync(target(), 0o640);
+      const { gid } = fs.statSync(target());
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      // testFileOwner stands in for paul's file seen by the smarty-coedit helper (tests cannot create a second account).
+      expect(await publish(r, { testFileOwner: 4242 })).toMatchObject({ ok: true });
+      const acl = getXattr(target(), 'system.posix_acl_access');
+      expect(acl).not.toBe('none');
+      const entries = [];
+      for (let i = 8; i < acl.length; i += 16) {
+        const b = Buffer.from(acl.slice(i, i + 16), 'hex');
+        entries.push([b.readUInt16LE(0), b.readUInt16LE(2), b.readUInt32LE(4)]);
+      }
+      expect(entries).toContainEqual([ACL.USER, 6, 4242]); // The original owner: rw.
+      expect(entries).toContainEqual([8, 4, gid]); // Its group: r.
+      expect(fs.statSync(target()).mode & 0o707).toBe(0o600); // Owner and other bits; the group bits are the mask.
+    });
   });
 });

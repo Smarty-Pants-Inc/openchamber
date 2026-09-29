@@ -1,6 +1,7 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,7 @@ import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
 
+process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1'; // Tests run the helper as themselves; production uses the service (smartyfs#32).
 process.env.COEDIT_FS_TEST = '1'; // The helper honours a test pause or fault only with this (smartyfs#32).
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const cleanups = [];
@@ -362,6 +364,16 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       }
     });
 
+    it('without the service socket, the helper is not run as the account it serves unless explicitly allowed (smartyfs#32)', () => {
+      const saved = process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT;
+      delete process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT;
+      try {
+        expect(() => createDiskBridge({ root: '/a/p', file: '/a/p/f', doc: new Y.Doc(), recoveryDir: '/r', enabled: true })).toThrow(/coedit-fs service/);
+      } finally {
+        process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = saved;
+      }
+    });
+
     it('is off unless enabled', () => {
       const saved = process.env.OPENCHAMBER_COEDIT;
       delete process.env.OPENCHAMBER_COEDIT;
@@ -681,6 +693,48 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       await expect(helper.call({ op: 'read', path: 'x' })).rejects.toThrow(/protocol/);
       await helper.close();
       expect(alive(helper.pid)).toBe(false);
+    });
+  });
+
+  describe('the coedit-fs service (smartyfs#32: the helper as its own account, one per connection)', () => {
+    /** A stand-in for systemd's Accept=yes socket unit: each connection gets its own real helper on that socket. */
+    const service = async (args) => {
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-svc-')));
+      const staging = path.join(home, 'staging');
+      fs.mkdirSync(staging, { mode: 0o700 });
+      const sock = path.join(home, 'fs.sock');
+      const helpers = [];
+      const server = net.createServer((conn) => {
+        helpers.push(spawn(path.join(import.meta.dirname, 'fs-helper/target/release/coedit-fs'), ['--socket', staging, ...args], { stdio: [conn, conn, 'ignore'] }));
+        conn.destroy(); // As systemd does: only the helper holds the connection, so its exit closes it.
+      });
+      await new Promise((done) => server.listen(sock, done));
+      const saved = process.env.OPENCHAMBER_COEDIT_SOCKET;
+      process.env.OPENCHAMBER_COEDIT_SOCKET = sock;
+      cleanups.push(() => {
+        if (saved === undefined) delete process.env.OPENCHAMBER_COEDIT_SOCKET;
+        else process.env.OPENCHAMBER_COEDIT_SOCKET = saved;
+        for (const h of helpers) h.kill('SIGKILL');
+        server.close();
+        fs.rmSync(home, { recursive: true, force: true });
+      });
+      return { staging, helpers };
+    };
+
+    it('the bridge saves through the service: the root goes in the hello, staging lives in the service\'s own dir', async () => {
+      // --same-account only because a test cannot run as a second account; the real unit never passes it.
+      const { staging } = await service(['--same-account']);
+      const t = await setup('a\n');
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa\n');
+      expect(fs.existsSync(t.privateDir)).toBe(false); // The bridge made no staging dir of its own.
+      expect(fs.readdirSync(staging)).toEqual([]);
+    });
+
+    it('a service helper that would serve its own account refuses, and the bridge fails closed', async () => {
+      await service([]);
+      await expect(setup('a\n')).rejects.toThrow(/coedit-fs/);
     });
   });
 

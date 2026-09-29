@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import net from 'net';
 import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -14,7 +15,7 @@ const fitName = (name, max) => {
   return out;
 };
 /** The helper protocol this module speaks: a helper that answers `hello` otherwise is refused (#37 item 5). */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 /** The helper's limit (fs-helper MAX_BYTES): refused before any copy or call. */
 const MAX_BYTES = 64 << 20;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
@@ -24,8 +25,15 @@ export const inside = (root, target) => target === root || target.startsWith(roo
 /** The coedit-fs helper (smartyfs#32): OPENCHAMBER_COEDIT_FS, or the one built beside this file. */
 export const helperPath = () =>
   process.env.OPENCHAMBER_COEDIT_FS || path.join(import.meta.dirname, 'fs-helper/target/release/coedit-fs');
+/**
+ * The coedit-fs service's socket (smartyfs#32): the helper runs as its own account (`smarty-coedit`), started by systemd
+ * per connection, so no program running as the account it serves can reach its private directory.
+ */
+export const helperSocket = () => process.env.OPENCHAMBER_COEDIT_SOCKET || '';
+/** Tests and development only: run the helper as this account (the pre-#32 residual), never by default. */
+const sameAccountAllowed = () => process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT === '1';
 /** Co-editing writes only through the helper's atomic Linux calls. Elsewhere, or without it, it fails closed. */
-export const anchoredFilesAvailable = () => process.platform === 'linux' && fs.existsSync(helperPath());
+export const anchoredFilesAvailable = () => process.platform === 'linux' && (helperSocket() ? fs.existsSync(helperSocket()) : fs.existsSync(helperPath()));
 
 /** Shown with a conflict whose save may have displaced another writer's revision (org's condition on smartyfs#32). */
 export const DISTURBED_NOTICE = 'Another writer changed this file during your save: check the recovery folder.';
@@ -79,13 +87,18 @@ function makeDirDurable(dir) {
  * The helper's private dir, `<recoveryDir>/.staging`: the recovery directory must be ours and not writable by others;
  * `.staging` is opened without following a link and made 0700 through that descriptor, so no chmod reaches elsewhere.
  */
-function preparePrivateDir(privateDir) {
-  const recoveryDir = path.dirname(privateDir);
+/** The recovery directory (the bridge's, as this account): created durably; ours, not a link, not writable by others. */
+function prepareRecoveryDir(recoveryDir) {
   makeDirDurable(recoveryDir);
   const st = fs.lstatSync(recoveryDir);
   if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & 0o022) !== 0) {
     throw new Error('Co-editing needs a recovery directory of its own, not a link or one others can write to');
   }
+}
+
+function preparePrivateDir(privateDir) {
+  const recoveryDir = path.dirname(privateDir);
+  prepareRecoveryDir(recoveryDir);
   try {
     fs.mkdirSync(privateDir, { mode: 0o700 });
   } catch (error) {
@@ -115,11 +128,63 @@ function preparePrivateDir(privateDir) {
  */
 export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: forTests = false } = {}) {
   if (!anchoredFilesAvailable()) throw new Error('Co-editing needs the coedit-fs helper, which this system lacks');
+  const socket = helperSocket();
+  if (socket) {
+    prepareRecoveryDir(path.dirname(privateDir)); // The service keeps its own staging; recovery copies stay ours.
+    return connectHelper(socket, root, { timeoutMs });
+  }
+  if (!forTests && !sameAccountAllowed()) {
+    throw new Error('Co-editing needs the coedit-fs service (OPENCHAMBER_COEDIT_SOCKET): the helper must not run as this account');
+  }
   preparePrivateDir(privateDir);
   const env = { ...process.env };
   delete env.COEDIT_FS_TEST;
   if (forTests) env.COEDIT_FS_TEST = '1';
-  const child = spawn(helperPath(), [root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = spawn(helperPath(), ['--same-account', root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+  return speak(child.stdin, child.stdout, {
+    timeoutMs,
+    pid: child.pid,
+    root: null,
+    kill: () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    },
+    onEnd: (end, markExited) => {
+      child.on('error', (error) => {
+        if (child.pid === undefined) markExited(); // Never started: there is no exit to wait for.
+        end(error);
+      });
+      child.on('exit', (code, signal) => {
+        markExited();
+        end(new Error(`coedit-fs ended (${signal ?? code})`));
+      });
+      child.stdin.on('error', end);
+    },
+  });
+}
+
+/**
+ * A connection to the coedit-fs service: systemd starts one helper, as its own account, per connection; the root goes
+ * in the first request. Ending the connection ends that helper (it reads EOF); it cannot be killed from this account.
+ */
+function connectHelper(socketPath, root, { timeoutMs }) {
+  const conn = net.createConnection(socketPath);
+  return speak(conn, conn, {
+    timeoutMs,
+    pid: undefined,
+    root,
+    kill: () => conn.destroy(),
+    onEnd: (end, markExited) => {
+      conn.on('error', (error) => end(new Error(`coedit-fs connection failed (${error.message})`)));
+      conn.on('close', () => {
+        markExited();
+        end(new Error('coedit-fs ended (connection closed)'));
+      });
+    },
+  });
+}
+
+/** The JSON-lines protocol over a helper's input and output, with deadlines, a frame guard and the handshake. */
+function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
   const waiting = new Map();
   let next = 0;
   let ended = null;
@@ -132,18 +197,13 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
       reject(ended);
     }
     waiting.clear();
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    kill();
   };
-  child.on('error', (error) => {
-    if (child.pid === undefined) markExited(); // Never started: there is no exit to wait for.
-    end(error);
-  });
-  child.on('exit', (code, signal) => {
-    markExited();
-    end(new Error(`coedit-fs ended (${signal ?? code})`));
-  });
-  child.stdin.on('error', end);
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  onEnd(end, markExited);
+  const lines = createInterface({ input: output });
+  // readline re-emits its input's errors; the connection's own error handler already ends the helper.
+  lines.on('error', () => {});
+  lines.on('line', (line) => {
     let reply;
     try {
       reply = JSON.parse(line);
@@ -162,18 +222,21 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
     const id = ++next;
     const timer = setTimeout(() => end(new Error('coedit-fs did not answer in time')), timeoutMs);
     waiting.set(id, { resolve, reject, timer });
-    child.stdin.write(`${JSON.stringify({ ...request, id })}\n`);
+    // A failed write ends the helper through its error handler; the callback only keeps it from being unhandled.
+    input.write(`${JSON.stringify({ ...request, id })}\n`, () => {});
   });
   // Every request waits for the handshake: a helper of another protocol (an older build) ends before any request.
-  const ready = send({ op: 'hello' }).then((reply) => {
-    if (reply.protocol === PROTOCOL) return;
-    const error = new Error(`coedit-fs speaks protocol ${reply.protocol ?? 'unknown'}, not ${PROTOCOL}`);
+  const ready = send(root ? { op: 'hello', root } : { op: 'hello' }).then((reply) => {
+    if (reply.ok && reply.protocol === PROTOCOL) return;
+    const error = new Error(reply.ok || /unknown op/.test(String(reply.error))
+      ? `coedit-fs speaks protocol ${reply.protocol ?? 'unknown'}, not ${PROTOCOL}`
+      : `coedit-fs refused the project root: ${reply.error}`);
     end(error);
     throw error;
   });
   ready.catch(() => {}); // Each call reports it.
   return {
-    pid: child.pid,
+    pid,
     /** Whether a request sent now can still reach the helper. */
     alive: () => ended === null,
     call: (request) => ready.then(() => send(request)),

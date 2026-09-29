@@ -1,4 +1,4 @@
-//! coedit-fs <project root> <private dir>: the co-edit disk bridge's file operations (openchamber#380, smartyfs#32).
+//! coedit-fs --same-account <root> <private dir> | coedit-fs --socket <private dir>: the co-edit disk bridge's file operations (openchamber#380, smartyfs#32).
 //!
 //! One process per bridge; JSON lines in, one JSON line per request out. Project paths are relative to the root and
 //! resolved with openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS). Opens never block (O_NONBLOCK)
@@ -13,7 +13,8 @@
 //! private dir.
 //!
 //! Operations:
-//! - `hello` -> `{ok:true,protocol:2}` (the bridge refuses any other protocol)
+//! - `hello {root?}` -> `{ok:true,protocol:3}` (the bridge refuses any other protocol; in socket mode the first hello
+//!   names the root, and read/publish/flush before it are refused)
 //! - `read {path}` -> `{ok,ino,dev,hash,data(base64)}` | `{ok:false,conflict:"gone"}`
 //! - `publish {path,ino,dev,hash,data,key}` -> not published: `{ok:false,conflict:"gone"|"changed"}` | `{ok:false,error}`;
 //!   published: `{ok,published,synced,ino,dev,displaced}` (ok only when synced) | `{ok:false,published,synced,conflict:"raced",displaced}`
@@ -204,21 +205,37 @@ fn c_names(mut p: *mut *mut libc::c_char) -> Vec<String> {
     out
 }
 
-/// Whether `gid` is our own private group: our primary group, with no other member and no other account's primary
-/// group. Anything else (a shared group, or one we cannot read) counts as other accounts. Tests only: `testGroupMembers`.
+/// The accounts admission trusts (smartyfs#32): the helper itself, the one account it serves (its peer), and root.
+/// Anyone else who could move a directory on a file's path makes a publish refused.
+static PEER: std::sync::OnceLock<libc::uid_t> = std::sync::OnceLock::new();
+
+fn trusted(uid: libc::uid_t) -> bool {
+    // SAFETY: geteuid cannot fail.
+    uid == 0 || uid == unsafe { libc::geteuid() } || PEER.get() == Some(&uid)
+}
+
+/// An account's name and primary group, or None.
+fn account(uid: libc::uid_t) -> Option<(String, libc::gid_t)> {
+    // SAFETY: the helper is single-threaded, so the non-reentrant getpwuid is safe; its result is copied at once.
+    unsafe {
+        let pw = libc::getpwuid(uid);
+        (!pw.is_null()).then(|| (std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned(), (*pw).pw_gid))
+    }
+}
+
+/// Whether `gid` is a private group of the trusted accounts: the primary group of the helper or of its peer, with no
+/// member but trusted accounts and no other account's primary group. Anything else (a shared group, or one we cannot
+/// read) counts as other accounts. Tests only: `testGroupMembers`.
 fn private_group(gid: libc::gid_t, req: &Value) -> bool {
-    // SAFETY: getters that cannot fail; the helper is single-threaded, so the non-reentrant passwd/group calls are safe.
-    let (euid, egid) = unsafe { (libc::geteuid(), libc::getegid()) };
-    if gid != egid {
+    // SAFETY: getegid cannot fail.
+    let egid = unsafe { libc::getegid() };
+    let peer = PEER.get().and_then(|&uid| account(uid));
+    if gid != egid && peer.as_ref().map(|p| p.1) != Some(gid) {
         return false;
     }
-    let me = unsafe {
-        let pw = libc::getpwuid(euid);
-        if pw.is_null() {
-            return false;
-        }
-        std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned()
-    };
+    // SAFETY: geteuid cannot fail.
+    let Some((me, _)) = account(unsafe { libc::geteuid() }) else { return false };
+    let names: Vec<String> = [Some(me), peer.map(|p| p.0)].into_iter().flatten().collect();
     let mut members = unsafe {
         let gr = libc::getgrgid(gid);
         if gr.is_null() {
@@ -229,7 +246,7 @@ fn private_group(gid: libc::gid_t, req: &Value) -> bool {
     if let (true, Some(list)) = (testing(), req["testGroupMembers"].as_array()) {
         members = list.iter().filter_map(|m| m.as_str().map(String::from)).collect();
     }
-    if members.iter().any(|m| *m != me) {
+    if members.iter().any(|m| !names.contains(m)) {
         return false;
     }
     let mut shared = false;
@@ -240,7 +257,7 @@ fn private_group(gid: libc::gid_t, req: &Value) -> bool {
             if pw.is_null() {
                 break;
             }
-            if (*pw).pw_gid == gid && (*pw).pw_uid != euid {
+            if (*pw).pw_gid == gid && !trusted((*pw).pw_uid) {
                 shared = true;
                 break;
             }
@@ -258,8 +275,6 @@ fn movable_by_others(root: RawFd, dir_rel: &str, req: &Value) -> Result<bool, St
     if dir_rel == "." {
         return Ok(false);
     }
-    // SAFETY: geteuid cannot fail.
-    let euid = unsafe { libc::geteuid() };
     // Tests only: `testOwners: {path: uid}` stands in for another account's directory.
     let owner = |path: &str, st: &libc::stat| -> u32 {
         match (testing(), req["testOwners"][path].as_u64()) {
@@ -267,7 +282,7 @@ fn movable_by_others(root: RawFd, dir_rel: &str, req: &Value) -> Result<bool, St
             _ => st.st_uid,
         }
     };
-    let foreign = |uid: u32| uid != euid && uid != 0;
+    let foreign = |uid: u32| !trusted(uid);
     let stat_at = |p: &str| -> Result<libc::stat, String> {
         let fd = open_beneath(root, p, libc::O_PATH | libc::O_DIRECTORY).map_err(|e| os_err("directory", e))?;
         fstat(fd.as_raw_fd())
@@ -276,9 +291,12 @@ fn movable_by_others(root: RawFd, dir_rel: &str, req: &Value) -> Result<bool, St
     for i in 0..parts.len() {
         let p = if i == 0 { ".".to_string() } else { parts[..i].join("/") };
         let fd = open_beneath(root, &p, libc::O_PATH | libc::O_DIRECTORY).map_err(|e| os_err("directory", e))?;
-        // An extended access ACL can grant a named account write access that the mode bits (then the ACL mask) hide.
-        if xattr(fd.as_raw_fd(), ACCESS_ACL)?.is_some() {
-            return Err("a directory on the file's path has an extended ACL".into());
+        // An extended access ACL can grant a named account write access that the mode bits (then the ACL mask) hide:
+        // allowed only when every named entry that can write is a trusted account or a private group.
+        if let Some(acl) = xattr(fd.as_raw_fd(), ACCESS_ACL)? {
+            if !acl_trusted(&acl, req) {
+                return Err("a directory on the file's path has an extended ACL".into());
+            }
         }
         let st = fstat(fd.as_raw_fd())?;
         if foreign(owner(&p, &st)) {
@@ -315,6 +333,82 @@ fn xattr(fd: RawFd, name: &str) -> Result<Option<Vec<u8>>, String> {
     }
     buf.truncate(len as usize);
     Ok(Some(buf))
+}
+
+const ACL_USER_OBJ: u16 = 0x01;
+const ACL_USER: u16 = 0x02;
+const ACL_GROUP_OBJ: u16 = 0x04;
+const ACL_GROUP: u16 = 0x08;
+const ACL_MASK: u16 = 0x10;
+const ACL_OTHER: u16 = 0x20;
+
+/// A POSIX ACL xattr's entries (acl(5): a version-2 header, then tag, perm, id), or None when malformed.
+fn acl_entries(acl: &[u8]) -> Option<Vec<(u16, u16, u32)>> {
+    if acl.len() < 4 || u32::from_le_bytes(acl[..4].try_into().ok()?) != 2 || (acl.len() - 4) % 8 != 0 {
+        return None;
+    }
+    Some(acl[4..].chunks(8).map(|e| (u16::from_le_bytes([e[0], e[1]]), u16::from_le_bytes([e[2], e[3]]), u32::from_le_bytes([e[4], e[5], e[6], e[7]]))).collect())
+}
+
+fn acl_bytes(entries: &[(u16, u16, u32)]) -> Vec<u8> {
+    let mut out = 2u32.to_le_bytes().to_vec();
+    for (tag, perm, id) in entries {
+        out.extend_from_slice(&tag.to_le_bytes());
+        out.extend_from_slice(&perm.to_le_bytes());
+        out.extend_from_slice(&id.to_le_bytes());
+    }
+    out
+}
+
+/// Whether every named entry of a directory's ACL that grants write is a trusted account or a private group.
+fn acl_trusted(acl: &[u8], req: &Value) -> bool {
+    acl_entries(acl).is_some_and(|entries| {
+        entries.iter().all(|&(tag, perm, id)| {
+            perm & 2 == 0 || match tag {
+                ACL_USER => trusted(id),
+                ACL_GROUP => private_group(id, req),
+                _ => true,
+            }
+        })
+    })
+}
+
+/// The access ACL that gives a file we publish over another owner's file (smartyfs#32: the helper runs as its own
+/// account, and cannot give it away) exactly the access the original had: its owner and group become named entries
+/// with the same permissions, its named entries are kept, and our own group (the new file's) gets nothing.
+fn equivalent_acl(original: Option<&[u8]>, owner: u32, group: u32, mode: u32) -> Option<Vec<u8>> {
+    let bits = |shift: u32| ((mode >> shift) & 7) as u16;
+    let mut named: Vec<(u16, u16, u32)> = Vec::new();
+    let (mut owner_perm, mut group_perm, mut other_perm, mut mask) = (bits(6), bits(3), bits(0), None);
+    if let Some(acl) = original {
+        for (tag, perm, id) in acl_entries(acl)? {
+            match tag {
+                ACL_USER_OBJ => owner_perm = perm,
+                ACL_GROUP_OBJ => group_perm = perm,
+                ACL_OTHER => other_perm = perm,
+                ACL_MASK => mask = Some(perm),
+                _ => named.push((tag, perm, id)),
+            }
+        }
+    }
+    let mut add = |tag: u16, perm: u16, id: u32| match named.iter_mut().find(|e| e.0 == tag && e.2 == id) {
+        Some(e) => e.1 |= perm,
+        None => named.push((tag, perm, id)),
+    };
+    add(ACL_USER, owner_perm, owner);
+    add(ACL_GROUP, group_perm, group);
+    named.sort_by_key(|e| (e.0, e.2));
+    let union = named.iter().fold(0, |m, e| m | e.1);
+    let mut entries = vec![(ACL_USER_OBJ, owner_perm, u32::MAX)];
+    entries.extend(named.iter().filter(|e| e.0 == ACL_USER));
+    entries.push((ACL_GROUP_OBJ, 0, u32::MAX));
+    entries.extend(named.iter().filter(|e| e.0 == ACL_GROUP));
+    // The mask caps the named entries: the original's mask if it had one (the owner and group it capped become named
+    // entries, so the owner is widened past it only if the original owner needed it).
+    let m = mask.map_or(union, |m| m | owner_perm | group_perm) & 7;
+    entries.push((ACL_MASK, m, u32::MAX));
+    entries.push((ACL_OTHER, other_perm, u32::MAX));
+    Some(acl_bytes(&entries))
 }
 
 fn read_op(root: RawFd, req: &Value) -> Result<Value, String> {
@@ -392,23 +486,46 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
         let mut file = unsafe { std::fs::File::from_raw_fd(dup) };
         file.write_all(&data).map_err(|e| e.to_string())?;
     }
-    // Our file takes the original's group and access ACL, never our own group (smartyfs#34 item 13).
-    // SAFETY: fchown of our own fd to a group; -1 keeps the owner.
-    if unsafe { libc::fchown(tmp.as_raw_fd(), u32::MAX, st.st_gid) } != 0 {
-        return Err(fail("the file's group cannot be kept (fchown)"));
-    }
-    if let Some(acl) = &acl {
-        let n = cstr(ACCESS_ACL)?;
-        // SAFETY: sets the copied ACL on our own fd.
-        if unsafe { libc::fsetxattr(tmp.as_raw_fd(), n.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) } != 0 {
-            return Err(fail("the file's ACL cannot be kept"));
+    // Tests only: `testFileOwner` stands in for a file of the account we serve.
+    let file_owner = match (testing(), req["testFileOwner"].as_u64()) {
+        (true, Some(uid)) => uid as u32,
+        _ => st.st_uid,
+    };
+    // SAFETY: geteuid cannot fail.
+    if file_owner != unsafe { libc::geteuid() } {
+        // Another account's file (the one we serve, smartyfs#32): ours cannot be given to it, or to its group, without
+        // CAP_CHOWN (not granted). It keeps the same access instead: the mode (without set-user/group-ID), then an ACL
+        // that names the original owner and group with their permissions. Setting it sets the mode's group bits to
+        // the mask. The owner of the published file is this helper's account.
+        // SAFETY: fchmod on our fd.
+        if unsafe { libc::fchmod(tmp.as_raw_fd(), st.st_mode & 0o1777) } != 0 {
+            return Err(fail("fchmod"));
         }
-    }
-    // The mode, without set-user-ID or set-group-ID: our file must not run as us (item 11). After the ACL, so the
-    // mask follows the original's group bits.
-    // SAFETY: fchmod on our fd.
-    if unsafe { libc::fchmod(tmp.as_raw_fd(), st.st_mode & 0o1777) } != 0 {
-        return Err(fail("fchmod"));
+        let eq = equivalent_acl(acl.as_deref(), file_owner, st.st_gid, st.st_mode).ok_or("the file's ACL cannot be read")?;
+        let n = cstr(ACCESS_ACL)?;
+        // SAFETY: sets the ACL on our own fd.
+        if unsafe { libc::fsetxattr(tmp.as_raw_fd(), n.as_ptr(), eq.as_ptr().cast(), eq.len(), 0) } != 0 {
+            return Err(fail("the file's access cannot be kept (ACL)"));
+        }
+    } else {
+        // Our own file: it takes the original's group and access ACL, never our own group (smartyfs#34 item 13).
+        // SAFETY: fchown of our own fd to a group; -1 keeps the owner.
+        if unsafe { libc::fchown(tmp.as_raw_fd(), u32::MAX, st.st_gid) } != 0 {
+            return Err(fail("the file's group cannot be kept (fchown)"));
+        }
+        if let Some(acl) = &acl {
+            let n = cstr(ACCESS_ACL)?;
+            // SAFETY: sets the copied ACL on our own fd.
+            if unsafe { libc::fsetxattr(tmp.as_raw_fd(), n.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) } != 0 {
+                return Err(fail("the file's ACL cannot be kept"));
+            }
+        }
+        // The mode, without set-user-ID or set-group-ID: our file must not run as us (item 11). After the ACL, so the
+        // mask follows the original's group bits.
+        // SAFETY: fchmod on our fd.
+        if unsafe { libc::fchmod(tmp.as_raw_fd(), st.st_mode & 0o1777) } != 0 {
+            return Err(fail("fchmod"));
+        }
     }
     if !fsync(tmp.as_raw_fd()) {
         return Err(fail("fsync staging"));
@@ -594,19 +711,55 @@ fn die(msg: &str) -> ! {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        die("usage: coedit-fs <project root> <private dir>");
+    // coedit-fs --same-account <root> <private dir>: spawned by the bridge as the account it serves (tests and dev).
+    // coedit-fs --socket <private dir> [--same-account]: the service (smartyfs#32), started by systemd as its own
+    //   account on a connection from the one account it serves; the root comes in the first request (hello).
+    // Without --same-account it refuses to serve its own account, or to run as root: the peer on stdin (a socket, as
+    // systemd's Accept=yes and Node's stdio pipes both are) must be another account. The service's unit never passes it.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let same_account = args.iter().any(|a| a == "--same-account");
+    let rest: Vec<&String> = args.iter().filter(|a| *a != "--same-account").collect();
+    let (socket_mode, root_arg, priv_arg) = match rest.as_slice() {
+        [flag, privd] if *flag == "--socket" => (true, None, privd.as_str()),
+        [root, privd] if !root.starts_with("--") => (false, Some(root.as_str()), privd.as_str()),
+        _ => die("usage: coedit-fs --same-account <project root> <private dir> | coedit-fs --socket <private dir>"),
+    };
+    // SAFETY: geteuid cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    let mut cred = libc::ucred { pid: 0, uid: u32::MAX, gid: u32::MAX };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: SO_PEERCRED into a ucred of the given size, on our stdin.
+    let peer = (unsafe { libc::getsockopt(0, libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len) } == 0)
+        .then_some(cred.uid);
+    if !same_account {
+        match peer {
+            None => die("stdin must be a socket from the account this helper serves"),
+            Some(uid) if uid == euid => die("refusing to serve its own account: the helper must run as its own account (smartyfs#32)"),
+            _ if euid == 0 => die("refusing to run as root"),
+            _ => {}
+        }
     }
+    let _ = PEER.set(peer.unwrap_or(euid));
     // A lease break is signalled with SIGIO, whose default action ends the process: the break only waits for our unlock.
     // SAFETY: ignoring a signal at startup, before any thread exists.
     unsafe { libc::signal(libc::SIGIO, libc::SIG_IGN) };
-    let root = CString::new(args[1].as_str()).unwrap_or_else(|_| die("root"));
-    let privd = CString::new(args[2].as_str()).unwrap_or_else(|_| die("private dir"));
-    // SAFETY: opens the root (the anchor of every resolution) and the private dir, each once.
-    let root_fd = unsafe { libc::open(root.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    let open_root = |root: &str| -> Result<RawFd, String> {
+        let c = cstr(root)?;
+        if !root.starts_with('/') {
+            return Err("the root must be an absolute path".into());
+        }
+        // SAFETY: opens the root (the anchor of every resolution) once.
+        let fd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+        if fd < 0 { Err(fail("open root")) } else { Ok(fd) }
+    };
+    let mut root_fd: Option<RawFd> = match root_arg {
+        Some(root) => Some(open_root(root).unwrap_or_else(|e| die(&e))),
+        None => None,
+    };
+    let privd = CString::new(priv_arg).unwrap_or_else(|_| die("private dir"));
+    // SAFETY: opens the private dir once.
     let priv_fd = unsafe { libc::open(privd.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if root_fd < 0 || priv_fd < 0 {
+    if priv_fd < 0 {
         die(&fail("open"));
     }
     let pst = fstat(priv_fd).unwrap_or_else(|e| die(&e));
@@ -633,10 +786,20 @@ fn main() {
             Ok(req) => {
                 let result = match req["op"].as_str() {
                     // The protocol version: the bridge refuses a helper that answers otherwise (smartyfs#37 item 5).
-                    Some("hello") => Ok(json!({"ok": true, "protocol": 2})),
-                    Some("read") => read_op(root_fd, &req),
-                    Some("publish") => publish_op(root_fd, priv_fd, &req, &mut unsynced),
-                    Some("flush") => flush_op(root_fd, priv_fd, &req, &mut unsynced),
+                    // In socket mode the first hello names the root (once); later requests use it.
+                    Some("hello") => match (socket_mode, root_fd, req["root"].as_str()) {
+                        (true, None, Some(root)) => open_root(root).map(|fd| {
+                            root_fd = Some(fd);
+                            json!({"ok": true, "protocol": 3})
+                        }),
+                        (true, None, None) => Err("hello needs the root".into()),
+                        (true, Some(_), Some(_)) => Err("the root is already set".into()),
+                        _ => Ok(json!({"ok": true, "protocol": 3})),
+                    },
+                    Some("read" | "publish" | "flush") if root_fd.is_none() => Err("hello with the root first".into()),
+                    Some("read") => read_op(root_fd.unwrap_or(-1), &req),
+                    Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
+                    Some("flush") => flush_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
                     Some("dispose") => dispose_op(priv_fd, &req),
                     Some("list") => list_op(priv_fd, &req),
                     _ => Err("unknown op".into()),

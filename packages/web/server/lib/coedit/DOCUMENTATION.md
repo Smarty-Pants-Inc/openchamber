@@ -19,7 +19,26 @@ round 4); until then no conflict could be seen.
   shows conflicts and their notices to the people in the room.
 
 ## Design: never lose bytes silently; nothing is rolled back or guessed
-- **The helper or nothing.** One coedit-fs process per bridge: `coedit-fs <root> <privateDir>`, JSON lines on
+- **The helper runs as its own account** (smartyfs#32). In production it is the **coedit-fs service**: systemd starts
+  one helper per connection to `OPENCHAMBER_COEDIT_SOCKET` (`/run/smarty-coedit/fs.sock`, only the served account may
+  connect), as the system account `smarty-coedit`, with its private directory `/var/lib/smarty-coedit/staging` (inside
+  its own 0700 home). So no program running as the account it serves can reach its staged or displaced entries. The
+  bridge sends the project root in the first request (`hello`). The helper **refuses to serve its own account**: unless
+  it is given `--same-account` (tests and development only; the service never is), it exits 2 when the peer on its stdin
+  socket (`SO_PEERCRED`) is its own uid, or when it runs as root. Without the socket, the bridge runs the helper as its
+  own account only when `OPENCHAMBER_COEDIT_SAME_ACCOUNT=1` (tests, development); otherwise co-editing fails closed.
+  - **Setup** (smarty-dev `setup/coedit/`): the account, its home and staging directory, the socket and service units
+    (no bind mounts: the exchange between the staging directory and a project directory must stay on one mount), and
+    the binary at `/usr/local/libexec/smarty-coedit/coedit-fs`. Per project root, its owner grants the helper write
+    access: `setfacl -R -m u:smarty-coedit:rwX -m d:u:smarty-coedit:rwX <root>`.
+  - **Admission trusts** the helper, the account it serves (its peer) and root. A directory owned by, or writable
+    through an ACL entry naming, anyone else is refused, as are groups with other members.
+  - **Files it publishes are owned by `smarty-coedit`.** A save's new inode cannot be given to the served account
+    without `CAP_CHOWN` (not granted, org's decision). The helper gives it an access-equivalent ACL instead: the
+    original owner and group become named entries with their permissions, and the mode is kept (its group bits show
+    the ACL mask). The owner keeps reading and writing it, and git and editors still replace it, but **the owner's
+    `chmod` and `chown` on it fail**.
+- **The helper or nothing.** One coedit-fs process per bridge, JSON lines on
   stdin/stdout. It resolves every project path from the root with `openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|
   RESOLVE_NO_MAGICLINKS)` and opens files `O_NOFOLLOW|O_NONBLOCK` (a FIFO never blocks; only regular files are read).
   Without the helper (another OS, no binary), co-editing throws.
@@ -142,6 +161,9 @@ round 4); until then no conflict could be seen.
   fails closed.
 
 ## Residuals (not closed; accepted as limits by code-lead's SCOPE DECISIONs on #380)
+With the service (above), the first residual below applies only when the helper runs as the served account
+(`--same-account`: tests and development). The second remains: the served account owns its project directories.
+
 These are limits, not guarantees. The real fix, a helper under another uid, is tracked by smartyfs#32 (the condition
 of Paul's acceptance). Co-editing is **off by default** until then.
 - **Same-account private-entry interference.** Accepted by [#380 5889338501](https://github.com/Smarty-Pants-Inc/openchamber/pull/380#issuecomment-5889338501),

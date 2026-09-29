@@ -73,6 +73,8 @@ async function writer(id) {
 
 async function server(id) {
   process.env.OPENCHAMBER_COEDIT = '1';
+  // With the service (OPENCHAMBER_COEDIT_SOCKET) the helper runs as its own account; otherwise as this one (tests).
+  if (!process.env.OPENCHAMBER_COEDIT_SOCKET) process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1';
   const { createDiskBridge, TEXT } = await import('./disk-bridge.js');
   const doc = new Y.Doc();
   const bridge = createDiskBridge({
