@@ -1,5 +1,4 @@
 import { createConfiguredWebAPIs, getDesktopRelayRestoreReady } from './runtimeConfig';
-import { registerSW } from 'virtual:pwa-register';
 
 import type { RuntimeAPIs } from '@openchamber/ui/lib/api/types';
 import { resolveHostedSurface, watchHostedSurfaceViewport, type HostedSurface } from '@openchamber/ui/lib/runtimeSurface';
@@ -64,15 +63,12 @@ const runWhenDocumentCanRegisterServiceWorker = (task: () => void): void => {
 
 const registerPwaServiceWorker = (): void => {
   runWhenDocumentCanRegisterServiceWorker(() => {
-    try {
-      registerSW({
-        onRegisterError(error: unknown) {
-          console.warn('[PWA] service worker registration skipped:', error);
-        },
-      });
-    } catch (error) {
+    // Registered directly, not through vite-plugin-pwa's autoUpdate registerSW: that reloads EVERY open tab as soon as
+    // any tab activates a new worker, even one holding unsent text. A page reloads into a new build only through its own
+    // held check on reconnect (smarty-code#713, newBuildReload.ts); a new worker just takes control (sw.ts claims clients).
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((error: unknown) => {
       console.warn('[PWA] service worker registration skipped:', error);
-    }
+    });
   });
 };
 
