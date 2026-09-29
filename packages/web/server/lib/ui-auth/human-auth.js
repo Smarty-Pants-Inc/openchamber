@@ -101,6 +101,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       name: validName(session.user.name) ? session.user.name : 'User',
     };
     if (validImage(session.user.image)) identity.image = session.user.image;
+    // smarty-code#701: the admitted (verified, allowed-domain) email names the person's inbox. The gateway must accept
+    // it (installed first) and never copy it into message metadata.
+    identity.email = session.user.email;
     return identity;
   };
   const authorizeUiSession = async (groupKey) => {

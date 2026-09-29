@@ -72,6 +72,8 @@ import { useEdgeSwipe } from './useEdgeSwipe';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
+import { InboxView } from '@/components/views/InboxView';
+import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
@@ -116,6 +118,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   useTerminalSessionKeepalive();
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
+  const inboxOpen = useInboxStore((state) => state.pageOpen);
+  React.useEffect(() => watchInbox(), []);
   // Phone right drawer with the workspace tabs; the tab persists across
   // open/close so the right-edge swipe reopens where the user left off.
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
@@ -459,7 +463,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
               <ErrorBoundary>
-                <ChatView covered={mobileChatCovered(activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
+                <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
               </ErrorBoundary>
             </div>
           </main>
@@ -545,6 +549,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             onOpenMcpSettings={openMcpCreateSettings}
           />
         )}
+
+        {/* smarty-code#701: the inbox replaces the chat; an item keeps its actions in a bottom bar. */}
+        {inboxOpen ? (
+          <MobileFullscreenSurface open variant={surfaceVariant} dialogAlign="app" onClose={() => useInboxStore.getState().setPageOpen(false)} ariaLabel="Inbox" headerless>
+            <ErrorBoundary><InboxView compact onClose={() => useInboxStore.getState().setPageOpen(false)} /></ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
 
         {/* Layered above the workspace drawer's Notes tab, which opened it. */}
         {openPlan ? (
