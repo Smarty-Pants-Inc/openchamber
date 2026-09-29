@@ -187,13 +187,28 @@ test('an unconfirmed send (503) shows the server\'s words and keeps its status f
   expect(prompts()).toHaveLength(1);
 });
 
-test('view invalidation during attachment preparation prevents POST dispatch', async () => {
+test('a reset of the branch view during attachment preparation prevents POST dispatch', async () => {
   await loader.ensure(target);
   const sending = opencodeClient.sendMessage({ ...params,
     files: [{ type: 'file', mime: 'text/markdown', filename: 'notes.md', url: 'data:text/markdown,hello' }] });
-  loader.invalidateOrdinaryViews();
+  loader.invalidateOrdinaryView(target, true); // A 409 or a changed branch.
   await expect(sending).rejects.toThrow('view changed before submission');
   expect(prompts()).toHaveLength(0);
+});
+
+// smarty-code#827: under load the event stream stalls and reconnects; that reset every view, and the next send sat for
+// the whole 5 s re-read and was then refused ("history has not finished loading"). A reconnect is no changed branch:
+// the send goes with the last view (the gateway still refuses one its branch moved past, 409, re-read and resent once).
+test('a lost event stream during a send keeps the last view: the POST goes, with it, without waiting for a re-read', async () => {
+  await loader.ensure(target);
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); };
+  const sending = opencodeClient.sendMessage({ ...params,
+    files: [{ type: 'file', mime: 'text/markdown', filename: 'notes.md', url: 'data:text/markdown,hello' }] });
+  loader.invalidateOrdinaryViews(); // onDisconnect / onTransportSwitch
+  await sending;
+  expect(reads).toBe(0);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view]);
 });
 
 test('a transport failure revokes the submitted view without inventing an HTTP status or replaying', async () => {

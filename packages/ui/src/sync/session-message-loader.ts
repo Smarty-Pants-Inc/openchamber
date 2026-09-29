@@ -548,7 +548,15 @@ export class SessionMessageLoader {
 
   invalidateOrdinaryViews(): void {
     this.ordinaryEpoch += 1
-    for (const entry of this.entries.values()) this.invalidateOrdinaryView(entry.target, true)
+    for (const entry of this.entries.values()) {
+      // smarty-code#827: a lost or switched event stream is no changed branch. History is re-read from the start, but
+      // the last view stays sendable: under load the stream stalls and reconnects, and a send then had no view and sat
+      // for the whole 5 s re-read before being refused. The gateway still refuses a view its branch has moved past
+      // (409, re-read and resent once).
+      const last = entry.lastOrdinaryView
+      this.invalidateOrdinaryView(entry.target, true)
+      entry.lastOrdinaryView = last
+    }
   }
 
   refreshOrdinaryView(target: SessionMessageTarget, resetHistory = false): Promise<void> {
