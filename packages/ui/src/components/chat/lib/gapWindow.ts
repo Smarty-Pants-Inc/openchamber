@@ -16,8 +16,10 @@ export const WINDOW_RECORDS = 500;
 export const READ_AHEAD_WINDOWS = 2;
 /** How long a placeholder stays near the view before its windows are read (a drag passes many). */
 export const GAP_SETTLE_MS = 90;
-/** How far ahead of the view the list mounts rows, placeholders included (LegendList drawDistance). */
-export const TIMELINE_DRAW_DISTANCE = 1800;
+/** How far ahead of the view the list mounts rows, placeholders included (LegendList drawDistance). The next window is
+ *  read a whole window ahead (READ_AHEAD_WINDOWS), so this no longer carries the read-ahead: 1,800 px mounted rows the
+ *  reader had not reached and kept the main thread 50-65 % busy in continuous scrolling (candidate 15:0xZ). */
+export const TIMELINE_DRAW_DISTANCE = 600;
 
 /**
  * smarty-code#583: the window a gap chunk reads, within its whole gap and toward the reader, so each read runs ahead of
