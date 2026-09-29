@@ -3,6 +3,7 @@ import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
+import { statusUnavailableI18n } from './status-unavailable.i18n';
 import { settingsDict } from './uk.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -14,6 +15,7 @@ export const dict: Record<I18nKey, string> = {
   ...nativeCreationI18n.uk,
   ...piVoiceI18n.uk,
   ...sidebarHerdrI18n.uk,
+  ...statusUnavailableI18n.uk,
   ...linearIssuePickerI18n.uk,
   ...linearPanelI18n.uk,
   'terminalView.actions.attachSelection': 'Прикріпити вибраний вивід',

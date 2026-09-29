@@ -3,6 +3,7 @@ import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
+import { statusUnavailableI18n } from './status-unavailable.i18n';
 import { settingsDict } from './es.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
@@ -14,6 +15,7 @@ export const dict: Record<I18nKey, string> = {
   ...nativeCreationI18n.es,
   ...piVoiceI18n.es,
   ...sidebarHerdrI18n.es,
+  ...statusUnavailableI18n.es,
   ...linearIssuePickerI18n.es,
   ...linearPanelI18n.es,
   'terminalView.actions.attachSelection': 'Adjuntar salida seleccionada',

@@ -102,6 +102,7 @@ import { listGlobalSessionPages } from "@/stores/globalSessions"
 import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } from "./scoped-blocking-requests"
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
 import { reportClientError } from "@/lib/clientErrorReport"
+import { isStatusUnavailable, noteStatusUnavailablePoll } from "./status-unavailable"
 import {
   EMPTY_SESSION_MESSAGE_LOAD_STATE,
   SessionMessageLoader,
@@ -2821,6 +2822,15 @@ export function SyncProvider(props: {
         // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
         // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
         const shared = fleet ? await fleet : null
+        // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
+        // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
+        if (fleet && isStatusUnavailable(directory)) {
+          if (noteStatusUnavailablePoll(directory)) {
+            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
+            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+          }
+          return
+        }
         const statuses = shared
           ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
           : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
