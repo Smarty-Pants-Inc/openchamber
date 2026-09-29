@@ -139,34 +139,93 @@ test('a failed send from idle keeps a busy status the server sent meanwhile', as
   expect(statusOf(c)).toBe(server);
 });
 
-// smarty-code#827 (slice 1 on 3.48): a steer's composer emptied at Send, the send then stalled before the server
-// answered, and nothing was ever sent: no error, no text. A message to a Pi session now stays until it is ACCEPTED.
-test('the text stays in the composer until the server accepts the send; then it is cleared', async () => {
-  const held = deferred<Response>();
-  const { c } = await ordinaryWorking(() => held.promise);
-  await c.submit(); await act(async () => { await sleep(10); });
-  expect(c.prompts()).toHaveLength(1);
-  expect(c.text()).toBe('steer this'); // Sent, not yet accepted: still here.
-  await act(async () => { held.resolve(steered()); await sleep(10); });
-  expect(c.text()).toBe('');
+// smarty-code#827 (slice 1 on 3.48): a steer's composer emptied at Send, the send then stalled, and nothing was ever sent.
+// The composer still clears at Send (the next message is typed clean: kept there, a steer typed during a 10 s admission
+// merged into it), and the text is never lost: a failure brings it back, and so does a send left unanswered
+// (sendUnconfirmed.ms), with a line; a late delivery clears that copy; sent again unedited, it reuses the first client ID.
+const { sendUnconfirmed } = await import('@/lib/sendUnconfirmed');
+const shortWatchdog = () => { const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 300; return () => { sendUnconfirmed.ms = was; }; };
+const until = async (ok: () => boolean, ms = 20_000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await act(async () => { await sleep(25); }); expect(ok()).toBe(true); };
+const idsOf = async (c: Awaited<ReturnType<typeof mountedNativeComposer>>) => Promise.all(c.prompts().map(async p => (await p.clone().json()).messageID as string));
+
+test('the composer clears at Send, so the next message is typed clean (no merge into the pending one)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    expect(c.text()).toBe('');
+    await c.replace('the next steer'); // Typed while the first send is still unanswered (the 3.48 merge case).
+    await act(async () => { held.resolve(steered()); await sleep(10); });
+    expect(c.text()).toBe('the next steer');
+    const body = await c.prompts()[0].json();
+    expect(body.parts.map((part: { text?: string }) => part.text).join('')).not.toContain('the next steer');
+  } finally { restore(); }
 });
 
-test('a send that is never answered never loses the text, and a second Send of it does not post it twice', async () => {
-  const held = deferred<Response>();
-  const { c } = await ordinaryWorking(() => held.promise);
-  await c.submit(); await act(async () => { await sleep(10); });
-  await c.submit(); await act(async () => { await sleep(10); });
-  expect(c.prompts()).toHaveLength(1);
-  expect(c.text()).toBe('steer this');
-  await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(10); });
-  expect(c.text()).toBe('steer this'); // Refused: it stays, with the reason (the refused-send test above).
+test('a send left unanswered brings its text back; a late delivery clears that copy again', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    expect(c.text()).toBe('');
+    await until(() => c.text() === 'steer this'); // Back, with the "not confirmed yet" line.
+    await act(async () => { held.resolve(steered()); await sleep(10); });
+    await until(() => c.text() === '');
+    expect(c.prompts()).toHaveLength(1);
+  } finally { restore(); }
 });
 
-test('new typing during a held send is not cleared when that send is accepted', async () => {
-  const held = deferred<Response>();
-  const { c } = await ordinaryWorking(() => held.promise);
-  await c.submit(); await act(async () => { await sleep(10); });
-  await c.replace('a new thought');
-  await act(async () => { held.resolve(steered()); await sleep(10); });
-  expect(c.text()).toBe('a new thought');
+test('a refusal after the text came back does not bring it back twice', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(10); });
+    expect(c.text()).toBe('steer this');
+  } finally { restore(); }
+});
+
+test('the restored text sent again UNEDITED reuses the first client ID (a late acceptance + the re-send are one message)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : Response.json({ name: 'APIError',
+      data: { message: 'Client message ID already exists or a submission is pending', isRetryable: false } }, { status: 409 })));
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).toBe(a);
+    await act(async () => { first.resolve(steered()); await sleep(10); }); // The first is accepted late.
+    await until(() => c.text() === '');
+  } finally { restore(); }
+});
+
+test('the restored text EDITED before sending again is a new message (a new client ID)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await c.replace('steer this, edited');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).not.toBe(a);
+  } finally { restore(); }
+});
+
+test('the same text typed again while its send is pending is not posted twice', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await c.replace('steer this');
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(c.prompts()).toHaveLength(1);
+  } finally { restore(); }
 });

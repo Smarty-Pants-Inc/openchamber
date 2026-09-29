@@ -95,6 +95,7 @@ import { useKeybind } from '@/hooks/useKeybind';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { extractGitChangedFiles } from './changedFiles';
 import { useI18n } from '@/lib/i18n';
+import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
@@ -1361,6 +1362,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // it settles. Another press or another draft target never ends it.
     // smarty-code#827: the text of a send to a Pi session that the server has not accepted yet (it stays in the composer).
     const ordinarySendPending = React.useRef<string | null>(null);
+    // The text an unanswered send brought back, with that send's client message ID: sent again UNEDITED, it reuses the ID,
+    // so a late acceptance of the first and this send are one message (the gateway's client-ID reservation dedupes).
+    const restoredSend = React.useRef<{ text: string; messageID: string } | null>(null);
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
         try { await handleSubmit(options, attempt); }
@@ -1599,6 +1603,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             historySubmissions?: InputHistorySubmission[];
             delivery?: 'steer';
             displayName?: string;
+            messageID?: string;
+            onMessageID?: (messageID: string) => void;
         } | undefined;
         if (isBtwActive && btwSessionId && btwDirectory) {
             sendMessageOptions = {
@@ -1777,31 +1783,40 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
-        // smarty-code#827: a message to a Pi session is cleared only once the server ACCEPTED it. Cleared at Send, a
-        // send that then stalled (under load, before its POST was answered) left an empty composer, no error and nothing
-        // sent. Until then the text stays; if it takes long the person is told; any failure keeps it with the reason.
-        const retainUntilAccepted = !nativeIntent && !queuedOnly && !isBtwActive && !commandPlan
+        // smarty-code#827: a send to a Pi session never loses its text. The composer clears at Send (the next message is
+        // typed clean: kept there instead, a steer typed during a 10 s admission merged into it); a failure brings the
+        // text back (below); and a send not answered within sendUnconfirmed.ms (a stalled POST, as slice 1 saw once) brings
+        // it back too, with an honest line. A late acceptance then clears that copy again if it is untouched.
+        const watchUnconfirmed = !nativeIntent && !queuedOnly && !isBtwActive && !commandPlan
             && isOrdinarySession(currentSessionId) && inputSnapshot.hasContent;
-        let stillPendingTimer: ReturnType<typeof setTimeout> | undefined;
+        let unconfirmedTimer: ReturnType<typeof setTimeout> | undefined, restoredUnconfirmed = false, sentID: string | undefined;
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
-        else if (retainUntilAccepted) {
-            ordinarySendPending.current = inputSnapshot.message;
-            stillPendingTimer = setTimeout(() => {
-                if (ordinarySendPending.current === inputSnapshot.message) toast.info(t('chat.send.stillPending'));
-            }, 8_000);
-        }
         else clearSubmittedInput();
-        const settleRetained = (accepted: boolean) => {
-            if (!retainUntilAccepted) return;
-            clearTimeout(stillPendingTimer);
+        if (watchUnconfirmed) {
+            ordinarySendPending.current = inputSnapshot.message;
+            unconfirmedTimer = setTimeout(() => {
+                if (ordinarySendPending.current !== inputSnapshot.message) return;
+                restoredUnconfirmed = true;
+                ordinarySendPending.current = null; // Told; Send may go again (a stalled POST may never answer).
+                restoredSend.current = sentID ? { text: inputSnapshot.message, messageID: sentID } : null;
+                restoreComposerText();
+                toast.info(t('chat.send.unconfirmed'));
+            }, sendUnconfirmed.ms);
+        }
+        /** The send settled. Returns true when its text is already back (the watchdog restored it). */
+        const settleUnconfirmed = (accepted: boolean) => {
+            if (!watchUnconfirmed) return false;
+            clearTimeout(unconfirmedTimer);
             if (ordinarySendPending.current === inputSnapshot.message) ordinarySendPending.current = null;
-            if (!accepted) return; // The text is still in the composer; the failure below says why.
-            // Cleared only where it still holds exactly the sent text: new typing, or another session's draft, stays.
-            if (currentChatDraftIdentityRef.current !== chatDraftIdentity) {
-                consumeChatDraft(chatDraftIdentity, inputSnapshot.message);
-                return;
+            if (sentID && restoredSend.current?.messageID === sentID) restoredSend.current = null; // This send is settled.
+            if (!accepted || !restoredUnconfirmed) return restoredUnconfirmed;
+            // Delivered after all: the restored copy goes again, but only where it is still exactly the sent text.
+            if (currentChatDraftIdentityRef.current !== chatDraftIdentity) consumeChatDraft(chatDraftIdentity, inputSnapshot.message);
+            else if ((composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) {
+                messageRef.current = ''; setMessage(''); persistDraftImmediately(chatDraftIdentity, '');
             }
-            if ((composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) clearSubmittedInput();
+            toast.success(t('chat.send.deliveredLate'));
+            return true;
         };
 
         if (isMobile) {
@@ -1918,6 +1933,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // never claims the new message.
         scrollToBottom?.();
 
+        if (watchUnconfirmed) {
+            const again = restoredSend.current?.text === inputSnapshot.message ? restoredSend.current.messageID : undefined;
+            if (again) restoredSend.current = null;
+            sendMessageOptions = { ...sendMessageOptions, ...(again ? { messageID: again } : {}), onMessageID: (id) => { sentID = id; } };
+        }
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,
@@ -1932,7 +1952,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         attempt.sent = sendPromise;
         void sendPromise.then(() => {
-            settleRetained(true);
+            settleUnconfirmed(true);
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is
             // read from the store. The fallback is used only when the closure
@@ -1964,14 +1984,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const normalized = rawMessage.toLowerCase();
 
             console.error('Message send failed:', rawMessage || error);
-            settleRetained(false);
+            const alreadyBack = settleUnconfirmed(false);
+            // smarty-code#827: a re-send that reused an unconfirmed send's client ID, refused because that ID is already
+            // taken: the first send is the one that counts (delivered, or still being admitted). Nothing to bring back.
+            if (sendMessageOptions?.messageID && /client message id already exists or a submission is pending/i.test(rawMessage)) {
+                toast.info(t('chat.send.stillPending'));
+                return;
+            }
             if (retainNativeDraft) {
                 // The started session's first message was not admitted: its text stays, and the composer says why.
                 toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error)));
                 return;
             }
             restoreConsumedDrafts();
-            restoreComposerText();
+            if (!alreadyBack) restoreComposerText();
 
             const isSoftNetworkError =
                 normalized.includes('timeout') ||
@@ -1994,7 +2020,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
             if (isSoftNetworkError) {
                 // smarty-code#827: a message to a Pi session is still in the composer; say why it has not gone.
-                if (retainUntilAccepted) toast.error(rawMessage || t('chat.send.stillPending'));
+                if (watchUnconfirmed) toast.error(rawMessage || t('chat.send.stillPending'));
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                     toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));

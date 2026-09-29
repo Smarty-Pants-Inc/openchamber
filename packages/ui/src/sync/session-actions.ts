@@ -1891,6 +1891,8 @@ export async function optimisticSend(input: {
   appendSubmissions?: () => void
   onOptimisticInsert?: () => void
   onMessageID?: (messageID: string) => void
+  /** smarty-code#827: send with this client message ID (a re-send of an unconfirmed text reuses its first send's). */
+  messageID?: string
   beforeOptimisticInsert?: () => void
   /** The actual API call — receives the optimistic messageID so the server can use the same ID */
   send: (messageID: string) => Promise<void>
@@ -1949,7 +1951,7 @@ export async function optimisticSend(input: {
     }
   }
 
-  const messageID = ascendingId("msg")
+  const messageID = input.messageID ?? ascendingId("msg")
   input.onMessageID?.(messageID)
   const textPartId = ascendingId("prt")
 
