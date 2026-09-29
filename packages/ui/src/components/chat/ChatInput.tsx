@@ -1359,6 +1359,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // A Send on a new-session draft holds the opening of its new session until its message is admitted or it ends
     // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
     // it settles. Another press or another draft target never ends it.
+    // smarty-code#827: the text of a send to a Pi session that the server has not accepted yet (it stays in the composer).
+    const ordinarySendPending = React.useRef<string | null>(null);
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
         try { await handleSubmit(options, attempt); }
@@ -1371,6 +1373,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
+        if (ordinarySendPending.current !== null && !options?.queuedOnly
+            && (composerRef.current?.getValue() ?? messageRef.current) === ordinarySendPending.current) {
+            toast.info(t('chat.send.stillPending'));
+            return;
+        }
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
             toast.error(t('chat.queuedMessage.admissionUnknown'));
             return;
@@ -1770,8 +1777,32 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
+        // smarty-code#827: a message to a Pi session is cleared only once the server ACCEPTED it. Cleared at Send, a
+        // send that then stalled (under load, before its POST was answered) left an empty composer, no error and nothing
+        // sent. Until then the text stays; if it takes long the person is told; any failure keeps it with the reason.
+        const retainUntilAccepted = !nativeIntent && !queuedOnly && !isBtwActive && !commandPlan
+            && isOrdinarySession(currentSessionId) && inputSnapshot.hasContent;
+        let stillPendingTimer: ReturnType<typeof setTimeout> | undefined;
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
+        else if (retainUntilAccepted) {
+            ordinarySendPending.current = inputSnapshot.message;
+            stillPendingTimer = setTimeout(() => {
+                if (ordinarySendPending.current === inputSnapshot.message) toast.info(t('chat.send.stillPending'));
+            }, 8_000);
+        }
         else clearSubmittedInput();
+        const settleRetained = (accepted: boolean) => {
+            if (!retainUntilAccepted) return;
+            clearTimeout(stillPendingTimer);
+            if (ordinarySendPending.current === inputSnapshot.message) ordinarySendPending.current = null;
+            if (!accepted) return; // The text is still in the composer; the failure below says why.
+            // Cleared only where it still holds exactly the sent text: new typing, or another session's draft, stays.
+            if (currentChatDraftIdentityRef.current !== chatDraftIdentity) {
+                consumeChatDraft(chatDraftIdentity, inputSnapshot.message);
+                return;
+            }
+            if ((composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) clearSubmittedInput();
+        };
 
         if (isMobile) {
             composerRef.current?.blur();
@@ -1901,6 +1932,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         attempt.sent = sendPromise;
         void sendPromise.then(() => {
+            settleRetained(true);
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is
             // read from the store. The fallback is used only when the closure
@@ -1932,6 +1964,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const normalized = rawMessage.toLowerCase();
 
             console.error('Message send failed:', rawMessage || error);
+            settleRetained(false);
             if (retainNativeDraft) {
                 // The started session's first message was not admitted: its text stays, and the composer says why.
                 toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error)));

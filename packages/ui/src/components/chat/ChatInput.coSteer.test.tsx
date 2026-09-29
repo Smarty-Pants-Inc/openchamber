@@ -138,3 +138,35 @@ test('a failed send from idle keeps a busy status the server sent meanwhile', as
   });
   expect(statusOf(c)).toBe(server);
 });
+
+// smarty-code#827 (slice 1 on 3.48): a steer's composer emptied at Send, the send then stalled before the server
+// answered, and nothing was ever sent: no error, no text. A message to a Pi session now stays until it is ACCEPTED.
+test('the text stays in the composer until the server accepts the send; then it is cleared', async () => {
+  const held = deferred<Response>();
+  const { c } = await ordinaryWorking(() => held.promise);
+  await c.submit(); await act(async () => { await sleep(10); });
+  expect(c.prompts()).toHaveLength(1);
+  expect(c.text()).toBe('steer this'); // Sent, not yet accepted: still here.
+  await act(async () => { held.resolve(steered()); await sleep(10); });
+  expect(c.text()).toBe('');
+});
+
+test('a send that is never answered never loses the text, and a second Send of it does not post it twice', async () => {
+  const held = deferred<Response>();
+  const { c } = await ordinaryWorking(() => held.promise);
+  await c.submit(); await act(async () => { await sleep(10); });
+  await c.submit(); await act(async () => { await sleep(10); });
+  expect(c.prompts()).toHaveLength(1);
+  expect(c.text()).toBe('steer this');
+  await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(10); });
+  expect(c.text()).toBe('steer this'); // Refused: it stays, with the reason (the refused-send test above).
+});
+
+test('new typing during a held send is not cleared when that send is accepted', async () => {
+  const held = deferred<Response>();
+  const { c } = await ordinaryWorking(() => held.promise);
+  await c.submit(); await act(async () => { await sleep(10); });
+  await c.replace('a new thought');
+  await act(async () => { held.resolve(steered()); await sleep(10); });
+  expect(c.text()).toBe('a new thought');
+});
