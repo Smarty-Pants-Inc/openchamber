@@ -22,14 +22,15 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved).
-  const request = React.useRef(0);
+  // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved). reload
+  // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
+  const request = React.useRef(0), shownTab = React.useRef(tab);
   const reload = React.useCallback(() => {
     const mine = ++request.current;
-    return loadInbox(tab).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
+    return loadInbox(shownTab.current).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
       e => { if (mine === request.current) setError(String((e as Error).message)); });
-  }, [tab]);
-  React.useEffect(() => { void reload(); }, [reload, revision]);
+  }, []);
+  React.useEffect(() => { void reload(); }, [reload, tab, revision]);
   // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
   // response being typed) away (#365 review).
   React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
@@ -44,7 +45,7 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
       </div>
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
         {TABS.map(t => (
-          <button key={t.state} type="button" role="tab" aria-selected={tab === t.state} onClick={() => { setTab(t.state); setSelectedId(null); setItems(null); }}
+          <button key={t.state} type="button" role="tab" aria-selected={tab === t.state} onClick={() => { if (t.state === tab) return; shownTab.current = t.state; setTab(t.state); setSelectedId(null); setItems(null); }}
             className={cn('pb-2 typography-ui-label', tab === t.state ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground')}>
             {t.label}{t.state === 'open' ? ` ${openCount}` : ''}
           </button>
