@@ -51,18 +51,20 @@ test('the owner took it at +18 s: the clock starts at the answer, so no verdict 
   expect(notice()).toBe('');
 });
 
-test('the owner answered "queued" at +16 s and the run has not started by +21 s: "Queued…", never "did not start"', () => {
+test('the owner answered "queued" at +16 s and the page has no reply by +21 s: "Sent: the session has this message", never "did not start"', () => {
   asked(Date.now() - 21_000);
   usePromptsInFlight.setState({ pending: {}, answeredAt: { s: Date.now() - 6_000 }, receipt: { s: 'queued' } });
   const text = notice();
-  expect(text).toContain('Queued:');
+  expect(text).toContain('Sent: the session has this message');
   expect(text).not.toContain(NO_REPLY);
 });
 
-test('the owner answered "accepted" (a run started) and the status lags: no verdict', () => {
+test('the owner answered "accepted" (a run started) and the status lags: the same note, no verdict', () => {
   asked(Date.now() - 21_000);
   usePromptsInFlight.setState({ pending: {}, answeredAt: { s: Date.now() - 6_000 }, receipt: { s: 'accepted' } });
-  expect(notice()).toBe('');
+  const text = notice();
+  expect(text).toContain('Sent: the session has this message');
+  expect(text).not.toContain(NO_REPLY);
 });
 
 test('counterexample: answered without a receipt (not taken) and still nothing 5 s later: "did not start a reply" as before', () => {

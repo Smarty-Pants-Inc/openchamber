@@ -95,12 +95,14 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
     return () => window.clearTimeout(timer);
   }, [clockSince, sending]);
   const waited = clockSince !== null && Math.max(now, Date.now()) - clockSince >= UNANSWERED_AFTER_MS;
-  // The gateway took it (its receipt): the reply starts when the run does, or at the run's end for a queued one.
+  // The gateway took it (its receipt, accepted or queued): never "did not start".
   const receipt = usePromptsInFlight((state) => state.receipt[sessionId]);
   const taken = !sending && waitingSince !== null && answeredAt >= (lastMessage?.timestamp ?? 0) && receipt !== undefined;
   const unanswered = !sending && !taken && waited;
 
-  const waitingNote = sending ? 'chat.sessionError.sending' : taken && receipt === 'queued' ? 'chat.sessionError.queued' : null;
+  // Taken, whatever the receipt: a Dev1 run answered 'queued' for an idle Pi that then ran it, while the page's live view
+  // lagged. So the note says only what is known: the session has it, and its reply shows when the session reports it.
+  const waitingNote = sending ? 'chat.sessionError.sending' : taken ? 'chat.sessionError.taken' : null;
   if (waitingNote && waited) {
     return (
       <div className="chat-message-column">
