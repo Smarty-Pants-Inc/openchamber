@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, readSettled, startHelper, testHooks,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -43,7 +43,7 @@ export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
  */
 export function createDiskBridge({
   root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks,
-  enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000,
+  enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000, pruneMs = 86_400_000,
 }) {
   if (!enabled) throw new Error('Co-editing is off (OPENCHAMBER_COEDIT)');
   if (!path.isAbsolute(root) || !path.isAbsolute(file) || !inside(root, file) || file === root) {
@@ -98,6 +98,7 @@ export function createDiskBridge({
   let retryTimer = null;
   let retries = 0;
   let rewatchTimer = null;
+  let pruneTimer = null;
   let rewatches = 0;
   let closed = false;
   const serial = (work) => (queue = queue.then(work, work));
@@ -224,6 +225,16 @@ export function createDiskBridge({
     if (!unsynced) conflict = null; // Adopted by its hash; a pending flush still holds the conflict.
     return true;
   };
+  /** Retention (smartyfs#37): this file's recovery copies, at load and then every `pruneMs` (a day) while open. */
+  const prune = () => pruneRecovery(recoveryDir, key).catch((error) => logError('smarty.coedit-prune-failed', error));
+  const schedulePrune = () => {
+    if (closed) return;
+    pruneTimer = setTimeout(() => {
+      pruneTimer = null;
+      void prune().then(schedulePrune);
+    }, pruneMs);
+    pruneTimer.unref?.();
+  };
   const logError = (type, error) => console.error(JSON.stringify({ type, file: name, error: String(error?.message ?? error) }));
   /** Watches the file's directory; a watcher error stops it, is shown, and watching restarts (bounded). */
   const startWatch = () => {
@@ -297,6 +308,7 @@ export function createDiskBridge({
         // until that succeeds nothing is disposed or acknowledged (a cached read is no durability receipt).
         flushed = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel }).then((reply) => reply.ok === true, () => false);
         interrupted = await finishInterruptedSaves(helper, key, rel, recoveryDir, { durable: flushed, hooks });
+        await prune();
         disk = await readSettled(helper, rel, settleMs);
         if (disk === null) throw new Error('Co-edited file does not exist');
       } catch (error) {
@@ -313,6 +325,7 @@ export function createDiskBridge({
       }
       for (const late of interrupted.late) raise({ conflict: 'raced', published: true, recovery: late, notice: DISTURBED_NOTICE });
       pending.push(...interrupted.pending);
+      schedulePrune();
       if (!flushed || interrupted.unsynced) {
         unsynced = { raised: true };
         raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
@@ -370,6 +383,7 @@ export function createDiskBridge({
       clearTimeout(timer);
       clearTimeout(retryTimer);
       clearTimeout(rewatchTimer);
+      clearTimeout(pruneTimer);
       watcher?.close();
       // A displaced revision still pending stays in the private dir; the next load keeps and removes it.
       let bound;

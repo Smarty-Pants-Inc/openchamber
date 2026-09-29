@@ -290,11 +290,12 @@ export async function readSettled(helper, rel, settleMs) {
 }
 
 /**
- * Keeps `bytes` in the recovery directory under a new name (never replacing one); returns its path. `kind` marks the
- * copy (`ours`: a revision we published; otherwise one we replaced).
+ * Keeps `bytes` in the recovery directory under a new name (never replacing one); returns its path. The name is
+ * `<time>-<random>-<key>-[ours-]<file name>`: `key` ties it to its file for retention (pruneRecovery), and `kind`
+ * marks the copy (`ours`: a revision we published; otherwise one we replaced).
  */
-export async function keepForRecovery(recoveryDir, name, bytes, kind = '') {
-  const prefix = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${kind ? `${kind}-` : ''}`;
+export async function keepForRecovery(recoveryDir, name, bytes, { key, kind = '' }) {
+  const prefix = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${key}-${kind ? `${kind}-` : ''}`;
   const kept = path.join(recoveryDir, `${prefix}${fitName(name, NAME_MAX - Buffer.byteLength(prefix))}`);
   const handle = await fs.promises.open(kept, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
   try {
@@ -305,6 +306,37 @@ export async function keepForRecovery(recoveryDir, name, bytes, kind = '') {
   }
   await syncDirectory(recoveryDir); // The entry itself is durable, not only its bytes.
   return kept;
+}
+
+/** A recovery copy's name as keepForRecovery writes it: its time and its file's key. */
+const RECOVERY_NAME = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-[0-9a-f]{8}-([0-9a-f]{16})-/;
+export const RETENTION = { days: 7, newest: 20 };
+
+/**
+ * Retention (smartyfs#37, org's decision 2026-09-29): a recovery copy of the file `key` is deleted only when it is
+ * older than 7 days AND not among that file's newest 20. Only regular files whose names keepForRecovery wrote for this
+ * key, owned by this account, are considered; anything else in the directory is never touched. Returns the count.
+ */
+export async function pruneRecovery(recoveryDir, key, { now = Date.now(), days = RETENTION.days, newest = RETENTION.newest } = {}) {
+  const copies = [];
+  for (const entry of await fs.promises.readdir(recoveryDir, { withFileTypes: true })) {
+    const m = RECOVERY_NAME.exec(entry.name);
+    if (!m || m[6] !== key || !entry.isFile()) continue;
+    const at = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
+    if (Number.isFinite(at)) copies.push({ name: entry.name, at });
+  }
+  copies.sort((a, b) => b.at - a.at);
+  let removed = 0;
+  for (const { name, at } of copies.slice(newest)) {
+    if (now - at <= days * 86_400_000) continue;
+    const full = path.join(recoveryDir, name);
+    const st = await fs.promises.lstat(full).catch(() => null);
+    if (!st?.isFile() || st.uid !== process.geteuid()) continue;
+    await fs.promises.unlink(full);
+    removed += 1;
+  }
+  if (removed) await syncDirectory(recoveryDir);
+  return removed;
 }
 
 async function syncDirectory(dir) {
@@ -330,7 +362,7 @@ export async function dispose(helper, key, revision, recoveryDir, name, hooks = 
     if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
     if (reply.busy) return { busy: true, late, hash };
     if (!reply.changed) throw refused(reply);
-    late = await keepForRecovery(recoveryDir, name, Buffer.from(reply.data, 'base64'));
+    late = await keepForRecovery(recoveryDir, name, Buffer.from(reply.data, 'base64'), { key });
     hash = reply.hash;
   }
   return { busy: true, late, hash };
@@ -355,14 +387,14 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   const current = await readFile(helper, rel);
   if (current === null) return { conflict: 'gone' };
   if (current.hash !== expectedHash) return { conflict: 'changed' };
-  const recovery = await keepForRecovery(recoveryDir, name, current.bytes);
+  const recovery = await keepForRecovery(recoveryDir, name, current.bytes, { key });
   // Ours too, BEFORE the helper call: a writer that read before this save may replace the file after it, and a crash
   // of the room would then lose our revision (the smartyfs#32 stress test, seed 32). Before the call, a failed copy
   // throws with nothing sent; after it, nothing may throw (#396 review round 3). A refused save removes the copy.
   const data = Buffer.from(text, 'utf8');
   if (data.length > MAX_BYTES) throw new Error('Co-edited file is too large');
   if (!helper.alive()) throw new Error('coedit-fs is not running');
-  const ours = await keepForRecovery(recoveryDir, name, data, 'ours');
+  const ours = await keepForRecovery(recoveryDir, name, data, { key, kind: 'ours' });
   const dropOurs = () => fs.promises.unlink(ours).catch((error) => log('smarty.coedit-recovery-cleanup-failed', name, error));
   const txn = randomBytes(6).toString('hex');
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
@@ -423,7 +455,7 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
   const late = [];
   let unsynced = false;
   for (const { entry, hash, data } of reply.entries) {
-    finished.push(await keepForRecovery(recoveryDir, name, Buffer.from(data, 'base64')));
+    finished.push(await keepForRecovery(recoveryDir, name, Buffer.from(data, 'base64'), { key }));
     if (!durable) {
       pending.push({ entry, hash });
       continue;

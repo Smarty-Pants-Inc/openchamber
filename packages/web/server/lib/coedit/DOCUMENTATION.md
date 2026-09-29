@@ -134,6 +134,11 @@ round 4); until then no conflict could be seen.
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
   now"); watching restarts after `retryMs` (at most `retryLimit` tries), catches up with a sync, and clears it.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
+- **Recovery retention** (smartyfs#37, org's decision 2026-09-29): recovery copies are named
+  `<time>-<random>-<key>-[ours-]<file name>`. When a bridge loads a file, and then daily (`pruneMs`), it deletes a copy of
+  that file only when it is **older than 7 days and not among the file's newest 20**. It considers only regular files
+  whose names match that pattern for its key and that this account owns; anything else in the directory is never
+  touched.
 - **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch> [--seed <n>]` (`stress.test.js` runs it for 20 s in CI) runs three direct
   writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
   helper and the whole bridge process are SIGKILLed at random (a killed run takes its children with it: they read EOF on a stdin pipe from it, even after a SIGKILL). It exits 1 if any token a writer wrote, or any token of

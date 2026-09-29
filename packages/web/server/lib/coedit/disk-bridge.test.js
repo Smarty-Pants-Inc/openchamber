@@ -696,6 +696,77 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     });
   });
 
+  describe('recovery retention (smartyfs#37: 7 days, and always the newest 20 per file)', () => {
+    const DAY = 86_400_000;
+    /** A recovery copy of `key`'s file, written `ageDays` ago, named as keepForRecovery names it. */
+    const copy = (dir, key, ageDays, i, name = 'notes.md') => {
+      const stamp = new Date(Date.now() - ageDays * DAY - i * 1000).toISOString().replace(/[:.]/g, '-');
+      const p = path.join(dir, `${stamp}-${(0x10000000 + i).toString(16)}-${key}-${name}`);
+      fs.writeFileSync(p, `copy ${ageDays} ${i}`);
+      return path.basename(p);
+    };
+    const prepare = () => {
+      const t = { home: fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-'))) };
+      cleanups.push(() => fs.rmSync(t.home, { recursive: true, force: true }));
+      t.root = path.join(t.home, 'project');
+      fs.mkdirSync(path.join(t.root, 'src'), { recursive: true });
+      t.file = path.join(t.root, 'src', 'notes.md');
+      fs.writeFileSync(t.file, 'x');
+      t.recoveryDir = path.join(t.home, 'recovery');
+      fs.mkdirSync(t.recoveryDir, { mode: 0o700 });
+      t.key = keyOf(t.root, 'src/notes.md');
+      return t;
+    };
+    const open = (t, extra = {}) => {
+      const bridge = createDiskBridge({ root: t.root, file: t.file, doc: new Y.Doc(), recoveryDir: t.recoveryDir, hooks: {}, watch: () => ({ close() {} }), settleMs: 5, enabled: true, ...extra });
+      cleanups.unshift(() => void bridge.close());
+      return bridge;
+    };
+
+    it('at load: a copy older than 7 days beyond its file\'s newest 20 is deleted; the newest 20 stay, however old', async () => {
+      const t = prepare();
+      const old = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, t.key, 10, i)); // All 10 days old.
+      await open(t).load();
+      const left = fs.readdirSync(t.recoveryDir).filter((n) => n.includes(t.key));
+      expect(left.sort()).toEqual(old.slice(0, 20).sort()); // i = 0..19 are the newest.
+    });
+
+    it('at load: a copy younger than 7 days stays even beyond the newest 20; other files\' copies and other names are untouched', async () => {
+      const t = prepare();
+      const recent = Array.from({ length: 22 }, (_, i) => copy(t.recoveryDir, t.key, 1, i));
+      const old = Array.from({ length: 3 }, (_, i) => copy(t.recoveryDir, t.key, 30, i));
+      const other = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, 'f'.repeat(16), 30, i));
+      fs.writeFileSync(path.join(t.recoveryDir, 'my-notes.txt'), 'not a copy');
+      fs.symlinkSync(t.file, path.join(t.recoveryDir, `2000-01-01T00-00-00-000Z-deadbeef-${t.key}-link.md`));
+      await open(t).load();
+      const left = new Set(fs.readdirSync(t.recoveryDir));
+      for (const n of recent) expect(left.has(n)).toBe(true);
+      for (const n of old) expect(left.has(n)).toBe(false);
+      for (const n of other) expect(left.has(n)).toBe(true);
+      expect(left.has('my-notes.txt')).toBe(true);
+      expect(left.has(`2000-01-01T00-00-00-000Z-deadbeef-${t.key}-link.md`)).toBe(true);
+    });
+
+    it('daily: copies that age past the limits while the bridge runs are removed on its own', async () => {
+      const t = prepare();
+      const bridge = open(t, { pruneMs: 100 });
+      await bridge.load();
+      const old = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, t.key, 10, i));
+      await expect.poll(() => fs.readdirSync(t.recoveryDir).filter((n) => n.includes(t.key)).length, { timeout: 3000 }).toBe(20);
+      expect(fs.existsSync(path.join(t.recoveryDir, old[24]))).toBe(false);
+    });
+
+    it('a save\'s recovery copies carry the file\'s key in their names', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      const key = keyOf(t.root, 'src/notes.md');
+      const names = fs.readdirSync(t.recoveryDir).filter((n) => n !== '.staging');
+      expect(names).toHaveLength(2);
+      for (const n of names) expect(n).toContain(`-${key}-`);
+    });
+  });
+
   describe('the coedit-fs service (smartyfs#32: the helper as its own account, one per connection)', () => {
     /** A stand-in for systemd's Accept=yes socket unit: each connection gets its own real helper on that socket. */
     const service = async (args) => {
