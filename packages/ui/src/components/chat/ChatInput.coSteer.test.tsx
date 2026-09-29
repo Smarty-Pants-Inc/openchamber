@@ -248,3 +248,50 @@ test('two overlapping sends: A never answered, B delivered; A\'s text still come
     await until(() => c.text().includes('steer this')); // A's watchdog was not disarmed by B.
   } finally { restore(); }
 });
+
+// openchamber#375 review 3, P1 2: a preparation that stalls BEFORE the POST (snippet expansion) and a re-send of the
+// given-back text: both attempts carry the group's one client ID, so the gateway admits one message.
+test('a stalled preparation, the text given back, sent again: both POSTs carry the same client ID', async () => {
+  const restore = shortWatchdog();
+  const { useSnippetsStore } = await import('@/stores/useSnippetsStore');
+  const realExpand = useSnippetsStore.getState().expandText;
+  try {
+    const held = deferred<string>(); let calls = 0;
+    useSnippetsStore.setState({ expandText: async (text: string) => (++calls === 1 ? held.promise : text) });
+    const { c } = await ordinaryWorking(steered);
+    await c.submit(); await until(() => c.text() === 'steer this'); // No POST yet; given back at the watchdog.
+    expect(c.prompts()).toHaveLength(0);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await act(async () => { held.resolve('steer this'); await sleep(50); });
+    await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).toBe(a);
+  } finally { useSnippetsStore.setState({ expandText: realExpand }); restore(); }
+});
+
+// openchamber#375 review 3, P1 1: given back only into its own session's composer: never into another session's composer,
+// never written into its saved draft while another session is shown (that overwrote a newer draft), and back on return.
+test('due while another session is shown: nothing is written anywhere; it comes back when its session is shown again', async () => {
+  const restore = shortWatchdog();
+  const { readChatDraft, createChatDraftIdentity } = await import('@/lib/chatDraftPersistence');
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    const other = { ...session, id: '01234567-1234-4234-9234-0123456789ff', title: 'other' };
+    await act(async () => {
+      c.children.getChild(directory)!.setState(state => ({ session: [...state.session, other as never] }));
+      useSessionUIStore.setState({ currentSessionId: other.id });
+    });
+    await act(async () => { c.rerender(); });
+    await act(async () => { await sleep(700); }); // Due while `other` is shown.
+    expect(c.text()).not.toContain('steer this');
+    expect(readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text).not.toContain('steer this');
+    await act(async () => { useSessionUIStore.setState({ currentSessionId: session.id }); });
+    await act(async () => { c.rerender(); });
+    await until(() => c.text() === 'steer this');
+    await act(async () => { held.resolve(steered()); await sleep(20); }); // Delivered after all: the copy goes.
+    await until(() => c.text() === '');
+  } finally { restore(); }
+});

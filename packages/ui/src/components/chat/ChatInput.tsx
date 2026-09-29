@@ -35,6 +35,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
     consumeChatDraft,
+    getChatDraftIdentityKey,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -97,6 +98,7 @@ import { extractGitChangedFiles } from './changedFiles';
 import { useI18n } from '@/lib/i18n';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { SendRecovery } from '@/lib/sendRecovery';
+import { ascendingId } from '@/sync/session-actions';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
@@ -1161,7 +1163,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 ? 'chat.queuedMessage.unsupported' : 'chat.queuedMessage.toast.queueFailed'));
             return;
         }
-        if (currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
+        if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return;
         const composerAttachments = sanitizeAttachmentsForSend(attachedFiles);
 
         // A queued message is resolved now, not at delivery: the server that
@@ -1201,7 +1203,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 : null,
         }, skillInstruction);
         const attachmentsToQueue = [...composerAttachments, ...mentionAttachments];
-        if (getRuntimeKey() !== queueRuntimeKey || currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
+        if (getRuntimeKey() !== queueRuntimeKey || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return;
 
         // Sending while the agent works must still take the reader to the
         // live edge — a queued message produces no user row yet, so the
@@ -1313,7 +1315,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // A successful transfer remains accepted under its origin. Only editor
         // publication is conditional; navigation is never a rejected receipt.
         if (!queued || !isRuntimeRequestScopeCurrent(scope)
-            || currentChatDraftIdentityRef.current !== chatDraftIdentity
+            || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)
             || !editor || composerRef.current !== editor || editor.getValue() !== text) return;
         const currentLinked = liveLinkedReferences.current;
         if (currentLinked.issue !== linkedAtTake.issue || currentLinked.pr !== linkedAtTake.pr || currentLinked.linear !== linkedAtTake.linear) return;
@@ -1362,9 +1364,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
     // it settles. Another press or another draft target never ends it.
     // smarty-code#827: each send to a Pi session, by its target and content, until it is delivered (lib/sendRecovery).
+    // smarty-code#827: the same draft by value; coming back to a session makes a new identity object for it.
+    const sameDraftIdentity = (a: ChatDraftIdentity | null, b: ChatDraftIdentity | null) =>
+        a === b || (!!a && !!b && getChatDraftIdentityKey(a) === getChatDraftIdentityKey(b) && a.draftId === b.draftId);
     const sendRecovery = React.useRef<SendRecovery | null>(null);
-    sendRecovery.current ??= new SendRecovery(() => sendUnconfirmed.ms);
+    sendRecovery.current ??= new SendRecovery(() => sendUnconfirmed.ms, () => ascendingId('msg'));
     /** A Pi session send's target (runtime, directory, session) and content (text, attachments, context parts). */
+    // A recovery that came due while its target was not shown comes back when it is (after that target's own draft loads).
+    const shownTarget = currentSessionId && isOrdinarySession(currentSessionId)
+        ? [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', currentSessionId].join('\u0000') : null;
+    React.useEffect(() => {
+        if (!shownTarget) return;
+        const timer = setTimeout(() => sendRecovery.current?.flush(shownTarget), 0);
+        return () => clearTimeout(timer);
+    }, [shownTarget, chatDraftIdentity]);
     const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
         if (!sessionId || !isOrdinarySession(sessionId)) return null;
         const input = useInputStore.getState();
@@ -1492,7 +1505,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const restoreComposerText = () => {
             if (queuedOnly || !inputSnapshot.message) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
-            if (currentChatDraftIdentityRef.current !== chatDraftIdentity) {
+            if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
                 writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
@@ -1798,10 +1811,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // This submission's recovery: its own target and content, its own timers (lib/sendRecovery). Taken before the
         // composer clears: a same-content Send that raced this one is refused here and everything it took goes back.
         const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, pendingKeys!.content, {
-            // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content.
-            restore: () => restoreConsumedInput(),
+            // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content,
+            // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
+            restore: () => {
+                // By value: coming back to a session makes a new identity object for the same draft.
+                if (!chatDraftIdentity || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return false;
+                restoreConsumedInput(); return true;
+            },
             clearIfUntouched: () => {
-                if (currentChatDraftIdentityRef.current !== chatDraftIdentity) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
+                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
                 if ((composerRef.current?.getValue() ?? messageRef.current) !== inputSnapshot.message) return; // Edited: the person's now.
                 messageRef.current = ''; setMessage(''); persistDraftImmediately(chatDraftIdentity, '');
                 // Exactly the restored files and context parts go with it.
@@ -1930,10 +1948,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // never claims the new message.
         scrollToBottom?.();
 
-        if (recovery) {
-            sendMessageOptions = { ...sendMessageOptions, ...(recovery.reuseID ? { messageID: recovery.reuseID } : {}),
-                onMessageID: (id) => recovery.setMessageID(id) };
-        }
+        // The group's client message ID, fixed at its first Send (before snippet expansion or any other preparation that
+        // may stall): every attempt of this content sends with it, so a re-send is one message (review 3, P1 2).
+        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID };
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,

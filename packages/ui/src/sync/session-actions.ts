@@ -1845,7 +1845,7 @@ export async function unshareSession(sessionId: string): Promise<Session | null>
 let lastIdTimestamp = 0
 let idCounter = 0
 
-function ascendingId(prefix: string): string {
+export function ascendingId(prefix: string): string {
   const now = Date.now()
   if (now !== lastIdTimestamp) {
     lastIdTimestamp = now
