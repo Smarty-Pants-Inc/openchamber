@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { hashBytes, startHelper } from './safe-file.js';
+import { hashBytes, keyOf, publish, readFile, startHelper } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -204,7 +204,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(result).toEqual({ ok: true });
       expect(during.project).toEqual(['notes.md']);
       expect(during.staged).toHaveLength(1);
-      expect(during.staged[0].startsWith(`${hashBytes(Buffer.from('src/notes.md')).slice(0, 16)}.`)).toBe(true);
+      expect(during.staged[0].startsWith(`${keyOf(t.root, 'src/notes.md')}.`)).toBe(true);
       expect(during.mode).toBe(0o700);
       expect(t.leftovers()).toEqual([]);
     });
@@ -301,7 +301,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
 
     it('a save a crash interrupted is finished on the next load: its private entry is kept for recovery and removed, with a notice', async () => {
       const t = await setup('before crash\n');
-      const left = path.join(t.privateDir, `${hashBytes(Buffer.from('src/notes.md')).slice(0, 16)}.4242.staged`);
+      const left = path.join(t.privateDir, `${keyOf(t.root, 'src/notes.md')}.4242.staged`);
       fs.writeFileSync(left, 'displaced revision\n');
       await t.bridge.close();
       const again = t.open();
@@ -473,19 +473,35 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.text.toString()).toBe('QPa');
     });
 
-    it('a lost reply (the helper killed after the exchange): uncertain, and no merge', async () => {
+    it('a lost reply (the helper killed after the exchange): uncertain; a new helper settles it by the disk and a flush, with no replay (smartyfs#34 item 1)', async () => {
       const t = await setup('a');
       t.person((x) => x.insert(0, 'P'));
       t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
       const saving = t.bridge.save();
       await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      const [killed] = helperPids(t.root);
       killHelper(t.root);
       const result = await saving;
       delete t.hooks.helper;
       expect(result).toMatchObject({ ok: false, conflict: 'unverified', published: 'uncertain' });
-      await t.bridge.sync().catch(() => {}); // The helper is gone: nothing is read, nothing merged.
-      expect(t.text.toString()).toBe('Pa');
-      expect(t.bridge.state().conflict.conflict).toBe('unverified');
+      await t.bridge.sync();
+      expect(helperPids(t.root).filter((pid) => pid !== killed && alive(pid))).toHaveLength(1);
+      expect(t.text.toString()).toBe('Pa'); // Adopted, not PPa.
+      expect(t.bridge.state().conflict).toBe(null);
+      const { ino } = fs.statSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(fs.statSync(t.file).ino).toBe(ino);
+    });
+
+    it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {
+      const t = await setup('hello\n', { watch: true });
+      killHelper(t.root);
+      await expect.poll(() => helperPids(t.root).filter(alive).length, { timeout: 3000 }).toBe(0);
+      fs.writeFileSync(t.file, 'hello\nagent\n');
+      await expect.poll(() => t.text.toString(), { timeout: 5000 }).toBe('hello\nagent\n');
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Phello\nagent\n');
     });
 
     it('a FIFO in place of the file never blocks: refused promptly, and close is prompt', async () => {
@@ -496,6 +512,46 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       await expect(t.bridge.sync()).rejects.toThrow(/regular file/);
       await t.bridge.close();
       expect(Date.now() - started).toBeLessThan(3000);
+    });
+  });
+
+  describe('smartyfs#34 follow-ups: keys and test hooks', () => {
+    it('two projects with the same relative path and one recovery directory never collect each other\'s entries (item 14)', async () => {
+      const t = await setup('mine\n');
+      const rootB = path.join(t.home, 'project-b');
+      fs.mkdirSync(path.join(rootB, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(rootB, 'src', 'notes.md'), 'theirs\n');
+      const conflictsB = [];
+      const b = createDiskBridge({ root: rootB, file: path.join(rootB, 'src', 'notes.md'), doc: new Y.Doc(), recoveryDir: t.recoveryDir, hooks: {}, watch: () => ({ close() {} }), settleMs: 20, onConflict: (c) => conflictsB.push(c), enabled: true });
+      cleanups.unshift(() => void b.close());
+      t.person((x) => x.insert(0, 'P'));
+      const result = await t.saveDuring('beforeExchange', () => b.load()); // B loads while A's entry is staged.
+      expect(result).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pmine\n');
+      expect(conflictsB).toEqual([]);
+      expect(keyOf(t.root, 'src/notes.md')).not.toBe(keyOf(rootB, 'src/notes.md'));
+    });
+
+    it('a helper not started for tests ignores test hooks, even with COEDIT_FS_TEST set (item 12)', async () => {
+      const t = await setup('a');
+      expect(process.env.COEDIT_FS_TEST).toBe('1');
+      const helper = startHelper(t.root, t.privateDir);
+      try {
+        const current = await readFile(helper, 'src/notes.md');
+        const result = await publish(helper, 'src/notes.md', 'b', current.hash, { recoveryDir: t.recoveryDir, key: keyOf(t.root, 'src/notes.md'), hooks: { helper: { fault: 'dirSync' } } });
+        expect(result).toMatchObject({ ok: true });
+      } finally {
+        await helper.close();
+      }
+    });
+
+    it('a test hook cannot replace the request\'s fields (item 15)', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { op: 'read', path: 'elsewhere', fault: 'none' };
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      delete t.hooks.helper;
+      expect(t.disk()).toBe('Pa');
     });
   });
 

@@ -22,8 +22,18 @@ export const UNCERTAIN_NOTICE = 'This save could not be confirmed: the previous 
 /** Shown while a published save is not yet durable (a directory flush failed): it is confirmed once a flush succeeds. */
 export const UNSYNCED_NOTICE = 'This save is on disk but not yet flushed: the previous version is in the recovery folder.';
 
-/** The helper's name prefix for a file's private entries: the first 16 hex characters of sha256(rel). */
-export const keyOf = (rel) => hashBytes(Buffer.from(rel, 'utf8')).slice(0, 16);
+/**
+ * The helper's name prefix for a file's private entries: the first 16 hex characters of sha256(root NUL rel). The root
+ * is in it, so two projects sharing a recovery directory never collect each other's entries (smartyfs#34 item 14).
+ */
+export const keyOf = (root, rel) => hashBytes(Buffer.from(`${root}\0${rel}`, 'utf8')).slice(0, 16);
+
+const TEST_HOOKS = new Set(['pause', 'pauseMs', 'fault', 'testOwners', 'testGroupMembers']);
+/**
+ * Tests only: the helper's named pauses and faults from `hooks.helper`, and nothing else. They go FIRST in a request,
+ * so they can never replace its fields (item 15); a helper honours them only if started with `testHooks` (item 12).
+ */
+export const testHooks = (hooks) => Object.fromEntries(Object.entries(hooks?.helper ?? {}).filter(([k]) => TEST_HOOKS.has(k)));
 
 function syncDirectorySync(dir) {
   const fd = fs.openSync(dir, O_RDONLY | O_DIRECTORY);
@@ -88,12 +98,16 @@ function preparePrivateDir(privateDir) {
 /**
  * One coedit-fs process for a project root, with `privateDir` (0700, ours) for its staging and displaced revisions.
  * A bad or truncated reply line, or a call past its deadline (`timeoutMs`), ends the helper: SIGKILL, and every waiting
- * call rejects. `close()` resolves once the process has exited.
+ * call rejects. `close()` resolves once the process has exited. The helper honours test pauses and faults only when
+ * `testHooks` is set: COEDIT_FS_TEST is removed from its environment otherwise.
  */
-export function startHelper(root, privateDir, { timeoutMs = 30_000 } = {}) {
+export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: forTests = false } = {}) {
   if (!anchoredFilesAvailable()) throw new Error('Co-editing needs the coedit-fs helper, which this system lacks');
   preparePrivateDir(privateDir);
-  const child = spawn(helperPath(), [root, privateDir], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const env = { ...process.env };
+  delete env.COEDIT_FS_TEST;
+  if (forTests) env.COEDIT_FS_TEST = '1';
+  const child = spawn(helperPath(), [root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = new Map();
   let next = 0;
   let ended = null;
@@ -224,7 +238,7 @@ export async function dispose(helper, key, revision, recoveryDir, name, hooks = 
   let { hash } = revision;
   let late;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const reply = await helper.call({ op: 'dispose', key, entry: revision.entry, hash, ...hooks.helper });
+    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', key, entry: revision.entry, hash });
     if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
     if (reply.busy) return { busy: true, late, hash };
     if (!reply.changed) throw refused(reply);
@@ -259,8 +273,8 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   let reply;
   try {
     reply = await helper.call({
+      ...testHooks(hooks),
       op: 'publish', path: rel, key, ino: current.ino, dev: current.dev, hash: expectedHash, data: Buffer.from(text, 'utf8').toString('base64'),
-      ...hooks.helper, // Tests only: a pause or fault at a named point, honoured only by a helper started with COEDIT_FS_TEST.
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);

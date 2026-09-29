@@ -15,6 +15,22 @@ const built = ensureHelper() && fs.existsSync(BIN);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const KEY = sha('docs/a.md').slice(0, 16);
 
+/** POSIX ACL xattrs (acl(5)), through python3's os.setxattr: Node has no xattr calls and hosts may lack setfacl. */
+const ACL = { USER_OBJ: 1, USER: 2, GROUP_OBJ: 4, MASK: 0x10, OTHER: 0x20 };
+const ANY = 0xffffffff;
+const py = (code, ...args) => {
+  const r = spawnSync('python3', ['-c', code, ...args], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(r.stderr);
+  return r.stdout.trim();
+};
+const setAcl = (p, name, entries) => py(
+  'import os,struct,sys,json\nb=struct.pack("<I",2)+b"".join(struct.pack("<HHI",*e) for e in json.loads(sys.argv[3]))\nos.setxattr(sys.argv[1],sys.argv[2],b)',
+  p, name, JSON.stringify(entries),
+);
+const getXattr = (p, name) => py('import os,sys\ntry: print(os.getxattr(sys.argv[1],sys.argv[2]).hex())\nexcept OSError: print("none")', p, name);
+/** An extended ACL: our user, another account (uid 4242) with `perm`, our group r-x, mask rwx. */
+const extended = (perm) => [[ACL.USER_OBJ, 7, ANY], [ACL.USER, perm, 4242], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 0, ANY]];
+
 function helper(root, priv) {
   const child = spawn(BIN, [root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = new Map();
@@ -220,6 +236,68 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(p.error).toMatch(/others can write/);
     expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
     expect(staged()).toEqual([]);
+  });
+
+  describe('smartyfs#34 follow-ups', () => {
+    test('a directory on the path with an extended ACL is refused before any change (item 7: a named user could move it)', async () => {
+      const r = await read();
+      setAcl(root, 'system.posix_acl_access', extended(7));
+      const p = await publish(r);
+      expect(p).toMatchObject({ ok: false });
+      expect(p.published).toBeUndefined();
+      expect(p.error).toMatch(/ACL/);
+      expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
+      expect(staged()).toEqual([]);
+    });
+
+    test('set-user-ID and set-group-ID bits are not carried onto our file (item 11)', async () => {
+      fs.chmodSync(target(), 0o6755);
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      expect(await publish(r)).toMatchObject({ ok: true });
+      expect(fs.statSync(target()).mode & 0o7777).toBe(0o755);
+    });
+
+    test('the file keeps its group (item 13)', async () => {
+      const other = process.getgroups().find((g) => g !== process.getegid());
+      if (other === undefined) return; // A host where we are in one group only.
+      fs.chownSync(target(), process.geteuid(), other);
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      expect(await publish(r)).toMatchObject({ ok: true });
+      expect(fs.statSync(target()).gid).toBe(other);
+    });
+
+    test('the file keeps its access ACL (item 13)', async () => {
+      setAcl(target(), 'system.posix_acl_access', extended(4));
+      const before = getXattr(target(), 'system.posix_acl_access');
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      expect(await publish(r)).toMatchObject({ ok: true });
+      expect(getXattr(target(), 'system.posix_acl_access')).toBe(before);
+    });
+
+    test('a default ACL on the private dir is removed at start, so our file gains no named entries (item 13)', async () => {
+      const priv2 = path.join(dir, 'recovery2/.staging');
+      fs.mkdirSync(priv2, { recursive: true });
+      fs.chmodSync(priv2, 0o700);
+      setAcl(priv2, 'system.posix_acl_default', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 7, 4242], [ACL.GROUP_OBJ, 0, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 0, ANY]]);
+      h.stop();
+      h = helper(root, priv2);
+      const r = await read();
+      expect(await publish(r)).toMatchObject({ ok: true });
+      expect(getXattr(priv2, 'system.posix_acl_default')).toBe('none');
+      expect(getXattr(target(), 'system.posix_acl_access')).toBe('none');
+    });
+
+    test('a flush after an escaped publish flushes the directory it published into, not the path (item 2)', async () => {
+      const r = await read();
+      const pending = publish(r, { pause: 'afterExchange', pauseMs: 2000, fault: 'dirSync' });
+      await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
+      fs.renameSync(path.join(root, 'docs'), path.join(dir, 'outside'));
+      fs.mkdirSync(path.join(root, 'docs')); // Another directory now at the path.
+      const p = await pending;
+      expect(p).toMatchObject({ published: true, synced: false });
+      const f = await h.call({ op: 'flush', path: 'docs/a.md', entry: p.displaced });
+      expect(f).toMatchObject({ ok: true, ino: fs.statSync(path.join(dir, 'outside')).ino });
+    });
   });
 
   test('a plain publish is synced; a dispose whose private-dir sync fails says so (synced: false)', async () => {

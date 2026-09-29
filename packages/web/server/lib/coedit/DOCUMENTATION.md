@@ -29,13 +29,21 @@ round 4); until then no conflict could be seen.
   `recoveryDir` that is a link, not ours, or writable by group or others. It opens `<recoveryDir>/.staging` with
   `O_NOFOLLOW` (a link there is refused before any change) and makes it 0700 with `fchmod` on that descriptor, never
   by path. The helper holds it by fd and exits unless we own it and it has no group or other bits. All staging, displaced revisions and cleanup live there, under
-  `<key>.<unique>.staged` (`key`: the first 16 hex characters of sha256 of the file's project-relative path). Another
+  `<key>.<unique>.staged` (`key`: the first 16 hex characters of sha256 of the project root, a NUL and the file's project-relative path, so two
+  projects that share a recovery directory never collect each other's entries). A default ACL on it (inherited from
+  its parent) is removed when the helper starts, and an access ACL on it is refused. Another
   account cannot name, replace or write anything in it. The project namespace is changed only by the publishing
   exchange; the bridge never reads the project directory for cleanup, so a project file such as `.x.coedit-foo` is
   never touched.
 - **The helper process is bounded.** A bad or truncated reply line, or a call past its deadline (`timeoutMs`, default
   30 s), kills the helper and rejects every waiting call. `close()` waits for work in progress at most `closeMs`
-  (default 5 s), then kills the helper and resolves once it has exited.
+  (default 5 s), then kills the helper and resolves once it has exited. A lost helper (killed, crashed, past its
+  deadline) is started again on the next call, at most `retryLimit` times in a row; what the lost call may have done
+  is already held as uncertain or not yet flushed, and the new helper settles it.
+- **Test hooks** (named pauses and faults) are honoured only by a helper started for tests (`startHelper(…, {
+  testHooks: true })`, which the bridge does only when given `hooks`); `COEDIT_FS_TEST` is removed from its
+  environment otherwise. Only `pause`, `pauseMs`, `fault`, `testOwners` and `testGroupMembers` pass, before the
+  request's own fields, so a hook never replaces them.
 - **Outside writes into the room** (an agent, git, a tool, a replace by rename). Only a **settled** revision is read:
   the same bytes and inode in two reads `settleMs` (default 200 ms) apart. It is merged **unasked only if it inserts
   text**: the minimal diff (`fast-diff`) from the text last read, applied to a copy of the room as it was then, so
@@ -45,14 +53,16 @@ round 4); until then no conflict could be seen.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced).
-  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, sets its
-     mode, fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
+  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
+     original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
+     set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
      A recovery directory on another filesystem than the file is refused before any change. So is a path where another
      account could move the file's directory out of the project. For each directory from the root down to that
      directory's parent, it is refused when another account (not root) owns it; when others can write to it (the
      other bits, or the group bits of any group but our **private** group: our primary group with no other member and
      no other account's primary group) and it is not sticky; or when it is sticky and the child on our path belongs
-     to another account (who may rename it).
+     to another account (who may rename it). A directory on that path with an extended access ACL is refused too:
+     the ACL can grant a named account write access that the mode bits (then the mask) hide.
   3. It publishes with one `renameat2(RENAME_EXCHANGE)` between the private entry and the file (it fails if the file
      was deleted: `gone`). From here every reply says `published: true`; nothing is undone and nothing outside the
      private directory is unlinked.
@@ -99,8 +109,11 @@ round 4); until then no conflict could be seen.
   That is a writer, not a race: it shows as the next revision, and a revision it changed during a save is kept (`raced`).
 - A displaced revision still open for writing after `retryLimit` tries, or at close, stays in the private directory;
   the next load keeps it for recovery and removes it.
-- After a lost helper (killed, crashed, deadline) the bridge does not start a new one: its reads fail until it is
-  closed and a new bridge loads, which finishes the interrupted save.
+- **Admission is read once per publish.** Owners, modes, ACLs and the group database are checked at the start of
+  each publish; a change to them by a directory's owner during the save is not seen.
+- **"Private group" is as complete as the account database.** Group members and other accounts' primary groups come
+  from NSS (`getgrgid`, `getpwent`). A back end that does not enumerate (for example sssd with `enumerate = false`)
+  can hide another account in our primary group. A group that cannot be read counts as shared.
 - Linux ≥ 5.6 (`openat2`) and a filesystem with `RENAME_EXCHANGE` and `O_TMPFILE` are required; elsewhere co-editing
   fails closed.
 
@@ -126,5 +139,6 @@ of Paul's acceptance). Co-editing is **off by default** until then.
 - **Durability is by fsync order** (the staged file after its chmod, the private directory, then the file's
   directory; a failed sync holds the save until a flush succeeds, never ok). A power-loss test is not possible here;
   fault tests prove the held state and its confirmation, and the kill tests at `beforeExchange` and `afterExchange`
-  prove recovery at each boundary, not durability across a power cut. A `flush` after an `escaped` publish flushes
-  the directory now at the file's path, not the moved one (same-account relocation, above).
+  prove recovery at each boundary, not durability across a power cut. A `flush` after a publish whose flush failed
+  syncs the directory it published into (held by the helper since), even if it has moved; after a helper restart that
+  directory is no longer held, and the flush syncs the directory now at the file's path.
