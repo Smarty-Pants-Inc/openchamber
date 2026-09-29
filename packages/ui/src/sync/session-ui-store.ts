@@ -98,7 +98,6 @@ import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
 import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, isFirstSendInFlightFor, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
-import { noteGoneSession } from "./gone-session-notice"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
 import { contextTokensFromBreakdown } from "@/stores/utils/tokenUtils"
@@ -729,9 +728,6 @@ export function restoreManagedSessionSelection(sessions: readonly Session[], opt
   if (!session || !visibleProjects(projects).some(project => project.path === session.directory)
     || (persisted.directory && persisted.directory !== session.directory)) {
     clearLastActiveSession(key)
-    // Gone, not moved: say so instead of a silent draft (smarty-code#775).
-    if (!session) void noteGoneSession(persisted.sessionId, persisted.directory ?? null,
-      visibleProjects(projects).some(project => project.path === persisted.directory))
     return null
   }
   if ((!store.currentSessionId || store.currentSessionId === session.id)

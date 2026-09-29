@@ -1,6 +1,6 @@
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
-import { noteGoneSession } from '@/sync/gone-session-notice';
+import { noteGoneSession, noteRememberedGone } from '@/sync/gone-session-notice';
 import { herdrSignature } from '@/lib/herdrSession';
 import { useProjectsStore } from './useProjectsStore';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
@@ -670,6 +670,7 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
       // The open session left the list (its Pi ended, or its worktree left the catalog): say so (smarty-code#775, #761).
       void noteGoneSession(selected, directory, directories.has(directory ?? ''));
     }
+    noteRememberedGone(committed.activeSessions);
     restoreManagedSessionSelection(committed.activeSessions);
   },
   applySnapshot: (activeSessions, archivedSessions, status = 'ready') => {

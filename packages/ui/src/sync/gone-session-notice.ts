@@ -3,6 +3,9 @@ import { reportClientError } from '@/lib/clientErrorReport'
 import { formatMessage, useI18nStore } from '@/lib/i18n'
 import { opencodeClient } from '@/lib/opencode/client'
 import { getRuntimeKey } from '@/lib/runtime-switch'
+import { visibleProjects, useProjectsStore } from '@/stores/useProjectsStore'
+import type { Session } from '@opencode-ai/sdk/v2/client'
+import { readLastActiveSession } from './last-session-cache'
 
 /**
  * smarty-code#775 (folds #761): the page used to drop a session that is no longer available (its Pi ended, or its
@@ -32,6 +35,21 @@ export async function noteGoneSession(sessionId: string, directory: string | nul
   toast.warning(formatMessage(useI18nStore.getState().dictionary, 'chat.container.sessionGone', {}), { duration: 15_000 })
   reportClientError({ kind: 'session.gone', sessionID: sessionId, runtimeKey, operationId: sessionId })
   return true
+}
+
+/**
+ * The remembered session (a reload or its link) that a managed restore is about to drop because it is no longer listed:
+ * said gone before `restoreManagedSessionSelection` clears it. Called by its callers, with the same preconditions, so the
+ * branding-ledger-bound session-ui-store stays unchanged.
+ */
+export function noteRememberedGone(sessions: readonly Session[], options?: { chosen?: boolean }): void {
+  const projects = useProjectsStore.getState()
+  if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== 'ready') return
+  if (projects.managedSessionHold?.pending && !options?.chosen) return
+  const persisted = readLastActiveSession(getRuntimeKey().trim() || 'default')
+  if (!persisted || sessions.some(entry => entry.id === persisted.sessionId)) return
+  void noteGoneSession(persisted.sessionId, persisted.directory ?? null,
+    visibleProjects(projects).some(project => project.path === persisted.directory))
 }
 
 /** Tests only. */
