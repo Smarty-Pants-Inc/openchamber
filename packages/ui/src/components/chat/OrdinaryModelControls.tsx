@@ -8,18 +8,16 @@ import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ord
 import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
-import { buildOrdinaryModelOptions, ordinaryOptionKey as optionKey } from './ordinaryModelOptions';
+import { buildOrdinaryModelOptions, effectiveOrdinaryState, ordinaryOptionKey as optionKey } from './ordinaryModelOptions';
 import { PiVoiceControl } from './PiVoiceControl';
 
 export type OrdinaryModelTarget = { sessionId: string; directory: string };
 
-/**
- * The selected native session's live model/effort. With a target, each choice asks the
- * native session to switch; the display changes only when the session reports it.
- */
-export function OrdinaryModelControls({ state, target, className }: {
+export function OrdinaryModelControls({ state: listed, target, className }: {
   state: OrdinaryModelState; target?: OrdinaryModelTarget; className?: string;
 }) {
+  const [applied, setApplied] = React.useState<OrdinaryModelState | null>(null);
+  const state = effectiveOrdinaryState(listed, applied);
   const { t } = useI18n();
   // A chat column may show a session from a project that is not the active one.
   const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));
@@ -46,7 +44,7 @@ export function OrdinaryModelControls({ state, target, className }: {
     if (!target || !state.generation || busy) return;
     setBusy(true);
     try {
-      await opencodeClient.setOrdinaryModel(target.sessionId, target.directory, { generation: state.generation, ...change });
+      setApplied(await opencodeClient.setOrdinaryModel(target.sessionId, target.directory, { generation: state.generation, ...change }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('common.unavailable'));
       setBusy(false);
