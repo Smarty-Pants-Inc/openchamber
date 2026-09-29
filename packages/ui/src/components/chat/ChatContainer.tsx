@@ -1678,8 +1678,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         scrollToLatest={resumeToLatestInstant}
                         draftPresentationExiting={draftPresentationExiting}
                         // The composer says why nothing can be sent while the open failed (#536); only with the
-                        // transcript's error and its Try again showing, not over a retained view.
-                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired
+                        // transcript's error and its Try again showing, not over a retained view, and not for a session
+                        // that is gone (its "try again" would mislead; the transcript says why, smarty-code#775).
+                        sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired && !sessionDirectoryGone
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
                     />
                 )}

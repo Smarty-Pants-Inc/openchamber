@@ -60,12 +60,14 @@ test('the worktree leaves the catalog while its session\'s history is read, the 
   expect(text).toContain(GONE);
   expect(text).not.toContain(OFFLINE);
   expect(text).not.toContain('Waiting for this project'); // Not loading: gone.
+  expect(text).not.toContain('nothing can be sent to it yet'); // Nor 'try again' in the composer.
 }, 20_000);
 
 test('counterexample: the worktree is still listed and the read fails with no status: the offline words stay', async () => {
   const text = await openWhileReadFails(true, () => undefined);
   expect(text).toContain(OFFLINE);
   expect(text).not.toContain(GONE);
+  expect(text).toContain('nothing can be sent to it yet'); // #536's composer line stays for a real failure.
 }, 20_000);
 
 test('counterexample: an open whose project has not joined the catalog yet (#608) is not called gone', async () => {
