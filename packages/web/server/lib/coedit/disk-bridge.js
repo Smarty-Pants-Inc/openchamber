@@ -82,7 +82,7 @@ export function createDiskBridge({
       respawns = 0;
       return reply;
     },
-    close: () => current.close(),
+    close: (options) => current.close(options),
   };
   let pending = []; // Private entries still open for writing: removed once no one writes to them.
   let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
@@ -195,6 +195,8 @@ export function createDiskBridge({
     const known = new Set(pending.map((revision) => revision.entry));
     // Only the lost call's own entry (its txn names it), never another save's leftover.
     const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${uncertain.lost}-`));
+    // Its entry is still held by the lost call's own helper (alive, finishing or exiting): not settled yet (#412).
+    if (fresh.some((entry) => entry.owned)) return false;
     const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
     if (displaced) {
       base = uncertain.snapshot;
@@ -398,7 +400,8 @@ export function createDiskBridge({
       // A displaced revision still pending stays in the private dir; the next load keeps and removes it.
       let bound;
       const waited = new Promise((done) => { bound = setTimeout(done, closeMs); });
-      return Promise.race([queue.catch(() => {}), waited]).finally(() => clearTimeout(bound)).then(() => helper.close());
+      // Resolves { quiescent }: whether the helper provably can no longer act (#412 round 2, finding 2).
+      return Promise.race([queue.catch(() => {}), waited]).finally(() => clearTimeout(bound)).then(() => helper.close({ boundMs: closeMs }));
     },
   };
 }

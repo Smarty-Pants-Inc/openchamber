@@ -36,9 +36,17 @@ round 4); until then no conflict could be seen.
     whose connection has already closed when it gets the lock (or just before its exchange) is abandoned before any
     change. So recovery after a lost reply, which lists through the lock, never races a publish nobody will hear of.
     The lock files stay (one empty file per co-edited file).
-  - **Closing** half-closes the connection: the helper finishes its current operation, reads EOF and exits. The bridge
-    cannot kill a helper of another account; a deadline cuts the connection, which is not proof that the helper has
-    stopped: the lock and the connection check above are. The helper **refuses to serve its own account**: unless
+  - **Each connection owns the entries it creates** (#412 round 2). Its helper holds an exclusive `flock` on every
+    displaced revision it leaves, from before it releases the file's lock until its own `dispose` removes it, or its
+    process ends. Another connection's `list` shows such an entry only as `owned` (no bytes), and its `dispose` refuses
+    it, so it can neither remove a pending revision (and the late bytes a writer may still add) nor erase the record a
+    lost reply is settled by. A lost-reply settlement that sees its entry still owned holds. Only when the owner's
+    process is gone (its bridge closed or crashed) is the entry an orphan that the next load recovers, bytes included.
+  - **Closing** says whether the helper is **quiescent** (`close()` resolves `{ quiescent }`). A spawned helper is
+    killed and awaited. A service helper, which this account cannot kill, is sent `bye`: operations run one at a time,
+    so its answer means none is in flight, and it then exits. Only that answer within `closeMs` gives
+    `quiescent: true`; otherwise the result is `quiescent: false`, and the helper may still finish an operation
+    already admitted (a later recovery of that file waits for its lock). A cut connection is never taken as proof. The helper **refuses to serve its own account**: unless
   it is given `--same-account` (tests and development only; the service never is), it exits 2 when the peer on its stdin
   socket (`SO_PEERCRED`) is its own uid, or when it runs as root. Without the socket, the bridge runs the helper as its
   own account only when `OPENCHAMBER_COEDIT_SAME_ACCOUNT=1` (tests, development); otherwise co-editing fails closed.

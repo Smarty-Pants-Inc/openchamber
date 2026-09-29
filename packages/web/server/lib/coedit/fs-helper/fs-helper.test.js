@@ -476,6 +476,56 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       }
     });
 
+    test('#412 round 2, finding 1: another live connection can neither read nor dispose this connection\'s pending revision; a late write is kept', async () => {
+      const r = await read();
+      const writer = fs.openSync(target(), 'a'); // An agent holding the old inode open: the revision stays pending.
+      const p = await publish(r);
+      expect(p).toMatchObject({ ok: true });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      const other = helper(root, priv);
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // Named, but no bytes to take over.
+        const hash = sha('one\nlate\n');
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash })).toMatchObject({ ok: false, owned: true });
+        expect(staged()).toEqual([p.displaced]);
+        // Its owner still finds the late bytes and keeps them.
+        expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash });
+      } finally {
+        other.stop();
+      }
+    });
+
+    test('#412 round 2, finding 1: once its owner is gone, the entry is an orphan another connection recovers with its bytes', async () => {
+      const r = await read();
+      const writer = fs.openSync(target(), 'a');
+      const p = await publish(r);
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      h.stop(); // The owning connection ends (its bridge closed or crashed).
+      await sleep(200);
+      h = helper(root, priv);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toMatchObject([{ entry: p.displaced, hash: sha('one\nlate\n') }]);
+      expect(Buffer.from(seen.entries[0].data, 'base64').toString()).toBe('one\nlate\n');
+    });
+
+    test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {
+      const r = await read();
+      const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+      const replies = [];
+      createInterface({ input: child.stdout }).on('line', (l) => replies.push(JSON.parse(l)));
+      const exited = new Promise((done) => child.on('exit', done));
+      child.stdin.write(`${JSON.stringify({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), pause: 'afterExchange', pauseMs: 800, id: 1 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'bye', id: 2 })}\n`);
+      await exited;
+      expect(replies.map((x) => x.id)).toEqual([1, 2]);
+      expect(replies[0]).toMatchObject({ published: true });
+      expect(replies[1]).toMatchObject({ ok: true, bye: true });
+    });
+
     test('an ACL on a path directory that names only trusted accounts (the helper, its peer) is allowed', async () => {
       const r = await read();
       setAcl(root, 'system.posix_acl_access', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 7, process.geteuid()], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 5, ANY]]);

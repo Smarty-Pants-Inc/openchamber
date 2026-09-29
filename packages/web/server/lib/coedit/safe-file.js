@@ -246,9 +246,24 @@ function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
     /** Whether a request sent now can still reach the helper. */
     alive: () => ended === null,
     call: (request) => ready.then(() => send(request)),
-    close: () => {
+    /**
+     * Ends the helper and says whether it is QUIESCENT (#412 round 2, finding 2): a spawned helper is killed and
+     * awaited (it cannot act again). A service helper, which this account cannot kill, is sent `bye`: it answers only
+     * after any operation in flight has finished, then exits. Only that answer, within `boundMs`, proves quiescence;
+     * otherwise `{ quiescent: false }`, and a later recovery of its file waits for its lock (never assume it stopped).
+     */
+    close: async ({ boundMs = 10_000 } = {}) => {
+      let quiescent = root === null;
+      if (root !== null && ended === null) {
+        let timer;
+        const bound = new Promise((done) => { timer = setTimeout(done, boundMs); });
+        const reply = await Promise.race([send({ op: 'bye' }).catch(() => null), bound]);
+        clearTimeout(timer);
+        quiescent = reply?.bye === true;
+      }
       end(new Error('coedit-fs closed'));
-      return exited;
+      await exited;
+      return { quiescent };
     },
   };
 }
@@ -368,6 +383,7 @@ export async function dispose(helper, key, revision, recoveryDir, rel, hooks = {
     const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', path: rel, entry: revision.entry, hash });
     if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
     if (reply.busy) return { busy: true, late, hash };
+    if (reply.owned) return { busy: true, owned: true, late, hash }; // Another live connection's: never ours to take.
     if (!reply.changed) throw refused(reply);
     late = await keepForRecovery(recoveryDir, name, Buffer.from(reply.data, 'base64'), { key });
     hash = reply.hash;
@@ -461,7 +477,8 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
   const pending = [];
   const late = [];
   let unsynced = false;
-  for (const { entry, hash, data } of reply.entries) {
+  for (const { entry, hash, data, owned } of reply.entries) {
+    if (owned) continue; // A live connection's transaction, not an interrupted one: left to its owner (#412).
     finished.push(await keepForRecovery(recoveryDir, name, Buffer.from(data, 'base64'), { key }));
     if (!durable) {
       pending.push({ entry, hash });

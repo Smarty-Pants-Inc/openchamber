@@ -96,6 +96,33 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     expect(fs.readFileSync(conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('log\nlate\n');
   });
 
+  it('#412 round 2: another connection sees a pending revision only as owned; it cannot take or remove it', async () => {
+    const t = setup('log\n');
+    const writer = fs.openSync(t.file, 'a');
+    const { bridge, doc } = bridgeFor(t);
+    await bridge.load();
+    doc.getText(TEXT).insert(0, 'P');
+    expect(await bridge.save()).toEqual({ ok: true }); // Its displaced revision stays pending: the writer holds it.
+    const other = startHelper(t.root, path.join(t.recoveryDir, '.staging'));
+    try {
+      const { entries } = await other.call({ op: 'list', path: 'docs/a.md' });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ owned: true });
+      expect(entries[0].data).toBeUndefined();
+      expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: entries[0].entry, hash: 'x' })).toMatchObject({ ok: false, owned: true });
+    } finally {
+      await other.close();
+      fs.closeSync(writer);
+    }
+  });
+
+  it('#412 round 2: closing proves the service helper quiescent (bye answered)', async () => {
+    const t = setup('q\n');
+    const { bridge } = bridgeFor(t);
+    await bridge.load();
+    expect(await bridge.close()).toEqual({ quiescent: true });
+  });
+
   it('#412 finding 1: a root that is not this account\'s (the service\'s own dirs, /) is refused at hello', async () => {
     for (const root of ['/', '/var/lib', path.dirname(SOCKET)]) {
       const helper = startHelper(root, path.join(BASE, 'unused', '.staging'));

@@ -141,6 +141,25 @@ fn lock_key(priv_fd: RawFd, key: &str) -> Result<OwnedFd, String> {
     Err("another operation on this file is still in progress".into())
 }
 
+/// The private entries this connection owns (#412 round 2, finding 1): each held open with an exclusive flock from the
+/// moment the entry exists until this connection's own dispose removes it, or this process ends. Another connection
+/// sees such an entry only as owned by a live connection: it cannot read, dispose or recover it. Once the owner's
+/// process is gone (its bridge closed or crashed) the lock is released and the entry is an orphan anyone may recover.
+type Owned = std::collections::HashMap<String, OwnedFd>;
+
+/// Takes ownership of a private entry: Some(fd holding its flock), or None while another live connection owns it.
+fn lock_entry(priv_fd: RawFd, name: &str) -> Result<Option<OwnedFd>, i32> {
+    let fd = open_private(priv_fd, name)?;
+    // SAFETY: flock on our own fd.
+    if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(Some(fd));
+    }
+    match errno() {
+        libc::EWOULDBLOCK => Ok(None),
+        e => Err(e),
+    }
+}
+
 /// Whether the connection that asked for this operation has closed (#412 finding 3): an operation that finds its
 /// connection gone after taking the file's lock is abandoned before any change, so a later recovery of that file
 /// (which waits for the lock) never races a publish nobody will hear about.
@@ -531,7 +550,7 @@ fn read_op(root: RawFd, req: &Value) -> Result<Value, String> {
 /// published into, even if it has since moved (smartyfs#34 item 2).
 type Unsynced = std::collections::HashMap<String, OwnedFd>;
 
-fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -> Result<Value, String> {
+fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced, owned: &mut Owned) -> Result<Value, String> {
     let rel = req["path"].as_str().ok_or("path")?;
     let (dir_rel, name) = split(rel)?;
     let key = key(req)?;
@@ -723,6 +742,11 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
     if !synced {
         unsynced.insert(staged.clone(), dir);
     }
+    // This connection owns the displaced entry until its own dispose: taken before the file's lock is released, so no
+    // other connection ever sees it unowned while this one lives.
+    if let Ok(Some(fd)) = lock_entry(priv_fd, &staged) {
+        owned.insert(staged.clone(), fd);
+    }
     // 11. Reply.
     Ok(match uncertain {
         Some(u) => json!({"ok": false, "published": true, "synced": synced, "uncertain": u, "displaced": staged}),
@@ -755,15 +779,29 @@ fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -
     Ok(json!({"ok": true, "ino": ino}))
 }
 
-fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
+fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, String> {
     let entry = entry(req)?;
     let _lock = lock_key(priv_fd, &key(req)?)?;
     let hash = req["hash"].as_str().ok_or("hash")?;
-    let fd = match open_private(priv_fd, &entry) {
-        Ok(fd) => fd,
-        Err(libc::ENOENT) => return Ok(json!({"ok": true})),
-        Err(e) => return Err(os_err("open", e)),
+    // Ours already, or an orphan taken over now; another live connection's entry is refused, never touched.
+    let fd = match owned.remove(&entry) {
+        Some(fd) => fd,
+        None => match lock_entry(priv_fd, &entry) {
+            Ok(Some(fd)) => fd,
+            Ok(None) => return Ok(json!({"ok": false, "owned": true})),
+            Err(libc::ENOENT) => return Ok(json!({"ok": true})),
+            Err(e) => return Err(os_err("open", e)),
+        },
     };
+    let result = dispose_entry(priv_fd, req, &entry, hash, &fd);
+    // Still there (busy, late bytes, an error): this connection keeps owning it.
+    if !matches!(&result, Ok(v) if v["ok"] == true) {
+        owned.insert(entry, fd);
+    }
+    result
+}
+
+fn dispose_entry(priv_fd: RawFd, req: &Value, entry: &str, hash: &str, fd: &OwnedFd) -> Result<Value, String> {
     if !is_reg(&fstat(fd.as_raw_fd())?) {
         return Err("not a regular file".into());
     }
@@ -791,7 +829,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
         unlock();
         return Ok(json!({"ok": false, "changed": true, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
-    let c = cstr(&entry)?;
+    let c = cstr(entry)?;
     // SAFETY: unlinks one entry of the private dir.
     if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 {
         let err = fail("unlinkat");
@@ -803,7 +841,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     Ok(if synced { json!({"ok": true}) } else { json!({"ok": true, "synced": false}) })
 }
 
-fn list_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
+fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> {
     let key = key(req)?;
     // Waits for any operation on this file by another connection: a live transaction is never listed as a leftover.
     let _lock = lock_key(priv_fd, &key)?;
@@ -814,11 +852,29 @@ fn list_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
         if !name.starts_with(&prefix) {
             continue;
         }
-        let Ok(fd) = open_private(priv_fd, &name) else { continue };
+        if name.ends_with("-lock") {
+            continue;
+        }
+        // Another live connection's entry: named, but with no bytes to take over (#412 round 2, finding 1).
+        let held;
+        let fd = match owned.get(&name) {
+            Some(fd) => fd,
+            None => match lock_entry(priv_fd, &name) {
+                Ok(Some(fd)) => {
+                    held = fd;
+                    &held
+                }
+                Ok(None) => {
+                    entries.push(json!({"entry": name, "owned": true}));
+                    continue;
+                }
+                Err(_) => continue,
+            },
+        };
         if !fstat(fd.as_raw_fd()).map(|s| is_reg(&s)).unwrap_or(false) {
             continue;
         }
-        let bytes = read_all(&fd)?;
+        let bytes = read_all(fd)?;
         entries.push(json!({"entry": name, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
     Ok(json!({"ok": true, "entries": entries}))
@@ -908,6 +964,7 @@ fn main() {
         die("the private dir must have no extended ACL");
     }
     let mut unsynced = Unsynced::new();
+    let mut owned = Owned::new();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -928,10 +985,13 @@ fn main() {
                     },
                     Some("read" | "publish" | "flush" | "list" | "dispose") if root_fd.is_none() => Err("hello with the root first".into()),
                     Some("read") => read_op(root_fd.unwrap_or(-1), &req),
-                    Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
+                    Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced, &mut owned),
                     Some("flush") => flush_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
-                    Some("dispose") => dispose_op(priv_fd, &req),
-                    Some("list") => list_op(priv_fd, &req),
+                    Some("dispose") => dispose_op(priv_fd, &req, &mut owned),
+                    Some("list") => list_op(priv_fd, &req, &owned),
+                    // A closing bridge's proof of quiescence (#412 round 2, finding 2): operations run one at a time,
+                    // so this reply means none is in flight; the helper then exits and releases what it owned.
+                    Some("bye") => Ok(json!({"ok": true, "bye": true})),
                     _ => Err("unknown op".into()),
                 };
                 let mut v = result.unwrap_or_else(|e| json!({"ok": false, "error": e}));
@@ -942,7 +1002,7 @@ fn main() {
             }
             Err(_) => json!({"ok": false, "error": "invalid json"}),
         };
-        if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() {
+        if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() || reply["bye"] == true {
             break;
         }
     }

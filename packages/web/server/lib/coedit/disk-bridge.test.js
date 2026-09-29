@@ -803,6 +803,23 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(fs.readdirSync(staging).filter((n) => !n.endsWith('-lock'))).toEqual([]); // Only its per-file lock remains.
     });
 
+    it('#412 round 2, finding 2: close says whether the service helper is quiescent: bye answered, or not within the bound', async () => {
+      await service(['--same-account']);
+      const t = await setup('a\n');
+      expect(await t.bridge.close()).toEqual({ quiescent: true });
+      // A helper busy past the bound: close does not claim it stopped.
+      const again = t.open({ closeMs: 50 });
+      await again.bridge.load();
+      again.text.insert(0, 'P');
+      t.hooks.helper = { pause: 'beforeOpen', pauseMs: 2500 };
+      const saving = again.bridge.save().catch(() => null);
+      await sleep(200);
+      const closing = await Promise.race([again.bridge.close(), sleep(20_000).then(() => 'hung')]);
+      delete t.hooks.helper;
+      await saving;
+      expect(closing).toEqual({ quiescent: false });
+    }, 30_000);
+
     it('a service helper that would serve its own account refuses, and the bridge fails closed', async () => {
       await service([]);
       await expect(setup('a\n')).rejects.toThrow(/coedit-fs/);
