@@ -60,9 +60,12 @@ test('your own stop says "You stopped this start"; another person\'s stop, or no
   // A client render (the store's live state; a static render reads its initial state).
   const { Window } = await import('happy-dom'); const { createRoot } = await import('react-dom/client'); const { act } = await import('react');
   const win = new Window({ url: 'http://localhost' });
-  Object.assign(globalThis, { window: win, document: win.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const names = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+  const previous = names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  const values = { window: win, document: win.document, IS_REACT_ACT_ENVIRONMENT: true };
+  for (const name of names) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
   const render = (value: ReturnType<typeof useNativeCreation>) => {
-    const host = win.document.createElement('div'); const root = createRoot(host as unknown as Element);
+    const host = document.createElement('div'); const root = createRoot(host);
     act(() => { root.render(<NativeCreationNotice native={value} draftOpen />); });
     const html = host.innerHTML; act(() => root.unmount()); return html;
   };
@@ -74,5 +77,11 @@ test('your own stop says "You stopped this start"; another person\'s stop, or no
     expect(render(native('expired'))).not.toContain(you);
     useHumanSelf.setState({ subject: undefined }); // Not signed in (or not read yet): never "you".
     expect(render(stopped('me-1'))).not.toContain(you);
-  } finally { useHumanSelf.setState({ subject: undefined }); await win.happyDOM.close(); }
+  } finally {
+    useHumanSelf.setState({ subject: undefined });
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name);
+    }
+    await win.happyDOM.close();
+  }
 });

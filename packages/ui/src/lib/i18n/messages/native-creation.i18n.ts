@@ -318,7 +318,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "프로젝트 보기",
   },
   pl: {
-    'chat.nativeCreation.stoppedByYou': 'Zatrzymano ten start. Twój tekst wrócił do wersji roboczej.',
+    'chat.nativeCreation.stoppedByYou': 'Zatrzymałeś ten start. Twój tekst wrócił do szkicu.',
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
     'chat.terminalDialog.waitingTitled': "Pi czeka na odpowiedź w terminalu: {title}. Odpowiedz tam; stąd nic nie jest odpowiadane.",
