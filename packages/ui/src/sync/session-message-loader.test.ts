@@ -339,7 +339,7 @@ describe("SessionMessageLoader", () => {
     } finally { loader.dispose(); childStores.disposeAll() }
   })
 
-  test("rejects first-page views received across disconnect and views invalidated during materialization", async () => {
+  test("re-reads a first page whose view was read across a disconnect; rejects views invalidated during materialization", async () => {
     const view = `ov2_${"c".repeat(64)}`
     const pending = deferred<ReturnType<typeof response>>()
     const { childStores, loader } = createLoader(async () => pending.promise)
@@ -349,8 +349,11 @@ describe("SessionMessageLoader", () => {
       loader.invalidateOrdinaryViews()
       pending.resolve(response([createRecord(target.sessionID)], undefined, view))
       await loading
-      expect(loader.getSnapshot(target).status).toBe("error")
-      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(undefined)
+      // smarty-code#963: the view read across the disconnect is not accepted; the open reads again (a read replays
+      // nothing) and accepts the new read's view, instead of showing "Session could not be loaded".
+      expect(loader.getSnapshot(target).status).toBe("ready")
+      expect(loader.getAcceptedOrdinaryView(target, "runtime-a")).toBe(view)
+      loader.invalidateOrdinaryViews()
       const store = childStores.getChild(target.directory)!
       const unsubscribe = store.subscribe(() => loader.invalidateSession(target))
       await loader.ensure(target)
@@ -823,4 +826,27 @@ describe("session load performance diagnostics", () => {
     expect(nextFrame).toBe(2)
     expect(marks).toEqual(["visible", "visible"])
   })
+})
+
+test("#963: an open whose stream disconnects during its first read reads again and never shows an error", async () => {
+  const view = `ov2_${"9".repeat(64)}`
+  let calls = 0
+  const first = deferred<ReturnType<typeof response>>()
+  const { childStores, loader } = createLoader(async ({ sessionID }) => {
+    calls += 1
+    return calls === 1 ? first.promise : response([createRecord(sessionID)], undefined, view)
+  })
+  const target = { directory: "/repo", sessionID: "session-a" }
+  const seen: string[] = []
+  const unsubscribe = loader.subscribe(target, () => seen.push(loader.getSnapshot(target).status))
+  try {
+    const loading = loader.ensure(target)
+    loader.invalidateOrdinaryViews() // The phone's stream reconnects while the first read is out.
+    first.resolve(response([createRecord(target.sessionID)], undefined, view))
+    await loading
+    expect(calls).toBe(2)
+    expect(seen).not.toContain("error")
+    expect(loader.getSnapshot(target).status).toBe("ready")
+    expect(childStores.getChild(target.directory)?.getState().message[target.sessionID]?.length).toBe(1)
+  } finally { unsubscribe(); loader.dispose(); childStores.disposeAll() }
 })

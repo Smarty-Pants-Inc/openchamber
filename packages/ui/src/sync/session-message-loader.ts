@@ -865,7 +865,7 @@ export class SessionMessageLoader {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
     const firstLimit = entry.ordinary ? getInitialPageSize()
       : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
-    const firstPage = await this.fetchPage(target, firstLimit, undefined, "initial-page", performance)
+    const firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
     if (!isCurrent()) return
     const deferFirstCommit = !firstPage.complete && !hasUserMessage(firstPage.session)
     let committed = deferFirstCommit
@@ -876,7 +876,7 @@ export class SessionMessageLoader {
     if (deferFirstCommit) {
       for (const limit of getInitialExpansionLimits()) {
         if (limit <= firstLimit || !isCurrent()) continue
-        const expandedPage = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+        const expandedPage = await this.fetchOpenPage(target, limit, isCurrent, performance)
         if (!isCurrent()) return
         acceptedPage = expandedPage
         const boundaryFound = hasUserMessage(expandedPage.session)
@@ -903,6 +903,19 @@ export class SessionMessageLoader {
       updatedAt: Date.now(),
     })
     this.persistCoverage(target, entry.snapshot)
+  }
+
+  /**
+   * An open's page, read again while its ordinary view was read across a stream disconnect (at most twice). Such a view is
+   * never accepted, and a read replays nothing: the phone's stream reconnecting during its first read showed "Session
+   * could not be loaded" for 3-6 s, then the page recovered by itself (smarty-code#963).
+   */
+  private async fetchOpenPage(target: SessionMessageTarget, limit: number, isCurrent: () => boolean,
+    performance?: LoadPerformanceDetails): Promise<FetchedPage> {
+    for (let attempt = 0; ; attempt++) {
+      const page = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || attempt >= 2 || !isCurrent()) return page
+    }
   }
 
   private async fetchPage(
