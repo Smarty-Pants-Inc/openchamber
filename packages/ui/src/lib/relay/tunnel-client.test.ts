@@ -365,18 +365,43 @@ describe('createRelayTunnelClient', () => {
   // server. Callers must be able to tell that apart from a definite failure —
   // a prompt re-sent on this error produces a second AI response (#2425).
   test('tags an in-flight request killed by reconnect as an ambiguous failure', async () => {
-    const { client, killWire } = await setupClient({ silent: true });
+    // smarty-code#880: the wire is killed once the host has RECEIVED the request head (the event), not after a fixed
+    // 20 ms: a slower handshake left the request still waiting for its channel (9 of 30 local runs), which is correctly
+    // not ambiguous (see the next test).
+    let headSeen!: () => void;
+    const head = new Promise<void>((resolve) => { headSeen = resolve; });
+    const { client, killWire } = await setupClient({ silent: true,
+      recordFrame: (frame) => { if (frame.frameType === TunnelFrameType.HttpRequest) headSeen(); } });
     track(client);
     const pending = client.fetch('/api/session/s1/prompt_async', { method: 'POST', body: '{}' });
     let caught: unknown = null;
     const settled = pending.catch((error: unknown) => {
       caught = error;
     });
-    await wait(20);
+    await head;
     killWire();
     await settled;
     expect(caught).toBeInstanceOf(Error);
     expect(isAmbiguousTransportFailure(caught)).toBe(true);
+  });
+
+  test('a request whose head was never sent is not ambiguous when the wire dies first', async () => {
+    const frames: TunnelFrame[] = [];
+    // The host holds its answer to the first hello and the client does not retry it: no channel exists yet, so the
+    // request can only wait for one. Then the wire dies.
+    const { client, killWire } = await setupClient({ silent: true, firstHelloDelayMs: 10_000, recordFrame: (frame) => frames.push(frame) },
+      { helloRetryMs: 60_000, reconnectBaseDelayMs: 60_000, reconnectMaxDelayMs: 60_000 });
+    track(client);
+    const pending = client.fetch('/api/session/s1/prompt_async', { method: 'POST', body: '{}' });
+    let caught: unknown = null;
+    const settled = pending.catch((error: unknown) => { caught = error; });
+    killWire();
+    await Promise.race([settled, wait(1_000)]);
+    if (!caught) client.close(); // a request still waiting is failed by close, which is not ambiguous either
+    await settled;
+    expect(frames.some((frame) => frame.frameType === TunnelFrameType.HttpRequest)).toBe(false);
+    expect(caught).toBeInstanceOf(Error);
+    expect(isAmbiguousTransportFailure(caught)).toBe(false);
   });
 
   test('opens, echoes, and closes a tunneled WebSocket', async () => {
