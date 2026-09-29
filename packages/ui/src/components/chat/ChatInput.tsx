@@ -42,6 +42,7 @@ import {
     type ChatDraftIdentity,
     type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
+import { holdReload } from '@/lib/newBuildReload';
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
 import { BtwPanel } from './btw/BtwPanel';
 import { useBtwPanelState } from './btw/useBtwPanelState';
@@ -988,6 +989,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         readMessage: () => composerRef.current?.getValue() ?? messageRef.current,
         onDraftConsumed: () => messageHistory.reset(),
     });
+    // Any text in the composer holds a new-build reload (openchamber#333 reviews): read live, the editor's own text.
+    React.useEffect(() => holdReload(() => (composerRef.current?.getValue() ?? messageRef.current) !== ''), []);
 
     // Focus textarea when new session draft is opened
     const prevNewSessionDraftOpenRef = React.useRef(newSessionDraftOpen);
@@ -1365,9 +1368,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // it settles. Another press or another draft target never ends it.
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
+        // The whole send, from preparation to its settled request, holds a new-build reload: the composer is cleared
+        // before the prompt is sent, so a reload in between would lose it (openchamber#333 review).
+        const releaseReload = holdReload();
         try { await handleSubmit(options, attempt); }
         finally {
-            const end = () => endFirstSend(attempt.hold);
+            const end = () => { releaseReload(); endFirstSend(attempt.hold); };
             if (attempt.sent) void attempt.sent.then(end, end); else end();
         }
     };
