@@ -39,7 +39,25 @@ test('the prompt call is still pending at +7 s: "Sending…", never "did not sta
   expect(html).not.toContain(NO_REPLY);
 });
 
+const optimistic = (created: number) => {
+  // The page's own optimistic copy (session-actions): `completed: 0`.
+  const info = { id: 'ask', sessionID: 's', role: 'user', time: { created, completed: 0 }, agent: 'build', model: { providerID: 'p', modelID: 'm' } } as UserMessage;
+  directoryStore.setState({ message: { s: [info] } });
+};
+
 test('pending but still inside the first 5 s: nothing yet (no flicker on a quick send)', () => {
+  optimistic(Date.now() - 1_000);
+  usePromptsInFlight.setState({ pending: { s: 1 } });
+  expect(notice()).toBe('');
+});
+
+test('pending on the optimistic copy (completed: 0) at +7 s: "Sending…", timed from its creation', () => {
+  optimistic(Date.now() - 7_000);
+  usePromptsInFlight.setState({ pending: { s: 1 } });
+  expect(notice()).toContain(SENDING);
+});
+
+test('pending, a real message still inside the first 5 s: nothing yet', () => {
   asked(Date.now() - 1_000);
   usePromptsInFlight.setState({ pending: { s: 1 } });
   expect(notice()).toBe('');

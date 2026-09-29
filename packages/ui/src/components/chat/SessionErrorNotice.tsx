@@ -41,7 +41,8 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
     }
     const next: LastMessageState = {
       role: typeof info.role === 'string' ? info.role : '',
-      timestamp: info.time?.completed ?? info.time?.created ?? 0,
+      // An optimistic user message has `completed: 0` (session-actions): its time is when it was created (#902 review).
+      timestamp: info.time?.completed || info.time?.created || 0,
       hasError: Boolean(info.error),
     };
     const cached = cacheRef.current;

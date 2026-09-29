@@ -301,7 +301,12 @@ error for the open session under its last message while that turn is the
 latest one (`SessionErrorNotice`), and also names a user message that an idle
 session has left unanswered for five seconds, since an accepted send that
 produced neither a message nor an error would otherwise look like nothing
-happened. Both buffers — session errors and rejected sends — appear in the
+happened. That verdict waits for this page's own prompt call
+(`prompts-in-flight.ts`, smarty-code#902): while the call is pending it says
+"Sending…"; once the gateway has taken it (an `x-smarty-prompt-receipt` of
+`accepted` or `queued`) it says the session has the message; only an answer
+without a receipt, or a message this page did not send, starts the five
+seconds, counted from the answer. Both buffers — session errors and rejected sends — appear in the
 status report (`buildOpenCodeStatusReport`, Ctrl/Cmd+Shift+L or
 `__opencodeDebug.statusReport()`) together with the managed OpenCode
 process's last error and stderr tail and the expected log file locations.
