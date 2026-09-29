@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -165,7 +165,7 @@ export function createDiskBridge({
         return { busy: true, hash: revision.hash };
       });
       if (done.late) raise({ conflict: 'raced', published: true, recovery: done.late, notice: DISTURBED_NOTICE });
-      if (done.busy) still.push({ entry: revision.entry, hash: done.hash });
+      if (done.busy) still.push({ ...revision, hash: done.hash });
       if (done.unsynced) unsynced ??= { raised: false };
     }
     pending = still;
@@ -192,7 +192,7 @@ export function createDiskBridge({
    * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async () => {
-    const reply = await helper.call({ op: 'list', path: rel }).catch(() => null);
+    const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) }).catch(() => null);
     if (!reply?.ok) return false;
     const txn = uncertain.lost;
     const record = (reply.records ?? []).find((r) => r.txn === txn);
@@ -206,13 +206,15 @@ export function createDiskBridge({
       baseText = uncertain.next;
       baseHash = uncertain.nextHash;
       gone = false;
-      for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash }); // Late bytes are kept.
+      for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash, token: uncertain.token }); // Late bytes are kept.
     } else {
       for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
-    await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null); // Settled here, by its owner.
+    // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5).
+    await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
     uncertain = null;
     if (!unsynced) conflict = null;
+    scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).
     return true;
   };
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */

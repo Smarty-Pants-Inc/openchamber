@@ -173,9 +173,13 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     const other = startHelper(t.root, staging);
     try {
       const seen = await other.call({ op: 'list', path: 'docs/a.md' });
-      expect(seen.records).toEqual([{ txn: 'feed01', state: 'published' }]);
+      expect(seen.records).toEqual([{ txn: 'feed01', state: 'published', owned: true }]); // Not this caller's to take.
       expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01' })).toMatchObject({ ok: false });
       expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01', token: 'guess' })).toMatchObject({ ok: false });
+      // With the token: its retained data goes first (a claim), then the receipt.
+      const mine = await other.call({ op: 'list', path: 'docs/a.md', tokens: { feed01: 'only-mine' } });
+      const [entry] = mine.entries;
+      expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'only-mine' })).toMatchObject({ ok: true });
       expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01', token: 'only-mine' })).toMatchObject({ ok: true });
       expect((await other.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
     } finally {
@@ -207,6 +211,41 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: `${keyOf(t.root, 'docs/a.md')}.${record.txn}-bogus.staged`, hash: 'x' })).toMatchObject({ ok: false, owned: true });
     } finally {
       await other.close();
+    }
+  });
+
+  it('#412 round 5: after its helper connection is lost, a pending revision stays its bridge\'s; only the token reclaims it', async () => {
+    const t = setup('p\n');
+    const staging = path.join(t.recoveryDir, '.staging');
+    const writer = fs.openSync(t.file, 'a');
+    const origin = startHelper(t.root, staging);
+    let displaced;
+    let hash;
+    try {
+      const current = await readFile(origin, 'docs/a.md');
+      hash = current.hash;
+      const reply = await origin.call({
+        op: 'publish', path: 'docs/a.md', txn: 'beef02', ack: hashBytes(Buffer.from('mine')), ino: current.ino, dev: current.dev, hash, data: Buffer.from('P\n').toString('base64'),
+      });
+      displaced = reply.displaced;
+      expect(await origin.call({ op: 'dispose', path: 'docs/a.md', entry: displaced, hash })).toMatchObject({ ok: false, busy: true });
+    } finally {
+      await origin.close(); // Only the helper connection is lost.
+    }
+    fs.writeSync(writer, 'late\n');
+    fs.closeSync(writer);
+    const other = startHelper(t.root, staging);
+    try {
+      expect((await other.call({ op: 'list', path: 'docs/a.md' })).entries).toEqual([{ entry: displaced, owned: true }]);
+      expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: displaced, hash: hashBytes(Buffer.from('p\nlate\n')) })).toMatchObject({ ok: false, owned: true });
+    } finally {
+      await other.close();
+    }
+    const again = startHelper(t.root, staging); // The bridge reconnects, with its token.
+    try {
+      expect(await again.call({ op: 'dispose', path: 'docs/a.md', entry: displaced, hash, token: 'mine' })).toMatchObject({ ok: false, changed: true, hash: hashBytes(Buffer.from('p\nlate\n')) });
+    } finally {
+      await again.close();
     }
   });
 

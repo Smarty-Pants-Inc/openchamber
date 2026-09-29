@@ -375,13 +375,37 @@ async function syncDirectory(dir) {
  * `busy: true`: a writer still has it open; it stays, and is tried again later. `unsynced: true`: removed, but the
  * private dir's flush failed.
  */
+/**
+ * The secret tokens of this server process's transactions, by file key and txn (#412 round 5): only a token lets a
+ * helper act on a transaction whose owning connection is gone, so a bridge reconnecting, or reopened in this process,
+ * reclaims its own retained bytes, and no other process can. They are never persisted: after a restart, orphans wait
+ * out the helper's orphan age (7 days), their bytes safe in the private dir.
+ */
+const TOKENS = new Map();
+export const rememberToken = (key, txn, token) => {
+  if (!TOKENS.has(key)) TOKENS.set(key, new Map());
+  TOKENS.get(key).set(txn, token);
+};
+const forgetToken = (key, txn) => TOKENS.get(key)?.delete(txn);
+/** This process's tokens for a file's transactions, as `list`'s `tokens`. */
+export const tokensFor = (key) => Object.fromEntries(TOKENS.get(key) ?? []);
+/** A staged entry's txn: `<key>.<txn>-<unique>.staged`. */
+const txnOf = (key, entry) => entry.slice(key.length + 1).split('-')[0];
+
 export async function dispose(helper, key, revision, recoveryDir, rel, hooks = {}) {
   const name = path.basename(rel);
   let { hash } = revision;
   let late;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', path: rel, entry: revision.entry, hash });
-    if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
+    const txn = txnOf(key, revision.entry);
+    const token = revision.token ?? TOKENS.get(key)?.get(txn);
+    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', path: rel, entry: revision.entry, hash, token });
+    if (reply.ok) {
+      forgetToken(key, txn);
+      // This bridge's own revision (it holds the token itself): its data is gone, so its receipt may go too.
+      if (revision.token) await helper.call({ op: 'ack', path: rel, txn, token }).catch(() => null);
+      return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
+    }
     if (reply.busy) return { busy: true, late, hash };
     if (reply.owned) return { busy: true, owned: true, late, hash }; // Another live connection's: never ours to take.
     if (!reply.changed) throw refused(reply);
@@ -422,6 +446,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   const txn = randomBytes(6).toString('hex');
   // A secret only this bridge knows: the helper keeps its hash, and only the token acks the record (#412 round 4).
   const token = randomBytes(16).toString('hex');
+  rememberToken(key, txn, token);
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   let reply;
   try {
@@ -459,7 +484,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   else if (outside || done.late || reply.conflict === 'raced') result = { conflict: 'raced', published: true, recovery: done.late ?? recovery, notice: DISTURBED_NOTICE };
   else if (unsynced) result = { conflict: 'unverified', published: true, recovery, notice: UNSYNCED_NOTICE };
   if (unsynced) result.unsynced = true;
-  if (done.busy) result.pending = { entry: reply.displaced, hash: done.hash };
+  if (done.busy) result.pending = { entry: reply.displaced, hash: done.hash, token };
   return result;
 }
 
@@ -473,7 +498,8 @@ const log = (type, file, error) => console.error(JSON.stringify({ type, file, er
  */
 export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { durable = true, hooks = {} } = {}) {
   const name = path.basename(rel);
-  const reply = await helper.call({ op: 'list', path: rel });
+  // Only this process's own tokens: another bridge's transaction (live or recently orphaned) is left to it.
+  const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) });
   if (!reply.ok) throw refused(reply);
   const finished = [];
   const pending = [];

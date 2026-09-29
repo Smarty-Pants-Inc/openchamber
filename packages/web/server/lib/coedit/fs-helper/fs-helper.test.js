@@ -74,7 +74,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn')); // Locks and transaction records are not entries.
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out')); // Locks and transaction records are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -542,20 +542,20 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       await sleep(200);
       const recoverer = helper(root, priv); // Another bridge's load: recovers the orphan entry.
       try {
-        const seen = await recoverer.call({ op: 'list', path: 'docs/a.md' });
+        const seen = await recoverer.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } });
         expect(seen.records).toEqual([{ txn: 'abc123', state: 'published' }]);
         const [entry] = seen.entries;
         expect(Buffer.from(entry.data, 'base64').toString()).toBe('one\n');
-        expect(await recoverer.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash })).toMatchObject({ ok: true });
+        expect(await recoverer.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'secret' })).toMatchObject({ ok: true });
       } finally {
         recoverer.stop();
       }
       h = helper(root, priv); // The originating bridge reconnects.
-      const later = await h.call({ op: 'list', path: 'docs/a.md' });
+      const later = await h.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } });
       expect(later.entries).toEqual([]);
       expect(later.records).toEqual([{ txn: 'abc123', state: 'published' }]); // Still decided: never "not published".
       expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc123', token: 'secret' })).toMatchObject({ ok: true });
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } })).records).toEqual([]);
     });
 
     /** A publish whose reply is lost right after the exchange (its helper dies before it records "published"). */
@@ -570,27 +570,82 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
     test('#412 round 4, finding 1: only the originating bridge\'s secret token acknowledges a record; its txn grants nothing', async () => {
       await lostAfterExchange('abc124', 'origin-secret');
-      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      const tokens = { abc124: 'origin-secret' };
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', tokens });
       expect(seen.records).toEqual([{ txn: 'abc124', state: 'published' }]); // No hash or token is ever listed.
       const [entry] = seen.entries;
-      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash })).toMatchObject({ ok: true });
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'origin-secret' })).toMatchObject({ ok: true });
       for (const token of [undefined, '', 'guess', sha('origin-secret')]) {
         expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token })).toMatchObject({ ok: false });
       }
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'abc124', state: 'published' }]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([{ txn: 'abc124', state: 'published' }]);
       expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token: 'origin-secret' })).toMatchObject({ ok: true });
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([]);
     });
 
     test('#412 round 4, finding 2: a failed scan or record write leaves the outcome unknown and the evidence in place', async () => {
       await lostAfterExchange('abc125', 's');
-      const scanFailed = await h.call({ op: 'list', path: 'docs/a.md', fault: 'stagedScan' });
+      const tokens = { abc125: 's' };
+      const scanFailed = await h.call({ op: 'list', path: 'docs/a.md', tokens, fault: 'stagedScan' });
       expect(scanFailed.records).toEqual([{ txn: 'abc125', state: 'unknown' }]); // Never guessed as "aborted".
       const [entry] = scanFailed.entries;
-      const writeFailed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, fault: 'recordWrite' });
+      const writeFailed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 's', fault: 'recordWrite' });
       expect(writeFailed.ok).toBe(false); // No terminal outcome persisted: the entry it would be derived from stays.
       expect(staged()).toEqual([entry.entry]);
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'abc125', state: 'published' }]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([{ txn: 'abc125', state: 'published' }]);
+    });
+
+    test('#412 round 5 (security): after its helper is lost, a live bridge\'s pending revision stays its own; only its token reclaims it', async () => {
+      const writer = fs.openSync(target(), 'a');
+      const r = await read();
+      const p = await publish(r, { txn: 'bbb111', ack: sha('mine') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      h.stop(); // Only the helper connection is lost; the bridge (holding the token) lives on.
+      await sleep(200);
+      h = helper(root, priv); // The bridge reconnects.
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      const other = helper(root, priv); // An unrelated process of the served account.
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // No bytes to take.
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n'), token: 'guess' })).toMatchObject({ ok: false, owned: true });
+        // Settling with an ack while its data is pending keeps the record guarding that data.
+        expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'bbb111', token: 'mine' })).toMatchObject({ ok: true, pending: true });
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+      } finally {
+        other.stop();
+      }
+      // The reconnected bridge reclaims it with its token, and keeps the late bytes.
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash, token: 'mine' })).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+    });
+
+    test('#412 round 5 (astra 1): records are immutable; a recoverer killed while creating the outcome leaves it recoverable', async () => {
+      await lostAfterExchange('ccc111', 't');
+      const recordPath = path.join(priv, `${KEY}.ccc111.txn`);
+      const before = { ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') };
+      // A recoverer dies right before linking the outcome it wrote.
+      const dying = helper(root, priv);
+      void dying.call({ op: 'list', path: 'docs/a.md', tokens: { ccc111: 't' }, pause: 'beforeRecordLink', pauseMs: 5000 });
+      await sleep(400);
+      dying.stop();
+      await sleep(200);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', tokens: { ccc111: 't' } });
+      expect(seen.records).toEqual([{ txn: 'ccc111', state: 'published' }]);
+      expect({ ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') }).toEqual(before); // Never rewritten.
+    });
+
+    test('#412 round 5 (astra 2): an outcome is trusted only once a flush succeeds: a failed flush fails every retry until one works', async () => {
+      await lostAfterExchange('ddd111', 'u');
+      const tokens = { ddd111: 'u' };
+      const [entry] = (await h.call({ op: 'list', path: 'docs/a.md', tokens })).entries;
+      for (let i = 0; i < 2; i += 1) {
+        const failed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'u', fault: 'recordSync' });
+        expect(failed.ok).toBe(false);
+        expect(staged()).toEqual([entry.entry]); // The evidence stays.
+      }
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'u' })).toMatchObject({ ok: true });
     });
 
     test('#412 round 4 (astra 1): a txn reused on another file grants nothing over this file\'s transaction', async () => {

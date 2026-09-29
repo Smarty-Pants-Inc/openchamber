@@ -36,29 +36,31 @@ round 4); until then no conflict could be seen.
     whose connection has already closed when it gets the lock (or just before its exchange) is abandoned before any
     change. So recovery after a lost reply, which lists through the lock, never races a publish nobody will hear of.
     The lock files stay (one empty file per co-edited file).
-  - **Transaction records** (#412 rounds 2 and 3). Before any change, each publish creates a record
-    `<key>.<txn>.txn` in the private directory (exclusively), writes it durably with its staged inode (`prepared`),
-    and holds an exclusive `flock` on it. After the exchange the record says `published`. The record is a private
-    inode, so no writer's lock on the project file can stand in for it, and a publish that cannot establish it changes
-    nothing.
-    - **Ownership:** a connection owns its transaction while it holds the record's lock: until its own `dispose` of the
-      displaced entry succeeds (it heard the reply), or its process ends. Ownership is the FULL identity (the file's
-      key and the txn), so a txn reused on another file grants nothing; and the owner's own `dispose` covers only the
-      exact entry its publish produced, still holding that displaced inode (#412 round 4). Another connection's `list` shows that entry
-      only as `owned` (no bytes), and its `dispose` refuses it. So a pending revision, and the late bytes a writer
-      may still add, stay with their owner.
-    - **Outcome:** once the owner is gone, whoever lists or disposes first resolves a `prepared` record from its staged
-      name (our inode: `aborted`; another inode: `published`; a complete scan that finds none: `aborted`), and
-      persists the verdict **before** any recovery may remove the entry. A failed scan, stat, open, lock or write is
-      never taken as absence: the outcome stays `unknown` (the bridge holds), and an orphan whose outcome cannot be
-      persisted is not disposed (#412 round 4). Recovery never removes the record, so a live bridge whose reply was
-      lost still decides its save by it: `published` adopts the room's snapshot; `aborted`, or no record at all within
-      its 30 days (the helper died before any change: records are created first and removed only as below), is not
-      published; owned or `unknown` holds.
-    - **Acknowledgement:** each publish carries the hash of a secret token that only the originating bridge knows; the
-      record keeps the hash and `list` never shows it. After settling, that bridge `ack`s with the token, and only
-      then does the record go. A connection that knows only the listed txn cannot remove it (#412 round 4). Records
-      are otherwise removed by their owner's successful dispose (it heard the reply), and after 30 days.
+  - **Transactions** (#412 rounds 2 to 5).
+    - **Records:** before any change, each publish creates `<key>.<txn>.txn` in the private directory. It is an
+      **immutable** record (the staged inode, and the hash of the originating bridge's secret token), made
+      atomically: an unnamed file is written, `fsync`ed and `flock`ed, then linked, so it is never visible partial
+      or unlocked. A publish that cannot establish it changes nothing. The outcome is a separate immutable
+      `<key>.<txn>.out` (`published` or `aborted`), made the same way. It is flushed again (file and directory) every
+      time before anything relies on it, so an interrupted or unflushed outcome is never trusted.
+    - **Ownership:** a connection owns a transaction while it holds the record's lock. Ownership is the FULL identity
+      (the file's key and the txn), bound to the exact staged entry and its displaced inode, so a txn reused on
+      another file grants nothing. Another live connection sees such an entry only as `owned` (no bytes), and its
+      `dispose` refuses it.
+    - **After a lost helper:** an unowned transaction's retained data stays its originating bridge's. Only that
+      bridge's **token** (kept in this server process's memory, never on disk) lets a helper claim it: a bridge that
+      reconnects, or is reopened in the same process, reclaims its pending revision and its late bytes. No other
+      process can list its bytes or dispose it until it is an **old orphan** (7 days, the retention period). After a
+      server restart, orphans wait out those 7 days, safe in the private directory. A record with no token hash
+      (not written by the bridge) has no such guard.
+    - **Outcome:** once the owner is gone, a missing outcome is decided from the staged name (our inode: `aborted`;
+      another inode: `published`; a complete scan that finds none: `aborted`) and made durable **before** any
+      recovery may remove the entry. A failed scan, stat, open, lock, read, write or flush is never taken as absence:
+      the outcome is `unknown`, the bridge holds, and nothing is disposed.
+    - **Acknowledgement:** a bridge that settled a lost reply `ack`s with its token. The receipt goes only when no
+      data entry is left: while its data is pending, the record keeps guarding that data. The connection that
+      published a transaction retires it when its own dispose succeeds (it heard the reply). A claim that disposes
+      the data leaves the outcome for the originating bridge's `ack`. Records with no data left go after 30 days.
   - **Closing** says whether the helper is **quiescent** (`close()` resolves `{ quiescent }`). A spawned helper is
     killed and awaited. A service helper, which this account cannot kill, is sent `bye`: operations run one at a time,
     so its answer means none is in flight, and it then exits. Only that answer within `closeMs` gives
@@ -168,12 +170,11 @@ round 4); until then no conflict could be seen.
        private entries are kept for recovery but not disposed, `unverified` is raised, and `save()` holds until a
        flush succeeds. A failed flush while disposing them holds it the same way.
   - **Published** (ok or `raced`): the room's base moves to our bytes, so the next sync never replays the edit.
-  - **Uncertain**: the base stays and the room holds. After a **lost reply**, `sync()` and `save()` first ask the
-    private directory, the authoritative record, whatever the file holds now: a new entry with our bytes means the
-    exchange never ran (it is removed; not published); a new entry with other bytes is the revision our exchange
-    displaced (published: the base follows ours, and the entry is kept as pending); no new entry means it never got
-    that far (not published). Otherwise they read the disk: our bytes there mean
-    it was published (adopted as the base); the base's bytes mean it was not (cleared). Anything else stays an
+  - **Uncertain**: the base stays and the room holds. After a **lost reply**, `sync()` and `save()` settle it by its
+    transaction's outcome (above), never by whether a data entry is there: `published` adopts the room's snapshot
+    (a displaced entry still there becomes pending, with its token); `aborted`, or no record within 30 days, is not
+    published; owned or `unknown` holds. Otherwise (a reply that came back, but uncertain) they read the disk: our bytes
+    there mean it was published (adopted as the base); the base's bytes mean it was not (cleared). Anything else stays an
     `unverified` conflict (raised once per disk revision): nothing is merged, and `save()` publishes nothing.
   - Any result but ok is a conflict (`onConflict`, `state().conflict`), with its recovery path.
 - **Pending revisions**: a displaced revision still open for writing is retried on its own every `retryMs` (default
