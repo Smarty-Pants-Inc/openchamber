@@ -1,4 +1,5 @@
 import type { ContextPartMetadata } from '@/lib/messages/contextParts';
+import { trackPrompt } from '@/sync/prompts-in-flight';
 import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
@@ -1176,7 +1177,8 @@ class OpencodeService {
     assertRuntimeRequestScope(scope);
     params.beforeDispatch?.();
     assertRuntimeRequestScope(scope);
-    const dispatch = async (view: string | undefined): Promise<{ response: Response; refusal: unknown }> => {
+    // Pending until the owner answers: no "did not start" verdict meanwhile (smarty-code#902).
+    const dispatch = (view: string | undefined): Promise<{ response: Response; refusal: unknown }> => trackPrompt(params.id, async () => {
       try {
         const result = await client.session.promptAsync({
           sessionID: params.id,
@@ -1222,7 +1224,7 @@ class OpencodeService {
         if (isRuntimeRequestScopeCurrent(scope)) recordProviderError(params.providerID);
         throw error;
       }
-    };
+    });
     // A message may be queued as a steer; its outcome can arrive after a reload, so the record comes first (G5).
     const pendingSteer = ordinaryView ? { runtimeKey: viewRuntimeKey, directory: viewTarget.directory, sessionID: params.id,
       messageID: messageId, text: params.text ?? '' } : undefined;
