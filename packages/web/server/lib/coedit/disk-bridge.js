@@ -160,7 +160,10 @@ export function createDiskBridge({
     if (!(await confirmDurable())) return scheduleRetry();
     const still = [];
     for (const revision of pending) {
-      const done = await dispose(helper, key, revision, recoveryDir, name, hooks).catch(() => ({ busy: true, hash: revision.hash }));
+      const done = await dispose(helper, key, revision, recoveryDir, rel, hooks).catch((error) => {
+        logError('smarty.coedit-dispose-failed', error); // A permanent refusal is logged, never taken as 'busy'.
+        return { busy: true, hash: revision.hash };
+      });
       if (done.late) raise({ conflict: 'raced', published: true, recovery: done.late, notice: DISTURBED_NOTICE });
       if (done.busy) still.push({ entry: revision.entry, hash: done.hash });
       if (done.unsynced) unsynced ??= { raised: false };
@@ -187,7 +190,7 @@ export function createDiskBridge({
    * follows ours, and the entry is kept for recovery as a pending one); no new entry means it never got that far.
    */
   const settleByPrivateDir = async () => {
-    const reply = await helper.call({ op: 'list', key }).catch(() => null);
+    const reply = await helper.call({ op: 'list', path: rel }).catch(() => null);
     if (!reply?.ok) return false;
     const known = new Set(pending.map((revision) => revision.entry));
     // Only the lost call's own entry (its txn names it), never another save's leftover.
@@ -200,7 +203,7 @@ export function createDiskBridge({
       gone = false;
       pending.push({ entry: displaced.entry, hash: uncertain.baseHash }); // Late bytes differ, so they are kept.
     } else {
-      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, name, hooks);
+      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
     uncertain = null;
     if (!unsynced) conflict = null;
@@ -209,7 +212,14 @@ export function createDiskBridge({
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
   const settleUncertain = async () => {
     if (!uncertain) return true;
-    if (uncertain.lost && (await settleByPrivateDir())) return true;
+    // A lost reply is settled only by the private dir (its list waits for any operation still in flight on this file,
+    // #412 finding 3); if that cannot be read, the save stays held: the disk alone could clear it too early.
+    if (uncertain.lost) {
+      if (await settleByPrivateDir()) return true;
+      if (uncertain.seen !== 'unlisted') raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+      uncertain.seen = 'unlisted';
+      return false;
+    }
     const disk = await readFile(helper, rel);
     if (disk?.hash === uncertain.nextHash) {
       base = uncertain.snapshot;

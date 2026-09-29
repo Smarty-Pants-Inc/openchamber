@@ -172,7 +172,13 @@ function connectHelper(socketPath, root, { timeoutMs }) {
     timeoutMs,
     pid: undefined,
     root,
-    kill: () => conn.destroy(),
+    // Closing half-closes: the service helper reads EOF after its current operation and exits; a hung one is cut
+    // after 5 s. Neither proves the other account's process has stopped: the helper's per-file lock and its
+    // connection check do (#412 finding 3), so a later recovery of that file waits for, or never races, it.
+    kill: () => {
+      conn.end();
+      setTimeout(() => conn.destroy(), 5000).unref();
+    },
     onEnd: (end, markExited) => {
       conn.on('error', (error) => end(new Error(`coedit-fs connection failed (${error.message})`)));
       conn.on('close', () => {
@@ -354,11 +360,12 @@ async function syncDirectory(dir) {
  * `busy: true`: a writer still has it open; it stays, and is tried again later. `unsynced: true`: removed, but the
  * private dir's flush failed.
  */
-export async function dispose(helper, key, revision, recoveryDir, name, hooks = {}) {
+export async function dispose(helper, key, revision, recoveryDir, rel, hooks = {}) {
+  const name = path.basename(rel);
   let { hash } = revision;
   let late;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', key, entry: revision.entry, hash });
+    const reply = await helper.call({ ...testHooks(hooks), op: 'dispose', path: rel, entry: revision.entry, hash });
     if (reply.ok) return reply.synced === false ? { late, hash, unsynced: true } : { late, hash };
     if (reply.busy) return { busy: true, late, hash };
     if (!reply.changed) throw refused(reply);
@@ -419,7 +426,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   let done = { busy: true, hash: expectedHash };
   if (synced) {
     try {
-      done = await dispose(helper, key, { entry: reply.displaced, hash: expectedHash }, recoveryDir, name, hooks);
+      done = await dispose(helper, key, { entry: reply.displaced, hash: expectedHash }, recoveryDir, rel, hooks);
     } catch (error) {
       log('smarty.coedit-dispose-failed', name, error);
     }
@@ -448,7 +455,7 @@ const log = (type, file, error) => console.error(JSON.stringify({ type, file, er
  */
 export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { durable = true, hooks = {} } = {}) {
   const name = path.basename(rel);
-  const reply = await helper.call({ op: 'list', key });
+  const reply = await helper.call({ op: 'list', path: rel });
   if (!reply.ok) throw refused(reply);
   const finished = [];
   const pending = [];
@@ -460,7 +467,7 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
       pending.push({ entry, hash });
       continue;
     }
-    const done = await dispose(helper, key, { entry, hash }, recoveryDir, name, hooks);
+    const done = await dispose(helper, key, { entry, hash }, recoveryDir, rel, hooks);
     if (done.late) late.push(done.late);
     if (done.busy) pending.push({ entry, hash: done.hash });
     if (done.unsynced) unsynced = true;

@@ -13,7 +13,6 @@ import { ensureHelper } from './ensure-built.js';
 const BIN = path.join(import.meta.dirname, 'target/release/coedit-fs');
 const built = ensureHelper() && fs.existsSync(BIN);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
-const KEY = sha('docs/a.md').slice(0, 16);
 
 /** POSIX ACL xattrs (acl(5)), through python3's os.setxattr: Node has no xattr calls and hosts may lack setfacl. */
 const ACL = { USER_OBJ: 1, USER: 2, GROUP_OBJ: 4, MASK: 0x10, OTHER: 0x20 };
@@ -59,7 +58,7 @@ const until = async (cond) => {
 };
 
 describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
-  let dir, root, priv, h;
+  let dir, root, priv, h, KEY;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-fs-'));
     root = path.join(dir, 'project');
@@ -68,13 +67,14 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     fs.mkdirSync(priv, { recursive: true });
     fs.chmodSync(priv, 0o700);
     fs.writeFileSync(path.join(root, 'docs/a.md'), 'one\n');
+    KEY = sha(`${root}\0docs/a.md`).slice(0, 16); // The helper computes it from the admitted root (#412).
     h = helper(root, priv);
   });
   afterEach(() => { h.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv);
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock')); // Per-file lock files are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -83,8 +83,8 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     return r;
   };
   const publish = (r, extra = {}) =>
-    h.call({ op: 'publish', path: 'docs/a.md', key: KEY, ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), ...extra });
-  const dispose = (entry, hash) => h.call({ op: 'dispose', key: KEY, entry, hash });
+    h.call({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), ...extra });
+  const dispose = (entry, hash) => h.call({ op: 'dispose', path: 'docs/a.md', entry, hash });
   const replace = (text) => {
     fs.writeFileSync(path.join(root, 'docs/e.tmp'), text);
     fs.renameSync(path.join(root, 'docs/e.tmp'), target());
@@ -101,7 +101,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(fs.readFileSync(path.join(priv, p.displaced), 'utf8')).toBe('one\n');
     expect(fs.statSync(path.join(priv, p.displaced)).ino).toBe(r.ino);
     expect(docs()).toEqual(['a.md']);
-    expect(await h.call({ op: 'list', key: KEY })).toMatchObject({ ok: true, entries: [{ entry: p.displaced, hash: sha('one\n') }] });
+    expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry: p.displaced, hash: sha('one\n') }] });
     expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: true });
     expect(staged()).toEqual([]);
   });
@@ -304,7 +304,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     const r = await read();
     const p = await publish(r);
     expect(p).toMatchObject({ ok: true, published: true, synced: true });
-    expect(await h.call({ op: 'dispose', key: KEY, entry: p.displaced, hash: r.hash, fault: 'privSync' })).toMatchObject({ ok: true, synced: false });
+    expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash, fault: 'privSync' })).toMatchObject({ ok: true, synced: false });
     expect(staged()).toEqual([]);
   });
 
@@ -332,12 +332,13 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(p.ok).toBe(true);
     for (const entry of ['.a.md.coedit-foo', `../../project/docs/.a.md.coedit-foo`, `${KEY}./../../outside`, '..', 'a.md', `${KEY}/x`])
       expect([entry, (await dispose(entry, sha('mine\n'))).ok]).toEqual([entry, false]);
-    expect((await h.call({ op: 'dispose', key: '../x', entry: '../x.1', hash: 'x' })).ok).toBe(false);
-    expect((await h.call({ op: 'list', key: '..' })).ok).toBe(false);
+    expect((await h.call({ op: 'dispose', path: '../x', entry: '../x.1', hash: 'x' })).ok).toBe(false);
+    expect((await h.call({ op: 'list', path: '..' })).ok).toBe(false);
+    expect((await h.call({ op: 'list', key: KEY })).ok).toBe(false); // A caller's key is never taken: a path is needed.
     expect(fs.readFileSync(path.join(root, 'docs/.a.md.coedit-foo'), 'utf8')).toBe('mine\n');
     expect(fs.readFileSync(path.join(dir, 'recovery/outside'), 'utf8')).toBe('out\n');
     expect(docs()).toEqual(['.a.md.coedit-foo', 'a.md']);
-    expect((await h.call({ op: 'list', key: KEY })).entries.map((e) => e.entry)).toEqual([p.displaced]);
+    expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries.map((e) => e.entry)).toEqual([p.displaced]);
   });
 
   test('a FIFO at the target: read and publish return an error promptly', async () => {
@@ -370,11 +371,13 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(await h.call({ op: 'unlink', path: 'docs/a.md' })).toMatchObject({ ok: false, error: 'unknown op' });
     for (const p of ['../secret', '/etc/passwd', 'link', 'docs/../../secret', '', 'docs/..'])
       expect([p, (await h.call({ op: 'read', path: p })).ok]).toEqual([p, false]);
-    const r = await read();
-    expect((await publish(r, { key: 'ZZ/..' })).ok).toBe(false);
     expect(await h.raw('{not json')).toMatchObject({ ok: false, error: 'invalid json' });
     expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
     expect(staged()).toEqual([]);
+    // A caller's key is ignored (#412 finding 1): the entry is named by the key the helper computes itself.
+    const p = await publish(await read(), { key: 'ZZ/..' });
+    expect(p.displaced.startsWith(`${KEY}.`)).toBe(true);
+    expect(staged()).toEqual([p.displaced]);
   });
 
   test('the helper exits 2 on a private dir with group/other bits, or none given', () => {
@@ -415,28 +418,105 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       expect(Buffer.from(replies[2].data, 'base64').toString()).toBe('one\n');
     });
 
+    test('#412 finding 1: a root that is the private dir, inside it, or an ancestor of it is refused; nothing before hello', async () => {
+      const probe = async (rootArg) => {
+        const child = spawn(BIN, ['--socket', priv, '--same-account'], { stdio: ['pipe', 'pipe', 'inherit'] });
+        const replies = [];
+        createInterface({ input: child.stdout }).on('line', (l) => replies.push(JSON.parse(l)));
+        child.stdin.write(`${JSON.stringify({ op: 'list', path: 'x.md', id: 1 })}\n`);
+        child.stdin.write(`${JSON.stringify({ op: 'hello', root: rootArg, id: 2 })}\n`);
+        await until(() => replies.length === 2);
+        child.kill();
+        return replies;
+      };
+      for (const bad of [priv, path.join(dir, 'recovery'), dir, '/']) {
+        const [list, hello] = await probe(bad);
+        expect(list).toMatchObject({ ok: false, error: expect.stringMatching(/hello/) });
+        expect([bad, hello.ok]).toEqual([bad, false]);
+      }
+      fs.mkdirSync(path.join(priv, 'inner'));
+      expect((await probe(path.join(priv, 'inner')))[1].ok).toBe(false);
+      expect((await probe(root))[1]).toMatchObject({ ok: true, protocol: 3 });
+    });
+
+    test('#412 findings 1 and 3: a second connection cannot touch a file\'s entries while a save is in flight; its list waits for it', async () => {
+      const r = await read();
+      const second = helper(root, priv);
+      try {
+        const saving = publish(r, { pause: 'beforeExchange', pauseMs: 1500 });
+        await until(() => staged().some((n) => n.endsWith('.staged')));
+        const order = [];
+        const listing = second.call({ op: 'list', path: 'docs/a.md' }).then((l) => { order.push('list'); return l; });
+        const p = await saving.then((x) => { order.push('publish'); return x; });
+        const l = await listing;
+        expect(order).toEqual(['publish', 'list']); // The list waited for the save's lock.
+        expect(p).toMatchObject({ ok: true, published: true });
+        expect(l.entries.map((e) => e.entry)).toEqual([p.displaced]); // It sees the finished transaction only.
+        expect(fs.readFileSync(target(), 'utf8')).toBe('two\n');
+      } finally {
+        second.stop();
+      }
+    });
+
+    test('#412 finding 3: a save whose connection has closed by the time it runs publishes nothing', async () => {
+      const r = await read();
+      const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+      const blocker = helper(root, priv);
+      try {
+        // Another connection holds the file's lock, so the doomed save waits for it; its connection closes meanwhile.
+        const holding = blocker.call({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('held\n').toString('base64'), pause: 'beforeOpen', pauseMs: 800 });
+        await sleep(150);
+        child.stdin.end(`${JSON.stringify({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('late\n').toString('base64'), id: 1 })}\n`);
+        await holding;
+        await new Promise((done) => child.on('exit', done));
+        expect(fs.readFileSync(target(), 'utf8')).toBe('held\n'); // Never 'late'.
+      } finally {
+        blocker.stop();
+        child.kill();
+      }
+    });
+
     test('an ACL on a path directory that names only trusted accounts (the helper, its peer) is allowed', async () => {
       const r = await read();
       setAcl(root, 'system.posix_acl_access', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 7, process.geteuid()], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 5, ANY]]);
       expect(await publish(r)).toMatchObject({ ok: true });
     });
 
-    test('a file of another owner is published with an access-equivalent ACL: its owner and group keep their access', async () => {
-      fs.chmodSync(target(), 0o640);
-      const { gid } = fs.statSync(target());
-      const r = await h.call({ op: 'read', path: 'docs/a.md' });
-      // testFileOwner stands in for paul's file seen by the smarty-coedit helper (tests cannot create a second account).
-      expect(await publish(r, { testFileOwner: 4242 })).toMatchObject({ ok: true });
-      const acl = getXattr(target(), 'system.posix_acl_access');
-      expect(acl).not.toBe('none');
+    /** acl(5)'s access check, as the effective permission set of `who` ({uid, gids}) on a file (owner, gid, ACL hex). */
+    const effective = ({ owner, gid, acl }, who) => {
       const entries = [];
       for (let i = 8; i < acl.length; i += 16) {
-        const b = Buffer.from(acl.slice(i, i + 16), 'hex');
-        entries.push([b.readUInt16LE(0), b.readUInt16LE(2), b.readUInt32LE(4)]);
+        const e = Buffer.from(acl.slice(i, i + 16), 'hex');
+        entries.push({ tag: e.readUInt16LE(0), perm: e.readUInt16LE(2), id: e.readUInt32LE(4) });
       }
-      expect(entries).toContainEqual([ACL.USER, 6, 4242]); // The original owner: rw.
-      expect(entries).toContainEqual([8, 4, gid]); // Its group: r.
-      expect(fs.statSync(target()).mode & 0o707).toBe(0o600); // Owner and other bits; the group bits are the mask.
+      const find = (tag) => entries.filter((e) => e.tag === tag);
+      const mask = find(ACL.MASK)[0]?.perm ?? 7;
+      if (who.uid === owner) return find(ACL.USER_OBJ)[0].perm;
+      const user = find(ACL.USER).find((e) => e.id === who.uid);
+      if (user) return user.perm & mask;
+      const groups = [...find(ACL.GROUP_OBJ).map((e) => ({ ...e, id: gid })), ...find(8)].filter((e) => who.gids.includes(e.id));
+      if (groups.length) return groups.reduce((m, e) => m | (e.perm & mask), 0);
+      return find(ACL.OTHER)[0].perm;
+    };
+
+    test('#412 finding 2: another owner\'s file keeps every principal\'s EFFECTIVE access, masked bits stay masked', async () => {
+      // The original: owner 4242 rw; user 4243 raw rw but masked to r; owning group r; group 4244 raw rw masked to r.
+      const { gid } = fs.statSync(target());
+      setAcl(target(), 'system.posix_acl_access', [[ACL.USER_OBJ, 6, ANY], [ACL.USER, 6, 4243], [ACL.GROUP_OBJ, 4, ANY], [8, 6, 4244], [ACL.MASK, 4, ANY], [ACL.OTHER, 0, ANY]]);
+      const before = { owner: 4242, gid, acl: getXattr(target(), 'system.posix_acl_access') };
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      // testFileOwner stands in for paul's file seen by the smarty-coedit helper; the real-uid run is on forge.
+      expect(await publish(r, { testFileOwner: 4242 })).toMatchObject({ ok: true });
+      const after = { owner: process.geteuid(), gid: fs.statSync(target()).gid, acl: getXattr(target(), 'system.posix_acl_access') };
+      const principals = [
+        { uid: 4242, gids: [] }, // The original owner: rw, not subject to the old mask.
+        { uid: 4243, gids: [] }, // Named, raw rw, masked to r: must stay r.
+        { uid: 5000, gids: [gid] }, // A member of the owning group: r.
+        { uid: 5001, gids: [4244] }, // A named group's member, raw rw, masked to r: must stay r.
+        { uid: 5002, gids: [] }, // Anyone else: nothing.
+      ];
+      for (const who of principals) expect([who.uid, effective(after, who)]).toEqual([who.uid, effective(before, who)]);
+      expect(effective(after, { uid: 4243, gids: [] })).toBe(4);
     });
   });
 });

@@ -77,7 +77,7 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } 
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
   /** The helper's private staging entries (displaced or staged revisions). */
-  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir) : []);
+  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock')) : []);
   /** Saves with the helper paused at `point`, running `fn` inside that window. */
   const saveDuring = async (point, fn) => {
     hooks.helper = { pause: point, pauseMs: 3000 };
@@ -800,7 +800,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(t.disk()).toBe('Pa\n');
       expect(fs.existsSync(t.privateDir)).toBe(false); // The bridge made no staging dir of its own.
-      expect(fs.readdirSync(staging)).toEqual([]);
+      expect(fs.readdirSync(staging).filter((n) => !n.endsWith('-lock'))).toEqual([]); // Only its per-file lock remains.
     });
 
     it('a service helper that would serve its own account refuses, and the bridge fails closed', async () => {

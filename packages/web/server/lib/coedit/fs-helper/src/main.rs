@@ -30,6 +30,7 @@ use std::ffi::CString;
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
+const RESOLVE_NO_XDEV: u64 = 0x01;
 const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
 const RESOLVE_NO_SYMLINKS: u64 = 0x04;
 const RESOLVE_BENEATH: u64 = 0x08;
@@ -62,7 +63,7 @@ fn cstr(s: &str) -> Result<CString, String> {
 /// Opens `rel` beneath `root`, never following a link.
 fn open_beneath(root: RawFd, rel: &str, flags: i32) -> Result<OwnedFd, i32> {
     let path = CString::new(rel).map_err(|_| libc::EINVAL)?;
-    let how = OpenHow { flags: (flags | libc::O_CLOEXEC) as u64, mode: 0, resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS };
+    let how = OpenHow { flags: (flags | libc::O_CLOEXEC) as u64, mode: 0, resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV };
     // SAFETY: a valid dirfd, a NUL-terminated path and a correctly sized open_how for SYS_openat2.
     let fd = unsafe { libc::syscall(libc::SYS_openat2, root, path.as_ptr(), &how as *const OpenHow, std::mem::size_of::<OpenHow>()) };
     if fd < 0 {
@@ -99,21 +100,111 @@ fn split(rel: &str) -> Result<(String, String), String> {
     Ok((dir, name))
 }
 
-/// The request's key: hex only (JS sends the first 16 hex characters of sha256(root NUL rel)).
-/// A publish's optional `txn` (hex) names its staged entry, so a caller whose reply was lost finds exactly its own.
-fn key(req: &Value) -> Result<&str, String> {
-    let k = req["key"].as_str().unwrap_or("");
-    if k.is_empty() || k.len() > 64 || !k.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
-        return Err("invalid key".into());
+/// The admitted project root's path, as the bridge named it (argv, or the first hello): one per process.
+static ROOT_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// A file's key, computed here from the admitted root and the request's path (never taken from the caller): the first
+/// 16 hex characters of sha256(root NUL rel), as the bridge's keyOf. So a connection reaches only its own root's
+/// entries (#412 finding 1). A publish's optional `txn` (hex) names its staged entry, for a lost reply.
+fn key(req: &Value) -> Result<String, String> {
+    let root = ROOT_PATH.get().ok_or("hello with the root first")?;
+    let rel = req["path"].as_str().ok_or("path")?;
+    split(rel)?;
+    let mut input = root.as_bytes().to_vec();
+    input.push(0);
+    input.extend_from_slice(rel.as_bytes());
+    Ok(hex(&input)[..16].to_string())
+}
+
+/// Serializes every operation on one file's private entries across all connections (#412 findings 1 and 3): a
+/// `<key>-lock` file in the private dir, flocked for the operation (released when the fd closes, or the process dies).
+/// A caller waits at most 25 s for another connection's operation, then gets an error: nothing done.
+fn lock_key(priv_fd: RawFd, key: &str) -> Result<OwnedFd, String> {
+    let c = cstr(&format!("{key}-lock"))?;
+    // SAFETY: openat on the held private dir, one component, never following a link.
+    let fd = unsafe { libc::openat(priv_fd, c.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC, 0o600 as libc::c_uint) };
+    if fd < 0 {
+        return Err(fail("lock"));
     }
-    Ok(k)
+    // SAFETY: a new owned descriptor.
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    for _ in 0..1250 {
+        // SAFETY: flock on our own fd.
+        if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(fd);
+        }
+        if errno() != libc::EWOULDBLOCK {
+            return Err(fail("flock"));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    Err("another operation on this file is still in progress".into())
+}
+
+/// Whether the connection that asked for this operation has closed (#412 finding 3): an operation that finds its
+/// connection gone after taking the file's lock is abandoned before any change, so a later recovery of that file
+/// (which waits for the lock) never races a publish nobody will hear about.
+fn peer_gone() -> bool {
+    let mut p = libc::pollfd { fd: 0, events: libc::POLLRDHUP, revents: 0 };
+    // SAFETY: poll of one pollfd, without waiting.
+    let ready = unsafe { libc::poll(&mut p, 1, 0) };
+    ready > 0 && p.revents & (libc::POLLRDHUP | libc::POLLHUP | libc::POLLERR) != 0
+}
+
+/// The project root a connection names in its hello (#412 finding 1): it must belong to the account this helper
+/// serves, and must be neither the private dir, inside it, nor one of its ancestors (compared by device and inode,
+/// walking `..`), so no path beneath it (no links, no mount crossings) reaches the private dir.
+fn admit_root(root_fd: RawFd, priv_fd: RawFd) -> Result<(), String> {
+    let rst = fstat(root_fd)?;
+    if PEER.get() != Some(&rst.st_uid) {
+        return Err("the project root must belong to the account this helper serves".into());
+    }
+    let pst = fstat(priv_fd)?;
+    // Whether `target` is `from` or one of its ancestors.
+    let reaches = |from: RawFd, target: &libc::stat| -> Result<bool, String> {
+        let dot = cstr(".")?;
+        let up = cstr("..")?;
+        // SAFETY: openat of "." on a valid dirfd, as O_PATH.
+        let mut cur = unsafe { libc::openat(from, dot.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+        if cur < 0 {
+            return Err(fail("walk"));
+        }
+        // SAFETY: owned from here.
+        let mut cur_fd = unsafe { OwnedFd::from_raw_fd(cur) };
+        for _ in 0..4096 {
+            let st = fstat(cur_fd.as_raw_fd())?;
+            if same(&st, target.st_ino as u64, target.st_dev as u64) {
+                return Ok(true);
+            }
+            // SAFETY: openat of ".." on a held dirfd.
+            cur = unsafe { libc::openat(cur_fd.as_raw_fd(), up.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+            if cur < 0 {
+                return Err(fail("walk"));
+            }
+            // SAFETY: a new owned descriptor.
+            let next = unsafe { OwnedFd::from_raw_fd(cur) };
+            let nst = fstat(next.as_raw_fd())?;
+            if same(&nst, st.st_ino as u64, st.st_dev as u64) {
+                return Ok(false); // At "/".
+            }
+            cur_fd = next;
+        }
+        Err("the directory tree is too deep".into())
+    };
+    if reaches(root_fd, &pst)? {
+        return Err("the project root is inside the helper's private directory".into());
+    }
+    if reaches(priv_fd, &rst)? {
+        return Err("the project root contains the helper's private directory".into());
+    }
+    Ok(())
 }
 
 /// A private entry of `key`: `<key>.<rest>`, one component with no `/`.
 fn entry(req: &Value) -> Result<String, String> {
     let k = key(req)?;
     let e = req["entry"].as_str().unwrap_or("");
-    let rest = e.strip_prefix(k).and_then(|r| r.strip_prefix('.')).unwrap_or("");
+    let rest = e.strip_prefix(k.as_str()).and_then(|r| r.strip_prefix('.')).unwrap_or("");
     if rest.is_empty() || e.contains('/') || e.contains('\0') || rest.starts_with('.') {
         return Err("invalid entry".into());
     }
@@ -374,41 +465,50 @@ fn acl_trusted(acl: &[u8], req: &Value) -> bool {
 }
 
 /// The access ACL that gives a file we publish over another owner's file (smartyfs#32: the helper runs as its own
-/// account, and cannot give it away) exactly the access the original had: its owner and group become named entries
-/// with the same permissions, its named entries are kept, and our own group (the new file's) gets nothing.
+/// account, and cannot give it away) exactly the EFFECTIVE access every principal had (#412 finding 2), per acl(5):
+/// - the original owner was not subject to the mask: it becomes a named user with exactly its owner permissions
+///   (a named entry the original had for that uid was shadowed by the owner entry, so it is dropped);
+/// - every other named user and group, and the original owning group (now a named group), keep their permissions
+///   AFTER the original mask, so widening the new mask for the owner never re-enables a bit the old mask removed;
+/// - our own owning group gets nothing; the mask is the union of the group-class entries; other is kept.
 fn equivalent_acl(original: Option<&[u8]>, owner: u32, group: u32, mode: u32) -> Option<Vec<u8>> {
     let bits = |shift: u32| ((mode >> shift) & 7) as u16;
+    let (mut owner_perm, mut group_perm, mut other_perm) = (bits(6), bits(3), bits(0));
+    let mut mask = 7u16;
     let mut named: Vec<(u16, u16, u32)> = Vec::new();
-    let (mut owner_perm, mut group_perm, mut other_perm, mut mask) = (bits(6), bits(3), bits(0), None);
     if let Some(acl) = original {
         for (tag, perm, id) in acl_entries(acl)? {
             match tag {
                 ACL_USER_OBJ => owner_perm = perm,
                 ACL_GROUP_OBJ => group_perm = perm,
                 ACL_OTHER => other_perm = perm,
-                ACL_MASK => mask = Some(perm),
-                _ => named.push((tag, perm, id)),
+                ACL_MASK => mask = perm,
+                ACL_USER | ACL_GROUP => named.push((tag, perm, id)),
+                _ => return None, // An entry we do not understand: refuse rather than guess.
             }
         }
     }
-    let mut add = |tag: u16, perm: u16, id: u32| match named.iter_mut().find(|e| e.0 == tag && e.2 == id) {
-        Some(e) => e.1 |= perm,
-        None => named.push((tag, perm, id)),
+    // With an ACL, st_mode's group bits ARE the mask: the owning group's own permission came from the ACL above.
+    let mut entries: Vec<(u16, u16, u32)> = named
+        .into_iter()
+        .filter(|&(tag, _, id)| !(tag == ACL_USER && id == owner))
+        .map(|(tag, perm, id)| (tag, perm & mask, id))
+        .collect();
+    let mut add = |tag: u16, perm: u16, id: u32| match entries.iter_mut().find(|e| e.0 == tag && e.2 == id) {
+        Some(e) => e.1 |= perm, // A named entry for the owning group too: a member matched both, so the union.
+        None => entries.push((tag, perm, id)),
     };
-    add(ACL_USER, owner_perm, owner);
-    add(ACL_GROUP, group_perm, group);
-    named.sort_by_key(|e| (e.0, e.2));
-    let union = named.iter().fold(0, |m, e| m | e.1);
-    let mut entries = vec![(ACL_USER_OBJ, owner_perm, u32::MAX)];
-    entries.extend(named.iter().filter(|e| e.0 == ACL_USER));
-    entries.push((ACL_GROUP_OBJ, 0, u32::MAX));
-    entries.extend(named.iter().filter(|e| e.0 == ACL_GROUP));
-    // The mask caps the named entries: the original's mask if it had one (the owner and group it capped become named
-    // entries, so the owner is widened past it only if the original owner needed it).
-    let m = mask.map_or(union, |m| m | owner_perm | group_perm) & 7;
-    entries.push((ACL_MASK, m, u32::MAX));
-    entries.push((ACL_OTHER, other_perm, u32::MAX));
-    Some(acl_bytes(&entries))
+    add(ACL_GROUP, group_perm & mask, group);
+    entries.push((ACL_USER, owner_perm, owner));
+    entries.sort_by_key(|e| (e.0, e.2));
+    let union = entries.iter().fold(0, |m, e| m | e.1);
+    let mut out = vec![(ACL_USER_OBJ, owner_perm, u32::MAX)];
+    out.extend(entries.iter().filter(|e| e.0 == ACL_USER));
+    out.push((ACL_GROUP_OBJ, 0, u32::MAX));
+    out.extend(entries.iter().filter(|e| e.0 == ACL_GROUP));
+    out.push((ACL_MASK, union, u32::MAX));
+    out.push((ACL_OTHER, other_perm, u32::MAX));
+    Some(acl_bytes(&out))
 }
 
 fn read_op(root: RawFd, req: &Value) -> Result<Value, String> {
@@ -440,6 +540,10 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
     let data = B64.decode(req["data"].as_str().ok_or("data")?).map_err(|_| "data")?;
     if data.len() > MAX_BYTES {
         return Err("data too large".into());
+    }
+    let _lock = lock_key(priv_fd, &key)?;
+    if peer_gone() {
+        return Err("the connection closed: nothing published".into());
     }
     test_pause(req, "beforeOpen");
     // 1. The directory, fsync-able, and where it is now.
@@ -553,6 +657,10 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced)
         return Err(fail("fsync private dir"));
     }
     test_pause(req, "beforeExchange");
+    if peer_gone() {
+        unlink_staged();
+        return Err("the connection closed: nothing published".into());
+    }
     // 6. The one change in the project.
     let name_c = cstr(&name)?;
     // SAFETY: valid dirfds and names; RENAME_EXCHANGE swaps both entries atomically, or fails.
@@ -629,6 +737,7 @@ fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -
     let rel = req["path"].as_str().ok_or("path")?;
     let (dir_rel, _) = split(rel)?;
     let entry = req["entry"].as_str().unwrap_or("").to_string();
+    let _lock = lock_key(priv_fd, &key(req)?)?;
     let opened;
     let d = match unsynced.get(&entry) {
         Some(fd) => fd.as_raw_fd(),
@@ -648,6 +757,7 @@ fn flush_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced) -
 
 fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     let entry = entry(req)?;
+    let _lock = lock_key(priv_fd, &key(req)?)?;
     let hash = req["hash"].as_str().ok_or("hash")?;
     let fd = match open_private(priv_fd, &entry) {
         Ok(fd) => fd,
@@ -657,10 +767,16 @@ fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     if !is_reg(&fstat(fd.as_raw_fd())?) {
         return Err("not a regular file".into());
     }
-    // A read lease is refused while any process has the file open for writing: it stays, and is tried later.
+    // A read lease is refused while any process has the file open for writing (EAGAIN): it stays, and is tried later.
+    // Any other refusal is permanent, never "busy" (#412 finding 4): EPERM when the inode is another account's and
+    // CAP_LEASE was not granted (the service's unit grants it). The entry stays; nothing is unlinked unleased.
     // SAFETY: fcntl lease calls on our own fd.
     if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_RDLCK) } != 0 {
-        return Ok(json!({"ok": false, "busy": true}));
+        let e = errno();
+        if e == libc::EAGAIN {
+            return Ok(json!({"ok": false, "busy": true}));
+        }
+        return Err(os_err("the displaced revision cannot be leased (the service needs CAP_LEASE)", e));
     }
     // Under the lease a writer's open waits for our unlock, so these bytes are final.
     let unlock = || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_UNLCK) };
@@ -688,7 +804,10 @@ fn dispose_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
 }
 
 fn list_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
-    let prefix = format!("{}.", key(req)?);
+    let key = key(req)?;
+    // Waits for any operation on this file by another connection: a live transaction is never listed as a leftover.
+    let _lock = lock_key(priv_fd, &key)?;
+    let prefix = format!("{key}.");
     let mut entries = Vec::new();
     for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
         let name = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
@@ -752,16 +871,27 @@ fn main() {
         let fd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
         if fd < 0 { Err(fail("open root")) } else { Ok(fd) }
     };
-    let mut root_fd: Option<RawFd> = match root_arg {
-        Some(root) => Some(open_root(root).unwrap_or_else(|e| die(&e))),
-        None => None,
-    };
     let privd = CString::new(priv_arg).unwrap_or_else(|_| die("private dir"));
     // SAFETY: opens the private dir once.
     let priv_fd = unsafe { libc::open(privd.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
     if priv_fd < 0 {
         die(&fail("open"));
     }
+    // The root: opened, admitted against the private dir and its owner, and remembered with its path (for the keys).
+    let admit = |root: &str| -> Result<RawFd, String> {
+        let fd = open_root(root)?;
+        if let Err(e) = admit_root(fd, priv_fd) {
+            // SAFETY: closing the fd we just opened.
+            unsafe { libc::close(fd) };
+            return Err(e);
+        }
+        let _ = ROOT_PATH.set(root.to_string());
+        Ok(fd)
+    };
+    let mut root_fd: Option<RawFd> = match root_arg {
+        Some(root) => Some(admit(root).unwrap_or_else(|e| die(&e))),
+        None => None,
+    };
     let pst = fstat(priv_fd).unwrap_or_else(|e| die(&e));
     // SAFETY: geteuid cannot fail.
     if pst.st_uid != unsafe { libc::geteuid() } || pst.st_mode & 0o077 != 0 {
@@ -788,7 +918,7 @@ fn main() {
                     // The protocol version: the bridge refuses a helper that answers otherwise (smartyfs#37 item 5).
                     // In socket mode the first hello names the root (once); later requests use it.
                     Some("hello") => match (socket_mode, root_fd, req["root"].as_str()) {
-                        (true, None, Some(root)) => open_root(root).map(|fd| {
+                        (true, None, Some(root)) => admit(root).map(|fd| {
                             root_fd = Some(fd);
                             json!({"ok": true, "protocol": 3})
                         }),
@@ -796,7 +926,7 @@ fn main() {
                         (true, Some(_), Some(_)) => Err("the root is already set".into()),
                         _ => Ok(json!({"ok": true, "protocol": 3})),
                     },
-                    Some("read" | "publish" | "flush") if root_fd.is_none() => Err("hello with the root first".into()),
+                    Some("read" | "publish" | "flush" | "list" | "dispose") if root_fd.is_none() => Err("hello with the root first".into()),
                     Some("read") => read_op(root_fd.unwrap_or(-1), &req),
                     Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),
                     Some("flush") => flush_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced),

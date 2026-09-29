@@ -23,7 +23,22 @@ round 4); until then no conflict could be seen.
   one helper per connection to `OPENCHAMBER_COEDIT_SOCKET` (`/run/smarty-coedit/fs.sock`, only the served account may
   connect), as the system account `smarty-coedit`, with its private directory `/var/lib/smarty-coedit/staging` (inside
   its own 0700 home). So no program running as the account it serves can reach its staged or displaced entries. The
-  bridge sends the project root in the first request (`hello`). The helper **refuses to serve its own account**: unless
+  bridge sends the project root in the first request (`hello {root}`); nothing else is served before it.
+  - **The service authorizes what a connection may name** (#412 finding 1). Any process of the served account can
+    connect, so the helper itself checks: the root must belong to the served account, and must be neither the private
+    directory, inside it, nor an ancestor of it (compared by device and inode, walking `..`). Paths resolve beneath
+    the root with no links and no mount crossings (`RESOLVE_NO_XDEV`), so nothing beneath it reaches the private
+    directory. A file's key (the prefix of its private entries) is computed by the helper from the admitted root and
+    the path, never taken from the caller, so a connection reaches only its own root's entries.
+  - **One file, one operation at a time, across connections** (#412 findings 1 and 3). Every publish, flush, list and
+    dispose holds that file's lock (`<key>-lock` in the private directory, `flock`, waited for at most 25 s). A second
+    connection never sees or touches another's transaction while it is in flight: its `list` waits for it. A publish
+    whose connection has already closed when it gets the lock (or just before its exchange) is abandoned before any
+    change. So recovery after a lost reply, which lists through the lock, never races a publish nobody will hear of.
+    The lock files stay (one empty file per co-edited file).
+  - **Closing** half-closes the connection: the helper finishes its current operation, reads EOF and exits. The bridge
+    cannot kill a helper of another account; a deadline cuts the connection, which is not proof that the helper has
+    stopped: the lock and the connection check above are. The helper **refuses to serve its own account**: unless
   it is given `--same-account` (tests and development only; the service never is), it exits 2 when the peer on its stdin
   socket (`SO_PEERCRED`) is its own uid, or when it runs as root. Without the socket, the bridge runs the helper as its
   own account only when `OPENCHAMBER_COEDIT_SAME_ACCOUNT=1` (tests, development); otherwise co-editing fails closed.
@@ -31,12 +46,19 @@ round 4); until then no conflict could be seen.
     (no bind mounts: the exchange between the staging directory and a project directory must stay on one mount), and
     the binary at `/usr/local/libexec/smarty-coedit/coedit-fs`. Per project root, its owner grants the helper write
     access: `setfacl -R -m u:smarty-coedit:rwX -m d:u:smarty-coedit:rwX <root>`.
-  - **Admission trusts** the helper, the account it serves (its peer) and root. A directory owned by, or writable
-    through an ACL entry naming, anyone else is refused, as are groups with other members.
+  - **Admission trusts** the helper, the account it serves (its peer) and root. A directory owned by anyone else is
+    refused, as are groups with other members. A directory with an extended ACL is allowed only when every entry
+    that can **write** names a trusted account or a private group (search-only `x` entries on ancestors are fine).
   - **Files it publishes are owned by `smarty-coedit`.** A save's new inode cannot be given to the served account
-    without `CAP_CHOWN` (not granted, org's decision). The helper gives it an access-equivalent ACL instead: the
-    original owner and group become named entries with their permissions, and the mode is kept (its group bits show
-    the ACL mask). The owner keeps reading and writing it, and git and editors still replace it, but **the owner's
+    without `CAP_CHOWN` (not granted, org's decision). The helper gives it an ACL that keeps every principal's
+    **effective** access (#412 finding 2): the original owner becomes a named entry with exactly its owner
+    permissions; every other named entry and the original owning group keep their permissions after the original
+    mask; the new mask is their union; other is kept; the helper's own group gets nothing. An ACL entry it does not
+    understand refuses the publish.
+  - **The lease needs `CAP_LEASE`** (#412 finding 4; code-lead's approval on #412 and smarty-dev#2251). The displaced
+    revision is usually the served account's inode, and only its owner or a holder of `CAP_LEASE` may lease it. The
+    unit grants that one capability. A lease refused for any reason but an open writer (`EAGAIN`) is an error, never
+    "busy", and nothing is removed unleased. The owner keeps reading and writing it, and git and editors still replace it, but **the owner's
     `chmod` and `chown` on it fail**.
 - **The helper or nothing.** One coedit-fs process per bridge, JSON lines on
   stdin/stdout. It resolves every project path from the root with `openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|
@@ -58,13 +80,14 @@ round 4); until then no conflict could be seen.
   exchange; the bridge never reads the project directory for cleanup, so a project file such as `.x.coedit-foo` is
   never touched.
 - **The helper protocol is checked first.** `startHelper` sends `hello` before any request. A helper that does not
-  answer protocol 2 (for example, an older build set through `OPENCHAMBER_COEDIT_FS`, which would not name staged
+  answer protocol 3 (for example, an older build set through `OPENCHAMBER_COEDIT_FS`, which would not name staged
   entries by `txn`) is ended, and every call rejects.
 - **Recovery names fit `NAME_MAX`.** A recovery copy's name is a time stamp, a random part and the file's name, cut from
   the front to fit 255 bytes, so a long file name can still be saved.
 - **The helper process is bounded.** A bad or truncated reply line, or a call past its deadline (`timeoutMs`, default
-  30 s), kills the helper and rejects every waiting call. `close()` waits for work in progress at most `closeMs`
-  (default 5 s), then kills the helper and resolves once it has exited. A lost helper (killed, crashed, past its
+  30 s), ends the helper (a spawned one is killed; a service connection is cut, see Closing above) and rejects every
+  waiting call. `close()` waits for work in progress at most `closeMs` (default 5 s), then ends the helper: a spawned
+  one is killed and awaited; a service connection is half-closed, and cut after 5 s. A lost helper (killed, crashed, past its
   deadline) is started again on the next call, at most `retryLimit` times in a row; what the lost call may have done
   is already held as uncertain or not yet flushed, and the new helper settles it.
 - **Test hooks** (named pauses and faults) are honoured only by a helper started for tests (`startHelper(…, {
@@ -83,16 +106,18 @@ round 4); until then no conflict could be seen.
      `…-ours-<name>`), both **before** the helper call: a writer that read before the save may replace the file after
      it, and our revision must not then live only in the room. A failed copy throws with nothing sent; after the call
      nothing throws. A save the helper refuses removes its `-ours-` copy again.
-  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
-     original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
-     set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
+  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, and gives it
+     the original's access: for its own file, the original's group (`fchown`; refused if it cannot) and access ACL,
+     then its mode without set-user-ID or set-group-ID (our file must never run as us); for the served account's
+     file, the mode without those bits, then the effective-access ACL above. It fsyncs it (after the chmod), reads it back, links it as a private
+     entry and fsyncs the private directory.
      A recovery directory on another filesystem than the file is refused before any change. So is a path where another
      account could move the file's directory out of the project. For each directory from the root down to that
      directory's parent, it is refused when another account (not root) owns it; when others can write to it (the
      other bits, or the group bits of any group but our **private** group: our primary group with no other member and
      no other account's primary group) and it is not sticky; or when it is sticky and the child on our path belongs
-     to another account (who may rename it). A directory on that path with an extended access ACL is refused too:
-     the ACL can grant a named account write access that the mode bits (then the mask) hide.
+     to another account (who may rename it). "Another account" means anyone but the trusted ones above. A directory on
+     that path with an extended ACL that lets anyone else write is refused too: the mode bits (then the mask) hide it.
   3. It publishes with one `renameat2(RENAME_EXCHANGE)` between the private entry and the file (it fails if the file
      was deleted: `gone`). From here every reply says `published: true`; nothing is undone and nothing outside the
      private directory is unlinked.

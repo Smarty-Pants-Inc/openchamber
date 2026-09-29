@@ -21,11 +21,14 @@ const arg = (name, fallback) => {
   return i > 0 ? process.argv[i + 1] : fallback;
 };
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const service = Boolean(process.env.OPENCHAMBER_COEDIT_SOCKET);
+/** SIGKILLs `pid`; whether it was delivered. */
 const kill = (pid) => {
   try {
     process.kill(pid, 'SIGKILL');
+    return true;
   } catch {
-    // Already gone.
+    return false; // Already gone.
   }
 };
 const role = arg('role', 'main');
@@ -140,9 +143,11 @@ async function main() {
   const end = Date.now() + seconds * 1000;
   while (Date.now() < end) {
     await sleep(1000 + random() * 2000);
-    if (random() < 0.6) {
-      for (const pid of helperPids()) kill(pid);
-      kills.helper += 1;
+    // Through the service (OPENCHAMBER_COEDIT_SOCKET) the helpers run as another account: this run cannot kill them,
+    // so it kills only whole bridges. A helper kill counts only when a helper process was actually killed.
+    if (!service && random() < 0.6) {
+      const pids = helperPids().filter((pid) => kill(pid));
+      if (pids.length) kills.helper += 1;
     } else {
       serverProc.kill('SIGKILL');
       kills.server += 1;
@@ -168,7 +173,10 @@ async function main() {
   const recovered = fs.readdirSync(path.join(dir, 'recovery'), { withFileTypes: true }).filter((e) => e.isFile());
   const tokens = (texts) => new Set(texts.flatMap((text) => text.split('\n')));
   const disk = fs.readFileSync(path.join(dir, 'project', 'notes.md'), 'utf8');
-  const privateDir = everything(path.join(dir, 'recovery', '.staging'));
+  // Through the service the private directory is another account's and cannot be read: a token only there counts as
+  // lost (a conservative oracle), and the report says so.
+  const privateDirRead = !service && fs.existsSync(path.join(dir, 'recovery', '.staging'));
+  const privateDir = privateDirRead ? everything(path.join(dir, 'recovery', '.staging')).filter((t) => t !== '') : [];
   const read2 = (e) => fs.readFileSync(path.join(dir, 'recovery', e.name), 'utf8');
   const found = tokens([disk, ...privateDir, ...recovered.map(read2)]);
   const withoutOurs = tokens([disk, ...privateDir, ...recovered.filter((e) => !e.name.includes('-ours-')).map(read2)]);
@@ -180,7 +188,7 @@ async function main() {
   const conflicts = {};
   for (const line of read('conflicts')) conflicts[line.split(' ')[1]] = (conflicts[line.split(' ')[1]] ?? 0) + 1;
   const report = {
-    seconds, seed, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
+    seconds, seed, service, privateDirRead, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
     lostWrites: lostWrites.length, lostSaves: lostSaves.length, onlyInOurCopy: onlyInOurCopy.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
   };
   console.log(JSON.stringify(report, null, 2));
