@@ -1,7 +1,7 @@
 import type { ContextPartMetadata } from '@/lib/messages/contextParts';
 import { trackPrompt } from '@/sync/prompts-in-flight';
 import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
-import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source } from "@opencode-ai/sdk/v2/client";
+import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source, SessionStatus as SDKSessionStatus } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
 import { sessionVoiceSchema, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
@@ -38,6 +38,7 @@ import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
 import { noteRuntimeHealth, runtimeAnsweredRecently } from "@/lib/runtime-reachability";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
+import { recordStatusUnavailable, takeStatusUnknownDirectories } from '@/sync/status-unavailable';
 import { getImperativeSessionMessageLoader } from "@/sync/session-message-loader";
 import { getAllSyncSessionMap } from "@/sync/sync-refs";
 import { hasPendingSteer, registerPendingSteer, takePendingSteer } from "@/sync/pending-steers";
@@ -218,6 +219,25 @@ const OPENCODE_REQUEST_TIMEOUT_MS = 30_000;
  * Pi; smarty-code#113), so they get a longer, still finite, bound: slow is not the half-open socket the bound guards.
  */
 const DISCOVERY_READ_TIMEOUT_MS = 120_000;
+
+// The fleet-wide status map. `unknown=1` asks a Smarty Code gateway to answer despite a failed project and to list it
+// under `smarty.unknown` (smarty-code#539); a stock server ignores it. Null: the read failed, so nothing is recorded.
+const readFleetSessionStatus = async (): Promise<Record<string, SessionStatus> | null> => {
+  const timeout = createTimeoutSignal(OPENCODE_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await runtimeFetch('/api/session/status', { query: { unknown: '1' }, signal: timeout.signal });
+    if (!response.ok) return null;
+    // SAFETY: the marker is validated and removed below, and every other entry is parsed as a session status; any other
+    // body shape throws there, which the caller reports as a failed read (null).
+    const map = await response.json() as Record<string, SDKSessionStatus>;
+    const unknownDirectories = takeStatusUnknownDirectories(map);
+    const statuses = parseSessionStatusMap(map);
+    recordStatusUnavailable(unknownDirectories);
+    return statuses;
+  } finally {
+    timeout.cleanup();
+  }
+};
 const isDiscoveryReadUrl = (input: string | URL | Request): boolean => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   try { return /\/(project|experimental\/session)$/.test(new URL(url, 'http://local').pathname); } catch { return false; }
@@ -1430,6 +1450,7 @@ class OpencodeService {
   ): Promise<Record<string, SessionStatus> | null> {
     try {
       const trimmedDirectory = typeof directory === "string" ? directory.trim() : "";
+      if (!trimmedDirectory) return await readFleetSessionStatus();
       const result = await this.client.session.status(trimmedDirectory ? { directory: trimmedDirectory } : undefined);
       if (result.error || !result.data || typeof result.data !== "object") {
         return null;
