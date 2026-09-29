@@ -33,7 +33,15 @@ export const isHerdrEnded = (session: Session | null | undefined): boolean => re
  * read-only flag is not repeated while the page stays open, so the composer stayed as if the Pi were live).
  */
 export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined): boolean =>
-  historyReadOnly === true || isHerdrEnded(session);
+  (historyReadOnly === true && !isOrdinaryCodeMade(session)) || isHerdrEnded(session);
+
+/**
+ * A Code-made session that is unavailable (its Pi stopped or lost Code's bridge in an open pane; smarty-code#957): its
+ * history is read-only for now, but it is not a fleet session "started in Herdr". It keeps its composer, with Send off
+ * and its reason (#790), until its Pi is back. Ended is still View only.
+ */
+export const isOrdinaryCodeMade = (session: unknown): boolean =>
+  (session as { ordinaryCodeMade?: unknown } | null | undefined)?.ordinaryCodeMade === true;
 
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>
@@ -62,4 +70,4 @@ export const isOrdinaryReloading = (session: unknown): boolean =>
 
 /** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
 export const herdrSignature = (session: unknown): string =>
-  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}`;
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}/${isOrdinaryCodeMade(session) ? 1 : 0}`;
