@@ -35,7 +35,14 @@ type Deps = {
   fetchIndex: () => Promise<string>;
   busy: () => boolean;
   reload: () => void;
+  /** This tab's delay before it reloads (default none); each tab draws its own, so an install does not reload every
+   * open tab at the same instant (3.54: 227 slow reads in 5 min from that burst). */
+  jitterMs?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 };
+
+/** A tab's random wait before a new-build reload: 0-60 s. */
+export const defaultReloadJitterMs = (): number => Math.floor(Math.random() * 60_000);
 
 /** Reloads the page when the server serves another build than the one it runs. Returns whether it reloaded. */
 export async function reloadIfNewBuild(deps: Deps): Promise<boolean> {
@@ -43,6 +50,11 @@ export async function reloadIfNewBuild(deps: Deps): Promise<boolean> {
   if (!running) return false;
   const served = entryScript(await deps.fetchIndex().catch(() => ""));
   if (!served || served === running || deps.busy()) return false;
+  const wait = deps.jitterMs?.() ?? 0;
+  if (wait > 0) {
+    await (deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))))(wait);
+    if (deps.busy()) return false; // Held meanwhile (text typed, a send begun): the next reconnect tries again.
+  }
   deps.reload();
   return true;
 }
