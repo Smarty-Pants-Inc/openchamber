@@ -7,7 +7,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { setSyncRefs } from '@/sync/sync-refs';
-import { useOpenOrdinaryState } from './useOpenOrdinaryState';
+import { isRetainedUnavailable, readOpenOrdinaryState } from './openOrdinaryState';
 
 // openchamber#364 review (P1): the open session's directory sync row still says "connected, model M" when a managed
 // listing leaves the session out. The retained-unavailable mark must win over that older row, re-render the composer's
@@ -30,7 +30,11 @@ test('the composer\'s check: an omitted listing makes the open session unavailab
   useSessionUIStore.setState({ currentSessionId: 'open-a', currentSessionDirectory: dir });
 
   const seen: (string | null)[] = [];
-  const Probe = () => { const state = useOpenOrdinaryState('open-a', dir); seen.push(state?.model?.name ?? null); return null; };
+  // As the composer (ChatInput) reads it: the observed global mark, then the sync rows.
+  const Probe = () => {
+    const retained = useGlobalSessionsStore((state) => isRetainedUnavailable(state.entityById.get('open-a')));
+    seen.push(readOpenOrdinaryState('open-a', dir, retained)?.model?.name ?? null); return null;
+  };
   const win = new Window({ url: 'http://localhost' });
   const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));

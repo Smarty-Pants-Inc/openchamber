@@ -1,4 +1,4 @@
-import { isRetainedUnavailable, readOpenOrdinaryState, useOpenOrdinaryState } from '@/hooks/useOpenOrdinaryState';
+import { isRetainedUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
@@ -1063,9 +1063,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // right after its Pi was relaunched), Send is shown disabled, with the reason, instead of refusing on press.
     // Read as Send's own check reads it (every render); while unavailable it is read again each second, so Send comes
     // back as soon as the session does, even with no keystroke.
-    // The open session's availability (hooks/useOpenOrdinaryState): a session the managed listing left out is unavailable
+    // The open session's availability (lib/openOrdinaryState): a session the managed listing left out is unavailable
     // over any older sync row, and this composer re-renders when that mark changes (openchamber#364 review).
-    const ordinaryNow = useOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
+    // Observed (a change re-renders this composer): a session the managed listing left out is unavailable over any older sync row.
+    const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isRetainedUnavailable(state.entityById.get(currentSessionId!)));
+    const ordinaryNow = currentSessionId ? readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined, retainedUnavailable) : undefined;
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
