@@ -42,3 +42,10 @@ test('a re-keyed Herdr row names its successor; the viewed row follows it once (
   expect(successorTarget(null, [old])).toBeUndefined();
   expect(successorTarget('ses-new', [{ id: 'ses-new', herdrSuccessor: 'ses-new' }])).toBeUndefined();
 });
+
+test('a reloading fleet Pi is recognized and changes the row signature (smarty-code#870)', async () => {
+  const { isOrdinaryReloading, herdrSignature } = await import('./herdrSession');
+  expect(isOrdinaryReloading({ ordinaryReloading: true })).toBe(true);
+  expect(isOrdinaryReloading({})).toBe(false);
+  expect(herdrSignature({ ordinaryReloading: true })).not.toBe(herdrSignature({}));
+});

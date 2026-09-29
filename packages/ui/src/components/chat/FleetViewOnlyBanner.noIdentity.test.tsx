@@ -21,3 +21,9 @@ test('a Code-created session whose Pi ended says so plainly, with no enrollment 
   expect(html).toContain('This session’s Pi has ended. You can read it here, but you cannot send to it.');
   expect(html).not.toContain('href=');
 });
+
+test('a fleet Pi mid-reload says it is back in a moment, not View only, with no enrollment link (smarty-code#870)', () => {
+  const html = renderToStaticMarkup(<FleetViewOnlyBanner reloading />);
+  expect(html).toContain('This session’s Pi is reloading. You can send to it again when it is back, in a moment.');
+  expect(html).not.toContain('href=');
+});

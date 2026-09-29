@@ -173,7 +173,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);
@@ -206,9 +206,18 @@ test('the session-list allowlist layer binds its exact commit over the reviewed 
   const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
   assert.equal(overlay.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   assert.equal(entry.preHerdrListCombinedSha256, entry.behaviorSha256);
-  assert.equal(entry.herdrListSha256, entry.combinedSha256);
+  assert.equal(entry.herdrListSha256, entry.preFleetListCombinedSha256); // The next layer (#863/#870) starts from it.
   assert.ok(entry.herdrListNote);
   assert.deepEqual(overlay.files.filter(file => file.herdrListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
+});
+
+test('the fleet session-list layer binds its exact commit over the Herdr list layer (smarty-code#863, #870)', () => {
+  const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
+  assert.equal(overlay.fleetListSource, '47eb1c68d3f64129018078eed1e218cb23baff50');
+  assert.equal(entry.preFleetListCombinedSha256, entry.herdrListSha256);
+  assert.equal(entry.fleetListSha256, entry.combinedSha256);
+  assert.ok(entry.fleetListNote);
+  assert.deepEqual(overlay.files.filter(file => file.fleetListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
 });
 
 test('the model-prefs unload flush binds its exact fix commit over the settings client only (smarty-code#126 F6)', () => {

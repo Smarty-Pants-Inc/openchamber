@@ -152,7 +152,16 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.modelPrefsUnloadSha256;
     delete entry.modelPrefsUnloadNote;
   }
-  // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; it is the newest layer, so unwind it first.
+  // smarty-code#863/#870 add the successor and the reloading mark to the session-list allowlist: unwound before F4.
+  assert.equal(historical.fleetListSource, '47eb1c68d3f64129018078eed1e218cb23baff50');
+  delete historical.fleetListSource;
+  for (const entry of historical.files.filter(file => file.fleetListSha256)) {
+    entry.combinedSha256 = entry.preFleetListCombinedSha256;
+    delete entry.preFleetListCombinedSha256;
+    delete entry.fleetListSha256;
+    delete entry.fleetListNote;
+  }
+  // smarty-code#126 F4 lets Herdr's state through the session-list allowlist; unwound next.
   assert.equal(historical.herdrListSource, 'b6d4f1b5a3dd67c222b75ed87ec04e3415c81f38');
   delete historical.herdrListSource;
   for (const entry of historical.files.filter(file => file.herdrListSha256)) {
