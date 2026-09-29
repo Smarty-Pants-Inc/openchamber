@@ -4,7 +4,7 @@
  */
 
 import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
-import { optimisticStatuses } from "./optimistic-status"
+import { optimisticStatuses, sendingStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { isVoiceTurn } from "@/components/chat/message/voiceTurnData"
@@ -1992,6 +1992,7 @@ export async function optimisticSend(input: {
   const optimisticStatus = liveStatus && liveStatus.type !== "idle" ? undefined : { type: "busy" as const }
   if (optimisticStatus) {
     optimisticStatuses.add(optimisticStatus)
+    sendingStatuses.add(optimisticStatus)
     store.setState({
       session_status: {
         ...current.session_status,
@@ -2002,7 +2003,8 @@ export async function optimisticSend(input: {
 
   try {
     assertRuntimeUnchanged()
-    await input.send(messageID)
+    try { await input.send(messageID) }
+    finally { if (optimisticStatus) sendingStatuses.delete(optimisticStatus) }
   } catch (error) {
     const status = getErrorStatus(error)
     const ambiguousFailure = isAmbiguousSendFailure(error)

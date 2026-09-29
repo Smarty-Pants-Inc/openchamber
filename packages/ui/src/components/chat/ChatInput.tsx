@@ -1993,6 +1993,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
 
             if (isSoftNetworkError) {
+                // smarty-code#827: a message to a Pi session is still in the composer; say why it has not gone.
+                if (retainUntilAccepted) toast.error(rawMessage || t('chat.send.stillPending'));
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                     toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));
