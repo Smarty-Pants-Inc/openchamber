@@ -7,6 +7,7 @@ import { abortCurrentOperation } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { toast } from '@/components/ui';
+import { useInputStore } from '@/sync/input-store';
 
 // Co-steer (MVP 1 G5): while an ordinary session's agent works, Send sends. The server steers the message into the
 // running turn; the page neither queues it, nor steers locally, nor pre-reads the status.
@@ -223,9 +224,27 @@ test('the same text typed again while its send is pending is not posted twice', 
   try {
     const held = deferred<Response>();
     const { c } = await ordinaryWorking(() => held.promise);
+    // Plain text only (the fixture attaches a file and a context part; retyping cannot bring those, so it would differ).
+    await act(async () => { useInputStore.getState().setAttachedFiles([]); useInputStore.getState().setPendingSyntheticParts([]); });
     await c.submit(); await until(() => c.prompts().length === 1);
     await c.replace('steer this');
     await c.submit(); await act(async () => { await sleep(100); });
     expect(c.prompts()).toHaveLength(1);
+  } finally { restore(); }
+});
+
+// openchamber#375 review round 2 (P1 1): two overlapping sends. B succeeding must not disarm A's recovery.
+test('two overlapping sends: A never answered, B delivered; A\'s text still comes back', async () => {
+  const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 4_000; // B goes well inside A's window, even under load.
+  const restore = () => { sendUnconfirmed.ms = was; };
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await c.replace('a second, different steer');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    expect(c.text()).toBe(''); // B went; A is still unanswered and its text not back yet.
+    await until(() => c.text().includes('steer this')); // A's watchdog was not disarmed by B.
   } finally { restore(); }
 });
