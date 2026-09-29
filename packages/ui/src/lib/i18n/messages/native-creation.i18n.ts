@@ -1,5 +1,6 @@
 export const nativeCreationI18n = {
   en: {
+    'chat.nativeCreation.stoppedByYou': 'You stopped this start. Your text is back in the draft.',
     'chat.nativeCreation.discovering': 'Loading projects…',
     'chat.ordinary.viewMissing': "This chat's history has not finished loading, so nothing was sent. Your message stays in the composer. Press Send again in a moment.",
     'chat.terminalDialog.waitingTitled': "Pi is waiting for an answer in the terminal: {title}. Answer it there; nothing is answered from here.",
@@ -52,6 +53,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Show projects",
   },
   de: {
+    'chat.nativeCreation.stoppedByYou': 'Du hast diesen Start gestoppt. Dein Text ist wieder im Entwurf.',
     'chat.nativeCreation.discovering': 'Projekte werden geladen…',
     'chat.ordinary.viewMissing': "Der Verlauf dieses Chats ist noch nicht geladen, daher wurde nichts gesendet. Ihre Nachricht bleibt im Eingabefeld. Drücken Sie gleich noch einmal auf Senden.",
     'chat.terminalDialog.waitingTitled': "Pi wartet im Terminal auf eine Antwort: {title}. Antworten Sie dort; von hier wird nichts beantwortet.",
@@ -104,6 +106,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Projekte anzeigen",
   },
   es: {
+    'chat.nativeCreation.stoppedByYou': 'Detuviste este inicio. Tu texto ha vuelto al borrador.',
     'chat.nativeCreation.discovering': 'Cargando proyectos…',
     'chat.ordinary.viewMissing': "El historial de este chat aún no ha terminado de cargarse, así que no se envió nada. Tu mensaje sigue en el editor. Pulsa Enviar de nuevo en un momento.",
     'chat.terminalDialog.waitingTitled': "Pi espera una respuesta en el terminal: {title}. Respóndela allí; desde aquí no se responde nada.",
@@ -156,6 +159,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Mostrar proyectos",
   },
   fr: {
+    'chat.nativeCreation.stoppedByYou': 'Vous avez arrêté ce démarrage. Votre texte est de retour dans le brouillon.',
     'chat.nativeCreation.discovering': 'Chargement des projets…',
     'chat.ordinary.viewMissing': "L'historique de cette discussion n'est pas encore chargé, donc rien n'a été envoyé. Votre message reste dans la zone de saisie. Appuyez à nouveau sur Envoyer dans un instant.",
     'chat.terminalDialog.waitingTitled': "Pi attend une réponse dans le terminal : {title}. Répondez-y là-bas ; rien n'est répondu d'ici.",
@@ -208,6 +212,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Afficher les projets",
   },
   ja: {
+    'chat.nativeCreation.stoppedByYou': 'この開始はあなたが停止しました。テキストは下書きに戻っています。',
     'chat.nativeCreation.discovering': 'プロジェクトを読み込んでいます…',
     'chat.ordinary.viewMissing': "このチャットの履歴がまだ読み込まれていないため、何も送信されていません。メッセージは入力欄に残っています。少し待ってからもう一度送信してください。",
     'chat.terminalDialog.waitingTitled': "Pi はターミナルで回答を待っています: {title}。そちらで回答してください。ここからは何も回答しません。",
@@ -260,6 +265,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "プロジェクトを表示",
   },
   ko: {
+    'chat.nativeCreation.stoppedByYou': '이 시작을 직접 중지했습니다. 텍스트가 초안으로 돌아왔습니다.',
     'chat.nativeCreation.discovering': '프로젝트를 불러오는 중…',
     'chat.ordinary.viewMissing': "이 채팅의 기록이 아직 로드되지 않아 아무것도 보내지 않았습니다. 메시지는 입력란에 그대로 있습니다. 잠시 후 다시 보내기를 누르세요.",
     'chat.terminalDialog.waitingTitled': "Pi가 터미널에서 답을 기다리고 있습니다: {title}. 그곳에서 답하세요. 여기서는 아무것도 답하지 않습니다.",
@@ -312,6 +318,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "프로젝트 보기",
   },
   pl: {
+    'chat.nativeCreation.stoppedByYou': 'Zatrzymano ten start. Twój tekst wrócił do wersji roboczej.',
     'chat.nativeCreation.discovering': 'Wczytywanie projektów…',
     'chat.ordinary.viewMissing': "Historia tego czatu nie została jeszcze wczytana, więc nic nie wysłano. Twoja wiadomość pozostaje w polu edycji. Za chwilę naciśnij Wyślij ponownie.",
     'chat.terminalDialog.waitingTitled': "Pi czeka na odpowiedź w terminalu: {title}. Odpowiedz tam; stąd nic nie jest odpowiadane.",
@@ -364,6 +371,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Pokaż projekty",
   },
   'pt-BR': {
+    'chat.nativeCreation.stoppedByYou': 'Você interrompeu este início. Seu texto voltou ao rascunho.',
     'chat.nativeCreation.discovering': 'Carregando projetos…',
     'chat.ordinary.viewMissing': "O histórico deste chat ainda não terminou de carregar, então nada foi enviado. Sua mensagem continua no editor. Pressione Enviar novamente em instantes.",
     'chat.terminalDialog.waitingTitled': "O Pi está esperando uma resposta no terminal: {title}. Responda lá; nada é respondido daqui.",
@@ -416,6 +424,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Mostrar projetos",
   },
   tr: {
+    'chat.nativeCreation.stoppedByYou': 'Bu başlatmayı siz durdurdunuz. Metniniz taslağa geri döndü.',
     'chat.nativeCreation.discovering': 'Projeler yükleniyor…',
     'chat.ordinary.viewMissing': "Bu sohbetin geçmişi henüz yüklenmedi, bu yüzden hiçbir şey gönderilmedi. Mesajınız yazma alanında duruyor. Birazdan yeniden Gönder'e basın.",
     'chat.terminalDialog.waitingTitled': "Pi terminalde bir yanıt bekliyor: {title}. Orada yanıtlayın; buradan hiçbir şey yanıtlanmaz.",
@@ -468,6 +477,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Projeleri göster",
   },
   uk: {
+    'chat.nativeCreation.stoppedByYou': 'Ви зупинили цей запуск. Ваш текст повернувся до чернетки.',
     'chat.nativeCreation.discovering': 'Завантаження проєктів…',
     'chat.ordinary.viewMissing': "Історія цього чату ще не завантажилася, тому нічого не надіслано. Ваше повідомлення лишається в полі введення. Натисніть «Надіслати» ще раз за мить.",
     'chat.terminalDialog.waitingTitled': "Pi чекає на відповідь у терміналі: {title}. Відповідайте там; звідси нічого не відповідається.",
@@ -520,6 +530,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "Показати проєкти",
   },
   'zh-CN': {
+    'chat.nativeCreation.stoppedByYou': '你停止了这次启动。你的文本已回到草稿中。',
     'chat.nativeCreation.discovering': '正在加载项目…',
     'chat.ordinary.viewMissing': "此聊天的历史记录尚未加载完成，因此未发送任何内容。你的消息仍在输入框中。请稍后再次点击发送。",
     'chat.terminalDialog.waitingTitled': "Pi 正在终端中等待回答：{title}。请在那里回答；这里不会回答任何内容。",
@@ -572,6 +583,7 @@ export const nativeCreationI18n = {
     'chat.managedHold.showProjects': "显示项目",
   },
   'zh-TW': {
+    'chat.nativeCreation.stoppedByYou': '你停止了這次啟動。你的文字已回到草稿中。',
     'chat.nativeCreation.discovering': '正在載入專案…',
     'chat.ordinary.viewMissing': "此聊天的歷史記錄尚未載入完成，因此未傳送任何內容。你的訊息仍在輸入框中。請稍後再次按下傳送。",
     'chat.terminalDialog.waitingTitled': "Pi 正在終端機中等待回答：{title}。請在那裡回答；這裡不會回答任何內容。",

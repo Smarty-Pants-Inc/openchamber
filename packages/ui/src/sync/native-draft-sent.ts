@@ -43,8 +43,10 @@ const ADMITTED_MS = 600_000;
 const handled = new Set<string>();
 const outcomes = new Map<string, SentStartOutcome>();
 /** Who stopped the start a slot's text was sent to, when its gateway says (smarty-code#523). */
-const stoppers = new Map<string, string>();
-export const sentStartStoppedBy = (runtimeKey: string, directory: string): string | undefined => stoppers.get(slot(runtimeKey, directory));
+const stoppers = new Map<string, { name: string; subject?: string }>();
+export const sentStartStoppedBy = (runtimeKey: string, directory: string): string | undefined => stoppers.get(slot(runtimeKey, directory))?.name;
+/** smarty-code#849: the stopper's account subject, to tell "you" from another person. */
+export const sentStartStopperSubject = (runtimeKey: string, directory: string): string | undefined => stoppers.get(slot(runtimeKey, directory))?.subject;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
@@ -227,7 +229,7 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   if (start && isSentStartStopped(start.phase)) {
     // Who stopped it is committed with the outcome, under the same check: a late read never names someone else.
     if (superseded()) return outcomes.get(key) ?? null;
-    if (start.stoppedBy?.name) stoppers.set(key, start.stoppedBy.name); else stoppers.delete(key);
+    if (start.stoppedBy?.name) stoppers.set(key, { name: start.stoppedBy.name, subject: start.stoppedBy.subject }); else stoppers.delete(key);
     return settle(start.phase);
   }
   // Still starting: pending. Not readable ('unavailable'), not listed, or no user message: unknown.

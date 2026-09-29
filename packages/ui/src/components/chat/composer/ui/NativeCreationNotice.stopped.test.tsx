@@ -48,3 +48,31 @@ test('smarty-code#751: an expired start names what it was waiting for; one witho
   expect(render(at('expired'))).not.toContain('It was waiting for');
   expect(render(at('cancelled', 'x'))).not.toContain('It was waiting for');
 });
+
+// smarty-code#849: your own stop reads "You stopped this start", never your own name; another person's stop, or a start
+// that stopped for another reason, keeps its line.
+test('your own stop says "You stopped this start"; another person\'s stop, or no sign-in, keeps the plain line', async () => {
+  const { useHumanSelf } = await import('@/lib/humanSelf');
+  const stopped = (subject: string): ReturnType<typeof useNativeCreation> => ({ ...native('cancelled'), creation: { status: 'pending',
+    runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', operation: { ...operation, phase: 'cancelled',
+      stoppedBy: { issuer: 'https://code.example', subject, name: 'Code Test2' } } } });
+  const you = nativeCreationI18n.en['chat.nativeCreation.stoppedByYou'];
+  // A client render (the store's live state; a static render reads its initial state).
+  const { Window } = await import('happy-dom'); const { createRoot } = await import('react-dom/client'); const { act } = await import('react');
+  const win = new Window({ url: 'http://localhost' });
+  Object.assign(globalThis, { window: win, document: win.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const render = (value: ReturnType<typeof useNativeCreation>) => {
+    const host = win.document.createElement('div'); const root = createRoot(host as unknown as Element);
+    act(() => { root.render(<NativeCreationNotice native={value} draftOpen />); });
+    const html = host.innerHTML; act(() => root.unmount()); return html;
+  };
+  try {
+    useHumanSelf.setState({ subject: 'me-1' });
+    expect(render(stopped('me-1'))).toContain(you);
+    expect(render(stopped('me-1'))).not.toContain('Code Test2');
+    expect(render(stopped('kate-1'))).toContain(nativeCreationI18n.en['chat.nativeCreation.stopped']);
+    expect(render(native('expired'))).not.toContain(you);
+    useHumanSelf.setState({ subject: undefined }); // Not signed in (or not read yet): never "you".
+    expect(render(stopped('me-1'))).not.toContain(you);
+  } finally { useHumanSelf.setState({ subject: undefined }); await win.happyDOM.close(); }
+});
