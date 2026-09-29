@@ -156,11 +156,24 @@ describe('ordinary accepted browser view forwarding', () => {
     } finally { f.close(); }
   });
 
-  test('rejects view invalidation during asynchronous preparation before dispatch', async () => {
+  // openchamber#375 review 5: a lost stream keeps the last view (the send goes with it); a branch reset refuses.
+  test('a lost stream during asynchronous preparation keeps the last view and sends', async () => {
     const f = await fixture();
     try {
       const sending = opencodeClient.sendMessage({ ...params, displayName: 'Paul' });
       f.loader.invalidateOrdinaryViews();
+      healthResolvers.shift()?.({ data: { capabilities: { displayAttribution: 1 } } });
+      await sending;
+      expect(promptAsyncCalls).toHaveLength(1);
+      expect(promptAsyncCalls[0][1]).toEqual({ headers: { 'x-smarty-ordinary-view': view } });
+    } finally { f.close(); }
+  });
+
+  test('rejects a branch reset during asynchronous preparation before dispatch', async () => {
+    const f = await fixture();
+    try {
+      const sending = opencodeClient.sendMessage({ ...params, displayName: 'Paul' });
+      f.loader.invalidateOrdinaryView(target, true);
       healthResolvers.shift()?.({ data: { capabilities: { displayAttribution: 1 } } });
       await expect(sending).rejects.toThrow('view changed before submission');
       expect(promptAsyncCalls).toHaveLength(0);

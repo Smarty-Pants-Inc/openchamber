@@ -21,10 +21,13 @@ export type RecoveryNotice = 'unconfirmed' | 'delivered-late' | 'still-pending';
 type Hooks = {
   /** Brings the input back into the composer; false when the composer does not show this group's target now. */
   restore: () => boolean;
+  /** Saves the text into its target's saved draft (joined, never over it) while the target is not shown, so a reload or
+   * an unmount cannot lose it (openchamber#375 review 5); after that, `restore` brings back only what is not text. */
+  save?: () => void;
   clearIfUntouched: () => void;
   notify: (kind: RecoveryNotice) => void;
 };
-type Group = Hooks & { key: string; target: string; messageID: string; pending: number; delivered: boolean; copyInComposer: boolean;
+type Group = Hooks & { key: string; target: string; messageID: string; pending: number; delivered: boolean; copyInComposer: boolean; saved: boolean;
   due: RecoveryNotice | null; timers: Set<ReturnType<typeof setTimeout>> };
 export type RecoveryAttempt = {
   /** The client message ID this attempt must send with (the group's, fixed at its first Send). */
@@ -61,10 +64,10 @@ export class SendRecovery {
     if (g && !g.delivered && g.pending > 0 && !g.copyInComposer) { g.notify('still-pending'); return null; }
     if (g && !g.delivered && g.copyInComposer) {
       // The restored copy goes again: the same message, the same ID. The copy leaves the composer (it clears at Send).
-      g.copyInComposer = false; g.due = null; Object.assign(g, hooks);
+      g.copyInComposer = false; g.saved = false; g.due = null; Object.assign(g, hooks);
     } else {
       if (g) this.drop(g);
-      g = { key, target, ...hooks, messageID: this.newID(), pending: 0, delivered: false, copyInComposer: false, due: null, timers: new Set() };
+      g = { key, target, ...hooks, messageID: this.newID(), pending: 0, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
       this.groups.set(key, g);
     }
     const group = g; let settled = false;
@@ -76,7 +79,7 @@ export class SendRecovery {
       accepted: () => {
         if (!settle()) return;
         group.delivered = true; group.due = null;
-        if (group.copyInComposer) { group.copyInComposer = false; group.clearIfUntouched(); group.notify('delivered-late'); }
+        if (group.copyInComposer || group.saved) { group.copyInComposer = group.saved = false; group.clearIfUntouched(); group.notify('delivered-late'); }
         this.drop(group);
       },
       conflict: () => { if (settle() && !group.delivered) this.arm(group); },
@@ -92,10 +95,16 @@ export class SendRecovery {
     for (const g of [...this.groups.values()]) if (g.target === target && g.due && !g.delivered && !g.copyInComposer) this.giveBack(g, g.due === 'still-pending' ? null : g.due);
   }
 
+  /** Whether any group's input is due (not back yet): a reload waits (lib/newBuildReload). */
+  hasDue() { return [...this.groups.values()].some(g => g.due && !g.delivered && !g.copyInComposer); }
+
   /** Brings a group's input back now, or marks it due for when its target is shown. */
   private giveBack(g: Group, notice: RecoveryNotice | null) {
     if (g.restore()) { g.copyInComposer = true; g.due = null; if (notice) g.notify(notice); }
-    else g.due = notice ?? 'still-pending'; // 'still-pending' here only marks "due, no notice".
+    else {
+      g.due = notice ?? 'still-pending'; // 'still-pending' here only marks "due, no notice".
+      if (!g.saved && g.save) { g.save(); g.saved = true; }
+    }
   }
 
   /** A watchdog for this group: if nothing is delivered and its input is not back when it fires, it comes back. */

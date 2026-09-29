@@ -1383,6 +1383,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         a === b || (!!a && !!b && getChatDraftIdentityKey(a) === getChatDraftIdentityKey(b) && a.draftId === b.draftId);
     const sendRecovery = React.useRef<SendRecovery | null>(null);
     sendRecovery.current ??= new SendRecovery(() => sendUnconfirmed.ms, () => ascendingId('msg'));
+    // A due recovery's attachments and context live only here: a new-build reload waits (openchamber#375 review 5).
+    React.useEffect(() => holdReload(() => !!sendRecovery.current?.hasDue()), []);
     /** A Pi session send's target (runtime, directory, session) and content (text, attachments, context parts). */
     // A recovery that came due while its target was not shown comes back when it is (after that target's own draft loads).
     const shownTarget = currentSessionId && isOrdinarySession(currentSessionId)
@@ -1525,12 +1527,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the one outcome this handler must never produce. The mentions are
         // snapshotted here because sending clears them before it can fail.
         const confirmedMentionsSnapshot = new Set(confirmedMentionsRef.current);
+        // openchamber#375 review 5: once its recovery saved the text into this session's draft, it is not added again
+        // where that draft still holds it (with drafts off, the composer does not load it: then it comes back here).
+        let textInDraft = false;
         const restoreComposerText = () => {
             if (queuedOnly || !inputSnapshot.message) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
             // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
             const join = (base: string) => (!base.trim() || base === inputSnapshot.message ? inputSnapshot.message : appendWithLineBreaks(base, inputSnapshot.message));
             if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+                if (textInDraft) return;
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
                 writeChatDraft(chatDraftIdentity, join(chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : ''), confirmedMentionsRef.current);
@@ -1540,7 +1546,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // load or an earlier restore in the same tick), so every restore keeps the ones before it and the loaded draft.
             // ponytail: the updater also saves the draft; it is idempotent for a given prev (StrictMode may run it twice).
             setMessage((prev) => {
-                const next = join(prev);
+                const next = textInDraft && prev.includes(inputSnapshot.message) ? prev : join(prev);
                 messageRef.current = next;
                 writeChatDraft(chatDraftIdentity, next, confirmedMentionsRef.current);
                 return next;
@@ -1843,6 +1849,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (!chatDraftIdentity || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return false;
                 restoreConsumedInput(); return true;
             },
+            // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
+            save: () => { if (retainNativeDraft || !chatDraftIdentity) return; restoreComposerText(); textInDraft = true; },
             clearIfUntouched: () => {
                 if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
                 if ((composerRef.current?.getValue() ?? messageRef.current) !== inputSnapshot.message) return; // Edited: the person's now.

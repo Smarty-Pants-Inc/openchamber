@@ -102,3 +102,16 @@ test('due while not shown, then accepted: nothing comes back later', () => {
   show('s2'); advance(15_000); a.accepted(); show('s1');
   expect(log).toEqual([]);
 });
+
+test('due off-screen: saved once into its target draft, holds reloads while due, and a late acceptance clears the saved copy', () => {
+  const { r, log, advance, hooks, show } = harness();
+  show('s2');
+  const saving = (name: string) => ({ ...hooks(name), save: () => { log.push(`save ${name}`); } });
+  const a = r.begin('s1', A, saving('A'))!;
+  advance(15_000); expect(log).toEqual(['save A']); expect(r.hasDue()).toBe(true);
+  advance(60_000); expect(log).toEqual(['save A']); // Saved once only.
+  a.accepted(); expect(log).toEqual(['save A', 'clear A', 'delivered-late A']); expect(r.hasDue()).toBe(false);
+  log.length = 0;
+  r.begin('s1', B, saving('B'))!.refused(); expect(log).toEqual(['save B']); expect(r.hasDue()).toBe(true);
+  show('s1'); expect(log).toEqual(['save B', 'restore B']); expect(r.hasDue()).toBe(false);
+});

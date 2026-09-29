@@ -10,6 +10,7 @@ import { useInputStore } from '@/sync/input-store';
 import { createChatDraftIdentity, readChatDraft } from '@/lib/chatDraftPersistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
+import { reloadHeld } from '@/lib/newBuildReload';
 
 // openchamber#375 review 4, P1 1: sends to session S that come due while session T is shown come back when S is shown
 // again, all of them, after S's own saved draft, in the composer AND in S's saved draft (a restore never reads the stale
@@ -78,6 +79,24 @@ test('two held sends to S due while T is shown: back on S, the composer and the 
   await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(20); });
   expect(c.text()).toContain('first held text');
   expect(c.text()).toContain('second held text');
+}, 30_000);
+
+// openchamber#375 review 5, P1: a refusal while T is shown makes S's send due; a new-build reload then must not lose it.
+test('a held send to S refused while T is shown: a reload waits or S\'s saved draft holds it; back on S it shows once', async () => {
+  const { c, held } = await heldSession();
+  await c.replace('the refused text'); await c.submit(); await until(() => c.prompts().length === 1);
+  await show(c, other.id);
+  await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(50); });
+  expect(c.text()).toBe('');
+  // The reload decision (sync-context): held, or the text is where a reload keeps it.
+  expect(reloadHeld() || savedS().includes('the refused text')).toBe(true);
+  expect(reloadHeld()).toBe(true); // Its attachments and context live only in memory: the reload waits.
+  expect(savedS()).toBe('the refused text'); // Kept across a reload or an unmount, not only in memory.
+  await show(c, session.id);
+  await until(() => c.text().includes('the refused text'));
+  await act(async () => { await sleep(300); });
+  expect(c.text().split('the refused text').length - 1).toBe(1);
+  expect(savedS().split('the refused text').length - 1).toBe(1);
 }, 30_000);
 
 test('a held send plus a newer draft typed in S before leaving: back on S, both are kept', async () => {

@@ -270,8 +270,8 @@ test('a stalled preparation, the text given back, sent again: both POSTs carry t
 });
 
 // openchamber#375 review 3, P1 1: given back only into its own session's composer: never into another session's composer,
-// never written into its saved draft while another session is shown (that overwrote a newer draft), and back on return.
-test('due while another session is shown: nothing is written anywhere; it comes back when its session is shown again', async () => {
+// and back on return. Review 5: its text joins its own saved draft (never over it), so a reload or an unmount keeps it.
+test('due while another session is shown: only its own saved draft gets it; it comes back once when its session is shown again', async () => {
   const restore = shortWatchdog();
   const { readChatDraft, createChatDraftIdentity } = await import('@/lib/chatDraftPersistence');
   const { getRuntimeKey } = await import('@/lib/runtime-switch');
@@ -287,7 +287,7 @@ test('due while another session is shown: nothing is written anywhere; it comes 
     await act(async () => { c.rerender(); });
     await act(async () => { await sleep(700); }); // Due while `other` is shown.
     expect(c.text()).not.toContain('steer this');
-    expect(readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text).not.toContain('steer this');
+    expect(readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text).toBe('steer this');
     await act(async () => { useSessionUIStore.setState({ currentSessionId: session.id }); });
     await act(async () => { c.rerender(); });
     await until(() => c.text() === 'steer this');
