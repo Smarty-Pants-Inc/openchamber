@@ -36,6 +36,14 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // smarty-code#957 keeps ordinaryCodeMade in the session-list allowlist (proxy.js only): the newest layer, unwound first.
+  assert.equal(historical.codeMadeListSource, 'ebf56e66943ee912b727dab8ebb0e336d50f733d');
+  delete historical.codeMadeListSource;
+  for (const entry of historical.files.filter(file => file.codeMadeListSha256)) {
+    assert.equal(entry.codeMadeListSha256, entry.combinedSha256);
+    entry.combinedSha256 = entry.preCodeMadeListCombinedSha256;
+    delete entry.preCodeMadeListCombinedSha256; delete entry.codeMadeListSha256; delete entry.codeMadeListNote;
+  }
   // smarty-code#539 imports the "Status unavailable" string into the eleven locale outputs: the newest layer, unwound first.
   assert.equal(historical.statusUnavailableSource, '3ce8d22f06df56604bc170ad6fcfc4631336682b');
   delete historical.statusUnavailableSource;

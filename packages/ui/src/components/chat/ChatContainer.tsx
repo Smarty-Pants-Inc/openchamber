@@ -72,7 +72,7 @@ import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
-import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, showsViewOnly, successorTarget } from '@/lib/herdrSession';
+import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, isPiDisconnected, showsViewOnly, successorTarget } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -1765,6 +1765,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired && !sessionDirectoryGone
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
                         piReloading={isOrdinaryReloading(currentSession)}
+                        piDisconnected={isPiDisconnected(currentSession)}
                     />
                 )}
             </div>
