@@ -535,7 +535,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
     test('#412 round 3, finding 2: orphan recovery keeps the transaction record, so the lost reply is still decided', async () => {
       const r = await read();
-      const pending = publish(r, { txn: 'abc123', pause: 'afterExchange', pauseMs: 5000 });
+      const pending = publish(r, { txn: 'abc123', ack: sha('secret'), pause: 'afterExchange', pauseMs: 5000 });
       await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
       h.stop(); // The reply is lost: the helper dies right after the exchange (its call never answers).
       void pending;
@@ -554,8 +554,72 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       const later = await h.call({ op: 'list', path: 'docs/a.md' });
       expect(later.entries).toEqual([]);
       expect(later.records).toEqual([{ txn: 'abc123', state: 'published' }]); // Still decided: never "not published".
-      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc123' })).toMatchObject({ ok: true });
+      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc123', token: 'secret' })).toMatchObject({ ok: true });
       expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
+    });
+
+    /** A publish whose reply is lost right after the exchange (its helper dies before it records "published"). */
+    const lostAfterExchange = async (txn, token) => {
+      const r = await read();
+      void publish(r, { txn, ack: sha(token), pause: 'afterExchange', pauseMs: 5000 });
+      await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
+      h.stop();
+      await sleep(200);
+      h = helper(root, priv);
+    };
+
+    test('#412 round 4, finding 1: only the originating bridge\'s secret token acknowledges a record; its txn grants nothing', async () => {
+      await lostAfterExchange('abc124', 'origin-secret');
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.records).toEqual([{ txn: 'abc124', state: 'published' }]); // No hash or token is ever listed.
+      const [entry] = seen.entries;
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash })).toMatchObject({ ok: true });
+      for (const token of [undefined, '', 'guess', sha('origin-secret')]) {
+        expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token })).toMatchObject({ ok: false });
+      }
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'abc124', state: 'published' }]);
+      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token: 'origin-secret' })).toMatchObject({ ok: true });
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
+    });
+
+    test('#412 round 4, finding 2: a failed scan or record write leaves the outcome unknown and the evidence in place', async () => {
+      await lostAfterExchange('abc125', 's');
+      const scanFailed = await h.call({ op: 'list', path: 'docs/a.md', fault: 'stagedScan' });
+      expect(scanFailed.records).toEqual([{ txn: 'abc125', state: 'unknown' }]); // Never guessed as "aborted".
+      const [entry] = scanFailed.entries;
+      const writeFailed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, fault: 'recordWrite' });
+      expect(writeFailed.ok).toBe(false); // No terminal outcome persisted: the entry it would be derived from stays.
+      expect(staged()).toEqual([entry.entry]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'abc125', state: 'published' }]);
+    });
+
+    test('#412 round 4 (astra 1): a txn reused on another file grants nothing over this file\'s transaction', async () => {
+      const writer = fs.openSync(target(), 'a'); // Keeps A's displaced revision pending.
+      const r = await read();
+      const p = await publish(r, { txn: 'aaa111', ack: sha('a') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      fs.writeFileSync(path.join(root, 'docs/b.md'), 'bee\n');
+      const b = helper(root, priv);
+      try {
+        // B learns A's txn from list, then owns the SAME txn on another file.
+        expect((await b.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'aaa111', owned: true }]);
+        const rb = await b.call({ op: 'read', path: 'docs/b.md' });
+        expect(await b.call({ op: 'publish', path: 'docs/b.md', txn: 'aaa111', ack: sha('b'), ino: rb.ino, dev: rb.dev, hash: rb.hash, data: Buffer.from('BEE\n').toString('base64') })).toMatchObject({ published: true });
+        const seen = await b.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // Still no bytes.
+        expect(await b.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        // A fabricated missing entry with A's key and the reused txn cannot retire A's record either.
+        expect(await b.call({ op: 'dispose', path: 'docs/a.md', entry: `${KEY}.aaa111-bogus.staged`, hash: 'x' })).toMatchObject({ ok: false, owned: true });
+        expect((await b.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'aaa111', owned: true }]);
+      } finally {
+        b.stop();
+      }
+      // A still owns it, and keeps the late bytes.
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+      // A's own dispose of a name its publish did not produce is refused.
+      expect(await dispose(`${KEY}.aaa111-bogus.staged`, r.hash)).toMatchObject({ ok: false });
     });
 
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {

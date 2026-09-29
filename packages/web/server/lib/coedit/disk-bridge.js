@@ -210,7 +210,7 @@ export function createDiskBridge({
     } else {
       for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
-    await helper.call({ op: 'ack', path: rel, txn }).catch(() => null); // Settled here: the record may go.
+    await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null); // Settled here, by its owner.
     uncertain = null;
     if (!unsynced) conflict = null;
     return true;
@@ -370,14 +370,14 @@ export function createDiskBridge({
       const next = text.toString();
       if (next === baseText) return { ok: true };
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
-      const { pending: displaced, unsynced: notFlushed, lost, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
+      const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
       if (notFlushed) unsynced = { raised: true, entry: displaced?.entry }; // Raised with this result; a flush confirms it.
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, since: Date.now(), seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, token, since: Date.now(), seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.

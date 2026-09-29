@@ -157,6 +157,59 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     }
   });
 
+  it('#412 round 4: a transaction record outlives its connection, and only the secret token acknowledges it', async () => {
+    const t = setup('r\n');
+    const staging = path.join(t.recoveryDir, '.staging');
+    const first = startHelper(t.root, staging);
+    try {
+      const current = await readFile(first, 'docs/a.md');
+      const reply = await first.call({
+        op: 'publish', path: 'docs/a.md', txn: 'feed01', ack: hashBytes(Buffer.from('only-mine')), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('R\n').toString('base64'),
+      });
+      expect(reply).toMatchObject({ published: true });
+    } finally {
+      expect(await first.close()).toEqual({ quiescent: true }); // Its connection ends without disposing: an orphan.
+    }
+    const other = startHelper(t.root, staging);
+    try {
+      const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.records).toEqual([{ txn: 'feed01', state: 'published' }]);
+      expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01' })).toMatchObject({ ok: false });
+      expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01', token: 'guess' })).toMatchObject({ ok: false });
+      expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01', token: 'only-mine' })).toMatchObject({ ok: true });
+      expect((await other.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([]);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('#412 round 4: a txn reused on another file grants nothing over this file\'s live transaction', async () => {
+    const t = setup('x\n');
+    fs.writeFileSync(path.join(t.root, 'docs', 'b.md'), 'y\n');
+    const writer = fs.openSync(t.file, 'a');
+    const { bridge, doc } = bridgeFor(t);
+    await bridge.load();
+    doc.getText(TEXT).insert(0, 'P');
+    expect(await bridge.save()).toEqual({ ok: true }); // Pending: the writer holds the displaced revision.
+    fs.writeSync(writer, 'late\n');
+    fs.closeSync(writer);
+    const other = startHelper(t.root, path.join(t.recoveryDir, '.staging'));
+    try {
+      const [record] = (await other.call({ op: 'list', path: 'docs/a.md' })).records;
+      expect(record).toMatchObject({ owned: true });
+      const rb = await readFile(other, 'docs/b.md');
+      expect(await other.call({ op: 'publish', path: 'docs/b.md', txn: record.txn, ack: hashBytes(Buffer.from('b')), ino: rb.ino, dev: rb.dev, hash: rb.hash, data: Buffer.from('Y\n').toString('base64') })).toMatchObject({ published: true });
+      const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toHaveLength(1);
+      expect(seen.entries[0]).toMatchObject({ owned: true });
+      expect(seen.entries[0].data).toBeUndefined();
+      expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: seen.entries[0].entry, hash: hashBytes(Buffer.from('x\nlate\n')) })).toMatchObject({ ok: false, owned: true });
+      expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: `${keyOf(t.root, 'docs/a.md')}.${record.txn}-bogus.staged`, hash: 'x' })).toMatchObject({ ok: false, owned: true });
+    } finally {
+      await other.close();
+    }
+  });
+
   it('keys agree: the service names entries by sha256(root NUL path), as the bridge does', async () => {
     const t = setup('k\n');
     const helper = startHelper(t.root, path.join(t.recoveryDir, '.staging'));

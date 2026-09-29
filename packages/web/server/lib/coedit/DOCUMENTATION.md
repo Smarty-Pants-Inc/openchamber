@@ -42,15 +42,23 @@ round 4); until then no conflict could be seen.
     inode, so no writer's lock on the project file can stand in for it, and a publish that cannot establish it changes
     nothing.
     - **Ownership:** a connection owns its transaction while it holds the record's lock: until its own `dispose` of the
-      displaced entry succeeds (it heard the reply), or its process ends. Another connection's `list` shows that entry
+      displaced entry succeeds (it heard the reply), or its process ends. Ownership is the FULL identity (the file's
+      key and the txn), so a txn reused on another file grants nothing; and the owner's own `dispose` covers only the
+      exact entry its publish produced, still holding that displaced inode (#412 round 4). Another connection's `list` shows that entry
       only as `owned` (no bytes), and its `dispose` refuses it. So a pending revision, and the late bytes a writer
       may still add, stay with their owner.
     - **Outcome:** once the owner is gone, whoever lists or disposes first resolves a `prepared` record from its staged
-      name (our inode: `aborted`; another inode: `published`; none: `aborted`) and writes the verdict **before**
-      recovering the entry. Recovery never removes the record, so a live bridge whose reply was lost still decides
-      its save by it: `published` adopts the room's snapshot; `aborted` or no record (the helper died before any
-      change) is not published; still owned or unreadable holds. That bridge then `ack`s, and only then does the record
-      go. Records are also removed by their owner's successful dispose, and after 30 days.
+      name (our inode: `aborted`; another inode: `published`; a complete scan that finds none: `aborted`), and
+      persists the verdict **before** any recovery may remove the entry. A failed scan, stat, open, lock or write is
+      never taken as absence: the outcome stays `unknown` (the bridge holds), and an orphan whose outcome cannot be
+      persisted is not disposed (#412 round 4). Recovery never removes the record, so a live bridge whose reply was
+      lost still decides its save by it: `published` adopts the room's snapshot; `aborted`, or no record at all within
+      its 30 days (the helper died before any change: records are created first and removed only as below), is not
+      published; owned or `unknown` holds.
+    - **Acknowledgement:** each publish carries the hash of a secret token that only the originating bridge knows; the
+      record keeps the hash and `list` never shows it. After settling, that bridge `ack`s with the token, and only
+      then does the record go. A connection that knows only the listed txn cannot remove it (#412 round 4). Records
+      are otherwise removed by their owner's successful dispose (it heard the reply), and after 30 days.
   - **Closing** says whether the helper is **quiescent** (`close()` resolves `{ quiescent }`). A spawned helper is
     killed and awaited. A service helper, which this account cannot kill, is sent `bye`: operations run one at a time,
     so its answer means none is in flight, and it then exits. Only that answer within `closeMs` gives

@@ -146,7 +146,15 @@ fn lock_key(priv_fd: RawFd, key: &str) -> Result<OwnedFd, String> {
 /// connection's own dispose of its displaced entry succeeds, or this process ends. The record is a private inode: no
 /// program outside this account can open it, so no writer's lock on the project file can take its place. Another
 /// connection sees the transaction's entry only as owned by a live connection: it cannot read, dispose or recover it.
-type Owned = std::collections::HashMap<String, OwnedFd>;
+/// Keyed by the FULL identity `<key>.<txn>` (#412 round 4, astra finding 1: a txn alone is not an identity, since
+/// another file may reuse it), with the one staged entry and its displaced inode this connection's publish produced.
+type Owned = std::collections::HashMap<String, OwnedTxn>;
+
+struct OwnedTxn {
+    _record: OwnedFd,
+    entry: String,
+    ino: u64,
+}
 
 /// A transaction's record: its state ("prepared" with our staged inode, "published" or "aborted").
 fn read_record(fd: RawFd) -> Option<Value> {
@@ -174,28 +182,60 @@ fn write_record(fd: RawFd, priv_fd: RawFd, record: &Value) -> bool {
     written && fsync(priv_fd)
 }
 
-/// The authoritative outcome of an unowned transaction (its owner is gone): a prepared record is resolved by what its
-/// staged name holds now. Our staged inode means the exchange never ran (aborted); another inode means it ran
-/// (published); no entry means it never got that far (a recovery writes its verdict BEFORE it disposes an entry).
-fn resolve_record(fd: RawFd, priv_fd: RawFd, key: &str, txn: &str) -> Option<Value> {
-    let mut record = read_record(fd)?;
+/// The authoritative outcome of an unowned transaction (its owner is gone), persisted before anything relies on it
+/// (#412 round 4, finding 2). A prepared record is resolved from its staged name: our inode means the exchange never
+/// ran (aborted); another inode means it ran (published); a scan that CONFIRMS no such name means it never got that
+/// far (a recovery writes the verdict before it disposes an entry). Any failed observation or write is an error, and
+/// the outcome stays unknown: it is never guessed as "aborted".
+fn resolve_record(fd: RawFd, priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<Value, String> {
+    let mut record = read_record(fd).ok_or("the transaction record cannot be read")?;
     if record["state"] == "prepared" {
-        let staged = staged_name(priv_fd, key, txn);
-        let state = match staged.as_deref().and_then(|n| fstatat(priv_fd, n)) {
-            Some(st) if Some(st.st_ino as u64) != record["ino"].as_u64() => "published",
-            _ => "aborted",
+        let state = match staged_name(priv_fd, key, txn, req)? {
+            None => "aborted",
+            Some(name) => match stat_entry(priv_fd, &name)? {
+                Some(st) if Some(st.st_ino as u64) != record["ino"].as_u64() => "published",
+                Some(_) => "aborted",
+                None => return Err("the staged entry changed during recovery".into()),
+            },
         };
         record["state"] = json!(state);
-        write_record(fd, priv_fd, &record);
+        if test_fault(req, "recordWrite") || !write_record(fd, priv_fd, &record) {
+            return Err("the transaction's outcome cannot be recorded".into());
+        }
     }
-    Some(record)
+    match record["state"].as_str() {
+        Some("published" | "aborted") => Ok(record),
+        _ => Err("the transaction record holds no outcome".into()),
+    }
 }
 
-/// The staged entry of a transaction, `<key>.<txn>-<unique>.staged`, if any.
-fn staged_name(priv_fd: RawFd, key: &str, txn: &str) -> Option<String> {
+/// The staged entry of a transaction, `<key>.<txn>-<unique>.staged`: None only when a complete scan finds none.
+fn staged_name(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<Option<String>, String> {
+    if test_fault(req, "stagedScan") {
+        return Err("the private dir cannot be scanned".into());
+    }
     let prefix = format!("{key}.{txn}-");
-    std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned())
-        .find(|n| n.starts_with(&prefix) && n.ends_with(".staged"))
+    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
+        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+        if n.starts_with(&prefix) && n.ends_with(".staged") {
+            return Ok(Some(n));
+        }
+    }
+    Ok(None)
+}
+
+/// A private entry's stat: None only when it does not exist (ENOENT); any other failure is an error.
+fn stat_entry(priv_fd: RawFd, name: &str) -> Result<Option<libc::stat>, String> {
+    let c = cstr(name)?;
+    // SAFETY: fstatat on the held private dir, one component, without following a link.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatat(priv_fd, c.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) } == 0 {
+        return Ok(Some(st));
+    }
+    match errno() {
+        libc::ENOENT => Ok(None),
+        e => Err(os_err("stat", e)),
+    }
 }
 
 /// A staged entry's txn: `<key>.<txn>-<unique>.staged`.
@@ -731,6 +771,11 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
         return Err("invalid txn".into());
     }
+    // Only the originating bridge knows the token behind this hash: acknowledgement needs it (#412 round 4, finding 1).
+    let ack_hash = req["ack"].as_str().unwrap_or("").to_string();
+    if ack_hash.len() > 64 || !ack_hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return Err("invalid ack".into());
+    }
     // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
     // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
     let record_c = cstr(&format!("{key}.{txn}.txn"))?;
@@ -745,7 +790,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     let drop_record = || unsafe { libc::unlinkat(priv_fd, record_c.as_ptr(), 0) };
     // SAFETY: flock on our own fd.
     if unsafe { libc::flock(record.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
-        || !write_record(record.as_raw_fd(), priv_fd, &json!({"state": "prepared", "ino": ours.st_ino as u64}))
+        || !write_record(record.as_raw_fd(), priv_fd, &json!({"state": "prepared", "ino": ours.st_ino as u64, "ack": ack_hash}))
     {
         drop_record();
         return Err("the transaction record cannot be established: nothing published".into());
@@ -787,7 +832,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     // 7. Published: from here the private entry holds the displaced object, and nothing is undone. The record says so
     // (if this write fails, a recovery still decides it from the staged inode).
     test_pause(req, "afterExchange");
-    write_record(record.as_raw_fd(), priv_fd, &json!({"state": "published", "ino": ours.st_ino as u64}));
+    write_record(record.as_raw_fd(), priv_fd, &json!({"state": "published", "ino": ours.st_ino as u64, "ack": ack_hash}));
     let mut uncertain: Option<&str> = None;
     if test_fault(req, "afterExchange") {
         uncertain = Some("observation");
@@ -837,7 +882,8 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
         unsynced.insert(staged.clone(), dir);
     }
     // This connection owns the transaction (its locked record) until its own dispose of the displaced entry.
-    owned.insert(txn, record);
+    let displaced_ino = fstatat(priv_fd, &staged).map(|st| st.st_ino as u64).unwrap_or(0);
+    owned.insert(format!("{key}.{txn}"), OwnedTxn { _record: record, entry: staged.clone(), ino: displaced_ino });
     // 11. Reply.
     Ok(match uncertain {
         Some(u) => json!({"ok": false, "published": true, "synced": synced, "uncertain": u, "displaced": staged}),
@@ -882,22 +928,30 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
     // Its transaction: ours (the owner's own dispose, after it heard the reply), an orphan (its owner is gone: its
     // verdict is written into the record first, and the record stays for the originating bridge), or another live
     // connection's (refused, never touched).
-    if let Some(record) = owned.remove(&txn) {
+    let id = format!("{key}.{txn}");
+    if let Some(mine) = owned.remove(&id) {
+        // The owner's own dispose covers exactly the entry its publish produced, still holding that displaced inode.
+        let genuine = entry == mine.entry && matches!(stat_entry(priv_fd, &entry), Ok(Some(st)) if st.st_ino as u64 == mine.ino);
+        if !genuine {
+            owned.insert(id, mine);
+            return Ok(json!({"ok": false, "error": "not this transaction's entry"}));
+        }
         let done = dispose_named(priv_fd, req, &entry, hash);
         if matches!(&done, Ok(v) if v["ok"] == true) {
             // Removed by its owner, who heard the reply: the record's work is done.
-            if let Ok(c) = cstr(&format!("{key}.{txn}.txn")) {
+            if let Ok(c) = cstr(&format!("{id}.txn")) {
                 // SAFETY: unlinks our own record.
                 unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
             }
         } else {
-            owned.insert(txn, record);
+            owned.insert(id, mine);
         }
         return done;
     }
     let _record = match lock_record(priv_fd, &key, &txn) {
         Ok(Some(fd)) => {
-            resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn);
+            // The outcome is persisted before the evidence it was derived from may go; otherwise nothing is removed.
+            resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn, req)?;
             Some(fd)
         }
         Ok(None) => return Ok(json!({"ok": false, "owned": true})),
@@ -924,9 +978,16 @@ fn ack_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     if txn.is_empty() || txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
         return Err("invalid txn".into());
     }
+    let token = req["token"].as_str().unwrap_or("");
     let _lock = lock_key(priv_fd, &key)?;
     match lock_record(priv_fd, &key, txn) {
-        Ok(Some(_fd)) => {
+        Ok(Some(fd)) => {
+            // Only the originating bridge's secret token may remove the receipt; the txn in `list` grants nothing.
+            let record = read_record(fd.as_raw_fd()).ok_or("the transaction record cannot be read")?;
+            let want = record["ack"].as_str().unwrap_or("");
+            if token.is_empty() || want.is_empty() || hex(token.as_bytes()) != want {
+                return Ok(json!({"ok": false, "error": "not this transaction's owner"}));
+            }
             let c = cstr(&format!("{key}.{txn}.txn"))?;
             // SAFETY: unlinks one record of the private dir, under its lock.
             unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
@@ -983,12 +1044,14 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     // Waits for any operation on this file by another connection: a live transaction is never listed as a leftover.
     let _lock = lock_key(priv_fd, &key)?;
     let prefix = format!("{key}.");
-    let names: Vec<String> = std::fs::read_dir(format!("/proc/self/fd/{priv_fd}"))
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with(&prefix))
-        .collect();
+    // A scan error fails the whole list (the bridge holds): a partial scan could hide a record or an entry.
+    let mut names: Vec<String> = Vec::new();
+    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
+        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+        if n.starts_with(&prefix) {
+            names.push(n);
+        }
+    }
     // Transaction records (#412 round 3): each with its authoritative outcome, and whether a live connection owns it.
     // An unowned prepared record is resolved (and written) here. Records outlive their entries: they go only when their
     // owner disposes its entry, when the originating bridge acks, or after 30 days.
@@ -996,7 +1059,7 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     let mut live = std::collections::HashSet::new();
     for name in names.iter().filter(|n| n.ends_with(".txn")) {
         let txn = name[prefix.len()..name.len() - 4].to_string();
-        if owned.contains_key(&txn) {
+        if owned.contains_key(&format!("{key}.{txn}")) {
             records.push(json!({"txn": txn, "state": "owned-here"}));
             continue;
         }
@@ -1010,14 +1073,16 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
                     }
                     continue;
                 }
-                let state = resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn).map(|r| r["state"].clone()).unwrap_or(json!("unknown"));
+                // An outcome that cannot be established is reported unknown: never omitted, never guessed.
+                let state = resolve_record(fd.as_raw_fd(), priv_fd, &key, &txn, req).map(|r| r["state"].clone()).unwrap_or(json!("unknown"));
                 records.push(json!({"txn": txn, "state": state}));
             }
             Ok(None) => {
                 live.insert(txn.clone());
                 records.push(json!({"txn": txn, "owned": true}));
             }
-            Err(_) => {}
+            Err(libc::ENOENT) => {} // Removed between the scan and now (by its owner or an authorized ack).
+            Err(_) => records.push(json!({"txn": txn, "state": "unknown"})),
         }
     }
     let mut entries = Vec::new();

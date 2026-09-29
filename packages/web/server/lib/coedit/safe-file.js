@@ -420,16 +420,18 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   const ours = await keepForRecovery(recoveryDir, name, data, { key, kind: 'ours' });
   const dropOurs = () => fs.promises.unlink(ours).catch((error) => log('smarty.coedit-recovery-cleanup-failed', name, error));
   const txn = randomBytes(6).toString('hex');
+  // A secret only this bridge knows: the helper keeps its hash, and only the token acks the record (#412 round 4).
+  const token = randomBytes(16).toString('hex');
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   let reply;
   try {
     reply = await helper.call({
       ...testHooks(hooks),
-      op: 'publish', path: rel, key, txn, ino: current.ino, dev: current.dev, hash: expectedHash, data: data.toString('base64'),
+      op: 'publish', path: rel, key, txn, ack: hashBytes(Buffer.from(token, 'utf8')), ino: current.ino, dev: current.dev, hash: expectedHash, data: data.toString('base64'),
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);
-    return { ...uncertain, unsynced: true, lost: txn }; // Sent, no reply: published or not, flushed or not.
+    return { ...uncertain, unsynced: true, lost: txn, token }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
     await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
