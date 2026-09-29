@@ -104,7 +104,7 @@ round 4); until then no conflict could be seen.
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
   now"); watching restarts after `retryMs` (at most `retryLimit` tries), catches up with a sync, and clears it.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
-- **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch>` runs three direct
+- **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch> [--seed <n>]` (`stress.test.js` runs it for 20 s in CI) runs three direct
   writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
   helper and the whole bridge process are SIGKILLed at random. It exits 1 if any token a writer wrote, or any token of
   a save that reported published, is missing from the disk, the recovery directory and the private directory.

@@ -5,6 +5,8 @@
 //
 //   node stress.mjs [--seconds 60] [--dir <scratch parent>] [--seed <n>]
 //
+// The seed fixes the kill schedule (when, and helper or whole bridge); the writers' and person's pace stays random.
+//
 // Writers take turns among themselves (a mkdir lock) but never with the bridge, as agents, git and tools do. Each turn
 // reads the file, adds one token line and writes it back in place (O_TRUNC), by tmp + rename, or by O_APPEND.
 // The "server" is a child process running the bridge and a person typing and saving; it is SIGKILLed and restarted.
@@ -27,6 +29,13 @@ const kill = (pid) => {
   }
 };
 const role = arg('role', 'main');
+/** mulberry32: a small seeded PRNG, so a kill schedule can be replayed. */
+const seeded = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
 const home = arg('home', '');
 const file = () => path.join(home, 'project', 'notes.md');
 const log = (name, line) => fs.appendFileSync(path.join(home, 'logs', name), `${line}\n`);
@@ -90,6 +99,8 @@ const everything = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap
 
 async function main() {
   const seconds = Number(arg('seconds', '60'));
+  const seed = Number(arg('seed', String(Date.now() % 1_000_000)));
+  const random = seeded(seed);
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(arg('dir', os.tmpdir()), 'coedit-stress-')));
   for (const d of ['project', 'logs']) fs.mkdirSync(path.join(dir, d), { recursive: true });
   fs.mkdirSync(path.join(dir, 'recovery'), { mode: 0o700 });
@@ -110,8 +121,8 @@ async function main() {
   }).map(Number);
   const end = Date.now() + seconds * 1000;
   while (Date.now() < end) {
-    await sleep(1000 + Math.random() * 2000);
-    if (Math.random() < 0.6) {
+    await sleep(1000 + random() * 2000);
+    if (random() < 0.6) {
       for (const pid of helperPids()) kill(pid);
       kills.helper += 1;
     } else {
@@ -142,7 +153,7 @@ async function main() {
   const conflicts = {};
   for (const line of read('conflicts')) conflicts[line.split(' ')[1]] = (conflicts[line.split(' ')[1]] ?? 0) + 1;
   const report = {
-    seconds, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
+    seconds, seed, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
     lostWrites: lostWrites.length, lostSaves: lostSaves.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
   };
   console.log(JSON.stringify(report, null, 2));
