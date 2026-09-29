@@ -28,3 +28,19 @@ test('an unavailable Code-made session keeps its composer; a fleet session and a
   expect(showsViewOnly(true, row('idle'))).toBe(true); // A fleet session: unchanged.
   expect(herdrSignature(made('idle'))).not.toBe(herdrSignature(row('idle'))); // The flag alone reaches the row.
 });
+
+// openchamber#411 round 1 (smarty-code#957): the composer also SAYS why Send is off and how to reconnect, in every locale;
+// only for a Code-made session that is not ended (a fleet session and an ended one have their own words).
+test('a Code-made unavailable session says its Pi lost Code and how to reconnect; fleet and ended rows do not', async () => {
+  const { isPiDisconnected } = await import('./herdrSession');
+  const made = (herdrState?: string) => ({ id: 's', herdrState, ordinaryCodeMade: true }) as unknown as Session;
+  expect(isPiDisconnected(made('done'))).toBe(true);
+  expect(isPiDisconnected(made('ended'))).toBe(false);
+  expect(isPiDisconnected(row('idle'))).toBe(false);
+  const { sidebarHerdrI18n } = await import('./i18n/messages/sidebar-herdr.i18n');
+  for (const [locale, messages] of Object.entries(sidebarHerdrI18n)) {
+    expect([locale, typeof messages['sessions.sidebar.herdr.disconnected']]).toEqual([locale, 'string']);
+    expect(messages['sessions.sidebar.herdr.disconnected'].length).toBeGreaterThan(20);
+  }
+  expect(/lost its connection to Code.*Quit Pi.*start it again/.test(sidebarHerdrI18n.en['sessions.sidebar.herdr.disconnected'])).toBe(true);
+});
