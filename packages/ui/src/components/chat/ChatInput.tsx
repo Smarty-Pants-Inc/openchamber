@@ -192,6 +192,7 @@ import {
     mergeSessionInputHistory,
 } from './inputHistory';
 import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { useStatusUnavailable } from '@/sync/status-unavailable';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -513,7 +514,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const consumePendingSyntheticParts = useInputStore((s) => s.consumePendingSyntheticParts);
     const acknowledgeSessionAbort = useSessionUIStore((s) => s.acknowledgeSessionAbort);
     const stopSessionId = isBtwActive && btwSessionId ? btwSessionId : currentSessionId;
-    const displayedStopStatus = useSessionStatus(stopSessionId ?? '', (isBtwActive ? btwDirectory : currentSessionDirectoryForSync ?? currentDirectory) ?? undefined);
+    const stopDirectory = (isBtwActive ? btwDirectory : currentSessionDirectoryForSync ?? currentDirectory) ?? undefined;
+    const displayedStopStatus = useSessionStatus(stopSessionId ?? '', stopDirectory);
+    // The open session's project status is unknown (smarty-code#539): say so instead of a stale Stop.
+    const statusUnavailable = useStatusUnavailable(stopSessionId && !newSessionDraftOpen ? stopDirectory : null);
     const abortCurrentOperation = React.useCallback(
         () => sessionActions.abortCurrentOperation(stopSessionId ?? '', { status: displayedStopStatus }),
         [displayedStopStatus, stopSessionId],
@@ -1095,7 +1099,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
         && !ordinaryUnavailable;
 
-    const canAbort = sessionPhase !== 'idle'
+    const canAbort = sessionPhase !== 'idle' && !statusUnavailable
         && (!displayedStopStatus?.ordinary || (displayedStopStatus.type === 'busy' && Boolean(displayedStopStatus.ordinaryTarget)));
 
     const getCurrentInputSnapshot = React.useCallback(() => {
@@ -3322,6 +3326,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 {piReloading ? (
                     <p role="status" data-testid="pi-reloading" className="mb-2 text-sm text-muted-foreground">
                         {t('sessions.sidebar.herdr.reloading')}
+                    </p>
+                ) : null}
+                {statusUnavailable ? (
+                    <p role="status" data-testid="status-unavailable" className="mb-2 text-sm text-muted-foreground">
+                        {t('sessions.sidebar.session.status.unavailable')}
                     </p>
                 ) : null}
                 {draftEphemeralOnly ? (

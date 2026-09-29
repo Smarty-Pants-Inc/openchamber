@@ -24,7 +24,8 @@ const projectState = {
 let statusRead = async (): Promise<{ data: Record<string, { type: string }> } | null> => ({ data: {} });
 const seeded: unknown[][] = [];
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
-  getSdkClient: () => ({ project: { list: () => projectRead() }, session: { status: () => statusRead() } }),
+  getSdkClient: () => ({ project: { list: () => projectRead() } }),
+  getSessionStatusForDirectory: async () => (await statusRead())?.data ?? null,
 } }));
 mock.module('@/sync/global-session-status', () => ({ getSessionStatusEventVersion: () => 0,
   applyFleetSessionStatuses: (...args: unknown[]) => { seeded.push(args.slice(0, 2)); } }));
@@ -76,6 +77,22 @@ test('publishing seeds every session directory from the fleet-wide status map', 
   await refreshManagedProjects(true);
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(seeded).toEqual([[[{ id: 's1', directory: '/allowed/a' }, { id: 's2', directory: '/allowed/a' }], { s1: { type: 'busy' }, other: { type: 'busy' } }]]);
+});
+
+// smarty-code#539: an unknown project is absent from the fleet map, which is not idle; its sessions are not seeded.
+test('seeding skips the sessions of a project the fleet read lists unknown', async () => {
+  const { recordStatusUnavailable } = await import('@/sync/status-unavailable');
+  const b = { id: 'b', worktree: '/allowed/b' };
+  projectRead = async () => ({ response: response(), data: [row, b] });
+  sessionRead = async () => [{ id: 's1', directory: '/allowed/a' }, { id: 's2', directory: '/allowed/b' }] as never;
+  statusRead = async () => ({ data: { s1: { type: 'busy' } } });
+  recordStatusUnavailable(['/allowed/b']);
+  seeded.length = 0;
+  try {
+    await refreshManagedProjects(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  } finally { recordStatusUnavailable([]); }
+  expect(seeded).toEqual([[[{ id: 's1', directory: '/allowed/a' }], { s1: { type: 'busy' } }]]);
 });
 
 test('successful empty publishes only after a successful global read', async () => {

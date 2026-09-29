@@ -29,13 +29,24 @@ round 4); until then no conflict could be seen.
   `recoveryDir` that is a link, not ours, or writable by group or others. It opens `<recoveryDir>/.staging` with
   `O_NOFOLLOW` (a link there is refused before any change) and makes it 0700 with `fchmod` on that descriptor, never
   by path. The helper holds it by fd and exits unless we own it and it has no group or other bits. All staging, displaced revisions and cleanup live there, under
-  `<key>.<unique>.staged` (`key`: the first 16 hex characters of sha256 of the file's project-relative path). Another
+  `<key>.<unique>.staged` (`key`: the first 16 hex characters of sha256 of the project root, a NUL and the file's project-relative path, so two
+  projects that share a recovery directory never collect each other's entries). A default ACL on it (inherited from
+  its parent) is removed when the helper starts, and an access ACL on it is refused: so a parent whose default ACL
+  has named entries (which also gives `.staging` an access ACL) makes the helper exit, and co-editing fails closed.
+  Each publish names its staged entry `<key>.<txn>-<unique>.staged`: after a lost reply, the bridge finds exactly
+  that save's entry. Another
   account cannot name, replace or write anything in it. The project namespace is changed only by the publishing
   exchange; the bridge never reads the project directory for cleanup, so a project file such as `.x.coedit-foo` is
   never touched.
 - **The helper process is bounded.** A bad or truncated reply line, or a call past its deadline (`timeoutMs`, default
   30 s), kills the helper and rejects every waiting call. `close()` waits for work in progress at most `closeMs`
-  (default 5 s), then kills the helper and resolves once it has exited.
+  (default 5 s), then kills the helper and resolves once it has exited. A lost helper (killed, crashed, past its
+  deadline) is started again on the next call, at most `retryLimit` times in a row; what the lost call may have done
+  is already held as uncertain or not yet flushed, and the new helper settles it.
+- **Test hooks** (named pauses and faults) are honoured only by a helper started for tests (`startHelper(…, {
+  testHooks: true })`, which the bridge does only when given `hooks`); `COEDIT_FS_TEST` is removed from its
+  environment otherwise. Only `pause`, `pauseMs`, `fault`, `testOwners` and `testGroupMembers` pass, before the
+  request's own fields, so a hook never replaces them.
 - **Outside writes into the room** (an agent, git, a tool, a replace by rename). Only a **settled** revision is read:
   the same bytes and inode in two reads `settleMs` (default 200 ms) apart. It is merged **unasked only if it inserts
   text**: the minimal diff (`fast-diff`) from the text last read, applied to a copy of the room as it was then, so
@@ -44,15 +55,20 @@ round 4); until then no conflict could be seen.
   insertion-only revision arrives or the person accepts the disk (`acceptDisk()`).
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
-     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced).
-  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, sets its
-     mode, fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
+     A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
+     `…-ours-<name>`), both **before** the helper call: a writer that read before the save may replace the file after
+     it, and our revision must not then live only in the room. A failed copy throws with nothing sent; after the call
+     nothing throws. A save the helper refuses removes its `-ours-` copy again.
+  2. The helper checks the inode and hash again, writes ours to an `O_TMPFILE` in the private directory, gives it the
+     original's group (`fchown`; refused if it cannot) and access ACL, then its mode without set-user-ID or
+     set-group-ID (our file must never run as us), fsyncs it (after the chmod), reads it back, links it as a private entry and fsyncs the private directory.
      A recovery directory on another filesystem than the file is refused before any change. So is a path where another
      account could move the file's directory out of the project. For each directory from the root down to that
      directory's parent, it is refused when another account (not root) owns it; when others can write to it (the
      other bits, or the group bits of any group but our **private** group: our primary group with no other member and
      no other account's primary group) and it is not sticky; or when it is sticky and the child on our path belongs
-     to another account (who may rename it).
+     to another account (who may rename it). A directory on that path with an extended access ACL is refused too:
+     the ACL can grant a named account write access that the mode bits (then the mask) hide.
   3. It publishes with one `renameat2(RENAME_EXCHANGE)` between the private entry and the file (it fails if the file
      was deleted: `gone`). From here every reply says `published: true`; nothing is undone and nothing outside the
      private directory is unlinked.
@@ -63,6 +79,9 @@ round 4); until then no conflict could be seen.
        and shown (`raced`, notice "Another writer changed this file during your save: check the recovery folder.").
      - The displaced object is not the checked revision (someone replaced the file just before the exchange): `raced`,
        their revision kept for recovery.
+     - Ours was replaced, or written into, right after the exchange (`replaced`, `bytes`): the exchange is certain,
+       so this is an outside write to a published file. It is `raced` (published), the base follows ours, and the
+       next sync treats the writer's revision as any other (so an agent's steady writes never stall the room).
      - Anything it cannot prove (a failed observation, the directory moved out of the project): `unverified` with
        `published: 'uncertain'`. A lost reply, a helper exit or a deadline after the request was sent is the same.
      - Durability is reported on its own (`synced`). A failed directory fsync (after the exchange, or when `dispose`
@@ -75,7 +94,11 @@ round 4); until then no conflict could be seen.
        private entries are kept for recovery but not disposed, `unverified` is raised, and `save()` holds until a
        flush succeeds. A failed flush while disposing them holds it the same way.
   - **Published** (ok or `raced`): the room's base moves to our bytes, so the next sync never replays the edit.
-  - **Uncertain**: the base stays and the room holds. `sync()` and `save()` first read the disk: our bytes there mean
+  - **Uncertain**: the base stays and the room holds. After a **lost reply**, `sync()` and `save()` first ask the
+    private directory, the authoritative record, whatever the file holds now: a new entry with our bytes means the
+    exchange never ran (it is removed; not published); a new entry with other bytes is the revision our exchange
+    displaced (published: the base follows ours, and the entry is kept as pending); no new entry means it never got
+    that far (not published). Otherwise they read the disk: our bytes there mean
     it was published (adopted as the base); the base's bytes mean it was not (cleared). Anything else stays an
     `unverified` conflict (raised once per disk revision): nothing is merged, and `save()` publishes nothing.
   - Any result but ok is a conflict (`onConflict`, `state().conflict`), with its recovery path.
@@ -87,6 +110,12 @@ round 4); until then no conflict could be seen.
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
   now"); watching restarts after `retryMs` (at most `retryLimit` tries), catches up with a sync, and clears it.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
+- **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch> [--seed <n>]` (`stress.test.js` runs it for 20 s in CI) runs three direct
+  writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
+  helper and the whole bridge process are SIGKILLed at random (a killed run takes its children with it). It exits 1 if any token a writer wrote, or any token of
+  a save that reported published, is missing from the disk, the recovery directory and the private directory. For a
+  published save that holds by construction (its `-ours-` copy), so the report also gives `onlyInOurCopy`: the
+  saves that only that copy keeps, which a stale writer overwrote after they were published.
 - **Crash recovery:** `load()` lists the file's private entries (`list`), keeps each in `recoveryDir`, disposes it and
   raises `interrupted` with a notice. One still open for writing is enrolled as pending; a late write is `raced`. After
   a crash or kill at any point the file holds either the old or the new revision, whole.
@@ -99,8 +128,11 @@ round 4); until then no conflict could be seen.
   That is a writer, not a race: it shows as the next revision, and a revision it changed during a save is kept (`raced`).
 - A displaced revision still open for writing after `retryLimit` tries, or at close, stays in the private directory;
   the next load keeps it for recovery and removes it.
-- After a lost helper (killed, crashed, deadline) the bridge does not start a new one: its reads fail until it is
-  closed and a new bridge loads, which finishes the interrupted save.
+- **Admission is read once per publish.** Owners, modes, ACLs and the group database are checked at the start of
+  each publish; a change to them by a directory's owner during the save is not seen.
+- **"Private group" is as complete as the account database.** Group members and other accounts' primary groups come
+  from NSS (`getgrgid`, `getpwent`). A back end that does not enumerate (for example sssd with `enumerate = false`)
+  can hide another account in our primary group. A group that cannot be read counts as shared.
 - Linux ≥ 5.6 (`openat2`) and a filesystem with `RENAME_EXCHANGE` and `O_TMPFILE` are required; elsewhere co-editing
   fails closed.
 
@@ -126,5 +158,6 @@ of Paul's acceptance). Co-editing is **off by default** until then.
 - **Durability is by fsync order** (the staged file after its chmod, the private directory, then the file's
   directory; a failed sync holds the save until a flush succeeds, never ok). A power-loss test is not possible here;
   fault tests prove the held state and its confirmation, and the kill tests at `beforeExchange` and `afterExchange`
-  prove recovery at each boundary, not durability across a power cut. A `flush` after an `escaped` publish flushes
-  the directory now at the file's path, not the moved one (same-account relocation, above).
+  prove recovery at each boundary, not durability across a power cut. A `flush` after a publish whose flush failed
+  syncs the directory it published into (held by the helper since), even if it has moved; after a helper restart that
+  directory is no longer held, and the flush syncs the directory now at the file's path.

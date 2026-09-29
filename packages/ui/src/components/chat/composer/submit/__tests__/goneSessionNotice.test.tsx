@@ -10,6 +10,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { opencodeClient } from '@/lib/opencode/client';
 import { toast } from '@/components/ui/toast';
 import { resetGoneSessionNotices } from '@/sync/gone-session-notice';
+import { persistLastActiveSession } from '@/sync/last-session-cache';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 // smarty-code#775 (folds #761): a session that is no longer available used to vanish into an empty draft without a
 // word. The page now says so once, in #758's words, after the gateway's 404 (or at once when its directory left).
@@ -91,5 +93,40 @@ test('an open session that leaves the list (its worktree removed while open, #76
     await settle(); await settle();
   });
   // Its project left first, so the open is held for it (#608); the notice still says why it is gone.
+  expect(shown).toEqual([DEFAULT]);
+});
+
+// 3.52 read storm (code-catalog, #126): a remembered session the gateway still answers (200), re-remembered by the page
+// and absent from each listing, was read again on EVERY commit. Now any non-404 answer is remembered until the session is
+// listed again: N commits, 1 read.
+test('a remembered session the gateway still answers is read once, not on every commit', async () => {
+  status = 200;
+  await reloadWithRemembered(true);
+  expect(reads).toBe(1);
+  await act(async () => {
+    for (let i = 0; i < 5; i++) {
+      persistLastActiveSession(getRuntimeKey().trim() || 'default', { sessionId: session.id, directory });
+      useGlobalSessionsStore.getState().applyManagedSessions([], useGlobalSessionsStore.getState().mutationRevision, new Set([directory]));
+      await settle(); await settle();
+    }
+  });
+  expect(reads).toBe(1);
+  expect(shown).toEqual([]);
+});
+
+test('counterexample: once listed again, a later disappearance is checked again (and a 404 then says gone)', async () => {
+  status = 200;
+  await reloadWithRemembered(true);
+  await act(async () => {
+    useGlobalSessionsStore.getState().applyManagedSessions([session], useGlobalSessionsStore.getState().mutationRevision, new Set([directory]));
+    await settle();
+  });
+  status = 404;
+  await act(async () => {
+    persistLastActiveSession(getRuntimeKey().trim() || 'default', { sessionId: session.id, directory });
+    useGlobalSessionsStore.getState().applyManagedSessions([], useGlobalSessionsStore.getState().mutationRevision, new Set([directory]));
+    await settle(); await settle();
+  });
+  expect(reads).toBe(2);
   expect(shown).toEqual([DEFAULT]);
 });
