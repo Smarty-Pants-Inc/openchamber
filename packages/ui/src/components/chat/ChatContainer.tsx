@@ -66,7 +66,7 @@ import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
-import { isHerdrEnded, isHerdrNoIdentity, showsViewOnly } from '@/lib/herdrSession';
+import { isHerdrEnded, isHerdrNoIdentity, showsViewOnly, successorTarget } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -999,6 +999,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
     const needsOrdinaryDetail = Boolean(currentSession && readOrdinaryModel(currentSession)
         && !Object.hasOwn(currentSession, 'ordinary'));
+    // A starting Herdr Pi re-keyed to its real session: open that session, as a sidebar click would, once per old id,
+    // and only while the old id is still the selection (smarty-code#863).
+    const followedSuccessorRef = React.useRef<string | null>(null);
+    const successorId = successorTarget(currentSessionId, currentSession ? [currentSession] : []);
+    React.useEffect(() => {
+        if (!successorId || !currentSessionId || followedSuccessorRef.current === currentSessionId) return;
+        if (useSessionUIStore.getState().currentSessionId !== currentSessionId) return;
+        followedSuccessorRef.current = currentSessionId;
+        setCurrentSession(successorId, effectiveSessionDirectory ?? null);
+    }, [currentSessionId, effectiveSessionDirectory, setCurrentSession, successorId]);
 
     // In the embedded session-chat iframe, hide "Return to parent" when
     // viewing the panel's anchor session (the one recorded in the URL). Going
