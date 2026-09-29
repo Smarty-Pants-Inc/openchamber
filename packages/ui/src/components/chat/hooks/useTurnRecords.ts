@@ -1,5 +1,5 @@
 import React from 'react';
-import { projectTurnRecords } from '../lib/turns/projectTurnRecords';
+import { projectTurnRecords, rememberShownOrphans } from '../lib/turns/projectTurnRecords';
 import type { ChatMessageEntry, TurnProjectionResult, TurnRecord } from '../lib/turns/types';
 import { buildProjectionCacheKey, getCachedProjection, setCachedProjection } from '../lib/turns/turnProjectionCache';
 import { streamPerfMeasure } from '@/stores/utils/streamDebug';
@@ -29,6 +29,8 @@ export const useTurnRecords = (
     const previousShowTextJustificationActivityRef = React.useRef(options.showTextJustificationActivity);
     const previousShowTurnChangedFilesRef = React.useRef(options.showTurnChangedFiles);
     const previousPlanModeEnabledRef = React.useRef(options.planModeEnabled);
+    // smarty-code#583: replies already shown as leading-orphan rows in this session keep being their own rows.
+    const shownOrphansRef = React.useRef<Set<string>>(new Set());
 
     if (
         previousSessionKeyRef.current !== options.sessionKey
@@ -43,6 +45,7 @@ export const useTurnRecords = (
         previousProjectionRef.current = null;
         staticTurnsRef.current = [];
         streamingTurnRef.current = undefined;
+        shownOrphansRef.current = new Set();
     }
 
     React.useEffect(() => {
@@ -53,7 +56,9 @@ export const useTurnRecords = (
 
     const projection = React.useMemo(() => {
         const sessionKey = options.sessionKey ?? '';
-        const mergeKey = (options.planModeEnabled ? 'merge:plan' : 'merge') + (options.showLeadingOrphans ? ':leading' : '');
+        const kept = shownOrphansRef.current;
+        const mergeKey = (options.planModeEnabled ? 'merge:plan' : 'merge') + (options.showLeadingOrphans ? ':leading' : '')
+            + (kept.size ? `:kept${kept.size}` : '');
         const cacheKey = buildProjectionCacheKey(
             sessionKey,
             messages,
@@ -64,6 +69,9 @@ export const useTurnRecords = (
         const cached = getCachedProjection(cacheKey);
         if (cached) {
             previousProjectionRef.current = cached;
+            // A new hook (a reopen) served from the shared cache still records the replies it shows as their own
+            // rows, so a later prepend of their prompts keeps those rows (openchamber#358 review round 2).
+            rememberShownOrphans(messages, cached, kept);
             return cached;
         }
 
@@ -74,8 +82,10 @@ export const useTurnRecords = (
                 showTurnChangedFiles: options.showTurnChangedFiles,
                 mergeHiddenUserTurns: { planModeEnabled: options.planModeEnabled },
                 showLeadingOrphans: options.showLeadingOrphans,
+                ...(kept.size ? { keepUngroupedAssistantIds: new Set(kept) } : {}),
             });
             previousProjectionRef.current = nextProjection;
+            rememberShownOrphans(messages, nextProjection, kept);
 
             setCachedProjection(cacheKey, nextProjection);
 
