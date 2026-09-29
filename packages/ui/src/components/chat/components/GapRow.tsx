@@ -36,9 +36,9 @@ export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (s
             if (seen?.isIntersecting) timer = setTimeout(load, GAP_SETTLE_MS);
         }, {
             root,
-            // One screen ahead in each direction: the window is read before the reader reaches the placeholder
+            // Two screens ahead in each direction: the window is read before the reader reaches the placeholder
             // (continuous scrolling at ~2,800 px/s outran reads started only once a placeholder was on screen).
-            rootMargin: '100% 0px',
+            rootMargin: '200% 0px',
         });
         observer.observe(node);
         return () => { clearTimeout(timer); observer.disconnect(); };

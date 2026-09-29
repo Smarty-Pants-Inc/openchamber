@@ -1,8 +1,12 @@
 import { windowFor } from '@/sync/position-windows';
 import type { GapEntry } from './turns/renderEntries';
 
-/** Records read per window (the range read's target size, smarty-code#583). */
-export const WINDOW_RECORDS = 200;
+/**
+ * Records read per window (smarty-code#583): the range read's maximum. Continuous wheel scrolling crosses ~2,800 px/s
+ * (~35 records a second at ~80 px); with 200-record windows read one at a time the reader reached a placeholder about
+ * every 7 s on the candidate (5-6 steps in 40 s). A 500-record window is ~40,000 px, more than 10 s of scrolling.
+ */
+export const WINDOW_RECORDS = 500;
 
 /**
  * smarty-code#583: the window a gap chunk reads, within its whole gap and toward the reader, so each read runs ahead of
