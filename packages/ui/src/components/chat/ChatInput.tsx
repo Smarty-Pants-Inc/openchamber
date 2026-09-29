@@ -341,6 +341,8 @@ interface ChatInputProps {
     draftPresentationExiting?: boolean;
     /** The open session's history failed to load: say why nothing can be sent (#536). */
     sessionLoadFailed?: boolean;
+    /** Its fleet Pi is reloading (smarty-code#870): say why Send is off for now; the draft stays. */
+    piReloading?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -362,6 +364,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     active = true,
     draftPresentationExiting = false,
     sessionLoadFailed = false,
+    piReloading = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -3308,6 +3311,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 {sessionLoadFailed ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">
                         {t('chat.container.sessionLoadError.composer')}
+                    </p>
+                ) : null}
+                {piReloading ? (
+                    <p role="status" data-testid="pi-reloading" className="mb-2 text-sm text-muted-foreground">
+                        {t('sessions.sidebar.herdr.reloading')}
                     </p>
                 ) : null}
                 {draftEphemeralOnly ? (

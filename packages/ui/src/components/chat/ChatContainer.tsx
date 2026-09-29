@@ -1686,6 +1686,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         // transcript's error and its Try again showing, not over a retained view.
                         sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
+                        piReloading={isOrdinaryReloading(currentSession)}
                     />
                 )}
             </div>
