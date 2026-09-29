@@ -39,6 +39,23 @@ export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Ses
 export const isHerdrNoIdentity = (session: unknown): boolean =>
   (session as { herdrNoIdentity?: unknown } | null | undefined)?.herdrNoIdentity === true;
 
+/**
+ * The session that replaced this one: a new pane's Pi is first listed by its pane, then re-keyed once it reports its
+ * session id; the gateway marks the old record with the new id (smarty-code#863).
+ */
+export const herdrSuccessorOf = (session: unknown): string | undefined => {
+  const value = (session as { herdrSuccessor?: unknown } | null | undefined)?.herdrSuccessor;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+};
+
+/** The session to open instead of the viewed one, once its record names a successor (smarty-code#863). */
+export const successorTarget = (currentId: string | null | undefined, sessions: readonly unknown[]): string | undefined => {
+  if (!currentId) return undefined;
+  const current = sessions.find((session) => (session as { id?: unknown } | null)?.id === currentId);
+  const next = herdrSuccessorOf(current);
+  return next && next !== currentId ? next : undefined;
+};
+
 /** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
 export const herdrSignature = (session: unknown): string =>
-  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}`;
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}`;

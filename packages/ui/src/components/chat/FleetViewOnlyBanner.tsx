@@ -3,7 +3,7 @@ import { useI18n } from '@/lib/i18n';
 
 /** Smarty gateway (#181): an unenrolled fleet session is shown read-only until it is enrolled. */
 export const FLEET_ENROLLMENT_URL = 'https://github.com/Smarty-Pants-Inc/smarty-code/issues/116';
-/** `noIdentity`: a Pi Herdr shows without a session identity has no messages to view; say why (smarty-code#126 (c)3). */
+/** `noIdentity`: a Pi Herdr shows without a session identity has no messages to view; say it is starting (smarty-code#126 (c)3, #863). */
 /** `ended`: a Code-created session whose Pi has ended is read from its transcript; say so plainly. */
 export const FleetViewOnlyBanner: React.FC<{ noIdentity?: boolean; ended?: boolean }> = ({ noIdentity = false, ended = false }) => {
     const { t } = useI18n();
