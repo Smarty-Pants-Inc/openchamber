@@ -369,9 +369,12 @@
       "path": "packages/web/package.json",
       "brandingSha256": "a785cbffe99e6f679157e4381b863cf42952bbad0879559bc06915cec901b4b7",
       "behaviorSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
-      "combinedSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
+      "combinedSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Better Auth web dependency and package version binding for the selected web runtime; package identity remains unchanged."
+      "reason": "Better Auth web dependency and package version binding for the selected web runtime; package identity remains unchanged.",
+      "preCoeditCombinedSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
+      "coeditSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
+      "coeditNote": "smartyfs#18 slice 1: the co-edit disk bridge adds the yjs and fast-diff dependencies. Package identity and branded strings are unchanged."
     },
     {
       "path": "packages/web/server/lib/notifications/apns-runtime.js",
@@ -562,5 +565,6 @@
   "systemNoteSource": "135994c665e8c8d4473d01cf6be5544779f3d6b6",
   "notificationAuthSource": "86c04a8c542da98009b23f5efe174883bfbcfa86",
   "voiceFabricSource": "374c56636604616f4b25550a0d6b8b351f37f2d9",
-  "worktreeRootSource": "eb67e441840a09e303d91f035e79aab2b4b4245c"
+  "worktreeRootSource": "eb67e441840a09e303d91f035e79aab2b4b4245c",
+  "coeditSource": "3dba6485d5e9037414eb2c6a78dd9c0f4749ebd6"
 }
