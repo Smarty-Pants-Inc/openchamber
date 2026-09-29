@@ -13,6 +13,10 @@
  * its attachments and context never reach another target's composer. Each group, its timers and its settlement touch
  * only that group.
  */
+/** The gateway's client-ID reservation conflict: another attempt with this ID is pending or was delivered. Not a refusal
+ * of the message itself (openchamber#375 review 4): its row, its chat and the session view stay. */
+export const isClientIdConflict = (message: string | null | undefined) =>
+  !!message && /client message id already exists or a submission is pending/i.test(message);
 export type RecoveryNotice = 'unconfirmed' | 'delivered-late' | 'still-pending';
 type Hooks = {
   /** Brings the input back into the composer; false when the composer does not show this group's target now. */

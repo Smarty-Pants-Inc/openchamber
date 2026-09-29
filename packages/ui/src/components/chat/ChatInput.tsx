@@ -97,7 +97,7 @@ import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { extractGitChangedFiles } from './changedFiles';
 import { useI18n } from '@/lib/i18n';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
-import { SendRecovery } from '@/lib/sendRecovery';
+import { isClientIdConflict, SendRecovery } from '@/lib/sendRecovery';
 import { ascendingId } from '@/sync/session-actions';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
@@ -1375,7 +1375,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         ? [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', currentSessionId].join('\u0000') : null;
     React.useEffect(() => {
         if (!shownTarget) return;
-        const timer = setTimeout(() => sendRecovery.current?.flush(shownTarget), 0);
+        // Once the editor shows this target's loaded draft (bounded: a composing IME may hold it back).
+        let tries = 0;
+        const run = () => {
+            const shown = composerRef.current?.getValue();
+            if (shown !== undefined && shown !== messageRef.current && ++tries < 20) { timer = setTimeout(run, 16); return; }
+            sendRecovery.current?.flush(shownTarget);
+        };
+        let timer = setTimeout(run, 0);
         return () => clearTimeout(timer);
     }, [shownTarget, chatDraftIdentity]);
     const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
@@ -1505,21 +1512,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const restoreComposerText = () => {
             if (queuedOnly || !inputSnapshot.message) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
+            // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
+            const join = (base: string) => (!base.trim() || base === inputSnapshot.message ? inputSnapshot.message : appendWithLineBreaks(base, inputSnapshot.message));
             if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
-                writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
+                writeChatDraft(chatDraftIdentity, join(chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : ''), confirmedMentionsRef.current);
                 return;
             }
-            const currentInput = composerRef.current?.getValue() ?? messageRef.current;
-            if (!currentInput || currentInput === inputSnapshot.message) {
-                setMessage(inputSnapshot.message);
-                writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
-            } else {
-                // New typing already lives in the composer; the failed prompt
-                // joins it instead of clobbering either text.
-                useInputStore.getState().setPendingInputText(inputSnapshot.message, 'append');
-            }
+            // openchamber#375 review 4: composed on the composer STATE, not the editor document (a render behind a draft
+            // load or an earlier restore in the same tick), so every restore keeps the ones before it and the loaded draft.
+            // ponytail: the updater also saves the draft; it is idempotent for a given prev (StrictMode may run it twice).
+            setMessage((prev) => {
+                const next = join(prev);
+                messageRef.current = next;
+                writeChatDraft(chatDraftIdentity, next, confirmedMentionsRef.current);
+                return next;
+            });
         };
 
         // The projection knows the captured send configuration; the full
@@ -2001,7 +2010,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // (the other attempt is pending or was delivered): the recovery waits for that, and gives the text back if
             // nothing is delivered. A definite refusal gives it back now, unless another attempt is still pending.
             if (recovery) {
-                if (/client message id already exists or a submission is pending/i.test(rawMessage)) {
+                if (isClientIdConflict(rawMessage)) {
                     recovery.conflict(); toast.info(t('chat.send.stillPending')); return;
                 }
                 recovery.refused();

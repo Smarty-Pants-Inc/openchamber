@@ -177,6 +177,18 @@ test('a refusal shows the server\'s own words, not the raw body (F11)', async ()
   expect((error as Error & { status?: number }).status).toBe(409);
 });
 
+// openchamber#375 review 4 (P2 3): a re-send that reuses a pending or delivered message's client ID is refused as a
+// reservation conflict. That is no changed branch: the last view stays sendable and nothing is re-read.
+test('a client-ID reservation conflict on a re-send keeps the last view and reads nothing again', async () => {
+  await loader.ensure(target);
+  prompt = async () => Response.json({ name: 'APIError', data: { message: 'Client message ID already exists or a submission is pending',
+    isRetryable: false } }, { status: 409 });
+  // Its own provider: this refusal must not count toward the other tests' provider circuit.
+  await expect(opencodeClient.sendMessage({ ...params, providerID: 'conflict-fixture' })).rejects.toThrow('Client message ID already exists');
+  expect(loader.getSendableOrdinaryView(target, 'a')).toBe(view);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+});
+
 test('an unconfirmed send (503) shows the server\'s words and keeps its status for the unconfirmed path (F11)', async () => {
   await loader.ensure(target);
   const reason = 'The server could not confirm this message. Check the chat before sending it again.';

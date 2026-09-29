@@ -44,6 +44,7 @@ import { summarizeOpenCodeError } from "@/sync/session-error-log";
 import { gatewayErrorSchema, ordinarySwitchResponseSchema, readOrdinaryModel, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
+import { isClientIdConflict } from "@/lib/sendRecovery";
 import {
   assertProviderCircuitClosed,
   recordProviderSuccess,
@@ -1254,8 +1255,11 @@ class OpencodeService {
     }
 
     if (ordinaryView && isRuntimeRequestScopeCurrent(scope)) {
-      viewLoader?.invalidateOrdinaryView(viewTarget, response.status === 409);
-      if (response.status === 409) void viewLoader?.refreshOrdinaryView(viewTarget);
+      // A client-ID reservation conflict (a re-send of a held or delivered message) is no changed branch.
+      const reset = response.status === 409
+        && !isClientIdConflict(summarizeOpenCodeError(refusal as { message?: string } | undefined).message);
+      viewLoader?.invalidateOrdinaryView(viewTarget, reset);
+      if (reset) void viewLoader?.refreshOrdinaryView(viewTarget);
     }
     // Only a queued message is settled later: a steer, or a send the owner has not answered yet (receipt 'queued'; its
     // outcome follows as an event). A started turn or a definite refusal (4xx) is settled now. An unknown outcome keeps

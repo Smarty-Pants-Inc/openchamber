@@ -51,6 +51,7 @@ import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
 import { useNotificationStore } from "./notification-store"
 import { keepSavedState } from "./unsaved"
+import { isClientIdConflict } from "@/lib/sendRecovery"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -2041,6 +2042,16 @@ export async function optimisticSend(input: {
     }
     recordSendFailure(failureRecord)
     console.warn("[session-actions] prompt send rejected; rolling back optimistic message", failureRecord)
+
+    // A re-send refused as a client-ID reservation conflict (openchamber#375 review 4): the row is its first attempt's,
+    // pending or delivered, and the refusal is not the message's. Only this attempt's own status is undone.
+    if (isClientIdConflict(error instanceof Error ? error.message : undefined)) {
+      const state = store.getState()
+      if (optimisticStatus && state.session_status?.[input.sessionId] === optimisticStatus) {
+        store.setState({ session_status: { ...state.session_status, [input.sessionId]: { type: "idle" as const } } })
+      }
+      throw error
+    }
 
     // Rollback via optimistic infrastructure
     optimisticRemove({
