@@ -18,7 +18,7 @@ import {
 } from "./session-prefetch-cache"
 import { z } from "zod"
 import { isVSCodeRuntime } from "@/lib/desktop"
-import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
+import { failureReport, newOperationId, reportClientError } from "@/lib/clientErrorReport"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
@@ -191,8 +191,15 @@ const assertSdkSuccess = (result: {
   if (!result.error) return
   const status = result.response?.status
   const message = `${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`
-  throw Object.assign(new Error(message), { status, code: GatewayCode.safeParse(result.error).data?.data.code,
+  // The cause keeps the fetch's own error (an AbortError, a TypeError) for the client-error report (smarty-code#1058).
+  throw Object.assign(new Error(message, { cause: result.error }), { status, code: GatewayCode.safeParse(result.error).data?.data.code,
     serverMessage: gatewayRecoveryMessage(result.error) ?? undefined })
+}
+
+/** A read the loader itself gave up: a newer read replaces it (its view was read across a stream reconnect, or its
+ * owner cancelled it). Not a failure, so never reported as a client error (smarty-code#1058). */
+export class SupersededReadError extends Error {
+  override name = "SupersededReadError"
 }
 
 const filterIdentifiedParts = (parts: Part[]): Part[] => parts
@@ -863,12 +870,14 @@ export class SessionMessageLoader {
         if (entry.ordinary) this.invalidateOrdinaryView(target, true)
         const failure = error instanceof Error ? error : new Error(formatSdkError(error))
         this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
-        // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536).
-        const status = "status" in failure && Number.isInteger(failure.status) ? Number(failure.status) : undefined
+        // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536), with the error's name
+        // and HTTP status; an aborted or superseded read is not a failure (smarty-code#1058).
+        const report = failure instanceof SupersededReadError ? null : failureReport(failure)
+        if (!report) return
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
-        reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey, operationId, // Never the server's words.
-          status })
+        reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, sessionID: target.sessionID, runtimeKey, operationId,
+          ...report }) // Never the server's words.
       })
       .finally(() => {
         if (entry.inflight === promise) entry.inflight = null
@@ -979,7 +988,7 @@ export class SessionMessageLoader {
       // too slow to load) will not answer sooner, and three tries kept the page on its loading skeleton for over a
       // minute with nothing said (smarty-code#536, #562). It fails at once; the page shows why, with Try again.
       const result = await retry(async () => {
-        if (cancelled?.()) throw new Error("Session history read cancelled") // Not transient: no retry, no request.
+        if (cancelled?.()) throw new SupersededReadError("Session history read cancelled") // Not transient: no retry, no request.
         attempts += 1
         const response = await this.sdk.session.messages({
           sessionID: target.sessionID,
@@ -1058,7 +1067,7 @@ export class SessionMessageLoader {
       entry.positionOf.clear()
     }
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
-      throw new Error("Ordinary history view was disconnected before materialization")
+      throw new SupersededReadError("Ordinary history view was disconnected before materialization")
     }
     // A session shown live whose Pi then ended is read from its journal: read-only, with no view. It leaves ordinary mode
     // here, not "could not be loaded" (smarty-code#963 residual, 3.54). A live page without a view is still refused.
