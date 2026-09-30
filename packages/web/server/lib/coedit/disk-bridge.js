@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor, forgetToken,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor, forgetToken, collectRecovered,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -84,7 +84,16 @@ export function createDiskBridge({
     },
     close: (options) => current.close(options),
   };
-  let pending = []; // Private entries still open for writing: removed once no one writes to them.
+  let pending = [];
+  let orphans = false; // Orphans of a gone process whose bytes the helper has not recovered yet (#428).
+  const shown = new Set(); // The helper's recovered copies already shown by this bridge.
+  const showRecovered = (recovered = []) => {
+    for (const { marker, path: copy } of recovered) {
+      if (shown.has(marker)) continue;
+      shown.add(marker);
+      raise({ conflict: 'raced', published: true, recovery: copy, notice: DISTURBED_NOTICE });
+    }
+  }; // Private entries still open for writing: removed once no one writes to them.
   let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
   let unsynced = null; // A published save not yet flushed: { raised, entry }. Nothing is acknowledged until a flush succeeds.
   let base = null; // The room's state whose text was on disk at the last read or publish.
@@ -156,6 +165,14 @@ export function createDiskBridge({
   };
   /** Retries the removal of displaced revisions; bytes written into one meanwhile are kept and shown (residual 4). */
   const disposePending = async () => {
+    // Orphans the helper could not recover yet (a writer still held them): look again, and keep what it recovered.
+    if (orphans) {
+      const again = await collectRecovered(helper, key, rel, recoveryDir).catch(() => null);
+      if (again) {
+        orphans = again.orphans;
+        showRecovered(again.recovered);
+      }
+    }
     // A displaced revision stays while the save that displaced it is not durable.
     if (!(await confirmDurable())) return scheduleRetry();
     const still = [];
@@ -174,7 +191,7 @@ export function createDiskBridge({
   };
   /** While revisions are pending or a flush failed, retries on its own (at most `retryLimit` times). */
   const scheduleRetry = () => {
-    const waiting = pending.length > 0 || unsynced !== null;
+    const waiting = pending.length > 0 || unsynced !== null || orphans;
     if (!waiting) retries = 0;
     if (closed || retryTimer || !waiting || retries >= retryLimit) return;
     retries += 1;
@@ -328,6 +345,7 @@ export function createDiskBridge({
         // until that succeeds nothing is disposed or acknowledged (a cached read is no durability receipt).
         flushed = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel }).then((reply) => reply.ok === true, () => false);
         interrupted = await finishInterruptedSaves(helper, key, rel, recoveryDir, { durable: flushed, hooks });
+        orphans = interrupted.orphans;
         await prune();
         disk = await readSettled(helper, rel, settleMs);
         if (disk === null) throw new Error('Co-edited file does not exist');
@@ -344,6 +362,7 @@ export function createDiskBridge({
         raise({ conflict: 'interrupted', recovery: interrupted.finished[0], notice: 'A save of this file was interrupted: its previous version is in the recovery folder.' });
       }
       for (const late of interrupted.late) raise({ conflict: 'raced', published: true, recovery: late, notice: DISTURBED_NOTICE });
+      showRecovered(interrupted.recovered);
       pending.push(...interrupted.pending);
       schedulePrune();
       if (!flushed || interrupted.unsynced) {

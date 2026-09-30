@@ -24,6 +24,7 @@ describe.skipIf(!built)('co-edit stress (smartyfs#32 acceptance)', () => {
   it('a SIGKILLed stress run leaves no writer, server or helper behind (smartyfs#37 item 4)', async () => {
     const own = fs.mkdtempSync(path.join(dir, 'kill-'));
     const run = spawn(process.execPath, [path.join(import.meta.dirname, 'stress.mjs'), '--seconds', '60', '--seed', '37', '--dir', own], { stdio: 'ignore' });
+    const startOf = (pid) => fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19];
     const mine = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p) && Number(p) !== run.pid).filter((p) => {
       try {
         return fs.readFileSync(`/proc/${p}/cmdline`, 'utf8').includes(own) && !fs.readFileSync(`/proc/${p}/stat`, 'utf8').includes(') Z ');
@@ -31,15 +32,28 @@ describe.skipIf(!built)('co-edit stress (smartyfs#32 acceptance)', () => {
         return false;
       }
     });
+    // Its descendants, each with its start time: a pid is signalled only while it is still that process.
+    const snapshot = new Map();
+    const remember = () => {
+      for (const pid of mine()) {
+        try {
+          snapshot.set(pid, startOf(pid));
+        } catch {
+          // Already gone.
+        }
+      }
+    };
     try {
-      await expect.poll(() => mine().length, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
+      await expect.poll(() => { remember(); return mine().length; }, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
       run.kill('SIGKILL');
       await expect.poll(() => mine(), { timeout: 5000 }).toEqual([]);
     } finally {
-      // A failure above leaves nothing behind: only this test's own run and its children, by pid (smartyfs#37 item 14).
-      for (const pid of [run.pid, ...mine().map(Number)]) {
+      // A failure above leaves nothing behind (smartyfs#37 item 14): the run only while its handle is still live (never
+      // a reaped pid), and a descendant only while its pid still has the start time recorded for it (never a reused one).
+      if (run.exitCode === null && run.signalCode === null) run.kill('SIGKILL');
+      for (const [pid, start] of snapshot) {
         try {
-          process.kill(pid, 'SIGKILL');
+          if (startOf(pid) === start) process.kill(Number(pid), 'SIGKILL');
         } catch {
           // Already gone.
         }

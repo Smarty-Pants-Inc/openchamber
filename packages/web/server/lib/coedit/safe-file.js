@@ -88,10 +88,13 @@ function makeDirDurable(dir) {
  * `.staging` is opened without following a link and made 0700 through that descriptor, so no chmod reaches elsewhere.
  */
 /** The recovery directory (the bridge's, as this account): created durably; ours, not a link, not writable by others. */
-function prepareRecoveryDir(recoveryDir) {
+function prepareRecoveryDir(recoveryDir, { aclGranted = false } = {}) {
   makeDirDurable(recoveryDir);
   const st = fs.lstatSync(recoveryDir);
-  if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & 0o022) !== 0) {
+  // With the service, the helper's account is granted rwx on it by an ACL, whose mask shows in the group bits: the
+  // helper checks that ACL's entries itself (admit_recovery). Others may never write.
+  const forbidden = aclGranted ? 0o002 : 0o022;
+  if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & forbidden) !== 0) {
     throw new Error('Co-editing needs a recovery directory of its own, not a link or one others can write to');
   }
 }
@@ -130,8 +133,9 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
   if (!anchoredFilesAvailable()) throw new Error('Co-editing needs the coedit-fs helper, which this system lacks');
   const socket = helperSocket();
   if (socket) {
-    prepareRecoveryDir(path.dirname(privateDir)); // The service keeps its own staging; recovery copies stay ours.
-    return connectHelper(socket, root, { timeoutMs });
+    // The service keeps its own staging; recovery copies stay ours, and it delivers what it recovers there (#428).
+    prepareRecoveryDir(path.dirname(privateDir), { aclGranted: true });
+    return connectHelper(socket, root, { timeoutMs, recovery: path.dirname(privateDir) });
   }
   if (!forTests && !sameAccountAllowed()) {
     throw new Error('Co-editing needs the coedit-fs service (OPENCHAMBER_COEDIT_SOCKET): the helper must not run as this account');
@@ -142,6 +146,7 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
   if (forTests) env.COEDIT_FS_TEST = '1';
   const child = spawn(helperPath(), ['--same-account', root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   return speak(child.stdin, child.stdout, {
+    recovery: path.dirname(privateDir),
     timeoutMs,
     pid: child.pid,
     root: null,
@@ -166,9 +171,10 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
  * A connection to the coedit-fs service: systemd starts one helper, as its own account, per connection; the root goes
  * in the first request. Ending the connection ends that helper (it reads EOF); it cannot be killed from this account.
  */
-function connectHelper(socketPath, root, { timeoutMs }) {
+function connectHelper(socketPath, root, { timeoutMs, recovery }) {
   const conn = net.createConnection(socketPath);
   return speak(conn, conn, {
+    recovery,
     timeoutMs,
     pid: undefined,
     root,
@@ -190,7 +196,7 @@ function connectHelper(socketPath, root, { timeoutMs }) {
 }
 
 /** The JSON-lines protocol over a helper's input and output, with deadlines, a frame guard and the handshake. */
-function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
+function speak(input, output, { timeoutMs, pid, root, recovery, kill, onEnd }) {
   const waiting = new Map();
   let next = 0;
   let ended = null;
@@ -232,7 +238,9 @@ function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
     input.write(`${JSON.stringify({ ...request, id })}\n`, () => {});
   });
   // Every request waits for the handshake: a helper of another protocol (an older build) ends before any request.
-  const ready = send(root ? { op: 'hello', root } : { op: 'hello' }).then((reply) => {
+  const hello = { op: 'hello', recovery };
+  if (root) hello.root = root;
+  const ready = send(hello).then((reply) => {
     if (reply.ok && reply.protocol === PROTOCOL) return;
     const error = new Error(reply.ok || /unknown op/.test(String(reply.error))
       ? `coedit-fs speaks protocol ${reply.protocol ?? 'unknown'}, not ${PROTOCOL}`
@@ -351,8 +359,9 @@ export async function pruneRecovery(recoveryDir, key, { now = Date.now(), days =
   for (const { name, at } of copies.slice(newest)) {
     if (now - at <= days * 86_400_000) continue;
     const full = path.join(recoveryDir, name);
+    // Ours, or the co-edit helper's own delivery (#428): both only in this account's own recovery directory.
     const st = await fs.promises.lstat(full).catch(() => null);
-    if (!st?.isFile() || st.uid !== process.geteuid()) continue;
+    if (!st?.isFile()) continue;
     await fs.promises.unlink(full);
     removed += 1;
   }
@@ -525,5 +534,24 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
     if (done.busy) pending.push({ entry, hash: done.hash });
     if (done.unsynced) unsynced = true;
   }
-  return { finished, pending, late, unsynced };
+  const collected = keepAllRecovered(reply, recoveryDir);
+  return { finished, pending, late, unsynced, ...collected };
 }
+
+/**
+ * What the helper itself recovered from orphans whose originating process is gone (#428), kept once each; and
+ * whether orphans remain whose bytes a writer still holds (the helper recovers them later: the caller looks again).
+ */
+function keepAllRecovered(reply, recoveryDir) {
+  // The helper wrote these copies into the recovery directory itself; the caller only reports them, once each.
+  const recovered = (reply.recovered ?? []).filter((copy) => copy.path).map((copy) => ({ marker: copy.marker, path: path.resolve(recoveryDir, copy.path) }));
+  return { recovered, orphans: (reply.records ?? []).some((record) => record.orphan) };
+}
+
+/** Looks again at orphans the helper could not recover yet (a writer still held them). */
+export async function collectRecovered(helper, key, rel, recoveryDir) {
+  const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) });
+  if (!reply.ok) throw refused(reply);
+  return keepAllRecovered(reply, recoveryDir);
+}
+

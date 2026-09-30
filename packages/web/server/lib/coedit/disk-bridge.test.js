@@ -77,7 +77,7 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } 
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
   /** The helper's private staging entries (displaced or staged revisions). */
-  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out')) : []);
+  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')) : []);
   /** Saves with the helper paused at `point`, running `fn` inside that window. */
   const saveDuring = async (point, fn) => {
     hooks.helper = { pause: point, pauseMs: 3000 };
@@ -650,10 +650,15 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       // The restarted server's bridge: it holds no token, and must not wait 7 days.
       const again = t.open();
       await again.bridge.load();
-      expect(again.conflicts.map((c) => c.conflict)).toContain('interrupted');
+      expect(again.conflicts.map((c) => c.conflict)).toContain('raced'); // The helper's recovery, with its notice.
       expect(again.text.toString()).toBe('Plog\n');
-      await expect.poll(() => t.kept().some((k) => k === 'log\nlate\n'), { timeout: 5000 }).toBe(true);
-      await expect.poll(() => t.staged(), { timeout: 5000 }).toEqual([]);
+      expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
+      expect(t.staged()).toEqual([]);
+      // Loading again does not keep it twice.
+      await again.bridge.close();
+      const third = t.open();
+      await third.bridge.load();
+      expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
     });
 
     it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {

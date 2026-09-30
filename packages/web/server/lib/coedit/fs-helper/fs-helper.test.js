@@ -74,7 +74,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out')); // Locks and transaction records are not entries.
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')); // Locks and transaction records are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -727,13 +727,23 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       await sleep(300); // Its helper reads EOF and exits, releasing the record's lock.
       fs.writeSync(writer, 'late\n');
       fs.closeSync(writer);
-      // No token: the originating process is gone, so this is recovered now, not after 7 days.
+      // No token: the caller gains nothing, but its origin is gone, so the HELPER itself delivers the final bytes into
+      // the recovery directory now (not after 7 days); the caller learns only where (#428 round 1).
+      expect(await h.call({ op: 'hello', recovery: recoveryDir() })).toMatchObject({ ok: true });
       const seen = await h.call({ op: 'list', path: 'docs/a.md' });
-      expect(seen.records).toEqual([{ txn: 'a0a0a0', state: 'published' }]);
-      expect(seen.entries).toMatchObject([{ entry: reply.displaced, hash: sha('one\nlate\n') }]);
-      expect(await dispose(reply.displaced, sha('one\nlate\n'))).toMatchObject({ ok: true });
+      expect(seen.records).toEqual([{ txn: 'a0a0a0', state: 'published', owned: true, orphan: false }]);
+      expect(seen.entries).toEqual([]); // The displaced entry is gone only after its bytes were delivered.
+      expect(seen.recovered).toEqual([{ marker: expect.stringMatching(/\.done$/), path: expect.stringContaining(`-${KEY}-reca0a0a0`), hash: sha('one\nlate\n') }]);
+      expect(JSON.stringify(seen)).not.toContain(Buffer.from('one\nlate\n').toString('base64')); // No bytes to the caller.
+      expect(fs.readFileSync(seen.recovered[0].path, 'utf8')).toBe('one\nlate\n');
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).recovered).toHaveLength(1); // Delivered once.
     });
 
+    /** The bridge's recovery directory beside the private dir, 0700, admitted by hello. */
+    const recoveryDir = () => {
+      fs.chmodSync(path.join(dir, 'recovery'), 0o700);
+      return path.join(dir, 'recovery');
+    };
     /** A pending transaction whose connection has ended, with a chosen origin [pid, start] (a COEDIT_FS_TEST hook). */
     const orphanWithOrigin = async (txn, origin) => {
       replace('one\n'); // A fresh revision to publish over.
@@ -743,6 +753,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       h.stop(); // Its helper connection ends; the origin decides who may recover it.
       await sleep(200);
       h = helper(root, priv);
+      await h.call({ op: 'hello', recovery: recoveryDir() });
       fs.closeSync(writer);
       return p;
     };
@@ -750,19 +761,28 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
     test('smartyfs#32 pre-enable: a live originating process keeps its transaction; its pid reused by another process counts as gone', async () => {
       const alive = await orphanWithOrigin('a1a1a1', [process.pid, startOf(process.pid)]);
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries).toEqual([{ entry: alive.displaced, owned: true }]);
+      const first = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(first.entries).toEqual([{ entry: alive.displaced, owned: true }]);
+      expect(first.recovered).toEqual([]); // A live origin: nothing is recovered but by its token holder.
       const reused = await orphanWithOrigin('a2a2a2', [process.pid, startOf(process.pid) + 1]); // Same pid, another start.
       const seen = await h.call({ op: 'list', path: 'docs/a.md' });
-      expect(seen.entries).toContainEqual({ entry: alive.displaced, owned: true });
-      expect(seen.entries.find((e) => e.entry === reused.displaced)).toMatchObject({ hash: expect.any(String) });
+      expect(seen.entries).toEqual([{ entry: alive.displaced, owned: true }]); // The reused one's entry was recovered.
+      expect(seen.recovered.map((r) => r.marker)).toEqual([expect.stringMatching(new RegExp(`^${KEY}\\.a2a2a2\\.`))]);
+      expect(seen.entries.find((e) => e.entry === reused.displaced)).toBeUndefined();
     });
 
-    test('smartyfs#32 pre-enable: an origin that cannot be looked up fails closed (the 7-day expiry applies)', async () => {
-      const p = await orphanWithOrigin('a3a3a3', [999_999_999, 1]); // A pid that does not exist: gone.
-      expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries).toMatchObject([{ entry: p.displaced, hash: expect.any(String) }]);
-      const unreadable = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procStat' }); // /proc unreadable: alive.
-      expect(unreadable.entries).toEqual([{ entry: p.displaced, owned: true }]);
-      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: 'x', fault: 'procStat' })).toMatchObject({ ok: false, owned: true });
+    test('#428 round 1, finding 2: a live origin hidden by procfs (ENOENT, as hidepid does) counts as alive; only ESRCH is exit', async () => {
+      const hidden = await orphanWithOrigin('a3a3a3', [process.pid, startOf(process.pid)]);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procHidden' });
+      expect(seen.entries).toEqual([{ entry: hidden.displaced, owned: true }]);
+      expect(seen.recovered).toEqual([]);
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: hidden.displaced, hash: 'x', fault: 'procHidden' })).toMatchObject({ ok: false, owned: true });
+      expect(staged()).toContain(hidden.displaced);
+      const gone = await orphanWithOrigin('a4a4a4', [999_999_999, 1]); // kill(pid, 0) says ESRCH: really gone.
+      const after = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procHidden' });
+      expect(after.recovered.map((r) => r.marker)).toEqual([expect.stringMatching(new RegExp(`^${KEY}\\.a4a4a4\\.`))]);
+      expect(staged()).not.toContain(gone.displaced);
+      expect(staged()).toContain(hidden.displaced);
     });
 
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {

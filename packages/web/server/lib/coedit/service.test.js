@@ -31,7 +31,11 @@ const setup = (content) => {
   const account = process.env.OPENCHAMBER_COEDIT_TEST_ACCOUNT ?? 'coedit-test';
   execFileSync('setfacl', ['-m', `u:${account}:x`, home]);
   execFileSync('setfacl', ['-R', '-m', `u:${account}:rwX`, '-m', `d:u:${account}:rwX`, root]);
-  return { home, root, file: path.join(root, 'docs', 'a.md'), recoveryDir: path.join(home, 'recovery') };
+  // The recovery directory: 0700, with the same grant, so the helper can deliver what it recovers (#428).
+  const recoveryDir = path.join(home, 'recovery');
+  fs.mkdirSync(recoveryDir, { mode: 0o700 });
+  execFileSync('setfacl', ['-m', `u:${account}:rwx`, recoveryDir]);
+  return { home, root, file: path.join(root, 'docs', 'a.md'), recoveryDir };
 };
 const bridgeFor = (t) => {
   const doc = new Y.Doc();
@@ -173,7 +177,7 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     const other = startHelper(t.root, staging);
     try {
       const seen = await other.call({ op: 'list', path: 'docs/a.md' });
-      expect(seen.records).toEqual([{ txn: 'feed01', state: 'published', owned: true }]); // Not this caller's to take.
+      expect(seen.records).toEqual([{ txn: 'feed01', state: 'published', owned: true, orphan: false }]); // Not this caller's to take.
       expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01' })).toMatchObject({ ok: false });
       expect(await other.call({ op: 'ack', path: 'docs/a.md', txn: 'feed01', token: 'guess' })).toMatchObject({ ok: false });
       // With the token: its retained data goes first (a claim), then the receipt.
@@ -275,14 +279,14 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     }
   });
 
-  it('smartyfs#32 pre-enable: once the originating process has exited, the next load recovers its pending revision at once', async () => {
+  it('#428: after the originating process exits, an unrelated tokenless connection gets nothing; the helper delivers the late bytes to the restarted bridge', async () => {
     const t = setup('o\n');
     const staging = path.join(t.recoveryDir, '.staging');
     const writer = fs.openSync(t.file, 'a');
     const probe = startHelper(t.root, staging);
     const current = await readFile(probe, 'docs/a.md');
     await probe.close();
-    // Another process (a server that then exits) connects to the service itself and publishes.
+    // The server before its restart: its own connection to the service publishes, then the process exits.
     const origin = spawnSync(process.execPath, ['-e', `
       const c = require('net').createConnection(process.argv[1]);
       const rl = require('readline').createInterface({ input: c });
@@ -296,14 +300,24 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     await new Promise((done) => setTimeout(done, 500)); // Its helper reads EOF and exits.
     fs.writeSync(writer, 'late\n');
     fs.closeSync(writer);
-    const next = startHelper(t.root, staging); // The next load: no token, and the origin is gone.
+    // An unrelated process of the same account, with no token, races the restarted bridge.
+    const other = startHelper(t.root, staging);
     try {
-      const seen = await next.call({ op: 'list', path: 'docs/a.md' });
-      expect(seen.entries).toMatchObject([{ entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) }]);
-      expect(await next.call({ op: 'dispose', path: 'docs/a.md', entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) })).toMatchObject({ ok: true });
+      const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+      expect(JSON.stringify(seen)).not.toContain(Buffer.from('o\nlate\n').toString('base64')); // No bytes.
+      expect(seen.entries.every((e) => e.owned || e.data === undefined)).toBe(true);
+      // Its dispose is refused: only the helper recovers an orphan, and it already has.
+      expect((await other.call({ op: 'dispose', path: 'docs/a.md', entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) })).ok).toBe(false);
+      expect(seen.recovered).toEqual([{ marker: expect.any(String), path: expect.stringContaining(t.recoveryDir), hash: hashBytes(Buffer.from('o\nlate\n')) }]);
     } finally {
-      await next.close();
+      await other.close();
     }
+    // The restarted server's bridge loads: the late bytes are in its recovery directory, shown once.
+    const { bridge, conflicts } = bridgeFor(t);
+    await bridge.load();
+    const raced = conflicts.filter((c) => c.conflict === 'raced');
+    expect(raced).toHaveLength(1);
+    expect(fs.readFileSync(raced[0].recovery, 'utf8')).toBe('o\nlate\n');
   });
 
   it('keys agree: the service names entries by sha256(root NUL path), as the bridge does', async () => {

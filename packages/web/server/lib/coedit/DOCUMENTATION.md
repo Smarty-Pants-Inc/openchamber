@@ -52,13 +52,19 @@ round 4); until then no conflict could be seen.
     - **After a lost helper:** an unowned transaction's retained data stays its originating bridge's. Only that
       bridge's **token** (kept in this server process's memory, never on disk) lets a helper claim it: a bridge that
       reconnects, or is reopened in the same process, reclaims its pending revision and its late bytes. No other
-      process can list its bytes or dispose it while its **originating process** lives: each record keeps the pid and
-      start time of the process that connected (`SO_PEERCRED`, `/proc/<pid>/stat`; a pid reused by another process
-      has another start time). Once that process is gone (a server restart or crash), the transaction is a true
-      orphan, and the next load recovers it at once (smartyfs#32's pre-enable item; code-lead's decision there). A
-      process that cannot be looked up counts as alive (fail closed): then the **old orphan** rule applies (7 days).
-      A record with no token hash (not written by the bridge) has no such guard. Tokens are dropped once their
-      transaction needs them no more (a definite refusal, a settled lost reply with no data, a disposed revision).
+      process can list its bytes or dispose it, ever, without the token (until it is an **old orphan**, 7 days).
+    - **A gone origin** (#428): each record keeps the pid and start time of the process that connected. Only proof
+      counts as exit: `kill(pid, 0)` returns ESRCH, or the pid is readable with another start time (reused). A hidden
+      or unreadable `/proc` (`hidepid` returns ENOENT for a live process), or EPERM, counts as alive. Once its origin is
+      proven gone, the **helper itself** recovers the orphan: when a lease shows no writer is left, it writes the
+      final bytes into the bridge's recovery directory (named in `hello`; admitted only if the served account owns it
+      and no one else can write it, outside the project and the private directory). The file is new, 0644 inside
+      that 0700 directory, fsynced, and uses the bridge's recovery-name format. A durable marker records the delivery,
+      and only then is the entry removed. Callers get only metadata (the path and hash), never the bytes, and cannot
+      dispose it. The restarted bridge shows each delivered copy once (`raced`). **Setup:** with the service, the
+      recovery directory needs the same grant as a project root (`setfacl -m u:smarty-coedit:rwx <recovery dir>`).
+    - Tokens are dropped once their transaction needs them no more (a definite refusal, a settled lost reply with no
+      data, a disposed revision).
     - **Outcome:** once the owner is gone, a missing outcome is decided from the staged name (our inode: `aborted`;
       another inode: `published`; a complete scan that finds none: `aborted`) and made durable **before** any
       recovery may remove the entry. A failed scan, stat, open, lock, read, write or flush is never taken as absence:
