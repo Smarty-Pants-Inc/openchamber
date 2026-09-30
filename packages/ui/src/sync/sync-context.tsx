@@ -821,7 +821,10 @@ export async function resyncDirectorySessionStatuses(
   mode: StatusSnapshotMode,
 ): Promise<DirectorySessionStatusSnapshot | null> {
   const runtimeKey = getRuntimeKey() // The server this read goes to, before its first await (its reports go there only).
+  // openchamber#438 review 3: a runtime switch or a new sign-in during a read retires it: nothing it read is published.
+  const scope = captureRuntimeRequestScope()
   const nextStatuses = await opencodeClient.getSessionStatusForDirectory(directory)
+  if (!isRuntimeRequestScopeCurrent(scope)) return null
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
   // of active sessions — reconciled per `mode` (absence ≠ idle under monotonic).
   if (nextStatuses === null) return null
@@ -840,20 +843,23 @@ export async function resyncDirectorySessionStatuses(
   const undecided = candidateSessionIds.filter((id) => nextStatuses[id] === undefined && snapshotVerdict(undefined, directory, evidence.get(id)!) !== 'hold')
   if (undecided.length && useProjectsStore.getState().managedCatalogAdmitted) {
     const fleet = await opencodeClient.getSessionStatusForDirectory(null).catch(() => null)
+    if (!isRuntimeRequestScopeCurrent(scope)) return null
     for (const id of undecided) { const listed = toSessionStatus(fleet?.[id]); if (listed) evidence.get(id)!.fleet = listed }
   }
   const verdicts = new Map(candidateSessionIds.map((id) => [id, active(toSessionStatus(nextStatuses[id])) ? 'lower' as const
     : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
   const applied = candidateSessionIds.filter((id) => verdicts.get(id) !== 'hold')
+  const held = new Set(candidateSessionIds.filter((id) => verdicts.get(id) === 'hold'))
   applySessionStatusSnapshot(store, nextStatuses, applied, mode)
   store.setState({ sessionStatusReady: true })
-  applyGlobalSessionStatusSnapshot(directory, nextStatuses, applied)
-  // A held session the fleet read found active while neither store had it active: both stores take the fleet's word.
-  for (const [id, e] of evidence) {
-    if (verdicts.get(id) !== 'hold' || !active(e.fleet) || active(e.prior)) continue
+  applyGlobalSessionStatusSnapshot(directory, nextStatuses, applied, held) // Held ones are kept, sweep included (review 3).
+  // A held session the fleet read found active: each store that does not show it active takes the fleet's word.
+  for (const id of held) {
+    const e = evidence.get(id)!
+    if (!active(e.fleet)) continue
     const status = e.fleet!
-    store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
-    if (!active(e.indexed?.status)) applyGlobalSessionStatusSnapshot(e.session?.directory ?? directory, { [id]: status }, [id])
+    if (!active(e.prior)) store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
+    if (!active(e.indexed?.status)) applyGlobalSessionStatusSnapshot(e.indexed?.directory ?? e.session?.directory ?? directory, { [id]: status }, [id])
   }
   // An authoritative snapshot that settles sessions previously observed busy/retry can leave their trailing assistant
   // message and tool parts unfinished (managed process died mid-turn, #2577): finalize them now. Only a 'settle' verdict.

@@ -215,6 +215,8 @@ export const applyGlobalSessionStatusSnapshot = (
   rawDirectory: string,
   raw: Record<string, { type?: string }>,
   knownSessionIds?: Iterable<string>,
+  /** Sessions this snapshot must not lower (smarty-code#737: a fleet session it is not the owner's word on). */
+  held?: ReadonlySet<string>,
 ): void => {
   const directory = normalizeDirectory(rawDirectory);
   const known = new Set(knownSessionIds ?? []);
@@ -231,7 +233,7 @@ export const applyGlobalSessionStatusSnapshot = (
   // answer. Reuses the sets already built above, so this allocates nothing.
   reconcileSessionActivityTiming(
     activeSessionIds,
-    (sessionId) => known.has(sessionId) || sessionId in raw,
+    (sessionId) => !held?.has(sessionId) && (known.has(sessionId) || sessionId in raw),
   );
   useGlobalSessionStatusStore.setState((state) => {
     let changed = false;
@@ -252,6 +254,7 @@ export const applyGlobalSessionStatusSnapshot = (
     };
 
     for (const [sessionId, entry] of state.statusById) {
+      if (held?.has(sessionId)) continue;
       if ((entry.directory === directory || known.has(sessionId)) && !(sessionId in raw)) {
         next.delete(sessionId);
         removeActiveSession(sessionId);
@@ -263,7 +266,7 @@ export const applyGlobalSessionStatusSnapshot = (
       const type = normalizeStatusType(status?.type);
       const current = next.get(sessionId);
       if (type === 'idle') {
-        if (current && (current.directory === directory || known.has(sessionId))) {
+        if (current && !held?.has(sessionId) && (current.directory === directory || known.has(sessionId))) {
           next.delete(sessionId);
           removeActiveSession(sessionId);
           changed = true;

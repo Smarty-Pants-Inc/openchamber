@@ -66,3 +66,57 @@ test("reconciliation counterexample: a managed session of this directory, absent
   expect(store.getState().session_status?.[S]?.type).toBe("idle")
   expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).not.toBe("running")
 })
+
+// openchamber#438 review 3.
+const activeInIndex = (id: string) => useGlobalSessionStatusStore.getState().activeSessionIds.has(id)
+test("review 3 #1: same-directory absence of an ordinary busy session keeps its global entry and active membership", async () => {
+  const store = new ChildStoreManager().ensureChild(NET, { bootstrap: false })
+  const { messages, parts } = running()
+  store.setState({ session_status: { [S]: busyOrdinary }, message: { [S]: messages }, part: parts })
+  applyGlobalSessionStatusSnapshot(NET, { [S]: busyOrdinary }, [S]) // Indexed under the directory being resynced.
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async () => ({}) as never))
+  useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+  await resyncDirectorySessionStatuses(NET, store, [S], "authoritative")
+  expect(store.getState().session_status?.[S]?.type).toBe("busy")
+  expect(useGlobalSessionStatusStore.getState().statusById.get(S)?.status.type).toBe("busy")
+  expect(activeInIndex(S)).toBe(true)
+  expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).toBe("running")
+})
+test("review 3 #1: a busy child, an empty global index and a busy fleet answer: the global index takes busy too", async () => {
+  const store = new ChildStoreManager().ensureChild(CODE, { bootstrap: false })
+  const { messages, parts } = running()
+  store.setState({ session_status: { [S]: { type: "busy" } }, message: { [S]: messages }, part: parts })
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async (d) => (d ? {} : { [S]: { type: "retry", attempt: 1, message: "x", next: 1 } }) as never))
+  useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+  await resyncDirectorySessionStatuses(CODE, store, [S], "authoritative")
+  expect(store.getState().session_status?.[S]?.type).toBe("busy")
+  expect(useGlobalSessionStatusStore.getState().statusById.get(S)?.status.type).toBe("retry")
+  expect(activeInIndex(S)).toBe(true)
+  expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).toBe("running")
+})
+for (const change of ["endpoint", "sign-in"] as const) {
+  test(`review 3 #2: a ${change} change while the fleet read is pending publishes nothing of the stale read`, async () => {
+    const { switchRuntimeEndpoint } = await import("@/lib/runtime-switch")
+    const { resetRuntimeAuthGeneration } = await import("@/lib/runtime-auth")
+    const store = new ChildStoreManager().ensureChild(CODE, { bootstrap: false })
+    const { messages, parts } = running()
+    store.setState({ session: [managed(CODE)], session_status: { [S]: { type: "busy" } }, message: { [S]: messages }, part: parts })
+    applyGlobalSessionStatusSnapshot(NET, { [S]: { type: "busy" } }, [S])
+    let release: (value: unknown) => void = () => {}
+    spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async (d) => d ? ({}) as never
+      : await new Promise<unknown>((resolve) => { release = resolve }) as never))
+    useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+    // A managed session absent here with an index entry elsewhere is held without a fleet read; drop the index so the read runs.
+    replaceGlobalSessionStatusById(new Map())
+    const pending = resyncDirectorySessionStatuses(CODE, store, [S], "authoritative")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    if (change === "endpoint") switchRuntimeEndpoint({ apiBaseUrl: "", runtimeKey: `other-${Date.now()}` }); else resetRuntimeAuthGeneration()
+    const newIndex = new Map([["other-session", { status: { type: "busy" } as never, directory: "/p/new" }]])
+    replaceGlobalSessionStatusById(newIndex)
+    release(null)
+    expect(await pending).toBeNull()
+    expect([...useGlobalSessionStatusStore.getState().statusById.keys()]).toEqual(["other-session"]) // The new runtime's index.
+    expect(store.getState().session_status?.[S]?.type).toBe("busy") // The old store untouched.
+    expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).toBe("running")
+  })
+}
