@@ -568,9 +568,12 @@ function keepAllRecovered(reply, recoveryDir) {
 }
 
 /** Looks again at orphans the helper could not recover yet (a writer still held them). */
-export async function collectRecovered(helper, key, rel, recoveryDir) {
+export async function collectRecovered(helper, key, rel, recoveryDir, hooks = {}) {
   const tokens = tokensFor(key);
-  const reply = await helper.call({ op: 'list', path: rel, tokens });
+  // Only transactions already settled when this list is SENT may be retired by what it omits: a complete list proves
+  // absence at its scan, and a publish that settles while its reply is on the way may have data by then (#436 r1).
+  const settled = Object.keys(tokens).filter((txn) => !SETTLING.has(`${key}.${txn}`));
+  const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens });
   if (!reply.ok) throw refused(reply);
   // This process's own retained data (its token opens it): returned for enrolment as pending revisions (#428).
   // Disposed against the hash of the revision it displaced (not its current bytes), so a late write is kept and shown.
@@ -578,13 +581,13 @@ export async function collectRecovered(helper, key, rel, recoveryDir) {
     .map((e) => ({ entry: e.entry, hash: BASES.get(`${key}.${txnOf(key, e.entry)}`) ?? '', token: tokens[txnOf(key, e.entry)] }));
   // A token whose transaction is settled is verified done when the list shows no data entry of it and either a terminal
   // record or no record at all (an ack that removed the receipt, its reply lost: smartyfs#37 item 16). The list fails
-  // closed, so what it omits is really absent. Tokens still settling (a publish in flight or unsettled) stay.
+  // closed, so what it omits is really absent. Tokens still settling when the list was sent stay.
   const records = new Map((reply.records ?? []).map((record) => [record.txn, record]));
-  for (const txn of Object.keys(tokens)) {
+  for (const txn of settled) {
     const record = records.get(txn);
     const terminal = !record || ((record.state === 'published' || record.state === 'aborted') && !record.owned);
     const data = reply.entries.some((e) => txnOf(key, e.entry) === txn);
-    if (terminal && !data && !SETTLING.has(`${key}.${txn}`)) forgetToken(key, txn);
+    if (terminal && !data) forgetToken(key, txn);
   }
   return { ...keepAllRecovered(reply, recoveryDir), mine };
 }

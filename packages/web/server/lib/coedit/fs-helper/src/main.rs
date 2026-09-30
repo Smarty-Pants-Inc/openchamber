@@ -1616,6 +1616,8 @@ fn main() {
                 if let Some(id) = req.get("id") {
                     v["id"] = id.clone();
                 }
+                // Tests only: the op is done and its lock released, but its reply is late (#436 review round 1).
+                test_pause(&req, "beforeReply");
                 v
             }
             Err(_) => json!({"ok": false, "error": "invalid json"}),

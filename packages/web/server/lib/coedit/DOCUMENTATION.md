@@ -76,7 +76,8 @@ round 4); until then no conflict could be seen.
       `ack` that removed the receipt but whose reply was lost leaves nothing else to find (smartyfs#37 item 16). A
       transaction still settling (its publish sent without a reply, or a lost reply not yet settled) keeps its token
       whatever a list shows: another connection can list the file before the helper takes the file's lock for that
-      publish.
+      publish. Only transactions already settled when a list is SENT may be retired by it: its reply can arrive after
+      a publish that settled meanwhile and now has data (#436).
     - **Outcome:** once the owner is gone, a missing outcome is decided from the staged name (our inode: `aborted`;
       another inode: `published`; a complete scan that finds none: `aborted`) and made durable **before** any
       recovery may remove the entry. A failed scan, stat, open, lock, read, write or flush is never taken as absence:

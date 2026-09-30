@@ -748,6 +748,35 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       await expect.poll(() => tokenCount(), { timeout: 5000 }).toBe(before); // Published and disposed: now it goes.
     });
 
+    it('#436 round 1: an empty list sent before a publish, answered after it settled, keeps that publish\'s token', async () => {
+      const t = await setup('log\n');
+      const before = tokenCount();
+      const agentFd = fs.openSync(t.file, 'a'); // Keeps the displaced revision: the publish retains data.
+      t.person((x) => x.insert(0, 'person\n'));
+      t.hooks.helper = { pause: 'beforeLock', pauseMs: 800 };
+      const saving = t.bridge.save();
+      await expect.poll(() => tokenCount(), { timeout: 3000 }).toBe(before + 1);
+      // Another connection of this process lists first (no record, no data yet); its reply comes after the publish's.
+      const other = startHelper(t.root, t.privateDir, { testHooks: true });
+      try {
+        const listing = collectRecovered(other, keyOf(t.root, 'src/notes.md'), 'src/notes.md', t.recoveryDir, { helper: { pause: 'beforeReply', pauseMs: 2500 } });
+        expect(await saving).toEqual({ ok: true });
+        await listing;
+        expect(tokenCount()).toBe(before + 1); // Still held: its data is retained.
+      } finally {
+        await other.close();
+      }
+      delete t.hooks.helper;
+      await t.bridge.close();
+      const again = t.open(); // Reopened in this process: its token reclaims the retained revision.
+      await again.bridge.load();
+      fs.writeSync(agentFd, 'appended\n');
+      fs.closeSync(agentFd);
+      await expect.poll(() => again.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(again.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('log\nappended\n');
+      expect(t.leftovers()).toEqual([]);
+    });
+
     it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {
       const t = await setup('a\n');
       const before = tokenCount();
