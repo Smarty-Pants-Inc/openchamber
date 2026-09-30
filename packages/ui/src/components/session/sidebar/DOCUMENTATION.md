@@ -98,6 +98,8 @@ Reveal waits for the selected root row in its admitted rendered group, consumes
 the marker before writing personal expansion through `lib/sidebar-view.ts`, and
 expands only its project and group. Explicit same-target collapse cancels pending
 work even before ownership arrives. Unrelated collapse does not cancel it.
+A waiting catalog open keeps its original scoped ticket through admission, so
+catalog publication cannot undo a later manual collapse.
 Desktop pagination uses the target group's sorted, unfoldered roots. Mobile uses
 the target bucket's actual roots. Neither path fetches history to reveal a row.
 
@@ -106,6 +108,11 @@ without claiming `mobile-session-tree` anonymous values. Worktree keys adapt to
 `${projectId}:worktree:${normalizedPath}`; its unheaded root bucket uses
 `${projectId}:root`. Mobile still renders one root bucket rather than desktop's
 workspace subgroups. Legacy mobile and VS Code retain their existing view path.
+
+A current preference PATCH returning owner-mismatch 409 retires the old person's
+maps and request authority, then loads the newly admitted person's preferences.
+Queued old-person choices reject without dispatch or replay. A stale 409 cannot
+retire a newer view. Ordinary storage errors keep same-person rollback behavior.
 
 #1061 covers root rows and containing project/worktree groups only. Child and
 folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1066).

@@ -86,6 +86,15 @@ export async function setPersonalSidebarView(patch: Patch): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ owner: captured.owner, ...changes }),
     });
+    if (response.status === 409 && current(captured)) {
+      // The protected route admitted a different person. Revoke old tab/request
+      // authority through verified recovery, and never retarget queued choices.
+      notifyFailure();
+      retire();
+      useAuthSessionStore.getState().markAuthenticated();
+      if (!isRuntimeRequestScopeCurrent(entry.scope)) retire();
+      hydrateCurrent();
+    }
     if (!response.ok) throw new Error(`Sidebar preference save failed (${response.status})`);
     // Accepted sparse changes advance rollback authority, never an older full-map echo.
     if (current(captured)) {

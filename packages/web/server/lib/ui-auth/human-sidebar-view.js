@@ -33,7 +33,10 @@ function parseStored(value) {
 /** One running auth controller owns the ordering queue; the Better Auth user row owns durability. */
 export function createHumanSidebarView({ auth, resolve, actor }) {
   const pending = new Map();
-  return async (req) => {
+  return async (req, res) => {
+    const requireOpenResponse = () => {
+      if (res?.destroyed || res?.writableEnded) fail(401, 'Human authentication required');
+    };
     const admitted = req.humanIdentity;
     if (!admitted) fail(401, 'Human authentication required');
     const patch = req.method === 'PATCH' ? parsePatch(req.body) : null;
@@ -44,6 +47,7 @@ export function createHumanSidebarView({ auth, resolve, actor }) {
     const previous = pending.get(owner.subject) || Promise.resolve();
     const operation = previous.catch(() => {}).then(async () => {
       // A queued request cannot borrow another person or a revoked session's authority.
+      requireOpenResponse();
       const session = await resolve(req);
       if (!session) fail(401, 'Human authentication required');
       const current = actor(session);
@@ -52,6 +56,15 @@ export function createHumanSidebarView({ auth, resolve, actor }) {
       const where = [{ field: 'id', value: current.subject }];
       const user = await adapter.findOne({ model: 'user', where });
       if (!user) fail(401, 'Human authentication required');
+      // The user lookup may outlive revocation or expiry of the protected response.
+      requireOpenResponse();
+      const authoritative = await adapter.findOne({ model: 'session',
+        where: [{ field: 'id', value: session.session.id }], select: ['userId', 'expiresAt'] });
+      requireOpenResponse();
+      if (!authoritative || new Date(authoritative.expiresAt).getTime() <= Date.now()) {
+        fail(401, 'Human authentication required');
+      }
+      if (authoritative.userId !== owner.subject) fail(409, 'Sidebar preference owner changed');
       const stored = parseStored(user.sidebarPreferences);
       if (!patch) return { owner, ...stored };
       const merged = { projects: { ...stored.projects, ...patch.projects }, groups: { ...stored.groups, ...patch.groups } };
@@ -59,6 +72,7 @@ export function createHumanSidebarView({ auth, resolve, actor }) {
       if (!storedSchema.safeParse(merged).success) fail(400, 'Sidebar preferences exceed entry limit');
       const serialized = JSON.stringify(merged);
       if (Buffer.byteLength(serialized) > 262144) fail(413, 'Sidebar preferences exceed storage limit');
+      requireOpenResponse();
       const updated = await adapter.update({ model: 'user', where, update: { sidebarPreferences: serialized } });
       if (!updated) fail(500, 'Sidebar preferences could not be saved');
       return { owner, ...merged };
@@ -73,8 +87,12 @@ export function createHumanSidebarView({ auth, resolve, actor }) {
 export function registerHumanSidebarViewRoutes(app, { express, humanAuth }) {
   const handle = async (req, res) => {
     if (!humanAuth) return res.status(501).json({ error: 'Personal sidebar preferences require human authentication' });
-    try { return res.json(await humanAuth.sidebarView(req)); }
-    catch (error) {
+    try {
+      const view = await humanAuth.sidebarView(req, res);
+      if (res.destroyed || res.writableEnded) return;
+      return res.json(view);
+    } catch (error) {
+      if (res.destroyed || res.writableEnded) return;
       const status = [400, 401, 409, 413].includes(error.status) ? error.status : 500;
       return res.status(status).json({ error: status === 500 ? 'Sidebar preferences are unavailable' : error.message });
     }

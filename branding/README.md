@@ -72,6 +72,23 @@ its authority again before dispatch. The prior lifetime hash and every earlier
 source/hash remain intact. This records a behavioral successor, not new branding
 or browser/native acceptance.
 
+The personal-sidebar and shared-link selection layer extends only
+`session-ui-store.ts` among the donor overlaps. `personalSidebarSource` records
+reviewed source `9ba0596d2011b3339bb101160d82bf88155870ba`;
+`personalSidebarSha256` retains its exact `06a5508b` output above the prior
+send-client-ID layer. `prePersonalSidebarCombinedSha256` preserves that prior
+`9b04f3a4` output. Current-output tests follow the newest exact layer. Historical
+unwind restores the complete preceding ledger and checks its full digest before
+running every older assertion unchanged. The held-open cancellation correction
+records `personalSidebarReviewBase` and `personalSidebarReviewFinding`, naming
+reviewed 9ba and finding 1 of review 5914164668 without inventing a future commit.
+`prePersonalSidebarReviewCombinedSha256` retains the original sidebar output;
+`personalSidebarReviewSha256` binds the released correction above it. A null
+digest means finalization is pending, and the ownership tests must fail until
+the source writer releases the store and the parent binds the exact output.
+Both layers unwind before the send-client-ID layer. This record is not a passing
+exact-head CI or served-release receipt.
+
 The foundation copy integration records `foundationCopySource` and
 `foundationCopySha256` for the eleven existing locale overlaps. It adds draft
 storage warnings and queue recovery text. Earlier native-creation, attribution,

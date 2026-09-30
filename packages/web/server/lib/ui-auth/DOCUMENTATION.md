@@ -89,8 +89,12 @@ Better Auth owns the nullable private `user.sidebarPreferences` string field.
 It is configured with `input:false` and `returned:false`; official account APIs
 cannot write it and do not expose it. The controller reads a fresh user through
 Better Auth's adapter. One running controller serializes reads and patches per
-user and rechecks authentication inside the queue. Unrelated tab patches survive.
-Do not run multiple preference writers against the same database.
+user and rechecks authentication inside the queue. The registered route passes
+its protected response into the operation. After the user lookup, the operation
+checks that response and the authoritative session row before writing. Revocation,
+expiry or a cancelled response refuses the pending change; an ended response gets
+no second reply. Direct GET callers may omit the response. Unrelated tab patches
+survive. Do not run multiple preference writers against the same database.
 
 PATCH accepts at most 64 KiB of JSON, also checked after parsing. Each map holds
 at most 2,048 entries; keys are 1 to 8,192 characters without control characters or

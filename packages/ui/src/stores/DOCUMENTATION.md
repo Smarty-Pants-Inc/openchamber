@@ -430,8 +430,11 @@ and session, and make no note; the session listing does not deselect it. The
 chat column says it is waiting, and after `MANAGED_SESSION_HOLD_MS` (2 min from
 the first publication that lacked it) that the project is not in the live
 catalog, with a control that opens the project sidebar. The publication that
-admits the directory selects its project and clears the hold. With no open
-session the fallback and note above apply unchanged.
+admits the directory selects its project and clears the hold. Pending explicit
+opens carry their original `SessionRevealTicket`; admission completes that open
+with a restore transition, preserving scope and manual-collapse cancellations.
+A new explicit reopen creates a new ticket. With no open session the fallback
+and note above apply unchanged.
 
 ## Selector Rules
 

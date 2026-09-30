@@ -1217,7 +1217,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         // and shown as waiting, and opens when the project is admitted. Nothing is requested from that directory
         // until then (#608).
         if (selectedDirectory) {
-          selectionProjects.holdPendingOpen?.(id, selectedDirectory)
+          selectionProjects.holdPendingOpen?.(id, selectedDirectory, ticket)
           set({ currentSessionId: null, currentSessionDirectory: null })
         }
         return
