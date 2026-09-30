@@ -780,36 +780,41 @@ export function applySessionStatusSnapshot(
   return changed
 }
 
+/** What a session's other sources say, read BEFORE a directory's authoritative snapshot is applied (openchamber#438
+ * review 2: applying first erased the very evidence the check needed). */
+export type SnapshotEvidence = {
+  /** This store's status before the snapshot. */ prior?: SessionStatus
+  /** The fleet-wide index's entry before the snapshot, with the directory it came from. */ indexed?: { status: SessionStatus; directory: string }
+  /** The session's record, if any store has one. */ session?: Session
+  /** The fleet-wide read's entry, when it was asked. */ fleet?: SessionStatus
+}
+const sameDirectory = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+const active = (status?: SessionStatus) => status?.type === 'busy' || status?.type === 'retry'
+
 /**
- * Whether an authoritative status snapshot may settle a session's unfinished turn (finalize its running tools). An
- * ordinary (fleet) session ABSENT from it is not known to have stopped: the listing can omit a busy one (smarty-code#737:
- * three running tools marked Interrupted at once, each completed seconds later). Only an explicit status settles it;
- * its own message re-read brings the committed results. Other sessions keep #2577's rule: absence is idle.
+ * How a directory's authoritative snapshot may treat one candidate its entry does NOT list busy (absent, or idle):
+ * - `hold`: keep this session's status in both stores; the snapshot is not its owner's word (smarty-code#737);
+ * - `settle`: lower it, and finalize its unfinished turn (#2577);
+ * - `lower`: lower it, but never finalize its turn (absence proves nothing about a session no store has a record of).
+ * A fleet (ordinary) session is lowered only by an explicit status from its own, known directory: 3.57's false stop was
+ * net-lead absent from smarty-code's poll while the fleet read listed it busy (code-perf's capture), and a foreign
+ * unmarked idle (another directory's Herdr view of it) must not settle it either (review 2, finding 1).
  */
-export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined,
-  session?: Session, directory?: string, activeInFleet = false): boolean {
-  const own = (path: string) => path.replace(/\/+$/, '')
-  const elsewhere = Boolean(session?.directory && directory && own(session.directory) !== own(directory))
-  // Its status may have lost the ordinary mark (the incident's did: the non-ordinary path), so the session's own
-  // metadata counts too: only it marks native ownership (readOrdinaryModel).
-  const fleet = Boolean(current?.ordinary || readOrdinaryModel(session) !== undefined)
-  // 3.57 (04:53:48Z, net-lead mid-turn): a fleet session is settled only by an explicit status from its OWN directory.
-  // Another directory's entry for it (an unavailable placed row there: the Herdr view, no ordinary mark) is not its
-  // owner's word, and marked a running tool Interrupted while the Pi went on working.
-  if (toSessionStatus(entry) !== undefined) return !(fleet && elsewhere)
-  // A directory's snapshot lists only that directory's sessions: absence says nothing about another project's session
-  // held in this store (#737, 06:54:52Z: the page read a just-added worktree's status while its store held three fleet
-  // sessions of other projects, and marked their running tools Interrupted).
-  if (elsewhere) return false
-  // 3.57 (code-perf's capture, 05:06Z): the fleet-wide poll listed net-lead busy while this directory's poll omitted it.
-  // Absence here never outweighs the fleet's own word that it is working.
-  if (activeInFleet) return false
-  // A session this store has no record of: absence proves nothing about it (3.57: no directory and no metadata to judge).
-  if (!session) return false
-  return !fleet
+export function snapshotVerdict(entry: Parameters<typeof toSessionStatus>[0], directory: string, e: SnapshotEvidence): 'hold' | 'settle' | 'lower' {
+  const explicit = toSessionStatus(entry)
+  const fleet = Boolean(e.prior?.ordinary || e.indexed?.status.ordinary || e.fleet?.ordinary || readOrdinaryModel(e.session) !== undefined)
+  const ownDirectory = e.session?.directory ?? (e.indexed ? e.indexed.directory : undefined)
+  const own = ownDirectory !== undefined && sameDirectory(ownDirectory, directory)
+  if (explicit !== undefined) return fleet && !own ? 'hold' : 'settle'
+  // Absent from this directory's list.
+  if (ownDirectory !== undefined && !own) return 'hold' // Another project's session: this list says nothing of it.
+  if (fleet) return 'hold' // A fleet session is never settled by absence (the fleet read flips idle/busy mid-turn).
+  if (active(e.indexed?.status) && !own) return 'hold'
+  if (active(e.fleet)) return 'hold'
+  return e.session ? 'settle' : 'lower'
 }
 
-async function resyncDirectorySessionStatuses(
+export async function resyncDirectorySessionStatuses(
   directory: string,
   store: StoreApi<DirectoryStore>,
   candidateSessionIds: string[],
@@ -820,58 +825,52 @@ async function resyncDirectorySessionStatuses(
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
   // of active sessions — reconciled per `mode` (absence ≠ idle under monotonic).
   if (nextStatuses === null) return null
-  applySessionStatusSnapshot(store, nextStatuses, candidateSessionIds, mode)
-  if (mode === "authoritative") {
-    store.setState({ sessionStatusReady: true })
-    applyGlobalSessionStatusSnapshot(directory, nextStatuses, candidateSessionIds)
-    // An authoritative snapshot that settles sessions previously observed
-    // busy/retry can leave their trailing assistant message and tool parts
-    // unfinished (managed process died mid-turn, #2577): finalize them now.
-    // The snapshot write above already lowered their status to explicit idle,
-    // which is the gate the helper requires — a session the snapshot reports
-    // busy stays untouched.
-    // 3.57 #737 (code-perf's capture): a per-directory snapshot omitted net-lead while the fleet-wide read listed it busy.
-    // Before absence settles a turn, the fleet's word is asked (the global index, else one fleet read for a managed
-    // catalog); a session it lists active keeps that status here and is not settled.
-    let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
-    const activeInFleet = async (sessionId: string) => {
-      const indexed = useGlobalSessionStatusStore.getState().statusById.get(sessionId)?.status
-      let status: SessionStatus | undefined = indexed?.type === 'busy' || indexed?.type === 'retry' ? indexed : undefined
-      if (!status && useProjectsStore.getState().managedCatalogAdmitted) {
-        fleet ??= opencodeClient.getSessionStatusForDirectory(null).catch(() => null)
-        const listed = toSessionStatus((await fleet)?.[sessionId])
-        if (listed && listed.type !== 'idle') status = listed
-        // code-perf's 3.57 capture: the fleet read itself said idle for net-lead 47 times and busy 12 times while it
-        // worked (tool gaps). An ordinary (fleet) session is never settled by ABSENCE, whatever one fleet sample says:
-        // only an explicit status from its own directory settles it (settledBySnapshot).
-        else if (listed?.ordinary) return true
-      }
-      if (!status) return false
-      const active = status
-      store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [sessionId]: active } }))
-      return true
+  if (mode !== "authoritative") {
+    applySessionStatusSnapshot(store, nextStatuses, candidateSessionIds, mode)
+    return nextStatuses
+  }
+  // The evidence is read BEFORE anything is applied (review 2): the child store's and the global index's statuses.
+  const before = store.getState(), index = useGlobalSessionStatusStore.getState().statusById
+  const evidence = new Map<string, SnapshotEvidence>()
+  for (const sessionId of candidateSessionIds) {
+    evidence.set(sessionId, { prior: before.session_status?.[sessionId], indexed: index.get(sessionId),
+      session: before.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId) })
+  }
+  // One fleet-wide read for a managed catalog, only when a candidate is absent here and nothing else decides it.
+  const undecided = candidateSessionIds.filter((id) => nextStatuses[id] === undefined && snapshotVerdict(undefined, directory, evidence.get(id)!) !== 'hold')
+  if (undecided.length && useProjectsStore.getState().managedCatalogAdmitted) {
+    const fleet = await opencodeClient.getSessionStatusForDirectory(null).catch(() => null)
+    for (const id of undecided) { const listed = toSessionStatus(fleet?.[id]); if (listed) evidence.get(id)!.fleet = listed }
+  }
+  const verdicts = new Map(candidateSessionIds.map((id) => [id, active(toSessionStatus(nextStatuses[id])) ? 'lower' as const
+    : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
+  const applied = candidateSessionIds.filter((id) => verdicts.get(id) !== 'hold')
+  applySessionStatusSnapshot(store, nextStatuses, applied, mode)
+  store.setState({ sessionStatusReady: true })
+  applyGlobalSessionStatusSnapshot(directory, nextStatuses, applied)
+  // A held session the fleet read found active while neither store had it active: both stores take the fleet's word.
+  for (const [id, e] of evidence) {
+    if (verdicts.get(id) !== 'hold' || !active(e.fleet) || active(e.prior)) continue
+    const status = e.fleet!
+    store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
+    if (!active(e.indexed?.status)) applyGlobalSessionStatusSnapshot(e.session?.directory ?? directory, { [id]: status }, [id])
+  }
+  // An authoritative snapshot that settles sessions previously observed busy/retry can leave their trailing assistant
+  // message and tool parts unfinished (managed process died mid-turn, #2577): finalize them now. Only a 'settle' verdict.
+  for (const sessionId of candidateSessionIds) {
+    if (verdicts.get(sessionId) !== 'settle') continue
+    const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
+    if (!interrupted) continue
+    reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
+    if (!interrupted.parts) {
+      store.setState((state) => ({ message: { ...state.message, [sessionId]: interrupted.messages } }))
+      continue
     }
-    for (const sessionId of candidateSessionIds) {
-      const state = store.getState()
-      const session = state.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId)
-      if (!settledBySnapshot(nextStatuses[sessionId], state.session_status?.[sessionId], session, directory,
-        nextStatuses[sessionId] === undefined && await activeInFleet(sessionId))) continue
-      const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
-      if (interrupted) {
-        reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
-        if (!interrupted.parts) {
-          store.setState((state) => ({
-            message: { ...state.message, [sessionId]: interrupted.messages },
-          }))
-          continue
-        }
-        const interruptedParts = interrupted.parts
-        store.setState((state) => ({
-          message: { ...state.message, [sessionId]: interrupted.messages },
-          part: { ...state.part, [interrupted.messageID]: interruptedParts },
-        }))
-      }
-    }
+    const interruptedParts = interrupted.parts
+    store.setState((state) => ({
+      message: { ...state.message, [sessionId]: interrupted.messages },
+      part: { ...state.part, [interrupted.messageID]: interruptedParts },
+    }))
   }
   return nextStatuses
 }
