@@ -11,6 +11,7 @@ import {
   subscribeChatDraftConsumption,
   writeChatDraft,
 } from './chatDraftPersistence';
+import { newSessionSlotKey, tabId } from './chatDraftTabs';
 import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorage';
 
 const storage = getSafeStorage();
@@ -73,7 +74,7 @@ describe('chatDraftPersistence', () => {
     expect(readChatDraft(replacement)).toEqual({ text: 'X', confirmedMentions: new Set(['new.md']) });
     expect(notifications).toEqual([]);
     expect(getChatDraftIdentityKey(original)).toBe(getChatDraftIdentityKey(replacement));
-    expect(storage.getItem('openchamber.chatDrafts.v2')).not.toContain('draftId');
+    expect(storage.getItem(newSessionSlotKey('generation-test', '/repo')) ?? '').not.toContain('draftId');
     expect(consumeChatDraft(replacement, 'X')).toBe(true);
     expect(readChatDraft(replacement).text).toBe(''); expect(notifications).toEqual(['X']);
     stop();
@@ -127,7 +128,7 @@ describe('chatDraftPersistence', () => {
 describe('chatDraftPersistence: a New session draft per tab', () => {
   const session = getSafeSessionStorage();
   const asTab = (id: string) => session.setItem('openchamber.chatDraftTab', id);
-  beforeEach(() => { storage.removeItem('openchamber.chatDrafts.v2'); session.removeItem('openchamber.chatDraftTab'); });
+  beforeEach(() => { storage.clear(); session.removeItem('openchamber.chatDraftTab'); });
 
   test('a second tab never overwrites the first tab\'s New session draft; each tab reads its own after a reload', () => {
     const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
@@ -159,14 +160,15 @@ describe('chatDraftPersistence: a New session draft per tab', () => {
 describe('chatDraftPersistence: a closed tab\'s New session draft', () => {
   const session = getSafeSessionStorage();
   const asTab = (id: string) => session.setItem('openchamber.chatDraftTab', id);
-  beforeEach(() => { storage.removeItem('openchamber.chatDrafts.v2'); storage.removeItem('openchamber.chatDraftTabs.v1'); session.removeItem('openchamber.chatDraftTab'); });
+  beforeEach(() => { storage.clear(); session.removeItem('openchamber.chatDraftTab'); });
 
-  test('a new tab takes over the draft of a tab that was closed (its alive mark is old)', () => {
+  test('a new tab copies the draft of a tab that was closed (its claim released at pagehide); the original stays', () => {
     const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
     asTab('tab-A'); writeChatDraft(draft, 'alpha', []);
-    storage.setItem('openchamber.chatDraftTabs.v1', JSON.stringify({ 'tab-A': Date.now() - 60_000 })); // A was closed.
+    storage.removeItem('openchamber.chatDraftTabClaim:tab-A'); // A's page went away (pagehide released its claim).
     asTab('tab-C'); expect(readChatDraft(draft).text).toBe('alpha');
-    asTab('tab-D'); expect(readChatDraft(draft).text).toBe(''); // Taken once, by C.
+    asTab('tab-D'); expect(readChatDraft(draft).text).toBe(''); // Copied once, by C.
+    asTab('tab-A'); expect(readChatDraft(draft).text).toBe('alpha'); // Never deleted: A (if it was only away) keeps it.
   });
 
   test('counterexample: a tab that is still open keeps its draft; a new tab starts empty', () => {
@@ -174,5 +176,40 @@ describe('chatDraftPersistence: a closed tab\'s New session draft', () => {
     asTab('tab-A'); writeChatDraft(draft, 'alpha', []); // A marked itself alive just now.
     asTab('tab-C'); expect(readChatDraft(draft).text).toBe('');
     asTab('tab-A'); expect(readChatDraft(draft).text).toBe('alpha');
+  });
+});
+
+// openchamber#433 review 1: a suspended tab, a duplicated tab, and two tabs writing at once never lose a draft.
+describe('chatDraftPersistence: review 1 draft-loss cases', () => {
+  const session = getSafeSessionStorage();
+  const asTab = (id: string) => session.setItem('openchamber.chatDraftTab', id);
+  beforeEach(() => { storage.clear(); session.removeItem('openchamber.chatDraftTab'); });
+  const draft = () => createChatDraftIdentity('runtime-a', '/repo', null)!;
+
+  test('(1) a frozen or suspended open tab keeps its draft however long its timers stop: its claim, not a heartbeat, decides', () => {
+    asTab('tab-A'); writeChatDraft(draft(), 'alpha', []);
+    storage.setItem('openchamber.chatDraftTabClaim:tab-A', 'a-frozen-page'); // A's page still holds its claim.
+    asTab('tab-B'); expect(readChatDraft(draft()).text).toBe(''); writeChatDraft(draft(), 'beta', []);
+    expect(JSON.parse(storage.getItem(JSON.stringify(['runtime-a', '/repo', 'tab-A']).replace(/^/, 'openchamber.chatDraftSlot:')) ?? '{}').text).toBe('alpha');
+  });
+
+  test('(2) a duplicated tab (its sessionStorage copied, the original still open) takes its own id, starting from a copy', () => {
+    asTab('tab-A'); writeChatDraft(draft(), 'alpha', []);
+    asTab('tab-X'); tabId(); // Another tab ran in this process meanwhile.
+    storage.setItem('openchamber.chatDraftTabClaim:tab-A', 'the-original-page'); // The original A still holds tab-A.
+    asTab('tab-A'); const duplicate = tabId();
+    expect(duplicate).not.toBe('tab-A');
+    expect(readChatDraft(draft()).text).toBe('alpha'); // Starts from a copy.
+    writeChatDraft(draft(), 'beta', []);
+    expect(JSON.parse(storage.getItem('openchamber.chatDraftSlot:' + JSON.stringify(['runtime-a', '/repo', 'tab-A'])) ?? '{}').text).toBe('alpha');
+  });
+
+  test('(3) each tab\'s draft is its own storage key: a stale envelope rewrite by another tab drops nothing', () => {
+    asTab('tab-A'); writeChatDraft(draft(), 'alpha', []);
+    const stale = storage.getItem('openchamber.chatDrafts.v2');
+    asTab('tab-B'); writeChatDraft(draft(), 'beta', []);
+    storage.setItem('openchamber.chatDrafts.v2', stale ?? JSON.stringify({ version: 2, drafts: {} })); // Another tab's late write.
+    asTab('tab-A'); expect(readChatDraft(draft()).text).toBe('alpha');
+    asTab('tab-B'); expect(readChatDraft(draft()).text).toBe('beta');
   });
 });
