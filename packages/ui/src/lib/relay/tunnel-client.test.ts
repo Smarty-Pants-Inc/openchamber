@@ -412,7 +412,7 @@ describe('createRelayTunnelClient', () => {
     killWire();
     await settled; // rejected by the wire closure itself; client.close() (afterEach) is cleanup only
     expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/relay socket closed \(code 1006\)/);
+    expect((caught as Error).message).toContain('relay socket closed (code 1006)');
     expect(frames.some((frame) => frame.frameType === TunnelFrameType.HttpRequest)).toBe(false);
     expect(isAmbiguousTransportFailure(caught)).toBe(false);
   });
