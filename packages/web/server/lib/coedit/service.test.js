@@ -204,7 +204,7 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     doc.getText(TEXT).insert(0, 'P');
     expect(await bridge.save()).toEqual({ ok: true }); // Pending: the writer holds the displaced revision.
     fs.writeSync(writer, 'late\n');
-    fs.closeSync(writer);
+    // The writer stays open through the checks: once it closes, the bridge's own retry may dispose the entry first.
     const other = startHelper(t.root, path.join(t.recoveryDir, '.staging'));
     try {
       const [record] = (await other.call({ op: 'list', path: 'docs/a.md' })).records;
@@ -219,6 +219,7 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: `${keyOf(t.root, 'docs/a.md')}.${record.txn}-bogus.staged`, hash: 'x' })).toMatchObject({ ok: false, owned: true });
     } finally {
       await other.close();
+      fs.closeSync(writer);
     }
   });
 
