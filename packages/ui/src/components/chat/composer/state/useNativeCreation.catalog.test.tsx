@@ -91,9 +91,36 @@ test('a new worktree draft checks again once the catalog admits its tree', async
 
 // smarty-code#629 on the public candidate: the first check of a just-made tree is refused ("not admitted") until the
 // gateway admits it a moment later. The draft checks again shortly and never says the server is unreachable meanwhile.
+/**
+ * The hook's new-tree rechecks, held (smarty-code#996): each NEW_TREE_RETRY_MS delay is a sentinel no other timer uses,
+ * so a recheck runs only when the test fires it (`fire()`), never because wall-clock time passed. The test's 20 ms
+ * settle and a 30 ms retry raced on a slow runner (runs 36489154134, 36566158491: checks 2, expected 1).
+ */
+const holdRetries = () => {
+  const original = globalThis.setTimeout, held: Array<() => void> = [];
+  const HOLD = [101_001, 101_002, 101_003, 101_004];
+  NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, ...HOLD);
+  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (!HOLD.includes(ms ?? -1)) return original(callback, ms, ...args);
+    let live = true; held.push(() => { if (live) { live = false; callback(...args); } });
+    const handle = original(() => {}, 2 ** 31 - 1); (handle as { unref?: () => void }).unref?.();
+    cleared.set(handle as unknown as number, () => { live = false; }); // a cleared recheck never runs (replaced or cancelled)
+    return handle;
+  }) as typeof setTimeout;
+  const cleared = new Map<number, () => void>(), originalClear = globalThis.clearTimeout;
+  globalThis.clearTimeout = ((id?: Parameters<typeof clearTimeout>[0]) => { cleared.get(id as unknown as number)?.(); originalClear(id); }) as typeof clearTimeout;
+  return {
+    /** Runs every recheck that is due now (not cleared), as their timers would, and lets React commit. */
+    fire: () => act(async () => { for (const run of held.splice(0)) run(); await new Promise(resolve => original(resolve, 0)); }),
+    pending: () => held.length,
+    restore: () => { globalThis.setTimeout = original; globalThis.clearTimeout = originalClear;
+      NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, 1_000, 2_000, 4_000, 8_000); },
+  };
+};
+
 test('a just-made worktree that the gateway has not admitted yet is checked again, not reported offline', async () => {
   let admitted = false;
-  NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, 30, 30);
+  const retries = holdRetries();
   useProjectsStore.getState().resetManagedCatalog();
   useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
   const tree = '/worktrees/repo/zealous-egret';
@@ -102,7 +129,7 @@ test('a just-made worktree that the gateway has not admitted yet is checked agai
       await settle();
       expect([read().mode, read().checks]).toEqual(['loading', 1]); // Refused once: waiting, not "offline".
       admitted = true;
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+      await retries.fire(); await settle();
       expect([read().mode, read().checks]).toEqual(['ordinary', 2]);
     }, { bootstrapPendingDirectory: tree });
     // Another directory refused the same way is reported at once, and a new tree still refused after the retries is too.
@@ -111,8 +138,10 @@ test('a just-made worktree that the gateway has not admitted yet is checked agai
     ready();
     await withDraft('/projects/other', () => admitted, async (read) => { await settle(); expect(read().mode).toBe('unavailable'); });
     ready();
+    NEW_TREE_RETRY_MS.splice(2); // two retries, as the old test's two delays
     await withDraft(tree, () => false, async (read) => {
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+      await settle();
+      for (let i = 0; i < 2; i++) { await retries.fire(); await settle(); }
       expect([read().mode, read().checks]).toEqual(['unavailable', 3]);
     }, { bootstrapPendingDirectory: tree });
     // An invalidation during the wait replaces the pending recheck: one chain of rechecks, never two (a second chain's
@@ -121,11 +150,12 @@ test('a just-made worktree that the gateway has not admitted yet is checked agai
     await withDraft(tree, () => false, async (read) => {
       await settle(); // Refused once; a recheck is pending.
       await act(async () => { window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { runtimeKey: getRuntimeKey() } })); });
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+      await settle();
+      for (let i = 0; i < 2; i++) { await retries.fire(); await settle(); }
       // 1 + the invalidation's check + 1 retry (the retry budget is shared) = 3; a second, orphaned chain made it 4.
       expect(read().checks).toBe(3);
     }, { bootstrapPendingDirectory: tree });
-  } finally { NEW_TREE_RETRY_MS.splice(0, NEW_TREE_RETRY_MS.length, 1_000, 2_000, 4_000, 8_000); }
+  } finally { retries.restore(); }
 });
 
 // smarty-code#629 on a candidate: the gateway admits the new tree when a request names it, and nothing re-reads the
