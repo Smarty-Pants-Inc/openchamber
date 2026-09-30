@@ -1,7 +1,6 @@
 import React, { act } from 'react';
-import { SCROLL_INTENT_EVENT, SCROLL_NAVIGATE_EVENT } from '@/lib/scrollIntent';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import type { Message } from '@opencode-ai/sdk/v2/client';
 
 import { useChatTimelineController, type UseChatTimelineControllerResult } from './useChatTimelineController';
