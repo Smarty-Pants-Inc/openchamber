@@ -421,6 +421,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         // Ours was published (its inode), then changed: raced, never saved. The base follows ours, so no replay.
         expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
         expect(t.disk()).toBe('Xa');
+        // At once, before any sync: the room is unchanged, but the disk is not its text. Not saved, nothing written.
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+        expect(t.disk()).toBe('Xa');
         await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
         expect(t.text.toString()).toBe('Pa');
         expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed' });
@@ -432,6 +435,18 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(t.disk()).toBe('Xa');
       });
     }
+
+    it('#445 security round 1: an unchanged room whose file was deleted is never reported as saved, and nothing is recreated', async () => {
+      const t = await setup('a');
+      fs.unlinkSync(t.file);
+      await t.bridge.sync();
+      expect(t.bridge.state().gone).toBe(true);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      expect(fs.existsSync(t.file)).toBe(false);
+      fs.writeFileSync(t.file, 'a'); // Back as it was: an unchanged room is saved again.
+      await t.bridge.sync();
+      expect(await t.bridge.save()).toEqual({ ok: true });
+    });
 
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {
       const t = await setup('a', { retryMs: 60_000 });

@@ -404,7 +404,13 @@ export function createDiskBridge({
       // not hold the room's text, so this is never reported as saved (smartyfs#33 A).
       if (held) return { ok: false, conflict: held.text.length === 0 ? 'truncated' : 'removed' };
       const next = text.toString();
-      if (next === baseText) return { ok: true };
+      if (next === baseText) {
+        // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
+        // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
+        const disk = await readFile(helper, rel);
+        if (disk === null) return { ok: false, conflict: 'gone' };
+        return disk.hash === baseHash ? { ok: true } : { ok: false, conflict: 'changed' };
+      }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);

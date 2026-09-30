@@ -153,7 +153,8 @@ round 4); until then no conflict could be seen.
   writer that truncated and paused (net-lead round 4): it is a conflict (`truncated` or `removed`) until an
   insertion-only revision arrives or the person accepts the disk (`acceptDisk()`). While one is held, `save()`
   returns that conflict and writes nothing: the disk does not hold the room's text, so it is never reported as saved
-  (smartyfs#33 A).
+  (smartyfs#33 A). A save with nothing new to write reads the file through the helper first: it is `ok` only if the
+  disk holds the base, else `changed` (for example a `raced` save not yet synced) or `gone`, with nothing written.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
