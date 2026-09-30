@@ -30,10 +30,11 @@ export const isHerdrEnded = (session: Session | null | undefined): boolean => re
 /**
  * The chat shows the View only banner instead of the composer: its history read said read-only, OR the open session's own
  * row says its Pi has ended (smarty-code#811: the gateway pushes that state at once, but the history read that sets the
- * read-only flag is not repeated while the page stays open, so the composer stayed as if the Pi were live).
+ * read-only flag is not repeated while the page stays open, so the composer stayed as if the Pi were live). `globalEnded`: the
+ * managed listing's row says ended; the open directory row can miss that update on a busy fleet (#811 on 3.53).
  */
-export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined): boolean =>
-  (historyReadOnly === true && !isOrdinaryCodeMade(session)) || isHerdrEnded(session);
+export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined, globalEnded = false): boolean =>
+  (historyReadOnly === true && !isOrdinaryCodeMade(session)) || isHerdrEnded(session) || globalEnded;
 
 /**
  * A Code-made session that is unavailable (its Pi stopped or lost Code's bridge in an open pane; smarty-code#957): its

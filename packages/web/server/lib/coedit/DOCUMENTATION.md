@@ -223,6 +223,8 @@ round 4); until then no conflict could be seen.
   saves that only that copy keeps, which a stale writer overwrote after they were published.
   `stress.test.js` runs the killed run under a keeper that leads its own process group, and its cleanup signals only
   that group while the keeper is still its unreaped child, so no reused pid is ever signalled (smartyfs#37 item 17).
+  If the test runner dies before that cleanup, the keeper sees EOF on its stdin pipe and SIGKILLs its own group, as
+  its still-living leader (item 18).
 - **Crash recovery:** `load()` lists the file's private entries (`list`), keeps each in `recoveryDir`, disposes it and
   raises `interrupted` with a notice. One still open for writing is enrolled as pending; a late write is `raced`. After
   a crash or kill at any point the file holds either the old or the new revision, whole.

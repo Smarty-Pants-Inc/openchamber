@@ -96,7 +96,9 @@ const canRunGit = () => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    // Node retries ENOTEMPTY/EBUSY itself with these options: a git process still finishing a write into a temp
+    // repository's .git must not fail the test that owns it (smarty-code#996 item 4, run 36571361235).
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -1083,6 +1085,10 @@ describe('createWorktree from a forked GitHub PR', () => {
         () => getBranchTrackingRemote(created.path, 'feature/login') === 'pr-alice',
         { timeout: 5_000 }
       ).toBe(true);
+      // smarty-code#996 item 4: createWorktree returns while its bootstrap task still writes git state (upstream config,
+      // bootstrap phases) into the repository. afterEach then removed that .git under it: ENOTEMPTY (run 36571361235).
+      // The test ends only once the bootstrap reports ready (the event), 15 s being a hang guard.
+      await expect.poll(async () => (await getWorktreeBootstrapStatus(created.path)).status, { timeout: 15_000 }).toBe('ready');
     });
   }, 30_000);
 

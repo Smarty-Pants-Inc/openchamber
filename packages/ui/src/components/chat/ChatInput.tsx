@@ -1,4 +1,4 @@
-import { isRetainedUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { isGloballyUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
 import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
@@ -1084,7 +1084,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // The open session's availability (lib/openOrdinaryState): a session the managed listing left out is unavailable
     // over any older sync row, and this composer re-renders when that mark changes (openchamber#364 review).
     // Observed (a change re-renders this composer): a session the managed listing left out is unavailable over any older sync row.
-    const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isRetainedUnavailable(state.entityById.get(currentSessionId!)));
+    const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isGloballyUnavailable(state.entityById.get(currentSessionId!)));
     const ordinaryNow = currentSessionId ? readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined, retainedUnavailable) : undefined;
     const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
@@ -1496,7 +1496,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Any store's record, as the model control finds it: an "Unavailable" control must explain Send (#126 1b); a session
         // the managed listing left out is unavailable over them (openchamber#364).
         const ordinary = readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
-            isRetainedUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
+            isGloballyUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
         if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
