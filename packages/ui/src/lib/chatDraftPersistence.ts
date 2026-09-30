@@ -61,18 +61,33 @@ export const createChatDraftIdentity = (
 };
 
 const TAB_KEY = 'openchamber.chatDraftTab';
+const TABS_KEY = 'openchamber.chatDraftTabs.v1';
+const TAB_ALIVE_MS = 15_000;
 /**
  * This tab's id: kept in sessionStorage, so it survives the tab's reloads and differs from other tabs'. A project's New
  * session draft is saved per tab: with one shared slot, a second tab's draft overwrote the first's, and the first tab came
- * back from a reload showing the other's text (smarty-code#461, 3.56). ponytail: a duplicated tab copies sessionStorage,
- * so it starts with (and then shares) the original's draft slot.
+ * back from a reload showing the other's text (smarty-code#461, 3.56). Each open tab marks itself alive every 5 s, so a
+ * new tab can take over the draft of a tab that was closed (never one still open). ponytail: a duplicated tab copies
+ * sessionStorage, so it starts with (and then shares) the original's draft slot.
  */
+let tabIdCache: string | undefined;
+const aliveTabs = (): Record<string, number> => { try { return JSON.parse(storage.getItem(TABS_KEY) ?? '{}') ?? {}; } catch { return {}; } };
+const markAlive = (id: string): void => {
+  const now = Date.now();
+  const tabs = Object.fromEntries(Object.entries(aliveTabs()).filter(([, at]) => typeof at === 'number' && now - at < 3_600_000));
+  storage.setItem(TABS_KEY, JSON.stringify({ ...tabs, [id]: now }));
+};
 const tabId = (): string => {
   const session = getSafeSessionStorage();
   let id = session.getItem(TAB_KEY);
   if (!id) {
     id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     session.setItem(TAB_KEY, id);
+  }
+  if (id !== tabIdCache) {
+    tabIdCache = id;
+    markAlive(id);
+    if (typeof window !== 'undefined') setInterval(() => markAlive(id!), 5_000);
   }
   return id;
 };
@@ -81,15 +96,26 @@ export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => 
   ? [identity.runtimeKey, identity.directory, null, tabId()]
   : [identity.runtimeKey, identity.directory, identity.sessionId]);
 
-/** A New session draft saved before drafts were per tab: the first tab that reads its project takes it over (once). */
-const adoptSharedDraft = (identity: ChatDraftIdentity): void => {
+/**
+ * A tab with no New session draft of its own takes over, once, the newest one of a tab that is no longer open (a closed
+ * tab's unsent text is never lost), or one saved before drafts were per tab. A draft of an open tab is never taken.
+ */
+const adoptOrphanDraft = (identity: ChatDraftIdentity): void => {
   if (identity.sessionId !== null) return;
   const envelope = readEnvelope();
   const key = getChatDraftIdentityKey(identity);
-  const shared = JSON.stringify([identity.runtimeKey, identity.directory, null]);
-  if (key in envelope.drafts || !(shared in envelope.drafts)) return;
-  const drafts = { ...envelope.drafts, [key]: envelope.drafts[shared]! };
-  delete drafts[shared];
+  if (key in envelope.drafts) return;
+  const alive = aliveTabs(), now = Date.now();
+  const orphan = Object.entries(envelope.drafts).filter(([other]) => {
+    try {
+      const [runtimeKey, directory, sessionId, tab] = JSON.parse(other) as [string, string, string | null, string?];
+      return runtimeKey === identity.runtimeKey && directory === identity.directory && sessionId === null
+        && (tab === undefined || !(now - (alive[tab] ?? 0) < TAB_ALIVE_MS));
+    } catch { return false; }
+  }).sort((left, right) => right[1].touchedAt - left[1].touchedAt)[0];
+  if (!orphan) return;
+  const drafts = { ...envelope.drafts, [key]: orphan[1] };
+  delete drafts[orphan[0]];
   writeEnvelope({ version: 2, drafts });
 };
 
@@ -151,7 +177,7 @@ const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
 
 export const readChatDraft = (identity: ChatDraftIdentity | null): ChatDraftSnapshot => {
   if (!identity) return { text: '', confirmedMentions: new Set() };
-  adoptSharedDraft(identity);
+  adoptOrphanDraft(identity);
   const persisted = readEnvelope().drafts[getChatDraftIdentityKey(identity)];
   return persisted
     ? { text: persisted.text, confirmedMentions: new Set(persisted.confirmedMentions) }
@@ -189,7 +215,7 @@ export const writeChatDraft = (
 
 /** When the saved draft's current text was set (older entries: when it was last saved); undefined when none is saved. */
 export const readChatDraftSince = (identity: ChatDraftIdentity | null): number | undefined => {
-  if (identity) adoptSharedDraft(identity);
+  if (identity) adoptOrphanDraft(identity);
   const persisted = identity ? readEnvelope().drafts[getChatDraftIdentityKey(identity)] : undefined;
   return persisted?.text ? persisted.since ?? persisted.touchedAt : undefined;
 };

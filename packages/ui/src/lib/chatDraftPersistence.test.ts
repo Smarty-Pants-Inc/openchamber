@@ -154,3 +154,25 @@ describe('chatDraftPersistence: a New session draft per tab', () => {
     asTab('tab-A'); expect(readChatDraft(draft).text).toBe('older');
   });
 });
+
+// #461: per-tab slots must not lose a closed tab's unsent text: a new tab takes it over, never an open tab's.
+describe('chatDraftPersistence: a closed tab\'s New session draft', () => {
+  const session = getSafeSessionStorage();
+  const asTab = (id: string) => session.setItem('openchamber.chatDraftTab', id);
+  beforeEach(() => { storage.removeItem('openchamber.chatDrafts.v2'); storage.removeItem('openchamber.chatDraftTabs.v1'); session.removeItem('openchamber.chatDraftTab'); });
+
+  test('a new tab takes over the draft of a tab that was closed (its alive mark is old)', () => {
+    const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
+    asTab('tab-A'); writeChatDraft(draft, 'alpha', []);
+    storage.setItem('openchamber.chatDraftTabs.v1', JSON.stringify({ 'tab-A': Date.now() - 60_000 })); // A was closed.
+    asTab('tab-C'); expect(readChatDraft(draft).text).toBe('alpha');
+    asTab('tab-D'); expect(readChatDraft(draft).text).toBe(''); // Taken once, by C.
+  });
+
+  test('counterexample: a tab that is still open keeps its draft; a new tab starts empty', () => {
+    const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
+    asTab('tab-A'); writeChatDraft(draft, 'alpha', []); // A marked itself alive just now.
+    asTab('tab-C'); expect(readChatDraft(draft).text).toBe('');
+    asTab('tab-A'); expect(readChatDraft(draft).text).toBe('alpha');
+  });
+});
