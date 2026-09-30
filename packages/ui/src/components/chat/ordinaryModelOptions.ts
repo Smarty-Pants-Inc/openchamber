@@ -50,6 +50,32 @@ export function useAppliedOrdinaryState(listed: OrdinaryModelState) {
   return [effectiveOrdinaryState(listed, unavailable ? null : applied), setApplied] as const;
 }
 
+/** How long after a relaunch reports `connected` the last model may still stand in (smarty-code#778: the model is back
+ * up to ~1 s after `connected`). */
+export const RELAUNCH_MODEL_GRACE_MS = 3000;
+
+/**
+ * While the session's Pi relaunches (`reloading`, then briefly after), a listing without a model is the relaunch, not an
+ * unavailable session (smarty-code#778). `held` is the last reported state with a model, for display only: it is never
+ * applied. `pending` means show a neutral loading state, not "Unavailable". A listing with a model always wins.
+ */
+export function useRelaunchHeldOrdinaryState(state: OrdinaryModelState, reloading: boolean) {
+  const last = React.useRef<OrdinaryModelState | null>(null);
+  if (state.model) last.current = state;
+  const [grace, setGrace] = React.useState(false);
+  const wasReloading = React.useRef(reloading);
+  React.useEffect(() => {
+    const ended = wasReloading.current && !reloading;
+    wasReloading.current = reloading;
+    if (!ended) return;
+    setGrace(true);
+    const timer = setTimeout(() => setGrace(false), RELAUNCH_MODEL_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [reloading]);
+  const pending = !state.model && (reloading || grace);
+  return { held: pending ? last.current : null, pending };
+}
+
 /**
  * The selected native session's live model/effort. With a target, each choice asks the
  * native session to switch; the display changes only when the session reports it.
