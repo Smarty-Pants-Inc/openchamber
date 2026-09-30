@@ -81,6 +81,43 @@ function buildIndex(list: Notification[]): NotificationIndex {
   return index
 }
 
+
+// smarty-code#924/#986: a turn this page saw stop with an error ("started, then stopped") must still say so after a
+// reload of this tab, instead of the 5 s "did not start" notice (the native journal may hold no terminal entry for a
+// killed reply, and nothing may be invented there). So the newest error per session, as this page observed it live,
+// is kept in this tab's sessionStorage and restored as viewed. Nothing else is persisted: turn completions and unseen
+// counts start fresh. A newer real message still hides it (SessionErrorNotice compares times).
+const STOPPED_KEY = "oc.session-stopped.v1"
+const STOPPED_MAX = 50
+const STOPPED_TTL_MS = 1000 * 60 * 60 * 24
+
+function tabStorage(): Storage | null {
+  try { return typeof sessionStorage === "undefined" ? null : sessionStorage } catch { return null }
+}
+
+function restoreStopped(): Notification[] {
+  const raw = tabStorage()?.getItem(STOPPED_KEY)
+  if (!raw) return []
+  try {
+    const cutoff = Date.now() - STOPPED_TTL_MS
+    const records = JSON.parse(raw) as ErrorNotification[]
+    return Array.isArray(records)
+      ? records.filter((n) => n?.type === "error" && typeof n.session === "string" && typeof n.time === "number" && n.time >= cutoff)
+        .map((n) => ({ type: "error" as const, session: n.session, directory: typeof n.directory === "string" ? n.directory : undefined,
+          time: n.time, viewed: true, error: n.error ? { name: n.error.name ?? null, message: n.error.message ?? null } : undefined }))
+      : []
+  } catch { return [] }
+}
+
+function keepStopped(list: Notification[]) {
+  const storage = tabStorage()
+  if (!storage) return
+  const newest = new Map<string, ErrorNotification>()
+  for (const n of list) if (n.type === "error" && n.session) newest.set(n.session, n)
+  const records = [...newest.values()].sort((a, b) => a.time - b.time).slice(-STOPPED_MAX)
+  try { storage.setItem(STOPPED_KEY, JSON.stringify(records)) } catch { /* full or blocked: live notices still work */ }
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -101,17 +138,17 @@ interface NotificationStore {
   projectHasError: (directory: string) => boolean
 }
 
+const restored = restoreStopped()
+
 export const useNotificationStore = create<NotificationStore>((set, get) => ({
-  list: [],
-  index: {
-    session: { unseenCount: {}, unseenHasError: {} },
-    project: { unseenCount: {}, unseenHasError: {} },
-  },
+  list: restored,
+  index: buildIndex(restored),
 
   append: (notification) => {
     const current = get().list
     const next = pruneNotifications([...current, notification])
     set({ list: next, index: buildIndex(next) })
+    if (notification.type === "error") keepStopped(next)
   },
 
   markSessionViewed: (sessionId) => {
