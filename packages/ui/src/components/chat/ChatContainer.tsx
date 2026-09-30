@@ -1230,6 +1230,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         messages: viewportMessages,
         historyMeta,
         scrollRef,
+        scrollNode,
         messageListRef,
         loadMoreMessages,
         goToBottom,
