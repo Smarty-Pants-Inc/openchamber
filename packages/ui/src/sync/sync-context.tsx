@@ -619,6 +619,20 @@ function isViewedInCurrentSession(directory: string, sessionId?: string): boolea
   return externallyViewedSessions.has(viewedSessionKey(directory, sessionId))
 }
 
+/**
+ * smarty-code#682: whether this tab shows a session's messages. The active session, a session viewed elsewhere (a
+ * second view), and a child of the active session (its subagent output renders in the parent's tool part). With no
+ * session open nothing counts as hidden. A tab applies message and part events only for these (see handleEvent).
+ */
+function showsSessionMessages(directory: string, sessionId: string, sessions: ReadonlyArray<{ id: string; parentID?: string | null }>): boolean {
+  if (!_activeSession) return true
+  if (directory === _activeDirectory && sessionId === _activeSession) return true
+  pruneExternallyViewedSessions()
+  if (externallyViewedSessions.has(viewedSessionKey(directory, sessionId))) return true
+  const parentID = (sessions.find((s) => s.id === sessionId) as { parentID?: string | null } | undefined)?.parentID
+  return Boolean(parentID) && directory === _activeDirectory && parentID === _activeSession
+}
+
 function isRecentBoot() {
   return bootingRoot || Date.now() - bootedAt < BOOT_DEBOUNCE_MS
 }
@@ -1755,6 +1769,29 @@ export function handleEvent(
       if (parentID) {
         enqueueSessionMaterialization(resolvedDirectory, parentID, childStores, { reason: "child-session-idle" })
       }
+    }
+  }
+
+  // smarty-code#682: a tab showing one session received the whole fleet's message traffic (~57 events/s on served
+  // 3.60) and applying it kept its main thread ~75% busy, so its own streaming text lagged. Message and part updates
+  // for a session this tab does not show are dropped here, before the reducers; everything above (the global session
+  // index, status, notifications, parent resync) has run. A hidden session's cached history is evicted at its first
+  // dropped update, so opening it again loads it fresh (the loader loads when nothing is renderable).
+  if (payload.type === "message.updated" || payload.type === "message.part.updated") {
+    const hiddenState = getDirectoryEventState(store, batch)
+    const eventMessageID = getMessageIdFromPayload(payload) ?? undefined
+    const hiddenSessionID = getSessionIdFromPayload(payload) ?? (eventMessageID ? routingIndex.messageSessionById.get(eventMessageID) : undefined)
+    if (hiddenSessionID && !showsSessionMessages(resolvedDirectory, hiddenSessionID, hiddenState.session)) {
+      countSyncPerformance("hiddenSessionEventsDropped")
+      const cached = hiddenState.message[hiddenSessionID]
+      if (cached) {
+        const message = { ...hiddenState.message }; delete message[hiddenSessionID]
+        const part = { ...hiddenState.part }; for (const m of cached) delete part[m.id]
+        const evicted = { ...hiddenState, message, part } as DirectoryStore
+        if (batch) { batch.states.set(store, evicted); batch.changedStores.add(store); const f = batch.clonedFields.get(store) ?? new Set<keyof State>(); f.add("message"); f.add("part"); batch.clonedFields.set(store, f) }
+        else store.setState(evicted)
+      }
+      return
     }
   }
 

@@ -13,6 +13,8 @@ export type SyncPerformanceCounters = {
   pipelineRawEvents: number
   pipelineCoalescedEvents: number
   pipelineDeliveredEvents: number
+  /** smarty-code#682: message and part events dropped for sessions this tab does not show. */
+  hiddenSessionEventsDropped: number
   reducerEvents: number
   reducerChangedEvents: number
   directoryStorePublications: number
@@ -56,6 +58,7 @@ const createCounters = (): SyncPerformanceCounters => ({
   pipelineRawEvents: 0,
   pipelineCoalescedEvents: 0,
   pipelineDeliveredEvents: 0,
+  hiddenSessionEventsDropped: 0,
   reducerEvents: 0,
   reducerChangedEvents: 0,
   directoryStorePublications: 0,
