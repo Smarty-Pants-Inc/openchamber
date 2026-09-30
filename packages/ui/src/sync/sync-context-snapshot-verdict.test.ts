@@ -120,3 +120,60 @@ for (const change of ["endpoint", "sign-in"] as const) {
     expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).toBe("running")
   })
 }
+
+// openchamber#438 review 4.
+const idsWith = () => [...useGlobalSessionStatusStore.getState().statusById.entries()].map(([id, e]) => [id, e.status.type, activeInIndex(id)])
+const A = "01a0-sess-a", B = "01a0-sess-b", C = "01a0-sess-c"
+test("review 4 #1: repairing absent sessions from the fleet never clears a live sibling or another held session", async () => {
+  const store = new ChildStoreManager().ensureChild(CODE, { bootstrap: false })
+  store.setState({ session: [managed(CODE), { id: B, directory: CODE }, { id: C, directory: CODE }] as never,
+    session_status: { [A]: { type: "busy" }, [B]: { type: "busy" }, [C]: busyOrdinary } as never })
+  applyGlobalSessionStatusSnapshot(CODE, { [C]: busyOrdinary }, [C]) // C: an ordinary busy session, indexed here.
+  // This directory lists B busy; omits A (managed, no global entry) and C (ordinary). The fleet has A retry and S busy.
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async (d) => (d ? { [B]: { type: "busy" } }
+    : { [A]: { type: "retry", attempt: 1, message: "x", next: 1 }, [S]: { type: "busy" } }) as never))
+  useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+  store.setState((s) => ({ session: [...s.session, managed(CODE)].map((x, i) => i === 0 ? { ...x, id: A } : x) as never,
+    session_status: { ...(s.session_status ?? {}), [S]: { type: "busy" } } }))
+  await resyncDirectorySessionStatuses(CODE, store, [A, B, C, S], "authoritative")
+  const got = Object.fromEntries(idsWith().map(([id, type, act]) => [id as string, `${type}/${act}`]))
+  expect(got[A]).toBe("retry/true") // Repaired.
+  expect(got[S]).toBe("busy/true") // Repaired too; the first repair did not clear it.
+  expect(got[B]).toBe("busy/true") // The live sibling stays.
+  expect(got[C]).toBe("busy/true") // The held ordinary session stays.
+})
+test("review 4 #2: a newer busy event and running tool that arrive while the fleet read is out are never settled", async () => {
+  const { applyGlobalSessionStatusEvent } = await import("./global-session-status")
+  const store = new ChildStoreManager().ensureChild(CODE, { bootstrap: false })
+  store.setState({ session: [managed(CODE)], session_status: {} })
+  let release: (value: unknown) => void = () => {}
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async (d) => d ? ({}) as never
+    : await new Promise<unknown>((resolve) => { release = resolve }) as never))
+  useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+  const pending = resyncDirectorySessionStatuses(CODE, store, [S], "authoritative")
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  // A new turn starts meanwhile: its busy event and running tool reach both stores.
+  const { messages, parts } = running()
+  applyGlobalSessionStatusEvent(CODE, { type: "session.status", properties: { sessionID: S, status: { type: "busy" } } } as never)
+  store.setState({ session_status: { [S]: { type: "busy" } }, message: { [S]: messages }, part: parts })
+  release({}) // The old fleet read: S absent there too.
+  await pending
+  expect(store.getState().session_status?.[S]?.type).toBe("busy")
+  expect(useGlobalSessionStatusStore.getState().statusById.get(S)?.status.type).toBe("busy")
+  expect((store.getState().part.a1?.[0] as { state?: { status?: string } })?.state?.status).toBe("running")
+})
+test("review 4 #3: the send preflight decides from the reconciled status: a held busy session is not idle", async () => {
+  const { reconcileSessionIdleBeforeSend } = await import("./sync-context")
+  const { setSyncRefs } = await import("./sync-refs")
+  const manager = new ChildStoreManager()
+  const store = manager.ensureChild(CODE, { bootstrap: false })
+  store.setState({ session: [managed(CODE)], session_status: { [S]: { type: "busy" } } })
+  setSyncRefs(Object.create(null), manager, CODE)
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async (d) => (d ? {} : { [S]: { type: "busy" } }) as never))
+  useProjectsStore.setState({ managedCatalogAdmitted: true } as never)
+  expect(await reconcileSessionIdleBeforeSend(CODE, S)).toBe(false) // The fleet says busy: queue/steer, not a plain submit.
+  spies.splice(0).forEach((x) => x.mockRestore())
+  spies.push(spyOn(opencodeClient, "getSessionStatusForDirectory").mockImplementation(async () => ({}) as never))
+  store.setState({ session_status: { [S]: { type: "busy" } } })
+  expect(await reconcileSessionIdleBeforeSend(CODE, S)).toBe(true) // Counterexample: no one says busy: idle (#2577).
+})

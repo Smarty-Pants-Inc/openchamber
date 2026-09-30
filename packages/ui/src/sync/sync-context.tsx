@@ -75,7 +75,9 @@ import { recordSessionError, summarizeOpenCodeError, type OpenCodeSessionErrorPa
 import {
   applyGlobalSessionStatusEvent,
   applyGlobalSessionStatusEvents,
+  applyFleetSessionStatuses,
   applyGlobalSessionStatusSnapshot,
+  getSessionStatusEventVersion,
   useGlobalSessionStatusStore,
 } from "./global-session-status"
 import { INITIAL_STATE, type State } from "./types"
@@ -823,6 +825,12 @@ export async function resyncDirectorySessionStatuses(
   const runtimeKey = getRuntimeKey() // The server this read goes to, before its first await (its reports go there only).
   // openchamber#438 review 3: a runtime switch or a new sign-in during a read retires it: nothing it read is published.
   const scope = captureRuntimeRequestScope()
+  // Review 4 #2: each candidate's status as it stood before the reads (its event version and this store's entry). A
+  // session whose status changed while the reads were out (a newer busy event, a new turn) is newer than them: untouched.
+  const versionsBefore = new Map(candidateSessionIds.map((id) => [id, getSessionStatusEventVersion(id)]))
+  const statusBefore = store.getState().session_status ?? {}
+  const changedSince = (id: string) => getSessionStatusEventVersion(id) !== versionsBefore.get(id)
+    || (store.getState().session_status ?? {})[id] !== statusBefore[id]
   const nextStatuses = await opencodeClient.getSessionStatusForDirectory(directory)
   if (!isRuntimeRequestScopeCurrent(scope)) return null
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
@@ -846,8 +854,8 @@ export async function resyncDirectorySessionStatuses(
     if (!isRuntimeRequestScopeCurrent(scope)) return null
     for (const id of undecided) { const listed = toSessionStatus(fleet?.[id]); if (listed) evidence.get(id)!.fleet = listed }
   }
-  const verdicts = new Map(candidateSessionIds.map((id) => [id, active(toSessionStatus(nextStatuses[id])) ? 'lower' as const
-    : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
+  const verdicts = new Map(candidateSessionIds.map((id) => [id, changedSince(id) ? 'hold' as const
+    : active(toSessionStatus(nextStatuses[id])) ? 'lower' as const : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
   const applied = candidateSessionIds.filter((id) => verdicts.get(id) !== 'hold')
   const held = new Set(candidateSessionIds.filter((id) => verdicts.get(id) === 'hold'))
   applySessionStatusSnapshot(store, nextStatuses, applied, mode)
@@ -856,10 +864,12 @@ export async function resyncDirectorySessionStatuses(
   // A held session the fleet read found active: each store that does not show it active takes the fleet's word.
   for (const id of held) {
     const e = evidence.get(id)!
-    if (!active(e.fleet)) continue
+    if (!active(e.fleet) || changedSince(id)) continue
     const status = e.fleet!
     if (!active(e.prior)) store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
-    if (!active(e.indexed?.status)) applyGlobalSessionStatusSnapshot(e.indexed?.directory ?? e.session?.directory ?? directory, { [id]: status }, [id])
+    // Review 4 #1: an ID-scoped update: it touches this session only, never its directory's siblings.
+    if (!active(e.indexed?.status)) applyFleetSessionStatuses([{ id, directory: e.indexed?.directory ?? e.session?.directory ?? directory }],
+      { [id]: status }, new Map([[id, getSessionStatusEventVersion(id)]]))
   }
   // An authoritative snapshot that settles sessions previously observed busy/retry can leave their trailing assistant
   // message and tool parts unfinished (managed process died mid-turn, #2577): finalize them now. Only a 'settle' verdict.
@@ -909,7 +919,8 @@ export async function reconcileSessionIdleBeforeSend(directory: string, sessionI
   try { store = getSyncChildStores().ensureChild(directory) } catch { return false } // Sync is not mounted.
   const snapshot = await resyncDirectorySessionStatuses(directory, store, [sessionID], "authoritative")
   if (!snapshot) return false
-  const live = snapshot[sessionID]
+  // Review 4 #3: the reconciled status decides, not the raw directory answer (a held session stays busy there).
+  const live = store.getState().session_status?.[sessionID]
   return !live || live.type === "idle"
 }
 
