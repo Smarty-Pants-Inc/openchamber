@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor, forgetToken, collectRecovered,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor, forgetToken, settledToken, collectRecovered,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -236,8 +236,9 @@ export function createDiskBridge({
     // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5). The token is
     // dropped only on a VERIFIED no-data ack: an ack that says data is still pending, or one that fails, keeps it,
     // and a later list enrolls that data (#428 round 3; smartyfs#37 item 15).
-    const acked = await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
+    const acked = await helper.call({ ...testHooks(hooks), op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
     const enrolled = pending.some((revision) => revision.token === uncertain.token);
+    settledToken(key, txn); // Its outcome is read: a later complete list decides whether its token is still needed.
     if (acked?.ok && !acked.pending && !enrolled) forgetToken(key, txn);
     else if (!enrolled) orphans = true; // Look again (list with this token) until its data is enrolled or gone.
     uncertain = null;

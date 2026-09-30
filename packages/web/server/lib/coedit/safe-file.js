@@ -394,16 +394,25 @@ async function syncDirectory(dir) {
 const TOKENS = new Map();
 /** The hash of the revision each transaction displaced: a later enrolment disposes against it, so late bytes are kept. */
 const BASES = new Map();
+/**
+ * Transactions still settling (a publish without its reply, or a lost reply not yet acked): a list may not show their
+ * record yet, so their tokens stay whatever it shows (smartyfs#37 item 16).
+ */
+const SETTLING = new Set();
 export const rememberToken = (key, txn, token, baseHash) => {
   if (!TOKENS.has(key)) TOKENS.set(key, new Map());
   TOKENS.get(key).set(txn, token);
   BASES.set(`${key}.${txn}`, baseHash);
+  SETTLING.add(`${key}.${txn}`);
 };
+/** The transaction has its answer: from now on, a list that shows no record and no data of it proves it done. */
+export const settledToken = (key, txn) => SETTLING.delete(`${key}.${txn}`);
 /** Drops a token once its transaction needs it no more (smartyfs#37 item 15): the registry stays bounded. */
 export const forgetToken = (key, txn) => {
   const tokens = TOKENS.get(key);
   tokens?.delete(txn);
   BASES.delete(`${key}.${txn}`);
+  SETTLING.delete(`${key}.${txn}`);
   if (tokens?.size === 0) TOKENS.delete(key);
 };
 /** Tests: how many tokens this process holds. */
@@ -477,8 +486,10 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
     });
   } catch (error) {
     log('smarty.coedit-publish-uncertain', name, error);
+    // Still settling: the bridge settles it (and calls settledToken) once it has read the outcome.
     return { ...uncertain, unsynced: true, lost: txn, token }; // Sent, no reply: published or not, flushed or not.
   }
+  settledToken(key, txn);
   if (reply.published !== true) {
     forgetToken(key, txn); // Definitely not published: its token guards nothing.
     await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
@@ -557,19 +568,26 @@ function keepAllRecovered(reply, recoveryDir) {
 }
 
 /** Looks again at orphans the helper could not recover yet (a writer still held them). */
-export async function collectRecovered(helper, key, rel, recoveryDir) {
+export async function collectRecovered(helper, key, rel, recoveryDir, hooks = {}) {
   const tokens = tokensFor(key);
-  const reply = await helper.call({ op: 'list', path: rel, tokens });
+  // Only transactions already settled when this list is SENT may be retired by what it omits: a complete list proves
+  // absence at its scan, and a publish that settles while its reply is on the way may have data by then (#436 r1).
+  const settled = Object.keys(tokens).filter((txn) => !SETTLING.has(`${key}.${txn}`));
+  const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens });
   if (!reply.ok) throw refused(reply);
   // This process's own retained data (its token opens it): returned for enrolment as pending revisions (#428).
   // Disposed against the hash of the revision it displaced (not its current bytes), so a late write is kept and shown.
   const mine = reply.entries.filter((e) => !e.owned && tokens[txnOf(key, e.entry)])
     .map((e) => ({ entry: e.entry, hash: BASES.get(`${key}.${txnOf(key, e.entry)}`) ?? '', token: tokens[txnOf(key, e.entry)] }));
-  // A token whose transaction is settled (a terminal record) with no data entry left is verified done: dropped. The
-  // list fails closed, so a missing entry here is real absence. Tokens with no record yet (a publish in flight) stay.
-  for (const record of reply.records ?? []) {
-    const done = (record.state === 'published' || record.state === 'aborted') && !record.owned;
-    if (done && tokens[record.txn] && !reply.entries.some((e) => txnOf(key, e.entry) === record.txn)) forgetToken(key, record.txn);
+  // A token whose transaction is settled is verified done when the list shows no data entry of it and either a terminal
+  // record or no record at all (an ack that removed the receipt, its reply lost: smartyfs#37 item 16). The list fails
+  // closed, so what it omits is really absent. Tokens still settling when the list was sent stay.
+  const records = new Map((reply.records ?? []).map((record) => [record.txn, record]));
+  for (const txn of settled) {
+    const record = records.get(txn);
+    const terminal = !record || ((record.state === 'published' || record.state === 'aborted') && !record.owned);
+    const data = reply.entries.some((e) => txnOf(key, e.entry) === txn);
+    if (terminal && !data) forgetToken(key, txn);
   }
   return { ...keepAllRecovered(reply, recoveryDir), mine };
 }
