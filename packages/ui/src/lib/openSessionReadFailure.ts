@@ -26,16 +26,23 @@ function busyUntil(d: Deps, until: Promise<void> | undefined) {
   inflight = true;
   void quiet(until).then(() => quiet(d.sample?.())).finally(() => {
     inflight = false;
-    if (followUp && deps === d) { followUp = false; later(d); }
+    if (followUp && deps === d) { followUp = false; dispatch(d); }
   });
 }
 function start(d: Deps) { last = (d.now ?? Date.now)(); busyUntil(d, d.refresh()); }
+/** Every queued start (a follow-up at a sample's end, or its timer) rechecks the catalog: a sample another caller started
+ * meanwhile runs to its end and publishes first; the one follow-up waits for it (review 5). */
+function dispatch(d: Deps) {
+  const running = d.sample?.();
+  if (running) { followUp = true; busyUntil(d, running); return; }
+  later(d);
+}
 /** The one follow-up keeps the minimum gap too (review 4: a queued start ran at once after a 1 s sample). */
 function later(d: Deps) {
   const wait = MIN_GAP_MS - ((d.now ?? Date.now)() - last);
   if (wait <= 0) { start(d); return; }
   inflight = true; // Holds the slot: failures meanwhile add nothing.
-  timer = setTimeout(() => { timer = undefined; inflight = false; if (deps === d) start(d); }, wait);
+  timer = setTimeout(() => { timer = undefined; inflight = false; if (deps === d) dispatch(d); }, wait);
 }
 /** A read of `sessionID` failed: refresh the managed listing when it is the open session. Returns whether one started. */
 export function noteSessionReadFailed(sessionID: string): boolean {

@@ -88,3 +88,23 @@ test("another caller's sample is running: no forced refresh over it; one follow-
   now = 12_000; other!(); await tick()
   expect(starts).toEqual([12_000])
 })
+
+// openchamber#456 review 1: A 0→1 s, a failure at 0.25 queues a follow-up whose timer waits to t=3; another caller starts
+// C at t=2 (succeeds at t=7). At t=3 the timer forced B over C: two samples, C discarded. Now the timer rechecks.
+test("a queued follow-up whose timer fires while another caller's sample runs: it waits for that sample, which publishes", async () => {
+  const starts: number[] = []; const done: (() => void)[] = []; const clock = { t: 0 };
+  let other: Promise<void> | undefined; let endOther: (() => void) | undefined; const published: string[] = [];
+  wireOpenSessionReadFailure({ current: () => "open", managed: () => true, now: () => clock.t, sample: () => other,
+    refresh: () => { starts.push(clock.t); return new Promise<void>((r) => done.push(r)); } })
+  const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  noteSessionReadFailed("open")                                   // t=0: A
+  clock.t = 250; noteSessionReadFailed("open")                     // queued follow-up
+  clock.t = 1_000; done.shift()!(); await tick()                   // A ends at 1 s: follow-up timer set for t=3
+  clock.t = 2_000; other = new Promise<void>((r) => { endOther = () => { published.push("C"); other = undefined; r(); }; }) // C starts
+  clock.t = 3_000; await new Promise((r) => setTimeout(r, 2_050)); await tick() // the timer fires while C runs
+  expect(starts).toEqual([0])                                      // no forced B over C
+  clock.t = 7_000; endOther!(); await tick()                       // C publishes, then the ONE follow-up
+  expect(published).toEqual(["C"])
+  expect(starts).toEqual([0, 7_000])
+  expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(3_000)
+})
