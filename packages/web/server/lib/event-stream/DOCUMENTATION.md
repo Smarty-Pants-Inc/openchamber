@@ -37,6 +37,11 @@ This module contains the OpenChamber message-stream WebSocket protocol and runti
 
 ## Runtime behavior
 - Browser clients connect to the WS endpoints above.
+- Human-mode global and directory upgrades use the existing `requireUpgradeAuth`
+  gate before `handleUpgrade`, after the Host boundary. Its `humanAuth.protect`
+  tracks the raw socket for session deletion and expiry and rechecks admission.
+  Socket closure removes its global subscription or stops its directory upstream
+  reader. Other sessions and the shared global hub retain their own ownership.
 - OpenChamber still fetches OpenCode upstream event streams over SSE.
 - The web server creates one shared global message-stream hub. OpenCode watcher side effects and global WS clients subscribe to that hub, so there is one upstream `/global/event` SSE reader for both server-side processing and browser fan-out.
 - The global hub keeps a bounded replay buffer keyed by SSE `eventId` so reconnecting browser clients can receive buffered events after their requested `Last-Event-ID`.
@@ -59,4 +64,5 @@ This module contains the OpenChamber message-stream WebSocket protocol and runti
 - Run `bun test packages/web/server/lib/event-stream/protocol.test.js`
 - Run `bun test packages/web/server/lib/event-stream/upstream-reader.test.js`
 - Run `bun test packages/web/server/lib/event-stream/runtime.test.js`
+- Run `bun test packages/web/server/lib/event-stream/human-session-lifetime.test.js` for real private human-session lifetime and admission countercases.
 - Run repo validation before finalizing: `bun run type-check`, `bun run lint`, `bun run build`

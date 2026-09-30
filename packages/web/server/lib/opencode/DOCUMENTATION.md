@@ -195,6 +195,32 @@ Managed health failures are classified as `timeout`, `connection_refused`, `conn
 - Returned API:
   - `setupBaseRoutes(app, options)`
 
+Human mode checks `applicationAuthority` at the composition-root HTTP entry
+before robots and native-origin CORS preflight responses. Base-route bootstrap
+also checks it before pages, status/API reads, the preview capability and Better
+Auth's OAuth handler. Bootstrap initializes the shared host configuration before
+the server listens. Bound native preflight requests retain their CORS 204 response;
+the exact human mutation-origin check remains downstream of CORS.
+An unbound Host receives 403 with `Requests require an application host` before
+those handlers run. The existing host helper admits loopback names, IP addresses,
+settings' `publicOrigin`, the current tunnel URL and `OPENCHAMBER_ALLOWED_HOSTS`.
+Forwarding headers grant no authority. The launch owner must explicitly configure
+both served aliases, for example
+`OPENCHAMBER_ALLOWED_HOSTS=code.smartypants.ai,smartypants.smartypants.ai`.
+Host admission does not grant a session or relax the exact configured human
+mutation-origin rule. Better Auth still receives the stream before JSON parsing.
+Preview capabilities remain before origin/session checks, so a bound human
+preview can load its opaque-origin assets without a session. Passwordless mode
+retains its capability-only preview exception; UI-password behavior is unchanged.
+
+`human-host-boundary.test.js` exercises the registered bootstrap, real static
+pages, capability serving and Better Auth sessions in disposable state. Its
+callback control reaches the real handler's missing-state error redirect without
+contacting Google. `../security/human-host-index.test.js` starts the actual
+exported server factory in disposable private state and proves robots/preflight
+Host enforcement, bound native CORS responses and listener shutdown. These tests
+do not prove Google login or installed browser behavior.
+
 ## Public exports (network-runtime.js)
 - `createOpenCodeNetworkRuntime(dependencies)`: creates runtime for OpenCode network and URL concerns.
 - Returned API:

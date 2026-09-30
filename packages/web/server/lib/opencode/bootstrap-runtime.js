@@ -76,8 +76,22 @@ export const createBootstrapRuntime = (dependencies) => {
       clientAuthController: remoteClientAuthRuntime,
       humanAuth,
     });
-    // The Files view's HTML preview (smarty-code#382): its capability is its only credential, so it comes before every
-    // origin and session check, and it never reaches the app's session.
+    configureApplicationHosts(async () => {
+      const settings = await Promise.resolve(readSettingsFromDiskMigrated?.()).catch(() => undefined);
+      return [settings?.publicOrigin, getTunnelUrl?.(), ...(process.env.OPENCHAMBER_ALLOWED_HOSTS ?? '').split(',')]
+        .flatMap((value) => { try { return value ? [String(value).includes('://') ? new URL(String(value)).host : String(value).trim()] : []; } catch { return []; } });
+    });
+    if (humanAuth) {
+      // Human HTTP requests need an application Host before any capability, OAuth handler or downstream route.
+      app.use((req, res, next) => {
+        void (async () => {
+          if (!await applicationAuthority(req)) return res.status(403).json({ error: 'Requests require an application host' });
+          return next();
+        })().catch(next);
+      });
+    }
+    // Preview capabilities precede origin/session checks. Human mode still requires a bound Host above;
+    // passwordless mode retains its capability-only preview exception.
     registerPreviewServeRoute(app);
     if (humanAuth) {
       // Protect application mutations too, including status routes registered below.
@@ -101,11 +115,6 @@ export const createBootstrapRuntime = (dependencies) => {
     }
     // smarty-code#391: the passwordless mode's browser-origin rule (lib/security/browser-origin.js), for every mutation
     // before the status and API routes; the WebSocket listeners apply the same rule to their upgrades.
-    configureApplicationHosts(async () => {
-      const settings = await Promise.resolve(readSettingsFromDiskMigrated?.()).catch(() => undefined);
-      return [settings?.publicOrigin, getTunnelUrl?.(), ...(process.env.OPENCHAMBER_ALLOWED_HOSTS ?? '').split(',')]
-        .flatMap((value) => { try { return value ? [String(value).includes('://') ? new URL(String(value)).host : String(value).trim()] : []; } catch { return []; } });
-    });
     if (!uiAuthController.enabled) {
       // Every request (reads included) needs an application host; a mutation also needs the application origin. The
       // preview capability is registered above, before this: its capability is its only credential.

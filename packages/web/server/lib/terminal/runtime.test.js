@@ -223,14 +223,14 @@ describe('terminal runtime', () => {
       signalProcess: () => { throw new Error('No process exists in upgrade-denial test'); },
     });
     try {
-      const req = { url: '/api/terminal/ws' };
+      const req = { url: '/api/terminal/ws', headers: { host: '127.0.0.1' } };
       server.emit('upgrade', req, socket, Buffer.alloc(0));
+      await vi.waitFor(() => expect(reject).toHaveBeenLastCalledWith(socket, 403, 'Invalid origin'));
       expect(requireUpgradeAuth).not.toHaveBeenCalled();
-      expect(reject).toHaveBeenLastCalledWith(socket, 403, 'Invalid origin');
       allowOrigin = true;
       server.emit('upgrade', req, socket, Buffer.alloc(0));
+      await vi.waitFor(() => expect(reject).toHaveBeenLastCalledWith(socket, 401, 'UI authentication required'));
       expect(requireUpgradeAuth).toHaveBeenCalledOnce();
-      expect(reject).toHaveBeenLastCalledWith(socket, 401, 'UI authentication required');
     } finally { await runtime.shutdown(); }
     expect(server.listenerCount('upgrade')).toBe(0);
     expect(process.kill).not.toHaveBeenCalled();
