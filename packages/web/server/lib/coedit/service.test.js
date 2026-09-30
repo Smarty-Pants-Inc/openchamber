@@ -15,6 +15,8 @@ import { hashBytes, keyOf, readFile, startHelper } from './safe-file.js';
 const SOCKET = process.env.OPENCHAMBER_COEDIT_TEST_SOCKET ?? '';
 const BASE = process.env.OPENCHAMBER_COEDIT_TEST_BASE ?? '';
 const live = Boolean(SOCKET && BASE && fs.existsSync(SOCKET) && fs.existsSync(BASE));
+/** A third local account the test may run `cat` as (sudoers-limited on the rig), to prove others cannot read. */
+const THIRD = process.env.OPENCHAMBER_COEDIT_TEST_READER ?? '';
 const cleanups = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -292,16 +294,20 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       const rl = require('readline').createInterface({ input: c });
       const out = [];
       rl.on('line', (l) => { out.push(l); if (out.length === 2) { console.log(l); process.exit(0); } });
-      c.write(JSON.stringify({ op: 'hello', root: process.argv[2], id: 1 }) + '\\n');
+      c.write(JSON.stringify({ op: 'hello', root: process.argv[2], recovery: process.argv[4], id: 1 }) + '\\n');
       c.write(process.argv[3] + '\\n');
-    `, SOCKET, t.root, JSON.stringify({ op: 'publish', path: 'docs/a.md', txn: 'c0ffee', ack: hashBytes(Buffer.from('gone')), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('O\n').toString('base64'), id: 2 })], { encoding: 'utf8', timeout: 30_000 });
+    `, SOCKET, t.root, JSON.stringify({ op: 'publish', path: 'docs/a.md', txn: 'c0ffee', ack: hashBytes(Buffer.from('gone')), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('O\n').toString('base64'), id: 2 }), t.recoveryDir], { encoding: 'utf8', timeout: 30_000 });
     const reply = JSON.parse(origin.stdout.trim());
     expect(reply).toMatchObject({ published: true });
     await new Promise((done) => setTimeout(done, 500)); // Its helper reads EOF and exits.
     fs.writeSync(writer, 'late\n');
     fs.closeSync(writer);
-    // An unrelated process of the same account, with no token, races the restarted bridge.
-    const other = startHelper(t.root, staging);
+    // An unrelated process of the same account, with no token, names ITS OWN recovery directory, and races the
+    // restarted bridge (#428 round 2): nothing may be delivered there.
+    const theirs = path.join(t.home, 'theirs');
+    fs.mkdirSync(theirs, { mode: 0o700 });
+    execFileSync('setfacl', ['-m', `u:${process.env.OPENCHAMBER_COEDIT_TEST_ACCOUNT ?? 'coedit-test'}:rwx`, theirs]);
+    const other = startHelper(t.root, path.join(theirs, '.staging'));
     try {
       const seen = await other.call({ op: 'list', path: 'docs/a.md' });
       expect(JSON.stringify(seen)).not.toContain(Buffer.from('o\nlate\n').toString('base64')); // No bytes.
@@ -309,6 +315,15 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       // Its dispose is refused: only the helper recovers an orphan, and it already has.
       expect((await other.call({ op: 'dispose', path: 'docs/a.md', entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) })).ok).toBe(false);
       expect(seen.recovered).toEqual([{ marker: expect.any(String), path: expect.stringContaining(t.recoveryDir), hash: hashBytes(Buffer.from('o\nlate\n')) }]);
+      expect(fs.readdirSync(theirs).filter((n) => n !== '.staging')).toEqual([]); // No bytes in the caller's directory.
+      // The delivered copy is private: the served account reads it; a third account cannot (#428 round 2).
+      const copy = seen.recovered[0].path;
+      expect(fs.readFileSync(copy, 'utf8')).toBe('o\nlate\n');
+      if (THIRD) {
+        const third = spawnSync('sudo', ['-n', '-u', THIRD, '/usr/bin/cat', copy], { encoding: 'utf8' });
+        expect(third.status).not.toBe(0);
+        expect(third.stdout).toBe('');
+      }
     } finally {
       await other.close();
     }

@@ -93,7 +93,8 @@ function prepareRecoveryDir(recoveryDir, { aclGranted = false } = {}) {
   const st = fs.lstatSync(recoveryDir);
   // With the service, the helper's account is granted rwx on it by an ACL, whose mask shows in the group bits: the
   // helper checks that ACL's entries itself (admit_recovery). Others may never write.
-  const forbidden = aclGranted ? 0o002 : 0o022;
+  // With the service the helper also checks it is private to the account and itself (no other access at all).
+  const forbidden = aclGranted ? 0o007 : 0o022;
   if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & forbidden) !== 0) {
     throw new Error('Co-editing needs a recovery directory of its own, not a link or one others can write to');
   }
@@ -544,7 +545,10 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
  */
 function keepAllRecovered(reply, recoveryDir) {
   // The helper wrote these copies into the recovery directory itself; the caller only reports them, once each.
-  const recovered = (reply.recovered ?? []).filter((copy) => copy.path).map((copy) => ({ marker: copy.marker, path: path.resolve(recoveryDir, copy.path) }));
+  // Only copies in THIS bridge's own recovery directory are shown (the helper delivers to the origin's bound one).
+  const own = path.resolve(recoveryDir) + path.sep;
+  const recovered = (reply.recovered ?? []).map((copy) => ({ marker: String(copy.marker), path: path.resolve(String(copy.path ?? '')) }))
+    .filter((copy) => copy.path.startsWith(own));
   return { recovered, orphans: (reply.records ?? []).some((record) => record.orphan) };
 }
 

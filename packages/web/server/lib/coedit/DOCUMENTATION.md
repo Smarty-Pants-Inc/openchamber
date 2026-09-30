@@ -57,9 +57,13 @@ round 4); until then no conflict could be seen.
       counts as exit: `kill(pid, 0)` returns ESRCH, or the pid is readable with another start time (reused). A hidden
       or unreadable `/proc` (`hidepid` returns ENOENT for a live process), or EPERM, counts as alive. Once its origin is
       proven gone, the **helper itself** recovers the orphan: when a lease shows no writer is left, it writes the
-      final bytes into the bridge's recovery directory (named in `hello`; admitted only if the served account owns it
-      and no one else can write it, outside the project and the private directory). The file is new, 0644 inside
-      that 0700 directory, fsynced, and uses the bridge's recovery-name format. A durable marker records the delivery,
+      final bytes into the recovery directory **its origin bound** (#428 round 2): the directory the originating
+      connection named in `hello` is stored, with its device and inode, in the transaction's immutable record, and is
+      reopened and re-verified at recovery. A later caller's `hello` never retargets it; a record with no verifiable
+      destination is not recovered (the 7-day rule applies). The directory must be private: the served account owns
+      it, no one else has any access (no other bits; ACL entries only for trusted accounts), and it is outside the
+      project and the private directory. The copy is private too: 0600 for the helper plus one ACL entry letting the
+      served account read and write it, and nothing else. It is fsynced, and uses the bridge's recovery-name format. A durable marker records the delivery,
       and only then is the entry removed. Callers get only metadata (the path and hash), never the bytes, and cannot
       dispose it. The restarted bridge shows each delivered copy once (`raced`). **Setup:** with the service, the
       recovery directory needs the same grant as a project root (`setfacl -m u:smarty-coedit:rwx <recovery dir>`).

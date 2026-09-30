@@ -382,8 +382,17 @@ fn origin_gone(record: &Value, req: &Value) -> bool {
 /// is the entry removed. No caller ever receives the bytes. Without an admitted recovery directory nothing is
 /// recovered (the 7-day rule applies). Returns whether the entry is now recovered (false while a writer holds it).
 fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value) -> Result<bool, String> {
-    let Some((recovery, recovery_path)) = RECOVERY.get() else { return Ok(false) };
-    let recovery = *recovery;
+    // The destination its ORIGIN bound into the record, reopened and verified to be that same directory, still
+    // private; never the requesting connection's. None, or any mismatch: nothing is recovered (the 7-day rule).
+    let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(false) };
+    let (Some(recovery_path), Some(dev), Some(ino)) = (record["dest"]["path"].as_str(), record["dest"]["dev"].as_u64(), record["dest"]["ino"].as_u64()) else {
+        return Ok(false);
+    };
+    let Ok(dest) = open_recovery(recovery_path, priv_fd, None) else { return Ok(false) };
+    if !fstat(dest.as_raw_fd()).is_ok_and(|st| same(&st, ino, dev)) {
+        return Ok(false);
+    }
+    let recovery = dest.as_raw_fd();
     let Some(staged) = staged_name(priv_fd, key, txn, req)? else { return Ok(true) };
     let fd = match open_private(priv_fd, &staged) {
         Ok(fd) => fd,
@@ -404,8 +413,8 @@ fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value)
         let marker = format!("{key}.{txn}.{h16}.done");
         if stat_entry(priv_fd, &marker)?.is_none() {
             let delivered = deliver(recovery, key, &format!("rec{txn}{h16}"), name, &bytes, req)?;
-            // Where, in full: the notice must point at the directory this delivery used.
-            let meta = json!({"path": format!("{recovery_path}/{delivered}"), "hash": hex(&bytes)}).to_string();
+            // Where: always the origin's own destination.
+            let meta = json!({"path": format!("{}/{delivered}", recovery_path.trim_end_matches('/')), "hash": hex(&bytes)}).to_string();
             create_immutable(priv_fd, &marker, meta.as_bytes(), false, req).map_err(|e| e.message().to_string())?;
         }
         let c = cstr(&staged)?;
@@ -428,14 +437,22 @@ fn deliver(recovery: RawFd, key: &str, kind: &str, name: &str, bytes: &[u8], req
     }
     let dot = CString::new(".").unwrap();
     // SAFETY: O_TMPFILE in the admitted recovery directory, owned by the returned fd.
-    let raw = unsafe { libc::openat(recovery, dot.as_ptr(), libc::O_TMPFILE | libc::O_RDWR | libc::O_CLOEXEC, 0o644 as libc::c_uint) };
+    let raw = unsafe { libc::openat(recovery, dot.as_ptr(), libc::O_TMPFILE | libc::O_RDWR | libc::O_CLOEXEC, 0o600 as libc::c_uint) };
     if raw < 0 {
         return Err(fail("the recovery directory cannot be written (grant the helper's account rwx on it)"));
     }
     // SAFETY: a new owned descriptor.
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    // SAFETY: fchmod/pwrite on our own fd: readable by the account served (the directory is its own 0700).
-    let ok = unsafe { libc::fchmod(fd.as_raw_fd(), 0o644) == 0 && libc::pwrite(fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len(), 0) == bytes.len() as isize };
+    // Private (#428 round 2): 0600 for the helper, plus exactly one named entry letting the account served read and
+    // write it (it is that account's recovery copy). No inherited or other entries: no one else can read it.
+    let peer = *PEER.get().ok_or("no peer")?;
+    let acl = acl_bytes(&[(ACL_USER_OBJ, 6, u32::MAX), (ACL_USER, 6, peer), (ACL_GROUP_OBJ, 0, u32::MAX), (ACL_MASK, 6, u32::MAX), (ACL_OTHER, 0, u32::MAX)]);
+    let acl_name = cstr(ACCESS_ACL)?;
+    // SAFETY: fsetxattr/pwrite on our own fd.
+    let ok = unsafe {
+        libc::fsetxattr(fd.as_raw_fd(), acl_name.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) == 0
+            && libc::pwrite(fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len(), 0) == bytes.len() as isize
+    };
     if !ok || !fsync(fd.as_raw_fd()) {
         return Err(fail("write recovery"));
     }
@@ -539,6 +556,13 @@ fn reaches(from: RawFd, target: &libc::stat) -> Result<bool, String> {
 static RECOVERY: std::sync::OnceLock<(RawFd, String)> = std::sync::OnceLock::new();
 
 fn admit_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<RawFd, String> {
+    open_recovery(path, priv_fd, root_fd).map(|fd| std::os::fd::IntoRawFd::into_raw_fd(fd))
+}
+
+/// Opens and checks a recovery directory (#428 rounds 1 and 2): the account served owns it; no one else has any
+/// access to it (no other bits, and every ACL entry beyond the owner's names a trusted account); it is outside the
+/// private directory and the project.
+fn open_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<OwnedFd, String> {
     if !path.starts_with('/') {
         return Err("the recovery directory must be an absolute path".into());
     }
@@ -551,15 +575,21 @@ fn admit_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<
     // SAFETY: a new owned descriptor (kept for the helper's lifetime once admitted).
     let owned = unsafe { OwnedFd::from_raw_fd(fd) };
     let st = fstat(fd)?;
-    // Writable by no one else. Its group bits may show an ACL mask (the helper's own rwx grant): then every entry
-    // that can write must name a trusted account, and the owning group itself may not write.
+    // Private to the served account and the helper (#428 round 2): no other bits at all; group bits only as the mask
+    // of an ACL whose every entry beyond the owner's names a trusted account (the helper's grant), with the owning
+    // group given nothing. Delivered copies are private too (deliver), so no one else can read them.
     let acl_ok = || -> Result<bool, String> {
         let Some(acl) = xattr(fd, ACCESS_ACL)? else { return Ok(false) };
-        let group_writes = acl_entries(&acl).is_none_or(|e| e.iter().any(|&(tag, perm, _)| tag == ACL_GROUP_OBJ && perm & 2 != 0));
-        Ok(!group_writes && acl_trusted(&acl, &Value::Null))
+        Ok(acl_entries(&acl).is_some_and(|entries| {
+            entries.iter().all(|&(tag, perm, id)| match tag {
+                ACL_USER => trusted(id),
+                ACL_GROUP_OBJ | ACL_GROUP | ACL_OTHER => perm == 0,
+                _ => true,
+            })
+        }))
     };
-    if PEER.get() != Some(&st.st_uid) || st.st_mode & 0o002 != 0 || (st.st_mode & 0o020 != 0 && !acl_ok()?) {
-        return Err("the recovery directory must belong to the account served, writable by no one else".into());
+    if PEER.get() != Some(&st.st_uid) || st.st_mode & 0o007 != 0 || (st.st_mode & 0o070 != 0 && !acl_ok()?) {
+        return Err("the recovery directory must belong to the account served, private to it and this helper".into());
     }
     if reaches(fd, &fstat(priv_fd)?)? {
         return Err("the recovery directory is inside the helper's private directory".into());
@@ -569,7 +599,7 @@ fn admit_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<
             return Err("the recovery directory is inside the project".into());
         }
     }
-    Ok(std::os::fd::IntoRawFd::into_raw_fd(owned))
+    Ok(owned)
 }
 
 fn admit_root(root_fd: RawFd, priv_fd: RawFd) -> Result<(), String> {
@@ -1053,7 +1083,10 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
         (true, Some(o)) => (o[0].as_i64().unwrap_or(0) as i32, o[1].as_u64().unwrap_or(0)),
         _ => ORIGIN.get().copied().unwrap_or((0, 0)),
     };
-    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start}).to_string();
+    // The recovery destination is bound to this transaction here, as its origin admitted it (#428 round 2): a later
+    // connection's hello never retargets it.
+    let dest = RECOVERY.get().and_then(|(fd, path)| fstat(*fd).ok().map(|st| json!({"path": path, "dev": st.st_dev as u64, "ino": st.st_ino as u64})));
+    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start, "dest": dest}).to_string();
     let record = match create_immutable(priv_fd, &record_name, record_bytes.as_bytes(), true, req) {
         Ok(fd) => fd,
         // Linked by us but not flushed: ours, proven by its inode, so it goes. Before our link: never ours to touch.
