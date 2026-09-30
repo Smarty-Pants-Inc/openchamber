@@ -39,7 +39,7 @@ export async function createSidebarOwnerFixture() {
   const subjects = people.map(person => person.id);
   const cookies = await Promise.all(people.map(async person => (await helpers.getAuthHeaders({ userId: person.id })).get('cookie') ?? ''));
   const fixture = { baseURL, subjects, cookie: cookies[0], gets: 0, requests: [],
-    heldPatch: undefined, heldRead: undefined, refuse: false,
+    heldPatch: undefined, heldRead: undefined, readFailure: undefined, refuse: false,
     person(index) { fixture.cookie = cookies[index]; },
     gate,
     fetch(input, init) {
@@ -73,7 +73,11 @@ export async function createSidebarOwnerFixture() {
       if (fixture.refuse) return res.status(500).json({ error: 'fixture storage failure' });
     } else {
       fixture.gets++;
+      // Capture the declared fault before holding this protected request.
+      const failure = fixture.readFailure;
       await fixture.heldRead?.promise;
+      if (failure === 'storage') return res.status(500).json({ error: 'fixture read failure' });
+      if (failure === 'transport') return res.destroy();
     }
     next();
   });

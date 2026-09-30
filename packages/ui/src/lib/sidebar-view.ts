@@ -54,7 +54,16 @@ async function hydrate(captured: typeof entry): Promise<void> {
     const local = useView.getState();
     useView.setState({ ready: true, projects: { ...data.projects, ...local.projects }, groups: { ...data.groups, ...local.groups } });
   })();
-  try { await captured.load; } catch (error) { captured.load = null; throw error; }
+  try { await captured.load; } catch (error) {
+    captured.load = null;
+    if (current(captured) && !captured.owner) {
+      // A failed admission cannot authorize queued choices through a later GET.
+      // Retire every optimistic value, not only the first rejected mutation.
+      notifyFailure();
+      retire();
+    }
+    throw error;
+  }
 }
 
 /** Sparse, serialized writes. The GET owner is an expected-person guard, never a storage selector. */
@@ -133,7 +142,7 @@ export async function readPersonalSidebarOwner(scope: ReturnType<typeof captureR
     // Auth observation can refresh the preference entry without changing request authority.
     // Follow that already-running GET only; never follow a different runtime or person.
     if (!isRuntimeRequestScopeCurrent(scope)) return null;
-    if (captured === entry) throw error;
+    if (captured === entry || !entry.load) throw error;
     await hydrate(entry);
   }
   return current(entry) && isRuntimeRequestScopeCurrent(scope) ? entry.owner : null;

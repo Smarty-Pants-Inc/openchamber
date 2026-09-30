@@ -10,6 +10,7 @@ export function createSidebarOwnerFixture(): Promise<{
   requests: { owner: Owner; projects?: Maps['projects']; groups?: Maps['groups'] }[];
   heldPatch: Gate | undefined;
   heldRead: Gate | undefined;
+  readFailure: 'storage' | 'transport' | undefined;
   refuse: boolean;
   person(index: number): void;
   gate(): Gate;

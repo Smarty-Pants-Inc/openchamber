@@ -114,6 +114,14 @@ maps and request authority, then loads the newly admitted person's preferences.
 Queued old-person choices reject without dispatch or replay. A stale 409 cannot
 retire a newer view. Ordinary storage errors keep same-person rollback behavior.
 
+Before the preference GET admits an owner, desktop and mobile may queue local
+choices. Failure of that owner-admission attempt retires its pending choices and
+optimistic maps. A later successful read cannot authorize those old payloads;
+saving requires a fresh choice. Healthy same-person pre-admission choices still
+save after the original read succeeds. A stale failed read cannot retire a newer
+entry. Manual-collapse reveal cancellation remains local intent, independent of
+whether its durable preference save succeeds.
+
 #1061 covers root rows and containing project/worktree groups only. Child and
 folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1066).
 Parent and folder expansion remain manual, as agreed in the
