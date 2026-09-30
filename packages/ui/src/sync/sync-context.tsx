@@ -841,6 +841,10 @@ async function resyncDirectorySessionStatuses(
         fleet ??= opencodeClient.getSessionStatusForDirectory(null).catch(() => null)
         const listed = toSessionStatus((await fleet)?.[sessionId])
         if (listed && listed.type !== 'idle') status = listed
+        // code-perf's 3.57 capture: the fleet read itself said idle for net-lead 47 times and busy 12 times while it
+        // worked (tool gaps). An ordinary (fleet) session is never settled by ABSENCE, whatever one fleet sample says:
+        // only an explicit status from its own directory settles it (settledBySnapshot).
+        else if (listed?.ordinary) return true
       }
       if (!status) return false
       const active = status
