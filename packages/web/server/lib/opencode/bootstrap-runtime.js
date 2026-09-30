@@ -1,3 +1,4 @@
+import { registerHumanSidebarViewRoutes } from '../ui-auth/human-sidebar-view.js';
 import { registerBillingRoleRoute } from '../billing-role/billing-role.js';
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
 import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
@@ -79,6 +80,9 @@ export const createBootstrapRuntime = (dependencies) => {
     // The Files view's HTML preview (smarty-code#382): its capability is its only credential, so it comes before every
     // origin and session check, and it never reaches the app's session.
     registerPreviewServeRoute(app);
+    app.use('/api/config/sidebar-view', (_req, res, next) => {
+      res.setHeader('Cache-Control', 'private, no-store'); next();
+    });
     if (humanAuth) {
       // Protect application mutations too, including status routes registered below.
       app.use((req, res, next) => {
@@ -155,6 +159,8 @@ export const createBootstrapRuntime = (dependencies) => {
       readSettingsFromDiskMigrated,
       normalizeTunnelSessionTtlMs,
     });
+
+    registerHumanSidebarViewRoutes(app, { express, humanAuth });
 
     registerTtsRoutes(app, { sayTTSCapability });
 

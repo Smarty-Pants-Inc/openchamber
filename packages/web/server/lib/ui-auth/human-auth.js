@@ -4,6 +4,7 @@ import { APIError } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
+import { createHumanSidebarView } from './human-sidebar-view.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
@@ -35,6 +36,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     } },
     account: { accountLinking: { enabled: false } },
     user: {
+      additionalFields: { sidebarPreferences: { type: 'string', required: false, input: false, returned: false } },
       changeEmail: { enabled: false },
       validateUserInfo: async ({ user, source }) => {
         const profile = source.oauth?.profile;
@@ -158,6 +160,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     protect,
     actor,
     authorizeUiSession,
+    sidebarView: createHumanSidebarView({ auth, resolve, actor }),
     status: async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       const session = await resolve(req);

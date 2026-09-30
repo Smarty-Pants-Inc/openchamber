@@ -70,6 +70,52 @@ retains its existing meaning; never accept a device bearer as a human identity.
 Human requests carrying a legacy bearer are explicitly refused, not silently
 reinterpreted through an ambient browser cookie.
 
+### Personal sidebar view
+
+`human-sidebar-view.js` exports `createHumanSidebarView` and
+`registerHumanSidebarViewRoutes`. Bootstrap registers `GET` and `PATCH`
+`/api/config/sidebar-view` after the API auth/tunnel guard and before proxy routes.
+Both return `Cache-Control: private, no-store`, including refusals. Legacy mode
+returns 501. Human mode uses the admitted actor's issuer and opaque user ID.
+
+GET returns `{owner:{issuer,subject},projects,groups}` with sparse boolean maps.
+True means collapsed; false means expanded. Missing keys leave the shared project
+collapse default or owning group default to the UI. PATCH requires the same owner
+as an expected-person guard, never as a storage selector, and merges only supplied
+project/group entries. A different owner returns 409 without writing. Neither route
+reads or writes the shared settings document or imports anonymous browser state.
+
+Better Auth owns the nullable private `user.sidebarPreferences` string field.
+It is configured with `input:false` and `returned:false`; official account APIs
+cannot write it and do not expose it. The controller reads a fresh user through
+Better Auth's adapter. One running controller serializes reads and patches per
+user and rechecks authentication inside the queue. Unrelated tab patches survive.
+Do not run multiple preference writers against the same database.
+
+PATCH accepts at most 64 KiB of JSON, also checked after parsing. Each map holds
+at most 2,048 entries; keys are 1 to 8,192 characters without control characters or
+prototype keys. The expected issuer is at most 2,048 characters and subject 128.
+The merged stored JSON is at most 256 KiB. Invalid or overflowing changes fail as
+a whole, without evicting older entries. Database or malformed stored-data errors
+return 500, never a successful empty snapshot. A failed write leaves prior data
+intact and later requests can still run.
+
+The supported library migration runs at service startup, inside
+`createConfiguredHumanAuth` / `createHumanAuth`, before the listener starts.
+For this feature it adds only one nullable TEXT column with no default or row
+backfill. Verify fresh startup and upgrade on a private disposable copy before
+installation: existing user/session values and `workspacePolicy` must stay
+unchanged, the new column must be nullable, and an authenticated preference must
+survive reopening. Migration errors stop startup.
+
+Rollback keeps the database and added column. The previous controller ignores the
+field, admits original sessions, and preserves preferences during profile edits.
+The focused migration test checks additive schema and adapter preservation; the
+installation qualification also ran the actual previous `c1d2f327` factory against
+a migrated private fixture, with two people and three existing sessions. Do not
+rewind the auth database or remove the column. Previous UI releases do not provide
+personal sidebar behavior, even though their authentication remains compatible.
+
 ### Existing clients and rollback
 
 Human mode does not import existing passwords, passkeys or trusted-device labels

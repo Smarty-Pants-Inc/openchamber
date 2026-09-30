@@ -78,6 +78,34 @@ make every row observe unrelated streaming updates.
 - Pending-permission/question row badges fade with the same hover/menu-open rule as the date label, except on non-VS Code always-visible-actions rows, which reserve permanent padding and keep the badges shown. VS Code hover-reveals its actions over the row's right edge even under `alwaysShowActions`, so its badges keep fading (`selectRowBadgeVisibilityClass` in `sessions/sessionNodeItemUtils.ts`).
 
 
+## Personal open/create reveal
+
+`list/sessionReveal.ts` mounts an effect-only subscriber in the desktop collection
+and mobile sheet. Explicit local opens, including same-ID reopen, and creation
+capture one runtime/auth-scoped intent. Creation captures before asynchronous
+preparation and forwards that ticket at selection. Restore, background rows and
+model changes do not create reveal work. A later explicit choice retires earlier
+work; old request scopes cannot reveal the new person's view.
+
+Reveal waits for the selected root row in its admitted rendered group, consumes
+the marker before writing personal expansion through `lib/sidebar-view.ts`, and
+expands only its project and group. Explicit same-target collapse cancels pending
+work even before ownership arrives. Unrelated collapse does not cancel it.
+Desktop pagination uses the target group's sorted, unfoldered roots. Mobile uses
+the target bucket's actual roots. Neither path fetches history to reveal a row.
+
+Human mobile uses the same sparse personal maps and shared project defaults,
+without claiming `mobile-session-tree` anonymous values. Worktree keys adapt to
+`${projectId}:worktree:${normalizedPath}`; its unheaded root bucket uses
+`${projectId}:root`. Mobile still renders one root bucket rather than desktop's
+workspace subgroups. Legacy mobile and VS Code retain their existing view path.
+
+#1061 covers root rows and containing project/worktree groups only. Child and
+folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1066).
+Parent and folder expansion remain manual, as agreed in the
+[scope decision](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1061#issuecomment-5909719193).
+A root hidden inside a manually collapsed folder is not a #1061 visibility claim.
+
 ## Project action indicators
 
 `SidebarTerminalActivity` shares terminal discovery with the action header and terminal
