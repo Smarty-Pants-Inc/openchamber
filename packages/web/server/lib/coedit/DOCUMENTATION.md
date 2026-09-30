@@ -40,7 +40,9 @@ round 4); until then no conflict could be seen.
     - **Records:** before any change, each publish creates `<key>.<txn>.txn` in the private directory. It is an
       **immutable** record (the staged inode, and the hash of the originating bridge's secret token), made
       atomically: an unnamed file is written, `fsync`ed and `flock`ed, then linked, so it is never visible partial
-      or unlocked. A publish that cannot establish it changes nothing. The outcome is a separate immutable
+      or unlocked. A publish that cannot establish it changes nothing, and a txn whose record or outcome already exists
+      for the file is refused before anything is created. A cleanup removes a record only when it still holds the inode
+      that same invocation linked, never another transaction's name (#412 round 6). The outcome is a separate immutable
       `<key>.<txn>.out` (`published` or `aborted`), made the same way. It is flushed again (file and directory) every
       time before anything relies on it, so an interrupted or unflushed outcome is never trusted.
     - **Ownership:** a connection owns a transaction while it holds the record's lock. Ownership is the FULL identity

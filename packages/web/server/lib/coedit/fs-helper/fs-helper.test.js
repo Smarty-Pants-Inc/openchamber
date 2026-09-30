@@ -677,6 +677,40 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       expect(await dispose(`${KEY}.aaa111-bogus.staged`, r.hash)).toMatchObject({ ok: false });
     });
 
+    test('#412 round 6: a publish reusing a live transaction\'s id on the same file never touches its record', async () => {
+      const writer = fs.openSync(target(), 'a');
+      const r = await read();
+      const p = await publish(r, { txn: 'eee111', ack: sha('a-token') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      const recordPath = path.join(priv, `${KEY}.eee111.txn`);
+      const before = { ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') };
+      const other = helper(root, priv);
+      try {
+        const current = await other.call({ op: 'read', path: 'docs/a.md' });
+        for (const fault of [undefined, 'recordCreate']) {
+          const reply = await other.call({ op: 'publish', path: 'docs/a.md', txn: 'eee111', ack: sha('b'), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('B\n').toString('base64'), fault });
+          expect(reply).toMatchObject({ ok: false, error: expect.stringMatching(/already in use/) });
+          expect({ ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') }).toEqual(before);
+        }
+        expect((await other.call({ op: 'list', path: 'docs/a.md' })).entries).toEqual([{ entry: p.displaced, owned: true }]);
+        fs.writeSync(writer, 'late\n');
+        fs.closeSync(writer);
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('two\nlate\n') })).toMatchObject({ ok: false, owned: true });
+      } finally {
+        other.stop();
+      }
+      expect(fs.readFileSync(target(), 'utf8')).toBe('two\n'); // B published nothing.
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+    });
+
+    test('#412 round 6: a record that fails before its own link leaves no name behind and removes none', async () => {
+      const r = await read();
+      const reply = await publish(r, { txn: 'fff111', ack: sha('x'), fault: 'recordCreate' });
+      expect(reply).toMatchObject({ ok: false, error: expect.stringMatching(/cannot be established/) });
+      expect(fs.readdirSync(priv).filter((n) => !n.endsWith('-lock'))).toEqual([]);
+      expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
+    });
+
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {
       const r = await read();
       const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });

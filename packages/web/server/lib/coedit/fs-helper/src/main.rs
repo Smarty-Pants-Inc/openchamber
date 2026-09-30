@@ -162,36 +162,66 @@ struct OwnedTxn {
 /// round 5): until then its retained bytes stay the originating bridge's, even across a reconnect.
 const ORPHAN_SECS: i64 = 7 * 86_400;
 
+/// Why `create_immutable` failed: before its own link (the name is NOT ours: never remove it), or after it (the name is
+/// ours, and the returned fd identifies the inode we linked).
+enum CreateError {
+    BeforeLink(String),
+    AfterLink(String, OwnedFd),
+}
+
+impl CreateError {
+    fn message(&self) -> &str {
+        match self {
+            CreateError::BeforeLink(m) | CreateError::AfterLink(m, _) => m,
+        }
+    }
+}
+
 /// Creates an immutable private file atomically: an unnamed file, written, fsynced, optionally flocked, then linked
 /// under `name` (EEXIST if it exists) and the private dir fsynced. Returns its fd (holding the flock if asked).
-fn create_immutable(priv_fd: RawFd, name: &str, content: &[u8], lock: bool, req: &Value) -> Result<OwnedFd, String> {
+fn create_immutable(priv_fd: RawFd, name: &str, content: &[u8], lock: bool, req: &Value) -> Result<OwnedFd, CreateError> {
+    let before = |m: String| CreateError::BeforeLink(m);
+    if test_fault(req, "recordCreate") {
+        return Err(before("the record cannot be created".into()));
+    }
     let dot = CString::new(".").unwrap();
     // SAFETY: O_TMPFILE creates an unnamed file owned by the returned fd.
     let raw = unsafe { libc::openat(priv_fd, dot.as_ptr(), libc::O_TMPFILE | libc::O_RDWR | libc::O_CLOEXEC, 0o600 as libc::c_uint) };
     if raw < 0 {
-        return Err(fail("O_TMPFILE"));
+        return Err(before(fail("O_TMPFILE")));
     }
     // SAFETY: a new owned descriptor.
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     // SAFETY: flock on our own fd.
     if lock && unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err(fail("flock"));
+        return Err(before(fail("flock")));
     }
     // SAFETY: pwrite on our own fd.
     if unsafe { libc::pwrite(fd.as_raw_fd(), content.as_ptr().cast(), content.len(), 0) } != content.len() as isize || !fsync(fd.as_raw_fd()) {
-        return Err(fail("write"));
+        return Err(before(fail("write")));
     }
     test_pause(req, "beforeRecordLink");
-    let c = cstr(name)?;
+    let c = cstr(name).map_err(before)?;
     let proc_path = CString::new(format!("/proc/self/fd/{}", fd.as_raw_fd())).unwrap();
     // SAFETY: links our unnamed, complete inode under a fresh private name; EEXIST if taken.
     if unsafe { libc::linkat(libc::AT_FDCWD, proc_path.as_ptr(), priv_fd, c.as_ptr(), libc::AT_SYMLINK_FOLLOW) } != 0 {
-        return Err(fail("link"));
+        return Err(before(fail("link")));
     }
     if test_fault(req, "recordSync") || !fsync(priv_fd) {
-        return Err("the private dir cannot be flushed".into());
+        return Err(CreateError::AfterLink("the private dir cannot be flushed".into(), fd));
     }
     Ok(fd)
+}
+
+/// Removes `name` only if it still holds the inode behind `fd`, the one this invocation linked (#412 round 6).
+fn unlink_if_ours(priv_fd: RawFd, name: &str, fd: &OwnedFd) {
+    let (Ok(st), Ok(Some(now))) = (fstat(fd.as_raw_fd()), stat_entry(priv_fd, name)) else { return };
+    if same(&now, st.st_ino as u64, st.st_dev as u64) {
+        if let Ok(c) = cstr(name) {
+            // SAFETY: unlinks one private name that is proven to hold our own inode.
+            unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+        }
+    }
 }
 
 /// A private file's bytes: None only on ENOENT; any other failure is an error.
@@ -246,7 +276,7 @@ fn resolve(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<String, 
     }
     match create_immutable(priv_fd, &format!("{key}.{txn}.out"), state.as_bytes(), false, req) {
         Ok(_) => Ok(state.to_string()),
-        // Another recovery linked it first: trust it only once it is confirmed durable.
+        // Another recovery linked it first, or ours is not yet flushed: trust it only once it is confirmed durable.
         Err(_) => outcome(priv_fd, key, txn, req)?.ok_or_else(|| "the transaction's outcome cannot be recorded".to_string()),
     }
 }
@@ -829,6 +859,13 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
         return Err("invalid txn".into());
     }
+    // A txn already in use on this file (its record or outcome exists) is refused before anything is created: a
+    // publish never touches another transaction's names (#412 round 6).
+    for suffix in ["txn", "out"] {
+        if stat_entry(priv_fd, &format!("{key}.{txn}.{suffix}"))?.is_some() {
+            return Err("this transaction id is already in use: nothing published".into());
+        }
+    }
     // Only the originating bridge knows the token behind this hash: acknowledgement needs it (#412 round 4, finding 1).
     let ack_hash = req["ack"].as_str().unwrap_or("").to_string();
     if ack_hash.len() > 64 || !ack_hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
@@ -836,19 +873,19 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     }
     // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
     // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
-    let record_c = cstr(&format!("{key}.{txn}.txn"))?;
-    // SAFETY: removes our own record (nothing was published).
-    let drop_record = || unsafe { libc::unlinkat(priv_fd, record_c.as_ptr(), 0) };
+    let record_name = format!("{key}.{txn}.txn");
     let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash}).to_string();
-    let record = match create_immutable(priv_fd, &format!("{key}.{txn}.txn"), record_bytes.as_bytes(), true, req) {
+    let record = match create_immutable(priv_fd, &record_name, record_bytes.as_bytes(), true, req) {
         Ok(fd) => fd,
-        Err(e) => {
-            if !e.starts_with("link") {
-                drop_record(); // Linked but not flushed: ours (the file's lock is held), so it goes.
-            }
-            return Err(format!("the transaction record cannot be established ({e}): nothing published"));
+        // Linked by us but not flushed: ours, proven by its inode, so it goes. Before our link: never ours to touch.
+        Err(CreateError::AfterLink(m, fd)) => {
+            unlink_if_ours(priv_fd, &record_name, &fd);
+            return Err(format!("the transaction record cannot be established ({m}): nothing published"));
         }
+        Err(e) => return Err(format!("the transaction record cannot be established ({}): nothing published", e.message())),
     };
+    // Every later pre-exchange cleanup removes only the inode we linked.
+    let drop_record = || unlink_if_ours(priv_fd, &record_name, &record);
     let staged = format!("{key}.{txn}-{}.staged", unique());
     let staged_c = cstr(&staged)?;
     let proc_path = CString::new(format!("/proc/self/fd/{}", tmp.as_raw_fd())).unwrap();
@@ -857,10 +894,11 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
         drop_record();
         return Err(fail("linkat"));
     }
-    // SAFETY: unlinks our own private entry and record (nothing was published).
-    let unlink_staged = || unsafe {
-        libc::unlinkat(priv_fd, staged_c.as_ptr(), 0);
-        libc::unlinkat(priv_fd, record_c.as_ptr(), 0)
+    // Our own staged entry (a fresh unique name) and our own record (by its inode): nothing was published.
+    let unlink_staged = || {
+        // SAFETY: unlinks our own fresh private entry.
+        unsafe { libc::unlinkat(priv_fd, staged_c.as_ptr(), 0) };
+        drop_record();
     };
     if !fsync(priv_fd) {
         unlink_staged();

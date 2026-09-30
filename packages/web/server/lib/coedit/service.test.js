@@ -249,6 +249,32 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     }
   });
 
+  it('#412 round 6: reusing a live transaction\'s id on the same file is refused, and its record stays exactly as it was', async () => {
+    const t = setup('d\n');
+    const staging = path.join(t.recoveryDir, '.staging');
+    const writer = fs.openSync(t.file, 'a');
+    const origin = startHelper(t.root, staging);
+    const other = startHelper(t.root, staging);
+    try {
+      const current = await readFile(origin, 'docs/a.md');
+      const reply = await origin.call({
+        op: 'publish', path: 'docs/a.md', txn: 'dead01', ack: hashBytes(Buffer.from('mine')), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('D\n').toString('base64'),
+      });
+      expect(reply).toMatchObject({ published: true });
+      const now = await readFile(other, 'docs/a.md');
+      const dup = await other.call({
+        op: 'publish', path: 'docs/a.md', txn: 'dead01', ack: hashBytes(Buffer.from('theirs')), ino: now.ino, dev: now.dev, hash: now.hash, data: Buffer.from('X\n').toString('base64'),
+      });
+      expect(dup).toMatchObject({ ok: false, error: expect.stringMatching(/already in use/) });
+      expect((await other.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'dead01', owned: true }]);
+      expect(fs.readFileSync(t.file, 'utf8')).toBe('D\n');
+    } finally {
+      fs.closeSync(writer);
+      await other.close();
+      await origin.close();
+    }
+  });
+
   it('keys agree: the service names entries by sha256(root NUL path), as the bridge does', async () => {
     const t = setup('k\n');
     const helper = startHelper(t.root, path.join(t.recoveryDir, '.staging'));
