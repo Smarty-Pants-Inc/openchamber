@@ -109,6 +109,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   if (native.session) return null;
   // The same rule Send refuses by, so the line and the refusal agree (smarty-code#114).
   const running = blocking;
+  // A known pre-submit failure started nothing. Once the project check confirms withdrawal, say why Send is blocked
+  // rather than keeping a connection error and a recheck that cannot recover this target (smarty-code#1118).
+  if (native.mode === 'notAdmitted' && !starting && creation?.status === 'failed' && creation.submitted === false) {
+    return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.notAdmitted')}</p>;
+  }
   const failure = creation?.status === 'failed' ? creation.error : creation?.status === 'pending' ? creation.error : undefined;
   const unknown = creation?.status === 'failed' && creation.submitted;
   if (failure) return <div className="mb-2 space-y-1">
