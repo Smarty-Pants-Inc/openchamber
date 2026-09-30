@@ -32,7 +32,8 @@ export async function createConfiguredHumanAuth(env) {
   const database = new DatabaseSync(path);
   try {
     const humanAuth = await createHumanAuth({ database, allowedDomains, baseURL: env.BETTER_AUTH_URL,
-      secret: env.BETTER_AUTH_SECRET, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET });
+      secret: env.BETTER_AUTH_SECRET, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+      ...(env.SMARTY_NODE_RECORD ? { nodeRecord: env.SMARTY_NODE_RECORD } : {}) }); // Members only (smarty-net#117 N2).
     const dispose = humanAuth.dispose;
     let closed = false;
     return { ...humanAuth, dispose: () => {

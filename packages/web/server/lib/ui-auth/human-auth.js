@@ -4,10 +4,24 @@ import { APIError } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
+import { createNodeMembership } from './node-membership.js';
 
+export const MEMBERSHIP_CHECK_MS = 2_000;
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
-export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
-  const admits = createHumanAudience(allowedDomains);
+export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains, nodeRecord }) {
+  const inAudience = createHumanAudience(allowedDomains);
+  // smarty-net#117 N2: on a Node, only its members (by their Google subject in the Node's record). Without a record: as before.
+  const member = nodeRecord ? createNodeMembership(nodeRecord) : undefined;
+  const googleSubjects = new Map();
+  const googleSubject = async (userId) => {
+    if (googleSubjects.has(userId)) return googleSubjects.get(userId);
+    const { adapter } = await auth.$context;
+    const account = await adapter.findOne({ model: 'account', where: [{ field: 'userId', value: userId }, { field: 'providerId', value: 'google' }],
+      select: ['accountId'] });
+    if (account?.accountId) googleSubjects.set(userId, account.accountId);
+    return account?.accountId;
+  };
+  const admits = async (user) => inAudience(user) && (!member || Boolean(user?.id && await member(await googleSubject(user.id))));
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
@@ -19,7 +33,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   if (!database || typeof secret !== 'string' || secret.length < 32 || !googleClientId || !googleClientSecret) {
     throw new Error('Human authentication configuration is incomplete');
   }
-  const liveResponses = new Map();
+  const liveResponses = new Map(), sessionUsers = new Map(); // sessionUsers: each live session's user (membership recheck).
   const closeSession = (id) => {
     for (const response of liveResponses.get(id) || []) response.destroy();
     liveResponses.delete(id);
@@ -39,7 +53,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       validateUserInfo: async ({ user, source }) => {
         const profile = source.oauth?.profile;
         if (source.method !== 'oauth' || source.oauth?.providerId !== 'google'
-          || profile?.hd !== hostedDomain || !admits(user)) {
+          || profile?.hd !== hostedDomain || !inAudience(user) || (member && !await member(profile?.sub))) {
           return { error: 'account_not_allowed', errorDescription: 'This account is not allowed to use this instance' };
         }
       },
@@ -50,7 +64,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     },
     databaseHooks: {
       user: {
-        create: { before: async (user) => { if (!admits(user)) deny(); } },
+        create: { before: async (user) => { if (!inAudience(user)) deny(); } }, // Membership: validateUserInfo, then each session.
         update: { before: async (user) => {
           if (user.email !== undefined || user.emailVerified !== undefined) deny();
           if (user.name !== undefined && !validName(user.name)) {
@@ -65,13 +79,21 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
         create: { before: async (session, context) => {
           const runtime = context?.context ?? await auth.$context;
           const user = await runtime.internalAdapter.findUserById(session.userId);
-          if (!admits(user)) deny();
+          if (!await admits(user)) deny();
           return { data: { ...session, workspacePolicy: `google-hd:${hostedDomain}` } };
         } },
         delete: { after: async (session) => { closeSession(session.id); } },
       },
     },
   };
+  // On a Node, every open stream and socket (SSE, terminal, voice) is rechecked against the record every
+  // MEMBERSHIP_CHECK_MS: a withdrawn member's connections are closed, so no further input or output passes (#326 review).
+  const membershipCheck = member ? setInterval(() => { void (async () => {
+    for (const [id, user] of sessionUsers) if (!await admits(user).catch(() => false)) {
+      console.warn(JSON.stringify({ type: 'smarty.node-member-withdrawn', session: id.slice(0, 8) })); closeSession(id); sessionUsers.delete(id);
+    }
+  })(); }, MEMBERSHIP_CHECK_MS) : undefined;
+  membershipCheck?.unref?.();
   // Use the library's schema, not a second hand-maintained account schema.
   const migration = await getMigrations(options);
   await migration.runMigrations();
@@ -92,7 +114,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     // Device bearer credentials do not become people through an ambient cookie.
     if (req.headers.authorization) return null;
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
-    if (!session || !admits(session.user)) return null;
+    if (!session || !await admits(session.user)) return null; // A removed member is refused at the next request.
     return session;
   };
   const actor = (session) => {
@@ -114,8 +136,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
         select: ['id', 'userId', 'expiresAt'] });
       if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return false;
       const user = await adapter.findOne({ model: 'user', where: [{ field: 'id', value: session.userId }],
-        select: ['email', 'emailVerified'] });
-      if (!admits(user)) return false;
+        select: ['id', 'email', 'emailVerified'] });
+      if (!await admits(user)) return false;
       const current = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: session.id }],
         select: ['userId', 'expiresAt'] });
       return current?.userId === session.userId && new Date(current.expiresAt).getTime() > Date.now();
@@ -127,7 +149,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const session = await resolve(req);
     if (!session) return reject(res);
     const responses = liveResponses.get(session.session.id) || new Set();
-    liveResponses.set(session.session.id, responses);
+    liveResponses.set(session.session.id, responses); sessionUsers.set(session.session.id, session.user);
     responses.add(res);
     // Session expiry also closes already-open streams, not just later HTTP requests.
     const remaining = new Date(session.session.expiresAt).getTime() - Date.now();
@@ -138,7 +160,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const cleanup = () => {
       closed = true;
       clearTimeout(timer); responses.delete(res);
-      if (!responses.size) liveResponses.delete(session.session.id);
+      if (!responses.size) { liveResponses.delete(session.session.id); sessionUsers.delete(session.session.id); }
     };
     res.once('close', cleanup);
     res.once('finish', cleanup);
@@ -163,7 +185,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       const session = await resolve(req);
       return session ? res.json({ authenticated: true, humanAuth: true, user: actor(session) }) : unauthorized(res);
     },
-    dispose: () => { for (const id of liveResponses.keys()) closeSession(id); },
+    dispose: () => { clearInterval(membershipCheck); for (const id of liveResponses.keys()) closeSession(id); },
   };
 }
 
