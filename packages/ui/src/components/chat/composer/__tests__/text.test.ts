@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     appendInlineText,
+    appendOwnedBlock,
     appendWithLineBreaks,
     buildImagePasteInsertion,
     getMarkdownAutoPairEdit,
+    removeOwnedBlock,
+    shiftOwnedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from '../text';
@@ -154,5 +157,43 @@ describe('getMarkdownAutoPairEdit', () => {
             selectionStart: 2,
             selectionEnd: 5,
         });
+    });
+});
+
+describe('removeOwnedBlock (smarty-code#962)', () => {
+    test('removes the joined copy at its offset, never an earlier identical copy', () => {
+        const joined = appendOwnedBlock('same\n\nmore', 'same');
+        expect(joined).toEqual({ text: 'same\n\nmore\n\nsame\n\n', at: 12 });
+        expect(removeOwnedBlock(joined.text, 'same', joined.at)).toEqual({ text: 'same\n\nmore\n\n', removed: 6 });
+    });
+    test('an edited copy, or one moved from its offset, is left', () => {
+        expect(removeOwnedBlock('same\nunsent', 'same', 0)).toBeNull();
+        expect(removeOwnedBlock('same more\n\n', 'same', 0)).toBeNull();
+        expect(removeOwnedBlock('xsame\n\nsame\n\n', 'same', 5)).toBeNull();
+        expect(removeOwnedBlock('a\n\nsame\n\n', 'same', 1)).toBeNull();
+    });
+    test('a block ending in newlines, joined intact before another, goes (review r2 1)', () => {
+        for (const block of ['first\n', 'first\n\n']) {
+            const joined = appendOwnedBlock(block, 'second');
+            expect(removeOwnedBlock(joined.text, block, 0)).toEqual({ text: 'second\n\n', removed: 7 });
+            const after = appendOwnedBlock('newer', block);
+            expect(removeOwnedBlock(appendWithLineBreaks(after.text, 'second'), block, after.at)?.text).toBe('newer\n\nsecond\n\n');
+        }
+        expect(removeOwnedBlock('first\nmore', 'first\n', 0)).toBeNull();
+    });
+    test('the only text goes entirely', () => {
+        expect(removeOwnedBlock('same\n\n', 'same', 0)).toEqual({ text: '', removed: 6 });
+    });
+});
+
+describe('shiftOwnedBlock (smarty-code#962 review r3 1)', () => {
+    test('an edit before the block moves it; after it keeps it; inside it ends the ownership', () => {
+        expect(shiftOwnedBlock('x\n\nA\n\n', 'xyz\n\nA\n\n', 3, 1)).toBe(5);
+        expect(shiftOwnedBlock('A', 'A\n\nmore', 0, 1)).toBe(0);
+        expect(shiftOwnedBlock('Abc', 'Axc', 0, 3)).toBe(-1);
+    });
+    test('deleting one of two equal blocks ends the ownership instead of guessing which went', () => {
+        expect(shiftOwnedBlock('A', 'A\n\nA\n\nnewer notes', 0, 1)).toBe(0);
+        expect(shiftOwnedBlock('A\n\nA\n\nnewer notes', 'A\n\nnewer notes', 0, 1)).toBe(-1);
     });
 });
