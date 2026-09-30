@@ -424,9 +424,11 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
         expect(t.disk()).toBe('Xa');
         // At once, before any sync: the room is unchanged, but the disk is not its text. Not saved, nothing written.
-        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
-        expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed' }); // Shown to the room (smartyfs#33 P3).
-        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed' });
+        // The raced save's recovery copy and notice are carried, not replaced (#445 security round 3).
+        const warning = { recovery: result.recovery, notice: result.notice };
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
+        expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed', ...warning }); // Shown to the room (smartyfs#33 P3).
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
         expect(t.disk()).toBe('Xa');
         await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
         expect(t.text.toString()).toBe('Pa');
@@ -468,6 +470,28 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } });
       expect(fs.existsSync(t.file)).toBe(false); // Not recreated.
       expect(t.text.toString()).toBe('a'); // The room is unchanged.
+    });
+
+    it('#445 security round 3: a raced save\'s recovery warning outlives no-change refusals and the success after them', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const raced = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        fs.writeFileSync(t.file, 'Qa'); // Another writer, right after ours.
+      });
+      expect(raced).toMatchObject({ conflict: 'raced', published: true });
+      const warning = { recovery: raced.recovery, notice: raced.notice };
+      expect(warning.recovery).toBeTruthy();
+      // No sync anywhere below: changed, then gone, then the base again.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
+      fs.unlinkSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone', ...warning });
+      expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone', ...warning } });
+      fs.writeFileSync(t.file, 'Pa'); // The base again.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: { conflict: 'raced', ...warning } }); // Kept.
+      expect(t.disk()).toBe('Pa');
     });
 
     it('#445 security round 2: a file restored after a refused save is saved again with no sync, and no longer marked gone', async () => {

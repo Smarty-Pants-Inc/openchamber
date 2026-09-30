@@ -408,17 +408,21 @@ export function createDiskBridge({
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
+        // An unresolved recovery warning (a raced save's copy and notice) is carried through these refusals, never
+        // replaced by them, and is what their resolution leaves (#445 security r3).
+        const kept = conflict?.kept ?? (conflict?.recovery ? conflict : null);
         // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
+        const refuse = (reason) => raise(kept ? { conflict: reason, recovery: kept.recovery, notice: kept.notice, kept } : { conflict: reason });
         if (disk === null) {
           gone = true; // Observed absent here, as a sync would.
-          return raise({ conflict: 'gone' });
+          return refuse('gone');
         }
         // The file exists: whatever this path said before about its absence or its bytes is refuted or restated here.
         gone = false;
-        if (disk.hash !== baseHash) return raise({ conflict: 'changed' });
-        // It holds the base: saved. A gone or changed refusal from this path is resolved; other conflicts (a watcher
-        // failure, a raced save's recovery notice) stay until their own path clears them (#445 security r2).
-        if (conflict?.conflict === 'gone' || conflict?.conflict === 'changed') conflict = null;
+        if (disk.hash !== baseHash) return refuse('changed');
+        // It holds the base: saved. A gone or changed refusal from this path is resolved to the warning it carried;
+        // other conflicts (a watcher failure, a raced save's notice) stay until their own path clears them (#445 r2).
+        if (conflict?.conflict === 'gone' || conflict?.conflict === 'changed') conflict = conflict.kept ?? null;
         return { ok: true };
       }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
