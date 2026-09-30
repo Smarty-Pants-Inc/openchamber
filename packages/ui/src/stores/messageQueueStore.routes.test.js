@@ -26,6 +26,11 @@ test('store reorder reaches the real route with retained custody and cannot cros
     registerMessageQueueRoutes({ get: register('GET'), post: register('POST'), put: register('PUT'), delete: register('DELETE') }, runtime);
     const statuses = [];
     const orders = [];
+    // smarty-code#996 item 3: wait for the route's responses themselves (the event), not a budget of 50 x 2 ms polls
+    // (~100 ms; a loaded runner missed it: run 36585425342, statuses[1] undefined). 10 s is only a hang guard.
+    const responded = [];
+    const responses = n => statuses.length >= n ? Promise.resolve() : Promise.race([
+        new Promise(resolve => responded.push({ n, resolve })), sleep(10_000)]);
     try {
         initializeRuntimeEndpoint({ apiBaseUrl: 'http://queue.test', runtimeKey: 'queue-order-test' });
         configureRuntimeUrlResolver({ apiBaseUrl: 'http://queue.test' });
@@ -50,12 +55,13 @@ test('store reorder reaches the real route with retained custody and cannot cros
                 json(value) { response = Response.json(value, { status }); },
             });
             statuses.push(status);
+            for (const waiter of responded.filter(w => statuses.length >= w.n)) waiter.resolve();
             return response;
         };
         useMessageQueueStore.setState({ queuedMessages: {}, recoveryMessages: {}, sendingIds: {} });
         await useMessageQueueStore.getState().hydrate();
         useMessageQueueStore.getState().reorderQueue(owner, 'pending-second', 'pending-first');
-        for (let i = 0; i < 50 && statuses.length < 2; i++) await sleep(2);
+        await responses(2);
         await sleep(0);
         expect(orders[0]).toEqual(['before-barrier', 'pending-second', 'pending-first']);
         expect(statuses[1]).toBe(200);
@@ -63,7 +69,7 @@ test('store reorder reaches the real route with retained custody and cannot cros
         expect(useMessageQueueStore.getState().getQueueForTarget(owner).map(item => item.id)).toEqual(orders[0]);
         const before = runtime.snapshot();
         useMessageQueueStore.getState().reorderQueue(owner, 'pending-first', 'before-barrier');
-        for (let i = 0; i < 50 && statuses.length < 4; i++) await sleep(2);
+        await responses(4);
         await sleep(0);
         expect(statuses[2]).toBe(409);
         expect(runtime.snapshot()).toEqual(before);
