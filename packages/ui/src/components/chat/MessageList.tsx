@@ -1880,7 +1880,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         // arriving inside the streaming tail keeps its own animations.
         <FadeInDisabledProvider disabled>
             <TimelineList
-                key={sessionKey}
+                // smarty-code#583: when the session's positions first arrive (or its index epoch changes), the list goes
+                // from the loaded rows alone to the whole session's length at once (gap rows above them, ~80 px a
+                // record). Kept mounted, the list's own position keeping applied that insertion as a scroll offset
+                // more than once (candidate: a 17.4k-record session reached 2.2M px with its rows at 0.73M px and
+                // the view at the end: blank). Mounted anew, it lays the whole session out and opens at its end.
+                key={`${sessionKey}:${positions?.epoch ?? 'unpositioned'}`}
                 entries={allEntries}
                 streamingTailKey={trailingStreamingEntry?.key ?? null}
                 registerList={handleRegisterList}
