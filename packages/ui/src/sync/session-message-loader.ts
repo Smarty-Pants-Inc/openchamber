@@ -872,10 +872,9 @@ export class SessionMessageLoader {
         const failure = error instanceof Error ? error : new Error(formatSdkError(error))
         this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536), with the error's name
-        // and HTTP status; an aborted read is not a failure (smarty-code#1058). A superseded read that is still current here
-        // had no successor: the open gave up, so it is reported, with that reason (smarty-code#1058 r1).
+        // and HTTP status (smarty-code#1058). Only an obsolete read is silent (the !isCurrent() return above): a current
+        // abort (a relay body cut by the read limit, #451 r2) or a superseded read with no successor (r1) is reported.
         const report = failureReport(failure)
-        if (!report) return
         if (failure instanceof SupersededReadError) report.message += " (superseded-exhausted)"
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.

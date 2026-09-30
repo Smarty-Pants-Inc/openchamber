@@ -88,14 +88,17 @@ export function reportUnhandled(error: Error, now = Date.now()): void {
 /**
  * What a failed operation's report says about its error (smarty-code#1058): its name and its HTTP status, found on the
  * error or on its `cause` chain (a wrapped SDK failure keeps the fetch's own error there). A failure that got no HTTP
- * answer is named with ` (network)`. An aborted request (AbortError) is no failure: null, not reported.
+ * answer is named with ` (network)`. Callers report only a CURRENT failure (the loader returns early for a stale read),
+ * so an abort that reaches here is a failure the person sees (#451 r2: a relay body cut by the read limit): it is named,
+ * `TimeoutError` when its reason says the read limit fired, never hidden.
  */
 const HttpStatus = z.union([z.object({ status: z.number().int() }), z.object({ response: z.instanceof(Response) })
   .transform(({ response }) => ({ status: response.status }))]);
-export function failureReport(error: Error): { message: string; status?: number } | null {
+export function failureReport(error: Error): { message: string; status?: number } {
   let name = 'Error', status: number | undefined, network = false;
   for (let at: Error | undefined = error, depth = 0; at && depth < 5; at = at.cause instanceof Error ? at.cause : undefined, depth++) {
-    if (at.name === 'AbortError') return null;
+    // A read-limit abort names its cause (native fetch rejects with the signal's TimeoutError reason; a relay body may not).
+    if (at.name === 'AbortError' && at.cause instanceof Error && at.cause.name === 'TimeoutError') { name = 'TimeoutError'; break; }
     // Only a class-shaped name is a code; anything else could be content.
     if (name === 'Error' && /^[A-Z][A-Za-z]{0,40}Error$/.test(at.name)) name = at.name;
     network ||= at.name === 'TypeError' || at.name === 'NetworkError';
