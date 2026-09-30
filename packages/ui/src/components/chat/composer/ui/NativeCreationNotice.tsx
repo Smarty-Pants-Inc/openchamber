@@ -125,6 +125,11 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   </div>;
   // Send was refused before anything was sent (smarty-code#114: never a silent Send): say why until the next Send. A
   // start of this draft's own has its own line and controls (above and below), which say more.
+  // openchamber#441 r2: a refusal from before anything was sent yields to the project-unavailable line once the draft's
+  // project is known to be withdrawn (Send is blocked then, so the refusal could never be cleared by another press).
+  if (native.refusal && !creation && !starting && native.mode === 'notAdmitted') {
+    return <p role="status" className="mb-2 text-sm text-muted-foreground">{t('chat.nativeCreation.notAdmitted')}</p>;
+  }
   if (native.refusal && !creation && !starting) return <div className="mb-2 space-y-1">
     <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(native.refusal)}</p>
     {/* A Send refused by the start that blocks this project keeps the way to stop it (smarty-code#523). */}

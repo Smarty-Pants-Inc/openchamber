@@ -66,3 +66,19 @@ test('a refused Send keeps an unreadable start\'s Check again, and shows its own
   expect(withStart).not.toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
   expect(render({ ...native, refusal })).toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
 });
+
+// openchamber#441 review 2: Enter was pressed on the withdrawn project's draft before its check answered; the send-side
+// 403 left a pre-effect refusal ("Cannot reach the server to start the session"). Once the check says the project is
+// withdrawn, that line gives way to the project-unavailable explanation (Send is blocked, so no press could clear it).
+test('a pre-effect refusal yields to "no longer available" once the draft\'s project is known to be withdrawn', () => {
+  const refusal = new NativeCreationError('unavailable');
+  const html = render({ ...native, mode: 'notAdmitted' as never, refusal });
+  expect(html).toContain(nativeCreationI18n.en['chat.nativeCreation.notAdmitted']);
+  expect(html).not.toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
+  // Counterexamples: a real start keeps its own line and controls; a refusal on an admitted project stays as it was.
+  const operation = { operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory: '/project', generation: null, revision: 1,
+    phase: 'unavailable' as const, expiresAt: Date.now() + 60_000, canInitialReady: false };
+  expect(render({ ...native, mode: 'notAdmitted' as never, refusal,
+    creation: { status: 'pending', runtimeKey: 'test', draftId: 1, directory: '/project', projectId: 'p', operation, unreadable: true } })).toContain('Check again');
+  expect(render({ ...native, refusal })).toContain(nativeCreationI18n.en['chat.nativeCreation.unavailable']);
+});
