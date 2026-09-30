@@ -344,14 +344,165 @@ fn lock_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<OwnedFd>, 
 /// Who may act on an unowned transaction's retained data (#412 round 5): its originating bridge (the secret token
 /// matches the record's hash), anyone once it is an old orphan (ORPHAN_SECS), or anyone for a record with no token
 /// (tests, and none written by the bridge).
-fn may_recover(priv_fd: RawFd, key: &str, txn: &str, token: Option<&str>) -> Result<bool, String> {
+fn may_recover(priv_fd: RawFd, key: &str, txn: &str, token: Option<&str>, _req: &Value) -> Result<bool, String> {
     let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(true) };
     let want = record["ack"].as_str().unwrap_or("");
     if want.is_empty() || token.is_some_and(|t| !t.is_empty() && hex(t.as_bytes()) == want) {
         return Ok(true);
     }
+    // A caller never gains authority from its origin's exit (#428 round 1): that only lets the HELPER recover the
+    // bytes itself (recover_orphan). Without the token, a caller may act only on an old orphan (7 days).
     let st = stat_entry(priv_fd, &format!("{key}.{txn}.txn"))?.ok_or("the transaction record is gone")?;
     Ok(now_secs() - st.st_ctime as i64 > ORPHAN_SECS)
+}
+
+/// Whether a transaction's originating process is PROVEN gone (#428 round 1, finding 2): `kill(pid, 0)` says ESRCH (in
+/// this helper's PID namespace), or the pid is readable with another start time (reused). Anything else, including a
+/// hidden or unreadable /proc (hidepid returns ENOENT for a live process) and EPERM, counts as alive.
+fn origin_gone(record: &Value, req: &Value) -> bool {
+    let (Some(pid), Some(start)) = (record["pid"].as_i64(), record["start"].as_u64()) else { return false };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks existence and permission; no signal is sent.
+    let exists = unsafe { libc::kill(pid as i32, 0) } == 0 || errno() != libc::ESRCH;
+    if !exists {
+        return true;
+    }
+    // Tests only: procfs hides the process (as hidepid does): ENOENT at the read, for a live process.
+    let looked = if test_fault(req, "procHidden") { Ok(None) } else { process_start(pid as i32) };
+    matches!(looked, Ok(Some(now)) if now != start)
+}
+
+/// The helper's own recovery of an orphan whose originating process is proven gone (#428 round 1, finding 1). Under
+/// the record's lock, once a lease shows no writer is left, the displaced entry's final bytes are delivered by the
+/// helper itself into the bridge's recovery directory (named in hello): a new file (O_TMPFILE, 0644 inside that 0700
+/// directory, fsynced), linked under the bridge's recovery-name format with the file's key, and the directory
+/// fsynced. A durable marker `<key>.<txn>.<hash16>.done` (immutable, holding that name) records the delivery. Only then
+/// is the entry removed. No caller ever receives the bytes. Without an admitted recovery directory nothing is
+/// recovered (the 7-day rule applies). Returns whether the entry is now recovered (false while a writer holds it).
+fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value) -> Result<bool, String> {
+    // The destination its ORIGIN bound into the record, reopened and verified to be that same directory, still
+    // private; never the requesting connection's. None, or any mismatch: nothing is recovered (the 7-day rule).
+    let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(false) };
+    let (Some(recovery_path), Some(dev), Some(ino)) = (record["dest"]["path"].as_str(), record["dest"]["dev"].as_u64(), record["dest"]["ino"].as_u64()) else {
+        return Ok(false);
+    };
+    let Ok(dest) = open_recovery(recovery_path, priv_fd, None) else { return Ok(false) };
+    if !fstat(dest.as_raw_fd()).is_ok_and(|st| same(&st, ino, dev)) {
+        return Ok(false);
+    }
+    let recovery = dest.as_raw_fd();
+    let Some(staged) = staged_name(priv_fd, key, txn, req)? else { return Ok(true) };
+    let fd = match open_private(priv_fd, &staged) {
+        Ok(fd) => fd,
+        Err(libc::ENOENT) => return Ok(true),
+        Err(e) => return Err(os_err("open", e)),
+    };
+    if !is_reg(&fstat(fd.as_raw_fd())?) {
+        return Err("not a regular file".into());
+    }
+    // SAFETY: fcntl lease calls on our own fd.
+    if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_RDLCK) } != 0 {
+        return if errno() == libc::EAGAIN { Ok(false) } else { Err(fail("lease")) };
+    }
+    let unlock = || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_UNLCK) };
+    let result = (|| {
+        let bytes = read_all(&fd)?;
+        let h16 = hex(&bytes)[..16].to_string();
+        let marker = format!("{key}.{txn}.{h16}.done");
+        if stat_entry(priv_fd, &marker)?.is_none() {
+            let delivered = deliver(recovery, key, &format!("rec{txn}{h16}"), name, &bytes, req)?;
+            // Where: always the origin's own destination.
+            let meta = json!({"path": format!("{}/{delivered}", recovery_path.trim_end_matches('/')), "hash": hex(&bytes)}).to_string();
+            create_immutable(priv_fd, &marker, meta.as_bytes(), false, req).map_err(|e| e.message().to_string())?;
+        }
+        let c = cstr(&staged)?;
+        // SAFETY: unlinks the displaced entry, whose bytes are now durably delivered.
+        if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 {
+            return Err(fail("unlinkat"));
+        }
+        fsync(priv_fd);
+        Ok(true)
+    })();
+    unlock();
+    result
+}
+
+/// Writes `bytes` as a new file in the recovery directory, named as the bridge names its copies
+/// (`<time>-<random>-<key>-<kind>-<name>`, within NAME_MAX), durable before it returns its name.
+fn deliver(recovery: RawFd, key: &str, kind: &str, name: &str, bytes: &[u8], req: &Value) -> Result<String, String> {
+    if test_fault(req, "deliver") {
+        return Err("the recovery directory cannot be written".into());
+    }
+    let dot = CString::new(".").unwrap();
+    // SAFETY: O_TMPFILE in the admitted recovery directory, owned by the returned fd.
+    let raw = unsafe { libc::openat(recovery, dot.as_ptr(), libc::O_TMPFILE | libc::O_RDWR | libc::O_CLOEXEC, 0o600 as libc::c_uint) };
+    if raw < 0 {
+        return Err(fail("the recovery directory cannot be written (grant the helper's account rwx on it)"));
+    }
+    // SAFETY: a new owned descriptor.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+    // Private (#428 round 2): 0600 for the helper, plus exactly one named entry letting the account served read and
+    // write it (it is that account's recovery copy). No inherited or other entries: no one else can read it.
+    let peer = *PEER.get().ok_or("no peer")?;
+    let acl = acl_bytes(&[(ACL_USER_OBJ, 6, u32::MAX), (ACL_USER, 6, peer), (ACL_GROUP_OBJ, 0, u32::MAX), (ACL_MASK, 6, u32::MAX), (ACL_OTHER, 0, u32::MAX)]);
+    let acl_name = cstr(ACCESS_ACL)?;
+    // SAFETY: fsetxattr/pwrite on our own fd.
+    let ok = unsafe {
+        libc::fsetxattr(fd.as_raw_fd(), acl_name.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) == 0
+            && libc::pwrite(fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len(), 0) == bytes.len() as isize
+    };
+    if !ok || !fsync(fd.as_raw_fd()) {
+        return Err(fail("write recovery"));
+    }
+    let prefix = format!("{}-{}-{key}-{kind}-", iso_now(), &hex(unique().as_bytes())[..8]);
+    let mut tail = name.to_string();
+    while prefix.len() + tail.len() > 255 {
+        tail.remove(0);
+    }
+    let full = format!("{prefix}{tail}");
+    let c = cstr(&full)?;
+    let proc_path = CString::new(format!("/proc/self/fd/{}", fd.as_raw_fd())).unwrap();
+    // SAFETY: links our complete inode under a fresh name in the recovery directory.
+    if unsafe { libc::linkat(libc::AT_FDCWD, proc_path.as_ptr(), recovery, c.as_ptr(), libc::AT_SYMLINK_FOLLOW) } != 0 || !fsync(recovery) {
+        return Err(fail("link recovery"));
+    }
+    Ok(full)
+}
+
+/// UTC now as the bridge's recovery names write it: `YYYY-MM-DDTHH-MM-SS-mmmZ`.
+fn iso_now() -> String {
+    let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let (secs, ms) = (d.as_secs() as i64, d.subsec_millis());
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}-{:02}-{:02}-{ms:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+/// The process that connected to this helper (the bridge's server), as its pid and start time: a pair the kernel never
+/// reuses, unlike a pid alone.
+static ORIGIN: std::sync::OnceLock<(i32, u64)> = std::sync::OnceLock::new();
+
+/// A process's start time (clock ticks since boot, /proc/<pid>/stat field 22): None only when it does not exist.
+fn process_start(pid: i32) -> Result<Option<u64>, String> {
+    let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    // The command name is in parentheses and may contain spaces: fields are counted after its closing parenthesis.
+    let rest = text.rsplit_once(')').map(|(_, r)| r).ok_or("unreadable stat")?;
+    rest.split_whitespace().nth(19).and_then(|f| f.parse().ok()).map(Some).ok_or_else(|| "unreadable stat".into())
 }
 
 /// Whether the connection that asked for this operation has closed (#412 finding 3): an operation that finds its
@@ -367,43 +518,96 @@ fn peer_gone() -> bool {
 /// The project root a connection names in its hello (#412 finding 1): it must belong to the account this helper
 /// serves, and must be neither the private dir, inside it, nor one of its ancestors (compared by device and inode,
 /// walking `..`), so no path beneath it (no links, no mount crossings) reaches the private dir.
+/// Whether `target` is the directory `from` or one of its ancestors (walking `..`, by device and inode).
+fn reaches(from: RawFd, target: &libc::stat) -> Result<bool, String> {
+    let dot = cstr(".")?;
+    let up = cstr("..")?;
+    // SAFETY: openat of "." on a valid dirfd, as O_PATH.
+    let mut cur = unsafe { libc::openat(from, dot.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if cur < 0 {
+        return Err(fail("walk"));
+    }
+    // SAFETY: owned from here.
+    let mut cur_fd = unsafe { OwnedFd::from_raw_fd(cur) };
+    for _ in 0..4096 {
+        let st = fstat(cur_fd.as_raw_fd())?;
+        if same(&st, target.st_ino as u64, target.st_dev as u64) {
+            return Ok(true);
+        }
+        // SAFETY: openat of ".." on a held dirfd.
+        cur = unsafe { libc::openat(cur_fd.as_raw_fd(), up.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+        if cur < 0 {
+            return Err(fail("walk"));
+        }
+        // SAFETY: a new owned descriptor.
+        let next = unsafe { OwnedFd::from_raw_fd(cur) };
+        let nst = fstat(next.as_raw_fd())?;
+        if same(&nst, st.st_ino as u64, st.st_dev as u64) {
+            return Ok(false); // At "/".
+        }
+        cur_fd = next;
+    }
+    Err("the directory tree is too deep".into())
+}
+
+/// The bridge's recovery directory, where the helper itself delivers what it recovers from orphans (#428 round 1):
+/// named in hello, opened once without following a link and held by fd. It must belong to the account served, let no
+/// group or other write, and be neither inside the private dir nor inside the project root.
+static RECOVERY: std::sync::OnceLock<(RawFd, String)> = std::sync::OnceLock::new();
+
+fn admit_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<RawFd, String> {
+    open_recovery(path, priv_fd, root_fd).map(|fd| std::os::fd::IntoRawFd::into_raw_fd(fd))
+}
+
+/// Opens and checks a recovery directory (#428 rounds 1 and 2): the account served owns it; no one else has any
+/// access to it (no other bits, and every ACL entry beyond the owner's names a trusted account); it is outside the
+/// private directory and the project.
+fn open_recovery(path: &str, priv_fd: RawFd, root_fd: Option<RawFd>) -> Result<OwnedFd, String> {
+    if !path.starts_with('/') {
+        return Err("the recovery directory must be an absolute path".into());
+    }
+    let c = cstr(path)?;
+    // SAFETY: opens the recovery directory once, never following a link at its last component.
+    let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(fail("open recovery"));
+    }
+    // SAFETY: a new owned descriptor (kept for the helper's lifetime once admitted).
+    let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+    let st = fstat(fd)?;
+    // Private to the served account and the helper (#428 round 2): no other bits at all; group bits only as the mask
+    // of an ACL whose every entry beyond the owner's names a trusted account (the helper's grant), with the owning
+    // group given nothing. Delivered copies are private too (deliver), so no one else can read them.
+    let acl_ok = || -> Result<bool, String> {
+        let Some(acl) = xattr(fd, ACCESS_ACL)? else { return Ok(false) };
+        Ok(acl_entries(&acl).is_some_and(|entries| {
+            entries.iter().all(|&(tag, perm, id)| match tag {
+                ACL_USER => trusted(id),
+                ACL_GROUP_OBJ | ACL_GROUP | ACL_OTHER => perm == 0,
+                _ => true,
+            })
+        }))
+    };
+    if PEER.get() != Some(&st.st_uid) || st.st_mode & 0o007 != 0 || (st.st_mode & 0o070 != 0 && !acl_ok()?) {
+        return Err("the recovery directory must belong to the account served, private to it and this helper".into());
+    }
+    if reaches(fd, &fstat(priv_fd)?)? {
+        return Err("the recovery directory is inside the helper's private directory".into());
+    }
+    if let Some(root) = root_fd {
+        if reaches(fd, &fstat(root)?)? {
+            return Err("the recovery directory is inside the project".into());
+        }
+    }
+    Ok(owned)
+}
+
 fn admit_root(root_fd: RawFd, priv_fd: RawFd) -> Result<(), String> {
     let rst = fstat(root_fd)?;
     if PEER.get() != Some(&rst.st_uid) {
         return Err("the project root must belong to the account this helper serves".into());
     }
     let pst = fstat(priv_fd)?;
-    // Whether `target` is `from` or one of its ancestors.
-    let reaches = |from: RawFd, target: &libc::stat| -> Result<bool, String> {
-        let dot = cstr(".")?;
-        let up = cstr("..")?;
-        // SAFETY: openat of "." on a valid dirfd, as O_PATH.
-        let mut cur = unsafe { libc::openat(from, dot.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
-        if cur < 0 {
-            return Err(fail("walk"));
-        }
-        // SAFETY: owned from here.
-        let mut cur_fd = unsafe { OwnedFd::from_raw_fd(cur) };
-        for _ in 0..4096 {
-            let st = fstat(cur_fd.as_raw_fd())?;
-            if same(&st, target.st_ino as u64, target.st_dev as u64) {
-                return Ok(true);
-            }
-            // SAFETY: openat of ".." on a held dirfd.
-            cur = unsafe { libc::openat(cur_fd.as_raw_fd(), up.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
-            if cur < 0 {
-                return Err(fail("walk"));
-            }
-            // SAFETY: a new owned descriptor.
-            let next = unsafe { OwnedFd::from_raw_fd(cur) };
-            let nst = fstat(next.as_raw_fd())?;
-            if same(&nst, st.st_ino as u64, st.st_dev as u64) {
-                return Ok(false); // At "/".
-            }
-            cur_fd = next;
-        }
-        Err("the directory tree is too deep".into())
-    };
     if reaches(root_fd, &pst)? {
         return Err("the project root is inside the helper's private directory".into());
     }
@@ -874,7 +1078,15 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
     // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
     let record_name = format!("{key}.{txn}.txn");
-    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash}).to_string();
+    let (origin_pid, origin_start) = match (testing(), req["testOrigin"].as_array()) {
+        // Tests only: a chosen origin (a pid reused by another process, or one that cannot be looked up).
+        (true, Some(o)) => (o[0].as_i64().unwrap_or(0) as i32, o[1].as_u64().unwrap_or(0)),
+        _ => ORIGIN.get().copied().unwrap_or((0, 0)),
+    };
+    // The recovery destination is bound to this transaction here, as its origin admitted it (#428 round 2): a later
+    // connection's hello never retargets it.
+    let dest = RECOVERY.get().and_then(|(fd, path)| fstat(*fd).ok().map(|st| json!({"path": path, "dev": st.st_dev as u64, "ino": st.st_ino as u64})));
+    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start, "dest": dest}).to_string();
     let record = match create_immutable(priv_fd, &record_name, record_bytes.as_bytes(), true, req) {
         Ok(fd) => fd,
         // Linked by us but not flushed: ours, proven by its inode, so it goes. Before our link: never ours to touch.
@@ -1031,7 +1243,13 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
             Err(e) => return Err(os_err("the transaction record", e)),
         };
         if let Some(fd) = lock {
-            if !may_recover(priv_fd, &key, &txn, token)? {
+            if !may_recover(priv_fd, &key, &txn, token, req)? {
+                // Never this caller's; if its origin is proven gone, the helper recovers the bytes itself.
+                if record_info(priv_fd, &key, &txn)?.is_some_and(|r| origin_gone(&r, req)) && resolve(priv_fd, &key, &txn, req).is_ok() {
+                    let (_, file_name) = split(req["path"].as_str().ok_or("path")?)?;
+                    let recovered = recover_orphan(priv_fd, &key, &txn, &file_name, req)?;
+                    return Ok(json!({"ok": false, "owned": true, "recovered": recovered}));
+                }
                 return Ok(json!({"ok": false, "owned": true}));
             }
             // The outcome is durable before the evidence it was derived from may go; otherwise nothing is removed.
@@ -1160,6 +1378,7 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     // originating bridge's token (in `tokens`) or it is an old orphan. Outcomes are never omitted: unknown if
     // unreadable. A record goes once no data is left: on its owner's dispose, its bridge's ack, or after 30 days.
     let tokens = &req["tokens"];
+    let (_, file_name) = split(req["path"].as_str().ok_or("path")?)?;
     let mut records = Vec::new();
     let mut guarded = std::collections::HashSet::new();
     for name in names.iter().filter(|n| n.ends_with(".txn")) {
@@ -1177,11 +1396,17 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
                     continue;
                 }
                 let state = resolve(priv_fd, &key, &txn, req).map(|s| json!(s)).unwrap_or(json!("unknown"));
-                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str()).unwrap_or(false) {
+                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str(), req).unwrap_or(false) {
                     records.push(json!({"txn": txn, "state": state}));
                 } else {
+                    // Its origin proven gone, the helper recovers the bytes itself (never a tokenless caller): `orphan`
+                    // tells the caller to look again later while a writer still holds them.
+                    let waiting = has_data
+                        && record_info(priv_fd, &key, &txn).ok().flatten().is_some_and(|r| origin_gone(&r, req))
+                        && state != json!("unknown")
+                        && !recover_orphan(priv_fd, &key, &txn, &file_name, req).unwrap_or(false);
                     guarded.insert(txn.clone());
-                    records.push(json!({"txn": txn, "state": state, "owned": true}));
+                    records.push(json!({"txn": txn, "state": state, "owned": true, "orphan": waiting}));
                 }
             }
             Ok(None) => {
@@ -1197,19 +1422,57 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     }
     let mut entries = Vec::new();
     for name in names.iter().filter(|n| n.ends_with(".staged")) {
+        // Absent only on a confirmed ENOENT (recovered by the helper while this list ran). Any other failure to look
+        // at a data entry fails the whole list: a partial list must never read as "no data" (#428 round 3).
+        if test_fault(req, "entryStat") {
+            return Err("a private entry cannot be inspected".into());
+        }
+        // Tests only: this list does not see the entry (a stand-in for one whose absence it wrongly confirmed).
+        if test_fault(req, "entryHidden") {
+            continue;
+        }
+        if stat_entry(priv_fd, name)?.is_none() {
+            continue;
+        }
         // Not this caller's to take over: named, but with no bytes (#412 rounds 2 to 5).
         if txn_of(name, &key).is_some_and(|t| guarded.contains(&t)) {
             entries.push(json!({"entry": name, "owned": true}));
             continue;
         }
-        let Ok(fd) = open_private(priv_fd, name) else { continue };
-        if !fstat(fd.as_raw_fd()).map(|s| is_reg(&s)).unwrap_or(false) {
-            continue;
+        let fd = match open_private(priv_fd, name) {
+            Ok(fd) => fd,
+            Err(libc::ENOENT) => continue,
+            Err(e) => return Err(os_err("open", e)),
+        };
+        if !is_reg(&fstat(fd.as_raw_fd())?) {
+            return Err("a private entry is not a regular file".into());
         }
         let bytes = read_all(&fd)?;
         entries.push(json!({"entry": name, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
-    Ok(json!({"ok": true, "entries": entries, "records": records}))
+    // What the helper itself delivered to the recovery directory (metadata only: where, and the bytes' hash); the
+    // markers age out with the retention period.
+    let mut recovered = Vec::new();
+    let mut markers = Vec::new();
+    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
+        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+        if n.starts_with(&prefix) && n.ends_with(".done") {
+            markers.push(n);
+        }
+    }
+    for name in markers {
+        let Some((fd, bytes)) = read_private(priv_fd, &name)? else { continue };
+        if fstat(fd.as_raw_fd()).map(|st| now_secs() - st.st_ctime as i64 > ORPHAN_SECS).unwrap_or(false) {
+            if let Ok(c) = cstr(&name) {
+                // SAFETY: unlinks one delivery marker past the retention period.
+                unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+            }
+            continue;
+        }
+        let meta: Value = serde_json::from_slice(&bytes).unwrap_or(json!({}));
+        recovered.push(json!({"marker": name, "path": meta["path"], "hash": meta["hash"]}));
+    }
+    Ok(json!({"ok": true, "entries": entries, "records": records, "recovered": recovered}))
 }
 
 fn now_secs() -> i64 {
@@ -1242,6 +1505,11 @@ fn main() {
     // SAFETY: SO_PEERCRED into a ucred of the given size, on our stdin.
     let peer = (unsafe { libc::getsockopt(0, libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len) } == 0)
         .then_some(cred.uid);
+    if peer.is_some() && cred.pid > 0 {
+        if let Ok(Some(start)) = process_start(cred.pid) {
+            let _ = ORIGIN.set((cred.pid, start));
+        }
+    }
     if !same_account {
         match peer {
             None => die("stdin must be a socket from the account this helper serves"),
@@ -1310,15 +1578,22 @@ fn main() {
                 let result = match req["op"].as_str() {
                     // The protocol version: the bridge refuses a helper that answers otherwise (smartyfs#37 item 5).
                     // In socket mode the first hello names the root (once); later requests use it.
-                    Some("hello") => match (socket_mode, root_fd, req["root"].as_str()) {
-                        (true, None, Some(root)) => admit(root).map(|fd| {
-                            root_fd = Some(fd);
-                            json!({"ok": true, "protocol": 3})
-                        }),
-                        (true, None, None) => Err("hello needs the root".into()),
-                        (true, Some(_), Some(_)) => Err("the root is already set".into()),
-                        _ => Ok(json!({"ok": true, "protocol": 3})),
-                    },
+                    Some("hello") => {
+                        let rooted: Result<(), String> = match (socket_mode, root_fd, req["root"].as_str()) {
+                            (true, None, Some(root)) => admit(root).map(|fd| root_fd = Some(fd)),
+                            (true, None, None) => Err("hello needs the root".into()),
+                            (true, Some(_), Some(_)) => Err("the root is already set".into()),
+                            _ => Ok(()),
+                        };
+                        // The bridge's recovery directory, once (#428): where the helper delivers recovered orphans.
+                        rooted.and_then(|()| match (req["recovery"].as_str(), RECOVERY.get()) {
+                            (Some(path), None) => admit_recovery(path, priv_fd, root_fd).map(|fd| {
+                                let _ = RECOVERY.set((fd, path.trim_end_matches('/').to_string()));
+                            }),
+                            _ => Ok(()),
+                        })
+                        .map(|()| json!({"ok": true, "protocol": 3}))
+                    }
                     Some("read" | "publish" | "flush" | "list" | "dispose" | "ack") if root_fd.is_none() => Err("hello with the root first".into()),
                     Some("read") => read_op(root_fd.unwrap_or(-1), &req),
                     Some("publish") => publish_op(root_fd.unwrap_or(-1), priv_fd, &req, &mut unsynced, &mut owned),

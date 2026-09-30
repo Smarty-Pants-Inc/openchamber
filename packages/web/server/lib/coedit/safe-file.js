@@ -88,10 +88,14 @@ function makeDirDurable(dir) {
  * `.staging` is opened without following a link and made 0700 through that descriptor, so no chmod reaches elsewhere.
  */
 /** The recovery directory (the bridge's, as this account): created durably; ours, not a link, not writable by others. */
-function prepareRecoveryDir(recoveryDir) {
+function prepareRecoveryDir(recoveryDir, { aclGranted = false } = {}) {
   makeDirDurable(recoveryDir);
   const st = fs.lstatSync(recoveryDir);
-  if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & 0o022) !== 0) {
+  // With the service, the helper's account is granted rwx on it by an ACL, whose mask shows in the group bits: the
+  // helper checks that ACL's entries itself (admit_recovery). Others may never write.
+  // With the service the helper also checks it is private to the account and itself (no other access at all).
+  const forbidden = aclGranted ? 0o007 : 0o022;
+  if (!st.isDirectory() || st.uid !== process.geteuid() || (st.mode & forbidden) !== 0) {
     throw new Error('Co-editing needs a recovery directory of its own, not a link or one others can write to');
   }
 }
@@ -130,8 +134,9 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
   if (!anchoredFilesAvailable()) throw new Error('Co-editing needs the coedit-fs helper, which this system lacks');
   const socket = helperSocket();
   if (socket) {
-    prepareRecoveryDir(path.dirname(privateDir)); // The service keeps its own staging; recovery copies stay ours.
-    return connectHelper(socket, root, { timeoutMs });
+    // The service keeps its own staging; recovery copies stay ours, and it delivers what it recovers there (#428).
+    prepareRecoveryDir(path.dirname(privateDir), { aclGranted: true });
+    return connectHelper(socket, root, { timeoutMs, recovery: path.dirname(privateDir) });
   }
   if (!forTests && !sameAccountAllowed()) {
     throw new Error('Co-editing needs the coedit-fs service (OPENCHAMBER_COEDIT_SOCKET): the helper must not run as this account');
@@ -142,6 +147,7 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
   if (forTests) env.COEDIT_FS_TEST = '1';
   const child = spawn(helperPath(), ['--same-account', root, privateDir], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   return speak(child.stdin, child.stdout, {
+    recovery: path.dirname(privateDir),
     timeoutMs,
     pid: child.pid,
     root: null,
@@ -166,9 +172,10 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
  * A connection to the coedit-fs service: systemd starts one helper, as its own account, per connection; the root goes
  * in the first request. Ending the connection ends that helper (it reads EOF); it cannot be killed from this account.
  */
-function connectHelper(socketPath, root, { timeoutMs }) {
+function connectHelper(socketPath, root, { timeoutMs, recovery }) {
   const conn = net.createConnection(socketPath);
   return speak(conn, conn, {
+    recovery,
     timeoutMs,
     pid: undefined,
     root,
@@ -190,7 +197,7 @@ function connectHelper(socketPath, root, { timeoutMs }) {
 }
 
 /** The JSON-lines protocol over a helper's input and output, with deadlines, a frame guard and the handshake. */
-function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
+function speak(input, output, { timeoutMs, pid, root, recovery, kill, onEnd }) {
   const waiting = new Map();
   let next = 0;
   let ended = null;
@@ -232,7 +239,9 @@ function speak(input, output, { timeoutMs, pid, root, kill, onEnd }) {
     input.write(`${JSON.stringify({ ...request, id })}\n`, () => {});
   });
   // Every request waits for the handshake: a helper of another protocol (an older build) ends before any request.
-  const ready = send(root ? { op: 'hello', root } : { op: 'hello' }).then((reply) => {
+  const hello = { op: 'hello', recovery };
+  if (root) hello.root = root;
+  const ready = send(hello).then((reply) => {
     if (reply.ok && reply.protocol === PROTOCOL) return;
     const error = new Error(reply.ok || /unknown op/.test(String(reply.error))
       ? `coedit-fs speaks protocol ${reply.protocol ?? 'unknown'}, not ${PROTOCOL}`
@@ -351,8 +360,9 @@ export async function pruneRecovery(recoveryDir, key, { now = Date.now(), days =
   for (const { name, at } of copies.slice(newest)) {
     if (now - at <= days * 86_400_000) continue;
     const full = path.join(recoveryDir, name);
+    // Ours, or the co-edit helper's own delivery (#428): both only in this account's own recovery directory.
     const st = await fs.promises.lstat(full).catch(() => null);
-    if (!st?.isFile() || st.uid !== process.geteuid()) continue;
+    if (!st?.isFile()) continue;
     await fs.promises.unlink(full);
     removed += 1;
   }
@@ -382,11 +392,22 @@ async function syncDirectory(dir) {
  * out the helper's orphan age (7 days), their bytes safe in the private dir.
  */
 const TOKENS = new Map();
-export const rememberToken = (key, txn, token) => {
+/** The hash of the revision each transaction displaced: a later enrolment disposes against it, so late bytes are kept. */
+const BASES = new Map();
+export const rememberToken = (key, txn, token, baseHash) => {
   if (!TOKENS.has(key)) TOKENS.set(key, new Map());
   TOKENS.get(key).set(txn, token);
+  BASES.set(`${key}.${txn}`, baseHash);
 };
-const forgetToken = (key, txn) => TOKENS.get(key)?.delete(txn);
+/** Drops a token once its transaction needs it no more (smartyfs#37 item 15): the registry stays bounded. */
+export const forgetToken = (key, txn) => {
+  const tokens = TOKENS.get(key);
+  tokens?.delete(txn);
+  BASES.delete(`${key}.${txn}`);
+  if (tokens?.size === 0) TOKENS.delete(key);
+};
+/** Tests: how many tokens this process holds. */
+export const tokenCount = () => [...TOKENS.values()].reduce((n, tokens) => n + tokens.size, 0);
 /** This process's tokens for a file's transactions, as `list`'s `tokens`. */
 export const tokensFor = (key) => Object.fromEntries(TOKENS.get(key) ?? []);
 /** A staged entry's txn: `<key>.<txn>-<unique>.staged`. */
@@ -446,7 +467,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   const txn = randomBytes(6).toString('hex');
   // A secret only this bridge knows: the helper keeps its hash, and only the token acks the record (#412 round 4).
   const token = randomBytes(16).toString('hex');
-  rememberToken(key, txn, token);
+  rememberToken(key, txn, token, expectedHash);
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   let reply;
   try {
@@ -459,6 +480,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
     return { ...uncertain, unsynced: true, lost: txn, token }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
+    forgetToken(key, txn); // Definitely not published: its token guards nothing.
     await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
     if (reply.conflict) return { conflict: reply.conflict, recovery };
     throw refused(reply);
@@ -517,5 +539,38 @@ export async function finishInterruptedSaves(helper, key, rel, recoveryDir, { du
     if (done.busy) pending.push({ entry, hash: done.hash });
     if (done.unsynced) unsynced = true;
   }
-  return { finished, pending, late, unsynced };
+  const collected = keepAllRecovered(reply, recoveryDir);
+  return { finished, pending, late, unsynced, ...collected };
 }
+
+/**
+ * What the helper itself recovered from orphans whose originating process is gone (#428), kept once each; and
+ * whether orphans remain whose bytes a writer still holds (the helper recovers them later: the caller looks again).
+ */
+function keepAllRecovered(reply, recoveryDir) {
+  // The helper wrote these copies into the recovery directory itself; the caller only reports them, once each.
+  // Only copies in THIS bridge's own recovery directory are shown (the helper delivers to the origin's bound one).
+  const own = path.resolve(recoveryDir) + path.sep;
+  const recovered = (reply.recovered ?? []).map((copy) => ({ marker: String(copy.marker), path: path.resolve(String(copy.path ?? '')) }))
+    .filter((copy) => copy.path.startsWith(own));
+  return { recovered, orphans: (reply.records ?? []).some((record) => record.orphan) };
+}
+
+/** Looks again at orphans the helper could not recover yet (a writer still held them). */
+export async function collectRecovered(helper, key, rel, recoveryDir) {
+  const tokens = tokensFor(key);
+  const reply = await helper.call({ op: 'list', path: rel, tokens });
+  if (!reply.ok) throw refused(reply);
+  // This process's own retained data (its token opens it): returned for enrolment as pending revisions (#428).
+  // Disposed against the hash of the revision it displaced (not its current bytes), so a late write is kept and shown.
+  const mine = reply.entries.filter((e) => !e.owned && tokens[txnOf(key, e.entry)])
+    .map((e) => ({ entry: e.entry, hash: BASES.get(`${key}.${txnOf(key, e.entry)}`) ?? '', token: tokens[txnOf(key, e.entry)] }));
+  // A token whose transaction is settled (a terminal record) with no data entry left is verified done: dropped. The
+  // list fails closed, so a missing entry here is real absence. Tokens with no record yet (a publish in flight) stay.
+  for (const record of reply.records ?? []) {
+    const done = (record.state === 'published' || record.state === 'aborted') && !record.owned;
+    if (done && tokens[record.txn] && !reply.entries.some((e) => txnOf(key, e.entry) === record.txn)) forgetToken(key, record.txn);
+  }
+  return { ...keepAllRecovered(reply, recoveryDir), mine };
+}
+

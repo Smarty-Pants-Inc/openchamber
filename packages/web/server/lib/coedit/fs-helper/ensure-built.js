@@ -2,6 +2,7 @@
 // and package.json files are bound by the branding ledger (openchamber#356's test:brand rule). cargo is incremental and
 // holds its own build lock, so every test file may call this. Without cargo the tests skip locally; in CI they fail.
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export function ensureHelper() {
@@ -12,6 +13,7 @@ export function ensureHelper() {
     return true;
   } catch (error) {
     if (process.env.CI) throw new Error(`coedit-fs did not build: ${error.message}`);
-    return false;
+    // A test host without cargo (a batch host) may run a binary built elsewhere and copied into target/release.
+    return error.code === 'ENOENT' && fs.existsSync(path.join(import.meta.dirname, 'target/release/coedit-fs'));
   }
 }

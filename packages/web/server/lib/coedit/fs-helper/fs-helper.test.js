@@ -74,7 +74,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out')); // Locks and transaction records are not entries.
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')); // Locks and transaction records are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -709,6 +709,126 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       expect(reply).toMatchObject({ ok: false, error: expect.stringMatching(/cannot be established/) });
       expect(fs.readdirSync(priv).filter((n) => !n.endsWith('-lock'))).toEqual([]);
       expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
+    });
+
+    /** The bridge's recovery directory beside the private dir, 0700, admitted by hello. */
+    const recoveryDir = () => {
+      fs.chmodSync(path.join(dir, 'recovery'), 0o700);
+      return path.join(dir, 'recovery');
+    };
+    /** An origin process that names `recovery` in its hello, publishes with `txn`, and exits. */
+    const publishFromExitingOrigin = async (txn, recovery) => {
+      const r = await read();
+      const origin = spawn(process.execPath, ['-e', `
+        const { spawn } = require('child_process');
+        const h = spawn(process.argv[1], ['--same-account', process.argv[2], process.argv[3]], { stdio: ['pipe', 'pipe', 'inherit'] });
+        let n = 0;
+        require('readline').createInterface({ input: h.stdout }).on('line', (l) => { if (++n === 2) { console.log(l); process.exit(0); } });
+        h.stdin.write(process.argv[4] + '\\n');
+        h.stdin.write(process.argv[5] + '\\n');
+      `, BIN, root, priv, JSON.stringify({ op: 'hello', recovery, id: 1 }), JSON.stringify({ op: 'publish', path: 'docs/a.md', txn, ack: sha('lost-with-its-process'), ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), id: 2 })], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const reply = await new Promise((done) => createInterface({ input: origin.stdout }).once('line', (l) => done(JSON.parse(l))));
+      await new Promise((done) => (origin.exitCode === null ? origin.on('exit', done) : done()));
+      await sleep(300); // Its helper reads EOF and exits, releasing the record's lock.
+      return reply;
+    };
+
+    test('smartyfs#32 pre-enable: once its originating process is gone, a transaction is a true orphan, recovered at once', async () => {
+      const writer = fs.openSync(target(), 'a'); // Keeps the displaced revision pending after the publish.
+      const reply = await publishFromExitingOrigin('a0a0a0', recoveryDir());
+      expect(reply).toMatchObject({ published: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      // No token: the caller gains nothing, but its origin is gone, so the HELPER itself delivers the final bytes into
+      // the origin's recovery directory now (not after 7 days); the caller learns only where (#428 rounds 1 and 2).
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.records).toEqual([{ txn: 'a0a0a0', state: 'published', owned: true, orphan: false }]);
+      expect(seen.entries).toEqual([]); // The displaced entry is gone only after its bytes were delivered.
+      expect(seen.recovered).toEqual([{ marker: expect.stringMatching(/\.done$/), path: expect.stringContaining(`-${KEY}-reca0a0a0`), hash: sha('one\nlate\n') }]);
+      expect(JSON.stringify(seen)).not.toContain(Buffer.from('one\nlate\n').toString('base64')); // No bytes to the caller.
+      expect(fs.readFileSync(seen.recovered[0].path, 'utf8')).toBe('one\nlate\n');
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).recovered).toHaveLength(1); // Delivered once.
+    });
+
+    test('#428 round 2: an orphan is delivered only to the recovery directory its ORIGIN bound, whatever a later caller names', async () => {
+      const writer = fs.openSync(target(), 'a');
+      const reply = await publishFromExitingOrigin('b0b0b0', recoveryDir());
+      expect(reply).toMatchObject({ published: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      // An unrelated caller names its OWN private recovery directory, then lists.
+      const theirs = path.join(dir, 'theirs');
+      fs.mkdirSync(theirs, { mode: 0o700 });
+      const other = helper(root, priv);
+      try {
+        expect(await other.call({ op: 'hello', recovery: theirs })).toMatchObject({ ok: true });
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(fs.readdirSync(theirs)).toEqual([]); // Nothing delivered to the caller's directory.
+        expect(seen.recovered).toEqual([{ marker: expect.any(String), path: expect.stringContaining(recoveryDir()), hash: sha('one\nlate\n') }]);
+        const copy = seen.recovered[0].path;
+        expect(fs.readFileSync(copy, 'utf8')).toBe('one\nlate\n');
+        expect(fs.statSync(copy).mode & 0o007).toBe(0); // No access for others.
+        const acl = getXattr(copy, 'system.posix_acl_access');
+        const uid = Buffer.alloc(4);
+        uid.writeUInt32LE(process.geteuid());
+        expect(acl).toContain(`02000600${uid.toString('hex')}`); // Exactly: user:<served>:rw-.
+      } finally {
+        other.stop();
+      }
+    });
+
+    test('#428 round 2: a recovery directory others can read or search is refused', async () => {
+      for (const mode of [0o705, 0o701, 0o750]) {
+        const d = fs.mkdtempSync(path.join(dir, 'open-'));
+        fs.chmodSync(d, mode);
+        expect([mode.toString(8), (await h.call({ op: 'hello', recovery: d })).ok]).toEqual([mode.toString(8), false]);
+      }
+      const acl = fs.mkdtempSync(path.join(dir, 'acl-'));
+      fs.chmodSync(acl, 0o700);
+      setAcl(acl, 'system.posix_acl_access', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 5, 4242], [ACL.GROUP_OBJ, 0, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 0, ANY]]);
+      expect((await h.call({ op: 'hello', recovery: acl })).ok).toBe(false); // A read/search grant to another account.
+    });
+
+    /** A pending transaction whose connection has ended, with a chosen origin [pid, start] (a COEDIT_FS_TEST hook). */
+    const orphanWithOrigin = async (txn, origin) => {
+      replace('one\n'); // A fresh revision to publish over.
+      const writer = fs.openSync(target(), 'a');
+      await h.call({ op: 'hello', recovery: recoveryDir() }); // The origin binds its recovery directory.
+      const r = await read();
+      const p = await publish(r, { txn, ack: sha('t'), testOrigin: origin });
+      h.stop(); // Its helper connection ends; the origin decides who may recover it.
+      await sleep(200);
+      h = helper(root, priv);
+      await h.call({ op: 'hello', recovery: recoveryDir() });
+      fs.closeSync(writer);
+      return p;
+    };
+    const startOf = (pid) => Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19]);
+
+    test('smartyfs#32 pre-enable: a live originating process keeps its transaction; its pid reused by another process counts as gone', async () => {
+      const alive = await orphanWithOrigin('a1a1a1', [process.pid, startOf(process.pid)]);
+      const first = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(first.entries).toEqual([{ entry: alive.displaced, owned: true }]);
+      expect(first.recovered).toEqual([]); // A live origin: nothing is recovered but by its token holder.
+      const reused = await orphanWithOrigin('a2a2a2', [process.pid, startOf(process.pid) + 1]); // Same pid, another start.
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toEqual([{ entry: alive.displaced, owned: true }]); // The reused one's entry was recovered.
+      expect(seen.recovered.map((r) => r.marker)).toEqual([expect.stringMatching(new RegExp(`^${KEY}\\.a2a2a2\\.`))]);
+      expect(seen.entries.find((e) => e.entry === reused.displaced)).toBeUndefined();
+    });
+
+    test('#428 round 1, finding 2: a live origin hidden by procfs (ENOENT, as hidepid does) counts as alive; only ESRCH is exit', async () => {
+      const hidden = await orphanWithOrigin('a3a3a3', [process.pid, startOf(process.pid)]);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procHidden' });
+      expect(seen.entries).toEqual([{ entry: hidden.displaced, owned: true }]);
+      expect(seen.recovered).toEqual([]);
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: hidden.displaced, hash: 'x', fault: 'procHidden' })).toMatchObject({ ok: false, owned: true });
+      expect(staged()).toContain(hidden.displaced);
+      const gone = await orphanWithOrigin('a4a4a4', [999_999_999, 1]); // kill(pid, 0) says ESRCH: really gone.
+      const after = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procHidden' });
+      expect(after.recovered.map((r) => r.marker)).toEqual([expect.stringMatching(new RegExp(`^${KEY}\\.a4a4a4\\.`))]);
+      expect(staged()).not.toContain(gone.displaced);
+      expect(staged()).toContain(hidden.displaced);
     });
 
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {
