@@ -319,7 +319,8 @@ export const projectTurnRecords = (
             }
             return;
         }
-        leading = false;
+        // System notes are standalone rows, not boundaries of the window's leading replies.
+        if (resolveMessageRole(message) !== 'system-note') leading = false;
         if (!groupedMessageIds.has(message.info.id)) {
             ungroupedMessageIds.add(message.info.id);
         }
