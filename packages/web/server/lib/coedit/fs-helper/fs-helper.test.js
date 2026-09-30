@@ -711,6 +711,60 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
     });
 
+    test('smartyfs#32 pre-enable: once its originating process is gone, a transaction is a true orphan, recovered at once', async () => {
+      const writer = fs.openSync(target(), 'a'); // Keeps the displaced revision pending after the publish.
+      const r = await read();
+      // Another process (standing in for a server that then restarts) spawns its own helper and publishes through it.
+      const origin = spawn(process.execPath, ['-e', `
+        const { spawn } = require('child_process');
+        const h = spawn(process.argv[1], ['--same-account', process.argv[2], process.argv[3]], { stdio: ['pipe', 'pipe', 'inherit'] });
+        h.stdout.once('data', (d) => { process.stdout.write(d); process.exit(0); });
+        h.stdin.write(process.argv[4] + '\\n');
+      `, BIN, root, priv, JSON.stringify({ op: 'publish', path: 'docs/a.md', txn: 'a0a0a0', ack: sha('lost-with-its-process'), ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), id: 1 })], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const reply = await new Promise((done) => createInterface({ input: origin.stdout }).once('line', (l) => done(JSON.parse(l))));
+      expect(reply).toMatchObject({ published: true });
+      await new Promise((done) => (origin.exitCode === null ? origin.on('exit', done) : done()));
+      await sleep(300); // Its helper reads EOF and exits, releasing the record's lock.
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      // No token: the originating process is gone, so this is recovered now, not after 7 days.
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.records).toEqual([{ txn: 'a0a0a0', state: 'published' }]);
+      expect(seen.entries).toMatchObject([{ entry: reply.displaced, hash: sha('one\nlate\n') }]);
+      expect(await dispose(reply.displaced, sha('one\nlate\n'))).toMatchObject({ ok: true });
+    });
+
+    /** A pending transaction whose connection has ended, with a chosen origin [pid, start] (a COEDIT_FS_TEST hook). */
+    const orphanWithOrigin = async (txn, origin) => {
+      replace('one\n'); // A fresh revision to publish over.
+      const writer = fs.openSync(target(), 'a');
+      const r = await read();
+      const p = await publish(r, { txn, ack: sha('t'), testOrigin: origin });
+      h.stop(); // Its helper connection ends; the origin decides who may recover it.
+      await sleep(200);
+      h = helper(root, priv);
+      fs.closeSync(writer);
+      return p;
+    };
+    const startOf = (pid) => Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19]);
+
+    test('smartyfs#32 pre-enable: a live originating process keeps its transaction; its pid reused by another process counts as gone', async () => {
+      const alive = await orphanWithOrigin('a1a1a1', [process.pid, startOf(process.pid)]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries).toEqual([{ entry: alive.displaced, owned: true }]);
+      const reused = await orphanWithOrigin('a2a2a2', [process.pid, startOf(process.pid) + 1]); // Same pid, another start.
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toContainEqual({ entry: alive.displaced, owned: true });
+      expect(seen.entries.find((e) => e.entry === reused.displaced)).toMatchObject({ hash: expect.any(String) });
+    });
+
+    test('smartyfs#32 pre-enable: an origin that cannot be looked up fails closed (the 7-day expiry applies)', async () => {
+      const p = await orphanWithOrigin('a3a3a3', [999_999_999, 1]); // A pid that does not exist: gone.
+      expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries).toMatchObject([{ entry: p.displaced, hash: expect.any(String) }]);
+      const unreadable = await h.call({ op: 'list', path: 'docs/a.md', fault: 'procStat' }); // /proc unreadable: alive.
+      expect(unreadable.entries).toEqual([{ entry: p.displaced, owned: true }]);
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: 'x', fault: 'procStat' })).toMatchObject({ ok: false, owned: true });
+    });
+
     test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {
       const r = await read();
       const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });

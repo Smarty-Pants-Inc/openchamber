@@ -2,7 +2,7 @@
 // Runs only against a live service: OPENCHAMBER_COEDIT_TEST_SOCKET (its socket), OPENCHAMBER_COEDIT_TEST_BASE (a
 // directory of this account whose ancestors already grant the service's account search-only `x`), and setfacl. The
 // forge rig (Light's coedit-test units) or Dev1 after smarty-dev#2251 provide one; elsewhere these tests skip.
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync, spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { createInterface } from 'readline';
@@ -272,6 +272,37 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
       fs.closeSync(writer);
       await other.close();
       await origin.close();
+    }
+  });
+
+  it('smartyfs#32 pre-enable: once the originating process has exited, the next load recovers its pending revision at once', async () => {
+    const t = setup('o\n');
+    const staging = path.join(t.recoveryDir, '.staging');
+    const writer = fs.openSync(t.file, 'a');
+    const probe = startHelper(t.root, staging);
+    const current = await readFile(probe, 'docs/a.md');
+    await probe.close();
+    // Another process (a server that then exits) connects to the service itself and publishes.
+    const origin = spawnSync(process.execPath, ['-e', `
+      const c = require('net').createConnection(process.argv[1]);
+      const rl = require('readline').createInterface({ input: c });
+      const out = [];
+      rl.on('line', (l) => { out.push(l); if (out.length === 2) { console.log(l); process.exit(0); } });
+      c.write(JSON.stringify({ op: 'hello', root: process.argv[2], id: 1 }) + '\\n');
+      c.write(process.argv[3] + '\\n');
+    `, SOCKET, t.root, JSON.stringify({ op: 'publish', path: 'docs/a.md', txn: 'c0ffee', ack: hashBytes(Buffer.from('gone')), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('O\n').toString('base64'), id: 2 })], { encoding: 'utf8', timeout: 30_000 });
+    const reply = JSON.parse(origin.stdout.trim());
+    expect(reply).toMatchObject({ published: true });
+    await new Promise((done) => setTimeout(done, 500)); // Its helper reads EOF and exits.
+    fs.writeSync(writer, 'late\n');
+    fs.closeSync(writer);
+    const next = startHelper(t.root, staging); // The next load: no token, and the origin is gone.
+    try {
+      const seen = await next.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toMatchObject([{ entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) }]);
+      expect(await next.call({ op: 'dispose', path: 'docs/a.md', entry: reply.displaced, hash: hashBytes(Buffer.from('o\nlate\n')) })).toMatchObject({ ok: true });
+    } finally {
+      await next.close();
     }
   });
 

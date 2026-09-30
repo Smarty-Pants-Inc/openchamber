@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync, spawn, spawnSync } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import net from 'net';
@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { hashBytes, keyOf, publish, readFile, startHelper } from './safe-file.js';
+import { hashBytes, keyOf, publish, readFile, startHelper, tokenCount } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -622,6 +622,69 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.text.toString()).toBe('Pa'); // Adopted, not replayed as PPa.
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(t.disk()).toBe('Pa');
+    });
+
+    it('smartyfs#32 pre-enable: after a server restart, the next load recovers a pending revision at once, late bytes included', async () => {
+      const t = await setup('log\n');
+      const writer = fs.openSync(t.file, 'a'); // An agent that keeps the old inode open across the restart.
+      // The "server" before the restart: a bridge in another process saves, then that process ends abruptly.
+      const script = path.join(t.home, 'server.mjs');
+      fs.writeFileSync(script, `
+        process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1';
+        const Y = await import(${JSON.stringify(import.meta.resolve('yjs'))});
+        const { createDiskBridge, TEXT } = await import(${JSON.stringify(path.join(import.meta.dirname, 'disk-bridge.js'))});
+        const doc = new Y.Doc();
+        const bridge = createDiskBridge({ root: ${JSON.stringify(t.root)}, file: ${JSON.stringify(t.file)}, doc, recoveryDir: ${JSON.stringify(t.recoveryDir)}, watch: () => ({ close() {} }), settleMs: 20, retryMs: 60000, enabled: true });
+        await bridge.load();
+        doc.getText(TEXT).insert(0, 'P');
+        console.log(JSON.stringify(await bridge.save()));
+        process.kill(process.pid, 'SIGKILL');
+      `);
+      const run = spawnSync(process.execPath, [script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 30_000 });
+      expect(run.signal).toBe('SIGKILL'); // It died, as a crashed or restarted server does.
+      expect(JSON.parse(run.stdout.trim())).toEqual({ ok: true }); // Published; its displaced revision stayed pending (the writer).
+      expect(t.staged()).toHaveLength(1);
+      await sleep(300);
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      // The restarted server's bridge: it holds no token, and must not wait 7 days.
+      const again = t.open();
+      await again.bridge.load();
+      expect(again.conflicts.map((c) => c.conflict)).toContain('interrupted');
+      expect(again.text.toString()).toBe('Plog\n');
+      await expect.poll(() => t.kept().some((k) => k === 'log\nlate\n'), { timeout: 5000 }).toBe(true);
+      await expect.poll(() => t.staged(), { timeout: 5000 }).toEqual([]);
+    });
+
+    it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {
+      const t = await setup('a\n');
+      const before = tokenCount();
+      fs.chmodSync(t.root, 0o777); // Every publish is refused by the helper (another account could move src/).
+      for (let i = 0; i < 5; i += 1) {
+        t.person((x) => x.insert(0, 'x'));
+        await t.bridge.save().catch(() => null);
+      }
+      expect(tokenCount()).toBe(before); // Definite refusals keep nothing.
+      fs.chmodSync(t.root, 0o755);
+      await t.bridge.sync();
+      const writer = fs.openSync(t.file, 'a');
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(tokenCount()).toBe(before + 1); // A pending revision keeps its token.
+      fs.closeSync(writer);
+      await t.bridge.sync(); // Its revision is collected: the token goes.
+      await expect.poll(() => t.staged(), { timeout: 5000 }).toEqual([]);
+      expect(tokenCount()).toBe(before);
+      // A lost reply settled with no retained data (the exchange never ran) keeps nothing either.
+      t.person((x) => x.insert(0, 'Q'));
+      t.hooks.helper = { pause: 'beforeExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.staged().length, { timeout: 3000 }).toBe(1);
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      delete t.hooks.helper;
+      await t.bridge.sync();
+      expect(t.bridge.state().conflict).toBe(null);
+      expect(tokenCount()).toBe(before);
     });
 
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {

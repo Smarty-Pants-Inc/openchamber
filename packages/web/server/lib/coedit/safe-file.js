@@ -386,7 +386,14 @@ export const rememberToken = (key, txn, token) => {
   if (!TOKENS.has(key)) TOKENS.set(key, new Map());
   TOKENS.get(key).set(txn, token);
 };
-const forgetToken = (key, txn) => TOKENS.get(key)?.delete(txn);
+/** Drops a token once its transaction needs it no more (smartyfs#37 item 15): the registry stays bounded. */
+export const forgetToken = (key, txn) => {
+  const tokens = TOKENS.get(key);
+  tokens?.delete(txn);
+  if (tokens?.size === 0) TOKENS.delete(key);
+};
+/** Tests: how many tokens this process holds. */
+export const tokenCount = () => [...TOKENS.values()].reduce((n, tokens) => n + tokens.size, 0);
 /** This process's tokens for a file's transactions, as `list`'s `tokens`. */
 export const tokensFor = (key) => Object.fromEntries(TOKENS.get(key) ?? []);
 /** A staged entry's txn: `<key>.<txn>-<unique>.staged`. */
@@ -459,6 +466,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
     return { ...uncertain, unsynced: true, lost: txn, token }; // Sent, no reply: published or not, flushed or not.
   }
   if (reply.published !== true) {
+    forgetToken(key, txn); // Definitely not published: its token guards nothing.
     await dropOurs(); // Not published: ours was never on disk, and the room still holds it.
     if (reply.conflict) return { conflict: reply.conflict, recovery };
     throw refused(reply);

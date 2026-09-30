@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor, forgetToken,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -212,6 +212,8 @@ export function createDiskBridge({
     }
     // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5).
     await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
+    // No retained data enrolled for it: its token guards nothing more (smartyfs#37 item 15).
+    if (!pending.some((revision) => revision.token === uncertain.token)) forgetToken(key, txn);
     uncertain = null;
     if (!unsynced) conflict = null;
     scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).

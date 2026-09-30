@@ -344,14 +344,44 @@ fn lock_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<OwnedFd>, 
 /// Who may act on an unowned transaction's retained data (#412 round 5): its originating bridge (the secret token
 /// matches the record's hash), anyone once it is an old orphan (ORPHAN_SECS), or anyone for a record with no token
 /// (tests, and none written by the bridge).
-fn may_recover(priv_fd: RawFd, key: &str, txn: &str, token: Option<&str>) -> Result<bool, String> {
+fn may_recover(priv_fd: RawFd, key: &str, txn: &str, token: Option<&str>, req: &Value) -> Result<bool, String> {
     let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(true) };
     let want = record["ack"].as_str().unwrap_or("");
     if want.is_empty() || token.is_some_and(|t| !t.is_empty() && hex(t.as_bytes()) == want) {
         return Ok(true);
     }
+    // Its originating process (the bridge's server) is gone, so no live bridge holds its token: a true orphan that
+    // the next load recovers at once (smartyfs#32's pre-enable item: a restart must not strand it for 7 days). While
+    // that process lives, only its token may act (#412 round 5). A process that cannot be looked up counts as alive.
+    if let (Some(pid), Some(start)) = (record["pid"].as_u64(), record["start"].as_u64()) {
+        let looked = if test_fault(req, "procStat") { Err("unreadable".to_string()) } else { process_start(pid as i32) };
+        let gone = match looked {
+            Ok(None) => true,
+            Ok(Some(now)) => now != start, // Its pid now belongs to another process.
+            Err(_) => false,
+        };
+        if pid > 0 && gone {
+            return Ok(true);
+        }
+    }
     let st = stat_entry(priv_fd, &format!("{key}.{txn}.txn"))?.ok_or("the transaction record is gone")?;
     Ok(now_secs() - st.st_ctime as i64 > ORPHAN_SECS)
+}
+
+/// The process that connected to this helper (the bridge's server), as its pid and start time: a pair the kernel never
+/// reuses, unlike a pid alone.
+static ORIGIN: std::sync::OnceLock<(i32, u64)> = std::sync::OnceLock::new();
+
+/// A process's start time (clock ticks since boot, /proc/<pid>/stat field 22): None only when it does not exist.
+fn process_start(pid: i32) -> Result<Option<u64>, String> {
+    let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    // The command name is in parentheses and may contain spaces: fields are counted after its closing parenthesis.
+    let rest = text.rsplit_once(')').map(|(_, r)| r).ok_or("unreadable stat")?;
+    rest.split_whitespace().nth(19).and_then(|f| f.parse().ok()).map(Some).ok_or_else(|| "unreadable stat".into())
 }
 
 /// Whether the connection that asked for this operation has closed (#412 finding 3): an operation that finds its
@@ -874,7 +904,12 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
     // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
     let record_name = format!("{key}.{txn}.txn");
-    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash}).to_string();
+    let (origin_pid, origin_start) = match (testing(), req["testOrigin"].as_array()) {
+        // Tests only: a chosen origin (a pid reused by another process, or one that cannot be looked up).
+        (true, Some(o)) => (o[0].as_i64().unwrap_or(0) as i32, o[1].as_u64().unwrap_or(0)),
+        _ => ORIGIN.get().copied().unwrap_or((0, 0)),
+    };
+    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start}).to_string();
     let record = match create_immutable(priv_fd, &record_name, record_bytes.as_bytes(), true, req) {
         Ok(fd) => fd,
         // Linked by us but not flushed: ours, proven by its inode, so it goes. Before our link: never ours to touch.
@@ -1031,7 +1066,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
             Err(e) => return Err(os_err("the transaction record", e)),
         };
         if let Some(fd) = lock {
-            if !may_recover(priv_fd, &key, &txn, token)? {
+            if !may_recover(priv_fd, &key, &txn, token, req)? {
                 return Ok(json!({"ok": false, "owned": true}));
             }
             // The outcome is durable before the evidence it was derived from may go; otherwise nothing is removed.
@@ -1177,7 +1212,7 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
                     continue;
                 }
                 let state = resolve(priv_fd, &key, &txn, req).map(|s| json!(s)).unwrap_or(json!("unknown"));
-                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str()).unwrap_or(false) {
+                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str(), req).unwrap_or(false) {
                     records.push(json!({"txn": txn, "state": state}));
                 } else {
                     guarded.insert(txn.clone());
@@ -1242,6 +1277,11 @@ fn main() {
     // SAFETY: SO_PEERCRED into a ucred of the given size, on our stdin.
     let peer = (unsafe { libc::getsockopt(0, libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len) } == 0)
         .then_some(cred.uid);
+    if peer.is_some() && cred.pid > 0 {
+        if let Ok(Some(start)) = process_start(cred.pid) {
+            let _ = ORIGIN.set((cred.pid, start));
+        }
+    }
     if !same_account {
         match peer {
             None => die("stdin must be a socket from the account this helper serves"),

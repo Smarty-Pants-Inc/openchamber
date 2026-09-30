@@ -31,8 +31,19 @@ describe.skipIf(!built)('co-edit stress (smartyfs#32 acceptance)', () => {
         return false;
       }
     });
-    await expect.poll(() => mine().length, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
-    run.kill('SIGKILL');
-    await expect.poll(() => mine(), { timeout: 5000 }).toEqual([]);
+    try {
+      await expect.poll(() => mine().length, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
+      run.kill('SIGKILL');
+      await expect.poll(() => mine(), { timeout: 5000 }).toEqual([]);
+    } finally {
+      // A failure above leaves nothing behind: only this test's own run and its children, by pid (smartyfs#37 item 14).
+      for (const pid of [run.pid, ...mine().map(Number)]) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    }
   }, 30_000);
 });
