@@ -739,7 +739,7 @@ export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, 
 }
 /** Reconcile reload/route intent only against a published, authoritative managed snapshot. */
 /** `chosen`: the person navigated to the remembered session (a route: Back, Forward, a link), not the page restoring it. */
-export function restoreManagedSessionSelection(sessions: readonly Session[], options?: { chosen?: boolean }): Session | null {
+export function restoreManagedSessionSelection(sessions: readonly Session[], options?: { chosen?: boolean; reveal?: boolean }): Session | null {
   const projects = useProjectsStore.getState()
   if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return null
   // An open still waiting for its project is the person's latest choice: no automatic restore over it (#608).
@@ -756,7 +756,7 @@ export function restoreManagedSessionSelection(sessions: readonly Session[], opt
   }
   if ((!store.currentSessionId || store.currentSessionId === session.id)
     && (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory)) {
-    store.setCurrentSession(session.id, session.directory, options?.chosen ? undefined : "restore")
+    store.setCurrentSession(session.id, session.directory, options?.chosen && options.reveal !== false ? undefined : "restore")
   }
   return session
 }

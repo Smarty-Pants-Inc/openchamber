@@ -115,6 +115,21 @@ export async function setPersonalSidebarView(patch: Patch): Promise<void> {
   }
 }
 
+/** Stable person identity admitted by the preference GET, not asynchronously cached humanSelf. */
+export async function readPersonalSidebarOwner(scope: ReturnType<typeof captureRuntimeRequestScope>) {
+  if (!isRuntimeRequestScopeCurrent(scope) || !unlocked()) return null;
+  if (!isRuntimeRequestScopeCurrent(entry.scope)) retire();
+  const captured = entry;
+  try { await hydrate(captured); } catch (error) {
+    // Auth observation can refresh the preference entry without changing request authority.
+    // Follow that already-running GET only; never follow a different runtime or person.
+    if (!isRuntimeRequestScopeCurrent(scope)) return null;
+    if (captured === entry) throw error;
+    await hydrate(entry);
+  }
+  return current(entry) && isRuntimeRequestScopeCurrent(scope) ? entry.owner : null;
+}
+
 function hydrateCurrent() {
   const captured = entry;
   void hydrate(captured).catch(() => { if (current(captured)) notifyFailure(); });

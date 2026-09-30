@@ -83,8 +83,15 @@ make every row observe unrelated streaming updates.
 `list/sessionReveal.ts` mounts an effect-only subscriber in the desktop collection
 and mobile sheet. Explicit local opens, including same-ID reopen, and creation
 capture one runtime/auth-scoped intent. Creation captures before asynchronous
-preparation and forwards that ticket at selection. Restore, background rows and
-model changes do not create reveal work. A later explicit choice retires earlier
+preparation and forwards that ticket at selection. An initial shared `?session=`
+link is an explicit open, including when bootstrap already selected that ID.
+Only a reload of this tab's last admitted shown session is non-revealing. The
+router records that receipt in safe sessionStorage, keyed by runtime and the
+sidebar preference GET's admitted issuer/subject. Browser-wide last-session
+memory and cached human profile data never classify the link. A draft clears the
+tab receipt. Back/Forward and explicit same-ID reopen still reveal once.
+Embedded session chats and VS Code retain their existing navigation policy.
+Restore, background rows and model changes do not create reveal work. A later explicit choice retires earlier
 work; old request scopes cannot reveal the new person's view.
 
 Reveal waits for the selected root row in its admitted rendered group, consumes
