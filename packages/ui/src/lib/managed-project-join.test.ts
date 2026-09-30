@@ -6,7 +6,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 // its server.connected refreshes the catalog once; a listed project, or a catalog that is not managed, refreshes
 // nothing. A join during discovery is kept until the catalog loads (#282 review).
 let refreshes: boolean[] = [];
-mock.module('@/lib/managed-project-refresh', () => ({ refreshManagedProjects: async (fresh?: boolean) => { refreshes.push(fresh === true); } }));
+mock.module('@/lib/managed-project-refresh', () => ({ refreshManagedProjects: async (fresh?: boolean) => { refreshes.push(fresh === true); }, runningManagedSample: () => undefined }));
 const { JOIN_DEBOUNCE_MS, noticeProjectConnected } = await import('./managed-project-join');
 const { useProjectsStore } = await import('@/stores/useProjectsStore');
 const settle = () => new Promise(resolve => setTimeout(resolve, JOIN_DEBOUNCE_MS + 50));

@@ -7,7 +7,7 @@ import type { ProjectEntry } from "@/lib/api/types"
 // real handleEvent. That includes a project that comes BACK (removed, then re-added) while this page still caches
 // its child store: the event then routes to that store, and must still refresh the catalog.
 let refreshes = 0
-mock.module("@/lib/managed-project-refresh", () => ({ refreshManagedProjects: async () => { refreshes++ } }))
+mock.module("@/lib/managed-project-refresh", () => ({ refreshManagedProjects: async () => { refreshes++ }, runningManagedSample: () => undefined }))
 const { JOIN_DEBOUNCE_MS } = await import("@/lib/managed-project-join")
 const { getRuntimeKey } = await import("@/lib/runtime-switch")
 const { useProjectsStore } = await import("@/stores/useProjectsStore")
