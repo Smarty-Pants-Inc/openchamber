@@ -35,6 +35,9 @@ interface UseChatTimelineControllerOptions {
     messages: ChatMessageEntry[];
     historyMeta: SessionHistoryMeta | null;
     scrollRef: React.RefObject<HTMLDivElement | null>;
+    /** The live scroll element: the timeline is mounted anew when a session's positions arrive (smarty-code#583), and
+     *  the listeners bound to the old element must move to the new one (openchamber#457 review 1). */
+    scrollNode?: HTMLElement | null;
     messageListRef: React.RefObject<MessageListHandle | null>;
     loadMoreMessages: (sessionId: string, direction: 'up' | 'down') => Promise<void>;
     goToBottom: (mode?: 'instant' | 'smooth') => void;
@@ -203,6 +206,7 @@ export const useChatTimelineController = ({
     messages,
     historyMeta,
     scrollRef,
+    scrollNode,
     messageListRef,
     loadMoreMessages,
     goToBottom,
@@ -880,7 +884,7 @@ export const useChatTimelineController = ({
             }
             observer.disconnect();
         };
-    }, [loadEarlierIfPinnedViewportUnderfilled, scrollRef, sessionKey]);
+    }, [loadEarlierIfPinnedViewportUnderfilled, scrollNode, scrollRef, sessionKey]);
 
     // smarty-code#583 (review/astra OC#334): an explicit navigation is newer reader intent than a pending prepend's
     // anchor; drop the anchor so the page landing later does not hold the reader at the old place.
@@ -915,7 +919,7 @@ export const useChatTimelineController = ({
             container.removeEventListener(SCROLL_NAVIGATE_EVENT, yieldPendingAnchor);
             if (frame !== null) window.cancelAnimationFrame(frame);
         };
-    }, [captureViewportAnchor, scrollRef, sessionKey, yieldPendingAnchor]);
+    }, [captureViewportAnchor, scrollNode, scrollRef, sessionKey, yieldPendingAnchor]);
 
     const scrollToTurn = React.useCallback(async (
         turnId: string,
