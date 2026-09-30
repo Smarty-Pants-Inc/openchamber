@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { Event, SessionStatus } from '@opencode-ai/sdk/v2/client';
+import type { Event } from '@opencode-ai/sdk/v2/client';
+import type { SessionStatus } from './session-status';
 import { normalizeProjectPath } from '@/lib/projectResolution';
 import {
   applySessionOrderingMutations,
@@ -88,6 +89,9 @@ const bumpStatusEventVersion = (sessionId: string): void => {
   statusEventVersions.set(sessionId, (statusEventVersions.get(sessionId) ?? 0) + 1);
 };
 export const getSessionStatusEventVersion = (sessionId: string): number => statusEventVersions.get(sessionId) ?? 0;
+// A directory response can list previously unknown IDs and sweep noncandidate siblings.
+// Capture the complete baseline before reading; an ID absent here has revision zero.
+export const captureSessionStatusEventVersions = (): ReadonlyMap<string, number> => new Map(statusEventVersions);
 
 /**
  * A fleet-wide status map (a managed gateway's unscoped /session/status) for exactly the listed sessions, in one
@@ -183,6 +187,8 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
       const props = payload.properties as { sessionID?: string; info?: { id?: string } } | undefined;
       const sessionId = props?.sessionID ?? props?.info?.id;
       if (!sessionId) continue;
+      // Even an already-absent deletion must fence a status read that could resurrect it.
+      bumpStatusEventVersion(sessionId);
       if (currentStatuses().has(sessionId)) {
         draftStatuses().delete(sessionId);
         draftActiveIds().delete(sessionId);
@@ -215,16 +221,24 @@ export const applyGlobalSessionStatusSnapshot = (
   rawDirectory: string,
   raw: Record<string, { type?: string }>,
   knownSessionIds?: Iterable<string>,
-  /** Sessions this snapshot must not lower (smarty-code#737: a fleet session it is not the owner's word on). */
+  /** Sessions this snapshot must not touch (foreign ownership or a newer event). */
   held?: ReadonlySet<string>,
 ): void => {
   const directory = normalizeDirectory(rawDirectory);
-  const known = new Set(knownSessionIds ?? []);
+  const indexed = useGlobalSessionStatusStore.getState().statusById;
+  const isHeld = (sessionId: string): boolean => {
+    const current = indexed.get(sessionId);
+    return Boolean(held?.has(sessionId)
+      || (current?.status.ordinary && current.directory !== directory));
+  };
+  // Foreign active entries cannot erase ordinary ownership any more than foreign idle can.
+  // Use the same coverage for status, ordering and timing, including raw noncandidate IDs.
+  const known = new Set(Array.from(knownSessionIds ?? []).filter((sessionId) => !isHeld(sessionId)));
   // Built once as a set and shared by both consumers below; only non-idle
   // sessions land here, so it stays small however long the directory's list is.
   const activeSessionIds = new Set<string>();
   for (const [sessionId, status] of Object.entries(raw)) {
-    if (normalizeStatusType(status?.type) !== 'idle') activeSessionIds.add(sessionId);
+    if (!isHeld(sessionId) && normalizeStatusType(status?.type) !== 'idle') activeSessionIds.add(sessionId);
   }
   reconcileSessionActivitySnapshot(activeSessionIds, known);
   // Timing asks the coverage question instead of being handed a list: a snapshot
@@ -233,7 +247,7 @@ export const applyGlobalSessionStatusSnapshot = (
   // answer. Reuses the sets already built above, so this allocates nothing.
   reconcileSessionActivityTiming(
     activeSessionIds,
-    (sessionId) => !held?.has(sessionId) && (known.has(sessionId) || sessionId in raw),
+    (sessionId) => !isHeld(sessionId) && (known.has(sessionId) || sessionId in raw),
   );
   useGlobalSessionStatusStore.setState((state) => {
     let changed = false;
@@ -254,7 +268,7 @@ export const applyGlobalSessionStatusSnapshot = (
     };
 
     for (const [sessionId, entry] of state.statusById) {
-      if (held?.has(sessionId)) continue;
+      if (isHeld(sessionId)) continue;
       if ((entry.directory === directory || known.has(sessionId)) && !(sessionId in raw)) {
         next.delete(sessionId);
         removeActiveSession(sessionId);
@@ -263,10 +277,11 @@ export const applyGlobalSessionStatusSnapshot = (
     }
 
     for (const [sessionId, status] of Object.entries(raw)) {
+      if (isHeld(sessionId)) continue;
       const type = normalizeStatusType(status?.type);
       const current = next.get(sessionId);
       if (type === 'idle') {
-        if (current && !held?.has(sessionId) && (current.directory === directory || known.has(sessionId))) {
+        if (current && (current.directory === directory || known.has(sessionId))) {
           next.delete(sessionId);
           removeActiveSession(sessionId);
           changed = true;
