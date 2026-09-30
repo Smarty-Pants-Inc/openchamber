@@ -124,6 +124,7 @@ async function main() {
     if (!account) throw new Error('service mode needs OPENCHAMBER_COEDIT_TEST_ACCOUNT (the helper\'s account) for its grants');
     execFileSync('setfacl', ['-m', `u:${account}:x`, dir]);
     execFileSync('setfacl', ['-R', '-m', `u:${account}:rwX`, '-m', `d:u:${account}:rwX`, path.join(dir, 'project')]);
+    execFileSync('setfacl', ['-m', `u:${account}:rwx`, path.join(dir, 'recovery')]); // It delivers recovered orphans there (#428).
   }
   // stdin is a pipe from this process: when it dies, even by SIGKILL, each child sees EOF and exits (#37 item 4).
   const children = [];
