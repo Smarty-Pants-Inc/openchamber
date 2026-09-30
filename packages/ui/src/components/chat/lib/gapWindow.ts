@@ -14,6 +14,8 @@ export const WINDOW_RECORDS = 500;
  * mounted the next placeholder, ~1,800 px ahead: under a second at wheel speed (candidate 04:23Z).
  */
 export const READ_AHEAD_WINDOWS = 2;
+/** During a continuous scroll through a placeholder, how often the window at the reader's place is read (#583). */
+export const GAP_SCROLL_READ_MS = 250;
 /** How long a placeholder stays near the view before its windows are read (a drag passes many). */
 export const GAP_SETTLE_MS = 90;
 /** How far ahead of the view the list mounts rows, placeholders included (LegendList drawDistance). The next window is
