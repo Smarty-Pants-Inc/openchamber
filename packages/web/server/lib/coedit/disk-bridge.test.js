@@ -407,6 +407,32 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.leftovers()).toEqual([]);
     });
 
+    for (const [point, where] of [['beforeExchange', 'the staged inode after its readback'], ['afterExchange', 'the published inode right after the exchange']]) {
+      it(`smartyfs#33 (A): an equal-length change to ${where} is never reported as saved; no replay`, async () => {
+        const t = await setup('a');
+        t.person((x) => x.insert(0, 'P'));
+        const result = await t.saveDuring(point, () => {
+          // The same inode, the same length, other bytes: an inode and size check alone would pass it.
+          const target = point === 'beforeExchange' ? path.join(t.privateDir, t.staged()[0]) : t.file;
+          const fd = fs.openSync(target, 'r+');
+          fs.writeSync(fd, 'X', 0);
+          fs.closeSync(fd);
+        });
+        // Ours was published (its inode), then changed: raced, never saved. The base follows ours, so no replay.
+        expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
+        expect(t.disk()).toBe('Xa');
+        await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
+        expect(t.text.toString()).toBe('Pa');
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed' });
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'removed' }); // Not reported as saved.
+        expect(t.disk()).toBe('Xa'); // The other writer's bytes are not overwritten.
+        await t.bridge.acceptDisk();
+        expect(t.text.toString()).toBe('Xa'); // Accepted: the room takes the disk, P once, never PPa.
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        expect(t.disk()).toBe('Xa');
+      });
+    }
+
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {
       const t = await setup('a', { retryMs: 60_000 });
       t.person((x) => x.insert(0, 'P'));

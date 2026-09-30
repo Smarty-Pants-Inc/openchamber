@@ -151,7 +151,9 @@ round 4); until then no conflict could be seen.
   text**: the minimal diff (`fast-diff`) from the text last read, applied to a copy of the room as it was then, so
   people's edits are kept. Bridge changes carry `DISK_ORIGIN` (`'disk'`). A revision that **removes** text may be a
   writer that truncated and paused (net-lead round 4): it is a conflict (`truncated` or `removed`) until an
-  insertion-only revision arrives or the person accepts the disk (`acceptDisk()`).
+  insertion-only revision arrives or the person accepts the disk (`acceptDisk()`). While one is held, `save()`
+  returns that conflict and writes nothing: the disk does not hold the room's text, so it is never reported as saved
+  (smartyfs#33 A).
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
@@ -180,7 +182,9 @@ round 4); until then no conflict could be seen.
        and shown (`raced`, notice "Another writer changed this file during your save: check the recovery folder.").
      - The displaced object is not the checked revision (someone replaced the file just before the exchange): `raced`,
        their revision kept for recovery.
-     - Ours was replaced, or written into, right after the exchange (`replaced`, `bytes`): the exchange is certain,
+     - Ours was replaced, or written into, right after the exchange (`replaced`, `bytes`: **all** our bytes are
+       compared through the staging fd the helper still holds, so an equal-length change to the same inode is caught,
+       whether made after the readback in step 2 or after the exchange; smartyfs#33 A): the exchange is certain,
        so this is an outside write to a published file. It is `raced` (published), the base follows ours, and the
        next sync treats the writer's revision as any other (so an agent's steady writes never stall the room).
      - Anything it cannot prove (a failed observation, the directory moved out of the project): `unverified` with

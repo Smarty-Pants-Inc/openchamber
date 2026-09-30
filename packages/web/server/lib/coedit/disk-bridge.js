@@ -400,6 +400,9 @@ export function createDiskBridge({
       if (!(await settleUncertain())) return { ok: false, conflict: 'unverified', published: 'uncertain' };
       await disposePending(); // Completes a failed flush first, then removes what it held.
       if (unsynced) return { ok: false, conflict: 'unverified', published: true };
+      // A held disk revision (it removes text) waits for acceptDisk(): nothing can be saved over it, and the disk does
+      // not hold the room's text, so this is never reported as saved (smartyfs#33 A).
+      if (held) return { ok: false, conflict: held.text.length === 0 ? 'truncated' : 'removed' };
       const next = text.toString();
       if (next === baseText) return { ok: true };
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
