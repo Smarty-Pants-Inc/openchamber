@@ -34,7 +34,19 @@ export const isHerdrEnded = (session: Session | null | undefined): boolean => re
  * managed listing's row says ended; the open directory row can miss that update on a busy fleet (#811 on 3.53).
  */
 export const showsViewOnly = (historyReadOnly: boolean | undefined, session: Session | null | undefined, globalEnded = false): boolean =>
-  historyReadOnly === true || isHerdrEnded(session) || globalEnded;
+  (historyReadOnly === true && !isOrdinaryCodeMade(session)) || isHerdrEnded(session) || globalEnded;
+
+/**
+ * A Code-made session that is unavailable (its Pi stopped or lost Code's bridge in an open pane; smarty-code#957): its
+ * history is read-only for now, but it is not a fleet session "started in Herdr". It keeps its composer, with Send off
+ * and its reason (#790), until its Pi is back. Ended is still View only.
+ */
+export const isOrdinaryCodeMade = (session: unknown): boolean =>
+  (session as { ordinaryCodeMade?: unknown } | null | undefined)?.ordinaryCodeMade === true;
+/** Its composer says the Pi lost Code's connection and how to reconnect (smarty-code#957). An ended session has its own
+ * words, and a reloading one says it is reloading (#870; openchamber#411 r3: a healthy /reload is no disconnect). */
+export const isPiDisconnected = (session: Session | null | undefined): boolean =>
+  isOrdinaryCodeMade(session) && !isHerdrEnded(session) && !isOrdinaryReloading(session);
 
 /** A Pi that Herdr shows without a session identity: there are no messages to show, and nothing to attach. */
 export const isHerdrNoIdentity = (session: unknown): boolean =>
@@ -63,4 +75,4 @@ export const isOrdinaryReloading = (session: unknown): boolean =>
 
 /** The Herdr fields, for change detection: a state-only update must still reach the row (OC#177 review). */
 export const herdrSignature = (session: unknown): string =>
-  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}`;
+  `${readHerdrState(session) ?? ''}/${isHerdrNoIdentity(session) ? 1 : 0}/${herdrSuccessorOf(session) ?? ''}/${isOrdinaryReloading(session) ? 1 : 0}/${isOrdinaryCodeMade(session) ? 1 : 0}`;

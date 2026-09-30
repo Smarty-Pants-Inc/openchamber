@@ -258,6 +258,15 @@ const getToolDisplayName = (part: ToolPart): string => {
     return typeof candidate.name === 'string' ? candidate.name : 'tool';
 };
 
+/**
+ * smarty-code#827: the status text while working. A session can be working before any assistant message exists: a Pi
+ * session admitting a prompt (10 s and more under load) is busy on every page, and without text the status row showed
+ * nothing at all on every page but the sender's. It then says it is starting (a generic status: any real one replaces it).
+ */
+export const workingStatus = (isWorking: boolean, parsed: { statusText: string | null; isGenericStatus: boolean }) => (!isWorking
+    ? { statusText: null, isGenericStatus: true }
+    : parsed.statusText ? { statusText: parsed.statusText, isGenericStatus: parsed.isGenericStatus } : { statusText: 'starting', isGenericStatus: true });
+
 export const getActiveAssistantContext = (messages: Message[]): ActiveAssistantContext => {
     let assistantId: string | null = null;
     let parentId: string | null = null;
@@ -408,8 +417,7 @@ export function useAssistantStatus(): AssistantStatusSnapshot {
             isStreaming,
             isCooldown,
             lifecyclePhase: isStreaming ? 'streaming' : isCooldown ? 'cooldown' : null,
-            statusText: isWorking ? parsedStatus.statusText : null,
-            isGenericStatus: isWorking ? parsedStatus.isGenericStatus : true,
+            ...workingStatus(isWorking, parsedStatus),
             isWaitingForPermission: false,
             canAbort: isWorking,
             compactionDeadline: null,

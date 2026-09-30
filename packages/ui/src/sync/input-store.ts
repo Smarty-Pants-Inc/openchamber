@@ -7,6 +7,7 @@ import { create } from "zustand"
 import type { ContextPartMetadata } from '@/lib/messages/contextParts'
 import type { AttachedFile } from "@/stores/types/sessionTypes"
 import { prepareAttachmentFiles } from "./attachment-files"
+import { holdReload } from "@/lib/newBuildReload"
 
 const FILE_URI_PREFIX = "file://"
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
@@ -195,24 +196,30 @@ export const useInputStore = create<InputState>()((set, get) => ({
   },
 
   addAttachedFile: async (file: File) => {
-    const generation = attachmentReadGeneration
-    for (let attempt = 0; attempt < MAX_ATTACHMENT_PREPARATION_ATTEMPTS; attempt += 1) {
-      const reservedFilenames = get().attachedFiles.map((attachment) => attachment.filename)
-      let attachedFiles: AttachedFile[] | undefined
-      try {
-        attachedFiles = await prepareLocalAttachments(file, reservedFilenames)
-      } catch {
-        return false
+    // A file still being read is not in attachedFiles yet: a new-build reload must wait for it (openchamber#420 review).
+    const release = holdReload()
+    try {
+      const generation = attachmentReadGeneration
+      for (let attempt = 0; attempt < MAX_ATTACHMENT_PREPARATION_ATTEMPTS; attempt += 1) {
+        const reservedFilenames = get().attachedFiles.map((attachment) => attachment.filename)
+        let attachedFiles: AttachedFile[] | undefined
+        try {
+          attachedFiles = await prepareLocalAttachments(file, reservedFilenames)
+        } catch {
+          return false
+        }
+        if (!attachedFiles || generation !== attachmentReadGeneration) return false
+
+        const generatedFilenames = attachedFiles.slice(1).map((attachment) => attachment.filename)
+        if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles)) continue
+
+        set((state) => ({ attachedFiles: [...state.attachedFiles, ...attachedFiles] }))
+        return true
       }
-      if (!attachedFiles || generation !== attachmentReadGeneration) return false
-
-      const generatedFilenames = attachedFiles.slice(1).map((attachment) => attachment.filename)
-      if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles)) continue
-
-      set((state) => ({ attachedFiles: [...state.attachedFiles, ...attachedFiles] }))
-      return true
+      return false
+    } finally {
+      release()
     }
-    return false
   },
 
   removeAttachedFile: (id) =>

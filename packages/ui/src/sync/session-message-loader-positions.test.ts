@@ -24,7 +24,8 @@ function gateway(size: number, cursors = true) {
     g.reads.push(input.$query_at !== undefined && input.$query_at >= 0 ? `at=${start}` : input.before ? "older" : "tail")
     const headers = new Headers(g.unindexed > 0 ? {} : { "x-smarty-at": String(start), "x-smarty-total": String(g.branch.length), "x-smarty-index-epoch": g.epoch })
     if (g.unindexed > 0) g.unindexed--
-    if (start > 0 && (cursors || input.$query_at === undefined)) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
+    // While its index builds, the gateway answers the tail from the cursor contract: x-next-cursor while older ones remain.
+    if (start > 0 && (cursors || input.$query_at === undefined || !headers.has("x-smarty-at"))) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
     const data = g.branch.slice(start, end).map(record)
     if (g.hold === "next" && input.$query_at !== undefined && input.$query_at >= 0) {
       await new Promise<void>((release) => { g.hold = { release } })
@@ -204,4 +205,54 @@ test("a same-epoch tail refresh does not cancel a window in flight", async () =>
     expect(s.shown()).toContain("m00401")
     expect(s.loader.getSnapshot(target).positions!.ranges.some((r) => r.start <= 400 && r.end >= 500)).toBe(true)
   } finally { s.done() }
+})
+
+// Pin 46 review round 2 (smarty-code#968 5897200984): the CURRENT gateway (no #822) sends no position headers and no cursor
+// when the newest page is the whole history, also when that history exactly fills the page (50 records; 30 on a
+// constrained surface). That page is complete (the cursor contract), and a full load (Export) returns at once with every
+// record once, instead of retrying a tail read until "made no progress".
+function cursorOnlyGateway() {
+  const g = { branch: [] as string[], reads: [] as string[] }
+  const client = fakeMessagesClient(async (input: { limit?: number; before?: string }) => {
+    const limit = input.limit ?? 50
+    if (!g.branch.length) g.branch = Array.from({ length: limit }, (_, i) => `m${String(i + 1).padStart(5, "0")}`) // Exactly one page.
+    const end = input.before ? g.branch.indexOf(JSON.parse(atob(input.before)).before) : g.branch.length
+    const start = Math.max(0, end - limit)
+    g.reads.push(`${input.before ? "older" : "tail"}:${limit}`)
+    const headers = new Headers({ "x-smarty-read-only": "1", "x-smarty-read-only-branch": "persisted" }) // No positions, ever.
+    if (start > 0) headers.set("x-next-cursor", btoa(JSON.stringify({ before: g.branch[start] })))
+    return { data: g.branch.slice(start, end).map(record), headers }
+  })
+  const childStores = new ChildStoreManager()
+  const loader = new SessionMessageLoader(childStores, { sdk: client, runtimeKey: "runtime-a" })
+  const shown = () => (childStores.getChild(target.directory)?.getState().message[target.sessionID] ?? []).map((m) => m.id)
+  return { g, loader, shown, done: () => { loader.dispose(); childStores.disposeAll() } }
+}
+
+test("a cursor-only gateway's newest page that exactly fills its limit, with no cursor, is the whole history; a full load finishes", async () => {
+  const s = cursorOnlyGateway()
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    const size = s.g.branch.length
+    expect([30, 50]).toContain(size) // The initial page size of this surface: exactly full.
+    expect(s.loader.getSnapshot(target).complete).toBe(true)
+    await s.loader.loadComplete(target)
+    expect(s.shown()).toEqual(s.g.branch)
+    expect(s.g.reads).toEqual([`tail:${size}`])
+  } finally { s.done() }
+})
+
+test("on a constrained (mobile) surface the same holds for an exactly full 30-record first page", async () => {
+  const had = "window" in globalThis
+  const w = globalThis as { window?: unknown }
+  if (!had) w.window = { __OPENCHAMBER_SURFACE__: "mobile", location: { search: "" } }
+  const s = cursorOnlyGateway()
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    expect(s.g.branch.length).toBe(had ? s.g.branch.length : 30)
+    expect(s.loader.getSnapshot(target).complete).toBe(true)
+    await s.loader.loadComplete(target)
+    expect(s.shown()).toEqual(s.g.branch)
+    expect(s.g.reads).toEqual([`tail:${s.g.branch.length}`])
+  } finally { s.done(); if (!had) delete w.window }
 })

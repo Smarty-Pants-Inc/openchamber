@@ -1,17 +1,19 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn, spawnSync } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { hashBytes, keyOf, publish, readFile, startHelper } from './safe-file.js';
+import { hashBytes, keyOf, publish, readFile, startHelper, tokenCount } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
 
+process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1'; // Tests run the helper as themselves; production uses the service (smartyfs#32).
 process.env.COEDIT_FS_TEST = '1'; // The helper honours a test pause or fault only with this (smartyfs#32).
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const cleanups = [];
@@ -75,7 +77,7 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } 
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
   /** The helper's private staging entries (displaced or staged revisions). */
-  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir) : []);
+  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')) : []);
   /** Saves with the helper paused at `point`, running `fn` inside that window. */
   const saveDuring = async (point, fn) => {
     hooks.helper = { pause: point, pauseMs: 3000 };
@@ -362,6 +364,16 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       }
     });
 
+    it('without the service socket, the helper is not run as the account it serves unless explicitly allowed (smartyfs#32)', () => {
+      const saved = process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT;
+      delete process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT;
+      try {
+        expect(() => createDiskBridge({ root: '/a/p', file: '/a/p/f', doc: new Y.Doc(), recoveryDir: '/r', enabled: true })).toThrow(/coedit-fs service/);
+      } finally {
+        process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = saved;
+      }
+    });
+
     it('is off unless enabled', () => {
       const saved = process.env.OPENCHAMBER_COEDIT;
       delete process.env.OPENCHAMBER_COEDIT;
@@ -593,6 +605,139 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.disk()).toBe('Pa');
     });
 
+    it('#412 round 3: a second bridge recovers the orphan of a lost reply; the first still settles it as published, no replay', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      delete t.hooks.helper;
+      const second = t.open(); // Another bridge on the same file: its load recovers the orphan and disposes it.
+      await second.bridge.load();
+      expect(t.staged()).toEqual([]);
+      await t.bridge.sync(); // The first bridge settles its lost reply.
+      expect(t.bridge.state().conflict).toBe(null);
+      expect(t.text.toString()).toBe('Pa'); // Adopted, not replayed as PPa.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa');
+    });
+
+    it('smartyfs#32 pre-enable: after a server restart, the next load recovers a pending revision at once, late bytes included', async () => {
+      const t = await setup('log\n');
+      const writer = fs.openSync(t.file, 'a'); // An agent that keeps the old inode open across the restart.
+      // The "server" before the restart: a bridge in another process saves, then that process ends abruptly.
+      const script = path.join(t.home, 'server.mjs');
+      fs.writeFileSync(script, `
+        process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1';
+        const Y = await import(${JSON.stringify(import.meta.resolve('yjs'))});
+        const { createDiskBridge, TEXT } = await import(${JSON.stringify(path.join(import.meta.dirname, 'disk-bridge.js'))});
+        const doc = new Y.Doc();
+        const bridge = createDiskBridge({ root: ${JSON.stringify(t.root)}, file: ${JSON.stringify(t.file)}, doc, recoveryDir: ${JSON.stringify(t.recoveryDir)}, watch: () => ({ close() {} }), settleMs: 20, retryMs: 60000, enabled: true });
+        await bridge.load();
+        doc.getText(TEXT).insert(0, 'P');
+        console.log(JSON.stringify(await bridge.save()));
+        process.kill(process.pid, 'SIGKILL');
+      `);
+      const run = spawnSync(process.execPath, [script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 30_000 });
+      expect(run.signal).toBe('SIGKILL'); // It died, as a crashed or restarted server does.
+      expect(JSON.parse(run.stdout.trim())).toEqual({ ok: true }); // Published; its displaced revision stayed pending (the writer).
+      expect(t.staged()).toHaveLength(1);
+      await sleep(300);
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      // The restarted server's bridge: it holds no token, and must not wait 7 days.
+      const again = t.open();
+      await again.bridge.load();
+      expect(again.conflicts.map((c) => c.conflict)).toContain('raced'); // The helper's recovery, with its notice.
+      expect(again.text.toString()).toBe('Plog\n');
+      expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
+      expect(t.staged()).toEqual([]);
+      // Loading again does not keep it twice.
+      await again.bridge.close();
+      const third = t.open();
+      await third.bridge.load();
+      expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
+    });
+
+    it('#428 round 3: a list that cannot inspect a data entry never settles a lost reply; the token stays and the late bytes are collected', async () => {
+      const t = await setup('a');
+      const writer = fs.openSync(t.file, 'a'); // Keeps the displaced revision pending.
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root); // Only the helper connection is lost; this bridge (the origin) lives, holding its token.
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      const before = tokenCount();
+      t.hooks.helper = { fault: 'entryStat' }; // The published record reads fine; the data-entry pass fails.
+      await t.bridge.sync().catch(() => {});
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'unverified' }); // Not settled on a partial list.
+      expect(tokenCount()).toBe(before);
+      delete t.hooks.helper;
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      await t.bridge.sync(); // Reads work again: settled, and its revision enrolled with its token.
+      await expect.poll(() => t.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(t.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('alate\n');
+      expect(t.text.toString()).toBe('Pa'); // No replay.
+      await expect.poll(() => tokenCount(), { timeout: 5000 }).toBe(before - 1);
+    });
+
+    it('#428 round 3: an ack that reports pending data keeps the token, and the data is enrolled and collected', async () => {
+      const t = await setup('a');
+      const writer = fs.openSync(t.file, 'a');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root);
+      await saving;
+      delete t.hooks.helper;
+      const before = tokenCount();
+      // Hide the entry from this one settlement only: the ack then sees the data and says pending.
+      t.hooks.helper = { fault: 'entryHidden' };
+      await t.bridge.sync();
+      delete t.hooks.helper;
+      expect(tokenCount()).toBe(before); // Kept: ack said pending.
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      await expect.poll(() => t.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(t.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('alate\n');
+    });
+
+    it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {
+      const t = await setup('a\n');
+      const before = tokenCount();
+      fs.chmodSync(t.root, 0o777); // Every publish is refused by the helper (another account could move src/).
+      for (let i = 0; i < 5; i += 1) {
+        t.person((x) => x.insert(0, 'x'));
+        await t.bridge.save().catch(() => null);
+      }
+      expect(tokenCount()).toBe(before); // Definite refusals keep nothing.
+      fs.chmodSync(t.root, 0o755);
+      await t.bridge.sync();
+      const writer = fs.openSync(t.file, 'a');
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(tokenCount()).toBe(before + 1); // A pending revision keeps its token.
+      fs.closeSync(writer);
+      await t.bridge.sync(); // Its revision is collected: the token goes.
+      await expect.poll(() => t.staged(), { timeout: 5000 }).toEqual([]);
+      expect(tokenCount()).toBe(before);
+      // A lost reply settled with no retained data (the exchange never ran) keeps nothing either.
+      t.person((x) => x.insert(0, 'Q'));
+      t.hooks.helper = { pause: 'beforeExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.staged().length, { timeout: 3000 }).toBe(1);
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      delete t.hooks.helper;
+      await t.bridge.sync();
+      expect(t.bridge.state().conflict).toBe(null);
+      expect(tokenCount()).toBe(before);
+    });
+
     it('a lost helper is started again: an outside write after the kill reaches the room, and a save publishes (smartyfs#34 item 1)', async () => {
       const t = await setup('hello\n', { watch: true });
       killHelper(t.root);
@@ -652,6 +797,166 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(await t.bridge.save()).toEqual({ ok: true });
       delete t.hooks.helper;
       expect(t.disk()).toBe('Pa');
+    });
+  });
+
+  describe('smartyfs#37 items 3 and 5', () => {
+    it('a file with a 220-byte name saves: recovery names stay within NAME_MAX (item 3)', async () => {
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
+      cleanups.push(() => fs.rmSync(home, { recursive: true, force: true }));
+      const root = path.join(home, 'p');
+      fs.mkdirSync(root);
+      const file = path.join(root, `${'n'.repeat(217)}.md`);
+      fs.writeFileSync(file, 'a');
+      const doc = new Y.Doc();
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch: () => ({ close() {} }), settleMs: 5, enabled: true });
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      doc.getText(TEXT).insert(0, 'P');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+      const kept = fs.readdirSync(path.join(home, 'r')).filter((n) => n !== '.staging');
+      expect(kept).toHaveLength(2);
+      for (const n of kept) expect(Buffer.byteLength(n)).toBeLessThanOrEqual(255);
+    });
+
+    it('a helper that does not speak this protocol is refused before any request (item 5)', async () => {
+      const { root, privateDir } = fakeHelper(`require('readline').createInterface({ input: process.stdin }).on('line', (l) => { const r = JSON.parse(l); process.stdout.write(JSON.stringify({ id: r.id, ok: false, error: 'unknown op' }) + '\\n'); });`);
+      const helper = startHelper(root, privateDir);
+      await expect(helper.call({ op: 'read', path: 'x' })).rejects.toThrow(/protocol/);
+      await helper.close();
+      expect(alive(helper.pid)).toBe(false);
+    });
+  });
+
+  describe('recovery retention (smartyfs#37: 7 days, and always the newest 20 per file)', () => {
+    const DAY = 86_400_000;
+    /** A recovery copy of `key`'s file, written `ageDays` ago, named as keepForRecovery names it. */
+    const copy = (dir, key, ageDays, i, name = 'notes.md') => {
+      const stamp = new Date(Date.now() - ageDays * DAY - i * 1000).toISOString().replace(/[:.]/g, '-');
+      const p = path.join(dir, `${stamp}-${(0x10000000 + i).toString(16)}-${key}-${name}`);
+      fs.writeFileSync(p, `copy ${ageDays} ${i}`);
+      return path.basename(p);
+    };
+    const prepare = () => {
+      const t = { home: fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-'))) };
+      cleanups.push(() => fs.rmSync(t.home, { recursive: true, force: true }));
+      t.root = path.join(t.home, 'project');
+      fs.mkdirSync(path.join(t.root, 'src'), { recursive: true });
+      t.file = path.join(t.root, 'src', 'notes.md');
+      fs.writeFileSync(t.file, 'x');
+      t.recoveryDir = path.join(t.home, 'recovery');
+      fs.mkdirSync(t.recoveryDir, { mode: 0o700 });
+      t.key = keyOf(t.root, 'src/notes.md');
+      return t;
+    };
+    const open = (t, extra = {}) => {
+      const bridge = createDiskBridge({ root: t.root, file: t.file, doc: new Y.Doc(), recoveryDir: t.recoveryDir, hooks: {}, watch: () => ({ close() {} }), settleMs: 5, enabled: true, ...extra });
+      cleanups.unshift(() => void bridge.close());
+      return bridge;
+    };
+
+    it('at load: a copy older than 7 days beyond its file\'s newest 20 is deleted; the newest 20 stay, however old', async () => {
+      const t = prepare();
+      const old = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, t.key, 10, i)); // All 10 days old.
+      await open(t).load();
+      const left = fs.readdirSync(t.recoveryDir).filter((n) => n.includes(t.key));
+      expect(left.sort()).toEqual(old.slice(0, 20).sort()); // i = 0..19 are the newest.
+    });
+
+    it('at load: a copy younger than 7 days stays even beyond the newest 20; other files\' copies and other names are untouched', async () => {
+      const t = prepare();
+      const recent = Array.from({ length: 22 }, (_, i) => copy(t.recoveryDir, t.key, 1, i));
+      const old = Array.from({ length: 3 }, (_, i) => copy(t.recoveryDir, t.key, 30, i));
+      const other = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, 'f'.repeat(16), 30, i));
+      fs.writeFileSync(path.join(t.recoveryDir, 'my-notes.txt'), 'not a copy');
+      fs.symlinkSync(t.file, path.join(t.recoveryDir, `2000-01-01T00-00-00-000Z-deadbeef-${t.key}-link.md`));
+      await open(t).load();
+      const left = new Set(fs.readdirSync(t.recoveryDir));
+      for (const n of recent) expect(left.has(n)).toBe(true);
+      for (const n of old) expect(left.has(n)).toBe(false);
+      for (const n of other) expect(left.has(n)).toBe(true);
+      expect(left.has('my-notes.txt')).toBe(true);
+      expect(left.has(`2000-01-01T00-00-00-000Z-deadbeef-${t.key}-link.md`)).toBe(true);
+    });
+
+    it('daily: copies that age past the limits while the bridge runs are removed on its own', async () => {
+      const t = prepare();
+      const bridge = open(t, { pruneMs: 100 });
+      await bridge.load();
+      const old = Array.from({ length: 25 }, (_, i) => copy(t.recoveryDir, t.key, 10, i));
+      await expect.poll(() => fs.readdirSync(t.recoveryDir).filter((n) => n.includes(t.key)).length, { timeout: 3000 }).toBe(20);
+      expect(fs.existsSync(path.join(t.recoveryDir, old[24]))).toBe(false);
+    });
+
+    it('a save\'s recovery copies carry the file\'s key in their names', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      const key = keyOf(t.root, 'src/notes.md');
+      const names = fs.readdirSync(t.recoveryDir).filter((n) => n !== '.staging');
+      expect(names).toHaveLength(2);
+      for (const n of names) expect(n).toContain(`-${key}-`);
+    });
+  });
+
+  describe('the coedit-fs service (smartyfs#32: the helper as its own account, one per connection)', () => {
+    /** A stand-in for systemd's Accept=yes socket unit: each connection gets its own real helper on that socket. */
+    const service = async (args) => {
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-svc-')));
+      const staging = path.join(home, 'staging');
+      fs.mkdirSync(staging, { mode: 0o700 });
+      const sock = path.join(home, 'fs.sock');
+      const helpers = [];
+      const server = net.createServer((conn) => {
+        helpers.push(spawn(path.join(import.meta.dirname, 'fs-helper/target/release/coedit-fs'), ['--socket', staging, ...args], { stdio: [conn, conn, 'ignore'] }));
+        conn.destroy(); // As systemd does: only the helper holds the connection, so its exit closes it.
+      });
+      await new Promise((done) => server.listen(sock, done));
+      const saved = process.env.OPENCHAMBER_COEDIT_SOCKET;
+      process.env.OPENCHAMBER_COEDIT_SOCKET = sock;
+      cleanups.push(() => {
+        if (saved === undefined) delete process.env.OPENCHAMBER_COEDIT_SOCKET;
+        else process.env.OPENCHAMBER_COEDIT_SOCKET = saved;
+        for (const h of helpers) h.kill('SIGKILL');
+        server.close();
+        fs.rmSync(home, { recursive: true, force: true });
+      });
+      return { staging, helpers };
+    };
+
+    it('the bridge saves through the service: the root goes in the hello, staging lives in the service\'s own dir', async () => {
+      // --same-account only because a test cannot run as a second account; the real unit never passes it.
+      const { staging } = await service(['--same-account']);
+      const t = await setup('a\n');
+      t.person((x) => x.insert(0, 'P'));
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('Pa\n');
+      expect(fs.existsSync(t.privateDir)).toBe(false); // The bridge made no staging dir of its own.
+      expect(fs.readdirSync(staging).filter((n) => !n.endsWith('-lock'))).toEqual([]); // Only its per-file lock remains.
+    });
+
+    it('#412 round 2, finding 2: close says whether the service helper is quiescent: bye answered, or not within the bound', async () => {
+      const { staging } = await service(['--same-account']);
+      const t = await setup('a\n');
+      expect(await t.bridge.close()).toEqual({ quiescent: true });
+      // A helper busy past the bound: close does not claim it stopped.
+      const again = t.open({ closeMs: 50 });
+      await again.bridge.load();
+      again.text.insert(0, 'P');
+      t.hooks.helper = { pause: 'beforeExchange', pauseMs: 2500 };
+      const saving = again.bridge.save().catch(() => null);
+      // Wait until the helper is provably mid-save (its staged entry exists), however loaded the host.
+      await expect.poll(() => fs.readdirSync(staging).some((n) => n.endsWith('.staged')), { timeout: 10_000 }).toBe(true);
+      const closing = await Promise.race([again.bridge.close(), sleep(20_000).then(() => 'hung')]);
+      delete t.hooks.helper;
+      await saving;
+      expect(closing).toEqual({ quiescent: false });
+    }, 30_000);
+
+    it('a service helper that would serve its own account refuses, and the bridge fails closed', async () => {
+      await service([]);
+      await expect(setup('a\n')).rejects.toThrow(/coedit-fs/);
     });
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { create, type StoreApi } from "zustand"
 import type { SessionStatus } from "../session-status"
-import { optimisticStatuses } from "../optimistic-status"
+import { optimisticStatuses, sendingStatuses } from "../optimistic-status"
 
 import { INITIAL_STATE, type State } from "../types"
 import type { DirectoryStore } from "../child-store"
@@ -77,6 +77,18 @@ describe("applySessionStatusSnapshot", () => {
   })
 
   describe("authoritative mode (reconnect / escalated resync)", () => {
+    // smarty-code#827 (3.48 under load): a prompt's admission took 6-13 s; an idle snapshot read meanwhile made the
+    // page show the session idle while it was starting ("the agent finished first", turn-settled-locally).
+    test("does NOT lower the page's own send whose POST is still unanswered; once answered, it does", () => {
+      const sending: SessionStatus = { type: "busy" }
+      optimisticStatuses.add(sending); sendingStatuses.add(sending)
+      const store = createDirectoryStore({ session_status: { ses_a: sending }, message: { ses_a: streamingMessage() } })
+      expect(applySessionStatusSnapshot(store, {}, ["ses_a"], "authoritative")).toBe(false)
+      expect(store.getState().session_status.ses_a).toBe(sending)
+      sendingStatuses.delete(sending) // The POST was answered.
+      expect(applySessionStatusSnapshot(store, {}, ["ses_a"], "authoritative")).toBe(true)
+      expect(store.getState().session_status.ses_a?.type).toBe("idle")
+    })
     test("lowers a busy session to idle when the snapshot omits it", () => {
       const store = createDirectoryStore({
         session_status: { ses_a: BUSY },

@@ -1,5 +1,5 @@
 // smartyfs#32's acceptance, kept in CI at a short duration: stress.mjs exits 1 if any revision is lost.
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -20,4 +20,44 @@ describe.skipIf(!built)('co-edit stress (smartyfs#32 acceptance)', () => {
     expect(report.kills.server + report.kills.helper).toBeGreaterThan(3);
     expect(run.status).toBe(0);
   }, 120_000);
+
+  it('a SIGKILLed stress run leaves no writer, server or helper behind (smartyfs#37 item 4)', async () => {
+    const own = fs.mkdtempSync(path.join(dir, 'kill-'));
+    const run = spawn(process.execPath, [path.join(import.meta.dirname, 'stress.mjs'), '--seconds', '60', '--seed', '37', '--dir', own], { stdio: 'ignore' });
+    const startOf = (pid) => fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19];
+    const mine = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p) && Number(p) !== run.pid).filter((p) => {
+      try {
+        return fs.readFileSync(`/proc/${p}/cmdline`, 'utf8').includes(own) && !fs.readFileSync(`/proc/${p}/stat`, 'utf8').includes(') Z ');
+      } catch {
+        return false;
+      }
+    });
+    // Its descendants, each with its start time: a pid is signalled only while it is still that process.
+    const snapshot = new Map();
+    const remember = () => {
+      for (const pid of mine()) {
+        try {
+          snapshot.set(pid, startOf(pid));
+        } catch {
+          // Already gone.
+        }
+      }
+    };
+    try {
+      await expect.poll(() => { remember(); return mine().length; }, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
+      run.kill('SIGKILL');
+      await expect.poll(() => mine(), { timeout: 5000 }).toEqual([]);
+    } finally {
+      // A failure above leaves nothing behind (smartyfs#37 item 14): the run only while its handle is still live (never
+      // a reaped pid), and a descendant only while its pid still has the start time recorded for it (never a reused one).
+      if (run.exitCode === null && run.signalCode === null) run.kill('SIGKILL');
+      for (const [pid, start] of snapshot) {
+        try {
+          if (startOf(pid) === start) process.kill(Number(pid), 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  }, 30_000);
 });

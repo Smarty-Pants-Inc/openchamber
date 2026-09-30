@@ -236,6 +236,8 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   // the list row, so a page that opens the session from the list says "reloading", not View only.
   'herdrSuccessor',
   'ordinaryReloading',
+  // An unavailable Code-made session (smarty-code#957): the page keeps its composer, not the fleet View-only banner.
+  'ordinaryCodeMade',
 ];
 
 const sanitizeSessionListItem = (session) => {

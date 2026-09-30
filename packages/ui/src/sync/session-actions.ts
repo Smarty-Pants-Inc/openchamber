@@ -4,7 +4,7 @@
  */
 
 import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
-import { optimisticStatuses } from "./optimistic-status"
+import { optimisticStatuses, sendingStatuses } from "./optimistic-status"
 import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { isVoiceTurn } from "@/components/chat/message/voiceTurnData"
@@ -51,6 +51,7 @@ import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
 import { useNotificationStore } from "./notification-store"
 import { keepSavedState } from "./unsaved"
+import { isClientIdConflict } from "@/lib/sendRecovery"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -1845,7 +1846,7 @@ export async function unshareSession(sessionId: string): Promise<Session | null>
 let lastIdTimestamp = 0
 let idCounter = 0
 
-function ascendingId(prefix: string): string {
+export function ascendingId(prefix: string): string {
   const now = Date.now()
   if (now !== lastIdTimestamp) {
     lastIdTimestamp = now
@@ -1891,6 +1892,8 @@ export async function optimisticSend(input: {
   appendSubmissions?: () => void
   onOptimisticInsert?: () => void
   onMessageID?: (messageID: string) => void
+  /** smarty-code#827: send with this client message ID (a re-send of an unconfirmed text reuses its first send's). */
+  messageID?: string
   beforeOptimisticInsert?: () => void
   /** The actual API call — receives the optimistic messageID so the server can use the same ID */
   send: (messageID: string) => Promise<void>
@@ -1949,7 +1952,7 @@ export async function optimisticSend(input: {
     }
   }
 
-  const messageID = ascendingId("msg")
+  const messageID = input.messageID ?? ascendingId("msg")
   input.onMessageID?.(messageID)
   const textPartId = ascendingId("prt")
 
@@ -1992,6 +1995,7 @@ export async function optimisticSend(input: {
   const optimisticStatus = liveStatus && liveStatus.type !== "idle" ? undefined : { type: "busy" as const }
   if (optimisticStatus) {
     optimisticStatuses.add(optimisticStatus)
+    sendingStatuses.add(optimisticStatus)
     store.setState({
       session_status: {
         ...current.session_status,
@@ -2002,7 +2006,8 @@ export async function optimisticSend(input: {
 
   try {
     assertRuntimeUnchanged()
-    await input.send(messageID)
+    try { await input.send(messageID) }
+    finally { if (optimisticStatus) sendingStatuses.delete(optimisticStatus) }
   } catch (error) {
     const status = getErrorStatus(error)
     const ambiguousFailure = isAmbiguousSendFailure(error)
@@ -2037,6 +2042,16 @@ export async function optimisticSend(input: {
     }
     recordSendFailure(failureRecord)
     console.warn("[session-actions] prompt send rejected; rolling back optimistic message", failureRecord)
+
+    // A re-send refused as a client-ID reservation conflict (openchamber#375 review 4): the row is its first attempt's,
+    // pending or delivered, and the refusal is not the message's. Only this attempt's own status is undone.
+    if (isClientIdConflict(error instanceof Error ? error.message : undefined)) {
+      const state = store.getState()
+      if (optimisticStatus && state.session_status?.[input.sessionId] === optimisticStatus) {
+        store.setState({ session_status: { ...state.session_status, [input.sessionId]: { type: "idle" as const } } })
+      }
+      throw error
+    }
 
     // Rollback via optimistic infrastructure
     optimisticRemove({

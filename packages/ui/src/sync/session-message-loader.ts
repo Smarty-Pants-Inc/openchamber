@@ -92,6 +92,10 @@ type LoaderEntry = {
   replaceEpoch: number
   ordinaryRefresh: Promise<void> | null
   ordinaryDemand: number
+  /** smarty-code#827: the last view this page committed on this branch. A send revokes the accepted view (to refresh it),
+   * but the gateway accepts an earlier view of the same branch, so the next send need not wait for that refresh. A reset
+   * (a changed branch, a 409, a new runtime) clears it. */
+  lastOrdinaryView?: string
   /** Each missing prompt a reload from the start already tried to load: never reloaded for again. */
   repairedPrompts?: Set<string>
   /** Reads that saw the session leave View only but were stale (a live event during the read), smarty-code#497. */
@@ -240,6 +244,7 @@ export class SessionMessageLoader {
         ordinaryView: undefined,
         generation: entry.snapshot.generation + 1,
       }
+      entry.lastOrdinaryView = undefined
       entry.windowGeneration++ // A new connection: windows read over the old one commit nothing.
       entry.inflight = null
       entry.openUnanswered = false // A new connection (re-login, reconnect) may answer: the page's reloads may try again.
@@ -542,6 +547,16 @@ export class SessionMessageLoader {
     return entry?.snapshot.status === "ready" || refreshing ? entry?.snapshot.ordinaryView : undefined
   }
 
+  /** smarty-code#827: the view a send may carry now: the accepted one, else the last one committed on this branch (a
+   * send's own revocation keeps it; a reset clears it). Undefined only when the page has no view of this branch. */
+  getSendableOrdinaryView(target: SessionMessageTarget, runtimeKey: string): string | undefined {
+    const accepted = this.getAcceptedOrdinaryView(target, runtimeKey)
+    if (accepted) return accepted
+    const normalized = this.normalizeTarget(target)
+    if (!normalized || this.disposed || runtimeKey !== this.runtimeKey) return undefined
+    return this.entries.get(this.keyFor(normalized))?.lastOrdinaryView
+  }
+
   /** True once this session's history was served as an ordinary (view-guarded) transcript. */
   isOrdinary(target: SessionMessageTarget, runtimeKey: string): boolean {
     const normalized = this.normalizeTarget(target)
@@ -562,6 +577,7 @@ export class SessionMessageLoader {
       status: entry.snapshot.resolved ? "ready" : "idle",
     }
     if (resetHistory) {
+      entry.lastOrdinaryView = undefined
       patch.status = "idle"
       patch.resolved = false
       patch.cursor = undefined
@@ -579,14 +595,29 @@ export class SessionMessageLoader {
 
   invalidateOrdinaryViews(): void {
     this.ordinaryEpoch += 1
-    for (const entry of this.entries.values()) this.invalidateOrdinaryView(entry.target, true)
+    for (const entry of this.entries.values()) {
+      // smarty-code#827: a lost or switched event stream is no changed branch. History is re-read from the start, but
+      // the last view stays sendable: under load the stream stalls and reconnects, and a send then had no view and sat
+      // for the whole 5 s re-read before being refused. The gateway still refuses a view its branch has moved past
+      // (409, re-read and resent once).
+      const last = entry.lastOrdinaryView
+      this.invalidateOrdinaryView(entry.target, true)
+      entry.lastOrdinaryView = last
+    }
   }
 
   refreshOrdinaryView(target: SessionMessageTarget, resetHistory = false): Promise<void> {
     const normalized = this.normalizeTarget(target)
     const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
     if (!normalized || !entry?.ordinary || this.disposed) return Promise.resolve()
-    if (resetHistory) this.invalidateOrdinaryView(normalized, true)
+    if (resetHistory) {
+      // smarty-code#827: an event reset (a removed row: while an agent works the gateway removes its live rows all the
+      // time, or an error) re-reads history from the start but is no changed branch: the last view stays sendable, so a
+      // steer does not sit through that re-read. The gateway refuses a view its branch moved past (409, re-read, resent).
+      const last = entry.lastOrdinaryView
+      this.invalidateOrdinaryView(normalized, true)
+      entry.lastOrdinaryView = last
+    }
     entry.ordinaryDemand += 1
     if (entry.ordinaryRefresh) return entry.ordinaryRefresh
     const sdkEpoch = this.sdkEpoch
@@ -679,6 +710,7 @@ export class SessionMessageLoader {
     entry.optimistic.clear()
     // Keep the last known read-only marker until a fresh newest page replaces it.
     entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
+    entry.lastOrdinaryView = undefined
     entry.windowGeneration++
     entry.resetHistory = entry.ordinary
     clearSessionPrefetch(normalized.directory, [normalized.sessionID], this.runtimeKey)
@@ -767,6 +799,7 @@ export class SessionMessageLoader {
 
   private patchEntry(entry: LoaderEntry, patch: Partial<SessionMessageLoadState>): void {
     entry.snapshot = { ...entry.snapshot, ...patch }
+    if (typeof patch.ordinaryView === "string") entry.lastOrdinaryView = patch.ordinaryView
     this.notify(entry)
   }
 
@@ -865,7 +898,7 @@ export class SessionMessageLoader {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
     const firstLimit = entry.ordinary ? getInitialPageSize()
       : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
-    const firstPage = await this.fetchPage(target, firstLimit, undefined, "initial-page", performance)
+    const firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
     if (!isCurrent()) return
     const deferFirstCommit = !firstPage.complete && !hasUserMessage(firstPage.session)
     let committed = deferFirstCommit
@@ -876,7 +909,7 @@ export class SessionMessageLoader {
     if (deferFirstCommit) {
       for (const limit of getInitialExpansionLimits()) {
         if (limit <= firstLimit || !isCurrent()) continue
-        const expandedPage = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+        const expandedPage = await this.fetchOpenPage(target, limit, isCurrent, performance)
         if (!isCurrent()) return
         acceptedPage = expandedPage
         const boundaryFound = hasUserMessage(expandedPage.session)
@@ -903,6 +936,19 @@ export class SessionMessageLoader {
       updatedAt: Date.now(),
     })
     this.persistCoverage(target, entry.snapshot)
+  }
+
+  /**
+   * An open's page, read again while its ordinary view was read across a stream disconnect (at most twice). Such a view is
+   * never accepted, and a read replays nothing: the phone's stream reconnecting during its first read showed "Session
+   * could not be loaded" for 3-6 s, then the page recovered by itself (smarty-code#963).
+   */
+  private async fetchOpenPage(target: SessionMessageTarget, limit: number, isCurrent: () => boolean,
+    performance?: LoadPerformanceDetails): Promise<FetchedPage> {
+    for (let attempt = 0; ; attempt++) {
+      const page = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || attempt >= 2 || !isCurrent()) return page
+    }
   }
 
   private async fetchPage(
@@ -976,10 +1022,12 @@ export class SessionMessageLoader {
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
       const position = readPositionHeaders(result.response?.headers)
-      // A range read (at=) carries no cursor: its page is complete when it starts at position 0, or, while the gateway
-      // still builds the index (no positions yet), when it came back short (smarty-code#583).
-      const rangeRead = at !== undefined || (before === undefined && limit <= 500)
-      const complete = position.at !== undefined ? position.at === 0 : rangeRead && !cursor ? records.length < limit : !cursor
+      // A range read carries no cursor: with positions its page is complete when it starts at position 0 (smarty-code#583).
+      // Without positions the cursor contract holds: complete when there is no cursor. That is a cursor-only gateway, or
+      // a position gateway whose index still builds (it then sends x-next-cursor while older records remain). A newest
+      // page that exactly fills its limit with no cursor is the whole history (pin 46 review 5897200984).
+      const rangeRead = at !== undefined || position.at !== undefined
+      const complete = position.at !== undefined ? position.at === 0 : !cursor
       return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
@@ -1012,6 +1060,9 @@ export class SessionMessageLoader {
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
       throw new Error("Ordinary history view was disconnected before materialization")
     }
+    // A session shown live whose Pi then ended is read from its journal: read-only, with no view. It leaves ordinary mode
+    // here, not "could not be loaded" (smarty-code#963 residual, 3.54). A live page without a view is still refused.
+    if (mode !== "prepend" && page.readOnly && !page.ordinaryView) entry.ordinary = false
     entry.ordinary ||= page.ordinaryView !== undefined
     if (mode !== "prepend" && entry.ordinary && !page.ordinaryView) {
       throw new Error("Ordinary history response has no accepted view")

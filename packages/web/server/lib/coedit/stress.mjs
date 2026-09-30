@@ -10,7 +10,7 @@
 // Writers take turns among themselves (a mkdir lock) but never with the bridge, as agents, git and tools do. Each turn
 // reads the file, adds one token line and writes it back in place (O_TRUNC), by tmp + rename, or by O_APPEND.
 // The "server" is a child process running the bridge and a person typing and saving; it is SIGKILLed and restarted.
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -21,11 +21,14 @@ const arg = (name, fallback) => {
   return i > 0 ? process.argv[i + 1] : fallback;
 };
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const service = Boolean(process.env.OPENCHAMBER_COEDIT_SOCKET);
+/** SIGKILLs `pid`; whether it was delivered. */
 const kill = (pid) => {
   try {
     process.kill(pid, 'SIGKILL');
+    return true;
   } catch {
-    // Already gone.
+    return false; // Already gone.
   }
 };
 const role = arg('role', 'main');
@@ -73,13 +76,21 @@ async function writer(id) {
 
 async function server(id) {
   process.env.OPENCHAMBER_COEDIT = '1';
+  // With the service (OPENCHAMBER_COEDIT_SOCKET) the helper runs as its own account; otherwise as this one (tests).
+  if (!process.env.OPENCHAMBER_COEDIT_SOCKET) process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1';
   const { createDiskBridge, TEXT } = await import('./disk-bridge.js');
   const doc = new Y.Doc();
   const bridge = createDiskBridge({
     root: path.join(home, 'project'), file: file(), doc, recoveryDir: path.join(home, 'recovery'), settleMs: 20, debounceMs: 10, retryMs: 100,
     onConflict: (c) => log('conflicts', `${id} ${c.conflict}`),
   });
-  await bridge.load();
+  try {
+    await bridge.load();
+  } catch (error) {
+    log('load-failed', `${id} ${String(error?.message ?? error)}`); // Counted: a run where bridges cannot load fails.
+    process.exit(3);
+  }
+  log('loaded', String(id));
   for (let n = 0; ; n += 1) {
     const token = `R${id}-${n}`;
     doc.getText(TEXT).insert(0, `${token}\n`);
@@ -106,7 +117,24 @@ async function main() {
   fs.mkdirSync(path.join(dir, 'recovery'), { mode: 0o700 });
   fs.chmodSync(path.join(dir, 'project'), 0o755);
   fs.writeFileSync(path.join(dir, 'project', 'notes.md'), 'start\n');
-  const child = (...args) => spawn(process.execPath, [import.meta.filename, '--home', dir, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+  // Through the service, the helper's account needs the real grants (DOCUMENTATION.md, Setup): search on this scratch
+  // dir (the ancestors of --dir must grant it already), and rwX with defaults on the project.
+  if (service) {
+    const account = process.env.OPENCHAMBER_COEDIT_TEST_ACCOUNT;
+    if (!account) throw new Error('service mode needs OPENCHAMBER_COEDIT_TEST_ACCOUNT (the helper\'s account) for its grants');
+    execFileSync('setfacl', ['-m', `u:${account}:x`, dir]);
+    execFileSync('setfacl', ['-R', '-m', `u:${account}:rwX`, '-m', `d:u:${account}:rwX`, path.join(dir, 'project')]);
+    execFileSync('setfacl', ['-m', `u:${account}:rwx`, path.join(dir, 'recovery')]); // It delivers recovered orphans there (#428).
+  }
+  // stdin is a pipe from this process: when it dies, even by SIGKILL, each child sees EOF and exits (#37 item 4).
+  const children = [];
+  const child = (...args) => {
+    const err = fs.openSync(path.join(dir, 'logs', `stderr-${args.join('-')}`), 'a'); // Kept, not discarded.
+    const c = spawn(process.execPath, [import.meta.filename, '--home', dir, ...args], { stdio: ['pipe', 'ignore', err] });
+    fs.closeSync(err);
+    children.push(c);
+    return c;
+  };
   const writers = [0, 1, 2].map((id) => child('--role', 'writer', '--id', String(id)));
   let servers = 0;
   let serverProc = child('--role', 'server', '--id', String(servers));
@@ -115,8 +143,10 @@ async function main() {
     fs.writeFileSync(path.join(dir, 'stop'), '');
     for (const w of writers) kill(w.pid);
     kill(serverProc.pid);
+    if (last) kill(last.pid);
     for (const pid of helperPids()) kill(pid);
   };
+  let last = null;
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => { teardown(); process.exit(1); });
   let kills = { server: 0, helper: 0 };
   const helperPids = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p)).filter((p) => {
@@ -130,12 +160,14 @@ async function main() {
   const end = Date.now() + seconds * 1000;
   while (Date.now() < end) {
     await sleep(1000 + random() * 2000);
-    if (random() < 0.6) {
-      for (const pid of helperPids()) kill(pid);
-      kills.helper += 1;
+    // Through the service (OPENCHAMBER_COEDIT_SOCKET) the helpers run as another account: this run cannot kill them,
+    // so it kills only whole bridges. A helper kill counts only when a helper process was actually killed.
+    if (!service && random() < 0.6) {
+      const pids = helperPids().filter((pid) => kill(pid));
+      if (pids.length) kills.helper += 1;
     } else {
-      serverProc.kill('SIGKILL');
-      kills.server += 1;
+      // Counted only when a live bridge was killed.
+      if (serverProc.exitCode === null && serverProc.signalCode === null && kill(serverProc.pid)) kills.server += 1;
       await sleep(50);
       servers += 1;
       serverProc = child('--role', 'server', '--id', String(servers));
@@ -147,7 +179,7 @@ async function main() {
   await sleep(300);
   // A last server finishes whatever the kills interrupted (its load keeps private entries in recovery).
   servers += 1;
-  const last = child('--role', 'server', '--id', String(servers));
+  last = child('--role', 'server', '--id', String(servers));
   await sleep(3000);
   last.kill('SIGKILL');
   for (const pid of helperPids()) kill(pid);
@@ -158,7 +190,10 @@ async function main() {
   const recovered = fs.readdirSync(path.join(dir, 'recovery'), { withFileTypes: true }).filter((e) => e.isFile());
   const tokens = (texts) => new Set(texts.flatMap((text) => text.split('\n')));
   const disk = fs.readFileSync(path.join(dir, 'project', 'notes.md'), 'utf8');
-  const privateDir = everything(path.join(dir, 'recovery', '.staging'));
+  // Through the service the private directory is another account's and cannot be read: a token only there counts as
+  // lost (a conservative oracle), and the report says so.
+  const privateDirRead = !service && fs.existsSync(path.join(dir, 'recovery', '.staging'));
+  const privateDir = privateDirRead ? everything(path.join(dir, 'recovery', '.staging')).filter((t) => t !== '') : [];
   const read2 = (e) => fs.readFileSync(path.join(dir, 'recovery', e.name), 'utf8');
   const found = tokens([disk, ...privateDir, ...recovered.map(read2)]);
   const withoutOurs = tokens([disk, ...privateDir, ...recovered.filter((e) => !e.name.includes('-ours-')).map(read2)]);
@@ -170,13 +205,26 @@ async function main() {
   const conflicts = {};
   for (const line of read('conflicts')) conflicts[line.split(' ')[1]] = (conflicts[line.split(' ')[1]] ?? 0) + 1;
   const report = {
-    seconds, seed, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
+    seconds, seed, service, privateDirRead, dir, writes: written.length, saves: saved.length, attempts: read('results').length, servers: servers + 1, kills, conflicts,
     lostWrites: lostWrites.length, lostSaves: lostSaves.length, onlyInOurCopy: onlyInOurCopy.length, examples: [...lostWrites, ...lostSaves].slice(0, 10),
   };
+  // A run proves nothing unless bridges loaded, saves were published and (when asked) crashes happened.
+  const failures = [];
+  if (lostWrites.length || lostSaves.length) failures.push('lost revisions');
+  if (saved.length === 0) failures.push('no save was published');
+  if (read('loaded').length === 0) failures.push('no bridge loaded');
+  if (seconds >= 10 && kills.server + kills.helper === 0) failures.push('no crash was injected');
+  Object.assign(report, { loads: read('loaded').length, loadFailures: read('load-failed').length, failures });
   console.log(JSON.stringify(report, null, 2));
-  process.exitCode = lostWrites.length || lostSaves.length ? 1 : 0;
+  for (const c of children) c.stdin.end(); // Our open pipes would otherwise keep this process alive.
+  process.exitCode = failures.length ? 1 : 0;
 }
 
-if (role === 'writer') await writer(Number(arg('id', '0')));
+// A child ends with its parent: EOF on the stdin pipe (the helper, the server's child, ends on its own EOF).
+if (role !== 'main') process.stdin.on('end', () => process.exit(0)).resume();
+if (role === 'writer') {
+  await writer(Number(arg('id', '0')));
+  process.exit(0); // The open stdin pipe would keep it alive.
+}
 else if (role === 'server') await server(Number(arg('id', '0')));
 else await main();
