@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { Database } from 'bun:sqlite';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,7 +21,7 @@ const gate = () => {
 /** Private real auth/HTTP fixture. It never contacts OAuth or a provider. */
 export async function createSidebarOwnerFixture() {
   const directory = mkdtempSync(join(tmpdir(), 'sidebar-owner-'));
-  const database = new DatabaseSync(`${directory}/auth.sqlite`);
+  const database = new Database(`${directory}/auth.sqlite`);
   const nativeFetch = globalThis.fetch;
   const app = express();
   const server = app.listen(0, '127.0.0.1');
