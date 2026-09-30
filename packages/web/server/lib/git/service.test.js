@@ -96,7 +96,9 @@ const canRunGit = () => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    // Node retries ENOTEMPTY/EBUSY itself with these options: a git process still finishing a write into a temp
+    // repository's .git must not fail the test that owns it (smarty-code#996 item 4, run 36571361235).
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
