@@ -75,11 +75,6 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
       } catch (cause) {
         // Never over a newer applied result; the same check failing after its own result (refresh) still says so.
         if (cancelled || ticket < applied || getRuntimeKey() !== runtimeKey) return;
-        // smarty-code#966: a remembered project the ready catalog no longer admits answers 403 "Project is not
-        // configured". The server is reachable: say the project is gone (choose another), never "Cannot reach the server".
-        if ((cause as { status?: number } | undefined)?.status === 403 && catalogStatus === 'ready' && !admitted) {
-          applied = ticket; setCapability({ runtimeKey, directory, mode: 'notAdmitted', operations: [] }); return;
-        }
         // The draft's own '+ New' tree: the gateway admits it a moment after it is made and refuses until then
         // (smarty-code#629). Check again shortly instead of saying the server is unreachable; only then say so.
         if (directory === draft.bootstrapPendingDirectory && retries < NEW_TREE_RETRY_MS.length) {
@@ -87,6 +82,12 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
           return;
         }
         applied = ticket;
+        // smarty-code#966: a remembered project the ready catalog no longer admits answers 403 "Project is not
+        // configured" (after the new-tree rechecks above, which a just-made tree takes first: openchamber#441 r1). The
+        // server is reachable: say the project is gone (choose another), never "Cannot reach the server".
+        if ((cause as { status?: number } | undefined)?.status === 403 && catalogStatus === 'ready' && !admitted) {
+          setCapability({ runtimeKey, directory, mode: 'notAdmitted', operations: [] }); return;
+        }
         setCapability({ runtimeKey, directory, mode: 'unavailable', operations: [] });
       }
     };

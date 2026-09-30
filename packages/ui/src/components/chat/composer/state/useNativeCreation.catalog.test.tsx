@@ -206,3 +206,30 @@ test('a remembered project the ready catalog does not admit says so, not "Cannot
     await withDraft('/old/candidate/project', () => false, async (read) => { await settle(); expect(read().mode).toBe('unavailable'); });
   } finally { failStatus = undefined; }
 });
+
+// openchamber#441 review 1: a just-made '+ New' tree refused with an actual 403 (not yet admitted) keeps its rechecks
+// first, and is not "no longer available" while they run.
+test('a just-made tree refused with 403 is rechecked, not reported gone; only after the rechecks is it gone', async () => {
+  let admitted = false;
+  const retries = holdRetries();
+  const tree = '/worktrees/repo/brisk-heron';
+  failStatus = 403;
+  try {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    await withDraft(tree, () => admitted, async (read) => {
+      await settle();
+      expect([read().mode, read().checks]).toEqual(['loading', 1]); // A recheck is pending, not 'notAdmitted'.
+      admitted = true;
+      await retries.fire(); await settle();
+      expect([read().mode, read().checks]).toEqual(['ordinary', 2]);
+    }, { bootstrapPendingDirectory: tree });
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    NEW_TREE_RETRY_MS.splice(2);
+    await withDraft(tree, () => false, async (read) => {
+      await settle();
+      for (let i = 0; i < 2; i++) { await retries.fire(); await settle(); }
+      expect([read().mode, read().checks]).toEqual(['notAdmitted', 3]); // Never admitted after its rechecks.
+    }, { bootstrapPendingDirectory: tree });
+  } finally { failStatus = undefined; retries.restore(); }
+});

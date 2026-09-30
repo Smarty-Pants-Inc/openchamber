@@ -1425,6 +1425,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
+        // smarty-code#966: the draft's project is no longer admitted: no Send by button or keyboard; the text stays, and the
+        // notice says to choose another project (openchamber#441 r1).
+        if (newSessionDraftOpen && nativeCreation.mode === 'notAdmitted') return;
         // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
         const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
         if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
