@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { strToU8, zipSync } from "fflate"
 import { useInputStore } from "./input-store"
+import { reloadHeld, reloadIfNewBuild } from "@/lib/newBuildReload"
 
 class MockFileReader {
   result: string | ArrayBuffer | null = null
@@ -61,6 +62,34 @@ describe("input-store attachments", () => {
       activeEditorFile: null,
     })
     useInputStore.getState().setAttachedFiles([])
+  })
+
+  // openchamber#420 review 1: a new-build reload timer that expires while a chosen file is still being read (before it
+  // shows in attachedFiles) must not reload and lose it. Preparation holds reloads until it publishes or fails.
+  testWithMockFileReader("a file still being prepared holds the new-build reload; after it is attached, attachedFiles holds it", async () => {
+    const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+    await waitForReaderCount(1)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(reloadHeld()).toBe(true)
+    let reloaded = 0
+    const index = '<script type="module" src="/assets/main-NEW.js"></script>'
+    expect(await reloadIfNewBuild({ running: () => "/assets/main-OLD.js", fetchIndex: async () => index,
+      busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0, reload: () => { reloaded += 1 },
+      jitterMs: () => 30_000, sleep: async () => undefined })).toBe(false)
+    expect(reloaded).toBe(0)
+    resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
+    expect(await addPromise).toBe(true)
+    expect(reloadHeld()).toBe(false) // Released; the attached file now holds reloads through attachedFiles.
+    expect(useInputStore.getState().attachedFiles).toHaveLength(1)
+  })
+
+  testWithMockFileReader("counterexample: a preparation that fails releases its hold", async () => {
+    const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+    await waitForReaderCount(1)
+    expect(reloadHeld()).toBe(true)
+    rejectReader(pendingReaders[0])
+    expect(await addPromise).toBe(false)
+    expect(reloadHeld()).toBe(false)
   })
 
   testWithMockFileReader("does not attach a local file that finishes reading after attachments are cleared", async () => {
