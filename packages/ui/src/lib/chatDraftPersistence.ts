@@ -1,5 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
+import { adoptLegacy, hasUnsaved, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -40,6 +41,11 @@ let ephemeralOnly = false;
 
 // One backing envelope owns all drafts, so a failed write affects every mounted reader.
 export const isChatDraftEphemeral = (): boolean => ephemeralOnly;
+const setEphemeral = (value: boolean): void => {
+  if (ephemeralOnly === value) return;
+  ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
+};
+
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
   return () => persistenceListeners.delete(listener);
@@ -60,8 +66,29 @@ export const createChatDraftIdentity = (
   return identity;
 };
 
-export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string =>
-  JSON.stringify([identity.runtimeKey, identity.directory, identity.sessionId]);
+export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => JSON.stringify(identity.sessionId === null
+  ? [identity.runtimeKey, identity.directory, null, tabId()]
+  : [identity.runtimeKey, identity.directory, identity.sessionId]);
+
+/** The pre-#461 shared New session draft of a project (one slot for all tabs), if it is still stored. */
+const legacyKeyOf = (identity: ChatDraftIdentity) => JSON.stringify([identity.runtimeKey, identity.directory, null]);
+/** A durable save or clear of this tab's own draft supersedes the shared one: it goes (openchamber#433 r5 P1 3). */
+const finishLegacy = (identity: ChatDraftIdentity): void => {
+  const key = legacyKeyOf(identity), envelope = readEnvelope();
+  if (!(key in envelope.drafts)) return;
+  const drafts = { ...envelope.drafts }; delete drafts[key]; writeEnvelope({ version: 2, drafts });
+};
+/** A New session draft is this tab's own slot (chatDraftTabs.ts, #461); a session's draft stays in the envelope. */
+const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
+  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)]);
+  // The shared entry goes only once this tab's copy is durable; a refused copy is reported, and a later durable
+  // save or clear of this tab's draft finishes the migration (writeChatDraft).
+  if (adopted && !adopted.stored) setEphemeral(true);
+  else if (adopted) finishLegacy(identity);
+  return readSlot(identity.runtimeKey, identity.directory);
+};
+const savedDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => identity.sessionId === null
+  ? tabDraft(identity) : readEnvelope().drafts[getChatDraftIdentityKey(identity)];
 
 /** The draft lifecycle claims a shared slot before a new generation can edit it. */
 export const claimChatDraftOwnership = (identity: ChatDraftIdentity | null): void => {
@@ -112,16 +139,13 @@ const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
   cachedEnvelope = envelope;
   countSyncPersistenceSerialization(serialized);
   const stored = storage.setItem(STORAGE_KEY, serialized);
-  if (ephemeralOnly !== !stored) {
-    ephemeralOnly = !stored;
-    persistenceListeners.forEach(listener => listener());
-  }
+  setEphemeral(!stored || hasUnsaved()); // A tab draft's owed write keeps the warning on (#433 r7).
   return stored;
 };
 
 export const readChatDraft = (identity: ChatDraftIdentity | null): ChatDraftSnapshot => {
   if (!identity) return { text: '', confirmedMentions: new Set() };
-  const persisted = readEnvelope().drafts[getChatDraftIdentityKey(identity)];
+  const persisted = savedDraft(identity);
   return persisted
     ? { text: persisted.text, confirmedMentions: new Set(persisted.confirmedMentions) }
     : { text: '', confirmedMentions: new Set() };
@@ -136,6 +160,13 @@ export const writeChatDraft = (
   since?: number,
 ): boolean | undefined => {
   if (!identity || !ownsChatDraft(identity)) return;
+  if (identity.sessionId === null) {
+    const stored = writeTabDraft(identity.runtimeKey, identity.directory, savedDraft(identity), text, confirmedMentions, since, ephemeralOnly);
+    // The warning stays on while any refused write of this tab (another project's clear included) is still owed.
+    if (stored !== undefined) setEphemeral(!stored || hasUnsaved());
+    if (stored) finishLegacy(identity);
+    return stored;
+  }
   const envelope = readEnvelope();
   const key = getChatDraftIdentityKey(identity);
   const mentions = Array.from(new Set(confirmedMentions));
@@ -158,7 +189,7 @@ export const writeChatDraft = (
 
 /** When the saved draft's current text was set (older entries: when it was last saved); undefined when none is saved. */
 export const readChatDraftSince = (identity: ChatDraftIdentity | null): number | undefined => {
-  const persisted = identity ? readEnvelope().drafts[getChatDraftIdentityKey(identity)] : undefined;
+  const persisted = identity ? savedDraft(identity) : undefined;
   return persisted?.text ? persisted.since ?? persisted.touchedAt : undefined;
 };
 
