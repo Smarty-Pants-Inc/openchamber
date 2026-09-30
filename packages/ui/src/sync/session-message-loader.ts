@@ -196,8 +196,9 @@ const assertSdkSuccess = (result: {
     serverMessage: gatewayRecoveryMessage(result.error) ?? undefined })
 }
 
-/** A read the loader itself gave up: a newer read replaces it (its view was read across a stream reconnect, or its
- * owner cancelled it). Not a failure, so never reported as a client error (smarty-code#1058). */
+/** A read the loader itself gave up: its view was read across a stream reconnect, or its owner cancelled it. When a newer
+ * read took over, the load is stale and not reported; when the load is still current it failed for the person (the open
+ * used up its replacement reads): reported as `SupersededReadError (superseded-exhausted)` (smarty-code#1058 r1). */
 export class SupersededReadError extends Error {
   override name = "SupersededReadError"
 }
@@ -871,9 +872,11 @@ export class SessionMessageLoader {
         const failure = error instanceof Error ? error : new Error(formatSdkError(error))
         this.patchEntry(entry, { status: "error", loadingKind: null, error: failure })
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536), with the error's name
-        // and HTTP status; an aborted or superseded read is not a failure (smarty-code#1058).
-        const report = failure instanceof SupersededReadError ? null : failureReport(failure)
+        // and HTTP status; an aborted read is not a failure (smarty-code#1058). A superseded read that is still current here
+        // had no successor: the open gave up, so it is reported, with that reason (smarty-code#1058 r1).
+        const report = failureReport(failure)
         if (!report) return
+        if (failure instanceof SupersededReadError) report.message += " (superseded-exhausted)"
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
         reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, sessionID: target.sessionID, runtimeKey, operationId,

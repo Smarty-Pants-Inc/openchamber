@@ -23,18 +23,56 @@ test('an aborted history read is not reported', async () => {
   expect(await reports()).toEqual([]);
 });
 
-test('a read superseded by a stream reconnect (its view is stale) is not reported', async () => {
+const staleView = () => Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'b'.repeat(64)}` } });
+
+test('an open whose every read is overtaken by a stream reconnect fails for the person and is reported (r1)', async () => {
   fixture = nativeDraftFixture();
   const loader = fixture.loader;
-  // Every read is overtaken: the stream reconnects while it is out, so its view belongs to the old stream.
+  let reads = 0;
+  // Every read is overtaken: the stream reconnects while it is out, so its view belongs to the old stream. No newer
+  // read takes over, so the open uses up its replacement reads and the page shows "Session could not be loaded".
+  fixture.handlers.history = async () => { reads++; loader.invalidateOrdinaryViews(); return staleView(); };
+  await loader.ensure(target, { reason: 'navigation' });
+  await sleep(50);
+  expect(reads).toBe(3);
+  expect(loader.getSnapshot(target).status).toBe('error');
+  expect((await reports()).map(({ kind, message, status, sessionID }) => ({ kind, message, status, sessionID })))
+    .toEqual([{ kind: 'session-messages.initial', message: 'SupersededReadError (superseded-exhausted)', status: undefined,
+      sessionID: session.id }]);
+});
+
+test('a read overtaken once, then answered by its replacement read, is not reported', async () => {
+  fixture = nativeDraftFixture();
+  const loader = fixture.loader;
+  let reads = 0;
   fixture.handlers.history = async () => {
+    if (++reads > 1) return Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'c'.repeat(64)}` } });
     loader.invalidateOrdinaryViews();
-    return Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'b'.repeat(64)}` } });
+    return staleView();
   };
   await loader.ensure(target, { reason: 'navigation' });
   await sleep(50);
+  expect(loader.getSnapshot(target).status).toBe('ready');
   expect(await reports()).toEqual([]);
 });
+
+test('a read superseded by a newer open (a new generation) that succeeds is not reported', async () => {
+  fixture = nativeDraftFixture();
+  const loader = fixture.loader;
+  let reads = 0, newer: Promise<void> | undefined;
+  fixture.handlers.history = async () => {
+    if (++reads > 1) return Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'c'.repeat(64)}` } });
+    // The stream reconnects and the page opens the session again while the first read is out; that read then fails.
+    loader.invalidateOrdinaryViews();
+    newer = loader.ensure(target, { force: true, reason: 'navigation' });
+    throw new TypeError('Failed to fetch');
+  };
+  await loader.ensure(target, { reason: 'navigation' }).catch(() => undefined);
+  await newer;
+  await sleep(50);
+  expect(loader.getSnapshot(target).status).toBe('ready');
+  expect(await reports()).toEqual([]);
+}, 10_000);
 
 test('a 404 is reported with its status and the error name', async () => {
   fixture = nativeDraftFixture();
