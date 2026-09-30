@@ -1,4 +1,4 @@
-import { browserRequestAllowed } from '../security/browser-origin.js';
+import { applicationAuthority, browserRequestAllowed } from '../security/browser-origin.js';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import {
@@ -418,7 +418,13 @@ export function createTerminalRuntime({
         .catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
       return;
     }
-    if (uiAuthController.humanMode) { checkOrigin(); return; }
+    if (uiAuthController.humanMode) {
+      void applicationAuthority(req).then((allowed) => {
+        if (allowed) checkOrigin();
+        else rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+      }).catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
+      return;
+    }
     try {
       const result = uiAuthController.ensureSessionToken(req, null);
       if (!(result instanceof Promise)) {

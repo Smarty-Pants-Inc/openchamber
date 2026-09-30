@@ -70,6 +70,37 @@ retains its existing meaning; never accept a device bearer as a human identity.
 Human requests carrying a legacy bearer are explicitly refused, not silently
 reinterpreted through an ambient browser cookie.
 
+### Human WebSocket Host boundary
+
+Every human WebSocket ingress requires the request's own `Host` to pass
+`applicationAuthority` in `security/browser-origin.js`. An unbound hostname is
+refused with HTTP 403 and `Requests require an application host`, before session,
+Origin or parameter refusals, dev-port discovery, stream, upstream socket or native
+capability setup. This includes anonymous requests and malformed or missing queries.
+Forwarding headers never bind a Host.
+`BETTER_AUTH_URL` sets the OAuth issuer and is not an implicit Host binding.
+Launch configuration must also bind served aliases through the existing host
+configuration, for example
+`OPENCHAMBER_ALLOWED_HOSTS=code.smartypants.ai,smartypants.smartypants.ai`.
+Loopback names and IP addresses pass only this Host layer, not human authentication.
+
+All runtime ingress handlers apply this human-only Host check directly before their
+other gates. Terminal checks it before Origin, dev-tunnel before authentication and
+port discovery, realtime-proxy before authentication, and session voice before
+parameter validation. Event-stream, including global and directory paths, and
+dictation check it before `ensureSessionToken`. The central `requireUpgradeAuth`
+adapter keeps its independent Host check. Bound Hosts retain existing session,
+Origin and parameter refusals. Passwordless and UI-password gates are unchanged.
+The central adapter still requires the exact human issuer Origin, even for a
+served alias or loopback Host. No new Origin alias is granted by Host configuration.
+
+`human-host-upgrade.test.js` exercises all these raw WS paths with private real
+Better Auth sessions and inert local upstreams. It also verifies central admission,
+forwarding-header rejection, issuer-versus-Host separation, anonymous and malformed
+requests, zero setup and discovery effects, and asynchronous Host-guard refusals.
+This is local transport proof, not a signed-in browser, Google callback or
+deployed-service proof.
+
 ### Existing clients and rollback
 
 Human mode does not import existing passwords, passkeys or trusted-device labels
