@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptOrphan, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptOrphan, onPersistFailure, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -41,6 +41,12 @@ let ephemeralOnly = false;
 
 // One backing envelope owns all drafts, so a failed write affects every mounted reader.
 export const isChatDraftEphemeral = (): boolean => ephemeralOnly;
+const setEphemeral = (value: boolean): void => {
+  if (ephemeralOnly === value) return;
+  ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
+};
+// A save that waited for this tab's lock and then failed is reported like any refused save.
+onPersistFailure(() => setEphemeral(true));
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
   return () => persistenceListeners.delete(listener);
@@ -69,7 +75,10 @@ export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => 
 const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
   const legacyKey = JSON.stringify([identity.runtimeKey, identity.directory, null]);
   const legacy = readEnvelope().drafts[legacyKey];
-  if (adoptOrphan(identity.runtimeKey, identity.directory, legacy) === 'legacy') {
+  const adopted = adoptOrphan(identity.runtimeKey, identity.directory, legacy);
+  // The old shared entry goes only once its copy is stored durably (openchamber#433 r2 P1 4); a refused copy is reported.
+  if (adopted && !adopted.stored) setEphemeral(true);
+  else if (adopted && adopted.from === 'legacy') {
     const drafts = { ...readEnvelope().drafts }; delete drafts[legacyKey]; writeEnvelope({ version: 2, drafts });
   }
   return readSlot(identity.runtimeKey, identity.directory);
@@ -152,7 +161,7 @@ export const writeChatDraft = (
   if (!identity || !ownsChatDraft(identity)) return;
   if (identity.sessionId === null) {
     const stored = writeTabDraft(identity.runtimeKey, identity.directory, savedDraft(identity), text, confirmedMentions, since, ephemeralOnly);
-    if (stored !== undefined && ephemeralOnly !== !stored) { ephemeralOnly = !stored; persistenceListeners.forEach(listener => listener()); }
+    if (stored !== undefined) setEphemeral(!stored);
     return stored;
   }
   const envelope = readEnvelope();

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+import './durableStorage.testing';
 
 import {
   clearChatDraft,
