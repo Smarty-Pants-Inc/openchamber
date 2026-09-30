@@ -28,3 +28,14 @@ test('counterexamples: another text, an earlier message of the same text, and no
   const c = user('msg_c', { optimistic: true, created: 0 });
   expect(shown([c], { msg_c: text('msg_c', 'alone') })).toEqual(['msg_c']);
 });
+
+test('two identical Sends in a row: an earlier Send\'s bound record never hides the next one; one native entry replaces one bubble', () => {
+  // The first 'yes' is bound (its record is under its client ID); the second is still optimistic, its entry not shown yet.
+  const first = user('msg_0001yes', { created: 0 }), second = user('msg_0002yes', { optimistic: true, created: 2_000 });
+  const parts = { msg_0001yes: text('msg_0001yes', 'yes'), msg_0002yes: text('msg_0002yes', 'yes') };
+  expect(shown([first, second], parts)).toEqual(['msg_0001yes', 'msg_0002yes']);
+  // Two optimistic 'yes' and one native entry: only the oldest optimistic bubble gives way.
+  const a = user('msg_a1', { optimistic: true, created: 0 }), b = user('msg_b1', { optimistic: true, created: 1_000 }), n = user('n0000001', { created: 1_500 });
+  expect(shown([a, b, n], { msg_a1: text('msg_a1', 'yes'), msg_b1: text('msg_b1', 'yes'), n0000001: text('n0000001', 'yes') }))
+    .toEqual(['msg_b1', 'n0000001']);
+});
