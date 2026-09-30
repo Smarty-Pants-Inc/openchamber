@@ -39,10 +39,10 @@ const setup = (content) => {
   execFileSync('setfacl', ['-m', `u:${account}:rwx`, recoveryDir]);
   return { home, root, file: path.join(root, 'docs', 'a.md'), recoveryDir };
 };
-const bridgeFor = (t) => {
+const bridgeFor = (t, extra = {}) => {
   const doc = new Y.Doc();
   const conflicts = [];
-  const bridge = createDiskBridge({ root: t.root, file: t.file, doc, recoveryDir: t.recoveryDir, watch: () => ({ close() {} }), settleMs: 20, retryMs: 50, onConflict: (c) => conflicts.push(c), enabled: true });
+  const bridge = createDiskBridge({ root: t.root, file: t.file, doc, recoveryDir: t.recoveryDir, watch: () => ({ close() {} }), settleMs: 20, retryMs: 50, onConflict: (c) => conflicts.push(c), enabled: true, ...extra });
   cleanups.unshift(() => void bridge.close());
   return { bridge, doc, conflicts };
 };
@@ -127,7 +127,8 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     const t = setup('log\n');
     const writer = spawn('python3', ['-c', "import fcntl,sys\nf=open(sys.argv[1],'a')\nfcntl.flock(f,fcntl.LOCK_EX)\nprint('ready',flush=True)\nsys.stdin.readline()\nf.write('late\\n');f.flush()\nfcntl.flock(f,fcntl.LOCK_UN)\nf.close()", t.file], { stdio: ['pipe', 'pipe', 'inherit'] });
     await new Promise((done) => createInterface({ input: writer.stdout }).once('line', done));
-    const { bridge, doc, conflicts } = bridgeFor(t);
+    // No automatic retry until the other connection has looked: the owner must still hold the revision then.
+    const { bridge, doc, conflicts } = bridgeFor(t, { retryMs: 60_000 });
     await bridge.load();
     doc.getText(TEXT).insert(0, 'P');
     expect(await bridge.save()).toEqual({ ok: true });
@@ -141,6 +142,7 @@ describe.skipIf(!live)('the coedit-fs service under its own account (smartyfs#32
     } finally {
       await other.close();
     }
+    await bridge.sync(); // Its owner collects it now.
     await expect.poll(() => conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
     expect(fs.readFileSync(conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('log\nlate\n');
   });
