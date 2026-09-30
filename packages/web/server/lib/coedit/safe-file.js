@@ -5,6 +5,16 @@ import path from 'path';
 import { createInterface } from 'readline';
 
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW } = fs.constants;
+/** A file name's limit in bytes (Linux NAME_MAX): a recovery name must fit, however long the file's name (#37 item 3). */
+const NAME_MAX = 255;
+/** `name` cut to at most `max` UTF-8 bytes, keeping its end (the extension) and never splitting a character. */
+const fitName = (name, max) => {
+  let out = name;
+  while (Buffer.byteLength(out) > max) out = Array.from(out).slice(1).join('');
+  return out;
+};
+/** The helper protocol this module speaks: a helper that answers `hello` otherwise is refused (#37 item 5). */
+export const PROTOCOL = 2;
 /** The helper's limit (fs-helper MAX_BYTES): refused before any copy or call. */
 const MAX_BYTES = 64 << 20;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
@@ -147,17 +157,26 @@ export function startHelper(root, privateDir, { timeoutMs = 30_000, testHooks: f
     waiting.delete(reply.id);
     entry.resolve(reply);
   });
+  const send = (request) => new Promise((resolve, reject) => {
+    if (ended) return reject(ended);
+    const id = ++next;
+    const timer = setTimeout(() => end(new Error('coedit-fs did not answer in time')), timeoutMs);
+    waiting.set(id, { resolve, reject, timer });
+    child.stdin.write(`${JSON.stringify({ ...request, id })}\n`);
+  });
+  // Every request waits for the handshake: a helper of another protocol (an older build) ends before any request.
+  const ready = send({ op: 'hello' }).then((reply) => {
+    if (reply.protocol === PROTOCOL) return;
+    const error = new Error(`coedit-fs speaks protocol ${reply.protocol ?? 'unknown'}, not ${PROTOCOL}`);
+    end(error);
+    throw error;
+  });
+  ready.catch(() => {}); // Each call reports it.
   return {
     pid: child.pid,
     /** Whether a request sent now can still reach the helper. */
     alive: () => ended === null,
-    call: (request) => new Promise((resolve, reject) => {
-      if (ended) return reject(ended);
-      const id = ++next;
-      const timer = setTimeout(() => end(new Error('coedit-fs did not answer in time')), timeoutMs);
-      waiting.set(id, { resolve, reject, timer });
-      child.stdin.write(`${JSON.stringify({ ...request, id })}\n`);
-    }),
+    call: (request) => ready.then(() => send(request)),
     close: () => {
       end(new Error('coedit-fs closed'));
       return exited;
@@ -212,7 +231,8 @@ export async function readSettled(helper, rel, settleMs) {
  * copy (`ours`: a revision we published; otherwise one we replaced).
  */
 export async function keepForRecovery(recoveryDir, name, bytes, kind = '') {
-  const kept = path.join(recoveryDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${kind ? `${kind}-` : ''}${name}`);
+  const prefix = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}-${kind ? `${kind}-` : ''}`;
+  const kept = path.join(recoveryDir, `${prefix}${fitName(name, NAME_MAX - Buffer.byteLength(prefix))}`);
   const handle = await fs.promises.open(kept, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
   try {
     await handle.writeFile(bytes);

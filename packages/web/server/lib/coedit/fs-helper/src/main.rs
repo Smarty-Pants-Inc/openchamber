@@ -13,6 +13,7 @@
 //! private dir.
 //!
 //! Operations:
+//! - `hello` -> `{ok:true,protocol:2}` (the bridge refuses any other protocol)
 //! - `read {path}` -> `{ok,ino,dev,hash,data(base64)}` | `{ok:false,conflict:"gone"}`
 //! - `publish {path,ino,dev,hash,data,key}` -> not published: `{ok:false,conflict:"gone"|"changed"}` | `{ok:false,error}`;
 //!   published: `{ok,published,synced,ino,dev,displaced}` (ok only when synced) | `{ok:false,published,synced,conflict:"raced",displaced}`
@@ -631,6 +632,8 @@ fn main() {
         let reply = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let result = match req["op"].as_str() {
+                    // The protocol version: the bridge refuses a helper that answers otherwise (smartyfs#37 item 5).
+                    Some("hello") => Ok(json!({"ok": true, "protocol": 2})),
                     Some("read") => read_op(root_fd, &req),
                     Some("publish") => publish_op(root_fd, priv_fd, &req, &mut unsynced),
                     Some("flush") => flush_op(root_fd, priv_fd, &req, &mut unsynced),
