@@ -39,3 +39,72 @@ test("failures every 4 s with a 5 s listing: one refresh at a time, each publish
   expect(maxRunning).toBe(1)
   expect(revision).toBe(3) // A, B and one follow-up C: bounded.
 })
+
+// openchamber#410 review 4, P2 1: a successful catalog sample takes 35 s; its caller stops waiting at 30 s. The follow-up
+// started at t=30 superseded it (a newer revision), so neither answer published. Now the sample's real end counts.
+test("a slow successful sample (35 s, its caller settles at 30 s) with failures every 4 s: it publishes, no supersede", async () => {
+  let now = 0, revision = 0, running = 0, maxRunning = 0; const published: number[] = [];
+  let sample: Promise<void> | undefined; const answer: (() => void)[] = []; const callers: (() => void)[] = [];
+  wireOpenSessionReadFailure({ current: () => "open", managed: () => true, now: () => now, sample: () => sample,
+    refresh: () => { const mine = ++revision; running++; maxRunning = Math.max(maxRunning, running);
+      sample = new Promise<void>((resolve) => { answer.push(() => { running--; if (mine === revision) published.push(now); sample = undefined; resolve(); }); });
+      return new Promise<void>((resolve) => { callers.push(resolve); }); } })
+  const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  noteSessionReadFailed("open")                                           // t=0: A
+  for (const t of [4, 8, 12, 16, 20, 24, 28]) { now = t * 1000; noteSessionReadFailed("open") }
+  now = 30_000; callers.shift()!(); await tick()                           // t=30: A's caller stops waiting; A still runs
+  now = 32_000; noteSessionReadFailed("open"); await tick()
+  expect(revision).toBe(1)                                                 // no B yet: A's sample still runs
+  now = 35_000; answer.shift()!(); await tick()                            // t=35: A answers → publishes
+  expect(published).toEqual([35_000])
+  expect(revision).toBe(2)                                                 // then ONE follow-up B (gap long past)
+  expect(maxRunning).toBe(1)
+})
+
+// openchamber#410 review 4, P2 2: A starts at 0, a failure at 0.25 queues a follow-up, A ends at 1 s. B started at once.
+test("a queued follow-up after a 1 s sample waits for the 3 s gap; one follow-up only", async () => {
+  const starts: number[] = []; const done: (() => void)[] = [];
+  const clock = { t: 0 };
+  wireOpenSessionReadFailure({ current: () => "open", managed: () => true, now: () => clock.t,
+    refresh: () => { starts.push(clock.t); return new Promise<void>((r) => done.push(r)); } })
+  const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  noteSessionReadFailed("open")                                 // t=0: A
+  clock.t = 250; noteSessionReadFailed("open"); noteSessionReadFailed("open") // queued: one follow-up
+  clock.t = 1_000; done.shift()!(); await tick()                 // A ends at 1 s
+  expect(starts).toEqual([0])                                    // not at once
+  clock.t = 3_000; await new Promise((r) => setTimeout(r, 2_050)); await tick() // the timer waits the rest of the gap
+  expect(starts).toEqual([0, 3_000])
+  for (const s of starts.slice(1)) expect(s - starts[starts.indexOf(s) - 1]).toBeGreaterThanOrEqual(3_000)
+})
+
+test("another caller's sample is running: no forced refresh over it; one follow-up after it ends", async () => {
+  let other: (() => void) | undefined; let sample: Promise<void> | undefined = new Promise<void>((r) => { other = () => { sample = undefined; r(); }; });
+  const starts: number[] = []; let now = 10_000
+  wireOpenSessionReadFailure({ current: () => "open", managed: () => true, now: () => now, sample: () => sample,
+    refresh: async () => { starts.push(now) } })
+  const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  expect(noteSessionReadFailed("open")).toBe(false); noteSessionReadFailed("open")
+  expect(starts).toEqual([])
+  now = 12_000; other!(); await tick()
+  expect(starts).toEqual([12_000])
+})
+
+// openchamber#456 review 1: A 0→1 s, a failure at 0.25 queues a follow-up whose timer waits to t=3; another caller starts
+// C at t=2 (succeeds at t=7). At t=3 the timer forced B over C: two samples, C discarded. Now the timer rechecks.
+test("a queued follow-up whose timer fires while another caller's sample runs: it waits for that sample, which publishes", async () => {
+  const starts: number[] = []; const done: (() => void)[] = []; const clock = { t: 0 };
+  let other: Promise<void> | undefined; let endOther: (() => void) | undefined; const published: string[] = [];
+  wireOpenSessionReadFailure({ current: () => "open", managed: () => true, now: () => clock.t, sample: () => other,
+    refresh: () => { starts.push(clock.t); return new Promise<void>((r) => done.push(r)); } })
+  const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  noteSessionReadFailed("open")                                   // t=0: A
+  clock.t = 250; noteSessionReadFailed("open")                     // queued follow-up
+  clock.t = 1_000; done.shift()!(); await tick()                   // A ends at 1 s: follow-up timer set for t=3
+  clock.t = 2_000; other = new Promise<void>((r) => { endOther = () => { published.push("C"); other = undefined; r(); }; }) // C starts
+  clock.t = 3_000; await new Promise((r) => setTimeout(r, 2_050)); await tick() // the timer fires while C runs
+  expect(starts).toEqual([0])                                      // no forced B over C
+  clock.t = 7_000; endOther!(); await tick()                       // C publishes, then the ONE follow-up
+  expect(published).toEqual(["C"])
+  expect(starts).toEqual([0, 7_000])
+  expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(3_000)
+})
