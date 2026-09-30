@@ -32,6 +32,7 @@ const extended = (perm) => [[ACL.USER_OBJ, 7, ANY], [ACL.USER, perm, 4242], [ACL
 
 function helper(root, priv) {
   const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+  const exited = new Promise((resolve) => child.once('close', resolve));
   const waiting = new Map();
   let next = 0;
   createInterface({ input: child.stdout }).on('line', (line) => {
@@ -48,7 +49,7 @@ function helper(root, priv) {
     createInterface({ input: child.stdout }).once('line', (l) => resolve(JSON.parse(l)));
     child.stdin.write(`${line}\n`);
   });
-  return { call, raw, stop: () => child.kill() };
+  return { call, raw, stop: () => { child.kill(); return exited; } };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,7 +71,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     KEY = sha(`${root}\0docs/a.md`).slice(0, 16); // The helper computes it from the admitted root (#412).
     h = helper(root, priv);
   });
-  afterEach(() => { h.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
+  afterEach(async () => { await h.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
@@ -796,14 +797,200 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
       await h.call({ op: 'hello', recovery: recoveryDir() }); // The origin binds its recovery directory.
       const r = await read();
       const p = await publish(r, { txn, ack: sha('t'), testOrigin: origin });
-      h.stop(); // Its helper connection ends; the origin decides who may recover it.
-      await sleep(200);
+      await h.stop(); // Its helper connection ends; the origin decides who may recover it.
       h = helper(root, priv);
       await h.call({ op: 'hello', recovery: recoveryDir() });
       fs.closeSync(writer);
       return p;
     };
     const startOf = (pid) => Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19]);
+
+    describe('smartyfs#46 defensive metadata', () => {
+      const TXN = '46abcd';
+      const gone = () => [process.pid, startOf(process.pid) + 1]; // Proven pid reuse, not a guessed unused pid.
+      const recordPath = () => path.join(priv, `${KEY}.${TXN}.txn`);
+      const outcomePath = () => path.join(priv, `${KEY}.${TXN}.out`);
+      const missing = (field) => (record) => { const copy = { ...record }; delete copy[field]; return copy; };
+      const set = (field, value) => (record) => ({ ...record, [field]: value });
+      const destSet = (field, value) => (record) => ({ ...record, dest: { ...record.dest, [field]: value } });
+      const fields = ['ino', 'ack', 'pid', 'start', 'dest'];
+      const required = fields.map((field) => [`missing ${field}`, missing(field)]);
+      const invalidTxn = [
+        ...required,
+        ['unknown field', set('unexpected', true)],
+        ['invalid JSON', () => '{'],
+        ...[null, [], true, 1, 'record'].map((value) => [`root ${JSON.stringify(value)}`, () => value]),
+        ...['ino', 'pid', 'start'].flatMap((field) => [null, '1', true, -1, 1.5, 18446744073709551616].map((value) => [`${field} ${JSON.stringify(value)}`, set(field, value)])),
+        ['ino zero', set('ino', 0)],
+        ['pid zero', set('pid', 0)],
+        ['pid exceeds i32', set('pid', 2147483648)],
+        ['pid wraps to a live pid', (record) => ({ ...record, pid: 4294967296 + process.pid })],
+        ...[null, 1, [], 'g'.repeat(64), 'A'.repeat(64), 'a'.repeat(65)].map((value) => [`ack ${JSON.stringify(value)}`, set('ack', value)]),
+        ...[[], true, 1, 'directory'].map((value) => [`dest ${JSON.stringify(value)}`, set('dest', value)]),
+        ...['path', 'dev', 'ino'].map((field) => [`missing dest.${field}`, (record) => ({ ...record, dest: missing(field)(record.dest) })]),
+        ['unknown dest field', destSet('unexpected', true)],
+        ...[null, 1, [], '', 'relative', '/tmp/\0invalid'].map((value) => [`dest.path ${JSON.stringify(value)}`, destSet('path', value)]),
+        ...['dev', 'ino'].flatMap((field) => [null, '1', true, -1, 1.5, 18446744073709551616].map((value) => [`dest.${field} ${JSON.stringify(value)}`, destSet(field, value)])),
+      ];
+      const writeRecord = (file, record) => fs.writeFileSync(file, record === '{' ? record : JSON.stringify(record));
+      const snapshotFiles = (directory, names) => names.sort().map((name) => {
+        const file = path.join(directory, name);
+        const stat = fs.statSync(file);
+        return { name, ino: stat.ino, mode: stat.mode, uid: stat.uid, gid: stat.gid, bytes: fs.readFileSync(file).toString('base64') };
+      });
+      const evidence = () => ({
+        private: snapshotFiles(priv, fs.readdirSync(priv).filter((name) => !name.endsWith('-lock'))),
+        delivered: snapshotFiles(recoveryDir(), fs.readdirSync(recoveryDir()).filter((name) => name !== '.staging')),
+        project: snapshotFiles(path.join(root, 'docs'), docs()),
+      });
+      const refused = (reply, before, name) => {
+        // Check preservation even when the helper wrongly returns success; diagnostics must name the bad evidence.
+        expect.soft(evidence()).toEqual(before);
+        expect(reply).toMatchObject({ ok: false, error: expect.stringContaining(name) });
+      };
+
+      /** Published records use the existing writer fixture; aborted records are killed before their exchange. */
+      const retained = async (state) => {
+        if (state === 'published') {
+          const reply = await orphanWithOrigin(TXN, gone());
+          expect(reply).toMatchObject({ ok: true, published: true });
+          expect(fs.readFileSync(outcomePath(), 'utf8')).toBe('published');
+          return reply.displaced;
+        }
+        expect(await h.call({ op: 'hello', recovery: recoveryDir() })).toMatchObject({ ok: true });
+        const r = await read();
+        void publish(r, { txn: TXN, ack: sha('t'), testOrigin: gone(), pause: 'beforeExchange', pauseMs: 5000 });
+        await until(() => staged().length === 1);
+        await h.stop();
+        h = helper(root, priv);
+        const [entry] = staged();
+        expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
+        expect(fs.readFileSync(path.join(priv, entry), 'utf8')).toBe('two\n');
+        expect(JSON.parse(fs.readFileSync(recordPath(), 'utf8')).ino).toBe(fs.statSync(path.join(priv, entry)).ino);
+        expect(fs.existsSync(outcomePath())).toBe(false);
+        return entry;
+      };
+
+      describe.each(['aborted', 'published'])('%s transaction', (state) => {
+        test.each(invalidTxn)('list refuses %s and retains all evidence', async (_label, mutate) => {
+          await retained(state);
+          writeRecord(recordPath(), mutate(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))));
+          const before = evidence();
+          refused(await h.call({ op: 'list', path: 'docs/a.md' }), before, `${KEY}.${TXN}.txn`);
+        });
+
+        // Matching tokens and an already-published outcome must not bypass validation. Without a token,
+        // dispose must validate before the helper recovers an orphan or treats a missing ack as the empty mode.
+        test.each([
+          ['token list', { op: 'list', tokens: { [TXN]: 't' } }],
+          ['token dispose', { op: 'dispose', token: 't' }],
+          ['tokenless dispose', { op: 'dispose' }],
+          ['pending ack', { op: 'ack', txn: TXN, token: 't' }],
+        ].flatMap(([label, request]) => [...required, ['unknown field', set('unexpected', true)]].map(([field, mutate]) => [`${label}: ${field}`, request, mutate])))('%s refuses and retains evidence', async (_label, request, mutate) => {
+          const entry = await retained(state);
+          writeRecord(recordPath(), mutate(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))));
+          const before = evidence();
+          const reply = await h.call({ path: 'docs/a.md', entry, hash: sha(fs.readFileSync(path.join(priv, entry))), ...request });
+          refused(reply, before, `${KEY}.${TXN}.txn`);
+        });
+
+        test.each([...required, ['unknown field', set('unexpected', true)]])('receipt ack refuses %s after valid disposal', async (_label, mutate) => {
+          const entry = await retained(state);
+          const bytes = fs.readFileSync(path.join(priv, entry));
+          expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry, hash: sha(bytes), token: 't' })).toMatchObject({ ok: true });
+          expect(fs.existsSync(path.join(priv, entry))).toBe(false);
+          writeRecord(recordPath(), mutate(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))));
+          const before = evidence();
+          refused(await h.call({ op: 'ack', path: 'docs/a.md', txn: TXN, token: 't' }), before, `${KEY}.${TXN}.txn`);
+        });
+      });
+
+      /** Get the exact current .done writer output, keeping the same staged inode for an interrupted-unlink retry. */
+      const delivered = async (retry) => {
+        const entry = await retained('published');
+        const saved = path.join(dir, 'retained-for-retry');
+        fs.linkSync(path.join(priv, entry), saved);
+        const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen).toMatchObject({ ok: true, entries: [], recovered: [{ hash: sha('one\n') }] });
+        const [{ marker, path: copy }] = seen.recovered;
+        expect(fs.readFileSync(copy, 'utf8')).toBe('one\n');
+        expect(fs.existsSync(path.join(priv, entry))).toBe(false);
+        if (retry) fs.linkSync(saved, path.join(priv, entry));
+        fs.unlinkSync(saved);
+        return { entry, marker, copy, meta: JSON.parse(fs.readFileSync(path.join(priv, marker), 'utf8')) };
+      };
+      const invalidDone = [
+        ['invalid JSON', () => '{'],
+        ...[null, [], true, 1, 'marker'].map((value) => [`root ${JSON.stringify(value)}`, () => value]),
+        ...['path', 'hash'].map((field) => [`missing ${field}`, missing(field)]),
+        ['unknown field', set('unexpected', true)],
+        ...[null, 1, [], '', 'relative'].map((value) => [`path ${JSON.stringify(value)}`, set('path', value)]),
+        ...[null, 1, [], '', 'g'.repeat(64), 'A'.repeat(64), 'a'.repeat(63), 'a'.repeat(65)].map((value) => [`hash ${JSON.stringify(value)}`, set('hash', value)]),
+        ['matching marker name but wrong hash', set('hash', sha('different\n'))],
+        ['path outside the bound destination', (meta) => {
+          const copy = path.join(dir, path.basename(meta.path));
+          fs.copyFileSync(meta.path, copy);
+          return { ...meta, path: copy };
+        }],
+        ['path names another transaction', (meta) => {
+          const copy = meta.path.replace(`-rec${TXN}`, '-recffffff');
+          expect(copy).not.toBe(meta.path);
+          fs.renameSync(meta.path, copy);
+          return { ...meta, path: copy };
+        }],
+        ['absent delivered copy', (meta) => { fs.unlinkSync(meta.path); return meta; }],
+        ['changed delivered copy', (meta) => { fs.writeFileSync(meta.path, 'changed\n'); return meta; }],
+      ];
+
+      describe.each([false, true])('done retry with staged entry %s', (retry) => {
+        test.each(invalidDone)('list refuses %s and retains the marker and remaining evidence', async (_label, mutate) => {
+          const { marker, meta } = await delivered(retry);
+          writeRecord(path.join(priv, marker), mutate(meta));
+          const before = evidence();
+          refused(await h.call({ op: 'list', path: 'docs/a.md' }), before, marker);
+        });
+      });
+      test.each(invalidDone.filter(([label]) => ['invalid JSON', 'matching marker name but wrong hash', 'absent delivered copy', 'changed delivered copy'].includes(label)))('tokenless dispose refuses %s before orphan unlink', async (_label, mutate) => {
+        const { entry, marker, meta } = await delivered(true);
+        writeRecord(path.join(priv, marker), mutate(meta));
+        const before = evidence();
+        refused(await h.call({ op: 'dispose', path: 'docs/a.md', entry, hash: sha('one\n') }), before, marker);
+      });
+
+      test('valid counterexample: true orphan recovery and already-delivered done retry preserve the generated copy', async () => {
+        const { entry, marker, copy } = await delivered(true);
+        const before = evidence();
+        const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen).toMatchObject({ ok: true, entries: [], records: [{ txn: TXN, state: 'published' }], recovered: [{ marker, path: copy, hash: sha('one\n') }] });
+        const after = evidence();
+        expect(after.private).toEqual(before.private.filter(({ name }) => name !== entry));
+        expect(after.delivered).toEqual(before.delivered);
+        expect(after.project).toEqual(before.project);
+        expect((await h.call({ op: 'list', path: 'docs/a.md' })).recovered).toEqual(seen.recovered);
+      });
+      test.each(['aborted', 'published'])('valid counterexample: %s accepts explicit empty ack and null dest, never missing fields', async (state) => {
+        // No hello recovery and an explicit empty ack: obtain both modes from the writer, not a mutated record.
+        const r = await read();
+        let ownedEntry;
+        if (state === 'published') {
+          const reply = await publish(r, { txn: TXN, ack: '' });
+          expect(reply).toMatchObject({ ok: true, published: true });
+          ownedEntry = reply.displaced;
+        } else {
+          void publish(r, { txn: TXN, ack: '', pause: 'beforeExchange', pauseMs: 5000 });
+          await until(() => staged().length === 1);
+          [ownedEntry] = staged();
+        }
+        await h.stop();
+        h = helper(root, priv);
+        const record = JSON.parse(fs.readFileSync(recordPath(), 'utf8'));
+        expect(record).toMatchObject({ ack: '', dest: null, ino: expect.any(Number), pid: expect.any(Number), start: expect.any(Number) });
+        const bytes = fs.readFileSync(path.join(priv, ownedEntry));
+        const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen).toMatchObject({ ok: true, records: [{ txn: TXN, state }], entries: [{ entry: ownedEntry, hash: sha(bytes) }], recovered: [] });
+        expect(await dispose(ownedEntry, sha(bytes))).toMatchObject({ ok: true });
+      });
+    });
 
     test('smartyfs#32 pre-enable: a live originating process keeps its transaction; its pid reused by another process counts as gone', async () => {
       const alive = await orphanWithOrigin('a1a1a1', [process.pid, startOf(process.pid)]);
