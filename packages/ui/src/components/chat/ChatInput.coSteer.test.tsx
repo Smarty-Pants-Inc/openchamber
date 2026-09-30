@@ -7,6 +7,7 @@ import { abortCurrentOperation } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { toast } from '@/components/ui';
+import { useInputStore } from '@/sync/input-store';
 
 // Co-steer (MVP 1 G5): while an ordinary session's agent works, Send sends. The server steers the message into the
 // running turn; the page neither queues it, nor steers locally, nor pre-reads the status.
@@ -137,4 +138,160 @@ test('a failed send from idle keeps a busy status the server sent meanwhile', as
     await sleep(10);
   });
   expect(statusOf(c)).toBe(server);
+});
+
+// smarty-code#827 (slice 1 on 3.48): a steer's composer emptied at Send, the send then stalled, and nothing was ever sent.
+// The composer still clears at Send (the next message is typed clean: kept there, a steer typed during a 10 s admission
+// merged into it), and the text is never lost: a failure brings it back, and so does a send left unanswered
+// (sendUnconfirmed.ms), with a line; a late delivery clears that copy; sent again unedited, it reuses the first client ID.
+const { sendUnconfirmed } = await import('@/lib/sendUnconfirmed');
+const shortWatchdog = () => { const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 300; return () => { sendUnconfirmed.ms = was; }; };
+const until = async (ok: () => boolean, ms = 20_000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await act(async () => { await sleep(25); }); expect(ok()).toBe(true); };
+const idsOf = async (c: Awaited<ReturnType<typeof mountedNativeComposer>>) => Promise.all(c.prompts().map(async p => (await p.clone().json()).messageID as string));
+
+test('the composer clears at Send, so the next message is typed clean (no merge into the pending one)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    expect(c.text()).toBe('');
+    await c.replace('the next steer'); // Typed while the first send is still unanswered (the 3.48 merge case).
+    await act(async () => { held.resolve(steered()); await sleep(10); });
+    expect(c.text()).toBe('the next steer');
+    const body = await c.prompts()[0].json();
+    expect(body.parts.map((part: { text?: string }) => part.text).join('')).not.toContain('the next steer');
+  } finally { restore(); }
+});
+
+test('a send left unanswered brings its text back; a late delivery clears that copy again', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    expect(c.text()).toBe('');
+    await until(() => c.text() === 'steer this'); // Back, with the "not confirmed yet" line.
+    await act(async () => { held.resolve(steered()); await sleep(10); });
+    await until(() => c.text() === '');
+    expect(c.prompts()).toHaveLength(1);
+  } finally { restore(); }
+});
+
+test('a refusal after the text came back does not bring it back twice', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(10); });
+    expect(c.text()).toBe('steer this');
+  } finally { restore(); }
+});
+
+test('the restored text sent again UNEDITED reuses the first client ID (a late acceptance + the re-send are one message)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : Response.json({ name: 'APIError',
+      data: { message: 'Client message ID already exists or a submission is pending', isRetryable: false } }, { status: 409 })));
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).toBe(a);
+    await act(async () => { first.resolve(steered()); await sleep(10); }); // The first is accepted late.
+    await until(() => c.text() === '');
+  } finally { restore(); }
+});
+
+test('the restored text EDITED before sending again is a new message (a new client ID)', async () => {
+  const restore = shortWatchdog();
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await c.replace('steer this, edited');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).not.toBe(a);
+  } finally { restore(); }
+});
+
+test('the same text typed again while its send is pending is not posted twice', async () => {
+  const restore = shortWatchdog();
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    // Plain text only (the fixture attaches a file and a context part; retyping cannot bring those, so it would differ).
+    await act(async () => { useInputStore.getState().setAttachedFiles([]); useInputStore.getState().setPendingSyntheticParts([]); });
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await c.replace('steer this');
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(c.prompts()).toHaveLength(1);
+  } finally { restore(); }
+});
+
+// openchamber#375 review round 2 (P1 1): two overlapping sends. B succeeding must not disarm A's recovery.
+test('two overlapping sends: A never answered, B delivered; A\'s text still comes back', async () => {
+  const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 4_000; // B goes well inside A's window, even under load.
+  const restore = () => { sendUnconfirmed.ms = was; };
+  try {
+    const first = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await c.replace('a second, different steer');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    expect(c.text()).toBe(''); // B went; A is still unanswered and its text not back yet.
+    await until(() => c.text().includes('steer this')); // A's watchdog was not disarmed by B.
+  } finally { restore(); }
+});
+
+// openchamber#375 review 3, P1 2: a preparation that stalls BEFORE the POST (snippet expansion) and a re-send of the
+// given-back text: both attempts carry the group's one client ID, so the gateway admits one message.
+test('a stalled preparation, the text given back, sent again: both POSTs carry the same client ID', async () => {
+  const restore = shortWatchdog();
+  const { useSnippetsStore } = await import('@/stores/useSnippetsStore');
+  const realExpand = useSnippetsStore.getState().expandText;
+  try {
+    const held = deferred<string>(); let calls = 0;
+    useSnippetsStore.setState({ expandText: async (text: string) => (++calls === 1 ? held.promise : text) });
+    const { c } = await ordinaryWorking(steered);
+    await c.submit(); await until(() => c.text() === 'steer this'); // No POST yet; given back at the watchdog.
+    expect(c.prompts()).toHaveLength(0);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    await act(async () => { held.resolve('steer this'); await sleep(50); });
+    await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).toBe(a);
+  } finally { useSnippetsStore.setState({ expandText: realExpand }); restore(); }
+});
+
+// openchamber#375 review 3, P1 1: given back only into its own session's composer: never into another session's composer,
+// and back on return. Review 5: its text joins its own saved draft (never over it), so a reload or an unmount keeps it.
+test('due while another session is shown: only its own saved draft gets it; it comes back once when its session is shown again', async () => {
+  const restore = shortWatchdog();
+  const { readChatDraft, createChatDraftIdentity } = await import('@/lib/chatDraftPersistence');
+  const { getRuntimeKey } = await import('@/lib/runtime-switch');
+  try {
+    const held = deferred<Response>();
+    const { c } = await ordinaryWorking(() => held.promise);
+    await c.submit(); await until(() => c.prompts().length === 1);
+    const other = { ...session, id: '01234567-1234-4234-9234-0123456789ff', title: 'other' };
+    await act(async () => {
+      c.children.getChild(directory)!.setState(state => ({ session: [...state.session, other as never] }));
+      useSessionUIStore.setState({ currentSessionId: other.id });
+    });
+    await act(async () => { c.rerender(); });
+    await act(async () => { await sleep(700); }); // Due while `other` is shown.
+    expect(c.text()).not.toContain('steer this');
+    expect(readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text).toBe('steer this');
+    await act(async () => { useSessionUIStore.setState({ currentSessionId: session.id }); });
+    await act(async () => { c.rerender(); });
+    await until(() => c.text() === 'steer this');
+    await act(async () => { held.resolve(steered()); await sleep(20); }); // Delivered after all: the copy goes.
+    await until(() => c.text() === '');
+  } finally { restore(); }
 });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message } from '@opencode-ai/sdk/v2';
 
-import { getActiveAssistantContext } from './useAssistantStatus';
+import { getActiveAssistantContext, workingStatus } from './useAssistantStatus';
 
 const userMessage = (id: string, providerID: string, modelID: string): Message => ({
     id,
@@ -56,5 +56,17 @@ describe('getActiveAssistantContext', () => {
             assistantId: assistant.id,
             model: null,
         });
+    });
+});
+
+// smarty-code#827 (the #855 candidate, 09:12Z): during a 10 s admission a watching page's store read busy, but the
+// status row rendered nothing (no assistant message, so no text). A working session with no text says it is starting.
+describe('workingStatus', () => {
+    test('working with no assistant text reads "starting" (generic: any real status replaces it)', () => {
+        expect(workingStatus(true, { statusText: null, isGenericStatus: false })).toEqual({ statusText: 'starting', isGenericStatus: true });
+    });
+    test('a real status wins; idle has none', () => {
+        expect(workingStatus(true, { statusText: 'weighing options', isGenericStatus: false })).toEqual({ statusText: 'weighing options', isGenericStatus: false });
+        expect(workingStatus(false, { statusText: 'weighing options', isGenericStatus: false })).toEqual({ statusText: null, isGenericStatus: true });
     });
 });

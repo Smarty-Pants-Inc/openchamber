@@ -158,6 +158,9 @@ export async function routeMessage(params: {
   displayName?: string
   delivery?: 'steer'
   beforeDispatch?: () => void
+  /** smarty-code#827: the client message ID to send with (a re-send of an unconfirmed text reuses its first send's). */
+  messageID?: string
+  onMessageID?: (messageID: string) => void
 }): Promise<'command' | 'prompt' | 'shell'> {
   params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
@@ -279,6 +282,8 @@ export async function routeMessage(params: {
     directory: requestDirectory,
     files: params.files,
     appendSubmissions: params.appendSubmissions,
+    messageID: params.messageID,
+    onMessageID: params.onMessageID,
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
       beforeDispatch: params.beforeDispatch,
@@ -322,6 +327,9 @@ type SendMessageOptions = {
   nativeIntent?: NativeDraftSend
   displayName?: string
   delivery?: 'steer'
+  /** smarty-code#827: see routeMessage. */
+  messageID?: string
+  onMessageID?: (messageID: string) => void
 }
 
 type AssistantMessageSessionExecution = {
@@ -2153,6 +2161,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       appendSubmissions,
       delivery: options?.delivery,
       displayName,
+      messageID: options?.messageID,
+      onMessageID: options?.onMessageID,
       additionalParts: partsWithPinnedContext?.map((p) => ({
         text: p.text,
         synthetic: p.synthetic,

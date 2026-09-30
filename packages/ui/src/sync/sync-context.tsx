@@ -3,7 +3,7 @@ import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
-import { optimisticStatuses } from './optimistic-status';
+import { optimisticStatuses, sendingStatuses } from './optimistic-status';
 import { applyPromptOutcome } from './prompt-outcome';
 import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -761,6 +761,8 @@ export function applySessionStatusSnapshot(
       // Snapshot reports this candidate idle (absent, or explicit idle).
       // Monotonic never lowers; authoritative trusts the snapshot as truth.
       if (mode === "monotonic") continue
+      // smarty-code#827: except over this page's own send that the server has not answered yet (it may be admitting it).
+      if (current[sessionId] !== undefined && sendingStatuses.has(current[sessionId])) continue
 
       const existing = current[sessionId]
       const idle: SessionStatus = incoming ?? (existing?.ordinary

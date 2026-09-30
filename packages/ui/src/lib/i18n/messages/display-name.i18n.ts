@@ -1,9 +1,11 @@
 import { humanAuthI18n } from './human-auth.i18n';
 import { voiceTurnI18n } from './voice-turn.i18n';
+import { sendPendingI18n } from './send-pending.i18n';
 import { historyJumpI18n } from './history-jump.i18n';
 
 export const displayNameI18n = {
   en: {
+    ...sendPendingI18n.en,
     ...humanAuthI18n.en,
     ...voiceTurnI18n.en,
     ...historyJumpI18n.en,
@@ -19,6 +21,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Named messages support plain prompts only. Queues, commands and steering are not supported; your draft is unchanged.',
   },
   de: {
+    ...sendPendingI18n.de,
     ...humanAuthI18n.de,
     ...voiceTurnI18n.de,
     ...historyJumpI18n.de,
@@ -34,6 +37,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Benannte Nachrichten unterstützen nur normale Prompts. Warteschlangen, Befehle und Steuerung werden nicht unterstützt. Dein Entwurf bleibt unverändert.',
   },
   es: {
+    ...sendPendingI18n.es,
     ...humanAuthI18n.es,
     ...voiceTurnI18n.es,
     ...historyJumpI18n.es,
@@ -49,6 +53,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Los mensajes con nombre solo admiten texto normal. No se admiten colas, comandos ni instrucciones durante la ejecución. Tu borrador no cambia.',
   },
   fr: {
+    ...sendPendingI18n.fr,
     ...humanAuthI18n.fr,
     ...voiceTurnI18n.fr,
     ...historyJumpI18n.fr,
@@ -64,6 +69,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Les messages nommés acceptent uniquement les requêtes ordinaires. Files, commandes et consignes en cours d’exécution ne sont pas prises en charge. Votre brouillon reste intact.',
   },
   ja: {
+    ...sendPendingI18n.ja,
     ...humanAuthI18n.ja,
     ...voiceTurnI18n.ja,
     ...historyJumpI18n.ja,
@@ -79,6 +85,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '名前付きメッセージは通常のプロンプトのみ対応しています。キュー、コマンド、実行中の指示変更には対応していません。下書きは変更されません。',
   },
   ko: {
+    ...sendPendingI18n.ko,
     ...humanAuthI18n.ko,
     ...voiceTurnI18n.ko,
     ...historyJumpI18n.ko,
@@ -94,6 +101,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '이름이 있는 메시지는 일반 프롬프트만 지원합니다. 대기열, 명령 및 실행 중 지시 변경은 지원하지 않습니다. 초안은 그대로 유지됩니다.',
   },
   pl: {
+    ...sendPendingI18n.pl,
     ...humanAuthI18n.pl,
     ...voiceTurnI18n.pl,
     ...historyJumpI18n.pl,
@@ -109,6 +117,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Nazwane wiadomości obsługują tylko zwykłe polecenia tekstowe. Kolejki, komendy i sterowanie podczas wykonania nie są obsługiwane. Szkic pozostaje bez zmian.',
   },
   'pt-BR': {
+    ...sendPendingI18n['pt-BR'],
     ...humanAuthI18n['pt-BR'],
     ...voiceTurnI18n['pt-BR'],
     ...historyJumpI18n['pt-BR'],
@@ -124,6 +133,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Mensagens com nome aceitam apenas prompts comuns. Filas, comandos e instruções durante a execução não são compatíveis. Seu rascunho não muda.',
   },
   tr: {
+    ...sendPendingI18n.tr,
     ...humanAuthI18n.tr,
     ...voiceTurnI18n.tr,
     ...historyJumpI18n.tr,
@@ -139,6 +149,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Adlı mesajlar yalnızca düz istemleri destekler. Kuyruklar, komutlar ve çalışma sırasında yönlendirme desteklenmez. Taslağınız değişmez.',
   },
   uk: {
+    ...sendPendingI18n.uk,
     ...humanAuthI18n.uk,
     ...voiceTurnI18n.uk,
     ...historyJumpI18n.uk,
@@ -154,6 +165,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': 'Іменовані повідомлення підтримують лише звичайні запити. Черги, команди й керування під час виконання не підтримуються. Чернетка не змінюється.',
   },
   'zh-CN': {
+    ...sendPendingI18n['zh-CN'],
     ...humanAuthI18n['zh-CN'],
     ...voiceTurnI18n['zh-CN'],
     ...historyJumpI18n['zh-CN'],
@@ -169,6 +181,7 @@ export const displayNameI18n = {
     'chat.displayName.plainOnly': '带名称的消息仅支持普通提示，不支持队列、命令或执行中的引导。草稿保持不变。',
   },
   'zh-TW': {
+    ...sendPendingI18n['zh-TW'],
     ...humanAuthI18n['zh-TW'],
     ...voiceTurnI18n['zh-TW'],
     ...historyJumpI18n['zh-TW'],
