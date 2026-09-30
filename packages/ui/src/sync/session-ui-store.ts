@@ -20,6 +20,7 @@ import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
 import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import { runtimeFetch } from "@/lib/runtime-fetch"
+import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view'
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore, visibleProjects } from "@/stores/useProjectsStore"
 import { useSessionDisplayStore } from "@/stores/useSessionDisplayStore"
@@ -109,7 +110,7 @@ import {
 
 export type { AttachedFile }
 
-export type SessionRevealTicket = { scope: RuntimeRequestScope; revision: number }
+export type SessionRevealTicket = { scope: RuntimeRequestScope; revision: number; preferenceAdmission: symbol }
 type SessionRevealIntent = SessionRevealTicket & {
   sessionId: string | null;
   collapsedProjects: ReadonlySet<string>;
@@ -430,7 +431,7 @@ export type SessionUIState = {
   // One explicit navigation intent, never inferred from restored selection or SSE.
   sessionRevealRevision: number
   sessionRevealIntent: SessionRevealIntent | null
-  beginSessionReveal: (scope?: RuntimeRequestScope) => SessionRevealTicket
+  beginSessionReveal: (scope?: RuntimeRequestScope, preferenceAdmission?: symbol) => SessionRevealTicket
   publishSessionReveal: (ticket: SessionRevealTicket, sessionId: string) => void
   consumeSessionReveal: (revision: number) => boolean
   blockSessionReveal: (patch: { projects?: Record<string, boolean>; groups?: Record<string, boolean> }) => void
@@ -1149,16 +1150,20 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionDirectory: null,
   sessionRevealRevision: 0,
   sessionRevealIntent: null,
-  beginSessionReveal: (scope = captureRuntimeRequestScope()) => {
+  beginSessionReveal: (scope = captureRuntimeRequestScope(), preferenceAdmission = capturePersonalSidebarAdmission()) => {
     const revision = get().sessionRevealRevision + 1
-    set({ sessionRevealRevision: revision, sessionRevealIntent: { scope, revision, sessionId: null, collapsedProjects: new Set(), collapsedGroups: new Set() } })
-    return { scope, revision }
+    const ticket = { scope, revision, preferenceAdmission }
+    set({ sessionRevealRevision: revision, sessionRevealIntent: { ...ticket, sessionId: null, collapsedProjects: new Set(), collapsedGroups: new Set() } })
+    return ticket
   },
   publishSessionReveal: (ticket, sessionId) => {
     if (ticket.revision !== get().sessionRevealRevision) return
-    if (!isRuntimeRequestScopeCurrent(ticket.scope)) { get().consumeSessionReveal(ticket.revision); return }
+    if (!isRuntimeRequestScopeCurrent(ticket.scope) || !isPersonalSidebarAdmissionCurrent(ticket.preferenceAdmission)) {
+      get().consumeSessionReveal(ticket.revision); return
+    }
     const pending = get().sessionRevealIntent
-    set({ sessionRevealIntent: { ...ticket, sessionId, collapsedProjects: pending?.collapsedProjects ?? new Set(), collapsedGroups: pending?.collapsedGroups ?? new Set() } })
+    if (pending?.revision !== ticket.revision) return
+    set({ sessionRevealIntent: { ...ticket, sessionId, collapsedProjects: pending.collapsedProjects, collapsedGroups: pending.collapsedGroups } })
   },
   consumeSessionReveal: (revision) => {
     if (get().sessionRevealIntent?.revision !== revision) return false
@@ -1206,7 +1211,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       selectionProjects.dropPendingOpen?.() // Optional: test doubles of the projects store may omit it.
     }
     if (id && transition !== "submitted-draft" && isFirstSendInFlightFor(id)) return
-    const ticket = revealTicket ?? (!transition ? get().beginSessionReveal() : undefined)
+    if (!id && !transition && !revealTicket) set({ sessionRevealRevision: get().sessionRevealRevision + 1, sessionRevealIntent: null })
+    const ticket = revealTicket ?? (id && !transition ? get().beginSessionReveal() : undefined)
     if (id && ticket) get().publishSessionReveal(ticket, id)
     if (!id && ticket) get().consumeSessionReveal(ticket.revision)
     if (id && selectionProjects.managedCatalogAdmitted) {
@@ -1448,7 +1454,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // auto-draft at boot), which must NOT consume the pointer — the cold-launch
     // restore races exactly that auto-open.
     if (!options?.automatic) {
-      get().consumeSessionReveal(get().beginSessionReveal().revision)
+      set({ sessionRevealRevision: get().sessionRevealRevision + 1, sessionRevealIntent: null })
       clearLastActiveSession(runtimeMemoryKey())
       useProjectsStore.getState().dropPendingOpen?.() // A newer choice than an open still waiting for its project (#608).
     }
@@ -1968,7 +1974,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
 
     const draft = options?.nativeIntent?.draft ?? options?.draftSnapshot ?? get().newSessionDraft
-    const draftRevealTicket = !capturedTarget && !options?.sessionId && draft.open ? get().beginSessionReveal() : undefined
+    const draftRevealTicket = !capturedTarget && !options?.sessionId && draft.open
+      ? options?.nativeIntent?.revealTicket ?? get().beginSessionReveal() : undefined
     if (!capturedTarget && !options?.sessionId && draft.open) await preparedNativeDraft(draft)
     if (options?.nativeIntent) assertNativeDraftReady(options.nativeIntent)
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined

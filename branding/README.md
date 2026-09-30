@@ -89,6 +89,27 @@ the source writer releases the store and the parent binds the exact output.
 Both layers unwind before the send-client-ID layer. This record is not a passing
 exact-head CI or served-release receipt.
 
+The next layer names security comment 5919567288 and its factual reviewed head
+`a536a54446b8009d3b85a617e6f67d8434d5de96` in
+`personalSidebarRevealProvenance`. The finding concerns A's pending reveal
+persisting B's preferences after failed owner admission. The repair must fence
+both reveal persistence and delayed ticket publication by the initiating
+preference-admission cohort. Manual-collapse cancellation remains local intent.
+`prePersonalSidebarRevealCombinedSha256` preserves the released `55c8ea1f`
+held-open correction. After writer release, the parent verified its source
+manifest. A subsequent actual-store RED exposed consumed-ticket resurrection;
+the matching-live-intent guard makes consumed publication terminal and retains
+local collapse sets. Parent release at 2026-09-30T22:52:50Z binds
+`personalSidebarRevealSha256` and `combinedSha256` to the independently read-back
+`81b57a1b` store output. No future repair commit or circular source identity is claimed.
+
+The new unwind runs first and reconstructs the complete 37-entry a536 ledger.
+Both ownership tests pin its serialized JSON digest and its original byte digest
+before running all older historical assertions. The older sidebar, Host and
+session-lifetime fields, entry order and coverage counters remain intact.
+Final branding checks must run on the released bytes, not a concurrent snapshot.
+This provenance does not close the security finding or prove browser behavior.
+
 The foundation copy integration records `foundationCopySource` and
 `foundationCopySha256` for the eleven existing locale overlaps. It adds draft
 storage warnings and queue recovery text. Earlier native-creation, attribution,

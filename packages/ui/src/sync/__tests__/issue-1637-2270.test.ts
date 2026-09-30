@@ -36,7 +36,7 @@ mock.module("../session-ui-store", () => ({
   useSessionUIStore: {
     getState: () => ({
       beginSessionReveal: (scope = captureRuntimeRequestScope()): SessionRevealTicket => {
-        const ticket = { scope, revision: ++sessionRevealRevision }
+        const ticket = { scope, revision: ++sessionRevealRevision, preferenceAdmission: Symbol('test admission') }
         pendingSessionReveal = ticket
         return ticket
       },

@@ -337,7 +337,7 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "55c8ea1f9a25110b480346825bd4828e0607fbafea1c017c7a13209e34064240",
+      "combinedSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
       "catalogReloadSource": "b4b815b491de25924df4a9a33554427efff10898",
       "catalogReloadSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "preCatalogReloadCombinedSha256": "bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb",
@@ -381,7 +381,10 @@
       "personalSidebarNote": "Personal sidebar and shared-link session selection at reviewed 9ba0596d; only session-ui-store.ts overlaps this donor ledger. Prior source hashes and branding dispositions remain unchanged. Review findings, exact-successor CI and served-release acceptance remain separate.",
       "prePersonalSidebarReviewCombinedSha256": "06a5508b6b65349af5672b6d5d7f416e92ab0b145b80032d21e600e1dfbb89de",
       "personalSidebarReviewSha256": "55c8ea1f9a25110b480346825bd4828e0607fbafea1c017c7a13209e34064240",
-      "personalSidebarReviewNote": "PR454 review 5914164668 finding 1: preserve the held-open reveal ticket and manual-collapse cancellation through managed-catalog admission. Source writer released the correction at 2026-09-30T16:08Z; parent and branding-worker SHA256 readbacks match the released store output. Original reviewed 9ba0596d output and all preceding hashes remain historical evidence. Exact combined-head CI and served-release acceptance remain separate."
+      "personalSidebarReviewNote": "PR454 review 5914164668 finding 1: preserve the held-open reveal ticket and manual-collapse cancellation through managed-catalog admission. Source writer released the correction at 2026-09-30T16:08Z; parent and branding-worker SHA256 readbacks match the released store output. Original reviewed 9ba0596d output and all preceding hashes remain historical evidence. Exact combined-head CI and served-release acceptance remain separate.",
+      "prePersonalSidebarRevealCombinedSha256": "55c8ea1f9a25110b480346825bd4828e0607fbafea1c017c7a13209e34064240",
+      "personalSidebarRevealSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "personalSidebarRevealNote": "PR454 security comment 5919567288 P2: bind reveal persistence and delayed ticket publication to the initiating preference-admission cohort, retaining manual-collapse cancellation as local intent. Writer released its store at 2026-09-30T22:45:25Z; parent verified all eight source hashes. A subsequent actual-store RED exposed consumed-ticket resurrection; the parent added the matching-live-intent guard and retained collapse sets, then released and independently hashed the final store at 2026-09-30T22:52:50Z. The older held-open correction and every prior ledger field remain historical evidence. Security review, exact-head CI and served-release acceptance remain separate."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
@@ -631,5 +634,11 @@
   "statusUnavailableSource": "3ce8d22f06df56604bc170ad6fcfc4631336682b",
   "personalSidebarSource": "9ba0596d2011b3339bb101160d82bf88155870ba",
   "personalSidebarReviewBase": "9ba0596d2011b3339bb101160d82bf88155870ba",
-  "personalSidebarReviewFinding": "openchamber#454 review 5914164668 finding 1"
+  "personalSidebarReviewFinding": "openchamber#454 review 5914164668 finding 1",
+  "personalSidebarRevealProvenance": {
+    "reviewedHead": "a536a54446b8009d3b85a617e6f67d8434d5de96",
+    "finding": "openchamber#454 security comment 5919567288 P2 - Failed owner admission leaves A's pending reveal able to write B's preferences",
+    "predecessorLedgerSha256": "05d8f3cad425c23bb31213a20db92b20e082474c6b7c312bf13a69d40b9b40e7",
+    "predecessorLedgerBytesSha256": "98dd971ce744a0dfa0570c41a644f4b8a92d2ed4718b2357a47d5f06f4ad9c7d"
+  }
 }

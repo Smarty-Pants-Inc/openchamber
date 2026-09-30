@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import { useSessionUIStore, type SessionRevealTicket } from '@/sync/session-ui-store';
 import { isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
-import { setPersonalSidebarView, subscribePersonalSidebarViewMutations, usePersonalSidebarView } from '@/lib/sidebar-view';
+import { isPersonalSidebarAdmissionCurrent, setPersonalSidebarView, subscribePersonalSidebarViewMutations, usePersonalSidebarView } from '@/lib/sidebar-view';
 import type { SessionGroup, SessionNode } from '../types';
 
 export type SessionRevealTarget = { projectId: string; groupKey: string };
@@ -36,14 +36,16 @@ export function useSessionReveal(
   useEffect(() => {
     if (!intent) return;
     const ui = useSessionUIStore.getState();
-    if (!enabled || !isRuntimeRequestScopeCurrent(intent.scope)) { ui.consumeSessionReveal(intent.revision); return; }
+    if (!enabled || !isRuntimeRequestScopeCurrent(intent.scope) || !isPersonalSidebarAdmissionCurrent(intent.preferenceAdmission)) {
+      ui.consumeSessionReveal(intent.revision); return;
+    }
     if (!ready || !intent.sessionId || selected !== intent.sessionId || !target) return;
     const cancelled = intent.collapsedProjects.has(target.projectId) || intent.collapsedGroups.has(target.groupKey);
     // Clear before our explicit preference mutation notifies manual-action subscribers.
     if (!ui.consumeSessionReveal(intent.revision) || cancelled) return;
     useReceipt.setState({ receipt: { ...intent, ...target, sessionId: intent.sessionId } });
     onReveal?.(target, intent.sessionId);
-    void setPersonalSidebarView({ projects: { [target.projectId]: false }, groups: { [target.groupKey]: false } }).catch(() => undefined);
+    void setPersonalSidebarView({ projects: { [target.projectId]: false }, groups: { [target.groupKey]: false } }, intent.preferenceAdmission).catch(() => undefined);
     // The preference owner reports and rolls back a failed save. No automatic replay.
   }, [enabled, intent, onReveal, ready, selected, target]);
 }
@@ -60,7 +62,8 @@ export function useRevealSessionPagination(groupKey: string, nodes: SessionNode[
   const receipt = useReceipt(state => state.receipt?.groupKey === groupKey ? state.receipt : null);
   const processed = useRef<Receipt | null>(null);
   useEffect(() => {
-    if (!receipt || processed.current === receipt || !isRuntimeRequestScopeCurrent(receipt.scope)) return;
+    if (!receipt || processed.current === receipt || !isRuntimeRequestScopeCurrent(receipt.scope)
+      || !isPersonalSidebarAdmissionCurrent(receipt.preferenceAdmission)) return;
     const index = nodes.findIndex(node => node.session.id === receipt.sessionId);
     if (index < 0) return;
     processed.current = receipt;

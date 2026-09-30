@@ -82,8 +82,9 @@ make every row observe unrelated streaming updates.
 
 `list/sessionReveal.ts` mounts an effect-only subscriber in the desktop collection
 and mobile sheet. Explicit local opens, including same-ID reopen, and creation
-capture one runtime/auth-scoped intent. Creation captures before asynchronous
-preparation and forwards that ticket at selection. An initial shared `?session=`
+capture one runtime/auth-scoped intent with its initiating preference-admission
+cohort. Creation captures before asynchronous preparation and forwards that
+ticket at selection. An initial shared `?session=`
 link is an explicit open, including when bootstrap already selected that ID.
 Only a reload of this tab's last admitted shown session is non-revealing. The
 router records that receipt in safe sessionStorage, keyed by runtime and the
@@ -119,14 +120,22 @@ choices. Failure of that owner-admission attempt retires its pending choices and
 optimistic maps. A later successful read cannot authorize those old payloads;
 saving requires a fresh choice. Healthy same-person pre-admission choices still
 save after the original read succeeds. A stale failed read cannot retire a newer
-entry. Manual-collapse reveal cancellation remains local intent, independent of
-whether its durable preference save succeeds.
+entry. An open/create ticket cannot borrow a successor cohort: failed admission
+revokes its expansion-save authority and delayed publication. A fresh open is
+required before saving expansion under the successor. Publication requires the
+original live marker; consumed work cannot resurrect even in the same cohort.
+First consumer mounting does not retire a healthy initiating cohort. Manual-collapse reveal cancellation
+remains local intent, independent of whether its durable preference save succeeds.
 
 #1061 covers root rows and containing project/worktree groups only. Child and
 folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1066).
 Parent and folder expansion remain manual, as agreed in the
 [scope decision](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1061#issuecomment-5909719193).
 A root hidden inside a manually collapsed folder is not a #1061 visibility claim.
+Mobile drawer page retention, a supported waiting-open caller/proof, cached
+read-only person-change maps/receipts and test-fixture placement are tracked in
+[#1132](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1132). That follow-up
+does not defer the failed-admission reveal fence or final repaired-head proof.
 
 ## Project action indicators
 

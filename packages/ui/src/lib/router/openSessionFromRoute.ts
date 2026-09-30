@@ -8,12 +8,14 @@ import { useHumanAuth } from '@/lib/human-auth';
 import { readTabSession, recordTabShownSession, tabSessionNamespace } from './tab-session-route';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { isVSCodeRuntime } from '@/lib/desktop';
+import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view';
 
 /** Keep route intent through discovery; unknown membership is not an absent session. */
 export async function openSessionFromRoute(sessionId: string, options?: { initial?: boolean; personalReveal?: boolean }): Promise<void> {
   const scope = captureRuntimeRequestScope();
   const revision = useSessionUIStore.getState().sessionRevealRevision;
   const personal = options?.personalReveal !== false && !isVSCodeRuntime() && useHumanAuth.getState().enabled;
+  const preferenceAdmission = personal ? capturePersonalSidebarAdmission() : undefined;
   const id = sessionId.trim();
   if (!id) return;
   const startedAt = Date.now();
@@ -27,11 +29,12 @@ export async function openSessionFromRoute(sessionId: string, options?: { initia
   persistLastActiveSession(runtimeKey, { sessionId: id, directory: directoryHint });
   let routeRevision = revision;
   const current = () => isRuntimeRequestScopeCurrent(scope) && readLastActiveSession(runtimeKey)?.sessionId === id
-    && (!personal || useSessionUIStore.getState().sessionRevealRevision === routeRevision);
+    && (!personal || (preferenceAdmission !== undefined && isPersonalSidebarAdmissionCurrent(preferenceAdmission)
+      && useSessionUIStore.getState().sessionRevealRevision === routeRevision));
   const namespace = personal ? await tabSessionNamespace(scope) : null;
   if (!current() || useSessionUIStore.getState().sessionRevealRevision !== revision) return;
   const ownReload = Boolean(options?.initial && namespace && readTabSession(namespace) === id);
-  const ticket = personal && namespace && !ownReload ? initial.beginSessionReveal(scope) : undefined;
+  const ticket = personal && namespace && !ownReload ? initial.beginSessionReveal(scope, preferenceAdmission) : undefined;
   routeRevision = ticket?.revision ?? revision;
 
   const status = useProjectsStore.getState().managedCatalogStatus;

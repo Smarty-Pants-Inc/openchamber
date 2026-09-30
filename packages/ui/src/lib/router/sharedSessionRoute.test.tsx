@@ -13,7 +13,8 @@ import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
 import { persistLastActiveSession } from '@/sync/last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getSafeSessionStorage } from '@/stores/utils/safeStorage';
-import { setPersonalSidebarView } from '@/lib/sidebar-view';
+import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent, setPersonalSidebarView } from '@/lib/sidebar-view';
+import { createSidebarOwnerFixture } from '@/lib/sidebar-owner-fixture.js';
 import { SessionRevealEffect, useRevealSessionPagination } from '@/components/session/sidebar/list/sessionReveal';
 import type { SessionGroup, SessionNode } from '@/components/session/sidebar/types';
 
@@ -22,6 +23,7 @@ const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'] as const;
 const previous = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
 const globals = { window: win, document: win.document, IS_REACT_ACT_ENVIRONMENT: true };
 for (const key of keys) Object.defineProperty(globalThis, key, { value: globals[key], configurable: true });
+const fixture = await createSidebarOwnerFixture();
 const fetch = spyOn(globalThis, 'fetch');
 let owner = 'A', limit = 0, denied = false;
 let heldRead: Promise<void> | null = null;
@@ -60,7 +62,7 @@ beforeEach(async () => {
   win.history.replaceState({}, '', '/?session=selected'); bootstrap();
 });
 afterAll(async () => {
-  await unmount(); fetch.mockRestore(); useHumanAuth.setState({ enabled: false }); configureRuntimeUrlResolver({});
+  await unmount(); fetch.mockRestore(); await fixture.close(); useHumanAuth.setState({ enabled: false }); configureRuntimeUrlResolver({});
   for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
   await win.happyDOM.close();
 });
@@ -119,6 +121,45 @@ test('New session clears the shown receipt; reopening the shared URL is explicit
   await unmount(); writes.length = 0;
   win.history.replaceState({}, '', '/?session=selected'); bootstrap(); await mount();
   expect(writes).toHaveLength(1);
+});
+
+for (const mode of ['storage', 'transport', 'healthy'] as const) test(`real HTTP pre-namespace route retains initiating admission: ${mode}`, async () => {
+  fixture.person(0); fixture.readFailure = undefined;
+  await fixture.seed(0, { p: true }); await fixture.seed(1, { p: true }); fixture.requests = [];
+  configureRuntimeUrlResolver({ apiBaseUrl: fixture.baseURL });
+  useAuthSessionStore.getState().markAuthenticated();
+  fetch.mockImplementation(fixture.fetch);
+  const beforeA = await fixture.stored(0); const beforeB = await fixture.stored(1);
+  const heldA = fixture.gate(); fixture.heldRead = heldA;
+  fixture.readFailure = mode === 'healthy' ? undefined : mode;
+  const admission = capturePersonalSidebarAdmission();
+  const revision = useSessionUIStore.getState().sessionRevealRevision;
+  await mount();
+  expect(useSessionUIStore.getState().sessionRevealRevision).toBe(revision);
+  const namespaceB = `oc.tabSession.v1:${JSON.stringify([getRuntimeKey(), fixture.baseURL, fixture.subjects[1]])}`;
+  if (mode !== 'healthy') {
+    fixture.person(1); fixture.readFailure = undefined;
+    const heldB = fixture.gate(); fixture.heldRead = heldB;
+    // An independent same-scope observation starts B; the old namespace reader joins it.
+    await act(async () => useHumanAuth.setState({ enabled: true })); await settle();
+    expect(isPersonalSidebarAdmissionCurrent(admission)).toBe(false);
+    await act(async () => heldA.resolve()); await settle();
+    expect(fixture.requests).toHaveLength(0);
+    await act(async () => heldB.resolve()); fixture.heldRead = undefined;
+    await act(async () => { await sleep(40); }); await settle();
+    expect(fixture.requests).toHaveLength(0); expect(limit).toBe(0);
+    expect(useSessionUIStore.getState().sessionRevealRevision).toBe(revision);
+    expect(getSafeSessionStorage().getItem(namespaceB)).toBeNull();
+    expect(await fixture.stored(0)).toEqual(beforeA); expect(await fixture.stored(1)).toEqual(beforeB);
+    await act(async () => win.dispatchEvent(new win.PopStateEvent('popstate')));
+  } else {
+    await act(async () => heldA.resolve()); fixture.heldRead = undefined;
+  }
+  await act(async () => { await sleep(40); }); await settle();
+  expect(fixture.requests).toHaveLength(1); expect(limit).toBe(10);
+  expect(fixture.requests[0]).toEqual({ owner: mode === 'healthy' ? beforeA.owner : beforeB.owner,
+    projects: { p: false }, groups: { 'p:worktree:actual': false } });
+  if (mode !== 'healthy') expect(getSafeSessionStorage().getItem(namespaceB)).toBe('selected');
 });
 
 for (const reason of ['denied', 'gone', 'newer', 'draft', 'stale-person'] as const) test(`unadmitted route never reveals or claims a tab receipt: ${reason}`, async () => {

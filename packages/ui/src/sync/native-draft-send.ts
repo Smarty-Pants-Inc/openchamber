@@ -4,11 +4,12 @@ import { useSelectionStore } from './selection-store';
 import { assertManagedDraftTarget, nativeCreationForDraft } from './native-draft-creation';
 import { admitSentStart, ensureSentStart, holdSentStart, releaseSentStart } from './native-draft-sent';
 import { getImperativeSessionMessageLoader, type SessionMessageLoader } from './session-message-loader';
-import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
+import { useSessionUIStore, type NewSessionDraftState, type SessionRevealTicket } from './session-ui-store';
 
 type NativeDraftTarget = { draft: NewSessionDraftState; runtimeKey: string; session: NativeCreatedSession };
 /** `clientRequestId`: the start this Send continues; its sent mark (#117) is this Send's, never a newer one. */
-export type NativeDraftSend = NativeDraftTarget & { loader: SessionMessageLoader; view: string; clientRequestId?: string };
+export type NativeDraftSend = NativeDraftTarget & { loader: SessionMessageLoader; view: string; clientRequestId?: string;
+  revealTicket?: SessionRevealTicket };
 const pending = new Set<NativeCreatedSession>();
 
 /**
@@ -51,7 +52,8 @@ function assertNativeDraftCurrent(target: NativeDraftTarget): void {
   assertManagedDraftTarget(target.draft, target.session.directory);
 }
 
-export async function prepareNativeDraftSend(draft: NewSessionDraftState, session: NativeCreatedSession): Promise<NativeDraftSend> {
+export async function prepareNativeDraftSend(draft: NewSessionDraftState, session: NativeCreatedSession,
+  revealTicket?: SessionRevealTicket): Promise<NativeDraftSend> {
   const target = { draft, session, runtimeKey: getRuntimeKey() };
   const created = nativeCreationForDraft(useSessionUIStore.getState().nativeDraftCreations, draft, target.runtimeKey);
   const clientRequestId = created?.status === 'created' && created.session === session ? created.clientRequestId : undefined;
@@ -66,7 +68,7 @@ export async function prepareNativeDraftSend(draft: NewSessionDraftState, sessio
   // ensure resolves on stored errors too. Only the owning loader's accepted ready view permits dispatch.
   const view = loader.getAcceptedOrdinaryView(history, target.runtimeKey);
   if (loader !== getImperativeSessionMessageLoader() || !view) throw new NativeCreationError('history', loader.getSnapshot(history).error);
-  return { ...target, loader, view, clientRequestId };
+  return { ...target, loader, view, clientRequestId, revealTicket };
 }
 
 /**

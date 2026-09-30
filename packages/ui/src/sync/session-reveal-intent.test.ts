@@ -5,6 +5,8 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { setRuntimeExtraHeaders } from '@/lib/runtime-auth';
+import { isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view';
+import { isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 
 const project = { id: 'p', path: '/reveal' };
 const row = { id: 'created', directory: project.path, title: 'created', projectID: 'p', version: '1', slug: 'created', time: { created: 1, updated: 1 } };
@@ -64,3 +66,20 @@ test('explicit draft navigation cancels a pending reveal', () => {
   useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'p', directoryOverride: project.path });
   expect(useSessionUIStore.getState().sessionRevealIntent).toBeNull();
 });
+
+for (const collapse of ['none', 'project', 'group'] as const) {
+  test(`consumed ${collapse} reveal cannot be resurrected by an unchanged delayed ticket`, () => {
+    const ui = useSessionUIStore.getState(), ticket = ui.beginSessionReveal();
+    if (collapse !== 'none') ui.blockSessionReveal(collapse === 'project' ? { projects: { p: true } } : { groups: { 'p:root': true } });
+    ui.publishSessionReveal(ticket, 'one');
+    expect(useSessionUIStore.getState().sessionRevealIntent?.sessionId).toBe('one');
+    if (collapse === 'project') expect(useSessionUIStore.getState().sessionRevealIntent?.collapsedProjects.has('p')).toBe(true);
+    if (collapse === 'group') expect(useSessionUIStore.getState().sessionRevealIntent?.collapsedGroups.has('p:root')).toBe(true);
+    expect(ui.consumeSessionReveal(ticket.revision)).toBe(true);
+    expect(isRuntimeRequestScopeCurrent(ticket.scope)).toBe(true);
+    expect(isPersonalSidebarAdmissionCurrent(ticket.preferenceAdmission)).toBe(true);
+    expect(useSessionUIStore.getState().sessionRevealRevision).toBe(ticket.revision);
+    ui.publishSessionReveal(ticket, 'one');
+    expect(useSessionUIStore.getState().sessionRevealIntent).toBeNull();
+  });
+}

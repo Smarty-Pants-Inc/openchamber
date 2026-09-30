@@ -143,6 +143,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
     describeError,
     /** Send on a new-session draft starts its session first (native-draft-start), then sends once. */
     beforeSend: async () => {
+      const revealTicket = draft.open ? useSessionUIStore.getState().beginSessionReveal() : undefined;
       const operationId = newOperationId(); // This start, before its first await.
       setRefusal(null);
       try {
@@ -152,10 +153,12 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
           guard();
           const native = await preparedNativeDraft(draft);
           // Awaited here, so a refusal while preparing (history, target) is caught below and said, never lost.
-          if (native) return await prepareNativeDraftSend(draft, native);
+          if (native) return await prepareNativeDraftSend(draft, native, revealTicket);
         }
+        if (revealTicket) useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision);
         return undefined;
       } catch (cause) {
+        if (revealTicket) useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision);
         const error = cause instanceof NativeCreationError ? cause : new NativeCreationError('unavailable', cause);
         // A second press while the first is still starting needs no line: the first one's own line is showing.
         if (stillShown() && error.code !== 'sending') { setRefusal({ key: refusalFor, error }); reportClientError({ kind: `start.${error.code}`, status: error.status, runtimeKey, operationId }); } // The code, never the server's words.
