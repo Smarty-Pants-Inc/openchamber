@@ -411,7 +411,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       it(`smartyfs#33 (A): an equal-length change to ${where} is never reported as saved; no replay`, async () => {
         const t = await setup('a');
         t.person((x) => x.insert(0, 'P'));
-        const result = await t.saveDuring(point, () => {
+        const result = await t.saveDuring(point, async () => {
+          // After the exchange only once ours is in place: a loaded host may not have reached the pause yet.
+          if (point === 'afterExchange') await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
           // The same inode, the same length, other bytes: an inode and size check alone would pass it.
           const target = point === 'beforeExchange' ? path.join(t.privateDir, t.staged()[0]) : t.file;
           const fd = fs.openSync(target, 'r+');
@@ -466,6 +468,22 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } });
       expect(fs.existsSync(t.file)).toBe(false); // Not recreated.
       expect(t.text.toString()).toBe('a'); // The room is unchanged.
+    });
+
+    it('#445 security round 2: a file restored after a refused save is saved again with no sync, and no longer marked gone', async () => {
+      const t = await setup('a');
+      fs.unlinkSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      fs.writeFileSync(t.file, 'b'); // Restored with other bytes: still refused, but no longer absent.
+      const { ino } = fs.statSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: { conflict: 'changed' } });
+      expect(t.disk()).toBe('b');
+      fs.writeFileSync(t.file, 'a'); // Restored exactly (the same inode, rewritten in place).
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(fs.statSync(t.file).ino).toBe(ino); // Not rewritten by the save.
+      expect(t.disk()).toBe('a');
     });
 
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {

@@ -155,7 +155,9 @@ round 4); until then no conflict could be seen.
   returns that conflict and writes nothing: the disk does not hold the room's text, so it is never reported as saved
   (smartyfs#33 A). A save with nothing new to write reads the file through the helper first: it is `ok` only if the
   disk holds the base, else `changed` (for example a `raced` save not yet synced) or `gone`, with nothing written,
-  raised to the room like any other conflict (`onConflict`, `state().conflict`).
+  raised to the room like any other conflict (`onConflict`, `state().conflict`). A file it finds present clears
+  `gone`; when it holds the base again, the save is `ok` and a `gone` or `changed` conflict is resolved (other
+  conflicts stay until their own path clears them).
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named

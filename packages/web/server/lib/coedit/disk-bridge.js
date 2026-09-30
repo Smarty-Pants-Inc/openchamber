@@ -413,7 +413,13 @@ export function createDiskBridge({
           gone = true; // Observed absent here, as a sync would.
           return raise({ conflict: 'gone' });
         }
-        return disk.hash === baseHash ? { ok: true } : raise({ conflict: 'changed' });
+        // The file exists: whatever this path said before about its absence or its bytes is refuted or restated here.
+        gone = false;
+        if (disk.hash !== baseHash) return raise({ conflict: 'changed' });
+        // It holds the base: saved. A gone or changed refusal from this path is resolved; other conflicts (a watcher
+        // failure, a raced save's recovery notice) stay until their own path clears them (#445 security r2).
+        if (conflict?.conflict === 'gone' || conflict?.conflict === 'changed') conflict = null;
+        return { ok: true };
       }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
