@@ -958,6 +958,7 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     if data.len() > MAX_BYTES {
         return Err("data too large".into());
     }
+    test_pause(req, "beforeLock");
     let _lock = lock_key(priv_fd, &key)?;
     if peer_gone() {
         return Err("the connection closed: nothing published".into());
@@ -1299,7 +1300,7 @@ fn ack_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     }
     let token = req["token"].as_str().unwrap_or("");
     let _lock = lock_key(priv_fd, &key)?;
-    match lock_record(priv_fd, &key, txn) {
+    let done = match lock_record(priv_fd, &key, txn) {
         Ok(Some(_fd)) => {
             // Only the originating bridge's secret token may remove the receipt; the txn in `list` grants nothing.
             let record = record_info(priv_fd, &key, txn)?.ok_or("the transaction record is gone")?;
@@ -1312,12 +1313,17 @@ fn ack_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
                 return Ok(json!({"ok": true, "pending": true}));
             }
             retire(priv_fd, &key, txn);
-            Ok(json!({"ok": true}))
+            json!({"ok": true})
         }
-        Ok(None) => Ok(json!({"ok": false, "owned": true})),
-        Err(libc::ENOENT) => Ok(json!({"ok": true})),
-        Err(e) => Err(os_err("the transaction record", e)),
+        Ok(None) => return Ok(json!({"ok": false, "owned": true})),
+        Err(libc::ENOENT) => json!({"ok": true}),
+        Err(e) => return Err(os_err("the transaction record", e)),
+    };
+    // Tests only: the ack is done (no record is left), but its reply does not arrive (smartyfs#37 item 16).
+    if test_fault(req, "ackLost") {
+        return Err("the ack reply is lost".into());
     }
+    Ok(done)
 }
 
 fn dispose_entry(priv_fd: RawFd, req: &Value, entry: &str, hash: &str, fd: &OwnedFd) -> Result<Value, String> {
