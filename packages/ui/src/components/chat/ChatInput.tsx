@@ -37,6 +37,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
     createChatDraftIdentity,
     consumeChatDraft,
+    getChatDraftIdentityKey,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -98,6 +99,9 @@ import { useKeybind } from '@/hooks/useKeybind';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { extractGitChangedFiles } from './changedFiles';
 import { useI18n } from '@/lib/i18n';
+import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
+import { isClientIdConflict, SendRecovery } from '@/lib/sendRecovery';
+import { ascendingId } from '@/sync/session-actions';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
@@ -1176,7 +1180,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 ? 'chat.queuedMessage.unsupported' : 'chat.queuedMessage.toast.queueFailed'));
             return;
         }
-        if (currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
+        if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return;
         const composerAttachments = sanitizeAttachmentsForSend(attachedFiles);
 
         // A queued message is resolved now, not at delivery: the server that
@@ -1216,7 +1220,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 : null,
         }, skillInstruction);
         const attachmentsToQueue = [...composerAttachments, ...mentionAttachments];
-        if (getRuntimeKey() !== queueRuntimeKey || currentChatDraftIdentityRef.current !== chatDraftIdentity) return;
+        if (getRuntimeKey() !== queueRuntimeKey || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return;
 
         // Sending while the agent works must still take the reader to the
         // live edge — a queued message produces no user row yet, so the
@@ -1328,7 +1332,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // A successful transfer remains accepted under its origin. Only editor
         // publication is conditional; navigation is never a rejected receipt.
         if (!queued || !isRuntimeRequestScopeCurrent(scope)
-            || currentChatDraftIdentityRef.current !== chatDraftIdentity
+            || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)
             || !editor || composerRef.current !== editor || editor.getValue() !== text) return;
         const currentLinked = liveLinkedReferences.current;
         if (currentLinked.issue !== linkedAtTake.issue || currentLinked.pr !== linkedAtTake.pr || currentLinked.linear !== linkedAtTake.linear) return;
@@ -1376,6 +1380,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // A Send on a new-session draft holds the opening of its new session until its message is admitted or it ends
     // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
     // it settles. Another press or another draft target never ends it.
+    // smarty-code#827: each send to a Pi session, by its target and content, until it is delivered (lib/sendRecovery).
+    // smarty-code#827: the same draft by value; coming back to a session makes a new identity object for it.
+    const sameDraftIdentity = (a: ChatDraftIdentity | null, b: ChatDraftIdentity | null) =>
+        a === b || (!!a && !!b && getChatDraftIdentityKey(a) === getChatDraftIdentityKey(b) && a.draftId === b.draftId);
+    const sendRecovery = React.useRef<SendRecovery | null>(null);
+    sendRecovery.current ??= new SendRecovery(() => sendUnconfirmed.ms, () => ascendingId('msg'));
+    // A due recovery's attachments and context live only here: a new-build reload waits (openchamber#375 review 5).
+    React.useEffect(() => holdReload(() => !!sendRecovery.current?.hasDue()), []);
+    /** A Pi session send's target (runtime, directory, session) and content (text, attachments, context parts). */
+    // A recovery that came due while its target was not shown comes back when it is (after that target's own draft loads).
+    const shownTarget = currentSessionId && isOrdinarySession(currentSessionId)
+        ? [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', currentSessionId].join('\u0000') : null;
+    React.useEffect(() => {
+        if (!shownTarget) return;
+        // Once the editor shows this target's loaded draft (bounded: a composing IME may hold it back).
+        let tries = 0;
+        const run = () => {
+            const shown = composerRef.current?.getValue();
+            if (shown !== undefined && shown !== messageRef.current && ++tries < 20) { timer = setTimeout(run, 16); return; }
+            sendRecovery.current?.flush(shownTarget);
+        };
+        let timer = setTimeout(run, 0);
+        return () => clearTimeout(timer);
+    }, [shownTarget, chatDraftIdentity]);
+    const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
+        if (!sessionId || !isOrdinarySession(sessionId)) return null;
+        const input = useInputStore.getState();
+        return { target: [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', sessionId].join('\u0000'),
+            content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id), ...(input.pendingSyntheticParts ?? []).map(part => part.text)]) };
+    };
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
         // The whole send, from preparation to its settled request, holds a new-build reload: the composer is cleared
@@ -1391,6 +1425,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
+        // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
+        const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
+        if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
+            toast.info(t('chat.send.stillPending'));
+            return;
+        }
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
             toast.error(t('chat.queuedMessage.admissionUnknown'));
             return;
@@ -1490,24 +1530,30 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the one outcome this handler must never produce. The mentions are
         // snapshotted here because sending clears them before it can fail.
         const confirmedMentionsSnapshot = new Set(confirmedMentionsRef.current);
+        // openchamber#375 review 5: once its recovery saved the text into this session's draft, it is not added again
+        // where that draft still holds it (with drafts off, the composer does not load it: then it comes back here).
+        let textInDraft = false;
         const restoreComposerText = () => {
             if (queuedOnly || !inputSnapshot.message) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
-            if (currentChatDraftIdentityRef.current !== chatDraftIdentity) {
+            // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
+            const join = (base: string) => (!base.trim() || base === inputSnapshot.message ? inputSnapshot.message : appendWithLineBreaks(base, inputSnapshot.message));
+            if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+                if (textInDraft) return;
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
-                writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
+                writeChatDraft(chatDraftIdentity, join(chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : ''), confirmedMentionsRef.current);
                 return;
             }
-            const currentInput = composerRef.current?.getValue() ?? messageRef.current;
-            if (!currentInput || currentInput === inputSnapshot.message) {
-                setMessage(inputSnapshot.message);
-                writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
-            } else {
-                // New typing already lives in the composer; the failed prompt
-                // joins it instead of clobbering either text.
-                useInputStore.getState().setPendingInputText(inputSnapshot.message, 'append');
-            }
+            // openchamber#375 review 4: composed on the composer STATE, not the editor document (a render behind a draft
+            // load or an earlier restore in the same tick), so every restore keeps the ones before it and the loaded draft.
+            // ponytail: the updater also saves the draft; it is idempotent for a given prev (StrictMode may run it twice).
+            setMessage((prev) => {
+                const next = textInDraft && prev.includes(inputSnapshot.message) ? prev : join(prev);
+                messageRef.current = next;
+                writeChatDraft(chatDraftIdentity, next, confirmedMentionsRef.current);
+                return next;
+            });
         };
 
         // The projection knows the captured send configuration; the full
@@ -1611,6 +1657,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             historySubmissions?: InputHistorySubmission[];
             delivery?: 'steer';
             displayName?: string;
+            messageID?: string;
+            onMessageID?: (messageID: string) => void;
         } | undefined;
         if (isBtwActive && btwSessionId && btwDirectory) {
             sendMessageOptions = {
@@ -1789,6 +1837,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
         // Native first Send keeps the original input until admission succeeds, before the draft transition.
         if (retainNativeDraft) sendMessageOptions = { ...sendMessageOptions, onNativeAccepted: clearSubmittedInput };
+        // smarty-code#827: a send to a Pi session never loses its text. The composer clears at Send (the next message is
+        // typed clean: kept there instead, a steer typed during a 10 s admission merged into it); a failure brings the
+        // text back (below); and a send not answered within sendUnconfirmed.ms (a stalled POST, as slice 1 saw once) brings
+        // it back too, with an honest line. A late acceptance then clears that copy again if it is untouched.
+        const watchUnconfirmed = !nativeIntent && !queuedOnly && !isBtwActive && !commandPlan && !!pendingKeys && inputSnapshot.hasContent;
+        // This submission's recovery: its own target and content, its own timers (lib/sendRecovery). Taken before the
+        // composer clears: a same-content Send that raced this one is refused here and everything it took goes back.
+        const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, pendingKeys!.content, {
+            // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content,
+            // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
+            restore: () => {
+                // By value: coming back to a session makes a new identity object for the same draft.
+                if (!chatDraftIdentity || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return false;
+                restoreConsumedInput(); return true;
+            },
+            // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
+            save: () => { if (retainNativeDraft || !chatDraftIdentity) return; restoreComposerText(); textInDraft = true; },
+            clearIfUntouched: () => {
+                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
+                if ((composerRef.current?.getValue() ?? messageRef.current) !== inputSnapshot.message) return; // Edited: the person's now.
+                messageRef.current = ''; setMessage(''); persistDraftImmediately(chatDraftIdentity, '');
+                // Exactly the restored files and context parts go with it.
+                const input = useInputStore.getState();
+                if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
+                if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
+            },
+            notify: kind => { if (kind === 'unconfirmed') toast.info(t('chat.send.unconfirmed'));
+                else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.stillPending')); },
+        }) : null;
+        if (watchUnconfirmed && !recovery) { restoreConsumedInput(); return; }
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
 
@@ -1906,6 +1984,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // never claims the new message.
         scrollToBottom?.();
 
+        // The group's client message ID, fixed at its first Send (before snippet expansion or any other preparation that
+        // may stall): every attempt of this content sends with it, so a re-send is one message (review 3, P1 2).
+        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID };
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,
@@ -1920,6 +2001,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         attempt.sent = sendPromise;
         void sendPromise.then(() => {
+            recovery?.accepted();
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is
             // read from the store. The fallback is used only when the closure
@@ -1951,13 +2033,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const normalized = rawMessage.toLowerCase();
 
             console.error('Message send failed:', rawMessage || error);
+            // smarty-code#827: this send's text belongs to its recovery. A client-ID reservation conflict is not acceptance
+            // (the other attempt is pending or was delivered): the recovery waits for that, and gives the text back if
+            // nothing is delivered. A definite refusal gives it back now, unless another attempt is still pending.
+            if (recovery) {
+                if (isClientIdConflict(rawMessage)) {
+                    recovery.conflict(); toast.info(t('chat.send.stillPending')); return;
+                }
+                recovery.refused();
+            }
             if (retainNativeDraft) {
                 // The started session's first message was not admitted: its text stays, and the composer says why.
                 toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error)));
                 return;
             }
             restoreConsumedDrafts();
-            restoreComposerText();
+            if (!recovery) restoreComposerText();
 
             const isSoftNetworkError =
                 normalized.includes('timeout') ||
@@ -1979,6 +2070,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
 
             if (isSoftNetworkError) {
+                // smarty-code#827: a message to a Pi session is still in the composer; say why it has not gone.
+                if (watchUnconfirmed) toast.error(rawMessage || t('chat.send.stillPending'));
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                     toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));

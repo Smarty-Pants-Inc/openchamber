@@ -103,10 +103,27 @@ test('forwards only the materialized tail header through the real SDK, preservin
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
 });
 
-test('a second send waits for the revoked view to be re-read instead of sending without one', async () => {
+// smarty-code#827 (slice 1 on 3.48): a steer right after your own prompt sat for the whole 5 s view refresh (5-7 s under
+// load) before its POST left. The gateway accepts an earlier view of the same branch, so it goes at once with the last one.
+test('a second send goes at once with the last view of the branch; it never waits for the revoked view\'s re-read', async () => {
   await loader.ensure(target);
   await opencodeClient.sendMessage(params);
   expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); }; // A re-read that never answers.
+  const started = Date.now();
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(reads).toBe(0);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST', 'POST']);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, view]);
+});
+
+test('after a reset (a changed branch) the last view is gone: the send waits for a fresh read, as before', async () => {
+  await loader.ensure(target);
+  await opencodeClient.sendMessage(params);
+  loader.invalidateOrdinaryView(target, true); // A 409 or a changed branch resets it.
+  expect(loader.getSendableOrdinaryView(target, 'a')).toBeUndefined();
   const second = `ov2_${'c'.repeat(64)}`;
   history = async () => page(second);
   await opencodeClient.sendMessage({ ...params, messageId: 'msg_second' });
@@ -160,6 +177,18 @@ test('a refusal shows the server\'s own words, not the raw body (F11)', async ()
   expect((error as Error & { status?: number }).status).toBe(409);
 });
 
+// openchamber#375 review 4 (P2 3): a re-send that reuses a pending or delivered message's client ID is refused as a
+// reservation conflict. That is no changed branch: the last view stays sendable and nothing is re-read.
+test('a client-ID reservation conflict on a re-send keeps the last view and reads nothing again', async () => {
+  await loader.ensure(target);
+  prompt = async () => Response.json({ name: 'APIError', data: { message: 'Client message ID already exists or a submission is pending',
+    isRetryable: false } }, { status: 409 });
+  // Its own provider: this refusal must not count toward the other tests' provider circuit.
+  await expect(opencodeClient.sendMessage({ ...params, providerID: 'conflict-fixture' })).rejects.toThrow('Client message ID already exists');
+  expect(loader.getSendableOrdinaryView(target, 'a')).toBe(view);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+});
+
 test('an unconfirmed send (503) shows the server\'s words and keeps its status for the unconfirmed path (F11)', async () => {
   await loader.ensure(target);
   const reason = 'The server could not confirm this message. Check the chat before sending it again.';
@@ -170,13 +199,28 @@ test('an unconfirmed send (503) shows the server\'s words and keeps its status f
   expect(prompts()).toHaveLength(1);
 });
 
-test('view invalidation during attachment preparation prevents POST dispatch', async () => {
+test('a reset of the branch view during attachment preparation prevents POST dispatch', async () => {
   await loader.ensure(target);
   const sending = opencodeClient.sendMessage({ ...params,
     files: [{ type: 'file', mime: 'text/markdown', filename: 'notes.md', url: 'data:text/markdown,hello' }] });
-  loader.invalidateOrdinaryViews();
+  loader.invalidateOrdinaryView(target, true); // A 409 or a changed branch.
   await expect(sending).rejects.toThrow('view changed before submission');
   expect(prompts()).toHaveLength(0);
+});
+
+// smarty-code#827: under load the event stream stalls and reconnects; that reset every view, and the next send sat for
+// the whole 5 s re-read and was then refused ("history has not finished loading"). A reconnect is no changed branch:
+// the send goes with the last view (the gateway still refuses one its branch moved past, 409, re-read and resent once).
+test('a lost event stream during a send keeps the last view: the POST goes, with it, without waiting for a re-read', async () => {
+  await loader.ensure(target);
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); };
+  const sending = opencodeClient.sendMessage({ ...params,
+    files: [{ type: 'file', mime: 'text/markdown', filename: 'notes.md', url: 'data:text/markdown,hello' }] });
+  loader.invalidateOrdinaryViews(); // onDisconnect / onTransportSwitch
+  await sending;
+  expect(reads).toBe(0);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view]);
 });
 
 test('a transport failure revokes the submitted view without inventing an HTTP status or replaying', async () => {
@@ -352,4 +396,19 @@ test('a Send with the kept view after the session moved on is refused by the gat
   expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view, fresh]);
   const bodies = await Promise.all(prompts().map(request => request.json()));
   expect(bodies.map(body => body.messageID)).toEqual(['msg_client', 'msg_client']); // The same message, never a second one.
+});
+
+// smarty-code#827: while an agent works, each removed live row resets the view (message.removed); a steer then found no
+// view and waited the whole 5 s re-read. The reset re-reads history, but the last view stays sendable.
+test('an event reset (a removed live row) keeps the last view sendable: a steer goes at once', async () => {
+  await loader.ensure(target);
+  let reads = 0;
+  history = async () => { reads += 1; return new Promise<Response>(() => {}); };
+  void loader.refreshOrdinaryView(target, true);
+  expect(loader.getAcceptedOrdinaryView(target, 'a')).toBeUndefined();
+  const started = Date.now();
+  await opencodeClient.sendMessage({ ...params, messageId: 'msg_steer' });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(prompts().map(request => request.headers.get('x-smarty-ordinary-view'))).toEqual([view]);
+  expect(reads).toBe(1); // The reset's own re-read, not one the send waited for.
 });
