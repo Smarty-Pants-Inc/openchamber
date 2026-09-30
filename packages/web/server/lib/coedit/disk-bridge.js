@@ -320,6 +320,8 @@ export function createDiskBridge({
       // Outside writes made while unwatched are caught up now.
       void sync().then(() => {
         if (conflict?.conflict === 'unwatched') conflict = null;
+        // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
+        else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };
       }).catch((error) => logError('smarty.coedit-sync-failed', error));
     }, retryMs);
   };
@@ -400,8 +402,32 @@ export function createDiskBridge({
       if (!(await settleUncertain())) return { ok: false, conflict: 'unverified', published: 'uncertain' };
       await disposePending(); // Completes a failed flush first, then removes what it held.
       if (unsynced) return { ok: false, conflict: 'unverified', published: true };
+      // A held disk revision (it removes text) waits for acceptDisk(): nothing can be saved over it, and the disk does
+      // not hold the room's text, so this is never reported as saved (smartyfs#33 A).
+      if (held) return { ok: false, conflict: held.text.length === 0 ? 'truncated' : 'removed' };
       const next = text.toString();
-      if (next === baseText) return { ok: true };
+      if (next === baseText) {
+        // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
+        // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
+        const disk = await readFile(helper, rel);
+        // Any unresolved conflict (a raced save's recovery warning, a stopped watcher) is carried through these
+        // transient refusals, never replaced by them, and is what their resolution leaves; it clears only through its
+        // own path (#445 security r3, astra r2).
+        const kept = conflict?.transient ? conflict.kept : conflict;
+        // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
+        const refuse = (reason) => raise({ conflict: reason, transient: true, ...(kept && { recovery: kept.recovery, notice: kept.notice, kept }) });
+        if (disk === null) {
+          gone = true; // Observed absent here, as a sync would.
+          return refuse('gone');
+        }
+        // The file exists: whatever this path said before about its absence or its bytes is refuted or restated here.
+        gone = false;
+        if (disk.hash !== baseHash) return refuse('changed');
+        // It holds the base: saved. A gone or changed refusal from this path is resolved to the warning it carried;
+        // other conflicts (a watcher failure, a raced save's notice) stay until their own path clears them (#445 r2).
+        if (conflict?.transient) conflict = conflict.kept ?? null;
+        return { ok: true };
+      }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);

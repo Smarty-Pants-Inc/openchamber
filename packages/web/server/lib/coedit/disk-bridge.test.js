@@ -407,6 +407,109 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.leftovers()).toEqual([]);
     });
 
+    for (const [point, where] of [['beforeExchange', 'the staged inode after its readback'], ['afterExchange', 'the published inode right after the exchange']]) {
+      it(`smartyfs#33 (A): an equal-length change to ${where} is never reported as saved; no replay`, async () => {
+        const t = await setup('a');
+        t.person((x) => x.insert(0, 'P'));
+        const result = await t.saveDuring(point, async () => {
+          // After the exchange only once ours is in place: a loaded host may not have reached the pause yet.
+          if (point === 'afterExchange') await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+          // The same inode, the same length, other bytes: an inode and size check alone would pass it.
+          const target = point === 'beforeExchange' ? path.join(t.privateDir, t.staged()[0]) : t.file;
+          const fd = fs.openSync(target, 'r+');
+          fs.writeSync(fd, 'X', 0);
+          fs.closeSync(fd);
+        });
+        // Ours was published (its inode), then changed: raced, never saved. The base follows ours, so no replay.
+        expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
+        expect(t.disk()).toBe('Xa');
+        // At once, before any sync: the room is unchanged, but the disk is not its text. Not saved, nothing written.
+        // The raced save's recovery copy and notice are carried, not replaced (#445 security round 3).
+        const warning = { recovery: result.recovery, notice: result.notice };
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
+        expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed', ...warning }); // Shown to the room (smartyfs#33 P3).
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
+        expect(t.disk()).toBe('Xa');
+        await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
+        expect(t.text.toString()).toBe('Pa');
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed' });
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'removed' }); // Not reported as saved.
+        expect(t.disk()).toBe('Xa'); // The other writer's bytes are not overwritten.
+        await t.bridge.acceptDisk();
+        expect(t.text.toString()).toBe('Xa'); // Accepted: the room takes the disk, P once, never PPa.
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        expect(t.disk()).toBe('Xa');
+      });
+    }
+
+    it('#445 security round 1: an unchanged room whose file was deleted is never reported as saved, and nothing is recreated', async () => {
+      const t = await setup('a');
+      fs.unlinkSync(t.file);
+      await t.bridge.sync();
+      expect(t.bridge.state().gone).toBe(true);
+      const before = t.conflicts.length;
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      expect(t.conflicts.slice(before)).toMatchObject([{ conflict: 'gone' }]); // Shown to the room (smartyfs#33 P3).
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'gone' });
+      expect(fs.existsSync(t.file)).toBe(false);
+      fs.writeFileSync(t.file, 'a'); // Back as it was: an unchanged room is saved again.
+      await t.bridge.sync();
+      expect(await t.bridge.save()).toEqual({ ok: true });
+    });
+
+    it('smartyfs#33 P3: an unchanged room saved before any sync reports a changed or deleted file to the room', async () => {
+      const t = await setup('a');
+      fs.writeFileSync(t.file, 'b'); // Changed, no sync.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed' });
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed' });
+      expect(t.disk()).toBe('b'); // Nothing written over it.
+      fs.unlinkSync(t.file); // Deleted, no sync.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'gone' });
+      expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } });
+      expect(fs.existsSync(t.file)).toBe(false); // Not recreated.
+      expect(t.text.toString()).toBe('a'); // The room is unchanged.
+    });
+
+    it('#445 security round 3: a raced save\'s recovery warning outlives no-change refusals and the success after them', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const raced = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        fs.writeFileSync(t.file, 'Qa'); // Another writer, right after ours.
+      });
+      expect(raced).toMatchObject({ conflict: 'raced', published: true });
+      const warning = { recovery: raced.recovery, notice: raced.notice };
+      expect(warning.recovery).toBeTruthy();
+      // No sync anywhere below: changed, then gone, then the base again.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
+      fs.unlinkSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone', ...warning });
+      expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone', ...warning } });
+      fs.writeFileSync(t.file, 'Pa'); // The base again.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: { conflict: 'raced', ...warning } }); // Kept.
+      expect(t.disk()).toBe('Pa');
+    });
+
+    it('#445 security round 2: a file restored after a refused save is saved again with no sync, and no longer marked gone', async () => {
+      const t = await setup('a');
+      fs.unlinkSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      fs.writeFileSync(t.file, 'b'); // Restored with other bytes: still refused, but no longer absent.
+      const { ino } = fs.statSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: { conflict: 'changed' } });
+      expect(t.disk()).toBe('b');
+      fs.writeFileSync(t.file, 'a'); // Restored exactly (the same inode, rewritten in place).
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(fs.statSync(t.file).ino).toBe(ino); // Not rewritten by the save.
+      expect(t.disk()).toBe('a');
+    });
+
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {
       const t = await setup('a', { retryMs: 60_000 });
       t.person((x) => x.insert(0, 'P'));
@@ -1263,6 +1366,50 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       await expect.poll(() => bridge.state().conflict, { timeout: 3000 }).toBe(null);
       await bridge.close();
       expect(made.every((w) => w.closed)).toBe(true);
+    });
+
+    it('#445 astra round 2: a stopped watcher\'s warning outlives no-change refusals and the success after them', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const { made, watch } = fakeWatch();
+      const bridge = createDiskBridge({ root, file, doc: new Y.Doc(), recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryLimit: 0, enabled: true });
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      made[0].emit('error', new Error('EMFILE')); // Stopped for good: no restart allowed.
+      const unwatched = bridge.state().conflict;
+      expect(unwatched).toMatchObject({ conflict: 'unwatched' });
+      // No sync anywhere below: changed, then gone, then the base again.
+      fs.writeFileSync(file, 'b');
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'changed', notice: unwatched.notice });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'changed', kept: { conflict: 'unwatched' } });
+      fs.unlinkSync(file);
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      fs.writeFileSync(file, 'a');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'unwatched' }); // Still not watching: still shown.
+      expect(made).toHaveLength(1);
+    });
+
+    it('#445 astra round 2: watching that resumes clears the watcher warning a refusal carried, and only it', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const { made, watch } = fakeWatch();
+      const bridge = createDiskBridge({ root, file, doc: new Y.Doc(), recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryMs: 1500, enabled: true }); // Room to save before the restart.
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      made[0].emit('error', new Error('EMFILE'));
+      fs.unlinkSync(file);
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' }); // Before the restart.
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      await expect.poll(() => made.length, { timeout: 3000 }).toBe(2); // Watching again.
+      await expect.poll(() => bridge.state().conflict?.kept, { timeout: 3000 }).toBeUndefined();
+      expect(bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } }); // The file is still gone.
+      fs.writeFileSync(file, 'a');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(bridge.state().conflict).toBe(null);
     });
 
     it('gone clears when a save publishes over a restored file, with no sync between', async () => {
