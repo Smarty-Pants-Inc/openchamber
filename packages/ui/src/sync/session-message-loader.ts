@@ -1060,6 +1060,9 @@ export class SessionMessageLoader {
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
       throw new Error("Ordinary history view was disconnected before materialization")
     }
+    // A session shown live whose Pi then ended is read from its journal: read-only, with no view. It leaves ordinary mode
+    // here, not "could not be loaded" (smarty-code#963 residual, 3.54). A live page without a view is still refused.
+    if (mode !== "prepend" && page.readOnly && !page.ordinaryView) entry.ordinary = false
     entry.ordinary ||= page.ordinaryView !== undefined
     if (mode !== "prepend" && entry.ordinary && !page.ordinaryView) {
       throw new Error("Ordinary history response has no accepted view")
