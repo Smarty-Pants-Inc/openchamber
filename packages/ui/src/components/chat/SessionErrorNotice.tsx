@@ -117,6 +117,11 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
     ? (reportedError.error?.message ?? t('chat.sessionError.noDetails'))
     : t('chat.sessionError.noDetails');
   const name = reportedError?.error?.name;
+  const title = reportedError?.sendOutcome === 'refused'
+    ? 'chat.send.notSent'
+    : reportedError?.sendOutcome === 'unconfirmed'
+      ? 'chat.send.unconfirmedTitle'
+      : reportedError ? 'chat.sessionError.title' : 'chat.sessionError.noReply';
 
   return (
     <div className="chat-message-column">
@@ -127,7 +132,7 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
         <div className="flex items-start gap-3">
           <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
           <div className="min-w-0 flex-1 break-words">
-            <div className="font-medium text-foreground">{reportedError ? t('chat.sessionError.title') : t('chat.sessionError.noReply')}</div>
+            <div className="font-medium text-foreground">{t(title)}</div>
             <div className="mt-1 text-foreground/80">{name ? `${name}: ${detail}` : detail}</div>
           </div>
         </div>
