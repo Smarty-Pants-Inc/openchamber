@@ -237,6 +237,10 @@ test('a transport failure revokes the submitted view without inventing an HTTP s
 const staleRefusal = () => Response.json({ name: 'APIError', data: { message: 'The session changed since this page read it.',
   isRetryable: false, code: 'smarty.prompt-stale-view' } }, { status: 409 });
 
+// The notice loads its module after the send resolves (76d95ca62). A cold load takes tens of ms, so a fixed timer
+// raced it (smarty-code#1034): wait for the same load the client waits on, then its continuation.
+const noticeSettled = async () => { await import('./promptDelivery'); await new Promise(resolve => setTimeout(resolve, 0)); };
+
 test('a steered prompt is announced as delivered while the agent works; a new turn is not (G5)', async () => {
   const { toast } = await import('@/components/ui');
   const seen: string[] = [];
@@ -251,7 +255,7 @@ test('a steered prompt is announced as delivered while the agent works; a new tu
     history = async () => page(`ov2_${'9'.repeat(64)}`);
     prompt = async () => new Response(null, { status: 204 });
     await opencodeClient.sendMessage({ ...params, messageId: 'msg_third' });
-    await new Promise(resolve => setTimeout(resolve, 10)); // The notice follows the accepted send, never gates it.
+    await noticeSettled(); // The notice follows the accepted send, never gates it.
     expect(seen).toEqual(['Delivered while the agent works.']);
   } finally { spy.mockRestore(); }
 });
@@ -359,7 +363,7 @@ test('an outcome that beats the 204 is not contradicted by a "delivered while it
       return new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'steer' } });
     };
     expect(await opencodeClient.sendMessage({ ...params, messageId: 'msg_early' })).toBe('msg_early');
-    await new Promise(resolve => setTimeout(resolve, 10));
+    await noticeSettled();
     expect(seen).toHaveLength(0);
   } finally { spy.mockRestore(); }
 });
