@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptLegacy, hasUnsaved, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptLegacy, hasUnsaved, readSlot, retryUnsaved, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -74,9 +74,14 @@ export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => 
 const legacyKeyOf = (identity: ChatDraftIdentity) => JSON.stringify([identity.runtimeKey, identity.directory, null]);
 /** A durable save or clear of this tab's own draft supersedes the shared one: it goes (openchamber#433 r5 P1 3). */
 const finishLegacy = (identity: ChatDraftIdentity): void => {
-  const key = legacyKeyOf(identity), envelope = readEnvelope();
-  if (!(key in envelope.drafts)) return;
-  const drafts = { ...envelope.drafts }; delete drafts[key]; writeEnvelope({ version: 2, drafts });
+  const envelope = readEnvelope(), drafts = { ...envelope.drafts };
+  let changed = false;
+  for (const key of [legacyKeyOf(identity), ...retryUnsaved()]) if (key in drafts) {
+    delete drafts[key]; changed = true;
+  }
+  // Retry an earlier refused envelope cleanup too, even if its deletion is already visible in page memory.
+  if (changed || ephemeralOnly) writeEnvelope({ version: 2, drafts });
+  else setEphemeral(hasUnsaved());
 };
 /** A New session draft is this tab's own slot (chatDraftTabs.ts, #461); a session's draft stays in the envelope. */
 const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
@@ -134,12 +139,24 @@ const readEnvelope = (): PersistedChatDraftEnvelope => {
 };
 
 const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
-  const serialized = JSON.stringify(envelope);
-  cachedRawEnvelope = serialized;
-  cachedEnvelope = envelope;
-  countSyncPersistenceSerialization(serialized);
-  const stored = storage.setItem(STORAGE_KEY, serialized);
-  setEphemeral(!stored || hasUnsaved()); // A tab draft's owed write keeps the warning on (#433 r7).
+  const persist = (value: PersistedChatDraftEnvelope): boolean => {
+    const serialized = JSON.stringify(value);
+    cachedRawEnvelope = serialized;
+    cachedEnvelope = value;
+    countSyncPersistenceSerialization(serialized);
+    return storage.setItem(STORAGE_KEY, serialized);
+  };
+  let stored = persist(envelope);
+  if (stored) {
+    const completed = retryUnsaved().filter(key => key in envelope.drafts);
+    if (completed.length) {
+      const drafts = { ...envelope.drafts };
+      for (const key of completed) delete drafts[key];
+      // No recursive retry: the slots are durable, but the shared legacy removal must be durable as well.
+      stored = persist({ version: 2, drafts });
+    }
+  }
+  setEphemeral(!stored || hasUnsaved()); // A refused slot or envelope cleanup keeps the warning on.
   return stored;
 };
 
@@ -163,8 +180,8 @@ export const writeChatDraft = (
   if (identity.sessionId === null) {
     const stored = writeTabDraft(identity.runtimeKey, identity.directory, savedDraft(identity), text, confirmedMentions, since, ephemeralOnly);
     // The warning stays on while any refused write of this tab (another project's clear included) is still owed.
-    if (stored !== undefined) setEphemeral(!stored || hasUnsaved());
     if (stored) finishLegacy(identity);
+    else if (stored === false) setEphemeral(true);
     return stored;
   }
   const envelope = readEnvelope();
