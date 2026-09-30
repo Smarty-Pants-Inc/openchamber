@@ -50,6 +50,37 @@ export function useAppliedOrdinaryState(listed: OrdinaryModelState) {
   return [effectiveOrdinaryState(listed, unavailable ? null : applied), setApplied] as const;
 }
 
+/** How long after a relaunch reports `connected` the last model may still stand in (smarty-code#778: the model is back
+ * up to ~1 s after `connected`). */
+export const RELAUNCH_MODEL_GRACE_MS = 3000;
+
+/**
+ * While the session's Pi relaunches (`reloading`, then briefly after), a listing without a model is the relaunch, not an
+ * unavailable session (smarty-code#778). `held` is the last reported state with a model, for display only: it is never
+ * applied. `pending` means show a neutral loading state, not "Unavailable". A listing with a model always wins.
+ */
+export function useRelaunchHeldOrdinaryState(state: OrdinaryModelState, reloading: boolean) {
+  const last = React.useRef<OrdinaryModelState | null>(null);
+  if (state.model) last.current = state;
+  // The grace is derived during render, so the first frame after `reloading` ends already holds the model; an effect
+  // would start it only after that frame had committed "Unavailable" (review r1 of #778). The effect only re-renders at expiry.
+  const wasReloading = React.useRef(reloading);
+  const endedAt = React.useRef<number | null>(null);
+  if (reloading) endedAt.current = null;
+  else if (wasReloading.current) endedAt.current = Date.now();
+  wasReloading.current = reloading;
+  const left = endedAt.current === null ? 0 : endedAt.current + RELAUNCH_MODEL_GRACE_MS - Date.now();
+  const grace = left > 0;
+  const [, expire] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    if (!grace) return;
+    const timer = setTimeout(expire, left);
+    return () => clearTimeout(timer);
+  }, [grace, left]);
+  const pending = !state.model && (reloading || grace);
+  return { held: pending ? last.current : null, pending };
+}
+
 /**
  * The selected native session's live model/effort. With a target, each choice asks the
  * native session to switch; the display changes only when the session reports it.
