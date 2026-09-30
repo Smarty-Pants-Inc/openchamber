@@ -423,6 +423,8 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(t.disk()).toBe('Xa');
         // At once, before any sync: the room is unchanged, but the disk is not its text. Not saved, nothing written.
         expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+        expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed' }); // Shown to the room (smartyfs#33 P3).
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed' });
         expect(t.disk()).toBe('Xa');
         await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
         expect(t.text.toString()).toBe('Pa');
@@ -441,11 +443,29 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       fs.unlinkSync(t.file);
       await t.bridge.sync();
       expect(t.bridge.state().gone).toBe(true);
+      const before = t.conflicts.length;
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      expect(t.conflicts.slice(before)).toMatchObject([{ conflict: 'gone' }]); // Shown to the room (smartyfs#33 P3).
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'gone' });
       expect(fs.existsSync(t.file)).toBe(false);
       fs.writeFileSync(t.file, 'a'); // Back as it was: an unchanged room is saved again.
       await t.bridge.sync();
       expect(await t.bridge.save()).toEqual({ ok: true });
+    });
+
+    it('smartyfs#33 P3: an unchanged room saved before any sync reports a changed or deleted file to the room', async () => {
+      const t = await setup('a');
+      fs.writeFileSync(t.file, 'b'); // Changed, no sync.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed' });
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed' });
+      expect(t.disk()).toBe('b'); // Nothing written over it.
+      fs.unlinkSync(t.file); // Deleted, no sync.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'gone' });
+      expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } });
+      expect(fs.existsSync(t.file)).toBe(false); // Not recreated.
+      expect(t.text.toString()).toBe('a'); // The room is unchanged.
     });
 
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {

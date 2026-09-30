@@ -408,8 +408,12 @@ export function createDiskBridge({
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
-        if (disk === null) return { ok: false, conflict: 'gone' };
-        return disk.hash === baseHash ? { ok: true } : { ok: false, conflict: 'changed' };
+        // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
+        if (disk === null) {
+          gone = true; // Observed absent here, as a sync would.
+          return raise({ conflict: 'gone' });
+        }
+        return disk.hash === baseHash ? { ok: true } : raise({ conflict: 'changed' });
       }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
