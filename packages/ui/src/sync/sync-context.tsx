@@ -1,6 +1,7 @@
 import { reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
 import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses, sendingStatuses } from './optimistic-status';
 import { applyPromptOutcome } from './prompt-outcome';
@@ -779,6 +780,25 @@ export function applySessionStatusSnapshot(
   return changed
 }
 
+/**
+ * Whether an authoritative status snapshot may settle a session's unfinished turn (finalize its running tools). An
+ * ordinary (fleet) session ABSENT from it is not known to have stopped: the listing can omit a busy one (smarty-code#737:
+ * three running tools marked Interrupted at once, each completed seconds later). Only an explicit status settles it;
+ * its own message re-read brings the committed results. Other sessions keep #2577's rule: absence is idle.
+ */
+export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined,
+  session?: Session, directory?: string): boolean {
+  if (toSessionStatus(entry) !== undefined) return true
+  // A directory's snapshot lists only that directory's sessions: absence says nothing about another project's session
+  // held in this store (#737, 06:54:52Z: the page read a just-added worktree's status while its store held three fleet
+  // sessions of other projects, and marked their running tools Interrupted).
+  const own = (path: string) => path.replace(/\/+$/, '')
+  if (session?.directory && directory && own(session.directory) !== own(directory)) return false
+  // Its status may have lost the ordinary mark (the incident's did: the non-ordinary path), so the session's own
+  // metadata counts too: only it marks native ownership (readOrdinaryModel).
+  return !(current?.ordinary || readOrdinaryModel(session) !== undefined)
+}
+
 async function resyncDirectorySessionStatuses(
   directory: string,
   store: StoreApi<DirectoryStore>,
@@ -801,6 +821,9 @@ async function resyncDirectorySessionStatuses(
     // which is the gate the helper requires — a session the snapshot reports
     // busy stays untouched.
     for (const sessionId of candidateSessionIds) {
+      const state = store.getState()
+      const session = state.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId)
+      if (!settledBySnapshot(nextStatuses[sessionId], state.session_status?.[sessionId], session, directory)) continue
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
         reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)

@@ -898,7 +898,7 @@ export class SessionMessageLoader {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
     const firstLimit = entry.ordinary ? getInitialPageSize()
       : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
-    const firstPage = await this.fetchPage(target, firstLimit, undefined, "initial-page", performance)
+    const firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
     if (!isCurrent()) return
     const deferFirstCommit = !firstPage.complete && !hasUserMessage(firstPage.session)
     let committed = deferFirstCommit
@@ -909,7 +909,7 @@ export class SessionMessageLoader {
     if (deferFirstCommit) {
       for (const limit of getInitialExpansionLimits()) {
         if (limit <= firstLimit || !isCurrent()) continue
-        const expandedPage = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+        const expandedPage = await this.fetchOpenPage(target, limit, isCurrent, performance)
         if (!isCurrent()) return
         acceptedPage = expandedPage
         const boundaryFound = hasUserMessage(expandedPage.session)
@@ -936,6 +936,19 @@ export class SessionMessageLoader {
       updatedAt: Date.now(),
     })
     this.persistCoverage(target, entry.snapshot)
+  }
+
+  /**
+   * An open's page, read again while its ordinary view was read across a stream disconnect (at most twice). Such a view is
+   * never accepted, and a read replays nothing: the phone's stream reconnecting during its first read showed "Session
+   * could not be loaded" for 3-6 s, then the page recovered by itself (smarty-code#963).
+   */
+  private async fetchOpenPage(target: SessionMessageTarget, limit: number, isCurrent: () => boolean,
+    performance?: LoadPerformanceDetails): Promise<FetchedPage> {
+    for (let attempt = 0; ; attempt++) {
+      const page = await this.fetchPage(target, limit, undefined, "initial-page", performance)
+      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || attempt >= 2 || !isCurrent()) return page
+    }
   }
 
   private async fetchPage(
@@ -1009,10 +1022,12 @@ export class SessionMessageLoader {
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
       const position = readPositionHeaders(result.response?.headers)
-      // A range read (at=) carries no cursor: its page is complete when it starts at position 0, or, while the gateway
-      // still builds the index (no positions yet), when it came back short (smarty-code#583).
-      const rangeRead = at !== undefined || (before === undefined && limit <= 500)
-      const complete = position.at !== undefined ? position.at === 0 : rangeRead && !cursor ? records.length < limit : !cursor
+      // A range read carries no cursor: with positions its page is complete when it starts at position 0 (smarty-code#583).
+      // Without positions the cursor contract holds: complete when there is no cursor. That is a cursor-only gateway, or
+      // a position gateway whose index still builds (it then sends x-next-cursor while older records remain). A newest
+      // page that exactly fills its limit with no cursor is the whole history (pin 46 review 5897200984).
+      const rangeRead = at !== undefined || position.at !== undefined
+      const complete = position.at !== undefined ? position.at === 0 : !cursor
       return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })

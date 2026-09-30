@@ -1,3 +1,5 @@
+import React from 'react';
+import type { OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import type { Provider } from '@opencode-ai/sdk/v2';
 import { modelVariantNames } from '@/lib/modelVariants';
 
@@ -27,3 +29,28 @@ export function buildOrdinaryModelOptions(providers: CatalogProvider[]): Ordinar
     label: (providersByName.get(option.name)?.size ?? 0) > 1 ? `${option.providerID} / ${option.name}` : option.name,
   }));
 }
+
+/**
+ * The state the controls show and build the next change from: the state the session last reported to this control, when
+ * it is newer than the listed one (same generation, higher sequence). A model change is applied at once, but the listing
+ * that feeds `state` can lag; an effort chosen meanwhile sent the stale model and undid the switch (smarty-code#122, 3.54).
+ */
+export function effectiveOrdinaryState(state: OrdinaryModelState, applied: OrdinaryModelState | null): OrdinaryModelState {
+  // An unavailable listing (model null) is authoritative whatever its sequence (mergeOrdinaryModel's rule): it always wins.
+  return applied && state.model && applied.model && applied.generation === state.generation && applied.sequence > state.sequence
+    ? applied : state;
+}
+
+/** The controls' state and the recorder of the session's answer to their own change. The recorded answer is dropped
+ * once the listing says the session is unavailable, so it never resurfaces after a later usable listing. */
+export function useAppliedOrdinaryState(listed: OrdinaryModelState) {
+  const [applied, setApplied] = React.useState<OrdinaryModelState | null>(null);
+  const unavailable = !listed.model;
+  React.useEffect(() => { if (unavailable) setApplied(null); }, [unavailable]);
+  return [effectiveOrdinaryState(listed, unavailable ? null : applied), setApplied] as const;
+}
+
+/**
+ * The selected native session's live model/effort. With a target, each choice asks the
+ * native session to switch; the display changes only when the session reports it.
+ */

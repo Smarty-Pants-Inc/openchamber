@@ -224,9 +224,18 @@ test('the inbox stream layer binds its exact commit over the fleet session-list 
   const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
   assert.equal(overlay.inboxStreamSource, 'd16efdf6a265496d06a68e8f76a7721905d0bab1');
   assert.equal(entry.preInboxStreamCombinedSha256, entry.fleetListSha256);
-  assert.equal(entry.inboxStreamSha256, entry.combinedSha256);
+  assert.equal(entry.inboxStreamSha256, entry.preCodeMadeListCombinedSha256); // The next layer (#957) starts from it.
   assert.ok(entry.inboxStreamNote);
   assert.deepEqual(overlay.files.filter(file => file.inboxStreamSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
+});
+
+test('the Code-made session-list layer binds its exact commit over the inbox stream layer (smarty-code#957)', () => {
+  const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
+  assert.equal(overlay.codeMadeListSource, 'ebf56e66943ee912b727dab8ebb0e336d50f733d');
+  assert.equal(entry.preCodeMadeListCombinedSha256, entry.inboxStreamSha256);
+  assert.equal(entry.codeMadeListSha256, entry.combinedSha256);
+  assert.ok(entry.codeMadeListNote);
+  assert.deepEqual(overlay.files.filter(file => file.codeMadeListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
 });
 
 test('the model-prefs unload flush binds its exact fix commit over the settings client only (smarty-code#126 F6)', () => {
