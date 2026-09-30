@@ -88,8 +88,11 @@ All runtime ingress handlers apply this human-only Host check directly before th
 other gates. Terminal checks it before Origin, dev-tunnel before authentication and
 port discovery, realtime-proxy before authentication, and session voice before
 parameter validation. Event-stream, including global and directory paths, and
-dictation check it before `ensureSessionToken`. The central `requireUpgradeAuth`
-adapter keeps its independent Host check. Bound Hosts retain existing session,
+dictation check it before human `requireUpgradeAuth`. That adapter calls
+`humanAuth.protect` before upgrading the raw socket. Session deletion and expiry
+therefore close admitted sockets, and the registration-before-recheck guard
+prevents deletion during admission from leaving an untracked connection.
+The central adapter keeps its independent Host check. Bound Hosts retain existing session,
 Origin and parameter refusals. Passwordless and UI-password gates are unchanged.
 The central adapter still requires the exact human issuer Origin, even for a
 served alias or loopback Host. No new Origin alias is granted by Host configuration.
@@ -98,7 +101,9 @@ served alias or loopback Host. No new Origin alias is granted by Host configurat
 Better Auth sessions and inert local upstreams. It also verifies central admission,
 forwarding-header rejection, issuer-versus-Host separation, anonymous and malformed
 requests, zero setup and discovery effects, and asynchronous Host-guard refusals.
-This is local transport proof, not a signed-in browser, Google callback or
+The event-stream and dictation `human-session-lifetime.test.js` regressions also
+exercise session deletion, expiry and admission races through their actual runtime
+ingress. This is local transport proof, not a signed-in browser, Google callback or
 deployed-service proof.
 
 ### Existing clients and rollback

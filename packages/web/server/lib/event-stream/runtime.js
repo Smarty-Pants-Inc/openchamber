@@ -138,9 +138,16 @@ export function createMessageStreamWsRuntime({
     }
 
     const handleUpgrade = async () => {
+      const upgrade = () => wsServer.handleUpgrade(req, socket, head, (ws) => {
+        wsServer.emit('connection', ws, req);
+      });
       try {
         if (uiAuthController?.humanMode && !await applicationAuthority(req)) {
           rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+          return;
+        }
+        if (uiAuthController?.humanMode) {
+          await uiAuthController.requireUpgradeAuth(req, socket, upgrade, rejectWebSocketUpgrade);
           return;
         }
         if (uiAuthController?.enabled) {
@@ -160,9 +167,7 @@ export function createMessageStreamWsRuntime({
           return;
         }
 
-        wsServer.handleUpgrade(req, socket, head, (ws) => {
-          wsServer.emit('connection', ws, req);
-        });
+        upgrade();
       } catch {
         rejectWebSocketUpgrade(socket, 500, 'Upgrade failed');
       }

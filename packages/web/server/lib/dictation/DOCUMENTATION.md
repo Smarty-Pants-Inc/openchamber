@@ -37,6 +37,14 @@ response carries `X-Speech-Model` and `X-Speech-Language`.
   `POST /api/dictation/models/:modelId/download`, and the
   `/api/dictation/ws` WebSocket endpoint (auth-gated the same way as the
   terminal WS: UI session token or `oc_url_token`, plus origin check).
+  Human upgrades instead use the existing `requireUpgradeAuth` lifetime gate
+  before `handleUpgrade`, after Host validation. Session deletion or expiry
+  closes the tracked raw socket, and the admission recheck covers concurrent
+  revocation. The socket's existing close handler clears heartbeat and invokes
+  `DictationStreamManager.cleanupAll` to cancel that connection's work. A service
+  session returned after the socket closes is closed before manager admission,
+  since a pending start is not yet visible to `cleanupAll`. Closed sockets do
+  not admit buffered message callbacks.
   Created from the startup pipeline (`startup-pipeline-runtime.js`) before
   the generic OpenCode proxy so routes are not shadowed.
 - `stream-manager.js` — `DictationStreamManager`, one per WS connection.
@@ -85,6 +93,13 @@ and peak memory grow quadratically with segment length. Measured on Parakeet
 v3 int8 with 2 threads: 60 s took 2.1 s and +90 MB, 180 s took 9.3 s and
 +490 MB, 300 s took 21.3 s and +1.5 GB. Committed segments decode while the
 user is still speaking, so only the tail is left to transcribe on stop.
+
+## Human-session regression
+
+`human-session-lifetime.test.js` exercises the actual dictation WebSocket ingress
+with private Better Auth sessions. It checks revocation, expiry and admission
+races while preserving healthy authorized controls. It does not grant provider
+access or download speech models.
 
 ## Invariants
 
