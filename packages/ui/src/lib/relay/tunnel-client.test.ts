@@ -93,6 +93,8 @@ type MiniHostOptions = {
   batch?: boolean;
   // Records every tunnel frame the host received, in arrival order.
   recordFrame?: (frame: TunnelFrame) => void;
+  // Called when the host receives a text (hello) frame on this wire, before it answers.
+  onHello?: () => void;
 };
 
 // A minimal host responder wired to one endpoint. Answers a few routes so the
@@ -211,6 +213,7 @@ const attachMiniHost = (endpoint: FakeEndpoint, hostPrivateKey: CryptoKey, optio
     const data = event.data;
     recvChain = recvChain.then(async () => {
       if (typeof data === 'string') {
+        options.onHello?.();
         if (options.firstHelloDelayMs && !firstHelloDelayed) {
           firstHelloDelayed = true;
           await new Promise((resolve) => setTimeout(resolve, options.firstHelloDelayMs));
@@ -386,21 +389,31 @@ describe('createRelayTunnelClient', () => {
   });
 
   test('a request whose head was never sent is not ambiguous when the wire dies first', async () => {
+    // #422 review 1: the wire must exist and die while the request waits for its channel. The host holds its answer to
+    // the first hello (so no channel), the test waits for that hello on the wire (the event), then kills that wire.
     const frames: TunnelFrame[] = [];
-    // The host holds its answer to the first hello and the client does not retry it: no channel exists yet, so the
-    // request can only wait for one. Then the wire dies.
-    const { client, killWire } = await setupClient({ silent: true, firstHelloDelayMs: 10_000, recordFrame: (frame) => frames.push(frame) },
+    let helloSeen!: () => void;
+    const hello = new Promise<void>((resolve) => { helloSeen = resolve; });
+    const { client, killWire } = await setupClient(
+      { silent: true, firstHelloDelayMs: 10_000, onHello: () => helloSeen(), recordFrame: (frame) => frames.push(frame) },
       { helloRetryMs: 60_000, reconnectBaseDelayMs: 60_000, reconnectMaxDelayMs: 60_000 });
     track(client);
-    const pending = client.fetch('/api/session/s1/prompt_async', { method: 'POST', body: '{}' });
+    await hello; // the wire exists and the handshake is waiting on the host
+    // The request is waiting for its channel exactly when it listens on its signal (waitForChannel): that is the event.
+    const controller = new AbortController();
+    let waitingSeen!: () => void;
+    const waiting = new Promise<void>((resolve) => { waitingSeen = resolve; });
+    const listen = controller.signal.addEventListener.bind(controller.signal);
+    controller.signal.addEventListener = ((...args: Parameters<AbortSignal['addEventListener']>) => { listen(...args); waitingSeen(); }) as AbortSignal['addEventListener'];
+    const pending = client.fetch('/api/session/s1/prompt_async', { method: 'POST', body: '{}', signal: controller.signal });
     let caught: unknown = null;
     const settled = pending.catch((error: unknown) => { caught = error; });
+    await waiting;
     killWire();
-    await Promise.race([settled, wait(1_000)]);
-    if (!caught) client.close(); // a request still waiting is failed by close, which is not ambiguous either
-    await settled;
-    expect(frames.some((frame) => frame.frameType === TunnelFrameType.HttpRequest)).toBe(false);
+    await settled; // rejected by the wire closure itself; client.close() (afterEach) is cleanup only
     expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/relay socket closed \(code 1006\)/);
+    expect(frames.some((frame) => frame.frameType === TunnelFrameType.HttpRequest)).toBe(false);
     expect(isAmbiguousTransportFailure(caught)).toBe(false);
   });
 
