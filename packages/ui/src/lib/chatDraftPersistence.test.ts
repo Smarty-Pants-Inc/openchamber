@@ -13,7 +13,7 @@ import {
   writeChatDraft,
 } from './chatDraftPersistence';
 import { newSessionSlotKey } from './chatDraftTabs';
-import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorage';
+import { getSafeStorage } from '@/stores/utils/safeStorage';
 
 const storage = getSafeStorage();
 
@@ -136,5 +136,22 @@ describe('chatDraftPersistence: the pre-#461 shared New session draft', () => {
     expect(storage.getItem(newSessionSlotKey('runtime-a', '/legacy-repo')) ?? '').toContain('older');
     expect(storage.getItem('openchamber.chatDrafts.v2') ?? '').not.toContain('older');
     expect(readChatDraft(createChatDraftIdentity('runtime-a', '/legacy-repo', 's1')).text).toBe('in s1');
+  });
+});
+
+// openchamber#433 round 4, P1 2 (the Send variant): a delivered text consumed by consumeChatDraft (as sent-start recovery
+// does once delivery is confirmed) leaves a cleared marker, so no later page or fresh tab offers it again as unsent.
+describe('chatDraftPersistence: a sent New session draft never comes back', () => {
+  beforeEach(() => { storage.clear(); });
+  test('consumed after delivery: a fresh tab of the project does not restore the sent text', async () => {
+    const { createTabDrafts } = await import('./chatDraftTabs');
+    const draft = createChatDraftIdentity('runtime-a', '/sent-repo', null)!;
+    writeChatDraft(draft, 'hello, sent', []);
+    expect(consumeChatDraft(draft, 'hello, sent')).toBe(true);
+    expect(readChatDraft(draft).text).toBe('');
+    const freshSession = { getItem: () => null, setItem: () => undefined };
+    const fresh = createTabDrafts({ storage, session: freshSession });
+    expect(fresh.adoptNewest('runtime-a', '/sent-repo')).toBe(false);
+    expect(fresh.readSlot('runtime-a', '/sent-repo')).toBeUndefined();
   });
 });

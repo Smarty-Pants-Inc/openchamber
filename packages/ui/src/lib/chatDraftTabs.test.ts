@@ -61,7 +61,7 @@ describe('per-tab New session drafts (#461)', () => {
     const d = createTabDrafts({ storage, session: copy }); d.readSlot(RT, DIR); d.writeSlot(RT, DIR, draft('d', 2)); d.writeSlot(RT, DIR, undefined);
     // A's page closes (earlier designs released a claim key here; this one has none), then a fresh tab copies its draft.
     for (const k of [...storage.map.keys()]) if (k.startsWith('openchamber.chatDraftTabClaim:')) storage.map.delete(k);
-    const b = createTabDrafts({ storage, session: sb }); expect(b.adoptNewest(RT, DIR)).toMatchObject({ stored: true }); b.writeSlot(RT, DIR, undefined);
+    const b = createTabDrafts({ storage, session: sb }); b.adoptNewest(RT, DIR); b.writeSlot(RT, DIR, draft('b', 4)); b.writeSlot(RT, DIR, undefined);
     expect(othersTouched(storage, d.tabId(), mark).filter(k => !k.includes(b.tabId()))).toEqual([]);
     expect(a.readSlot(RT, DIR)?.text).toBe('alpha');
   });
@@ -85,5 +85,40 @@ describe('per-tab New session drafts (#461)', () => {
     const storage = memory(); createTabDrafts({ storage, session: memory() }).writeSlot(RT, DIR, draft('alpha', 1));
     const refusing = { ...storage, get length() { return storage.length; }, setItem: (k: string, v: string) => (k.includes('chatDraftSlot') ? false : storage.setItem(k, v)) };
     expect(createTabDrafts({ storage: refusing, session: memory() }).adoptNewest(RT, DIR)).toEqual({ from: 'tab', stored: false });
+  });
+
+  // openchamber#433 round 4, P1 1: at quota the reload's copy is refused; the earlier slot must stay reachable.
+  test('a refused reload copy: the next load on the same tab still finds the earlier draft, also once storage recovers', () => {
+    const storage = memory(), sa = memory(); let refuse = false; const refused: string[] = [];
+    const guarded = { ...storage, get length() { return storage.length; },
+      setItem: (k: string, v: string) => { if (refuse && k.startsWith('openchamber.chatDraftSlot:')) { refused.push(k); return false; } return storage.setItem(k, v); } };
+    createTabDrafts({ storage: guarded, session: sa }).writeSlot(RT, DIR, draft('alpha', 1));
+    refuse = true;
+    const second = createTabDrafts({ storage: guarded, session: sa }); let told = 0; second.onCopyRefused(() => { told++; });
+    expect(second.readSlot(RT, DIR)?.text).toBe('alpha'); // Shown (from memory), the copy refused, and reported:
+    expect(refused.length).toBe(1); expect(told).toBe(1);
+    const third = createTabDrafts({ storage: guarded, session: sa }); // Another reload, still at quota.
+    expect(third.readSlot(RT, DIR)?.text).toBe('alpha');
+    refuse = false;
+    const fourth = createTabDrafts({ storage: guarded, session: sa }); // Storage available again.
+    expect(fourth.readSlot(RT, DIR)?.text).toBe('alpha');
+    expect(createTabDrafts({ storage: guarded, session: sa }).readSlot(RT, DIR)?.text).toBe('alpha');
+  });
+
+  // openchamber#433 round 4, P1 2: a cleared or sent draft never comes back from an earlier load's slot.
+  for (const how of ['cleared', 'sent (consumed after the admitted mark)'] as const) test(`save, reload, then ${how}: neither a reload nor a fresh tab restores it; another tab's draft stays`, () => {
+    const storage = memory(), sa = memory();
+    const other = createTabDrafts({ storage, session: memory() }); other.writeSlot(RT, '/other', draft('unrelated', 1));
+    const bee = createTabDrafts({ storage, session: memory() }); bee.writeSlot(RT, DIR, draft('b unsent', 2));
+    createTabDrafts({ storage, session: sa }).writeSlot(RT, DIR, draft('hello', 3));
+    const reloaded = createTabDrafts({ storage, session: sa });
+    expect(reloaded.readSlot(RT, DIR)?.text).toBe('hello');
+    reloaded.writeSlot(RT, DIR, undefined); // Clear, or the sent text consumed (consumeChatDraft writes the empty draft).
+    expect(createTabDrafts({ storage, session: sa }).readSlot(RT, DIR)).toBeUndefined(); // Reload: not restored.
+    const fresh = createTabDrafts({ storage, session: memory() });
+    fresh.adoptNewest(RT, DIR);
+    expect(fresh.readSlot(RT, DIR)?.text).not.toBe('hello'); // Never the cleared or sent text...
+    expect(fresh.readSlot(RT, DIR)?.text).toBe('b unsent'); // ...the other tab's current draft instead.
+    expect(bee.readSlot(RT, DIR)?.text).toBe('b unsent'); expect(other.readSlot(RT, '/other')?.text).toBe('unrelated');
   });
 });

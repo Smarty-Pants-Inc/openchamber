@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptNewest, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptNewest, onCopyRefused, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -45,6 +45,8 @@ const setEphemeral = (value: boolean): void => {
   if (ephemeralOnly === value) return;
   ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
 };
+// A reload's or duplicate's copy of its earlier draft that storage refused: the draft lives in memory only for now.
+onCopyRefused(() => setEphemeral(true));
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
   return () => persistenceListeners.delete(listener);
