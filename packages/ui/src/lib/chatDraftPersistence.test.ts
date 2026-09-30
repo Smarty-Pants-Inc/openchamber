@@ -11,7 +11,7 @@ import {
   subscribeChatDraftConsumption,
   writeChatDraft,
 } from './chatDraftPersistence';
-import { getSafeStorage } from '@/stores/utils/safeStorage';
+import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorage';
 
 const storage = getSafeStorage();
 
@@ -119,5 +119,38 @@ describe('chatDraftPersistence', () => {
     } finally {
       JSON.parse = originalParse;
     }
+  });
+});
+
+// smarty-code#461 on 3.56: tab A typed "alpha", tab B (same project) typed "beta", A reloaded and showed "beta": one
+// saved New session slot per project, the last writer won. Each tab now has its own slot (a sessionStorage tab id).
+describe('chatDraftPersistence: a New session draft per tab', () => {
+  const session = getSafeSessionStorage();
+  const asTab = (id: string) => session.setItem('openchamber.chatDraftTab', id);
+  beforeEach(() => { storage.removeItem('openchamber.chatDrafts.v2'); session.removeItem('openchamber.chatDraftTab'); });
+
+  test('a second tab never overwrites the first tab\'s New session draft; each tab reads its own after a reload', () => {
+    const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
+    asTab('tab-A'); writeChatDraft(draft, 'alpha', []);
+    asTab('tab-B'); writeChatDraft(draft, 'beta', []);
+    asTab('tab-A'); expect(readChatDraft(draft).text).toBe('alpha');
+    asTab('tab-B'); expect(readChatDraft(draft).text).toBe('beta');
+    asTab('tab-A'); clearChatDraft(draft);
+    asTab('tab-B'); expect(readChatDraft(draft).text).toBe('beta'); // A clearing its draft leaves B's.
+  });
+
+  test('counterexample: a session\'s draft stays one slot for every tab (it is that session\'s own text)', () => {
+    const own = createChatDraftIdentity('runtime-a', '/repo', 'session-1')!;
+    asTab('tab-A'); writeChatDraft(own, 'shared', []);
+    asTab('tab-B'); expect(readChatDraft(own).text).toBe('shared');
+  });
+
+  test('a draft saved before this change is taken over by the first tab that reads it, once', () => {
+    storage.setItem('openchamber.chatDrafts.v2', JSON.stringify({ version: 2, drafts: {
+      [JSON.stringify(['runtime-a', '/repo', null])]: { text: 'older', confirmedMentions: [], touchedAt: 1 } } }));
+    const draft = createChatDraftIdentity('runtime-a', '/repo', null)!;
+    asTab('tab-A'); expect(readChatDraft(draft).text).toBe('older');
+    asTab('tab-B'); expect(readChatDraft(draft).text).toBe('');
+    asTab('tab-A'); expect(readChatDraft(draft).text).toBe('older');
   });
 });

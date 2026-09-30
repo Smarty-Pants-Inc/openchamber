@@ -1,5 +1,5 @@
 import { normalizePath } from '@/lib/pathNormalization';
-import { getSafeStorage } from '@/stores/utils/safeStorage';
+import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorage';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -60,8 +60,38 @@ export const createChatDraftIdentity = (
   return identity;
 };
 
-export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string =>
-  JSON.stringify([identity.runtimeKey, identity.directory, identity.sessionId]);
+const TAB_KEY = 'openchamber.chatDraftTab';
+/**
+ * This tab's id: kept in sessionStorage, so it survives the tab's reloads and differs from other tabs'. A project's New
+ * session draft is saved per tab: with one shared slot, a second tab's draft overwrote the first's, and the first tab came
+ * back from a reload showing the other's text (smarty-code#461, 3.56). ponytail: a duplicated tab copies sessionStorage,
+ * so it starts with (and then shares) the original's draft slot.
+ */
+const tabId = (): string => {
+  const session = getSafeSessionStorage();
+  let id = session.getItem(TAB_KEY);
+  if (!id) {
+    id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    session.setItem(TAB_KEY, id);
+  }
+  return id;
+};
+
+export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => JSON.stringify(identity.sessionId === null
+  ? [identity.runtimeKey, identity.directory, null, tabId()]
+  : [identity.runtimeKey, identity.directory, identity.sessionId]);
+
+/** A New session draft saved before drafts were per tab: the first tab that reads its project takes it over (once). */
+const adoptSharedDraft = (identity: ChatDraftIdentity): void => {
+  if (identity.sessionId !== null) return;
+  const envelope = readEnvelope();
+  const key = getChatDraftIdentityKey(identity);
+  const shared = JSON.stringify([identity.runtimeKey, identity.directory, null]);
+  if (key in envelope.drafts || !(shared in envelope.drafts)) return;
+  const drafts = { ...envelope.drafts, [key]: envelope.drafts[shared]! };
+  delete drafts[shared];
+  writeEnvelope({ version: 2, drafts });
+};
 
 /** The draft lifecycle claims a shared slot before a new generation can edit it. */
 export const claimChatDraftOwnership = (identity: ChatDraftIdentity | null): void => {
@@ -121,6 +151,7 @@ const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
 
 export const readChatDraft = (identity: ChatDraftIdentity | null): ChatDraftSnapshot => {
   if (!identity) return { text: '', confirmedMentions: new Set() };
+  adoptSharedDraft(identity);
   const persisted = readEnvelope().drafts[getChatDraftIdentityKey(identity)];
   return persisted
     ? { text: persisted.text, confirmedMentions: new Set(persisted.confirmedMentions) }
@@ -158,6 +189,7 @@ export const writeChatDraft = (
 
 /** When the saved draft's current text was set (older entries: when it was last saved); undefined when none is saved. */
 export const readChatDraftSince = (identity: ChatDraftIdentity | null): number | undefined => {
+  if (identity) adoptSharedDraft(identity);
   const persisted = identity ? readEnvelope().drafts[getChatDraftIdentityKey(identity)] : undefined;
   return persisted?.text ? persisted.since ?? persisted.touchedAt : undefined;
 };

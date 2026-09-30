@@ -72,7 +72,7 @@ const sentKey = (c: Mounted) => `oc.nativeCreation.sent:${JSON.stringify([c.runt
 const slot = () => {
   // SAFETY: the chat-draft envelope (version 2) this page itself wrote.
   const envelope = JSON.parse(getSafeStorage().getItem('openchamber.chatDrafts.v2') ?? '{"drafts":{}}') as { drafts: Record<string, { text: string }> };
-  return Object.entries(envelope.drafts).find(([key]) => key.includes(directory) && key.endsWith('null]'))?.[1]?.text ?? '';
+  return Object.entries(envelope.drafts).find(([key]) => key.includes(directory) && /null(,"[^"]+")?\]$/.test(key))?.[1]?.text ?? ''; // a per-tab New session slot (#461)
 };
 const deliveredHello = [{ info: { id: 'msg_1', sessionID: session.id, role: 'user', time: { created: 1 } },
   parts: [{ id: 'prt_1', type: 'text', text: 'hello' }] }];
