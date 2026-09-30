@@ -19,6 +19,7 @@ import {
 import { z } from "zod"
 import { isVSCodeRuntime } from "@/lib/desktop"
 import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
+import { noteSessionReadFailed } from "@/lib/openSessionReadFailure"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
@@ -867,6 +868,7 @@ export class SessionMessageLoader {
         const status = "status" in failure && Number.isInteger(failure.status) ? Number(failure.status) : undefined
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
+        noteSessionReadFailed(target.sessionID) // The open session's own read failed: its row may say why (#811).
         reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, message: failure.name, sessionID: target.sessionID, runtimeKey, operationId, // Never the server's words.
           status })
       })

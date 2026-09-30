@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react"
+import { noteSessionReadFailed } from "@/lib/openSessionReadFailure"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { upsertSessionRecord } from "./session-records"
@@ -282,6 +283,7 @@ export function useSync() {
                   }
                 } catch (e) {
                   console.error("[sync] failed to fetch session", sessionID, e)
+                  noteSessionReadFailed(sessionID) // #811: the open session's row may say it ended.
                 }
               })()
             : Promise.resolve(),
