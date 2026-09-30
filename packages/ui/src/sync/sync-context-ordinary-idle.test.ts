@@ -86,3 +86,10 @@ test("3.57 #737: another directory's explicit idle never settles a fleet session
   const managed = { id: S, directory: "/p/other" } as unknown as Parameters<typeof settledBySnapshot>[2]
   expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, managed, "/p/smarty-net")).toBe(true) // A managed session keeps its rule.
 })
+
+// code-perf's 3.57 capture: the per-directory poll omitted net-lead while the fleet poll listed it busy.
+test("3.57 #737: absence from a per-directory poll never settles a session the fleet lists busy", () => {
+  const managed = { id: S, directory: "/p/smarty-code" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, managed, "/p/smarty-code", true)).toBe(false)
+  expect(settledBySnapshot(undefined, { type: "idle" }, managed, "/p/smarty-code", false)).toBe(true) // #2577 otherwise.
+})

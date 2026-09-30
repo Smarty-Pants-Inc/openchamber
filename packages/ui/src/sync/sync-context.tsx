@@ -787,7 +787,7 @@ export function applySessionStatusSnapshot(
  * its own message re-read brings the committed results. Other sessions keep #2577's rule: absence is idle.
  */
 export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined,
-  session?: Session, directory?: string): boolean {
+  session?: Session, directory?: string, activeInFleet = false): boolean {
   const own = (path: string) => path.replace(/\/+$/, '')
   const elsewhere = Boolean(session?.directory && directory && own(session.directory) !== own(directory))
   // Its status may have lost the ordinary mark (the incident's did: the non-ordinary path), so the session's own
@@ -801,6 +801,9 @@ export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], 
   // held in this store (#737, 06:54:52Z: the page read a just-added worktree's status while its store held three fleet
   // sessions of other projects, and marked their running tools Interrupted).
   if (elsewhere) return false
+  // 3.57 (code-perf's capture, 05:06Z): the fleet-wide poll listed net-lead busy while this directory's poll omitted it.
+  // Absence here never outweighs the fleet's own word that it is working.
+  if (activeInFleet) return false
   // A session this store has no record of: absence proves nothing about it (3.57: no directory and no metadata to judge).
   if (!session) return false
   return !fleet
@@ -827,10 +830,28 @@ async function resyncDirectorySessionStatuses(
     // The snapshot write above already lowered their status to explicit idle,
     // which is the gate the helper requires — a session the snapshot reports
     // busy stays untouched.
+    // 3.57 #737 (code-perf's capture): a per-directory snapshot omitted net-lead while the fleet-wide read listed it busy.
+    // Before absence settles a turn, the fleet's word is asked (the global index, else one fleet read for a managed
+    // catalog); a session it lists active keeps that status here and is not settled.
+    let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
+    const activeInFleet = async (sessionId: string) => {
+      const indexed = useGlobalSessionStatusStore.getState().statusById.get(sessionId)?.status
+      let status: SessionStatus | undefined = indexed?.type === 'busy' || indexed?.type === 'retry' ? indexed : undefined
+      if (!status && useProjectsStore.getState().managedCatalogAdmitted) {
+        fleet ??= opencodeClient.getSessionStatusForDirectory(null).catch(() => null)
+        const listed = toSessionStatus((await fleet)?.[sessionId])
+        if (listed && listed.type !== 'idle') status = listed
+      }
+      if (!status) return false
+      const active = status
+      store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [sessionId]: active } }))
+      return true
+    }
     for (const sessionId of candidateSessionIds) {
       const state = store.getState()
       const session = state.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId)
-      if (!settledBySnapshot(nextStatuses[sessionId], state.session_status?.[sessionId], session, directory)) continue
+      if (!settledBySnapshot(nextStatuses[sessionId], state.session_status?.[sessionId], session, directory,
+        nextStatuses[sessionId] === undefined && await activeInFleet(sessionId))) continue
       const interrupted = interruptedTurnToolParts(store.getState(), sessionId)
       if (interrupted) {
         reportTurnSettledLocally(sessionId, "authoritative idle status", interrupted, runtimeKey)
