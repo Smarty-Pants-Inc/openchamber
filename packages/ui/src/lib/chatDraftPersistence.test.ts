@@ -231,3 +231,50 @@ describe('chatDraftPersistence: reload safety of a tab draft (#433 r6)', () => {
     expect(createTabDrafts({ storage, session }).readSlot('runtime-a', '/r6sent')).toBeUndefined();
   });
 });
+
+// openchamber#433 round 7: a failed clear of project P is owed per key. Storage refuses writes AND removals (both
+// throw) through P's clear and the P -> Q navigation flush; it recovers while Q is active; Q's save must not acknowledge
+// or forget P's clear. Back on P, and after a same-tab reload, P shows nothing.
+describe('chatDraftPersistence: a failed clear survives navigation to another project (#433 r7)', () => {
+  const session = getSafeSessionStorage();
+  // This page's tab id is where a same-tab reload finds it (the module's page keeps its id for its life).
+  beforeEach(() => { storage.clear(); session.setItem('openchamber.chatDraftTab', tabId()); });
+  /** What a same-tab reload finds: the browser's own localStorage (the safe adapter's page-memory overrides are gone). */
+  const afterReload = (directory: string) => {
+    const raw = window.localStorage.getItem(newSessionSlotKey('runtime-a', directory));
+    const text = raw === null ? '' : (JSON.parse(raw) as { text: string }).text;
+    return text;
+  };
+  const refuseAll = () => {
+    const ls = window.localStorage, set = ls.setItem, remove = ls.removeItem;
+    ls.setItem = (k: string, v: string) => { if (k.startsWith('openchamber.chatDraftSlot:')) throw new DOMException('refused', 'SecurityError'); set.call(ls, k, v); };
+    ls.removeItem = (k: string) => { if (k.startsWith('openchamber.chatDraftSlot:')) throw new DOMException('refused', 'SecurityError'); remove.call(ls, k); };
+    return () => { ls.setItem = set; ls.removeItem = remove; };
+  };
+  for (const how of ['cleared', 'sent (consumeChatDraft)'] as const) test(`P ${how} while storage refuses, P -> Q -> P after recovery on Q, then a reload: P stays empty`, () => {
+    const p = createChatDraftIdentity('runtime-a', `/r7-p-${how.length}`, null)!, q = createChatDraftIdentity('runtime-a', `/r7-q-${how.length}`, null)!;
+    writeChatDraft(p, 'hello', []);
+    const recover = refuseAll();
+    if (how === 'cleared') writeChatDraft(p, '', []); else consumeChatDraft(p, 'hello');
+    expect(isChatDraftEphemeral()).toBe(true);
+    writeChatDraft(p, '', []); // The P -> Q outgoing flush: still refused.
+    expect(isChatDraftEphemeral()).toBe(true);
+    recover(); // Storage recovers while Q is active.
+    writeChatDraft(q, 'draft in Q', []); // Q's save: it retries P's owed clear too.
+    expect(isChatDraftEphemeral()).toBe(false);
+    expect(readChatDraft(p).text).toBe(''); // Back on P.
+    writeChatDraft(p, '', []); // P's debounce and unload flush (an unchanged empty draft).
+    expect(afterReload(p.directory)).toBe(''); // A same-tab reload: P does not come back as 'hello'.
+    expect(afterReload(q.directory)).toBe('draft in Q');
+  });
+  test('the owed clear is retried by P\'s own unchanged empty write when Q never saves', () => {
+    const p = createChatDraftIdentity('runtime-a', '/r7-p-own', null)!;
+    writeChatDraft(p, 'hello', []);
+    const recover = refuseAll();
+    writeChatDraft(p, '', []);
+    recover();
+    expect(readChatDraft(p).text).toBe(''); // Back on P: nothing shown, nothing saved yet.
+    expect(writeChatDraft(p, '', [])).toBe(true); // The empty flush is not skipped: the clear lands.
+    expect(afterReload('/r7-p-own')).toBe('');
+  });
+});

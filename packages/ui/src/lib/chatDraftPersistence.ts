@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptLegacy, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptLegacy, hasUnsaved, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -139,10 +139,7 @@ const writeEnvelope = (envelope: PersistedChatDraftEnvelope): boolean => {
   cachedEnvelope = envelope;
   countSyncPersistenceSerialization(serialized);
   const stored = storage.setItem(STORAGE_KEY, serialized);
-  if (ephemeralOnly !== !stored) {
-    ephemeralOnly = !stored;
-    persistenceListeners.forEach(listener => listener());
-  }
+  setEphemeral(!stored || hasUnsaved()); // A tab draft's owed write keeps the warning on (#433 r7).
   return stored;
 };
 
@@ -165,7 +162,8 @@ export const writeChatDraft = (
   if (!identity || !ownsChatDraft(identity)) return;
   if (identity.sessionId === null) {
     const stored = writeTabDraft(identity.runtimeKey, identity.directory, savedDraft(identity), text, confirmedMentions, since, ephemeralOnly);
-    if (stored !== undefined) setEphemeral(!stored);
+    // The warning stays on while any refused write of this tab (another project's clear included) is still owed.
+    if (stored !== undefined) setEphemeral(!stored || hasUnsaved());
     if (stored) finishLegacy(identity);
     return stored;
   }
