@@ -10,6 +10,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { getDefaultTheme } from '@/lib/theme/themes';
 
 import { MobilePillComposer } from './MobilePillComposer';
+import { pillSendDisabledReason } from './pillSendDisabledReason';
 
 const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean; unavailable?: string }) => {
     const win = new Window({ url: 'http://localhost' });
@@ -159,3 +160,16 @@ test('smarty-code#790: an unavailable session disables the collapsed Send, idle 
     await renderPill({ hasContent: true, newSessionDraftOpen: false, unavailable: 'This session is unavailable right now.' });
     await renderPill({ hasContent: true, newSessionDraftOpen: false, canAbort: true, unavailable: 'This session is unavailable right now.' });
 });
+
+// openchamber#441 r3: a New session draft on a withdrawn project. The collapsed Send must be off too, with the reason
+// shown; choosing an admitted project (another mode) turns it back on.
+    const NOT_ADMITTED = 'That project is no longer available here. Choose another project for this new session.';
+    const t = (key: string) => key === 'chat.nativeCreation.notAdmitted' ? NOT_ADMITTED : 'unavailable';
+    test('a withdrawn-project draft: the collapsed Send is off and says why; an admitted project turns it back on', async () => {
+        const reason = pillSendDisabledReason({ ordinaryUnavailable: false, newSessionDraftOpen: true, nativeMode: 'notAdmitted' }, t);
+        expect(reason).toBe(NOT_ADMITTED);
+        const markup = await renderPill({ hasContent: true, newSessionDraftOpen: true, unavailable: reason });
+        expect(markup.match(/<p[^>]*data-testid="mobile-send-unavailable"[^>]*>([^<]*)<\/p>/)?.[1]).toBe(NOT_ADMITTED);
+        expect(pillSendDisabledReason({ ordinaryUnavailable: false, newSessionDraftOpen: true, nativeMode: 'ordinary' }, t)).toBeUndefined();
+        expect(pillSendDisabledReason({ ordinaryUnavailable: false, newSessionDraftOpen: false, nativeMode: 'notAdmitted' }, t)).toBeUndefined();
+    });

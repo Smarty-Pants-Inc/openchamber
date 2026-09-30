@@ -1,4 +1,5 @@
 import { isRetainedUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
@@ -3560,7 +3561,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onPrimaryAction={handlePrimaryAction}
                         onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : () => { void handleQueueMessage(); }}
                         sendWhileWorking={sendsWhileWorking}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -3740,7 +3741,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         isExpandedInput={isExpandedInput}
