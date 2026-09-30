@@ -788,15 +788,22 @@ export function applySessionStatusSnapshot(
  */
 export function settledBySnapshot(entry: Parameters<typeof toSessionStatus>[0], current: SessionStatus | undefined,
   session?: Session, directory?: string): boolean {
-  if (toSessionStatus(entry) !== undefined) return true
+  const own = (path: string) => path.replace(/\/+$/, '')
+  const elsewhere = Boolean(session?.directory && directory && own(session.directory) !== own(directory))
+  // Its status may have lost the ordinary mark (the incident's did: the non-ordinary path), so the session's own
+  // metadata counts too: only it marks native ownership (readOrdinaryModel).
+  const fleet = Boolean(current?.ordinary || readOrdinaryModel(session) !== undefined)
+  // 3.57 (04:53:48Z, net-lead mid-turn): a fleet session is settled only by an explicit status from its OWN directory.
+  // Another directory's entry for it (an unavailable placed row there: the Herdr view, no ordinary mark) is not its
+  // owner's word, and marked a running tool Interrupted while the Pi went on working.
+  if (toSessionStatus(entry) !== undefined) return !(fleet && elsewhere)
   // A directory's snapshot lists only that directory's sessions: absence says nothing about another project's session
   // held in this store (#737, 06:54:52Z: the page read a just-added worktree's status while its store held three fleet
   // sessions of other projects, and marked their running tools Interrupted).
-  const own = (path: string) => path.replace(/\/+$/, '')
-  if (session?.directory && directory && own(session.directory) !== own(directory)) return false
-  // Its status may have lost the ordinary mark (the incident's did: the non-ordinary path), so the session's own
-  // metadata counts too: only it marks native ownership (readOrdinaryModel).
-  return !(current?.ordinary || readOrdinaryModel(session) !== undefined)
+  if (elsewhere) return false
+  // A session this store has no record of: absence proves nothing about it (3.57: no directory and no metadata to judge).
+  if (!session) return false
+  return !fleet
 }
 
 async function resyncDirectorySessionStatuses(

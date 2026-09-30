@@ -52,8 +52,9 @@ test("#737: an ordinary session absent from an authoritative snapshot is not set
 })
 
 test("#737 counterexample: a non-ordinary session absent from the snapshot is still settled (#2577)", () => {
-  expect(settledBySnapshot(undefined, { type: "idle" })).toBe(true)
-  expect(settledBySnapshot(undefined, undefined)).toBe(true)
+  const managed = { id: S } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot(undefined, { type: "idle" }, managed)).toBe(true)
+  expect(settledBySnapshot(undefined, undefined, managed)).toBe(true)
 })
 
 test("#737 review: a fleet session whose status lost its ordinary mark is known by its session metadata, not settled", () => {
@@ -73,4 +74,15 @@ test("#737: a session of another directory is never settled by this directory's 
   const own = { id: S, directory: "/projects/p608-966439-1/" } as unknown as Parameters<typeof settledBySnapshot>[2]
   expect(settledBySnapshot(undefined, { type: "idle" }, own, "/projects/p608-966439-1")).toBe(true) // Its own: #2577.
   expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, other, "/projects/p608-966439-1")).toBe(true) // Listed: settles.
+})
+
+// 3.57 (04:53:48Z): net-lead's running tool was marked Interrupted by an authoritative snapshot on Code Test 5's page
+// while its Pi kept working (the next tool ran 04:53:48.974-55.760). The page's status carried no ordinary mark.
+test("3.57 #737: another directory's explicit idle never settles a fleet session; an unknown session is never settled", () => {
+  const fleet = { id: S, directory: "/p/smarty-net", nativeRuntime: "ordinary" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, fleet, "/p/smarty-net/pages-ux")).toBe(false) // (a)
+  expect(settledBySnapshot(undefined, { type: "idle" }, undefined, "/p/smarty-net/pages-ux")).toBe(false) // (b)
+  expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, fleet, "/p/smarty-net/")).toBe(true) // Its own directory: settles.
+  const managed = { id: S, directory: "/p/other" } as unknown as Parameters<typeof settledBySnapshot>[2]
+  expect(settledBySnapshot({ type: "idle" }, { type: "idle" }, managed, "/p/smarty-net")).toBe(true) // A managed session keeps its rule.
 })
