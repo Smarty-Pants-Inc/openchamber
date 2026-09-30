@@ -1,6 +1,7 @@
 import { defaultReloadJitterMs, reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
 import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
+import { wireOpenSessionReadFailure } from '@/lib/openSessionReadFailure';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { noticeProjectConnected } from '@/lib/managed-project-join';
 import { optimisticStatuses, sendingStatuses } from './optimistic-status';
@@ -698,6 +699,10 @@ function getViewedSessionMaterializationTarget(directory: string) {
     sessionId: _activeSession,
   }
 }
+
+// #811: a failed read of the open session refreshes the managed listing (its row may say the Pi ended).
+wireOpenSessionReadFailure({ current: () => useSessionUIStore.getState().currentSessionId,
+  managed: () => useProjectsStore.getState().managedCatalogAdmitted, refresh: () => refreshManagedProjects(true) })
 
 function toSessionStatus(status: Awaited<ReturnType<typeof opencodeClient.getSessionStatus>>[string] | undefined): SessionStatus | undefined {
   return status ? parseSessionStatus(status) : undefined
