@@ -1103,7 +1103,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering' || nativeCreation.mode === 'notAdmitted')) && !sentLocked
         && !ordinaryUnavailable;
 
     const canAbort = sessionPhase !== 'idle' && !statusUnavailable
