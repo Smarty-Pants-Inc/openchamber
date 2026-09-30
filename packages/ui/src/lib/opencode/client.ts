@@ -1,6 +1,7 @@
 import type { ContextPartMetadata } from '@/lib/messages/contextParts';
 import { trackPrompt } from '@/sync/prompts-in-flight';
 import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
+import { noteSessionReadFailed } from "@/lib/openSessionReadFailure";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source, SessionStatus as SDKSessionStatus } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
@@ -310,7 +311,13 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
         signal = timeout.signal;
       }
       try {
-        return await runtimeFetch(input, { ...init, signal });
+        const response = await runtimeFetch(input, { ...init, signal });
+        // #811: a failed read of a session (5xx/404) may mean its Pi ended; the open one's row is refreshed now.
+        if (response.status >= 500 || response.status === 404) {
+          const session = /\/session\/([^/?]+)(?:\/message)?(?:\?|$)/.exec(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)?.[1];
+          if (session) noteSessionReadFailed(decodeURIComponent(session));
+        }
+        return response;
       } catch (error) {
         if (timeout.signal.aborted && !callerSignal?.aborted) {
           throw new Error(`OpenCode request timed out after ${requestTimeoutMs}ms`);
