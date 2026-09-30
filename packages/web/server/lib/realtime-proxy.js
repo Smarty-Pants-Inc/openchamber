@@ -1,4 +1,4 @@
-import { browserRequestAllowed } from './security/browser-origin.js';
+import { applicationAuthority, browserRequestAllowed } from './security/browser-origin.js';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const PROXY_SSE_PATH = '/api/openchamber/realtime-proxy/sse';
@@ -257,7 +257,13 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
       try { return new URL(req.url || '/', 'http://127.0.0.1').pathname; } catch { return ''; }
     })();
     if (pathname !== PROXY_WS_PATH) return;
-    void ensureAuthenticated(req, null).then((authenticated) => {
+    void (async () => {
+      const controller = getUiAuthController?.();
+      if (controller?.humanMode && !await applicationAuthority(req)) {
+        rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+        return;
+      }
+      const authenticated = await ensureAuthenticated(req, null);
       if (!authenticated) {
         rejectWebSocketUpgrade(socket, 401, 'Unauthorized');
         return;
@@ -276,7 +282,7 @@ export const attachRealtimeProxy = ({ app, server, getDesktopRuntimeConfig, getU
       }).catch(() => {
         rejectWebSocketUpgrade(socket, 403, 'Forbidden');
       });
-    }).catch(() => {
+    })().catch(() => {
       rejectWebSocketUpgrade(socket, 401, 'Unauthorized');
     });
   };

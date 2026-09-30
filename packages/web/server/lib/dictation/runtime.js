@@ -20,7 +20,7 @@
  *     { type: 'pong' }
  */
 
-import { browserRequestAllowed } from '../security/browser-origin.js';
+import { applicationAuthority, browserRequestAllowed } from '../security/browser-origin.js';
 import { WebSocketServer } from 'ws';
 
 import { DictationStreamManager } from './stream-manager.js';
@@ -138,9 +138,18 @@ export function createDictationRuntime({
       }
     };
 
+    let closed = false;
     const manager = new DictationStreamManager({
       emit: ({ type, payload }) => send({ type, ...payload }),
-      createSttSession: (options) => service.createSttSession(options),
+      createSttSession: async (options) => {
+        const resolved = await service.createSttSession(options);
+        // cleanupAll cannot see a start still awaiting its service session.
+        if (closed || socket.readyState !== 1) {
+          resolved.session?.close();
+          return { error: 'Dictation socket closed', retryable: false };
+        }
+        return resolved;
+      },
     });
 
     send({ type: 'ready' });
@@ -157,7 +166,7 @@ export function createDictationRuntime({
     }, DICTATION_WS_HEARTBEAT_INTERVAL_MS);
 
     socket.on('message', (raw, isBinary) => {
-      if (isBinary) {
+      if (closed || socket.readyState !== 1 || isBinary) {
         return;
       }
       let message;
@@ -218,6 +227,7 @@ export function createDictationRuntime({
     });
 
     socket.on('close', () => {
+      closed = true;
       clearInterval(heartbeatInterval);
       manager.cleanupAll();
     });
@@ -235,6 +245,18 @@ export function createDictationRuntime({
 
     const handleUpgrade = async () => {
       try {
+        if (uiAuthController?.humanMode && !await applicationAuthority(req)) {
+          rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+          return;
+        }
+        if (uiAuthController?.humanMode) {
+          await uiAuthController.requireUpgradeAuth(req, socket, () => {
+            wsServer.handleUpgrade(req, socket, head, (ws) => {
+              wsServer.emit('connection', ws, req);
+            });
+          }, rejectWebSocketUpgrade);
+          return;
+        }
         if (uiAuthController?.enabled) {
           const sessionToken = await uiAuthController?.ensureSessionToken?.(req, null);
           if (!sessionToken) {

@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import { applicationAuthority } from '../security/browser-origin.js';
 
 // Smarty Code session voice: one browser WebSocket per call, proxied to the Code gateway's
 // session voice socket. The gateway owns the call; this edge only authenticates and pipes.
@@ -107,13 +108,18 @@ export const attachSessionVoiceSocket = ({
       rejectWebSocketUpgrade(socket, 403, 'Voice calls need a signed-in human');
       return;
     }
-    if (!directory || !sessionId) {
-      rejectWebSocketUpgrade(socket, 400, 'Voice needs a session and a project directory');
-      return;
-    }
-    void Promise.resolve(controller.requireUpgradeAuth(req, socket,
-      () => connect(req, socket, head, sessionId, directory), rejectWebSocketUpgrade))
-      .catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
+    void (async () => {
+      if (!await applicationAuthority(req)) {
+        rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+        return;
+      }
+      if (!directory || !sessionId) {
+        rejectWebSocketUpgrade(socket, 400, 'Voice needs a session and a project directory');
+        return;
+      }
+      await controller.requireUpgradeAuth(req, socket,
+        () => connect(req, socket, head, sessionId, directory), rejectWebSocketUpgrade);
+    })().catch(() => rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'));
   };
   server.on('upgrade', upgradeHandler);
   return {

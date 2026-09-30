@@ -142,8 +142,8 @@ test('human auth successor retains both earlier overlapping behavior hashes', ()
   assert.equal(index.behaviorSha256, 'c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327');
   assert.equal(index.preHumanAuthCombinedSha256, '28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c');
   for (const entry of overlay.files.filter(entry => entry.humanAuthSha256)) {
-    assert.equal(entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256, entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256);
+    assert.equal(entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), entry.humanHostBoundarySha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256);
   }
 });
 
@@ -280,7 +280,7 @@ test('the passwordless origin guard binds its exact commit over the message-stre
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of added) {
     assert.equal(entry.brandingSha256, original.get(entry.path).outputSha256); // The donor bytes it replaces.
-    assert.equal(entry.originGuardSha256, entry.combinedSha256);
+    assert.equal(entry.originGuardSha256, entry.preHumanHostBoundaryCombinedSha256);
     assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   }
 });
@@ -347,7 +347,7 @@ test('the notification lookup\'s session directory binds its exact fix commit ov
   assert.match(overlay.notificationAuthSource, /^[a-f0-9]{40}$/);
   assert.deepEqual(overlay.files.filter(file => file.notificationAuthSha256).map(file => file.path), ['packages/web/server/index.js']);
   const entry = overlays.get('packages/web/server/index.js');
-  assert.equal(entry.notificationAuthSha256, entry.combinedSha256);
+  assert.equal(entry.notificationAuthSha256, entry.preHumanHostBoundaryCombinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preNotificationAuthCombinedSha256, '3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2');
 });
@@ -359,6 +359,63 @@ test('the #739 Fabric message row binds its exact feature commit over the messag
   assert.equal(entry.voiceFabricSha256, entry.combinedSha256);
   assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   assert.equal(entry.preVoiceFabricCombinedSha256, '5c9482283de9c85863d23f8682ac0e782b0efb7aaf7b53ba7a8a0b3225c27e95');
+});
+
+test('human Host boundary binds exactly two successors and preserves every historical field', () => {
+  assert.equal(overlay.humanHostBoundarySource, '12463c2fb0e599623e631e772f1699e4e1669965');
+  const expected = [
+    ['packages/web/server/index.js',
+      '606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd',
+      '4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe'],
+    ['packages/web/server/lib/event-stream/runtime.js',
+      '7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099',
+      '74c761d0a040bf4d995358de63ca8db5ad522f10721489bb3d7c41c26b609d67'],
+  ];
+  assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
+    expected.map(([file]) => file));
+  const historical = structuredClone(overlay);
+  delete historical.humanHostBoundarySource;
+  delete historical.humanSessionLifetimeProvenance;
+  for (const entry of historical.files.filter(file => file.preHumanSessionLifetimeCombinedSha256)) {
+    entry.combinedSha256 = entry.preHumanSessionLifetimeCombinedSha256;
+    delete entry.preHumanSessionLifetimeCombinedSha256;
+    delete entry.humanSessionLifetimeSha256;
+    delete entry.humanSessionLifetimeNote;
+  }
+  for (const [file, predecessor, successor] of expected) {
+    const entry = overlays.get(file);
+    assert.equal(entry.preHumanHostBoundaryCombinedSha256, predecessor, file);
+    assert.equal(entry.humanHostBoundarySha256, successor, file);
+    assert.equal(entry.combinedSha256, entry.humanSessionLifetimeSha256 ?? successor, file);
+    assert.equal(sha256(read(file)), entry.humanSessionLifetimeSha256 ?? successor, file);
+    assert.ok(entry.humanHostBoundaryNote, file);
+    const original = historical.files.find(candidate => candidate.path === file);
+    original.combinedSha256 = predecessor;
+    delete original.preHumanHostBoundaryCombinedSha256;
+    delete original.humanHostBoundarySha256;
+    delete original.humanHostBoundaryNote;
+  }
+  assert.equal(sha256(JSON.stringify(historical)),
+    '2d82cc4319d8f8ebe9488652c820f0612b2a016c944b70d012ce2d64bc48aa24');
+});
+
+test('human session lifetime binds the named finding and exact event successor bytes', () => {
+  assert.deepEqual(overlay.humanSessionLifetimeProvenance, {
+    reviewedHead: '12463c2fb0e599623e631e772f1699e4e1669965',
+    finding: 'P2 - Event-stream and dictation WebSockets retain authorization after the human session ends',
+  });
+  const file = 'packages/web/server/lib/event-stream/runtime.js';
+  assert.deepEqual(overlay.files.filter(entry => entry.preHumanSessionLifetimeCombinedSha256)
+    .map(entry => entry.path), [file]);
+  const entry = overlays.get(file);
+  assert.equal(entry.preHumanSessionLifetimeCombinedSha256,
+    '74c761d0a040bf4d995358de63ca8db5ad522f10721489bb3d7c41c26b609d67');
+  assert.equal(entry.preHumanSessionLifetimeCombinedSha256, entry.humanHostBoundarySha256);
+  assert.match(entry.humanSessionLifetimeSha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(entry.humanSessionLifetimeSha256, entry.preHumanSessionLifetimeCombinedSha256);
+  assert.equal(entry.humanSessionLifetimeSha256, entry.combinedSha256);
+  assert.equal(sha256(read(file)), entry.humanSessionLifetimeSha256);
+  assert.ok(entry.humanSessionLifetimeNote);
 });
 
 test('the shared worktree root binds its exact fix commit as a new overlay entry over the git service only (smarty-code#629)', () => {

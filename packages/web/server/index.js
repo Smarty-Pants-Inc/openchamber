@@ -20,6 +20,7 @@ import { createTunnelProviderRegistry } from './lib/tunnels/registry.js';
 import { createCloudflareTunnelProvider } from './lib/tunnels/providers/cloudflare.js';
 import { createNgrokTunnelProvider } from './lib/tunnels/providers/ngrok.js';
 import { createRequestSecurityRuntime } from './lib/security/request-security.js';
+import { applicationAuthority } from './lib/security/browser-origin.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -1678,6 +1679,13 @@ async function startConfiguredWebUiServer(options, humanAuth) {
   ]);
   const isLocalDevClientOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
   app.set('trust proxy', true);
+  if (humanMode) {
+    // Bootstrap configures the host sources before listen; early robots/CORS responses need the same Host boundary.
+    app.use(async (req, res, next) => {
+      if (!await applicationAuthority(req)) return res.status(403).json({ error: 'Requests require an application host' });
+      return next();
+    });
+  }
   // Keep self-hosted instances out of search engines. The app shell is served
   // publicly (it loads before prompting for the UI password), so without this
   // even a password-protected instance gets crawled and indexed. Applies to
