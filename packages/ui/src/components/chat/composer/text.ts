@@ -15,6 +15,11 @@
  * excerpt) rather than a continuation of the sentence.
  */
 export function appendWithLineBreaks(base: string, next: string): string {
+    return appendOwnedBlock(base, next).text;
+}
+
+/** `appendWithLineBreaks`, with the offset where `next` starts: the joined block's place, for `removeOwnedBlock`. */
+export function appendOwnedBlock(base: string, next: string): { text: string; at: number } {
     const separator = !base
         ? ''
         : base.endsWith('\n\n')
@@ -29,7 +34,46 @@ export function appendWithLineBreaks(base: string, next: string): string {
             ? `${next}\n`
             : `${next}\n\n`;
 
-    return `${base}${separator}${nextWithTrailingBreaks}`;
+    return { text: `${base}${separator}${nextWithTrailingBreaks}`, at: base.length + separator.length };
+}
+
+/**
+ * Remove the block that `appendOwnedBlock` joined at `at`, only while it is still there unedited: exactly `block`, at
+ * that offset, a whole block (at the start or after a blank line; at the end or before a blank line). Another copy of
+ * the same text elsewhere is never taken for it. The right boundary counts the block's own trailing newlines with the
+ * separator joined after it, as `appendOwnedBlock` does (review r2 1). Returns null otherwise (edited, moved or gone:
+ * the person's text now), else the remaining text and how many characters went (smarty-code#962).
+ */
+export function removeOwnedBlock(text: string, block: string, at: number): { text: string; removed: number } | null {
+    const core = block.replace(/\n+$/, '');
+    if (!core || at < 0 || !text.startsWith(block, at)) return null;
+    if (at > 0 && !text.slice(0, at).endsWith('\n\n')) return null;
+    const after = text.slice(at + core.length);
+    const breaks = after.length - after.replace(/^\n+/, '').length;
+    // At the end (only newlines follow) or before a blank line; a single newline is an edited continuation.
+    if (breaks < after.length && breaks < 2) return null;
+    const rest = text.slice(0, at) + after.slice(breaks);
+    return { text: rest.trim() ? rest : '', removed: text.length - rest.length };
+}
+
+/**
+ * Where the block joined at `at` (`length` characters) is after the composer changed from `prev` to `next`: shifted
+ * by an edit wholly before it, the same after an edit wholly after it, and -1 (no longer owned) when the edit deletes,
+ * replaces or inserts inside it. An edit of repeated text could have happened at several places; every one counts, so
+ * deleting one of two equal blocks gives up ownership rather than guess which (review r3 1, smarty-code#962).
+ */
+export function shiftOwnedBlock(prev: string, next: string, at: number, length: number): number {
+    if (at < 0 || prev === next) return at;
+    const shortest = Math.min(prev.length, next.length);
+    let head = 0;
+    while (head < shortest && prev[head] === next[head]) head++;
+    let tail = 0;
+    while (tail < shortest && prev[prev.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
+    // The changed span of `prev` over every alignment: from the latest-matching start to the earliest-matching end.
+    const from = Math.min(head, shortest - tail);
+    const to = prev.length - Math.min(tail, shortest - head);
+    if (to <= at) return at + next.length - prev.length;
+    return from >= at + length ? at : -1;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { isGloballyUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
@@ -143,6 +144,9 @@ import {
     appendWithLineBreaks,
     buildImagePasteInsertion,
     getMarkdownAutoPairEdit,
+    appendOwnedBlock,
+    removeOwnedBlock,
+    shiftOwnedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from './composer/text';
@@ -248,6 +252,8 @@ const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
     return `The user explicitly mentioned these skills in their message: ${formatted}. Use the corresponding skill tool when it is relevant to accomplishing the user's request.`;
 };
 
+/** A given-back text's block in its draft: `at` of `length` chars within the text `seen` (smarty-code#962). */
+type OwnedJoin = { identity: ChatDraftIdentity | null; at: number; gone: boolean; seen: string; length: number };
 type LinkedReferenceAuthor = { login: string; avatarUrl?: string };
 type LinkedGitHubIssue = { number: number; title: string; url: string; contextText: string; author?: LinkedReferenceAuthor };
 type LinkedGitHubPr = {
@@ -432,6 +438,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const snippetRef = React.useRef<SnippetAutocompleteHandle>(null);
     // Ref to track current message value without triggering re-renders in effects
     const messageRef = React.useRef(message);
+    // smarty-code#962: where each given-back text was joined (its draft and offset), so a late acceptance removes only
+    // that copy; removing one moves the ones joined after it.
+    // `seen` is the draft text `at` is valid in: every composer change moves `at` or ends the ownership (review r3 1).
+    const ownedJoinsRef = React.useRef(new Set<OwnedJoin>());
+    const followEdit = React.useCallback((own: OwnedJoin, text: string) => {
+        if (own.at < 0 || own.seen === text) return;
+        own.at = shiftOwnedBlock(own.seen, text, own.at, own.length); own.seen = text;
+        if (own.at < 0) ownedJoinsRef.current.delete(own);
+    }, []);
     const currentChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
     const pendingPastedAttachmentFilenamesRef = React.useRef<Set<string>>(new Set());
     const largeTextPasteToastIdRef = React.useRef<string | number | null>(null);
@@ -983,6 +998,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         currentChatDraftIdentityRef.current = chatDraftIdentity;
     }, [chatDraftIdentity]);
 
+    // smarty-code#962 review r3 1: each change of the shown draft moves or ends the given-back blocks it touches. The
+    // first render after a switch still holds the previous draft's text, so it is not an edit of this one.
+    const followedIdentityRef = React.useRef(chatDraftIdentity);
+    React.useEffect(() => {
+        const switched = !sameDraftIdentity(followedIdentityRef.current, chatDraftIdentity);
+        followedIdentityRef.current = chatDraftIdentity;
+        if (switched) return;
+        for (const own of [...ownedJoinsRef.current]) if (sameDraftIdentity(own.identity, chatDraftIdentity)) followEdit(own, message);
+    }, [chatDraftIdentity, followEdit, message]);
+
     // Draft persistence: identity switching, debounced writes and the
     // flush-on-hide edges live in the hook.
     const { persistNow: persistDraftImmediately, ephemeralOnly: draftEphemeralOnly } = useComposerDraft({
@@ -1103,7 +1128,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering' || nativeCreation.mode === 'notAdmitted')) && !sentLocked
         && !ordinaryUnavailable;
 
     const canAbort = sessionPhase !== 'idle' && !statusUnavailable
@@ -1425,6 +1450,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
+        // smarty-code#966: the draft's project is no longer admitted: no Send by button or keyboard; the text stays, and the
+        // notice says to choose another project (openchamber#441 r1).
+        if (newSessionDraftOpen && nativeCreation.mode === 'notAdmitted') return;
         // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
         const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
         if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
@@ -1533,11 +1561,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // openchamber#375 review 5: once its recovery saved the text into this session's draft, it is not added again
         // where that draft still holds it (with drafts off, the composer does not load it: then it comes back here).
         let textInDraft = false;
+        // smarty-code#962: the copy this submission joined, and where. A late acceptance removes that copy only.
+        const own: OwnedJoin = { identity: chatDraftIdentity, at: -1, gone: false, seen: '', length: inputSnapshot.message.length };
+        // A submission without text (review r3 2: newlines only too) gives back and takes back only its parts.
+        const textless = !inputSnapshot.message.trim();
         const restoreComposerText = () => {
-            if (queuedOnly || !inputSnapshot.message) return;
+            if (queuedOnly || textless) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
             // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
-            const join = (base: string) => (!base.trim() || base === inputSnapshot.message ? inputSnapshot.message : appendWithLineBreaks(base, inputSnapshot.message));
+            const join = (base: string) => {
+                const joined = !base.trim() || base === inputSnapshot.message ? { text: inputSnapshot.message, at: 0 } : appendOwnedBlock(base, inputSnapshot.message);
+                // Joined after everything already there: the blocks given back before it stay where they are.
+                for (const other of [...ownedJoinsRef.current]) {
+                    if (other === own || !sameDraftIdentity(other.identity, own.identity)) continue;
+                    followEdit(other, base); if (other.at >= 0) other.seen = joined.text;
+                }
+                own.at = joined.at; own.seen = joined.text; ownedJoinsRef.current.add(own);
+                return joined.text;
+            };
             if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
                 if (textInDraft) return;
                 // The user switched sessions mid-send: restore into that
@@ -1855,13 +1896,51 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
             save: () => { if (retainNativeDraft || !chatDraftIdentity) return; restoreComposerText(); textInDraft = true; },
             clearIfUntouched: () => {
-                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
-                if ((composerRef.current?.getValue() ?? messageRef.current) !== inputSnapshot.message) return; // Edited: the person's now.
-                messageRef.current = ''; setMessage(''); persistDraftImmediately(chatDraftIdentity, '');
-                // Exactly the restored files and context parts go with it.
-                const input = useInputStore.getState();
-                if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
-                if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
+                // Joined with other texts (smarty-code#962): only its own copy goes, and only while it is intact where it
+                // was joined; edited, moved or ambiguous, it is the person's text now and stays.
+                const removeOwn = (text: string) => {
+                    const cut = removeOwnedBlock(text, inputSnapshot.message, own.at);
+                    if (!cut || own.gone) return cut?.text ?? null;
+                    own.gone = true; ownedJoinsRef.current.delete(own);
+                    for (const other of [...ownedJoinsRef.current]) {
+                        if (!sameDraftIdentity(other.identity, own.identity)) continue;
+                        followEdit(other, text);
+                        if (other.at >= own.at + cut.removed) other.at -= cut.removed;
+                        else if (other.at > own.at) { other.at = -1; ownedJoinsRef.current.delete(other); }
+                        other.seen = cut.text;
+                    }
+                    return cut.text;
+                };
+                // Exactly the restored files and context parts go with it (after this render: another store).
+                const clearOwnParts = () => queueMicrotask(() => {
+                    const input = useInputStore.getState();
+                    if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
+                    if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
+                });
+                // An attachment-only send (review r2 2) has no text block to find: its restored parts still go.
+                if (textless) {
+                    if (!own.gone && sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { own.gone = true; clearOwnParts(); }
+                    return;
+                }
+                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+                    // Off-screen, only a saved draft unchanged since this block was joined or last followed (review r3 1).
+                    const saved = chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : null;
+                    const rest = saved !== null && saved === own.seen ? removeOwn(saved) : null;
+                    if (rest !== null) writeChatDraft(chatDraftIdentity, rest, confirmedMentionsRef.current);
+                    ownedJoinsRef.current.delete(own);
+                    return;
+                }
+                // Composed on the composer STATE (review r1 2): two acceptances before the editor renders apply in order.
+                // ponytail: StrictMode may run the updater twice; `own.gone` makes the side effects run once.
+                setMessage((prev) => {
+                    const first = !own.gone;
+                    if (!own.gone) followEdit(own, prev);
+                    const rest = removeOwn(prev);
+                    if (rest === null) { ownedJoinsRef.current.delete(own); return prev; }
+                    messageRef.current = rest; persistDraftImmediately(chatDraftIdentity, rest);
+                    if (first) clearOwnParts();
+                    return rest;
+                });
             },
             notify: kind => { if (kind === 'unconfirmed') toast.info(t('chat.send.unconfirmed'));
                 else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.stillPending')); },
@@ -2038,7 +2117,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // nothing is delivered. A definite refusal gives it back now, unless another attempt is still pending.
             if (recovery) {
                 if (isClientIdConflict(rawMessage)) {
-                    recovery.conflict(); toast.info(t('chat.send.stillPending')); return;
+                    // Already accepted (smarty-code#962): the message went, so there is nothing to say.
+                    if (!recovery.conflict()) toast.info(t('chat.send.stillPending'));
+                    return;
                 }
                 recovery.refused();
             }
@@ -3557,7 +3638,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onPrimaryAction={handlePrimaryAction}
                         onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : () => { void handleQueueMessage(); }}
                         sendWhileWorking={sendsWhileWorking}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -3737,7 +3818,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         isExpandedInput={isExpandedInput}

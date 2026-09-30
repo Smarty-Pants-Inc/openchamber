@@ -9,6 +9,7 @@ afterAll(async () => { await dom.restore(); });
 const { createRoot } = await import('react-dom/client');
 const { useComposerDraft } = await import('../useComposerDraft');
 const { resetSentStartsForPage, useSentStart } = await import('@/sync/native-draft-sent');
+const { newSessionSlotKey } = await import('@/lib/chatDraftTabs');
 
 test('a cold-mounted composer consumes text another tab already delivered, and stays editable for new text', async () => {
   const runtimeKey = 'sent-cold-mount', directory = '/synthetic', draftId = 3, delivered = 'already delivered text';
@@ -78,10 +79,12 @@ test('queued admissions A then B: the open composer consumes A, never offers it 
 // admission) is consumed even though tab A has since saved a newer draft in the shared slot, which survives; a draft
 // restored after a reload that began after the admission is a new message and survives too.
 const draftsKey = 'openchamber.chatDrafts.v2';
-const saveSlot = (runtimeKey: string, directory: string, text: string, since: number) => localStorage.setItem(draftsKey,
-  JSON.stringify({ version: 2, drafts: { [JSON.stringify([runtimeKey, directory, null])]: { text, confirmedMentions: [], touchedAt: since, since } } }));
+// This tab's New session slot (per tab since smarty-code#461).
+void draftsKey;
+const saveSlot = (runtimeKey: string, directory: string, text: string, since: number) => localStorage.setItem(newSessionSlotKey(runtimeKey, directory),
+  JSON.stringify({ text, confirmedMentions: [], touchedAt: since, since }));
 const savedText = (runtimeKey: string, directory: string) =>
-  (JSON.parse(localStorage.getItem(draftsKey) ?? '{"drafts":{}}').drafts[JSON.stringify([runtimeKey, directory, null])]?.text ?? '') as string;
+  (JSON.parse(localStorage.getItem(newSessionSlotKey(runtimeKey, directory)) ?? '{}').text ?? '') as string;
 async function mountComposer(runtimeKey: string, directory: string, draftId: number, text: string) {
   const identity = { runtimeKey, directory, sessionId: null, draftId };
   const messageRef = { current: text }, confirmedMentionsRef = { current: new Set<string>() };

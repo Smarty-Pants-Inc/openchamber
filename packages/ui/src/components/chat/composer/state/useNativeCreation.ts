@@ -18,7 +18,7 @@ import { discoveryAnswered, discoveryPendingFor } from '@/lib/managed-discovery'
 
 export { discoveryPendingFor } from '@/lib/managed-discovery';
 
-type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable'; operations: NativeCreationState[];
+type Capability = { runtimeKey: string; directory: string; mode: 'ordinary' | 'legacy' | 'unavailable' | 'notAdmitted'; operations: NativeCreationState[];
   /** The server can settle an unreadable start for good, so a new one may begin (smarty-code#340). */
   abandon?: boolean };
 
@@ -72,7 +72,7 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
         applied = ticket;
         setCapability({ runtimeKey, directory, mode: support === 'legacy' ? 'legacy' : 'ordinary', operations, abandon });
         await refreshNativeCreation();
-      } catch {
+      } catch (cause) {
         // Never over a newer applied result; the same check failing after its own result (refresh) still says so.
         if (cancelled || ticket < applied || getRuntimeKey() !== runtimeKey) return;
         // The draft's own '+ New' tree: the gateway admits it a moment after it is made and refuses until then
@@ -82,6 +82,12 @@ export function useNativeCreation(draft: NewSessionDraftState, sessionId: string
           return;
         }
         applied = ticket;
+        // smarty-code#966: a remembered project the ready catalog no longer admits answers 403 "Project is not
+        // configured" (after the new-tree rechecks above, which a just-made tree takes first: openchamber#441 r1). The
+        // server is reachable: say the project is gone (choose another), never "Cannot reach the server".
+        if ((cause as { status?: number } | undefined)?.status === 403 && catalogStatus === 'ready' && !admitted) {
+          setCapability({ runtimeKey, directory, mode: 'notAdmitted', operations: [] }); return;
+        }
         setCapability({ runtimeKey, directory, mode: 'unavailable', operations: [] });
       }
     };

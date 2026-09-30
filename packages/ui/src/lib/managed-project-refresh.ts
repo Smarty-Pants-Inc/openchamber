@@ -90,6 +90,17 @@ async function seedManagedActivity(sessions: readonly { id: string; directory: s
   applyFleetSessionStatuses(sessions.filter(session => !isStatusUnavailable(session.directory)), statuses, versions);
 }
 
+/** The catalog sample running now (a request not yet settled, or a slow sample still running past its callers' wait),
+ * settling when it really ends; undefined when none runs (openchamber#410 review 4). */
+export function runningManagedSample(): Promise<void> | undefined {
+  if (slowSampleCurrent()) return slowSample!.run.catch(() => undefined);
+  if (pending && pendingScope && isRuntimeRequestScopeCurrent(pendingScope)) {
+    // Its request settles at the caller's wait; the slow sample it may leave behind is read again then.
+    return pending.catch(() => undefined).then(() => (slowSampleCurrent() ? slowSample!.run.catch(() => undefined) : undefined));
+  }
+  return undefined;
+}
+
 /** Called by existing bootstrap/reconnect/list refresh, not a second discovery loop. */
 export function refreshManagedProjects(fresh = false): Promise<void> {
   if (isVSCodeRuntime(getRegisteredRuntimeAPIs())) return Promise.resolve();

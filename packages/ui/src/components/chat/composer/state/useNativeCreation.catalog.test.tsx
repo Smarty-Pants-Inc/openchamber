@@ -15,6 +15,7 @@ mock.module('@/sync/native-draft-control', () => ({ refreshNativeCreation: async
 const { useNativeCreation, NEW_TREE_RETRY_MS } = await import('./useNativeCreation');
 
 type Support = { mode: 'interactive'; clientRequestId: boolean; abandon: boolean };
+let failStatus: number | undefined; // The failed check's HTTP status (smarty-code#966); undefined: a transport failure.
 // One happy-dom page, the hook mounted on a draft, and the client's capability read replaced (restored afterwards).
 async function withDraft(directory: string, admitted: () => boolean, run: (read: () => { mode: string; checks: number },
   update: (patch: Partial<NewSessionDraftState>) => Promise<void>) => Promise<void>, initial: Partial<NewSessionDraftState> = {}) {
@@ -24,7 +25,7 @@ async function withDraft(directory: string, admitted: () => boolean, run: (read:
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
   const original = { support: opencodeClient.nativeCreationSupport, list: opencodeClient.listNativeCreations };
   let checks = 0, mode = '';
-  const support = async (): Promise<Support> => { checks++; if (!admitted()) throw new Error('403 not admitted');
+  const support = async (): Promise<Support> => { checks++; if (!admitted()) throw Object.assign(new Error('403 not admitted'), failStatus === undefined ? {} : { status: failStatus });
     return { mode: 'interactive', clientRequestId: true, abandon: false }; };
   // SAFETY: test doubles with the two capability methods' call shape; restored in finally.
   Object.assign(opencodeClient, { nativeCreationSupport: support, listNativeCreations: async () => [] });
@@ -190,4 +191,45 @@ test('discovery counts as answered after a stock answer too, even when a later r
   expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: true, managedRows: null })).toBe(true);
   expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: [] })).toBe(true);
   expect(discoveryAnswered({ managedCatalogStatus: 'unavailable', managedCatalogStockConfirmed: false, managedRows: null })).toBe(false);
+});
+
+// smarty-code#966: a remembered project that the ready catalog no longer admits answers 403 "Project is not configured".
+// The composer says the project is gone (choose another), never "Cannot reach the server"; a real transport failure still does.
+test('a remembered project the ready catalog does not admit says so, not "Cannot reach the server"', async () => {
+  useProjectsStore.getState().resetManagedCatalog();
+  useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]); // Ready; the remembered one absent.
+  failStatus = 403;
+  try {
+    await withDraft('/old/candidate/project', () => false, async (read) => { await settle(); expect(read().mode).toBe('notAdmitted'); });
+    failStatus = undefined; // Counterexample: no answer at all (the server is unreachable).
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    await withDraft('/old/candidate/project', () => false, async (read) => { await settle(); expect(read().mode).toBe('unavailable'); });
+  } finally { failStatus = undefined; }
+});
+
+// openchamber#441 review 1: a just-made '+ New' tree refused with an actual 403 (not yet admitted) keeps its rechecks
+// first, and is not "no longer available" while they run.
+test('a just-made tree refused with 403 is rechecked, not reported gone; only after the rechecks is it gone', async () => {
+  let admitted = false;
+  const retries = holdRetries();
+  const tree = '/worktrees/repo/brisk-heron';
+  failStatus = 403;
+  try {
+    useProjectsStore.getState().resetManagedCatalog();
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    await withDraft(tree, () => admitted, async (read) => {
+      await settle();
+      expect([read().mode, read().checks]).toEqual(['loading', 1]); // A recheck is pending, not 'notAdmitted'.
+      admitted = true;
+      await retries.fire(); await settle();
+      expect([read().mode, read().checks]).toEqual(['ordinary', 2]);
+    }, { bootstrapPendingDirectory: tree });
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'repo', worktree: '/projects/repo' }]);
+    NEW_TREE_RETRY_MS.splice(2);
+    await withDraft(tree, () => false, async (read) => {
+      await settle();
+      for (let i = 0; i < 2; i++) { await retries.fire(); await settle(); }
+      expect([read().mode, read().checks]).toEqual(['notAdmitted', 3]); // Never admitted after its rechecks.
+    }, { bootstrapPendingDirectory: tree });
+  } finally { failStatus = undefined; retries.restore(); }
 });

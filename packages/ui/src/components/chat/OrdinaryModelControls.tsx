@@ -8,15 +8,20 @@ import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ord
 import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
-import { buildOrdinaryModelOptions, ordinaryOptionKey as optionKey, useAppliedOrdinaryState } from './ordinaryModelOptions';
+import {
+  buildOrdinaryModelOptions, ordinaryOptionKey as optionKey, useAppliedOrdinaryState, useRelaunchHeldOrdinaryState,
+} from './ordinaryModelOptions';
 import { PiVoiceControl } from './PiVoiceControl';
 
 export type OrdinaryModelTarget = { sessionId: string; directory: string };
 
-export function OrdinaryModelControls({ state: listed, target, className }: {
+export function OrdinaryModelControls({ state: listed, target, className, reloading = false }: {
   state: OrdinaryModelState; target?: OrdinaryModelTarget; className?: string;
+  /** The session's Pi is relaunching (smarty-code#778): a missing model is not "Unavailable". */
+  reloading?: boolean;
 }) {
   const [state, setApplied] = useAppliedOrdinaryState(listed);
+  const { held, pending } = useRelaunchHeldOrdinaryState(state, reloading);
   const { t } = useI18n();
   // A chat column may show a session from a project that is not the active one.
   const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));
@@ -33,6 +38,17 @@ export function OrdinaryModelControls({ state: listed, target, className }: {
   }, [directory, missing, loadProviders]);
 
   if (!current) {
+    // A relaunch: the last model, read-only (no picker, so nothing stale can be applied), or a neutral loading state.
+    const shown = held?.model;
+    if (pending) {
+      return <div className={cn('flex min-w-0 items-center gap-2 typography-meta text-muted-foreground', className)}
+        aria-live="polite" aria-busy="true">
+        {shown ? <>
+          <span className="model-controls__model-label min-w-0 truncate" title={`${shown.providerID} / ${shown.modelID}`}>{shown.name}</span>
+          <span className="model-controls__variant-label whitespace-nowrap">{formatEffortLabel(held?.thinkingLevel ?? undefined)}</span>
+        </> : <span>{t('common.loading')}</span>}
+      </div>;
+    }
     return <div className={cn('flex min-w-0 items-center gap-2 typography-meta text-muted-foreground', className)}
       aria-live="polite"><span>{t('common.unavailable')}</span></div>;
   }

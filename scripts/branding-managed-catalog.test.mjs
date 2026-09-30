@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -68,7 +68,43 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.personalSidebarSha256;
     delete entry.personalSidebarNote;
   }
-  assert.equal(digest(JSON.stringify(historical)), '2d82cc4319d8f8ebe9488652c820f0612b2a016c944b70d012ce2d64bc48aa24');
+  // Unwind the finding-driven event repair before the initial Host patch.
+  assert.deepEqual(historical.humanSessionLifetimeProvenance, {
+    reviewedHead: '12463c2fb0e599623e631e772f1699e4e1669965',
+    finding: 'P2 - Event-stream and dictation WebSockets retain authorization after the human session ends',
+  });
+  const lifetime = historical.files.filter(entry => entry.preHumanSessionLifetimeCombinedSha256);
+  assert.deepEqual(lifetime.map(entry => entry.path), ['packages/web/server/lib/event-stream/runtime.js']);
+  for (const entry of lifetime) {
+    assert.equal(entry.preHumanSessionLifetimeCombinedSha256,
+      '74c761d0a040bf4d995358de63ca8db5ad522f10721489bb3d7c41c26b609d67');
+    assert.equal(entry.preHumanSessionLifetimeCombinedSha256, entry.humanHostBoundarySha256);
+    assert.ok(entry.humanSessionLifetimeNote);
+    // The stock-owner lifetime test separately requires the finalized hash and exact current bytes.
+    entry.combinedSha256 = entry.preHumanSessionLifetimeCombinedSha256;
+    delete entry.preHumanSessionLifetimeCombinedSha256;
+    delete entry.humanSessionLifetimeSha256;
+    delete entry.humanSessionLifetimeNote;
+  }
+  delete historical.humanSessionLifetimeProvenance;
+  assert.equal(historical.humanHostBoundarySource, '12463c2fb0e599623e631e772f1699e4e1669965');
+  const host = historical.files.filter(entry => entry.humanHostBoundarySha256);
+  assert.deepEqual(host.map(entry => entry.path), [
+    'packages/web/server/index.js', 'packages/web/server/lib/event-stream/runtime.js',
+  ]);
+  for (const entry of host) {
+    assert.equal(entry.humanHostBoundarySha256, entry.combinedSha256);
+    assert.equal(entry.preHumanHostBoundaryCombinedSha256,
+      entry.notificationAuthSha256 ?? entry.originGuardSha256);
+    assert.ok(entry.humanHostBoundaryNote);
+    entry.combinedSha256 = entry.preHumanHostBoundaryCombinedSha256;
+    delete entry.preHumanHostBoundaryCombinedSha256;
+    delete entry.humanHostBoundarySha256;
+    delete entry.humanHostBoundaryNote;
+  }
+  delete historical.humanHostBoundarySource;
+  assert.equal(digest(JSON.stringify(historical)),
+    '2d82cc4319d8f8ebe9488652c820f0612b2a016c944b70d012ce2d64bc48aa24');
   // The send client ID (smarty-code#827, openchamber#375) is the newest layer: one file, so unwind it first.
   assert.match(historical.sendClientIdSource, /^[a-f0-9]{40}$/);
   delete historical.sendClientIdSource;

@@ -102,6 +102,30 @@ including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and
 may process protocol identifiers. Combined runtime review/CI and protected owning
 landing remain separate from either earlier lane's proof.
 
+### Human Host boundary successors
+
+`humanHostBoundarySource` names the initial Host patch
+`12463c2fb0e599623e631e772f1699e4e1669965`. Among existing covered owners,
+only `packages/web/server/index.js` and
+`packages/web/server/lib/event-stream/runtime.js` are extended.
+`preHumanHostBoundaryCombinedSha256` retains each exact predecessor;
+`humanHostBoundarySha256` records the initial patch output. All original
+source IDs, hashes, attribution, coverage counters and hunk dispositions remain
+unchanged. The ownership test reconstructs and hashes the entire preceding
+overlay, then checks current successor bytes. This is behavior provenance,
+not branding or a security-review pass.
+
+The security review of that initial source found that event and dictation
+WebSockets retain authorization after a human session ends.
+`humanSessionLifetimeProvenance` names that finding and its reviewed head,
+not an uncreated repair commit or the final combined commit as its own source ID.
+Among existing covered owners, only the event runtime gains
+`preHumanSessionLifetimeCombinedSha256` and `humanSessionLifetimeSha256`.
+The former retains the initial Host output; the latter requires the exact
+repair bytes after writer quiescence. Dictation is outside this donor ledger.
+Historical checks unwind lifetime before Host and keep every earlier digest
+assertion. Review, owning CI and runtime proof stay separate.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
