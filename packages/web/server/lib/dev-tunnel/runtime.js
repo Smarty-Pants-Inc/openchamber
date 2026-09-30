@@ -24,7 +24,7 @@
  *   URL token. The URL-token case is used only by the trusted renderer through
  *   the E2EE relay; the UI-auth allowlist limits it to this exact path.
  */
-import { browserRequestAllowed } from '../security/browser-origin.js';
+import { applicationAuthority, browserRequestAllowed } from '../security/browser-origin.js';
 import net from 'node:net';
 import { WebSocketServer } from 'ws';
 
@@ -133,6 +133,10 @@ export function createDevTunnelRuntime({
     if (!isDevTunnelPath(req.url)) return;
     void (async () => {
       try {
+        if (uiAuthController?.humanMode && !await applicationAuthority(req)) {
+          rejectWebSocketUpgrade(socket, 403, 'Requests require an application host');
+          return;
+        }
         if (uiAuthController?.enabled) {
           const auth = await uiAuthController.resolveAuthContext(req, null, { allowUrlToken: true });
           if (!auth) {
