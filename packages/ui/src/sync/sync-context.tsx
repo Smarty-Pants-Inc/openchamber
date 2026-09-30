@@ -1,4 +1,4 @@
-import { reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
+import { defaultReloadJitterMs, reloadHeld, reloadIfNewBuild, runningEntry } from "@/lib/newBuildReload"
 import { useInputStore } from "./input-store"
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
@@ -2726,6 +2726,7 @@ export function SyncProvider(props: {
           fetchIndex: async () => (await fetch(`${window.location.origin}/`, { cache: "no-store", credentials: "same-origin" })).text(),
           busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0,
           reload: () => window.location.reload(),
+          jitterMs: defaultReloadJitterMs,
         }).catch(() => undefined)
         // ponytail: The viewed ordinary token cannot wait for boot or broad resync gates.
         // Its existing loader owns coalescing and rejects stale generations.
