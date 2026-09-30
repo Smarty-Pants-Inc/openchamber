@@ -6,11 +6,13 @@ import { nativeComposerDom } from './nativeComposer-dom';
 // Storage must bind this window before the composer registers its lifecycle listeners.
 const dom = nativeComposerDom();
 const { getDeferredSafeStorage } = await import('@/stores/utils/safeStorage');
-const { getChatDraftIdentityKey, isChatDraftEphemeral } = await import('@/lib/chatDraftPersistence');
+const { isChatDraftEphemeral } = await import('@/lib/chatDraftPersistence');
+const { newSessionSlotKey } = await import('@/lib/chatDraftTabs');
 const { mountedNativeComposer } = await import('./nativeComposer.fixture');
 const { directory } = await import('@/sync/native-draft-fixture');
 const { useI18nStore } = await import('@/lib/i18n/store');
-const storageKey = 'openchamber.chatDrafts.v2';
+// A New session draft is this tab's own key (smarty-code#461).
+const slotOf = (c: { runtimeA: string }) => newSessionSlotKey(c.runtimeA, directory);
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 afterEach(async () => {
   await mounted?.dispose(); mounted = undefined; getDeferredSafeStorage().clear();
@@ -25,8 +27,7 @@ for (const edge of ['pagehide', 'hidden', 'freeze']) {
     await c.replace(`last edit before ${edge}`);
     await c.mention('kept.md');
     const text = c.text();
-    const key = getChatDraftIdentityKey({ runtimeKey: c.runtimeA, directory, sessionId: null });
-    expect(dom.window.localStorage.getItem(storageKey) ?? '').not.toContain(text);
+    expect(dom.window.localStorage.getItem(slotOf(c)) ?? '').not.toContain(text);
 
     act(() => {
       if (edge === 'hidden') {
@@ -35,10 +36,7 @@ for (const edge of ['pagehide', 'hidden', 'freeze']) {
       } else if (edge === 'freeze') document.dispatchEvent(new Event('freeze'));
       else window.dispatchEvent(new Event('pagehide'));
       // No await, sleep, adapter read, or timer advancement between dispatch and this assertion.
-      expect(JSON.parse(dom.window.localStorage.getItem(storageKey) ?? 'null')).toMatchObject({
-        version: 2,
-        drafts: { [key]: { text, confirmedMentions: ['kept.md'] } },
-      });
+      expect(JSON.parse(dom.window.localStorage.getItem(slotOf(c)) ?? 'null')).toMatchObject({ text, confirmedMentions: ['kept.md'] });
     });
   });
 }
@@ -60,7 +58,7 @@ for (const name of ['QuotaExceededError', 'SecurityError']) {
       await c.replace('live input'); await c.mention('kept.md'); text = c.text();
       act(() => {
         window.dispatchEvent(new Event('pagehide'));
-        expect(backing.getItem(storageKey) ?? '').not.toContain(text);
+        expect(backing.getItem(slotOf(c)) ?? '').not.toContain(text);
         expect(isChatDraftEphemeral()).toBe(true);
       });
       expect(c.text()).toBe(text);
@@ -87,13 +85,10 @@ for (const name of ['QuotaExceededError', 'SecurityError']) {
     }
     act(() => {
       window.dispatchEvent(new Event('pagehide'));
-      expect(backing.getItem(storageKey)).toContain(text);
+      expect(backing.getItem(slotOf(c))).toContain(text);
       expect(isChatDraftEphemeral()).toBe(false);
     });
     expect(dom.container.querySelector('[role="alert"]')).toBeNull();
-    const key = getChatDraftIdentityKey({ runtimeKey: c.runtimeA, directory, sessionId: null });
-    expect(JSON.parse(backing.getItem(storageKey) ?? 'null')).toMatchObject({
-      version: 2, drafts: { [key]: { text, confirmedMentions: ['kept.md'] } },
-    });
+    expect(JSON.parse(backing.getItem(slotOf(c)) ?? 'null')).toMatchObject({ text, confirmedMentions: ['kept.md'] });
   });
 }

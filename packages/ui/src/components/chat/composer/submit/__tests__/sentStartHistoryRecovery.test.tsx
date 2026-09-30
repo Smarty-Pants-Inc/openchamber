@@ -69,10 +69,13 @@ function interactiveServer(fixture: Parameters<NonNullable<Parameters<typeof mou
 type Mounted = Awaited<ReturnType<typeof mountedNativeComposer>>;
 const newSession = () => act(async () => { useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: 'a', directoryOverride: directory }); });
 const sentKey = (c: Mounted) => `oc.nativeCreation.sent:${JSON.stringify([c.runtimeA, directory])}`;
+// This tab's New session slot (its own storage key since smarty-code#461).
 const slot = () => {
-  // SAFETY: the chat-draft envelope (version 2) this page itself wrote.
-  const envelope = JSON.parse(getSafeStorage().getItem('openchamber.chatDrafts.v2') ?? '{"drafts":{}}') as { drafts: Record<string, { text: string }> };
-  return Object.entries(envelope.drafts).find(([key]) => key.includes(directory) && key.endsWith('null]'))?.[1]?.text ?? '';
+  const storage = getSafeStorage();
+  const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index) ?? '');
+  const found = keys.find(key => key.startsWith('openchamber.chatDraftSlot:') && key.includes(JSON.stringify(directory).slice(1, -1)));
+  // SAFETY: the slot this page itself wrote.
+  return found ? (JSON.parse(storage.getItem(found) ?? '{}') as { text?: string }).text ?? '' : '';
 };
 const deliveredHello = [{ info: { id: 'msg_1', sessionID: session.id, role: 'user', time: { created: 1 } },
   parts: [{ id: 'prt_1', type: 'text', text: 'hello' }] }];
