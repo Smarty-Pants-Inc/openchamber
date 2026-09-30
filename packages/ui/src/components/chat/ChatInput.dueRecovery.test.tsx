@@ -130,3 +130,64 @@ test('two due texts joined, the first accepted late: only the second remains in 
   expect(c.text().trim()).toBe('second held text');
   await until(() => savedS().trim() === 'second held text');
 }, 30_000);
+
+// smarty-code#962 review r1: a late acceptance removes only the copy its recovery joined, intact where it was joined.
+const accept = () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+async function dueWhileAway(c: NonNullable<typeof mounted>, texts: string[], newer?: string) {
+  const replies = texts.map(() => deferred<Response>()); let n = 0;
+  c.handlers.prompt = async () => replies[n++].promise;
+  for (const [i, text] of texts.entries()) { await c.replace(text); await c.submit(); await until(() => c.prompts().length === i + 1); }
+  if (newer) await c.replace(newer);
+  await show(c, other.id);
+  await act(async () => { await sleep(1_900); });
+  await show(c, session.id);
+  await until(() => texts.every(text => c.text().includes(text)) && texts.every(text => savedS().includes(text)));
+  return replies;
+}
+
+test('the given-back text edited by the person: its late acceptance removes nothing, shown or not', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text']);
+  await c.replace('first held text\nunsent continuation');
+  await until(() => savedS() === 'first held text\nunsent continuation');
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  expect(c.text()).toBe('first held text\nunsent continuation');
+  expect(savedS()).toBe('first held text\nunsent continuation');
+}, 30_000);
+
+test('the given-back text edited, then S not shown at its late acceptance: the saved draft keeps the edit', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text']);
+  await c.replace('first held text\nunsent continuation');
+  await show(c, other.id);
+  await until(() => savedS() === 'first held text\nunsent continuation');
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  expect(savedS()).toBe('first held text\nunsent continuation');
+  await show(c, session.id);
+  await until(() => c.text() === 'first held text\nunsent continuation');
+}, 30_000);
+
+test('a newer draft holding the same text: the late acceptance removes the joined copy, never the newer draft', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text'], 'first held text\n\nunsent continuation');
+  expect(c.text().split('first held text').length - 1).toBe(2);
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === 'first held text\n\nunsent continuation');
+  await until(() => savedS().trim() === 'first held text\n\nunsent continuation');
+}, 30_000);
+
+test('two joined texts both accepted in one tick, with a newer draft: only the newer draft remains', async () => {
+  const { c } = await heldSession();
+  const replies = await dueWhileAway(c, ['first held text', 'second held text'], 'a newer draft');
+  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === 'a newer draft');
+  await until(() => savedS().trim() === 'a newer draft');
+}, 30_000);
+
+test('two joined texts both accepted in one tick: the composer and the saved draft are empty', async () => {
+  const { c } = await heldSession();
+  const replies = await dueWhileAway(c, ['first held text', 'second held text']);
+  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === '');
+  await until(() => savedS().trim() === '');
+}, 30_000);

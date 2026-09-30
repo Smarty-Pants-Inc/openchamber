@@ -15,6 +15,11 @@
  * excerpt) rather than a continuation of the sentence.
  */
 export function appendWithLineBreaks(base: string, next: string): string {
+    return appendOwnedBlock(base, next).text;
+}
+
+/** `appendWithLineBreaks`, with the offset where `next` starts: the joined block's place, for `removeOwnedBlock`. */
+export function appendOwnedBlock(base: string, next: string): { text: string; at: number } {
     const separator = !base
         ? ''
         : base.endsWith('\n\n')
@@ -29,24 +34,22 @@ export function appendWithLineBreaks(base: string, next: string): string {
             ? `${next}\n`
             : `${next}\n\n`;
 
-    return `${base}${separator}${nextWithTrailingBreaks}`;
+    return { text: `${base}${separator}${nextWithTrailingBreaks}`, at: base.length + separator.length };
 }
 
 /**
- * Remove `block` where it stands as one whole block joined by `appendWithLineBreaks` (at the start or after a blank
- * line, and at the end or before a line break), with the line breaks that joined it. Returns null when `text` has no
- * such block: text only containing it, or edited, is never touched (smarty-code#962).
+ * Remove the block that `appendOwnedBlock` joined at `at`, only while it is still there unedited: exactly `block`, at
+ * that offset, a whole block (at the start or after a blank line; at the end or before a blank line). Another copy of
+ * the same text elsewhere is never taken for it. Returns null otherwise (edited, moved or gone: the person's text now),
+ * else the remaining text and how many characters went (smarty-code#962).
  */
-export function removeJoinedBlock(text: string, block: string): string | null {
-    if (!block) return null;
-    for (let at = text.indexOf(block); at >= 0; at = text.indexOf(block, at + 1)) {
-        const end = at + block.length;
-        if ((at === 0 || text.startsWith('\n\n', at - 2)) && (end === text.length || text[end] === '\n')) {
-            const rest = text.slice(0, at) + text.slice(end).replace(/^\n{1,2}/, '');
-            return rest.trim() ? rest : '';
-        }
-    }
-    return null;
+export function removeOwnedBlock(text: string, block: string, at: number): { text: string; removed: number } | null {
+    if (!block || at < 0 || !text.startsWith(block, at)) return null;
+    const after = text.slice(at + block.length);
+    if (at > 0 && !text.slice(0, at).endsWith('\n\n')) return null;
+    if (after !== '' && after !== '\n' && !after.startsWith('\n\n')) return null;
+    const rest = text.slice(0, at) + after.replace(/^\n{1,2}/, '');
+    return { text: rest.trim() ? rest : '', removed: text.length - rest.length };
 }
 
 /**

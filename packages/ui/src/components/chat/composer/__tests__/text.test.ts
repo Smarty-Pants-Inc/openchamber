@@ -2,9 +2,11 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     appendInlineText,
+    appendOwnedBlock,
     appendWithLineBreaks,
     buildImagePasteInsertion,
     getMarkdownAutoPairEdit,
+    removeOwnedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from '../text';
@@ -154,5 +156,22 @@ describe('getMarkdownAutoPairEdit', () => {
             selectionStart: 2,
             selectionEnd: 5,
         });
+    });
+});
+
+describe('removeOwnedBlock (smarty-code#962)', () => {
+    test('removes the joined copy at its offset, never an earlier identical copy', () => {
+        const joined = appendOwnedBlock('same\n\nmore', 'same');
+        expect(joined).toEqual({ text: 'same\n\nmore\n\nsame\n\n', at: 12 });
+        expect(removeOwnedBlock(joined.text, 'same', joined.at)).toEqual({ text: 'same\n\nmore\n\n', removed: 6 });
+    });
+    test('an edited copy, or one moved from its offset, is left', () => {
+        expect(removeOwnedBlock('same\nunsent', 'same', 0)).toBeNull();
+        expect(removeOwnedBlock('same more\n\n', 'same', 0)).toBeNull();
+        expect(removeOwnedBlock('xsame\n\nsame\n\n', 'same', 5)).toBeNull();
+        expect(removeOwnedBlock('a\n\nsame\n\n', 'same', 1)).toBeNull();
+    });
+    test('the only text goes entirely', () => {
+        expect(removeOwnedBlock('same\n\n', 'same', 0)).toEqual({ text: '', removed: 6 });
     });
 });
