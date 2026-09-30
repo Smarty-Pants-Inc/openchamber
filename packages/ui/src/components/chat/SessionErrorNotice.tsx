@@ -127,7 +127,7 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
         <div className="flex items-start gap-3">
           <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
           <div className="min-w-0 flex-1 break-words">
-            <div className="font-medium text-foreground">{reportedError ? t('chat.sessionError.title') : t('chat.sessionError.noReply')}</div>
+            <div className="font-medium text-foreground">{reportedError ? t(reportedError.refused ? 'chat.send.notSent' : 'chat.sessionError.title') : t('chat.sessionError.noReply')}</div>
             <div className="mt-1 text-foreground/80">{name ? `${name}: ${detail}` : detail}</div>
           </div>
         </div>

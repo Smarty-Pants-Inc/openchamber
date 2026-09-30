@@ -18,7 +18,8 @@ test("a refused send keeps the server's reason in the chat, not only a toast (F1
   })).rejects.toThrow(reason);
 
   const notice = useNotificationStore.getState().list.filter((entry) => entry.session === 'session-refused').at(-1);
-  expect(notice).toMatchObject({ type: 'error', error: { name: null, message: reason } });
+  // smarty-code#1108: marked refused, so its title says nothing was sent, not that a reply was stopped.
+  expect(notice).toMatchObject({ type: 'error', refused: true, error: { name: null, message: reason } });
   expect(children.getChild('/target/project')?.getState().session_status['session-refused']).toEqual({ type: 'idle' });
   children.disposeAll();
 });

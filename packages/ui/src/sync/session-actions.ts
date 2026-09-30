@@ -2094,7 +2094,7 @@ export async function optimisticSend(input: {
     const refusalReason = (error as { refusalReason?: unknown } | null)?.refusalReason
     if (typeof refusalReason === "string") {
       useNotificationStore.getState().append({ type: "error", session: input.sessionId, directory: targetDirectory ?? undefined,
-        time: Date.now(), viewed: true, error: { name: null, message: refusalReason } })
+        time: Date.now(), viewed: true, refused: true, error: { name: null, message: refusalReason } })
     }
     throw error
   }
