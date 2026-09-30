@@ -2090,11 +2090,14 @@ export async function optimisticSend(input: {
         ? { ...rollbackState.session_status, [input.sessionId]: { type: "idle" as const } }
         : rollbackState.session_status,
     })
-    // The server said why it refused: keep its words in the chat, not only in a passing toast (F11).
+    // Keep the server's explanation in the chat. Its words alone do not prove the send was refused.
     const refusalReason = (error as { refusalReason?: unknown } | null)?.refusalReason
     if (typeof refusalReason === "string") {
       useNotificationStore.getState().append({ type: "error", session: input.sessionId, directory: targetDirectory ?? undefined,
-        time: Date.now(), viewed: true, refused: true, error: { name: null, message: refusalReason } })
+        time: Date.now(), viewed: true,
+        sendOutcome: !ambiguousFailure && status !== null && status >= 400 && status < 500 && status !== 408
+          ? 'refused' : 'unconfirmed',
+        error: { name: null, message: refusalReason } })
     }
     throw error
   }

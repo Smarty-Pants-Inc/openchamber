@@ -26,8 +26,8 @@ type ErrorNotification = NotificationBase & {
   type: "error"
   /** What OpenCode reported for the failed turn; both null when it gave no details. */
   error?: { name: string | null; message: string | null }
-  /** The server refused this page's send before taking it (smarty-code#1108): nothing was sent, no reply was stopped. */
-  refused?: true
+  /** This page's send was refused or its delivery remains unconfirmed; absent for session errors. */
+  sendOutcome?: 'refused' | 'unconfirmed'
 }
 
 export type Notification = TurnCompleteNotification | ErrorNotification
