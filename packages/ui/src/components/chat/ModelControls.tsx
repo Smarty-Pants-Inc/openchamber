@@ -34,6 +34,7 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useSession, useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { OrdinaryModelControls } from './OrdinaryModelControls';
+import { isOrdinaryReloading } from '@/lib/herdrSession';
 import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 import { applyNativeDraftModel } from '@/sync/native-draft-creation';
 import { useChatColumnSession } from './chatColumnSession';
@@ -329,7 +330,8 @@ export const ModelControls: React.FC<ModelControlsProps> = (props) => {
     // Keep ordinary state ahead of all historical, saved and directory-wide choices.
     if (ordinary !== undefined) {
         const target = session && sessionId ? { sessionId, directory: session.directory } : undefined;
-        return <OrdinaryModelControls key={sessionId} state={ordinary} target={target} className={props.className} />;
+        return <OrdinaryModelControls key={sessionId} state={ordinary} target={target} className={props.className}
+            reloading={isOrdinaryReloading(session)} />;
     }
     return <ConfiguredModelControls {...props} />;
 };
@@ -349,7 +351,7 @@ export const NativeDraftModelControls: React.FC<{ session: NativeCreatedSession;
     }, [created, live]);
     if (!ordinary) return null;
     return <OrdinaryModelControls key={created.id} state={ordinary} target={{ sessionId: created.id, directory: created.directory }}
-        className={className} />;
+        className={className} reloading={isOrdinaryReloading(live)} />;
 };
 
 const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
