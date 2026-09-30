@@ -47,7 +47,7 @@ import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingS
 import { countSyncPerformance } from "./performance-diagnostics"
 import { runBackgroundNetworkTask } from "@/lib/background-network"
 import { setActionRefs } from "./session-actions"
-import { setSyncRefs, getAllSyncSessions, getSyncChildStores } from "./sync-refs"
+import { setSyncRefs, getAllSyncSessions, getAllSyncSessionMap, getSyncChildStores } from "./sync-refs"
 import { useSessionUIStore } from "./session-ui-store"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { upsertSessionRecord } from "./session-records"
@@ -79,6 +79,7 @@ import {
   applyFleetSessionStatuses,
   applyGlobalSessionStatusSnapshot,
   getSessionStatusEventVersion,
+  captureSessionStatusEventVersions,
   useGlobalSessionStatusStore,
 } from "./global-session-status"
 import { INITIAL_STATE, type State } from "./types"
@@ -796,11 +797,11 @@ export type SnapshotEvidence = {
   /** The session's record, if any store has one. */ session?: Session
   /** The fleet-wide read's entry, when it was asked. */ fleet?: SessionStatus
 }
-const sameDirectory = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+const sameDirectory = (a: string, b: string) => (normalizePath(a) ?? a) === (normalizePath(b) ?? b)
 const active = (status?: SessionStatus) => status?.type === 'busy' || status?.type === 'retry'
 
 /**
- * How a directory's authoritative snapshot may treat one candidate its entry does NOT list busy (absent, or idle):
+ * How a directory's snapshot may treat a session (including explicit active entries):
  * - `hold`: keep this session's status in both stores; the snapshot is not its owner's word (smarty-code#737);
  * - `settle`: lower it, and finalize its unfinished turn (#2577);
  * - `lower`: lower it, but never finalize its turn (absence proves nothing about a session no store has a record of).
@@ -831,27 +832,38 @@ export async function resyncDirectorySessionStatuses(
   const runtimeKey = getRuntimeKey() // The server this read goes to, before its first await (its reports go there only).
   // openchamber#438 review 3: a runtime switch or a new sign-in during a read retires it: nothing it read is published.
   const scope = captureRuntimeRequestScope()
-  // Review 4 #2: each candidate's status as it stood before the reads (its event version and this store's entry). A
-  // session whose status changed while the reads were out (a newer busy event, a new turn) is newer than them: untouched.
-  const versionsBefore = new Map(candidateSessionIds.map((id) => [id, getSessionStatusEventVersion(id)]))
+  // Capture every event revision before the FIRST read: publication also touches raw IDs and directory-sweep
+  // siblings that were not candidates (or did not exist yet). The child reference additionally fences local sends.
+  const versionsBefore = captureSessionStatusEventVersions()
   const statusBefore = store.getState().session_status ?? {}
-  const changedSince = (id: string) => getSessionStatusEventVersion(id) !== versionsBefore.get(id)
+  const changedSince = (id: string) => getSessionStatusEventVersion(id) !== (versionsBefore.get(id) ?? 0)
     || (store.getState().session_status ?? {})[id] !== statusBefore[id]
   const nextStatuses = await opencodeClient.getSessionStatusForDirectory(directory)
   if (!isRuntimeRequestScopeCurrent(scope)) return null
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
   // of active sessions — reconciled per `mode` (absence ≠ idle under monotonic).
   if (nextStatuses === null) return null
-  if (mode !== "authoritative") {
-    applySessionStatusSnapshot(store, nextStatuses, candidateSessionIds, mode)
-    return nextStatuses
-  }
   // The evidence is read BEFORE anything is applied (review 2): the child store's and the global index's statuses.
   const before = store.getState(), index = useGlobalSessionStatusStore.getState().statusById
   const evidence = new Map<string, SnapshotEvidence>()
-  for (const sessionId of candidateSessionIds) {
-    evidence.set(sessionId, { prior: before.session_status?.[sessionId], indexed: index.get(sessionId),
-      session: before.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId) })
+  // Reuse the fleet's cached ID index; only this directory needs a local lookup for an unregistered store.
+  const sessionsById = getAllSyncSessionMap()
+  const localSessionsById = new Map(before.session.map((session) => [session.id, session]))
+  const evidenceFor = (sessionId: string): SnapshotEvidence => {
+    let entry = evidence.get(sessionId)
+    if (!entry) {
+      entry = { prior: before.session_status?.[sessionId], indexed: index.get(sessionId),
+        session: localSessionsById.get(sessionId) ?? sessionsById.get(sessionId) }
+      evidence.set(sessionId, entry)
+    }
+    return entry
+  }
+  for (const sessionId of candidateSessionIds) evidenceFor(sessionId)
+  if (mode !== "authoritative") {
+    const applied = candidateSessionIds.filter((id) => !changedSince(id)
+      && snapshotVerdict(nextStatuses[id], directory, evidenceFor(id)) !== 'hold')
+    applySessionStatusSnapshot(store, nextStatuses, applied, mode)
+    return nextStatuses
   }
   // One fleet-wide read for a managed catalog, only when a candidate is absent here and nothing else decides it.
   const undecided = candidateSessionIds.filter((id) => nextStatuses[id] === undefined && snapshotVerdict(undefined, directory, evidence.get(id)!) !== 'hold')
@@ -860,17 +872,27 @@ export async function resyncDirectorySessionStatuses(
     if (!isRuntimeRequestScopeCurrent(scope)) return null
     for (const id of undecided) { const listed = toSessionStatus(fleet?.[id]); if (listed) evidence.get(id)!.fleet = listed }
   }
-  const verdicts = new Map(candidateSessionIds.map((id) => [id, changedSince(id) ? 'hold' as const
-    : active(toSessionStatus(nextStatuses[id])) ? 'lower' as const : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
+  // Re-read sweep membership after the fleet await: a sibling may have started while either read was pending.
+  const snapshotDirectory = normalizePath(directory) ?? directory
+  const touched = new Set([...candidateSessionIds, ...Object.keys(nextStatuses)])
+  for (const [id, entry] of useGlobalSessionStatusStore.getState().statusById) {
+    if (entry.directory === snapshotDirectory) touched.add(id)
+  }
+  const verdicts = new Map<string, ReturnType<typeof snapshotVerdict>>()
+  for (const id of touched) {
+    const verdict = changedSince(id) ? 'hold' : snapshotVerdict(nextStatuses[id], directory, evidenceFor(id))
+    // An active answer still needs the ownership check; it must never finalize an unfinished turn.
+    verdicts.set(id, verdict === 'hold' ? 'hold' : active(toSessionStatus(nextStatuses[id])) ? 'lower' : verdict)
+  }
   const applied = candidateSessionIds.filter((id) => verdicts.get(id) !== 'hold')
-  const held = new Set(candidateSessionIds.filter((id) => verdicts.get(id) === 'hold'))
+  const held = new Set([...touched].filter((id) => verdicts.get(id) === 'hold'))
   applySessionStatusSnapshot(store, nextStatuses, applied, mode)
   store.setState({ sessionStatusReady: true })
   applyGlobalSessionStatusSnapshot(directory, nextStatuses, applied, held) // Held ones are kept, sweep included (review 3).
   // A held session the fleet read found active: each store that does not show it active takes the fleet's word.
   for (const id of held) {
-    const e = evidence.get(id)!
-    if (!active(e.fleet) || changedSince(id)) continue
+    const e = evidence.get(id)
+    if (!e || !active(e.fleet) || changedSince(id)) continue
     const status = e.fleet!
     if (!active(e.prior)) store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
     // Review 4 #1: an ID-scoped update: it touches this session only, never its directory's siblings.
