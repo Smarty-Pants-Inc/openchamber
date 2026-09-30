@@ -169,7 +169,13 @@ export function createDiskBridge({
     if (orphans) {
       const again = await collectRecovered(helper, key, rel, recoveryDir).catch(() => null);
       if (again) {
-        orphans = again.orphans;
+        const known = new Set(pending.map((revision) => revision.entry));
+        const mine = again.mine.filter((revision) => !known.has(revision.entry));
+        pending.push(...mine);
+        // Still looking while an orphan waits, or while a token this process kept (its data not yet verified gone) has
+        // no revision enrolled: e.g. its old helper still holds the lock while it exits (bounded by retryLimit).
+        const unenrolled = Object.values(tokensFor(key)).some((token) => !pending.some((revision) => revision.token === token));
+        orphans = again.orphans || (unenrolled && !uncertain);
         showRecovered(again.recovered);
       }
     }
@@ -209,7 +215,7 @@ export function createDiskBridge({
    * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async () => {
-    const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) }).catch(() => null);
+    const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch(() => null);
     if (!reply?.ok) return false;
     const txn = uncertain.lost;
     const record = (reply.records ?? []).find((r) => r.txn === txn);
@@ -227,10 +233,13 @@ export function createDiskBridge({
     } else {
       for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
-    // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5).
-    await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
-    // No retained data enrolled for it: its token guards nothing more (smartyfs#37 item 15).
-    if (!pending.some((revision) => revision.token === uncertain.token)) forgetToken(key, txn);
+    // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5). The token is
+    // dropped only on a VERIFIED no-data ack: an ack that says data is still pending, or one that fails, keeps it,
+    // and a later list enrolls that data (#428 round 3; smartyfs#37 item 15).
+    const acked = await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
+    const enrolled = pending.some((revision) => revision.token === uncertain.token);
+    if (acked?.ok && !acked.pending && !enrolled) forgetToken(key, txn);
+    else if (!enrolled) orphans = true; // Look again (list with this token) until its data is enrolled or gone.
     uncertain = null;
     if (!unsynced) conflict = null;
     scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).

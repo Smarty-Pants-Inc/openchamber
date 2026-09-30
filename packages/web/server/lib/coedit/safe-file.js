@@ -392,14 +392,18 @@ async function syncDirectory(dir) {
  * out the helper's orphan age (7 days), their bytes safe in the private dir.
  */
 const TOKENS = new Map();
-export const rememberToken = (key, txn, token) => {
+/** The hash of the revision each transaction displaced: a later enrolment disposes against it, so late bytes are kept. */
+const BASES = new Map();
+export const rememberToken = (key, txn, token, baseHash) => {
   if (!TOKENS.has(key)) TOKENS.set(key, new Map());
   TOKENS.get(key).set(txn, token);
+  BASES.set(`${key}.${txn}`, baseHash);
 };
 /** Drops a token once its transaction needs it no more (smartyfs#37 item 15): the registry stays bounded. */
 export const forgetToken = (key, txn) => {
   const tokens = TOKENS.get(key);
   tokens?.delete(txn);
+  BASES.delete(`${key}.${txn}`);
   if (tokens?.size === 0) TOKENS.delete(key);
 };
 /** Tests: how many tokens this process holds. */
@@ -463,7 +467,7 @@ export async function publish(helper, rel, text, expectedHash, { recoveryDir, ke
   const txn = randomBytes(6).toString('hex');
   // A secret only this bridge knows: the helper keeps its hash, and only the token acks the record (#412 round 4).
   const token = randomBytes(16).toString('hex');
-  rememberToken(key, txn, token);
+  rememberToken(key, txn, token, expectedHash);
   const uncertain = { conflict: 'unverified', published: 'uncertain', recovery, notice: UNCERTAIN_NOTICE };
   let reply;
   try {
@@ -554,8 +558,19 @@ function keepAllRecovered(reply, recoveryDir) {
 
 /** Looks again at orphans the helper could not recover yet (a writer still held them). */
 export async function collectRecovered(helper, key, rel, recoveryDir) {
-  const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) });
+  const tokens = tokensFor(key);
+  const reply = await helper.call({ op: 'list', path: rel, tokens });
   if (!reply.ok) throw refused(reply);
-  return keepAllRecovered(reply, recoveryDir);
+  // This process's own retained data (its token opens it): returned for enrolment as pending revisions (#428).
+  // Disposed against the hash of the revision it displaced (not its current bytes), so a late write is kept and shown.
+  const mine = reply.entries.filter((e) => !e.owned && tokens[txnOf(key, e.entry)])
+    .map((e) => ({ entry: e.entry, hash: BASES.get(`${key}.${txnOf(key, e.entry)}`) ?? '', token: tokens[txnOf(key, e.entry)] }));
+  // A token whose transaction is settled (a terminal record) with no data entry left is verified done: dropped. The
+  // list fails closed, so a missing entry here is real absence. Tokens with no record yet (a publish in flight) stay.
+  for (const record of reply.records ?? []) {
+    const done = (record.state === 'published' || record.state === 'aborted') && !record.owned;
+    if (done && tokens[record.txn] && !reply.entries.some((e) => txnOf(key, e.entry) === record.txn)) forgetToken(key, record.txn);
+  }
+  return { ...keepAllRecovered(reply, recoveryDir), mine };
 }
 

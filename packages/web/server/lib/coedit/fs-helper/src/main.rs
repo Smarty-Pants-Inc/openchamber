@@ -1422,17 +1422,30 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     }
     let mut entries = Vec::new();
     for name in names.iter().filter(|n| n.ends_with(".staged")) {
-        if !matches!(stat_entry(priv_fd, name), Ok(Some(_))) {
-            continue; // Recovered (by the helper) while this list ran.
+        // Absent only on a confirmed ENOENT (recovered by the helper while this list ran). Any other failure to look
+        // at a data entry fails the whole list: a partial list must never read as "no data" (#428 round 3).
+        if test_fault(req, "entryStat") {
+            return Err("a private entry cannot be inspected".into());
+        }
+        // Tests only: this list does not see the entry (a stand-in for one whose absence it wrongly confirmed).
+        if test_fault(req, "entryHidden") {
+            continue;
+        }
+        if stat_entry(priv_fd, name)?.is_none() {
+            continue;
         }
         // Not this caller's to take over: named, but with no bytes (#412 rounds 2 to 5).
         if txn_of(name, &key).is_some_and(|t| guarded.contains(&t)) {
             entries.push(json!({"entry": name, "owned": true}));
             continue;
         }
-        let Ok(fd) = open_private(priv_fd, name) else { continue };
-        if !fstat(fd.as_raw_fd()).map(|s| is_reg(&s)).unwrap_or(false) {
-            continue;
+        let fd = match open_private(priv_fd, name) {
+            Ok(fd) => fd,
+            Err(libc::ENOENT) => continue,
+            Err(e) => return Err(os_err("open", e)),
+        };
+        if !is_reg(&fstat(fd.as_raw_fd())?) {
+            return Err("a private entry is not a regular file".into());
         }
         let bytes = read_all(&fd)?;
         entries.push(json!({"entry": name, "hash": hex(&bytes), "data": B64.encode(&bytes)}));

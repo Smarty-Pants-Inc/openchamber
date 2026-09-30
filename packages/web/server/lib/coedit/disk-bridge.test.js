@@ -661,6 +661,52 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
     });
 
+    it('#428 round 3: a list that cannot inspect a data entry never settles a lost reply; the token stays and the late bytes are collected', async () => {
+      const t = await setup('a');
+      const writer = fs.openSync(t.file, 'a'); // Keeps the displaced revision pending.
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root); // Only the helper connection is lost; this bridge (the origin) lives, holding its token.
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      const before = tokenCount();
+      t.hooks.helper = { fault: 'entryStat' }; // The published record reads fine; the data-entry pass fails.
+      await t.bridge.sync().catch(() => {});
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'unverified' }); // Not settled on a partial list.
+      expect(tokenCount()).toBe(before);
+      delete t.hooks.helper;
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      await t.bridge.sync(); // Reads work again: settled, and its revision enrolled with its token.
+      await expect.poll(() => t.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(t.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('alate\n');
+      expect(t.text.toString()).toBe('Pa'); // No replay.
+      await expect.poll(() => tokenCount(), { timeout: 5000 }).toBe(before - 1);
+    });
+
+    it('#428 round 3: an ack that reports pending data keeps the token, and the data is enrolled and collected', async () => {
+      const t = await setup('a');
+      const writer = fs.openSync(t.file, 'a');
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      killHelper(t.root);
+      await saving;
+      delete t.hooks.helper;
+      const before = tokenCount();
+      // Hide the entry from this one settlement only: the ack then sees the data and says pending.
+      t.hooks.helper = { fault: 'entryHidden' };
+      await t.bridge.sync();
+      delete t.hooks.helper;
+      expect(tokenCount()).toBe(before); // Kept: ack said pending.
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      await expect.poll(() => t.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(t.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('alate\n');
+    });
+
     it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {
       const t = await setup('a\n');
       const before = tokenCount();

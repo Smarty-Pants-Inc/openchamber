@@ -67,8 +67,11 @@ round 4); until then no conflict could be seen.
       and only then is the entry removed. Callers get only metadata (the path and hash), never the bytes, and cannot
       dispose it. The restarted bridge shows each delivered copy once (`raced`). **Setup:** with the service, the
       recovery directory needs the same grant as a project root (`setfacl -m u:smarty-coedit:rwx <recovery dir>`).
-    - Tokens are dropped once their transaction needs them no more (a definite refusal, a settled lost reply with no
-      data, a disposed revision).
+    - Tokens are dropped only once their transaction verifiably needs them no more: a definite refusal, a disposed
+      revision, or an `ack` that confirms no data is left. `list` fails closed: any failure to inspect a data entry (not
+      ENOENT) fails the whole list, so a partial list never settles a lost reply. An `ack` that reports pending data
+      keeps the token, and the bridge keeps looking until that data is enrolled and collected, against the hash of the
+      revision it displaced, so a late write is kept (#428 round 3).
     - **Outcome:** once the owner is gone, a missing outcome is decided from the staged name (our inode: `aborted`;
       another inode: `published`; a complete scan that finds none: `aborted`) and made durable **before** any
       recovery may remove the entry. A failed scan, stat, open, lock, read, write or flush is never taken as absence:
