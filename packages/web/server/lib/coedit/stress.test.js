@@ -23,41 +23,28 @@ describe.skipIf(!built)('co-edit stress (smartyfs#32 acceptance)', () => {
 
   it('a SIGKILLed stress run leaves no writer, server or helper behind (smartyfs#37 item 4)', async () => {
     const own = fs.mkdtempSync(path.join(dir, 'kill-'));
-    const run = spawn(process.execPath, [path.join(import.meta.dirname, 'stress.mjs'), '--seconds', '60', '--seed', '37', '--dir', own], { stdio: 'ignore' });
-    const startOf = (pid) => fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop().trim().split(/\s+/)[19];
-    const mine = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p) && Number(p) !== run.pid).filter((p) => {
+    // A keeper leads its own process group and runs the stress run in it; nothing in the tree leaves the group. The keeper
+    // SIGKILLs the run through its own handle on request ('k'). The keeper stays this process's unreaped child until the
+    // cleanup below, so the group id (its pid) cannot be reused before the group is signalled (smartyfs#37 item 17).
+    const keeper = spawn(process.execPath, ['-e', `
+      const run = require('child_process').spawn(process.execPath, process.argv.slice(1), { stdio: 'ignore' });
+      process.stdin.on('data', () => run.kill('SIGKILL'));`, path.join(import.meta.dirname, 'stress.mjs'), '--seconds', '60', '--seed', '37', '--dir', own],
+    { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    const mine = () => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p) && Number(p) !== keeper.pid).filter((p) => {
       try {
         return fs.readFileSync(`/proc/${p}/cmdline`, 'utf8').includes(own) && !fs.readFileSync(`/proc/${p}/stat`, 'utf8').includes(') Z ');
       } catch {
         return false;
       }
     });
-    // Its descendants, each with its start time: a pid is signalled only while it is still that process.
-    const snapshot = new Map();
-    const remember = () => {
-      for (const pid of mine()) {
-        try {
-          snapshot.set(pid, startOf(pid));
-        } catch {
-          // Already gone.
-        }
-      }
-    };
     try {
-      await expect.poll(() => { remember(); return mine().length; }, { timeout: 10_000 }).toBeGreaterThan(3); // Writers, server, helper.
-      run.kill('SIGKILL');
+      await expect.poll(() => mine().length, { timeout: 10_000 }).toBeGreaterThan(4); // The run, writers, server, helper.
+      keeper.stdin.write('k');
       await expect.poll(() => mine(), { timeout: 5000 }).toEqual([]);
     } finally {
-      // A failure above leaves nothing behind (smartyfs#37 item 14): the run only while its handle is still live (never
-      // a reaped pid), and a descendant only while its pid still has the start time recorded for it (never a reused one).
-      if (run.exitCode === null && run.signalCode === null) run.kill('SIGKILL');
-      for (const [pid, start] of snapshot) {
-        try {
-          if (startOf(pid) === start) process.kill(Number(pid), 'SIGKILL');
-        } catch {
-          // Already gone.
-        }
-      }
+      // Synchronous: this process reaps the keeper only in its event loop, so between the check and the signal the pid
+      // (alive or a zombie) still holds the group id. Only this test's own group is signalled.
+      if (keeper.exitCode === null && keeper.signalCode === null) process.kill(-keeper.pid, 'SIGKILL');
     }
   }, 30_000);
 });

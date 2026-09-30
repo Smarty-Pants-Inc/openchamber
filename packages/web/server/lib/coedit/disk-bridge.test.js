@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { hashBytes, keyOf, publish, readFile, startHelper, tokenCount } from './safe-file.js';
+import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -705,6 +705,76 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       fs.closeSync(writer);
       await expect.poll(() => t.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
       expect(fs.readFileSync(t.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('alate\n');
+    });
+
+    it('smartyfs#37 item 16: an ack that is done but whose reply is lost does not leave its token registered', async () => {
+      const t = await setup('a');
+      const before = tokenCount();
+      t.person((x) => x.insert(0, 'P'));
+      // Lost before its record is linked: no record and no data, so its settlement acks with nothing to dispose.
+      t.hooks.helper = { pause: 'beforeRecordLink', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      await expect.poll(() => tokenCount(), { timeout: 3000 }).toBe(before + 1);
+      await new Promise((resolve) => setTimeout(resolve, 300)); // The helper waits before linking the record.
+      killHelper(t.root);
+      expect(await saving).toMatchObject({ published: 'uncertain' });
+      t.hooks.helper = { fault: 'ackLost' }; // The helper removes the receipt; the bridge never hears it.
+      await t.bridge.sync();
+      delete t.hooks.helper;
+      await t.bridge.save(); // Not published: saved again, as its own transaction.
+      await expect.poll(() => t.disk(), { timeout: 5000 }).toBe('Pa');
+      // Later complete lists show neither the record nor data of the lost-ack transaction: its token goes too.
+      await expect.poll(() => tokenCount(), { timeout: 5000 }).toBe(before);
+    });
+
+    it('smartyfs#37 item 16: a list never drops the token of a save still being published', async () => {
+      const t = await setup('a');
+      const before = tokenCount();
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'beforeLock', pauseMs: 1500 };
+      const saving = t.bridge.save();
+      await expect.poll(() => tokenCount(), { timeout: 3000 }).toBe(before + 1);
+      // Another connection of this process lists the file before the helper has even taken the file's lock for this
+      // publish: no record and no data of it yet.
+      const other = startHelper(t.root, t.privateDir);
+      try {
+        await collectRecovered(other, keyOf(t.root, 'src/notes.md'), 'src/notes.md', t.recoveryDir);
+        expect(tokenCount()).toBe(before + 1); // Still settling: its token stays.
+      } finally {
+        await other.close();
+      }
+      delete t.hooks.helper;
+      expect(await saving).toMatchObject({ ok: true });
+      await expect.poll(() => tokenCount(), { timeout: 5000 }).toBe(before); // Published and disposed: now it goes.
+    });
+
+    it('#436 round 1: an empty list sent before a publish, answered after it settled, keeps that publish\'s token', async () => {
+      const t = await setup('log\n');
+      const before = tokenCount();
+      const agentFd = fs.openSync(t.file, 'a'); // Keeps the displaced revision: the publish retains data.
+      t.person((x) => x.insert(0, 'person\n'));
+      t.hooks.helper = { pause: 'beforeLock', pauseMs: 800 };
+      const saving = t.bridge.save();
+      await expect.poll(() => tokenCount(), { timeout: 3000 }).toBe(before + 1);
+      // Another connection of this process lists first (no record, no data yet); its reply comes after the publish's.
+      const other = startHelper(t.root, t.privateDir, { testHooks: true });
+      try {
+        const listing = collectRecovered(other, keyOf(t.root, 'src/notes.md'), 'src/notes.md', t.recoveryDir, { helper: { pause: 'beforeReply', pauseMs: 2500 } });
+        expect(await saving).toEqual({ ok: true });
+        await listing;
+        expect(tokenCount()).toBe(before + 1); // Still held: its data is retained.
+      } finally {
+        await other.close();
+      }
+      delete t.hooks.helper;
+      await t.bridge.close();
+      const again = t.open(); // Reopened in this process: its token reclaims the retained revision.
+      await again.bridge.load();
+      fs.writeSync(agentFd, 'appended\n');
+      fs.closeSync(agentFd);
+      await expect.poll(() => again.conflicts.find((c) => c.conflict === 'raced'), { timeout: 5000 }).toBeTruthy();
+      expect(fs.readFileSync(again.conflicts.find((c) => c.conflict === 'raced').recovery, 'utf8')).toBe('log\nappended\n');
+      expect(t.leftovers()).toEqual([]);
     });
 
     it('smartyfs#37 item 15: the token registry keeps only tokens still needed', async () => {

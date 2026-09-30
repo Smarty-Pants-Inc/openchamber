@@ -72,6 +72,12 @@ round 4); until then no conflict could be seen.
       ENOENT) fails the whole list, so a partial list never settles a lost reply. An `ack` that reports pending data
       keeps the token, and the bridge keeps looking until that data is enrolled and collected, against the hash of the
       revision it displaced, so a late write is kept (#428 round 3).
+    - A settled token is also dropped when a complete list shows neither a record nor data of its transaction: an
+      `ack` that removed the receipt but whose reply was lost leaves nothing else to find (smartyfs#37 item 16). A
+      transaction still settling (its publish sent without a reply, or a lost reply not yet settled) keeps its token
+      whatever a list shows: another connection can list the file before the helper takes the file's lock for that
+      publish. Only transactions already settled when a list is SENT may be retired by it: its reply can arrive after
+      a publish that settled meanwhile and now has data (#436).
     - **Outcome:** once the owner is gone, a missing outcome is decided from the staged name (our inode: `aborted`;
       another inode: `published`; a complete scan that finds none: `aborted`) and made durable **before** any
       recovery may remove the entry. A failed scan, stat, open, lock, read, write or flush is never taken as absence:
@@ -215,6 +221,8 @@ round 4); until then no conflict could be seen.
   a save that reported published, is missing from the disk, the recovery directory and the private directory. For a
   published save that holds by construction (its `-ours-` copy), so the report also gives `onlyInOurCopy`: the
   saves that only that copy keeps, which a stale writer overwrote after they were published.
+  `stress.test.js` runs the killed run under a keeper that leads its own process group, and its cleanup signals only
+  that group while the keeper is still its unreaped child, so no reused pid is ever signalled (smartyfs#37 item 17).
 - **Crash recovery:** `load()` lists the file's private entries (`list`), keeps each in `recoveryDir`, disposes it and
   raises `interrupted` with a notice. One still open for writing is enrolled as pending; a late write is `raced`. After
   a crash or kill at any point the file holds either the old or the new revision, whole.
