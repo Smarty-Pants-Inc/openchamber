@@ -1,4 +1,5 @@
 import { isGloballyUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
@@ -1127,7 +1128,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);
-    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering')) && !sentLocked
+    const canSend = (hasContent || hasQueuedMessages) && !(newSessionDraftOpen && (nativeStarting || nativeCreation.mode === 'discovering' || nativeCreation.mode === 'notAdmitted')) && !sentLocked
         && !ordinaryUnavailable;
 
     const canAbort = sessionPhase !== 'idle' && !statusUnavailable
@@ -1449,6 +1450,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
+        // smarty-code#966: the draft's project is no longer admitted: no Send by button or keyboard; the text stays, and the
+        // notice says to choose another project (openchamber#441 r1).
+        if (newSessionDraftOpen && nativeCreation.mode === 'notAdmitted') return;
         // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
         const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
         if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
@@ -3634,7 +3638,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onPrimaryAction={handlePrimaryAction}
                         onQueueMessage={sendsWhileWorking ? () => { void handleSubmitRef.current(); } : () => { void handleQueueMessage(); }}
                         sendWhileWorking={sendsWhileWorking}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -3814,7 +3818,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend}
-                        sendDisabledReason={ordinaryUnavailable ? t('chat.ordinary.sendUnavailableNow') : undefined}
+                        sendDisabledReason={pillSendDisabledReason({ ordinaryUnavailable, newSessionDraftOpen, nativeMode: nativeCreation.mode }, t)}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         isExpandedInput={isExpandedInput}
