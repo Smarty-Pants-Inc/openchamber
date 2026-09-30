@@ -932,6 +932,7 @@ export async function createSession(
   parentID?: string | null,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
+  revealTicket = useSessionUIStore.getState().beginSessionReveal(),
 ): Promise<Session | null> {
   try {
     // Capture the effective directory used for session creation so we can fall
@@ -952,11 +953,12 @@ export async function createSession(
     if (sessionDirectory) {
       registerSessionDirectory(session.id, sessionDirectory)
     }
-    useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory, selectionTransition)
+    useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory, selectionTransition, revealTicket)
     useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id)
     useGlobalSessionsStore.getState().upsertSession(session)
     return session
   } catch (error) {
+    useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision)
     console.error("[session-actions] createSession failed", error)
     return null
   }

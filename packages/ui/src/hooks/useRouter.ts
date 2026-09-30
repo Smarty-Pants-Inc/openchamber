@@ -9,7 +9,8 @@ import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedC
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { readLastActiveSession, setShownSessionProbe } from '@/sync/last-session-cache';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { getRuntimeKey, captureRuntimeRequestScope } from '@/lib/runtime-switch';
+import { recordTabShownSession, tabSessionNamespace } from '@/lib/router/tab-session-route';
 
 /**
  * Check if running in VS Code webview context.
@@ -60,7 +61,7 @@ export function useRouter(): void {
    * Apply a parsed route state to the application stores.
    */
   const applyRoute = React.useCallback(
-    async (route: RouteState) => {
+    async (route: RouteState, initial = false) => {
       if (isApplyingRouteRef.current) {
         return;
       }
@@ -70,7 +71,7 @@ export function useRouter(): void {
       try {
         // 1. Apply session first (may trigger async operations)
         if (route.sessionId) {
-          await openSessionFromRoute(route.sessionId);
+          await openSessionFromRoute(route.sessionId, { initial, personalReveal: !isVSCode && !isEmbeddedChat });
         }
 
         // 2. Handle settings first because it is a full-screen overlay.
@@ -106,7 +107,7 @@ export function useRouter(): void {
         isApplyingRouteRef.current = false;
       }
     },
-    [setSettingsDialogOpen, setSettingsPage, navigateToDiff]
+    [setSettingsDialogOpen, setSettingsPage, navigateToDiff, isVSCode, isEmbeddedChat]
   );
 
   /**
@@ -158,7 +159,7 @@ export function useRouter(): void {
 
     // Apply the initial route
     const initializeRoute = async () => {
-      await applyRoute(route);
+      await applyRoute(route, true);
 
       // After applying, update URL to normalized form (use replaceState).
       // The state reader retains pending route intent only while discovery is
@@ -189,11 +190,16 @@ export function useRouter(): void {
     const unsubscribe = useSessionUIStore.subscribe((state) => {
       const sessionId = state.currentSessionId;
 
-      // Skip if no change or if we're currently applying a route
-      if (sessionId === prevSessionId || isApplyingRouteRef.current) {
-        return;
+      // An explicit draft cancels a receipt even while route application suppresses URL sync.
+      // The automatic boot draft still has its pending restore pointer and must not erase it.
+      const cleared = sessionId === null && !readLastActiveSession(getRuntimeKey());
+      if (cleared || (sessionId !== prevSessionId && !isApplyingRouteRef.current)) {
+        const scope = captureRuntimeRequestScope();
+        void tabSessionNamespace(scope).then(namespace => {
+          if (namespace) recordTabShownSession(scope, namespace, sessionId);
+        });
       }
-
+      if (sessionId === prevSessionId || isApplyingRouteRef.current) return;
       prevSessionId = sessionId;
       syncURLFromState();
     });

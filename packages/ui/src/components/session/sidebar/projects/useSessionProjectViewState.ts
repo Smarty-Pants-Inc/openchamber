@@ -1,199 +1,72 @@
 import React from 'react';
-import { updateDesktopSettings } from '@/lib/persistence';
-import { useProjectsStore } from '@/stores/useProjectsStore';
-import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
-import { z } from 'zod';
-import { useGroupOrdering } from './useGroupOrdering';
+import { setPersonalSidebarView, usePersonalSidebarView } from '@/lib/sidebar-view';
+import { useLegacySessionProjectViewState } from './useLegacySessionProjectViewState';
 
-const PROJECT_COLLAPSE_STORAGE_KEY = 'oc.sessions.projectCollapse';
-const GROUP_ORDER_STORAGE_KEY = 'oc.sessions.groupOrder';
-const GROUP_COLLAPSE_STORAGE_KEY = 'oc.sessions.groupCollapse';
+type Project = { id: string; sidebarCollapsed?: boolean };
+type Args = { isVSCode: boolean; projects: readonly Project[] };
 
-type Project = { id: string };
-
-type SessionProjectViewStateArgs = {
-  isVSCode: boolean;
-  projects: readonly Project[];
-};
-
-const parseStringSet = (raw: string | null): Set<string> => {
-  if (!raw) return new Set();
-  try {
-    const parsed = z.array(z.string()).safeParse(JSON.parse(raw));
-    return new Set(parsed.success ? parsed.data : []);
-  } catch {
-    return new Set();
-  }
-};
-
-const parseGroupOrder = (raw: string | null): Map<string, string[]> => {
-  if (!raw) return new Map();
-  try {
-    const parsed = z.record(z.string(), z.array(z.string())).safeParse(JSON.parse(raw));
-    if (!parsed.success) return new Map();
-    const next = new Map<string, string[]>();
-    for (const [projectId, order] of Object.entries(parsed.data)) {
-      next.set(projectId, order);
-    }
-    return next;
-  } catch {
-    return new Map();
-  }
-};
-
-export const useSessionProjectViewState = ({
-  isVSCode,
-  projects,
-}: SessionProjectViewStateArgs) => {
-  const safeStorage = React.useMemo(() => getDeferredSafeStorage(), []);
-  const [collapsedProjects, setCollapsedProjects] = React.useState<Set<string>>(() => (
-    parseStringSet(safeStorage.getItem(PROJECT_COLLAPSE_STORAGE_KEY))
-  ));
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => (
-    parseStringSet(safeStorage.getItem(GROUP_COLLAPSE_STORAGE_KEY))
-  ));
-  const [groupOrderByProject, setGroupOrderByProject] = React.useState<Map<string, string[]>>(() => (
-    parseGroupOrder(safeStorage.getItem(GROUP_ORDER_STORAGE_KEY))
-  ));
-  const ignoreIntersectionUntil = React.useRef<number>(0);
-  const groupCollapseDirty = React.useRef(false);
-  const groupOrderDirty = React.useRef(false);
-  const persistCollapsedProjectsTimer = React.useRef<number | null>(null);
-  const pendingCollapsedProjects = React.useRef<Set<string> | null>(null);
-
-  const flushCollapsedProjectsPersist = React.useCallback(() => {
-    if (isVSCode) return;
-    const collapsed = pendingCollapsedProjects.current;
-    pendingCollapsedProjects.current = null;
-    persistCollapsedProjectsTimer.current = null;
-    if (!collapsed) return;
-
-    const { projects: storedProjects } = useProjectsStore.getState();
-    const updatedProjects = storedProjects.map((project) => ({
-      ...project,
-      sidebarCollapsed: collapsed.has(project.id),
-    }));
-    void updateDesktopSettings({ projects: updatedProjects }, { expectedProjects: storedProjects }).catch(() => {});
-  }, [isVSCode]);
-
-  const scheduleCollapsedProjectsPersist = React.useCallback((collapsed: Set<string>) => {
-    if (!globalThis.window || isVSCode) return;
-    pendingCollapsedProjects.current = collapsed;
-    if (persistCollapsedProjectsTimer.current !== null) {
-      window.clearTimeout(persistCollapsedProjectsTimer.current);
-    }
-    persistCollapsedProjectsTimer.current = window.setTimeout(() => {
-      flushCollapsedProjectsPersist();
-    }, 700);
-  }, [flushCollapsedProjectsPersist, isVSCode]);
-
-  React.useEffect(() => {
-    return () => {
-      if (globalThis.window && persistCollapsedProjectsTimer.current !== null) {
-        window.clearTimeout(persistCollapsedProjectsTimer.current);
-      }
-      persistCollapsedProjectsTimer.current = null;
-      pendingCollapsedProjects.current = null;
-    };
+export const useSessionProjectViewState = ({ isVSCode, projects }: Args) => {
+  const personal = usePersonalSidebarView();
+  const legacy = useLegacySessionProjectViewState({ isVSCode, projects, personal: personal.enabled });
+  const collapsedProjects = React.useMemo(() => personal.enabled
+    ? new Set(projects.filter(project => personal.projects[project.id] ?? project.sidebarCollapsed ?? false).map(project => project.id))
+    : legacy.state.collapsedProjects, [personal.enabled, personal.projects, projects, legacy.state.collapsedProjects]);
+  const collapsedGroups = React.useMemo(() => personal.enabled
+    ? new Set(Object.keys(personal.groups).filter(key => personal.groups[key]))
+    : legacy.state.collapsedGroups, [personal.enabled, personal.groups, legacy.state.collapsedGroups]);
+  const latest = React.useRef({ personal, legacy, projects, collapsedProjects, collapsedGroups });
+  latest.current = { personal, legacy, projects, collapsedProjects, collapsedGroups };
+  // The preference owner rolls back and shows existing localized feedback. UI callbacks do not leak rejected promises.
+  const save = React.useCallback((patch: Parameters<typeof setPersonalSidebarView>[0]) => {
+    void setPersonalSidebarView(patch).catch(() => undefined);
   }, []);
-
-  React.useEffect(() => {
-    if (!groupOrderDirty.current) return;
-    try {
-      safeStorage.setItem(GROUP_ORDER_STORAGE_KEY, JSON.stringify(Object.fromEntries(groupOrderByProject.entries())));
-    } catch {
-      // ignored
-    }
-  }, [groupOrderByProject, safeStorage]);
-
-  React.useEffect(() => {
-    if (!groupCollapseDirty.current) return;
-    try {
-      safeStorage.setItem(GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedGroups)));
-    } catch {
-      // ignored
-    }
-  }, [collapsedGroups, safeStorage]);
-
-  const collapseAllProjects = React.useCallback(() => {
-    ignoreIntersectionUntil.current = Date.now() + 150;
-    groupCollapseDirty.current = true;
-    setCollapsedGroups(new Set());
-    setCollapsedProjects(() => {
-      const allIds = new Set(projects.map((project) => project.id));
-      try {
-        safeStorage.setItem(PROJECT_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(allIds)));
-      } catch {
-        // ignored
-      }
-      scheduleCollapsedProjectsPersist(allIds);
-      return allIds;
-    });
-  }, [projects, safeStorage, scheduleCollapsedProjectsPersist]);
-
-  const expandAllProjects = React.useCallback(() => {
-    ignoreIntersectionUntil.current = Date.now() + 150;
-    groupCollapseDirty.current = true;
-    setCollapsedGroups(new Set());
-    setCollapsedProjects(() => {
-      const empty = new Set<string>();
-      try {
-        safeStorage.setItem(PROJECT_COLLAPSE_STORAGE_KEY, JSON.stringify([]));
-      } catch {
-        // ignored
-      }
-      scheduleCollapsedProjectsPersist(empty);
-      return empty;
-    });
-  }, [safeStorage, scheduleCollapsedProjectsPersist]);
-
-  const toggleProject = React.useCallback((projectId: string) => {
-    ignoreIntersectionUntil.current = Date.now() + 150;
-    setCollapsedProjects((previous) => {
-      const next = new Set(previous);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
-      try {
-        safeStorage.setItem(PROJECT_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(next)));
-      } catch {
-        // ignored
-      }
-      scheduleCollapsedProjectsPersist(next);
-      return next;
-    });
-  }, [safeStorage, scheduleCollapsedProjectsPersist]);
-
+  const toggleProject = React.useCallback((id: string) => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.toggleProject(id);
+    save({ projects: { [id]: !view.collapsedProjects.has(id) } });
+  }, [save]);
   const toggleGroup = React.useCallback((key: string) => {
-    groupCollapseDirty.current = true;
-    setCollapsedGroups((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-  const updateGroupOrderByProject = React.useCallback<React.Dispatch<React.SetStateAction<Map<string, string[]>>>>((update) => {
-    groupOrderDirty.current = true;
-    setGroupOrderByProject(update);
-  }, []);
-
-  const { getOrderedGroups } = useGroupOrdering(groupOrderByProject);
-  const state = React.useMemo(() => ({
-    collapsedProjects,
-    collapsedGroups,
-    groupOrderByProject,
-  }), [collapsedGroups, collapsedProjects, groupOrderByProject]);
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.toggleGroup(key);
+    save({ groups: { [key]: !view.collapsedGroups.has(key) } });
+  }, [save]);
+  const collapseAllProjects = React.useCallback(() => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.collapseAllProjects();
+    const groups = Object.fromEntries([...view.collapsedGroups].filter(key => view.projects.some(project => key.startsWith(`${project.id}:`))).map(key => [key, false]));
+    save({ projects: Object.fromEntries(view.projects.map(project => [project.id, true])), groups });
+  }, [save]);
+  const expandAllProjects = React.useCallback(() => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.expandAllProjects();
+    const groups = Object.fromEntries([...view.collapsedGroups].filter(key => view.projects.some(project => key.startsWith(`${project.id}:`))).map(key => [key, false]));
+    save({ projects: Object.fromEntries(view.projects.map(project => [project.id, false])), groups });
+  }, [save]);
+  const setCollapsedProjects = React.useCallback<React.Dispatch<React.SetStateAction<Set<string>>>>(update => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.setCollapsedProjects(update);
+    const next = update instanceof Set ? update : update(view.collapsedProjects);
+    save({ projects: Object.fromEntries(view.projects.filter(project => next.has(project.id) !== view.collapsedProjects.has(project.id))
+      .map(project => [project.id, next.has(project.id)])) });
+  }, [save]);
+  const setCollapsedGroups = React.useCallback<React.Dispatch<React.SetStateAction<Set<string>>>>(update => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.setCollapsedGroups(update);
+    const next = update instanceof Set ? update : update(view.collapsedGroups);
+    const keys = new Set([...next, ...view.collapsedGroups]);
+    save({ groups: Object.fromEntries([...keys].filter(key => next.has(key) !== view.collapsedGroups.has(key)).map(key => [key, next.has(key)])) });
+  }, [save]);
+  const scheduleCollapsedProjectsPersist = React.useCallback((next: Set<string>) => {
+    const view = latest.current;
+    if (!view.personal.enabled) return view.legacy.actions.scheduleCollapsedProjectsPersist(next);
+    setCollapsedProjects(next);
+  }, [setCollapsedProjects]);
+  const state = React.useMemo(() => ({ collapsedProjects, collapsedGroups, groupOrderByProject: legacy.state.groupOrderByProject }),
+    [collapsedProjects, collapsedGroups, legacy.state.groupOrderByProject]);
   const actions = React.useMemo(() => ({
-    setCollapsedProjects,
-    toggleProject,
-    collapseAllProjects,
-    expandAllProjects,
-    scheduleCollapsedProjectsPersist,
-    setCollapsedGroups,
-    toggleGroup,
-    setGroupOrderByProject: updateGroupOrderByProject,
-    getOrderedGroups,
-  }), [collapseAllProjects, expandAllProjects, getOrderedGroups, scheduleCollapsedProjectsPersist, toggleGroup, toggleProject, updateGroupOrderByProject]);
-
+    setCollapsedProjects, toggleProject, collapseAllProjects, expandAllProjects, scheduleCollapsedProjectsPersist,
+    setCollapsedGroups, toggleGroup, setGroupOrderByProject: legacy.actions.setGroupOrderByProject, getOrderedGroups: legacy.actions.getOrderedGroups,
+  }), [setCollapsedProjects, toggleProject, collapseAllProjects, expandAllProjects, scheduleCollapsedProjectsPersist,
+    setCollapsedGroups, toggleGroup, legacy.actions.setGroupOrderByProject, legacy.actions.getOrderedGroups]);
   return { state, actions };
 };

@@ -16,7 +16,7 @@ import { useDirectoryStore } from './useDirectoryStore';
 import { BROWSER_LAST_DIRECTORY_KEY, getExplicitDirectoryChoices } from './browserDirectoryChoice';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useSessionUIStore, type SessionRevealTicket } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { captureRuntimeRequestScope, getRuntimeApiBaseUrl, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { getVSCodeBootstrapConfig } from '@/lib/vscodeBootstrap';
@@ -67,7 +67,7 @@ interface ProjectsStore {
   applyManagedCatalog: (rows: ManagedProject[]) => void;
   managedSessionHold: ManagedSessionHold | null;
   /** An open of a session whose project the live catalog has not admitted yet: remembered, shown as waiting (#608). */
-  holdPendingOpen: (sessionId: string, directory: string) => void;
+  holdPendingOpen: (sessionId: string, directory: string, revealTicket?: SessionRevealTicket) => void;
   /** A newer explicit choice (another session, a new-session draft) supersedes a pending open. */
   dropPendingOpen: () => void;
   activeProjectId: string | null;
@@ -102,7 +102,7 @@ interface ProjectsStore {
 /** An open session whose directory the live catalog has not admitted yet, and since when (#608). */
 /** `pending`: the person opened it, but its project is not admitted yet, so it is not selected (no request goes to an
  * unadmitted directory); the publication that admits the project opens it. */
-export type ManagedSessionHold = { sessionId: string; directory: string; since: number; pending?: boolean };
+export type ManagedSessionHold = { sessionId: string; directory: string; since: number; pending?: boolean; revealTicket?: SessionRevealTicket };
 export const MANAGED_SESSION_HOLD_MS = 2 * 60_000;
 /** After this bounded wait the notice says the project has not arrived. */
 export const managedSessionHoldExpired = (hold: ManagedSessionHold, now: number = Date.now()): boolean =>
@@ -700,10 +700,11 @@ export const useProjectsStore = create<ProjectsStore>()(
       useDirectoryStore.setState({ managedDirectories: null });
     },
     managedSessionHold: null,
-    holdPendingOpen: (sessionId, directory) => {
+    holdPendingOpen: (sessionId, directory, revealTicket) => {
       const held = get().managedSessionHold;
       const since = held?.sessionId === sessionId ? held.since : Date.now();
-      set({ managedSessionHold: { sessionId, directory, since, pending: true } });
+      const ticket = revealTicket ?? (held?.sessionId === sessionId && held.directory === directory ? held.revealTicket : undefined);
+      set({ managedSessionHold: { sessionId, directory, since, pending: true, revealTicket: ticket } });
     },
     dropPendingOpen: () => { if (get().managedSessionHold?.pending) set({ managedSessionHold: null }); },
     applyManagedCatalog: (rows) => {
@@ -723,7 +724,8 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (!project) { set(published); return; }
         set({ ...published, activeProjectId: project, managedSessionHold: null });
         selectManagedDirectory(projects.find(entry => entry.id === project));
-        useSessionUIStore.getState().setCurrentSession(pending.sessionId, pending.directory);
+        // Admission completes the original open, not a new user choice. Keep its scope and collapse cancellations.
+        useSessionUIStore.getState().setCurrentSession(pending.sessionId, pending.directory, 'restore', pending.revealTicket);
         return;
       }
       // An open session whose project has not joined the live catalog yet stays open: no project,
