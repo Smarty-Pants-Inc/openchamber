@@ -381,7 +381,7 @@ import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, firstMessageIdOf, insertGaps, type RenderEntry, type TimelineEntry } from './lib/turns/renderEntries';
 import { GapRow } from './components/GapRow';
 import { TIMELINE_DRAW_DISTANCE } from './lib/gapWindow';
-import { initialScrollFor, readerPlace } from './lib/readerPlace';
+import { entrySelector, initialScrollFor, readerPlace } from './lib/readerPlace';
 import type { Window } from './lib/windowQueue';
 import { gapsOf } from '@/sync/position-windows';
 import type { SessionPositions } from '@/sync/session-message-loader';
@@ -1459,7 +1459,12 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // The reader's place in the list being replaced is read now, while it is still registered.
     const timelineKey = `${sessionKey}:${positions?.epoch ?? 'unpositioned'}`;
     const initialScroll = React.useMemo(
-        () => initialScrollFor(readerPlace(listRef.current?.getState()), allEntries),
+        () => initialScrollFor(readerPlace(listRef.current?.getState(), (key) => {
+            // The reader's row where it is on screen now, relative to the scroller (the list header included).
+            const node = listRef.current?.getScrollableNode() as HTMLElement | undefined, selector = entrySelector(key);
+            const row = node && selector ? node.querySelector<HTMLElement>(selector) : null;
+            return node && row ? Math.round(row.getBoundingClientRect().top - node.getBoundingClientRect().top) : undefined;
+        }), allEntries),
         // Only when the list is replaced: later entry changes are kept in place by the mounted list itself.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [timelineKey],
