@@ -54,7 +54,7 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
         </I18nProvider>
         </ThemeSystemProvider>
         </SyncProvider>));
-        if (options.unavailable) {
+        if (options.unavailable && options.hasContent) {
             // smarty-code#790: while its session is unavailable, neither Send (inline) nor the trailing Send/Queue
             // sends; both say why on hover.
             const buttons = [...container.querySelectorAll<HTMLButtonElement>('button')]
@@ -91,6 +91,19 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
 };
 
 describe('MobilePillComposer', () => {
+    // smarty-code#790 audit: on a phone the reason must be VISIBLE, not only a hover title (a tap on a disabled button
+    // shows nothing): the collapsed composer says why Send is off while its session is unavailable, with or without text.
+    const REASON = 'This session is unavailable right now. Send is off until it is back; your message stays here.';
+    const visibleReason = (markup: string) => markup.match(/<p[^>]*data-testid="mobile-send-unavailable"[^>]*>([^<]*)<\/p>/)?.[1] ?? null;
+    test('shows why Send is off as a visible line while the session is unavailable, with or without text', async () => {
+        expect(visibleReason(await renderPill({ hasContent: true, newSessionDraftOpen: false, unavailable: REASON }))).toBe(REASON);
+        expect(visibleReason(await renderPill({ hasContent: false, newSessionDraftOpen: false, unavailable: REASON }))).toBe(REASON);
+    });
+    test('shows no reason line when Send is available', async () => {
+        expect(visibleReason(await renderPill({ hasContent: true, newSessionDraftOpen: false }))).toBeNull();
+        expect(visibleReason(await renderPill({ hasContent: false, newSessionDraftOpen: false }))).toBeNull();
+    });
+
     test('uses the inline action to send content while the session is idle', async () => {
         const markup = await renderPill({ hasContent: true, newSessionDraftOpen: false });
 

@@ -41,7 +41,7 @@ export interface MobilePillComposerProps {
     /** While a turn runs, the trailing action queues, as the expanded composer does. */
     onQueueMessage: () => void;
     sendWhileWorking?: boolean;
-    /** Why Send is off although there is text (smarty-code#790/#778: its session is unavailable), shown on hover. */
+    /** Why Send is off (smarty-code#790/#778: its session is unavailable): a visible line above the pill, and the buttons' title. */
     sendDisabledReason?: string;
     onNewSession: () => void;
     onPickLocalFiles: () => void;
@@ -102,6 +102,11 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
             onApply={onApplySuggestion}
             className="mb-1.5"
         />
+        {sendDisabledReason ? (
+            // smarty-code#790: a phone has no hover, and a tap on a disabled Send shows nothing, so the reason is a visible line
+            // while the session is unavailable (as the desktop composer shows it); it goes when Send is back.
+            <p role="status" data-testid="mobile-send-unavailable" className="mb-1.5 px-2 text-xs text-muted-foreground">{sendDisabledReason}</p>
+        ) : null}
         <div className="flex items-center gap-2">
             <div
                 data-mobile-composer-pill="true"
