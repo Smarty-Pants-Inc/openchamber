@@ -12,8 +12,8 @@ import {
   subscribeChatDraftConsumption,
   writeChatDraft,
 } from './chatDraftPersistence';
-import { newSessionSlotKey } from './chatDraftTabs';
-import { getSafeStorage } from '@/stores/utils/safeStorage';
+import { createTabDrafts, newSessionSlotKey, tabId } from './chatDraftTabs';
+import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorage';
 
 const storage = getSafeStorage();
 
@@ -139,19 +139,48 @@ describe('chatDraftPersistence: the pre-#461 shared New session draft', () => {
   });
 });
 
+// openchamber#433 round 5, P1 3: the pre-#461 shared draft through real persistence. A refused first copy leaves it; a
+// later durable save or clear of this tab's draft finishes the migration, so no later tab is offered the old text; and
+// another project's shared draft still migrates after a reload.
+describe('chatDraftPersistence: migrating the pre-#461 shared draft', () => {
+  const session = getSafeSessionStorage();
+  beforeEach(() => { storage.clear(); session.removeItem('openchamber.chatDraftTab'); });
+  const legacyEnvelope = (dirs: string[]) => storage.setItem('openchamber.chatDrafts.v2', JSON.stringify({ version: 2,
+    drafts: Object.fromEntries(dirs.map(d => [JSON.stringify(['runtime-a', d, null]), { text: 'hello', confirmedMentions: [], touchedAt: 1 }])) }));
+  for (const end of ['cleared', 'sent (consumeChatDraft)'] as const) test(`refused copy, storage recovers, then ${end}: a fresh tab is not offered "hello"`, () => {
+    legacyEnvelope(['/mig']);
+    const draft = createChatDraftIdentity('runtime-a', '/mig', null)!;
+    // The browser's storage refuses the copy (quota): the safe-storage adapter keeps it in page memory and reports false.
+    const backing = window.localStorage, realSet = backing.setItem;
+    backing.setItem = (k: string, v: string) => { if (k.startsWith('openchamber.chatDraftSlot:')) throw new DOMException('quota', 'QuotaExceededError'); realSet.call(backing, k, v); };
+    try { readChatDraft(draft); } finally { backing.setItem = realSet; }
+    expect(storage.getItem('openchamber.chatDrafts.v2') ?? '').toContain('hello'); // So the shared draft stays.
+    writeChatDraft(draft, 'hello', []); // The composer's retry, now stored.
+    if (end === 'cleared') writeChatDraft(draft, '', []); else expect(consumeChatDraft(draft, 'hello')).toBe(true);
+    expect(storage.getItem('openchamber.chatDrafts.v2') ?? '').not.toContain('hello');
+    session.setItem('openchamber.chatDraftTab', 'a-fresh-tab'); // Another tab.
+    expect(createTabDrafts({ storage, session }).readSlot('runtime-a', '/mig')).toBeUndefined();
+    expect(readChatDraft(draft).text).toBe('');
+  });
+  test('upgrade with shared drafts in P and Q: open Q, reload, then open P: P\'s draft migrates', () => {
+    legacyEnvelope(['/P', '/Q']);
+    session.setItem('openchamber.chatDraftTab', tabId()); // This page's tab (its id is fixed for the page's life).
+    expect(readChatDraft(createChatDraftIdentity('runtime-a', '/Q', null)).text).toBe('hello');
+    expect(createTabDrafts({ storage, session }).readSlot('runtime-a', '/Q')?.text).toBe('hello'); // The reload.
+    expect(readChatDraft(createChatDraftIdentity('runtime-a', '/P', null)).text).toBe('hello');
+  });
+});
+
 // openchamber#433 round 4, P1 2 (the Send variant): a delivered text consumed by consumeChatDraft (as sent-start recovery
 // does once delivery is confirmed) leaves a cleared marker, so no later page or fresh tab offers it again as unsent.
 describe('chatDraftPersistence: a sent New session draft never comes back', () => {
   beforeEach(() => { storage.clear(); });
   test('consumed after delivery: a fresh tab of the project does not restore the sent text', async () => {
-    const { createTabDrafts } = await import('./chatDraftTabs');
     const draft = createChatDraftIdentity('runtime-a', '/sent-repo', null)!;
     writeChatDraft(draft, 'hello, sent', []);
     expect(consumeChatDraft(draft, 'hello, sent')).toBe(true);
     expect(readChatDraft(draft).text).toBe('');
-    const freshSession = { getItem: () => null, setItem: () => undefined };
-    const fresh = createTabDrafts({ storage, session: freshSession });
-    expect(fresh.adoptNewest('runtime-a', '/sent-repo')).toBe(false);
+    const fresh = createTabDrafts({ storage, session: { getItem: () => null, setItem: () => undefined } });
     expect(fresh.readSlot('runtime-a', '/sent-repo')).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptNewest, onCopyRefused, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptLegacy, readSlot, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -45,8 +45,7 @@ const setEphemeral = (value: boolean): void => {
   if (ephemeralOnly === value) return;
   ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
 };
-// A reload's or duplicate's copy of its earlier draft that storage refused: the draft lives in memory only for now.
-onCopyRefused(() => setEphemeral(true));
+
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
   return () => persistenceListeners.delete(listener);
@@ -71,16 +70,21 @@ export const getChatDraftIdentityKey = (identity: ChatDraftIdentity): string => 
   ? [identity.runtimeKey, identity.directory, null, tabId()]
   : [identity.runtimeKey, identity.directory, identity.sessionId]);
 
+/** The pre-#461 shared New session draft of a project (one slot for all tabs), if it is still stored. */
+const legacyKeyOf = (identity: ChatDraftIdentity) => JSON.stringify([identity.runtimeKey, identity.directory, null]);
+/** A durable save or clear of this tab's own draft supersedes the shared one: it goes (openchamber#433 r5 P1 3). */
+const finishLegacy = (identity: ChatDraftIdentity): void => {
+  const key = legacyKeyOf(identity), envelope = readEnvelope();
+  if (!(key in envelope.drafts)) return;
+  const drafts = { ...envelope.drafts }; delete drafts[key]; writeEnvelope({ version: 2, drafts });
+};
 /** A New session draft is this tab's own slot (chatDraftTabs.ts, #461); a session's draft stays in the envelope. */
 const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
-  const legacyKey = JSON.stringify([identity.runtimeKey, identity.directory, null]);
-  const legacy = readEnvelope().drafts[legacyKey];
-  const adopted = adoptNewest(identity.runtimeKey, identity.directory, legacy);
-  // The old shared entry goes only once its copy is stored durably (openchamber#433 r2 P1 4); a refused copy is reported.
+  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)]);
+  // The shared entry goes only once this tab's copy is durable; a refused copy is reported, and a later durable
+  // save or clear of this tab's draft finishes the migration (writeChatDraft).
   if (adopted && !adopted.stored) setEphemeral(true);
-  else if (adopted && legacy) { // Copied durably: the pre-#461 entry (the copy or older than it) is superseded.
-    const drafts = { ...readEnvelope().drafts }; delete drafts[legacyKey]; writeEnvelope({ version: 2, drafts });
-  }
+  else if (adopted) finishLegacy(identity);
   return readSlot(identity.runtimeKey, identity.directory);
 };
 const savedDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => identity.sessionId === null
@@ -162,6 +166,7 @@ export const writeChatDraft = (
   if (identity.sessionId === null) {
     const stored = writeTabDraft(identity.runtimeKey, identity.directory, savedDraft(identity), text, confirmedMentions, since, ephemeralOnly);
     if (stored !== undefined) setEphemeral(!stored);
+    if (stored) finishLegacy(identity);
     return stored;
   }
   const envelope = readEnvelope();
