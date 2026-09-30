@@ -57,6 +57,26 @@ export function removeOwnedBlock(text: string, block: string, at: number): { tex
 }
 
 /**
+ * Where the block joined at `at` (`length` characters) is after the composer changed from `prev` to `next`: shifted
+ * by an edit wholly before it, the same after an edit wholly after it, and -1 (no longer owned) when the edit deletes,
+ * replaces or inserts inside it. An edit of repeated text could have happened at several places; every one counts, so
+ * deleting one of two equal blocks gives up ownership rather than guess which (review r3 1, smarty-code#962).
+ */
+export function shiftOwnedBlock(prev: string, next: string, at: number, length: number): number {
+    if (at < 0 || prev === next) return at;
+    const shortest = Math.min(prev.length, next.length);
+    let head = 0;
+    while (head < shortest && prev[head] === next[head]) head++;
+    let tail = 0;
+    while (tail < shortest && prev[prev.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
+    // The changed span of `prev` over every alignment: from the latest-matching start to the earliest-matching end.
+    const from = Math.min(head, shortest - tail);
+    const to = prev.length - Math.min(tail, shortest - head);
+    if (to <= at) return at + next.length - prev.length;
+    return from >= at + length ? at : -1;
+}
+
+/**
  * Append `next` to the end of the current sentence, with exactly one space
  * between them and a trailing space so the user can keep typing. Used for
  * dictation and for file mentions added from a drop.

@@ -145,6 +145,7 @@ import {
     getMarkdownAutoPairEdit,
     appendOwnedBlock,
     removeOwnedBlock,
+    shiftOwnedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from './composer/text';
@@ -250,6 +251,8 @@ const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
     return `The user explicitly mentioned these skills in their message: ${formatted}. Use the corresponding skill tool when it is relevant to accomplishing the user's request.`;
 };
 
+/** A given-back text's block in its draft: `at` of `length` chars within the text `seen` (smarty-code#962). */
+type OwnedJoin = { identity: ChatDraftIdentity | null; at: number; gone: boolean; seen: string; length: number };
 type LinkedReferenceAuthor = { login: string; avatarUrl?: string };
 type LinkedGitHubIssue = { number: number; title: string; url: string; contextText: string; author?: LinkedReferenceAuthor };
 type LinkedGitHubPr = {
@@ -436,7 +439,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const messageRef = React.useRef(message);
     // smarty-code#962: where each given-back text was joined (its draft and offset), so a late acceptance removes only
     // that copy; removing one moves the ones joined after it.
-    const ownedJoinsRef = React.useRef(new Set<{ identity: ChatDraftIdentity | null; at: number; gone: boolean }>());
+    // `seen` is the draft text `at` is valid in: every composer change moves `at` or ends the ownership (review r3 1).
+    const ownedJoinsRef = React.useRef(new Set<OwnedJoin>());
+    const followEdit = React.useCallback((own: OwnedJoin, text: string) => {
+        if (own.at < 0 || own.seen === text) return;
+        own.at = shiftOwnedBlock(own.seen, text, own.at, own.length); own.seen = text;
+        if (own.at < 0) ownedJoinsRef.current.delete(own);
+    }, []);
     const currentChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
     const pendingPastedAttachmentFilenamesRef = React.useRef<Set<string>>(new Set());
     const largeTextPasteToastIdRef = React.useRef<string | number | null>(null);
@@ -987,6 +996,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     React.useEffect(() => {
         currentChatDraftIdentityRef.current = chatDraftIdentity;
     }, [chatDraftIdentity]);
+
+    // smarty-code#962 review r3 1: each change of the shown draft moves or ends the given-back blocks it touches. The
+    // first render after a switch still holds the previous draft's text, so it is not an edit of this one.
+    const followedIdentityRef = React.useRef(chatDraftIdentity);
+    React.useEffect(() => {
+        const switched = !sameDraftIdentity(followedIdentityRef.current, chatDraftIdentity);
+        followedIdentityRef.current = chatDraftIdentity;
+        if (switched) return;
+        for (const own of [...ownedJoinsRef.current]) if (sameDraftIdentity(own.identity, chatDraftIdentity)) followEdit(own, message);
+    }, [chatDraftIdentity, followEdit, message]);
 
     // Draft persistence: identity switching, debounced writes and the
     // flush-on-hide edges live in the hook.
@@ -1539,14 +1558,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // where that draft still holds it (with drafts off, the composer does not load it: then it comes back here).
         let textInDraft = false;
         // smarty-code#962: the copy this submission joined, and where. A late acceptance removes that copy only.
-        const own = { identity: chatDraftIdentity, at: -1, gone: false };
+        const own: OwnedJoin = { identity: chatDraftIdentity, at: -1, gone: false, seen: '', length: inputSnapshot.message.length };
+        // A submission without text (review r3 2: newlines only too) gives back and takes back only its parts.
+        const textless = !inputSnapshot.message.trim();
         const restoreComposerText = () => {
-            if (queuedOnly || !inputSnapshot.message) return;
+            if (queuedOnly || textless) return;
             for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
             // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
             const join = (base: string) => {
                 const joined = !base.trim() || base === inputSnapshot.message ? { text: inputSnapshot.message, at: 0 } : appendOwnedBlock(base, inputSnapshot.message);
-                own.at = joined.at; ownedJoinsRef.current.add(own);
+                // Joined after everything already there: the blocks given back before it stay where they are.
+                for (const other of [...ownedJoinsRef.current]) {
+                    if (other === own || !sameDraftIdentity(other.identity, own.identity)) continue;
+                    followEdit(other, base); if (other.at >= 0) other.seen = joined.text;
+                }
+                own.at = joined.at; own.seen = joined.text; ownedJoinsRef.current.add(own);
                 return joined.text;
             };
             if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
@@ -1872,8 +1898,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     const cut = removeOwnedBlock(text, inputSnapshot.message, own.at);
                     if (!cut || own.gone) return cut?.text ?? null;
                     own.gone = true; ownedJoinsRef.current.delete(own);
-                    for (const other of ownedJoinsRef.current) {
-                        if (sameDraftIdentity(other.identity, own.identity) && other.at > own.at) other.at -= cut.removed;
+                    for (const other of [...ownedJoinsRef.current]) {
+                        if (!sameDraftIdentity(other.identity, own.identity)) continue;
+                        followEdit(other, text);
+                        if (other.at >= own.at + cut.removed) other.at -= cut.removed;
+                        else if (other.at > own.at) { other.at = -1; ownedJoinsRef.current.delete(other); }
+                        other.seen = cut.text;
                     }
                     return cut.text;
                 };
@@ -1884,12 +1914,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
                 });
                 // An attachment-only send (review r2 2) has no text block to find: its restored parts still go.
-                if (!inputSnapshot.message) {
+                if (textless) {
                     if (!own.gone && sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { own.gone = true; clearOwnParts(); }
                     return;
                 }
                 if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
-                    const rest = chatDraftIdentity ? removeOwn(readChatDraft(chatDraftIdentity).text) : null;
+                    // Off-screen, only a saved draft unchanged since this block was joined or last followed (review r3 1).
+                    const saved = chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : null;
+                    const rest = saved !== null && saved === own.seen ? removeOwn(saved) : null;
                     if (rest !== null) writeChatDraft(chatDraftIdentity, rest, confirmedMentionsRef.current);
                     ownedJoinsRef.current.delete(own);
                     return;
@@ -1898,6 +1930,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 // ponytail: StrictMode may run the updater twice; `own.gone` makes the side effects run once.
                 setMessage((prev) => {
                     const first = !own.gone;
+                    if (!own.gone) followEdit(own, prev);
                     const rest = removeOwn(prev);
                     if (rest === null) { ownedJoinsRef.current.delete(own); return prev; }
                     messageRef.current = rest; persistDraftImmediately(chatDraftIdentity, rest);

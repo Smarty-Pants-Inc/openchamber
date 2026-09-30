@@ -228,3 +228,58 @@ test('an attachment-only send given back, accepted late: its file chip goes, a n
   await until(() => !useInputStore.getState().attachedFiles.some(f => f.id === 'file-held'));
   expect(useInputStore.getState().attachedFiles.map(f => f.id)).toEqual(['file-newer']);
 }, 30_000);
+
+// smarty-code#962 review r3 1: the given-back block deleted by the person, newer text with the same words now in its
+// place: a late acceptance removes nothing, shown or after switching away; the newer draft stays whole.
+async function givenBackThenReplaced() {
+  const { c, held } = await heldSession();
+  await c.replace('A'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => c.text() === 'A'); // The watchdog gives it back while S is shown.
+  await c.replace('A\n\nA\n\nnewer notes');
+  await c.replace('A\n\nnewer notes'); // The given-back leading 'A\n\n' deleted.
+  await until(() => savedS() === 'A\n\nnewer notes');
+  return { c, held };
+}
+test('the given-back block deleted, a newer copy in its place, accepted while shown: the newer draft stays whole', async () => {
+  const { c, held } = await givenBackThenReplaced();
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  expect(c.text()).toBe('A\n\nnewer notes');
+  expect(savedS()).toBe('A\n\nnewer notes');
+}, 30_000);
+test('the given-back block deleted, a newer copy in its place, accepted after switching away: the newer draft stays whole', async () => {
+  const { c, held } = await givenBackThenReplaced();
+  await show(c, other.id);
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  expect(savedS()).toBe('A\n\nnewer notes');
+  await show(c, session.id);
+  await until(() => c.text() === 'A\n\nnewer notes');
+  await act(async () => { await sleep(100); });
+  expect(savedS()).toBe('A\n\nnewer notes');
+}, 30_000);
+
+// smarty-code#962 review r3 2: a newline-only composer with a file is a textless send: on acceptance its file goes.
+test('a newline-only send with a file given back, accepted late: its file goes, a newer file and newer text stay', async () => {
+  const file = { id: 'file-held', filename: 'held.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,aGVsZA==',
+    source: 'local' as const, file: new File(['held'], 'held.md', { type: 'text/plain' }), size: 4 };
+  const { c, held } = await heldSession([file]);
+  await c.replace('\n'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => useInputStore.getState().attachedFiles.length === 0);
+  await until(() => useInputStore.getState().attachedFiles.some(f => f.id === 'file-held')); // The watchdog gives it back.
+  const newer = { ...file, id: 'file-newer', filename: 'newer.md' };
+  await act(async () => { useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, newer]); });
+  await c.replace('typed later');
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => !useInputStore.getState().attachedFiles.some(f => f.id === 'file-held'));
+  expect(useInputStore.getState().attachedFiles.map(f => f.id)).toEqual(['file-newer']);
+  expect(c.text()).toBe('typed later');
+}, 30_000);
+
+test('text typed before the given-back block moves it: the late acceptance still removes it, the typed text stays', async () => {
+  const { c, held } = await heldSession();
+  await c.replace('A'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => c.text() === 'A');
+  await c.replace('intro\n\nA');
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => c.text() === 'intro\n\n' || c.text() === 'intro');
+  await until(() => savedS().trim() === 'intro');
+}, 30_000);

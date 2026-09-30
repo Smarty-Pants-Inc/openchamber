@@ -7,6 +7,7 @@ import {
     buildImagePasteInsertion,
     getMarkdownAutoPairEdit,
     removeOwnedBlock,
+    shiftOwnedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from '../text';
@@ -182,5 +183,17 @@ describe('removeOwnedBlock (smarty-code#962)', () => {
     });
     test('the only text goes entirely', () => {
         expect(removeOwnedBlock('same\n\n', 'same', 0)).toEqual({ text: '', removed: 6 });
+    });
+});
+
+describe('shiftOwnedBlock (smarty-code#962 review r3 1)', () => {
+    test('an edit before the block moves it; after it keeps it; inside it ends the ownership', () => {
+        expect(shiftOwnedBlock('x\n\nA\n\n', 'xyz\n\nA\n\n', 3, 1)).toBe(5);
+        expect(shiftOwnedBlock('A', 'A\n\nmore', 0, 1)).toBe(0);
+        expect(shiftOwnedBlock('Abc', 'Axc', 0, 3)).toBe(-1);
+    });
+    test('deleting one of two equal blocks ends the ownership instead of guessing which went', () => {
+        expect(shiftOwnedBlock('A', 'A\n\nA\n\nnewer notes', 0, 1)).toBe(0);
+        expect(shiftOwnedBlock('A\n\nA\n\nnewer notes', 'A\n\nnewer notes', 0, 1)).toBe(-1);
     });
 });
