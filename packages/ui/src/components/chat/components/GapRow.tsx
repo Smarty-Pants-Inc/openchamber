@@ -1,7 +1,7 @@
 import React from 'react';
 
 import type { GapEntry } from '../lib/turns/renderEntries';
-import { GAP_SETTLE_MS, gapWindows } from '../lib/gapWindow';
+import { GAP_SCROLL_READ_MS, GAP_SETTLE_MS, gapWindows } from '../lib/gapWindow';
 import type { Window } from '../lib/windowQueue';
 
 /** How long a gap stays on screen before it is read (smarty-code#583). */
@@ -21,18 +21,31 @@ export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (w
         const node = ref.current;
         if (!node || !onLoadWindow || typeof IntersectionObserver === 'undefined') return;
         const root = node.closest<HTMLElement>('[data-scrollbar="chat"]');
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined, near = false, lastLoad = 0;
         const load = () => {
+            lastLoad = Date.now();
             const box = node.getBoundingClientRect(), view = root?.getBoundingClientRect();
             const viewTop = view?.top ?? 0, viewBottom = view?.bottom ?? window.innerHeight;
             onLoadWindow(gapWindows(chunk, { top: box.top, bottom: box.bottom }, { top: viewTop, bottom: viewBottom }));
         };
+        // A placeholder taller than the view stays intersecting while the reader scrolls through it, so the observer does
+        // not fire again: the window around the reader's new place was never read, and the list stayed blank for the
+        // whole scroll (#583 dry run on 3.59, candidate 11:3xZ). While it is near, each scroll reads the window where the
+        // reader is now: after the settle delay (a drag), and at least every GAP_SCROLL_READ_MS during a continuous wheel.
+        const onScroll = () => {
+            if (!near) return;
+            clearTimeout(timer);
+            if (Date.now() - lastLoad >= GAP_SCROLL_READ_MS) load();
+            else timer = setTimeout(load, GAP_SETTLE_MS);
+        };
+        root?.addEventListener('scroll', onScroll, { passive: true });
         const observer = new IntersectionObserver((entries) => {
             const seen = entries[entries.length - 1];
             clearTimeout(timer);
+            near = !!seen?.isIntersecting;
             // Only a gap the reader stays near is read: a scrollbar drag passes dozens of gaps, and reading each one
             // queued their reads ahead of the one the reader stopped at (1-4 s on the candidate).
-            if (seen?.isIntersecting) timer = setTimeout(load, GAP_SETTLE_MS);
+            if (near) timer = setTimeout(load, GAP_SETTLE_MS);
         }, {
             root,
             // Two screens ahead in each direction: the window is read before the reader reaches the placeholder
@@ -40,7 +53,7 @@ export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (w
             rootMargin: '200% 0px',
         });
         observer.observe(node);
-        return () => { clearTimeout(timer); observer.disconnect(); };
+        return () => { clearTimeout(timer); observer.disconnect(); root?.removeEventListener('scroll', onScroll); };
     }, [key, start, end, gapStart, gapEnd, heightPx, onLoadWindow]);
     return (
         <div ref={ref} data-history-gap={`${gap.start}-${gap.end}`} aria-hidden

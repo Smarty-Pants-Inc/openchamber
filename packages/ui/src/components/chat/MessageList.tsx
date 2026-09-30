@@ -381,6 +381,7 @@ import { runAnchorHold, type AnchorHoldOptions } from './lib/scroll/anchorHold';
 import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngroupedEntry, firstMessageIdOf, insertGaps, type RenderEntry, type TimelineEntry } from './lib/turns/renderEntries';
 import { GapRow } from './components/GapRow';
 import { TIMELINE_DRAW_DISTANCE } from './lib/gapWindow';
+import { entrySelector, initialScrollFor, readerPlace } from './lib/readerPlace';
 import type { Window } from './lib/windowQueue';
 import { gapsOf } from '@/sync/position-windows';
 import type { SessionPositions } from '@/sync/session-message-loader';
@@ -987,6 +988,8 @@ const renderTimelineItem = ({ item }: { item: TimelineEntry }) => <TimelineRow e
 
 type TimelineListProps = {
     entries: TimelineEntry[];
+    /** Where the list opens: its end, or a reader's row kept across a remount (lib/readerPlace.ts). */
+    initialScroll: ReturnType<typeof initialScrollFor>;
     streamingTailKey: string | null;
     registerList: (list: LegendListRef | null) => void;
     endPinningReleased: boolean;
@@ -1007,6 +1010,7 @@ type TimelineListProps = {
 
 const TimelineList = React.memo(({
     entries,
+    initialScroll,
     registerList,
     endPinningReleased,
     anchoredEndSpace,
@@ -1110,7 +1114,8 @@ const TimelineList = React.memo(({
                 // it; at the default 250 px it mounted and read only on arrival, so a fast wheel (~2,800 px/s) reached it
                 // 2-3 times in 40 s (candidate 04:11Z).
                 drawDistance={TIMELINE_DRAW_DISTANCE}
-                initialScrollAtEnd
+                initialScrollAtEnd={initialScroll.initialScrollAtEnd}
+                initialScrollIndex={'initialScrollIndex' in initialScroll ? initialScroll.initialScrollIndex : undefined}
                 // Chat rows own internal state (expanded tool calls, reveal
                 // animations); recycling a container into a different row would
                 // carry that state across.
@@ -1448,6 +1453,21 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 positions.ranges[positions.ranges.length - 1]?.end ?? 0)
             : renderEntries,
         [positionOf, positions, renderEntries],
+    );
+
+    // smarty-code#583: the timeline is mounted anew when the session's positions arrive or change epoch (see its key).
+    // The reader's place in the list being replaced is read now, while it is still registered.
+    const timelineKey = `${sessionKey}:${positions?.epoch ?? 'unpositioned'}`;
+    const initialScroll = React.useMemo(
+        () => initialScrollFor(readerPlace(listRef.current?.getState(), (key) => {
+            // The reader's row where it is on screen now, relative to the scroller (the list header included).
+            const node = listRef.current?.getScrollableNode() as HTMLElement | undefined, selector = entrySelector(key);
+            const row = node && selector ? node.querySelector<HTMLElement>(selector) : null;
+            return node && row ? Math.round(row.getBoundingClientRect().top - node.getBoundingClientRect().top) : undefined;
+        }), allEntries),
+        // Only when the list is replaced: later entry changes are kept in place by the mounted list itself.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [timelineKey],
     );
 
     // Stable identities: these reach the list, where a changing callback would
@@ -1880,7 +1900,14 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         // arriving inside the streaming tail keeps its own animations.
         <FadeInDisabledProvider disabled>
             <TimelineList
-                key={sessionKey}
+                // smarty-code#583: when the session's positions first arrive (or its index epoch changes), the list goes
+                // from the loaded rows alone to the whole session's length at once (gap rows above them, ~80 px a
+                // record). Kept mounted, the list's own position keeping applied that insertion as a scroll offset
+                // more than once (candidate: a 17.4k-record session reached 2.2M px with its rows at 0.73M px and
+                // the view at the end: blank). Mounted anew, it lays the whole session out and opens at its end.
+                // A reader who had scrolled up is put back at the same row and offset (openchamber#457 review 1).
+                key={timelineKey}
+                initialScroll={initialScroll}
                 entries={allEntries}
                 streamingTailKey={trailingStreamingEntry?.key ?? null}
                 registerList={handleRegisterList}
