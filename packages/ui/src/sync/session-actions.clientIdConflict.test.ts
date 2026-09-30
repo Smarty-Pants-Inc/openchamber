@@ -37,3 +37,30 @@ test('a conflicting re-send of a held original keeps the row and adds no error n
   release(); await original;
   children.disposeAll();
 });
+
+// smarty-code#962 (1): a conflicting re-send of a DELIVERED message keeps that row's parts as they are (the re-send's
+// optimistic parts never replace them until the next read).
+test('a conflicting re-send of a delivered message leaves its row and its parts unchanged', async () => {
+  const children = new ChildStoreManager();
+  // SAFETY: optimisticSend calls only `send` here; the SDK client is never reached.
+  setActionRefs({} as OpencodeClient, children, () => '/target/project');
+  setOptimisticRefs(({ sessionID, message, parts }) => {
+    const store = children.ensureChild('/target/project');
+    store.setState(state => ({ message: { ...state.message, [sessionID]: [...(state.message[sessionID] ?? []).filter(m => m.id !== message.id), message] },
+      part: { ...state.part, [message.id]: parts } }));
+  }, () => undefined);
+  useConfigStore.setState({ isConnected: true });
+  const store = children.ensureChild('/target/project');
+  // SAFETY: the delivered row and its part carry the fields this path reads.
+  const delivered = { id: 'msg_done', role: 'user', sessionID: 'session-delivered', time: { created: 1 } } as never;
+  // SAFETY: as above, a text part with the fields the store keeps.
+  const parts = [{ id: 'prt_done', type: 'text', text: 'hello', messageID: 'msg_done', sessionID: 'session-delivered' }] as never;
+  store.setState(state => ({ message: { ...state.message, 'session-delivered': [delivered] }, part: { ...state.part, msg_done: parts } }));
+  const reason = 'Client message ID already exists or a submission is pending';
+  await expect(optimisticSend({ sessionId: 'session-delivered', directory: '/target/project', content: 'hello', providerID: 'provider',
+    modelID: 'model', messageID: 'msg_done',
+    send: async () => { throw Object.assign(new Error(reason), { status: 409, refusalReason: reason }); } })).rejects.toThrow(reason);
+  expect(store.getState().message['session-delivered']).toEqual([delivered]);
+  expect(store.getState().part.msg_done).toBe(parts);
+  children.disposeAll();
+});

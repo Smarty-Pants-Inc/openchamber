@@ -111,3 +111,22 @@ test('a held send plus a newer draft typed in S before leaving: back on S, both 
   expect(c.text().indexOf('a newer draft')).toBeLessThan(c.text().indexOf('the held text'));
   await until(() => savedS().includes('a newer draft') && savedS().includes('the held text'));
 }, 30_000);
+
+// smarty-code#962 (2): two given-back texts joined in S's composer; the first is accepted late. Only its own copy goes:
+// the second stays, in the composer and in S's saved draft (never a double send of the first).
+test('two due texts joined, the first accepted late: only the second remains in the composer and the saved draft', async () => {
+  const { c } = await heldSession();
+  const replies = [deferred<Response>(), deferred<Response>()]; let n = 0;
+  c.handlers.prompt = async () => replies[n++].promise;
+  await c.replace('first held text'); await c.submit(); await until(() => c.prompts().length === 1);
+  await c.replace('second held text'); await c.submit(); await until(() => c.prompts().length === 2);
+  await show(c, other.id);
+  await act(async () => { await sleep(1_900); });
+  await show(c, session.id);
+  await until(() => c.text().includes('first held text') && c.text().includes('second held text'));
+  await until(() => savedS().includes('first held text') && savedS().includes('second held text'));
+  await act(async () => { replies[0].resolve(new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } })); await sleep(50); });
+  await until(() => !c.text().includes('first held text'));
+  expect(c.text().trim()).toBe('second held text');
+  await until(() => savedS().trim() === 'second held text');
+}, 30_000);

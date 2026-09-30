@@ -33,6 +33,23 @@ export function appendWithLineBreaks(base: string, next: string): string {
 }
 
 /**
+ * Remove `block` where it stands as one whole block joined by `appendWithLineBreaks` (at the start or after a blank
+ * line, and at the end or before a line break), with the line breaks that joined it. Returns null when `text` has no
+ * such block: text only containing it, or edited, is never touched (smarty-code#962).
+ */
+export function removeJoinedBlock(text: string, block: string): string | null {
+    if (!block) return null;
+    for (let at = text.indexOf(block); at >= 0; at = text.indexOf(block, at + 1)) {
+        const end = at + block.length;
+        if ((at === 0 || text.startsWith('\n\n', at - 2)) && (end === text.length || text[end] === '\n')) {
+            const rest = text.slice(0, at) + text.slice(end).replace(/^\n{1,2}/, '');
+            return rest.trim() ? rest : '';
+        }
+    }
+    return null;
+}
+
+/**
  * Append `next` to the end of the current sentence, with exactly one space
  * between them and a trailing space so the user can keep typing. Used for
  * dictation and for file mentions added from a drop.

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { mountedNativeComposer, shownActivity } from './composer/submit/__tests__/nativeComposer.fixture';
@@ -294,4 +294,23 @@ test('due while another session is shown: only its own saved draft gets it; it c
     await act(async () => { held.resolve(steered()); await sleep(20); }); // Delivered after all: the copy goes.
     await until(() => c.text() === '');
   } finally { restore(); }
+});
+
+// smarty-code#962 (3): the first POST accepted, then the re-send's reservation conflict: the message went, so no
+// "Still sending" line.
+test('first attempt accepted, then the re-send gets a 409 conflict: no Still sending toast', async () => {
+  const restore = shortWatchdog();
+  const info = spyOn(toast, 'info').mockImplementation(() => 'test-toast');
+  try {
+    const first = deferred<Response>(); const second = deferred<Response>();
+    let n = 0;
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : second.promise));
+    await c.submit(); await until(() => c.text() === 'steer this');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    await act(async () => { first.resolve(steered()); await sleep(20); });
+    const before = info.mock.calls.length;
+    await act(async () => { second.resolve(Response.json({ name: 'APIError',
+      data: { message: 'Client message ID already exists or a submission is pending', isRetryable: false } }, { status: 409 })); await sleep(50); });
+    expect(info.mock.calls.slice(before).map(call => String(call[0])).filter(text => text.includes('Still sending'))).toEqual([]);
+  } finally { info.mockRestore(); restore(); }
 });

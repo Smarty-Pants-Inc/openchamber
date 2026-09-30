@@ -143,6 +143,7 @@ import {
     appendWithLineBreaks,
     buildImagePasteInsertion,
     getMarkdownAutoPairEdit,
+    removeJoinedBlock,
     shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from './composer/text';
@@ -1855,9 +1856,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
             save: () => { if (retainNativeDraft || !chatDraftIdentity) return; restoreComposerText(); textInDraft = true; },
             clearIfUntouched: () => {
-                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { consumeChatDraft(chatDraftIdentity, inputSnapshot.message); return; }
-                if ((composerRef.current?.getValue() ?? messageRef.current) !== inputSnapshot.message) return; // Edited: the person's now.
-                messageRef.current = ''; setMessage(''); persistDraftImmediately(chatDraftIdentity, '');
+                // Joined with other given-back texts (smarty-code#962): only its own whole joined segment goes.
+                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+                    const saved = chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : '';
+                    const rest = saved === inputSnapshot.message ? null : removeJoinedBlock(saved, inputSnapshot.message);
+                    if (rest !== null) writeChatDraft(chatDraftIdentity, rest, confirmedMentionsRef.current);
+                    else consumeChatDraft(chatDraftIdentity, inputSnapshot.message);
+                    return;
+                }
+                const rest = removeJoinedBlock(composerRef.current?.getValue() ?? messageRef.current, inputSnapshot.message);
+                if (rest === null) return; // Edited: the person's now.
+                messageRef.current = rest; setMessage(rest); persistDraftImmediately(chatDraftIdentity, rest);
                 // Exactly the restored files and context parts go with it.
                 const input = useInputStore.getState();
                 if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
@@ -2038,7 +2047,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // nothing is delivered. A definite refusal gives it back now, unless another attempt is still pending.
             if (recovery) {
                 if (isClientIdConflict(rawMessage)) {
-                    recovery.conflict(); toast.info(t('chat.send.stillPending')); return;
+                    // Already accepted (smarty-code#962): the message went, so there is nothing to say.
+                    if (!recovery.conflict()) toast.info(t('chat.send.stillPending'));
+                    return;
                 }
                 recovery.refused();
             }
