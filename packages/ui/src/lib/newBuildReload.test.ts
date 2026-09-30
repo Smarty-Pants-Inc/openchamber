@@ -65,3 +65,41 @@ test("a send holds the reload from its preparation until its request settles; th
   settle(); await sent
   expect(await reconnect()).toBe(1)
 })
+
+// 3.54 gate audit (smarty-code, 22:48Z): every open 3.53 tab reloaded at the same instant after the install, and the
+// burst gave 227 slow reads in 5 min. Each tab now waits its own random delay (0-60 s) before it reloads, and reloads
+// then only if nothing holds it.
+test("a new build reloads after the tab's own random delay, not at once", async () => {
+  const order: string[] = []
+  const result = await reloadIfNewBuild({
+    running: () => "/assets/main-OLD.js",
+    fetchIndex: async () => index("/assets/main-NEW.js"),
+    busy: () => false,
+    reload: () => { order.push("reload") },
+    jitterMs: () => 42_000,
+    sleep: async (ms) => { order.push(`wait ${ms}`) },
+  })
+  expect(result).toBe(true)
+  expect(order).toEqual(["wait 42000", "reload"])
+})
+
+test("counterexample: text typed during the delay holds the reload (the next reconnect tries again)", async () => {
+  let held = false, reloaded = 0
+  const result = await reloadIfNewBuild({
+    running: () => "/assets/main-OLD.js",
+    fetchIndex: async () => index("/assets/main-NEW.js"),
+    busy: () => held,
+    reload: () => { reloaded += 1 },
+    jitterMs: () => 30_000,
+    sleep: async () => { held = true },
+  })
+  expect({ result, reloaded }).toEqual({ result: false, reloaded: 0 })
+})
+
+test("the default delay is spread over 0-60 s", async () => {
+  const { defaultReloadJitterMs } = await import("./newBuildReload")
+  const samples = Array.from({ length: 200 }, () => defaultReloadJitterMs())
+  expect(Math.min(...samples)).toBeGreaterThanOrEqual(0)
+  expect(Math.max(...samples)).toBeLessThanOrEqual(60_000)
+  expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(30_000)
+})
