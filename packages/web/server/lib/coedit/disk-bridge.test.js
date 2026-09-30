@@ -655,6 +655,35 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     });
   });
 
+  describe('smartyfs#37 items 3 and 5', () => {
+    it('a file with a 220-byte name saves: recovery names stay within NAME_MAX (item 3)', async () => {
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
+      cleanups.push(() => fs.rmSync(home, { recursive: true, force: true }));
+      const root = path.join(home, 'p');
+      fs.mkdirSync(root);
+      const file = path.join(root, `${'n'.repeat(217)}.md`);
+      fs.writeFileSync(file, 'a');
+      const doc = new Y.Doc();
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch: () => ({ close() {} }), settleMs: 5, enabled: true });
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      doc.getText(TEXT).insert(0, 'P');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+      const kept = fs.readdirSync(path.join(home, 'r')).filter((n) => n !== '.staging');
+      expect(kept).toHaveLength(2);
+      for (const n of kept) expect(Buffer.byteLength(n)).toBeLessThanOrEqual(255);
+    });
+
+    it('a helper that does not speak this protocol is refused before any request (item 5)', async () => {
+      const { root, privateDir } = fakeHelper(`require('readline').createInterface({ input: process.stdin }).on('line', (l) => { const r = JSON.parse(l); process.stdout.write(JSON.stringify({ id: r.id, ok: false, error: 'unknown op' }) + '\\n'); });`);
+      const helper = startHelper(root, privateDir);
+      await expect(helper.call({ op: 'read', path: 'x' })).rejects.toThrow(/protocol/);
+      await helper.close();
+      expect(alive(helper.pid)).toBe(false);
+    });
+  });
+
   describe('the helper process (review: frames, deadlines, close)', () => {
     it('a truncated reply rejects the call, with no uncaught exception', async () => {
       const { root, privateDir } = fakeHelper(`process.stdin.once('data', () => process.stdout.write('{"id":1,"ok":tr', () => process.exit(0)));`);

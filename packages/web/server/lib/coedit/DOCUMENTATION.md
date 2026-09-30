@@ -38,6 +38,11 @@ round 4); until then no conflict could be seen.
   account cannot name, replace or write anything in it. The project namespace is changed only by the publishing
   exchange; the bridge never reads the project directory for cleanup, so a project file such as `.x.coedit-foo` is
   never touched.
+- **The helper protocol is checked first.** `startHelper` sends `hello` before any request. A helper that does not
+  answer protocol 2 (for example, an older build set through `OPENCHAMBER_COEDIT_FS`, which would not name staged
+  entries by `txn`) is ended, and every call rejects.
+- **Recovery names fit `NAME_MAX`.** A recovery copy's name is a time stamp, a random part and the file's name, cut from
+  the front to fit 255 bytes, so a long file name can still be saved.
 - **The helper process is bounded.** A bad or truncated reply line, or a call past its deadline (`timeoutMs`, default
   30 s), kills the helper and rejects every waiting call. `close()` waits for work in progress at most `closeMs`
   (default 5 s), then kills the helper and resolves once it has exited. A lost helper (killed, crashed, past its
@@ -112,7 +117,7 @@ round 4); until then no conflict could be seen.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
 - **Stress test** (smartyfs#32's acceptance): `node stress.mjs --seconds 120 --dir <scratch> [--seed <n>]` (`stress.test.js` runs it for 20 s in CI) runs three direct
   writers (in place, tmp + rename, append) against a bridge process that a person types into and saves, while the
-  helper and the whole bridge process are SIGKILLed at random (a killed run takes its children with it). It exits 1 if any token a writer wrote, or any token of
+  helper and the whole bridge process are SIGKILLed at random (a killed run takes its children with it: they read EOF on a stdin pipe from it, even after a SIGKILL). It exits 1 if any token a writer wrote, or any token of
   a save that reported published, is missing from the disk, the recovery directory and the private directory. For a
   published save that holds by construction (its `-ours-` copy), so the report also gives `onlyInOurCopy`: the
   saves that only that copy keeps, which a stale writer overwrote after they were published.
