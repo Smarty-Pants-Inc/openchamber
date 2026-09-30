@@ -23,7 +23,7 @@ const other = { ...session, id: '01234567-1234-4234-9234-0123456789ff', title: '
 const savedS = () => readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text;
 const until = async (ok: () => boolean, ms = 20_000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await act(async () => { await sleep(25); }); expect(ok()).toBe(true); };
 
-async function heldSession() {
+async function heldSession(parts?: ReturnType<typeof useInputStore.getState>['attachedFiles']) {
   was = sendUnconfirmed.ms; sendUnconfirmed.ms = 1_500;
   const c = mounted = await mountedNativeComposer(true);
   await act(async () => {
@@ -42,6 +42,7 @@ async function heldSession() {
   await act(async () => { c.rerender(); });
   // Plain text only: the fixture's file and context part are not what this is about.
   await act(async () => { useInputStore.getState().setAttachedFiles([]); useInputStore.getState().setPendingSyntheticParts([]); });
+  if (parts) await act(async () => { useInputStore.getState().setAttachedFiles(parts); });
   return { c, held };
 }
 
@@ -190,4 +191,40 @@ test('two joined texts both accepted in one tick: the composer and the saved dra
   await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
   await until(() => c.text().trim() === '');
   await until(() => savedS().trim() === '');
+}, 30_000);
+
+// smarty-code#962 review r2 1: a submitted text ending in newlines, joined intact, still goes on its late acceptance.
+for (const tail of ['\n', '\n\n']) {
+  const first = `first held text${tail}`;
+  test(`a joined text ending in ${tail.length} newline(s), accepted late while shown: only the other remains`, async () => {
+    const { c } = await heldSession();
+    const replies = await dueWhileAway(c, [first, 'second held text']);
+    await act(async () => { replies[0].resolve(accept()); await sleep(100); });
+    await until(() => c.text().trim() === 'second held text');
+    await until(() => savedS().trim() === 'second held text');
+  }, 30_000);
+  test(`a joined text ending in ${tail.length} newline(s), accepted late off-screen: only the other remains`, async () => {
+    const { c } = await heldSession();
+    const replies = await dueWhileAway(c, [first, 'second held text']);
+    await show(c, other.id);
+    await act(async () => { replies[0].resolve(accept()); await sleep(100); });
+    expect(savedS().trim()).toBe('second held text');
+    await show(c, session.id);
+    await until(() => c.text().trim() === 'second held text');
+  }, 30_000);
+}
+
+// smarty-code#962 review r2 2: an attachment-only send given back, then accepted late: its file goes, a newer one stays.
+test('an attachment-only send given back, accepted late: its file chip goes, a newly added file stays', async () => {
+  const file = { id: 'file-held', filename: 'held.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,aGVsZA==',
+    source: 'local' as const, file: new File(['held'], 'held.md', { type: 'text/plain' }), size: 4 };
+  const { c, held } = await heldSession([file]);
+  await c.replace(''); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => useInputStore.getState().attachedFiles.length === 0);
+  await until(() => useInputStore.getState().attachedFiles.some(f => f.id === 'file-held')); // The watchdog gives it back.
+  const newer = { ...file, id: 'file-newer', filename: 'newer.md' };
+  await act(async () => { useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, newer]); });
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => !useInputStore.getState().attachedFiles.some(f => f.id === 'file-held'));
+  expect(useInputStore.getState().attachedFiles.map(f => f.id)).toEqual(['file-newer']);
 }, 30_000);

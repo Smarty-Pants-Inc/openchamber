@@ -40,15 +40,19 @@ export function appendOwnedBlock(base: string, next: string): { text: string; at
 /**
  * Remove the block that `appendOwnedBlock` joined at `at`, only while it is still there unedited: exactly `block`, at
  * that offset, a whole block (at the start or after a blank line; at the end or before a blank line). Another copy of
- * the same text elsewhere is never taken for it. Returns null otherwise (edited, moved or gone: the person's text now),
- * else the remaining text and how many characters went (smarty-code#962).
+ * the same text elsewhere is never taken for it. The right boundary counts the block's own trailing newlines with the
+ * separator joined after it, as `appendOwnedBlock` does (review r2 1). Returns null otherwise (edited, moved or gone:
+ * the person's text now), else the remaining text and how many characters went (smarty-code#962).
  */
 export function removeOwnedBlock(text: string, block: string, at: number): { text: string; removed: number } | null {
-    if (!block || at < 0 || !text.startsWith(block, at)) return null;
-    const after = text.slice(at + block.length);
+    const core = block.replace(/\n+$/, '');
+    if (!core || at < 0 || !text.startsWith(block, at)) return null;
     if (at > 0 && !text.slice(0, at).endsWith('\n\n')) return null;
-    if (after !== '' && after !== '\n' && !after.startsWith('\n\n')) return null;
-    const rest = text.slice(0, at) + after.replace(/^\n{1,2}/, '');
+    const after = text.slice(at + core.length);
+    const breaks = after.length - after.replace(/^\n+/, '').length;
+    // At the end (only newlines follow) or before a blank line; a single newline is an edited continuation.
+    if (breaks < after.length && breaks < 2) return null;
+    const rest = text.slice(0, at) + after.slice(breaks);
     return { text: rest.trim() ? rest : '', removed: text.length - rest.length };
 }
 

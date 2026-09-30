@@ -171,6 +171,15 @@ describe('removeOwnedBlock (smarty-code#962)', () => {
         expect(removeOwnedBlock('xsame\n\nsame\n\n', 'same', 5)).toBeNull();
         expect(removeOwnedBlock('a\n\nsame\n\n', 'same', 1)).toBeNull();
     });
+    test('a block ending in newlines, joined intact before another, goes (review r2 1)', () => {
+        for (const block of ['first\n', 'first\n\n']) {
+            const joined = appendOwnedBlock(block, 'second');
+            expect(removeOwnedBlock(joined.text, block, 0)).toEqual({ text: 'second\n\n', removed: 7 });
+            const after = appendOwnedBlock('newer', block);
+            expect(removeOwnedBlock(appendWithLineBreaks(after.text, 'second'), block, after.at)?.text).toBe('newer\n\nsecond\n\n');
+        }
+        expect(removeOwnedBlock('first\nmore', 'first\n', 0)).toBeNull();
+    });
     test('the only text goes entirely', () => {
         expect(removeOwnedBlock('same\n\n', 'same', 0)).toEqual({ text: '', removed: 6 });
     });

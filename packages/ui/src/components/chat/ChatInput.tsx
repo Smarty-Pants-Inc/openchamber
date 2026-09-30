@@ -1877,6 +1877,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     }
                     return cut.text;
                 };
+                // Exactly the restored files and context parts go with it (after this render: another store).
+                const clearOwnParts = () => queueMicrotask(() => {
+                    const input = useInputStore.getState();
+                    if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
+                    if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
+                });
+                // An attachment-only send (review r2 2) has no text block to find: its restored parts still go.
+                if (!inputSnapshot.message) {
+                    if (!own.gone && sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { own.gone = true; clearOwnParts(); }
+                    return;
+                }
                 if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
                     const rest = chatDraftIdentity ? removeOwn(readChatDraft(chatDraftIdentity).text) : null;
                     if (rest !== null) writeChatDraft(chatDraftIdentity, rest, confirmedMentionsRef.current);
@@ -1890,12 +1901,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     const rest = removeOwn(prev);
                     if (rest === null) { ownedJoinsRef.current.delete(own); return prev; }
                     messageRef.current = rest; persistDraftImmediately(chatDraftIdentity, rest);
-                    // Exactly the restored files and context parts go with it (after this render: another store).
-                    if (first) queueMicrotask(() => {
-                        const input = useInputStore.getState();
-                        if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
-                        if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
-                    });
+                    if (first) clearOwnParts();
                     return rest;
                 });
             },
