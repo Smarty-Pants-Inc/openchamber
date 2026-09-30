@@ -1368,6 +1368,50 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(made.every((w) => w.closed)).toBe(true);
     });
 
+    it('#445 astra round 2: a stopped watcher\'s warning outlives no-change refusals and the success after them', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const { made, watch } = fakeWatch();
+      const bridge = createDiskBridge({ root, file, doc: new Y.Doc(), recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryLimit: 0, enabled: true });
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      made[0].emit('error', new Error('EMFILE')); // Stopped for good: no restart allowed.
+      const unwatched = bridge.state().conflict;
+      expect(unwatched).toMatchObject({ conflict: 'unwatched' });
+      // No sync anywhere below: changed, then gone, then the base again.
+      fs.writeFileSync(file, 'b');
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'changed', notice: unwatched.notice });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'changed', kept: { conflict: 'unwatched' } });
+      fs.unlinkSync(file);
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      fs.writeFileSync(file, 'a');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'unwatched' }); // Still not watching: still shown.
+      expect(made).toHaveLength(1);
+    });
+
+    it('#445 astra round 2: watching that resumes clears the watcher warning a refusal carried, and only it', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const { made, watch } = fakeWatch();
+      const bridge = createDiskBridge({ root, file, doc: new Y.Doc(), recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryMs: 1500, enabled: true }); // Room to save before the restart.
+      cleanups.unshift(() => void bridge.close());
+      await bridge.load();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      made[0].emit('error', new Error('EMFILE'));
+      fs.unlinkSync(file);
+      expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' }); // Before the restart.
+      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      await expect.poll(() => made.length, { timeout: 3000 }).toBe(2); // Watching again.
+      await expect.poll(() => bridge.state().conflict?.kept, { timeout: 3000 }).toBeUndefined();
+      expect(bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } }); // The file is still gone.
+      fs.writeFileSync(file, 'a');
+      expect(await bridge.save()).toEqual({ ok: true });
+      expect(bridge.state().conflict).toBe(null);
+    });
+
     it('gone clears when a save publishes over a restored file, with no sync between', async () => {
       const t = await setup('x\n');
       fs.unlinkSync(t.file);

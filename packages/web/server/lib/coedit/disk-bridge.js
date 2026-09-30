@@ -320,6 +320,8 @@ export function createDiskBridge({
       // Outside writes made while unwatched are caught up now.
       void sync().then(() => {
         if (conflict?.conflict === 'unwatched') conflict = null;
+        // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
+        else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };
       }).catch((error) => logError('smarty.coedit-sync-failed', error));
     }, retryMs);
   };
@@ -408,11 +410,12 @@ export function createDiskBridge({
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
-        // An unresolved recovery warning (a raced save's copy and notice) is carried through these refusals, never
-        // replaced by them, and is what their resolution leaves (#445 security r3).
-        const kept = conflict?.kept ?? (conflict?.recovery ? conflict : null);
+        // Any unresolved conflict (a raced save's recovery warning, a stopped watcher) is carried through these
+        // transient refusals, never replaced by them, and is what their resolution leaves; it clears only through its
+        // own path (#445 security r3, astra r2).
+        const kept = conflict?.transient ? conflict.kept : conflict;
         // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
-        const refuse = (reason) => raise(kept ? { conflict: reason, recovery: kept.recovery, notice: kept.notice, kept } : { conflict: reason });
+        const refuse = (reason) => raise({ conflict: reason, transient: true, ...(kept && { recovery: kept.recovery, notice: kept.notice, kept }) });
         if (disk === null) {
           gone = true; // Observed absent here, as a sync would.
           return refuse('gone');
@@ -422,7 +425,7 @@ export function createDiskBridge({
         if (disk.hash !== baseHash) return refuse('changed');
         // It holds the base: saved. A gone or changed refusal from this path is resolved to the warning it carried;
         // other conflicts (a watcher failure, a raced save's notice) stay until their own path clears them (#445 r2).
-        if (conflict?.conflict === 'gone' || conflict?.conflict === 'changed') conflict = conflict.kept ?? null;
+        if (conflict?.transient) conflict = conflict.kept ?? null;
         return { ok: true };
       }
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.

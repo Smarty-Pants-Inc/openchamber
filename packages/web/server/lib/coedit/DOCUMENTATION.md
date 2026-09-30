@@ -157,8 +157,9 @@ round 4); until then no conflict could be seen.
   disk holds the base, else `changed` (for example a `raced` save not yet synced) or `gone`, with nothing written,
   raised to the room like any other conflict (`onConflict`, `state().conflict`). A file it finds present clears
   `gone`; when it holds the base again, the save is `ok` and a `gone` or `changed` conflict is resolved (other
-  conflicts stay until their own path clears them). An unresolved recovery warning (a `raced` save's `recovery` and
-  `notice`) is carried through those refusals, and is what their resolution leaves.
+  conflicts stay until their own path clears them). Such a refusal is `transient`: any unresolved conflict it meets
+  (a `raced` save's `recovery` and `notice`, a stopped watcher's `unwatched`) is carried in it as `kept`, with its
+  `recovery` and `notice`, and is what its resolution leaves. A carried watcher warning clears when watching resumes.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
