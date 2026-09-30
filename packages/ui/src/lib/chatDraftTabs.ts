@@ -6,7 +6,8 @@ import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorag
  * overwrote the first's. Design after openchamber#433 round 5 (scope decision: code-lead, 2026-09-30; cut items in
  * smarty-code#1039): the least state that keeps tabs apart.
  * - A tab's id lives in sessionStorage, so it is stable across that tab's reloads and differs between tabs. Its draft is
- *   ONE localStorage key, which only that tab writes or removes.
+ *   ONE localStorage key, which only that tab writes. A save counts as done only when both the draft and the id are
+ *   stored; a clear writes an empty draft (a refused write is seen; a refused removal is not).
  * - A fresh tab starts empty. The pre-#461 shared draft is copied once into the first tab that reads it; the caller
  *   removes the shared entry only after that copy is durably stored.
  * Accepted limits (#1039): a fresh tab does not restore another tab's draft; a duplicated tab (which copies
@@ -14,7 +15,7 @@ import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorag
  */
 const slotSchema = z.object({ text: z.string(), confirmedMentions: z.array(z.string()), touchedAt: z.number(), since: z.number().optional() });
 export type PersistedSlot = z.infer<typeof slotSchema>;
-type Storage = { getItem(key: string): string | null; setItem(key: string, value: string): boolean | void; removeItem(key: string): void };
+type Storage = { getItem(key: string): string | null; setItem(key: string, value: string): boolean | void };
 type Env = { storage: Storage; session: Pick<Storage, 'getItem' | 'setItem'> };
 
 const TAB_KEY = 'openchamber.chatDraftTab';
@@ -29,20 +30,32 @@ function parseSlot(raw: string | null): PersistedSlot | undefined {
 /** One page's view of its tab's drafts (tests make several). */
 export function createTabDrafts(env: Env) {
   const { storage, session } = env;
-  let id: string | undefined;
+  let id: string | undefined, idStored = false;
+  /** Saves this tab's id where its next load finds it; false while sessionStorage refuses it (#433 r6 P1 2). */
+  // A browser Storage returns undefined; the safe adapters return false when the value stayed in page memory only.
+  const stored = (result: boolean | void) => result !== false;
+  const storeId = () => (idStored ||= stored(session.setItem(TAB_KEY, id!)));
   /** This tab's id: kept in sessionStorage, so the same across its reloads. */
   function tabId(): string {
     if (id) return id;
     id = session.getItem(TAB_KEY) || newId();
-    session.setItem(TAB_KEY, id);
+    storeId();
     return id;
   }
-  const readSlot = (runtimeKey: string, directory: string) => parseSlot(storage.getItem(slotKey(runtimeKey, directory, tabId())));
-  /** True only when backing storage accepted it. An empty draft removes this tab's slot. */
-  function writeSlot(runtimeKey: string, directory: string, slot: PersistedSlot | undefined): boolean {
+  /** This tab's draft; a cleared slot (an empty text: a clear or a consumed send) is no draft. */
+  function readSlot(runtimeKey: string, directory: string): PersistedSlot | undefined {
+    const slot = parseSlot(storage.getItem(slotKey(runtimeKey, directory, tabId())));
+    return slot && (slot.text || slot.confirmedMentions.length) ? slot : undefined;
+  }
+  /**
+   * True only when the draft is reload-safe: backing storage accepted it AND this tab's id is saved (its next load finds
+   * the slot). An empty draft is WRITTEN as a cleared slot, not removed: a refused removal is invisible (the adapter hides
+   * the old value in page memory only), a refused write is reported (#433 r6 P1 3).
+   */
+  function writeSlot(runtimeKey: string, directory: string, slot: PersistedSlot | undefined, now = Date.now()): boolean {
     const key = slotKey(runtimeKey, directory, tabId());
-    if (!slot) { storage.removeItem(key); return true; }
-    return storage.setItem(key, JSON.stringify(slot)) !== false;
+    const value: PersistedSlot = slot ?? { text: '', confirmedMentions: [], touchedAt: now };
+    return stored(storage.setItem(key, JSON.stringify(value))) && storeId();
   }
   /** The pre-#461 shared draft, copied into this tab when it has none. `stored`: the copy reached backing storage. */
   function adoptLegacy(runtimeKey: string, directory: string, legacy: PersistedSlot | undefined): { stored: boolean } | false {

@@ -7,6 +7,7 @@ import {
   consumeChatDraft,
   createChatDraftIdentity,
   getChatDraftIdentityKey,
+  isChatDraftEphemeral,
   readChatDraft,
   subscribeChatDraftDeletion,
   subscribeChatDraftConsumption,
@@ -182,5 +183,51 @@ describe('chatDraftPersistence: a sent New session draft never comes back', () =
     expect(readChatDraft(draft).text).toBe('');
     const fresh = createTabDrafts({ storage, session: { getItem: () => null, setItem: () => undefined } });
     expect(fresh.readSlot('runtime-a', '/sent-repo')).toBeUndefined();
+  });
+});
+
+// openchamber#433 round 6, P1 2 and 3, through the real safe-storage adapters (window.localStorage/sessionStorage refuse
+// as a browser does at quota or by policy): a save is reload-safe only when the draft AND this tab's id are stored; a
+// clear is done only when its empty draft is stored.
+describe('chatDraftPersistence: reload safety of a tab draft (#433 r6)', () => {
+  const session = getSafeSessionStorage();
+  beforeEach(() => { storage.clear(); session.removeItem('openchamber.chatDraftTab'); });
+  const refuse = (target: Storage, match: (k: string) => boolean, name = 'QuotaExceededError') => {
+    const real = target.setItem;
+    target.setItem = (k: string, v: string) => { if (match(k)) throw new DOMException('refused', name); real.call(target, k, v); };
+    return () => { target.setItem = real; };
+  };
+  test('P1 2: the tab id is refused while the draft is stored: not reported as saved; once the id saves, a reload finds the draft', () => {
+    const undo = refuse(window.sessionStorage, (k) => k === 'openchamber.chatDraftTab');
+    const page1 = createTabDrafts({ storage, session });
+    expect(page1.writeSlot('rt', '/r6', { text: 'alpha', confirmedMentions: [], touchedAt: 1 })).toBe(false);
+    undo();
+    expect(page1.writeSlot('rt', '/r6', { text: 'alpha', confirmedMentions: [], touchedAt: 2 })).toBe(true); // The retry.
+    expect(createTabDrafts({ storage, session }).readSlot('rt', '/r6')?.text).toBe('alpha'); // The reload.
+  });
+  test('P1 2: a legacy copy whose tab id was refused does not remove the shared draft', () => {
+    storage.setItem('openchamber.chatDrafts.v2', JSON.stringify({ version: 2, drafts: {
+      [JSON.stringify(['rt', '/r6leg', null])]: { text: 'shared', confirmedMentions: [], touchedAt: 1 } } }));
+    const undo = refuse(window.sessionStorage, (k) => k === 'openchamber.chatDraftTab');
+    const page1 = createTabDrafts({ storage, session });
+    try { expect(page1.adoptLegacy('rt', '/r6leg', { text: 'shared', confirmedMentions: [], touchedAt: 1 })).toEqual({ stored: false }); } finally { undo(); }
+  });
+  test('P1 3: a refused clear is reported and stays pending; after recovery the clear lands and a reload does not restore the text', () => {
+    const page1 = createTabDrafts({ storage, session });
+    expect(page1.writeSlot('rt', '/r6c', { text: 'hello', confirmedMentions: [], touchedAt: 1 })).toBe(true);
+    const undo = refuse(window.localStorage, (k) => k.startsWith('openchamber.chatDraftSlot:'), 'SecurityError');
+    expect(page1.writeSlot('rt', '/r6c', undefined)).toBe(false); // The clear did not reach storage: not acknowledged.
+    undo();
+    expect(page1.writeSlot('rt', '/r6c', undefined)).toBe(true); // The composer's retry (it keeps a failed clear pending).
+    expect(createTabDrafts({ storage, session }).readSlot('rt', '/r6c')).toBeUndefined();
+  });
+  test('P1 3: a sent draft consumed while storage refuses it stays pending (warning on) and never returns once storage recovers', () => {
+    const draft = createChatDraftIdentity('runtime-a', '/r6sent', null)!;
+    writeChatDraft(draft, 'hello, sent', []);
+    const undo = refuse(window.localStorage, (k) => k.startsWith('openchamber.chatDraftSlot:'), 'SecurityError');
+    try { consumeChatDraft(draft, 'hello, sent'); expect(isChatDraftEphemeral()).toBe(true); } finally { undo(); }
+    writeChatDraft(draft, '', []); // The composer's pending retry after recovery.
+    expect(isChatDraftEphemeral()).toBe(false);
+    expect(createTabDrafts({ storage, session }).readSlot('runtime-a', '/r6sent')).toBeUndefined();
   });
 });

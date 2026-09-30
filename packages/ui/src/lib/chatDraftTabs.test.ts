@@ -48,4 +48,18 @@ describe('per-tab New session drafts (#461)', () => {
     const refusing = { ...memory(), setItem: () => false };
     expect(createTabDrafts({ storage: refusing, session: memory() }).adoptLegacy(RT, DIR, draft('older', 1))).toEqual({ stored: false });
   });
+
+  // SCOPE DECISION on openchamber#433 (5911825844), condition (a): no closed tab's draft is destroyed; smarty-code#1039
+  // recovers it later. Nothing here removes or overwrites another tab's slot, whatever the other tabs do.
+  test('a closed tab\'s slot stays in storage while other tabs save, clear and migrate the shared draft', () => {
+    const storage = memory();
+    const closed = createTabDrafts({ storage, session: memory() }); closed.writeSlot(RT, DIR, draft('unsent in a closed tab', 1));
+    const key = closed.newSessionSlotKey(RT, DIR), kept = storage.getItem(key);
+    for (let k = 0; k < 20; k++) {
+      const other = createTabDrafts({ storage, session: memory() });
+      other.adoptLegacy(RT, DIR, draft('shared', 0)); other.writeSlot(RT, DIR, draft(`other ${k}`, 2 + k)); other.writeSlot(RT, DIR, undefined);
+    }
+    expect(storage.getItem(key)).toBe(kept);
+    expect(storage.removes).toEqual([]);
+  });
 });
