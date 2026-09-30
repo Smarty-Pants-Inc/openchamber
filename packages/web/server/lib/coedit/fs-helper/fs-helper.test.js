@@ -13,7 +13,6 @@ import { ensureHelper } from './ensure-built.js';
 const BIN = path.join(import.meta.dirname, 'target/release/coedit-fs');
 const built = ensureHelper() && fs.existsSync(BIN);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
-const KEY = sha('docs/a.md').slice(0, 16);
 
 /** POSIX ACL xattrs (acl(5)), through python3's os.setxattr: Node has no xattr calls and hosts may lack setfacl. */
 const ACL = { USER_OBJ: 1, USER: 2, GROUP_OBJ: 4, MASK: 0x10, OTHER: 0x20 };
@@ -32,7 +31,7 @@ const getXattr = (p, name) => py('import os,sys\ntry: print(os.getxattr(sys.argv
 const extended = (perm) => [[ACL.USER_OBJ, 7, ANY], [ACL.USER, perm, 4242], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 0, ANY]];
 
 function helper(root, priv) {
-  const child = spawn(BIN, [root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = new Map();
   let next = 0;
   createInterface({ input: child.stdout }).on('line', (line) => {
@@ -59,7 +58,7 @@ const until = async (cond) => {
 };
 
 describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
-  let dir, root, priv, h;
+  let dir, root, priv, h, KEY;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-fs-'));
     root = path.join(dir, 'project');
@@ -68,13 +67,14 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     fs.mkdirSync(priv, { recursive: true });
     fs.chmodSync(priv, 0o700);
     fs.writeFileSync(path.join(root, 'docs/a.md'), 'one\n');
+    KEY = sha(`${root}\0docs/a.md`).slice(0, 16); // The helper computes it from the admitted root (#412).
     h = helper(root, priv);
   });
   afterEach(() => { h.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv);
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out')); // Locks and transaction records are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -83,8 +83,8 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     return r;
   };
   const publish = (r, extra = {}) =>
-    h.call({ op: 'publish', path: 'docs/a.md', key: KEY, ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), ...extra });
-  const dispose = (entry, hash) => h.call({ op: 'dispose', key: KEY, entry, hash });
+    h.call({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), ...extra });
+  const dispose = (entry, hash) => h.call({ op: 'dispose', path: 'docs/a.md', entry, hash });
   const replace = (text) => {
     fs.writeFileSync(path.join(root, 'docs/e.tmp'), text);
     fs.renameSync(path.join(root, 'docs/e.tmp'), target());
@@ -101,7 +101,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(fs.readFileSync(path.join(priv, p.displaced), 'utf8')).toBe('one\n');
     expect(fs.statSync(path.join(priv, p.displaced)).ino).toBe(r.ino);
     expect(docs()).toEqual(['a.md']);
-    expect(await h.call({ op: 'list', key: KEY })).toMatchObject({ ok: true, entries: [{ entry: p.displaced, hash: sha('one\n') }] });
+    expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry: p.displaced, hash: sha('one\n') }] });
     expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: true });
     expect(staged()).toEqual([]);
   });
@@ -304,7 +304,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     const r = await read();
     const p = await publish(r);
     expect(p).toMatchObject({ ok: true, published: true, synced: true });
-    expect(await h.call({ op: 'dispose', key: KEY, entry: p.displaced, hash: r.hash, fault: 'privSync' })).toMatchObject({ ok: true, synced: false });
+    expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash, fault: 'privSync' })).toMatchObject({ ok: true, synced: false });
     expect(staged()).toEqual([]);
   });
 
@@ -332,12 +332,13 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(p.ok).toBe(true);
     for (const entry of ['.a.md.coedit-foo', `../../project/docs/.a.md.coedit-foo`, `${KEY}./../../outside`, '..', 'a.md', `${KEY}/x`])
       expect([entry, (await dispose(entry, sha('mine\n'))).ok]).toEqual([entry, false]);
-    expect((await h.call({ op: 'dispose', key: '../x', entry: '../x.1', hash: 'x' })).ok).toBe(false);
-    expect((await h.call({ op: 'list', key: '..' })).ok).toBe(false);
+    expect((await h.call({ op: 'dispose', path: '../x', entry: '../x.1', hash: 'x' })).ok).toBe(false);
+    expect((await h.call({ op: 'list', path: '..' })).ok).toBe(false);
+    expect((await h.call({ op: 'list', key: KEY })).ok).toBe(false); // A caller's key is never taken: a path is needed.
     expect(fs.readFileSync(path.join(root, 'docs/.a.md.coedit-foo'), 'utf8')).toBe('mine\n');
     expect(fs.readFileSync(path.join(dir, 'recovery/outside'), 'utf8')).toBe('out\n');
     expect(docs()).toEqual(['.a.md.coedit-foo', 'a.md']);
-    expect((await h.call({ op: 'list', key: KEY })).entries.map((e) => e.entry)).toEqual([p.displaced]);
+    expect((await h.call({ op: 'list', path: 'docs/a.md' })).entries.map((e) => e.entry)).toEqual([p.displaced]);
   });
 
   test('a FIFO at the target: read and publish return an error promptly', async () => {
@@ -370,21 +371,401 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     expect(await h.call({ op: 'unlink', path: 'docs/a.md' })).toMatchObject({ ok: false, error: 'unknown op' });
     for (const p of ['../secret', '/etc/passwd', 'link', 'docs/../../secret', '', 'docs/..'])
       expect([p, (await h.call({ op: 'read', path: p })).ok]).toEqual([p, false]);
-    const r = await read();
-    expect((await publish(r, { key: 'ZZ/..' })).ok).toBe(false);
     expect(await h.raw('{not json')).toMatchObject({ ok: false, error: 'invalid json' });
     expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
     expect(staged()).toEqual([]);
+    // A caller's key is ignored (#412 finding 1): the entry is named by the key the helper computes itself.
+    const p = await publish(await read(), { key: 'ZZ/..' });
+    expect(p.displaced.startsWith(`${KEY}.`)).toBe(true);
+    expect(staged()).toEqual([p.displaced]);
   });
 
   test('the helper exits 2 on a private dir with group/other bits, or none given', () => {
     const loose = path.join(dir, 'loose');
     fs.mkdirSync(loose);
     fs.chmodSync(loose, 0o750);
-    expect(spawnSync(BIN, [root, loose], { input: '' }).status).toBe(2);
-    expect(spawnSync(BIN, [root], { input: '' }).status).toBe(2);
-    expect(spawnSync(BIN, [root, path.join(dir, 'missing')], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, loose], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, path.join(dir, 'missing')], { input: '' }).status).toBe(2);
     fs.symlinkSync(priv, path.join(dir, 'privlink'));
-    expect(spawnSync(BIN, [root, path.join(dir, 'privlink')], { input: '' }).status).toBe(2);
+    expect(spawnSync(BIN, ['--same-account', root, path.join(dir, 'privlink')], { input: '' }).status).toBe(2);
+  });
+
+  describe('its own account (smartyfs#32: the helper never serves the account it runs as)', () => {
+    const hello = `${JSON.stringify({ op: 'hello', id: 1 })}\n`;
+    test('started as the account it serves (the peer on its stdin socket is its own uid) it refuses, exit 2', () => {
+      // Node's stdio pipes are socketpairs, so the helper sees this test's uid (its own) as its peer.
+      const direct = spawnSync(BIN, [root, priv], { input: hello, encoding: 'utf8' });
+      expect(direct.status).toBe(2);
+      expect(direct.stderr).toMatch(/own account/);
+      const service = spawnSync(BIN, ['--socket', priv], { input: hello, encoding: 'utf8' });
+      expect(service.status).toBe(2);
+      expect(service.stderr).toMatch(/own account/);
+    });
+
+    test('socket mode takes its root from hello, then works as before (with --same-account, tests only)', async () => {
+      const child = spawn(BIN, ['--socket', priv, '--same-account'], { stdio: ['pipe', 'pipe', 'inherit'] });
+      const lines = createInterface({ input: child.stdout });
+      const replies = [];
+      lines.on('line', (l) => replies.push(JSON.parse(l)));
+      child.stdin.write(`${JSON.stringify({ op: 'read', path: 'docs/a.md', id: 1 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'hello', root, id: 2 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'read', path: 'docs/a.md', id: 3 })}\n`);
+      await until(() => replies.length === 3);
+      child.kill();
+      expect(replies[0]).toMatchObject({ ok: false, error: expect.stringMatching(/hello/) }); // No root yet.
+      expect(replies[1]).toMatchObject({ ok: true, protocol: 3 });
+      expect(Buffer.from(replies[2].data, 'base64').toString()).toBe('one\n');
+    });
+
+    test('#412 finding 1: a root that is the private dir, inside it, or an ancestor of it is refused; nothing before hello', async () => {
+      const probe = async (rootArg) => {
+        const child = spawn(BIN, ['--socket', priv, '--same-account'], { stdio: ['pipe', 'pipe', 'inherit'] });
+        const replies = [];
+        createInterface({ input: child.stdout }).on('line', (l) => replies.push(JSON.parse(l)));
+        child.stdin.write(`${JSON.stringify({ op: 'list', path: 'x.md', id: 1 })}\n`);
+        child.stdin.write(`${JSON.stringify({ op: 'hello', root: rootArg, id: 2 })}\n`);
+        await until(() => replies.length === 2);
+        child.kill();
+        return replies;
+      };
+      for (const bad of [priv, path.join(dir, 'recovery'), dir, '/']) {
+        const [list, hello] = await probe(bad);
+        expect(list).toMatchObject({ ok: false, error: expect.stringMatching(/hello/) });
+        expect([bad, hello.ok]).toEqual([bad, false]);
+      }
+      fs.mkdirSync(path.join(priv, 'inner'));
+      expect((await probe(path.join(priv, 'inner')))[1].ok).toBe(false);
+      expect((await probe(root))[1]).toMatchObject({ ok: true, protocol: 3 });
+    });
+
+    test('#412 findings 1 and 3: a second connection cannot touch a file\'s entries while a save is in flight; its list waits for it', async () => {
+      const r = await read();
+      const second = helper(root, priv);
+      try {
+        const saving = publish(r, { pause: 'beforeExchange', pauseMs: 1500 });
+        await until(() => staged().some((n) => n.endsWith('.staged')));
+        const order = [];
+        const listing = second.call({ op: 'list', path: 'docs/a.md' }).then((l) => { order.push('list'); return l; });
+        const p = await saving.then((x) => { order.push('publish'); return x; });
+        const l = await listing;
+        expect(order).toEqual(['publish', 'list']); // The list waited for the save's lock.
+        expect(p).toMatchObject({ ok: true, published: true });
+        expect(l.entries.map((e) => e.entry)).toEqual([p.displaced]); // It sees the finished transaction only.
+        expect(fs.readFileSync(target(), 'utf8')).toBe('two\n');
+      } finally {
+        second.stop();
+      }
+    });
+
+    test('#412 finding 3: a save whose connection has closed by the time it runs publishes nothing', async () => {
+      const r = await read();
+      const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+      const blocker = helper(root, priv);
+      try {
+        // Another connection holds the file's lock, so the doomed save waits for it; its connection closes meanwhile.
+        const holding = blocker.call({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('held\n').toString('base64'), pause: 'beforeOpen', pauseMs: 800 });
+        await sleep(150);
+        child.stdin.end(`${JSON.stringify({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('late\n').toString('base64'), id: 1 })}\n`);
+        await holding;
+        await new Promise((done) => child.on('exit', done));
+        expect(fs.readFileSync(target(), 'utf8')).toBe('held\n'); // Never 'late'.
+      } finally {
+        blocker.stop();
+        child.kill();
+      }
+    });
+
+    test('#412 round 2, finding 1: another live connection can neither read nor dispose this connection\'s pending revision; a late write is kept', async () => {
+      const r = await read();
+      const writer = fs.openSync(target(), 'a'); // An agent holding the old inode open: the revision stays pending.
+      const p = await publish(r);
+      expect(p).toMatchObject({ ok: true });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      const other = helper(root, priv);
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // Named, but no bytes to take over.
+        const hash = sha('one\nlate\n');
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash })).toMatchObject({ ok: false, owned: true });
+        expect(staged()).toEqual([p.displaced]);
+        // Its owner still finds the late bytes and keeps them.
+        expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash });
+      } finally {
+        other.stop();
+      }
+    });
+
+    test('#412 round 2, finding 1: once its owner is gone, the entry is an orphan another connection recovers with its bytes', async () => {
+      const r = await read();
+      const writer = fs.openSync(target(), 'a');
+      const p = await publish(r);
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      h.stop(); // The owning connection ends (its bridge closed or crashed).
+      await sleep(200);
+      h = helper(root, priv);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md' });
+      expect(seen.entries).toMatchObject([{ entry: p.displaced, hash: sha('one\nlate\n') }]);
+      expect(Buffer.from(seen.entries[0].data, 'base64').toString()).toBe('one\nlate\n');
+    });
+
+    test('#412 round 3, finding 1: a writer\'s own flock on the file cannot take the transaction\'s ownership', async () => {
+      // A writer that opens the project file for appending and holds an exclusive advisory flock on it.
+      const writer = spawn('python3', ['-c', "import fcntl,sys\nf=open(sys.argv[1],'a')\nfcntl.flock(f,fcntl.LOCK_EX)\nprint('ready',flush=True)\nsys.stdin.readline()\nf.write('late\\n');f.flush()\nfcntl.flock(f,fcntl.LOCK_UN)\nf.close()", target()], { stdio: ['pipe', 'pipe', 'inherit'] });
+      await new Promise((done) => createInterface({ input: writer.stdout }).once('line', done));
+      const r = await read();
+      const p = await publish(r);
+      expect(p).toMatchObject({ ok: true });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      writer.stdin.end('go\n'); // It appends through its old descriptor, unlocks and closes.
+      await new Promise((done) => writer.on('exit', done));
+      const other = helper(root, priv);
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]);
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+      } finally {
+        other.stop();
+      }
+    });
+
+    test('#412 round 3, finding 2: orphan recovery keeps the transaction record, so the lost reply is still decided', async () => {
+      const r = await read();
+      const pending = publish(r, { txn: 'abc123', ack: sha('secret'), pause: 'afterExchange', pauseMs: 5000 });
+      await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
+      h.stop(); // The reply is lost: the helper dies right after the exchange (its call never answers).
+      void pending;
+      await sleep(200);
+      const recoverer = helper(root, priv); // Another bridge's load: recovers the orphan entry.
+      try {
+        const seen = await recoverer.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } });
+        expect(seen.records).toEqual([{ txn: 'abc123', state: 'published' }]);
+        const [entry] = seen.entries;
+        expect(Buffer.from(entry.data, 'base64').toString()).toBe('one\n');
+        expect(await recoverer.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'secret' })).toMatchObject({ ok: true });
+      } finally {
+        recoverer.stop();
+      }
+      h = helper(root, priv); // The originating bridge reconnects.
+      const later = await h.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } });
+      expect(later.entries).toEqual([]);
+      expect(later.records).toEqual([{ txn: 'abc123', state: 'published' }]); // Still decided: never "not published".
+      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc123', token: 'secret' })).toMatchObject({ ok: true });
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens: { abc123: 'secret' } })).records).toEqual([]);
+    });
+
+    /** A publish whose reply is lost right after the exchange (its helper dies before it records "published"). */
+    const lostAfterExchange = async (txn, token) => {
+      const r = await read();
+      void publish(r, { txn, ack: sha(token), pause: 'afterExchange', pauseMs: 5000 });
+      await until(() => fs.readFileSync(target(), 'utf8') === 'two\n');
+      h.stop();
+      await sleep(200);
+      h = helper(root, priv);
+    };
+
+    test('#412 round 4, finding 1: only the originating bridge\'s secret token acknowledges a record; its txn grants nothing', async () => {
+      await lostAfterExchange('abc124', 'origin-secret');
+      const tokens = { abc124: 'origin-secret' };
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', tokens });
+      expect(seen.records).toEqual([{ txn: 'abc124', state: 'published' }]); // No hash or token is ever listed.
+      const [entry] = seen.entries;
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'origin-secret' })).toMatchObject({ ok: true });
+      for (const token of [undefined, '', 'guess', sha('origin-secret')]) {
+        expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token })).toMatchObject({ ok: false });
+      }
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([{ txn: 'abc124', state: 'published' }]);
+      expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'abc124', token: 'origin-secret' })).toMatchObject({ ok: true });
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([]);
+    });
+
+    test('#412 round 4, finding 2: a failed scan or record write leaves the outcome unknown and the evidence in place', async () => {
+      await lostAfterExchange('abc125', 's');
+      const tokens = { abc125: 's' };
+      const scanFailed = await h.call({ op: 'list', path: 'docs/a.md', tokens, fault: 'stagedScan' });
+      expect(scanFailed.records).toEqual([{ txn: 'abc125', state: 'unknown' }]); // Never guessed as "aborted".
+      const [entry] = scanFailed.entries;
+      const writeFailed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 's', fault: 'recordWrite' });
+      expect(writeFailed.ok).toBe(false); // No terminal outcome persisted: the entry it would be derived from stays.
+      expect(staged()).toEqual([entry.entry]);
+      expect((await h.call({ op: 'list', path: 'docs/a.md', tokens })).records).toEqual([{ txn: 'abc125', state: 'published' }]);
+    });
+
+    test('#412 round 5 (security): after its helper is lost, a live bridge\'s pending revision stays its own; only its token reclaims it', async () => {
+      const writer = fs.openSync(target(), 'a');
+      const r = await read();
+      const p = await publish(r, { txn: 'bbb111', ack: sha('mine') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      h.stop(); // Only the helper connection is lost; the bridge (holding the token) lives on.
+      await sleep(200);
+      h = helper(root, priv); // The bridge reconnects.
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      const other = helper(root, priv); // An unrelated process of the served account.
+      try {
+        const seen = await other.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // No bytes to take.
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n'), token: 'guess' })).toMatchObject({ ok: false, owned: true });
+        // Settling with an ack while its data is pending keeps the record guarding that data.
+        expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: 'bbb111', token: 'mine' })).toMatchObject({ ok: true, pending: true });
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+      } finally {
+        other.stop();
+      }
+      // The reconnected bridge reclaims it with its token, and keeps the late bytes.
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash, token: 'mine' })).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+    });
+
+    test('#412 round 5 (astra 1): records are immutable; a recoverer killed while creating the outcome leaves it recoverable', async () => {
+      await lostAfterExchange('ccc111', 't');
+      const recordPath = path.join(priv, `${KEY}.ccc111.txn`);
+      const before = { ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') };
+      // A recoverer dies right before linking the outcome it wrote.
+      const dying = helper(root, priv);
+      void dying.call({ op: 'list', path: 'docs/a.md', tokens: { ccc111: 't' }, pause: 'beforeRecordLink', pauseMs: 5000 });
+      await sleep(400);
+      dying.stop();
+      await sleep(200);
+      const seen = await h.call({ op: 'list', path: 'docs/a.md', tokens: { ccc111: 't' } });
+      expect(seen.records).toEqual([{ txn: 'ccc111', state: 'published' }]);
+      expect({ ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') }).toEqual(before); // Never rewritten.
+    });
+
+    test('#412 round 5 (astra 2): an outcome is trusted only once a flush succeeds: a failed flush fails every retry until one works', async () => {
+      await lostAfterExchange('ddd111', 'u');
+      const tokens = { ddd111: 'u' };
+      const [entry] = (await h.call({ op: 'list', path: 'docs/a.md', tokens })).entries;
+      for (let i = 0; i < 2; i += 1) {
+        const failed = await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'u', fault: 'recordSync' });
+        expect(failed.ok).toBe(false);
+        expect(staged()).toEqual([entry.entry]); // The evidence stays.
+      }
+      expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry: entry.entry, hash: entry.hash, token: 'u' })).toMatchObject({ ok: true });
+    });
+
+    test('#412 round 4 (astra 1): a txn reused on another file grants nothing over this file\'s transaction', async () => {
+      const writer = fs.openSync(target(), 'a'); // Keeps A's displaced revision pending.
+      const r = await read();
+      const p = await publish(r, { txn: 'aaa111', ack: sha('a') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      fs.writeSync(writer, 'late\n');
+      fs.closeSync(writer);
+      fs.writeFileSync(path.join(root, 'docs/b.md'), 'bee\n');
+      const b = helper(root, priv);
+      try {
+        // B learns A's txn from list, then owns the SAME txn on another file.
+        expect((await b.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'aaa111', owned: true }]);
+        const rb = await b.call({ op: 'read', path: 'docs/b.md' });
+        expect(await b.call({ op: 'publish', path: 'docs/b.md', txn: 'aaa111', ack: sha('b'), ino: rb.ino, dev: rb.dev, hash: rb.hash, data: Buffer.from('BEE\n').toString('base64') })).toMatchObject({ published: true });
+        const seen = await b.call({ op: 'list', path: 'docs/a.md' });
+        expect(seen.entries).toEqual([{ entry: p.displaced, owned: true }]); // Still no bytes.
+        expect(await b.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('one\nlate\n') })).toMatchObject({ ok: false, owned: true });
+        // A fabricated missing entry with A's key and the reused txn cannot retire A's record either.
+        expect(await b.call({ op: 'dispose', path: 'docs/a.md', entry: `${KEY}.aaa111-bogus.staged`, hash: 'x' })).toMatchObject({ ok: false, owned: true });
+        expect((await b.call({ op: 'list', path: 'docs/a.md' })).records).toEqual([{ txn: 'aaa111', owned: true }]);
+      } finally {
+        b.stop();
+      }
+      // A still owns it, and keeps the late bytes.
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+      // A's own dispose of a name its publish did not produce is refused.
+      expect(await dispose(`${KEY}.aaa111-bogus.staged`, r.hash)).toMatchObject({ ok: false });
+    });
+
+    test('#412 round 6: a publish reusing a live transaction\'s id on the same file never touches its record', async () => {
+      const writer = fs.openSync(target(), 'a');
+      const r = await read();
+      const p = await publish(r, { txn: 'eee111', ack: sha('a-token') });
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, busy: true });
+      const recordPath = path.join(priv, `${KEY}.eee111.txn`);
+      const before = { ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') };
+      const other = helper(root, priv);
+      try {
+        const current = await other.call({ op: 'read', path: 'docs/a.md' });
+        for (const fault of [undefined, 'recordCreate']) {
+          const reply = await other.call({ op: 'publish', path: 'docs/a.md', txn: 'eee111', ack: sha('b'), ino: current.ino, dev: current.dev, hash: current.hash, data: Buffer.from('B\n').toString('base64'), fault });
+          expect(reply).toMatchObject({ ok: false, error: expect.stringMatching(/already in use/) });
+          expect({ ino: fs.statSync(recordPath).ino, bytes: fs.readFileSync(recordPath, 'utf8') }).toEqual(before);
+        }
+        expect((await other.call({ op: 'list', path: 'docs/a.md' })).entries).toEqual([{ entry: p.displaced, owned: true }]);
+        fs.writeSync(writer, 'late\n');
+        fs.closeSync(writer);
+        expect(await other.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha('two\nlate\n') })).toMatchObject({ ok: false, owned: true });
+      } finally {
+        other.stop();
+      }
+      expect(fs.readFileSync(target(), 'utf8')).toBe('two\n'); // B published nothing.
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: false, changed: true, hash: sha('one\nlate\n') });
+    });
+
+    test('#412 round 6: a record that fails before its own link leaves no name behind and removes none', async () => {
+      const r = await read();
+      const reply = await publish(r, { txn: 'fff111', ack: sha('x'), fault: 'recordCreate' });
+      expect(reply).toMatchObject({ ok: false, error: expect.stringMatching(/cannot be established/) });
+      expect(fs.readdirSync(priv).filter((n) => !n.endsWith('-lock'))).toEqual([]);
+      expect(fs.readFileSync(target(), 'utf8')).toBe('one\n');
+    });
+
+    test('#412 round 2, finding 2: bye is answered only after the operation in flight, and then the helper exits', async () => {
+      const r = await read();
+      const child = spawn(BIN, ['--same-account', root, priv], { env: { ...process.env, COEDIT_FS_TEST: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+      const replies = [];
+      createInterface({ input: child.stdout }).on('line', (l) => replies.push(JSON.parse(l)));
+      const exited = new Promise((done) => child.on('exit', done));
+      child.stdin.write(`${JSON.stringify({ op: 'publish', path: 'docs/a.md', ino: r.ino, dev: r.dev, hash: r.hash, data: Buffer.from('two\n').toString('base64'), pause: 'afterExchange', pauseMs: 800, id: 1 })}\n`);
+      child.stdin.write(`${JSON.stringify({ op: 'bye', id: 2 })}\n`);
+      await exited;
+      expect(replies.map((x) => x.id)).toEqual([1, 2]);
+      expect(replies[0]).toMatchObject({ published: true });
+      expect(replies[1]).toMatchObject({ ok: true, bye: true });
+    });
+
+    test('an ACL on a path directory that names only trusted accounts (the helper, its peer) is allowed', async () => {
+      const r = await read();
+      setAcl(root, 'system.posix_acl_access', [[ACL.USER_OBJ, 7, ANY], [ACL.USER, 7, process.geteuid()], [ACL.GROUP_OBJ, 5, ANY], [ACL.MASK, 7, ANY], [ACL.OTHER, 5, ANY]]);
+      expect(await publish(r)).toMatchObject({ ok: true });
+    });
+
+    /** acl(5)'s access check, as the effective permission set of `who` ({uid, gids}) on a file (owner, gid, ACL hex). */
+    const effective = ({ owner, gid, acl }, who) => {
+      const entries = [];
+      for (let i = 8; i < acl.length; i += 16) {
+        const e = Buffer.from(acl.slice(i, i + 16), 'hex');
+        entries.push({ tag: e.readUInt16LE(0), perm: e.readUInt16LE(2), id: e.readUInt32LE(4) });
+      }
+      const find = (tag) => entries.filter((e) => e.tag === tag);
+      const mask = find(ACL.MASK)[0]?.perm ?? 7;
+      if (who.uid === owner) return find(ACL.USER_OBJ)[0].perm;
+      const user = find(ACL.USER).find((e) => e.id === who.uid);
+      if (user) return user.perm & mask;
+      const groups = [...find(ACL.GROUP_OBJ).map((e) => ({ ...e, id: gid })), ...find(8)].filter((e) => who.gids.includes(e.id));
+      if (groups.length) return groups.reduce((m, e) => m | (e.perm & mask), 0);
+      return find(ACL.OTHER)[0].perm;
+    };
+
+    test('#412 finding 2: another owner\'s file keeps every principal\'s EFFECTIVE access, masked bits stay masked', async () => {
+      // The original: owner 4242 rw; user 4243 raw rw but masked to r; owning group r; group 4244 raw rw masked to r.
+      const { gid } = fs.statSync(target());
+      setAcl(target(), 'system.posix_acl_access', [[ACL.USER_OBJ, 6, ANY], [ACL.USER, 6, 4243], [ACL.GROUP_OBJ, 4, ANY], [8, 6, 4244], [ACL.MASK, 4, ANY], [ACL.OTHER, 0, ANY]]);
+      const before = { owner: 4242, gid, acl: getXattr(target(), 'system.posix_acl_access') };
+      const r = await h.call({ op: 'read', path: 'docs/a.md' });
+      // testFileOwner stands in for paul's file seen by the smarty-coedit helper; the real-uid run is on forge.
+      expect(await publish(r, { testFileOwner: 4242 })).toMatchObject({ ok: true });
+      const after = { owner: process.geteuid(), gid: fs.statSync(target()).gid, acl: getXattr(target(), 'system.posix_acl_access') };
+      const principals = [
+        { uid: 4242, gids: [] }, // The original owner: rw, not subject to the old mask.
+        { uid: 4243, gids: [] }, // Named, raw rw, masked to r: must stay r.
+        { uid: 5000, gids: [gid] }, // A member of the owning group: r.
+        { uid: 5001, gids: [4244] }, // A named group's member, raw rw, masked to r: must stay r.
+        { uid: 5002, gids: [] }, // Anyone else: nothing.
+      ];
+      for (const who of principals) expect([who.uid, effective(after, who)]).toEqual([who.uid, effective(before, who)]);
+      expect(effective(after, { uid: 4243, gids: [] })).toBe(4);
+    });
   });
 });

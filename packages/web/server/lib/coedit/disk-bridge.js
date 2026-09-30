@@ -4,7 +4,7 @@ import diff from 'fast-diff';
 import * as Y from 'yjs';
 
 import {
-  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, readSettled, startHelper, testHooks,
+  dispose, DISTURBED_NOTICE, finishInterruptedSaves, hashBytes, inside, keyOf, publish, readFile, pruneRecovery, readSettled, startHelper, testHooks, tokensFor,
   UNCERTAIN_NOTICE, UNSYNCED_NOTICE,
 } from './safe-file.js';
 
@@ -43,7 +43,7 @@ export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
  */
 export function createDiskBridge({
   root, file, doc, recoveryDir, onConflict = () => {}, watch = fs.watch, debounceMs = 50, settleMs = 200, hooks,
-  enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000,
+  enabled = coeditEnabled(), timeoutMs = 30_000, retryMs = 1000, retryLimit = 600, closeMs = 5000, pruneMs = 86_400_000,
 }) {
   if (!enabled) throw new Error('Co-editing is off (OPENCHAMBER_COEDIT)');
   if (!path.isAbsolute(root) || !path.isAbsolute(file) || !inside(root, file) || file === root) {
@@ -82,7 +82,7 @@ export function createDiskBridge({
       respawns = 0;
       return reply;
     },
-    close: () => current.close(),
+    close: (options) => current.close(options),
   };
   let pending = []; // Private entries still open for writing: removed once no one writes to them.
   let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
@@ -98,6 +98,7 @@ export function createDiskBridge({
   let retryTimer = null;
   let retries = 0;
   let rewatchTimer = null;
+  let pruneTimer = null;
   let rewatches = 0;
   let closed = false;
   const serial = (work) => (queue = queue.then(work, work));
@@ -159,9 +160,12 @@ export function createDiskBridge({
     if (!(await confirmDurable())) return scheduleRetry();
     const still = [];
     for (const revision of pending) {
-      const done = await dispose(helper, key, revision, recoveryDir, name, hooks).catch(() => ({ busy: true, hash: revision.hash }));
+      const done = await dispose(helper, key, revision, recoveryDir, rel, hooks).catch((error) => {
+        logError('smarty.coedit-dispose-failed', error); // A permanent refusal is logged, never taken as 'busy'.
+        return { busy: true, hash: revision.hash };
+      });
       if (done.late) raise({ conflict: 'raced', published: true, recovery: done.late, notice: DISTURBED_NOTICE });
-      if (done.busy) still.push({ entry: revision.entry, hash: done.hash });
+      if (done.busy) still.push({ ...revision, hash: done.hash });
       if (done.unsynced) unsynced ??= { raised: false };
     }
     pending = still;
@@ -180,35 +184,50 @@ export function createDiskBridge({
     }, retryMs);
   };
   /**
-   * Settles a save whose reply was lost by the private dir, the authoritative record, whatever the file holds now
-   * (an agent may have written since): a new entry holding OUR bytes means the exchange never ran (it is removed, and
-   * the base stays); a new entry holding anything else is the revision our exchange displaced (published: the base
-   * follows ours, and the entry is kept for recovery as a pending one); no new entry means it never got that far.
+   * Settles a save whose reply was lost by its transaction record in the private dir (#412 round 3), the authoritative
+   * outcome, whatever the file holds now (an agent may have written since). The helper creates the record before any
+   * change and resolves it when its owner is gone; it outlives the entry (another bridge may already have recovered
+   * that) until this bridge acks it. `published`: the base follows ours, and a displaced entry still there is kept as
+   * pending. `aborted`, or no record at all (the helper died before any change): not published. Still owned by a live
+   * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async () => {
-    const reply = await helper.call({ op: 'list', key }).catch(() => null);
+    const reply = await helper.call({ op: 'list', path: rel, tokens: tokensFor(key) }).catch(() => null);
     if (!reply?.ok) return false;
+    const txn = uncertain.lost;
+    const record = (reply.records ?? []).find((r) => r.txn === txn);
+    if (record && record.state !== 'published' && record.state !== 'aborted') return false; // Owned, or unknown.
+    if (!record && Date.now() - uncertain.since > 29 * 86_400_000) return false;
     const known = new Set(pending.map((revision) => revision.entry));
-    // Only the lost call's own entry (its txn names it), never another save's leftover.
-    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${uncertain.lost}-`));
-    const displaced = fresh.find((entry) => entry.hash !== uncertain.nextHash);
-    if (displaced) {
+    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${txn}-`));
+    if (fresh.some((entry) => entry.owned)) return false;
+    if (record?.state === 'published') {
       base = uncertain.snapshot;
       baseText = uncertain.next;
       baseHash = uncertain.nextHash;
       gone = false;
-      pending.push({ entry: displaced.entry, hash: uncertain.baseHash }); // Late bytes differ, so they are kept.
+      for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash, token: uncertain.token }); // Late bytes are kept.
     } else {
-      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, name, hooks);
+      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
     }
+    // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5).
+    await helper.call({ op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
     uncertain = null;
     if (!unsynced) conflict = null;
+    scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).
     return true;
   };
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
   const settleUncertain = async () => {
     if (!uncertain) return true;
-    if (uncertain.lost && (await settleByPrivateDir())) return true;
+    // A lost reply is settled only by the private dir (its list waits for any operation still in flight on this file,
+    // #412 finding 3); if that cannot be read, the save stays held: the disk alone could clear it too early.
+    if (uncertain.lost) {
+      if (await settleByPrivateDir()) return true;
+      if (uncertain.seen !== 'unlisted') raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+      uncertain.seen = 'unlisted';
+      return false;
+    }
     const disk = await readFile(helper, rel);
     if (disk?.hash === uncertain.nextHash) {
       base = uncertain.snapshot;
@@ -223,6 +242,16 @@ export function createDiskBridge({
     uncertain = null;
     if (!unsynced) conflict = null; // Adopted by its hash; a pending flush still holds the conflict.
     return true;
+  };
+  /** Retention (smartyfs#37): this file's recovery copies, at load and then every `pruneMs` (a day) while open. */
+  const prune = () => pruneRecovery(recoveryDir, key).catch((error) => logError('smarty.coedit-prune-failed', error));
+  const schedulePrune = () => {
+    if (closed) return;
+    pruneTimer = setTimeout(() => {
+      pruneTimer = null;
+      void prune().then(schedulePrune);
+    }, pruneMs);
+    pruneTimer.unref?.();
   };
   const logError = (type, error) => console.error(JSON.stringify({ type, file: name, error: String(error?.message ?? error) }));
   /** Watches the file's directory; a watcher error stops it, is shown, and watching restarts (bounded). */
@@ -297,6 +326,7 @@ export function createDiskBridge({
         // until that succeeds nothing is disposed or acknowledged (a cached read is no durability receipt).
         flushed = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel }).then((reply) => reply.ok === true, () => false);
         interrupted = await finishInterruptedSaves(helper, key, rel, recoveryDir, { durable: flushed, hooks });
+        await prune();
         disk = await readSettled(helper, rel, settleMs);
         if (disk === null) throw new Error('Co-edited file does not exist');
       } catch (error) {
@@ -313,6 +343,7 @@ export function createDiskBridge({
       }
       for (const late of interrupted.late) raise({ conflict: 'raced', published: true, recovery: late, notice: DISTURBED_NOTICE });
       pending.push(...interrupted.pending);
+      schedulePrune();
       if (!flushed || interrupted.unsynced) {
         unsynced = { raised: true };
         raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
@@ -341,14 +372,14 @@ export function createDiskBridge({
       const next = text.toString();
       if (next === baseText) return { ok: true };
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
-      const { pending: displaced, unsynced: notFlushed, lost, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
+      const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
       if (notFlushed) unsynced = { raised: true, entry: displaced?.entry }; // Raised with this result; a flush confirms it.
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
-        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, seen: null };
+        uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, token, since: Date.now(), seen: null };
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
@@ -370,11 +401,13 @@ export function createDiskBridge({
       clearTimeout(timer);
       clearTimeout(retryTimer);
       clearTimeout(rewatchTimer);
+      clearTimeout(pruneTimer);
       watcher?.close();
       // A displaced revision still pending stays in the private dir; the next load keeps and removes it.
       let bound;
       const waited = new Promise((done) => { bound = setTimeout(done, closeMs); });
-      return Promise.race([queue.catch(() => {}), waited]).finally(() => clearTimeout(bound)).then(() => helper.close());
+      // Resolves { quiescent }: whether the helper provably can no longer act (#412 round 2, finding 2).
+      return Promise.race([queue.catch(() => {}), waited]).finally(() => clearTimeout(bound)).then(() => helper.close({ boundMs: closeMs }));
     },
   };
 }
