@@ -8,7 +8,7 @@ import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ord
 import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
-import { buildOrdinaryModelOptions, effectiveOrdinaryState, ordinaryOptionKey as optionKey } from './ordinaryModelOptions';
+import { buildOrdinaryModelOptions, ordinaryOptionKey as optionKey, useAppliedOrdinaryState } from './ordinaryModelOptions';
 import { PiVoiceControl } from './PiVoiceControl';
 
 export type OrdinaryModelTarget = { sessionId: string; directory: string };
@@ -16,8 +16,7 @@ export type OrdinaryModelTarget = { sessionId: string; directory: string };
 export function OrdinaryModelControls({ state: listed, target, className }: {
   state: OrdinaryModelState; target?: OrdinaryModelTarget; className?: string;
 }) {
-  const [applied, setApplied] = React.useState<OrdinaryModelState | null>(null);
-  const state = effectiveOrdinaryState(listed, applied);
+  const [state, setApplied] = useAppliedOrdinaryState(listed);
   const { t } = useI18n();
   // A chat column may show a session from a project that is not the active one.
   const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));

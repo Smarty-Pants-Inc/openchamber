@@ -62,9 +62,15 @@ describe('ordinary model controls follow the applied switch', () => {
     expect(effectiveOrdinaryState({ ...listed, sequence: 12, thinkingLevel: 'low' }, applied).thinkingLevel).toBe('low');
     expect(effectiveOrdinaryState({ ...listed, generation: 'g2' }, applied).model?.modelID).toBe('claude-opus-5-5');
   });
+  // openchamber#419 review 1: an unavailable listing (model null, even at sequence 0) is authoritative.
+  test('an unavailable listing wins over a recorded switch', () => {
+    const applied: OrdinaryModelState = { generation: 'g1', sequence: 11, thinkingLevel: 'high', model: astra };
+    const unavailable: OrdinaryModelState = { generation: 'g1', sequence: 0, thinkingLevel: null, model: null };
+    expect(effectiveOrdinaryState(unavailable, applied).model).toBeNull();
+  });
   test('the effort change is built from the shown (effective) model, not the listed one', () => {
     const src = readFileSync(new URL('./OrdinaryModelControls.tsx', import.meta.url), 'utf8');
-    expect(src).toContain('const state = effectiveOrdinaryState(listed, applied);');
+    expect(src).toContain('const [state, setApplied] = useAppliedOrdinaryState(listed);');
     expect(src).toContain('setApplied(await opencodeClient.setOrdinaryModel(');
     expect(src).toContain('const current = state.model;');
   });
