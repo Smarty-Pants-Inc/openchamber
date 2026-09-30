@@ -1979,8 +1979,11 @@ export async function optimisticSend(input: {
     time: { created: Date.now(), completed: 0 },
   } as unknown as Message
 
-  // Insert into store + register in shadow Map (for mergeOptimisticPage cleanup)
-  optimisticAdd({
+  // Insert into store + register in shadow Map (for mergeOptimisticPage cleanup). A re-send that reuses its first
+  // attempt's client ID (smarty-code#962) keeps that attempt's row, pending or delivered, and its parts as they are.
+  const rowExists = !!input.messageID
+    && (store.getState().message[input.sessionId] ?? []).some((message) => message.id === messageID)
+  if (!rowExists) optimisticAdd({
     sessionID: input.sessionId,
     directory: targetDirectory,
     message: optimisticMessage,

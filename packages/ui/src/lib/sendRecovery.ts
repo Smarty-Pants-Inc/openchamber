@@ -33,8 +33,9 @@ export type RecoveryAttempt = {
   /** The client message ID this attempt must send with (the group's, fixed at its first Send). */
   messageID: string;
   accepted(): void;
-  /** A client-ID reservation conflict: another attempt of this group holds (or held) the ID. Not acceptance. */
-  conflict(): void;
+  /** A client-ID reservation conflict: another attempt of this group holds (or held) the ID. Not acceptance. Returns
+   * true when an earlier attempt of this group was already accepted: there is nothing to say (smarty-code#962). */
+  conflict(): boolean;
   /** A definite refusal of this attempt. */
   refused(): void;
 };
@@ -82,7 +83,7 @@ export class SendRecovery {
         if (group.copyInComposer || group.saved) { group.copyInComposer = group.saved = false; group.clearIfUntouched(); group.notify('delivered-late'); }
         this.drop(group);
       },
-      conflict: () => { if (settle() && !group.delivered) this.arm(group); },
+      conflict: () => { if (settle() && !group.delivered) this.arm(group); return group.delivered; },
       refused: () => {
         if (!settle() || group.delivered || group.copyInComposer || group.pending > 0) return;
         this.giveBack(group, null);

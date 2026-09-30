@@ -23,7 +23,7 @@ const other = { ...session, id: '01234567-1234-4234-9234-0123456789ff', title: '
 const savedS = () => readChatDraft(createChatDraftIdentity(getRuntimeKey(), directory, session.id)).text;
 const until = async (ok: () => boolean, ms = 20_000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await act(async () => { await sleep(25); }); expect(ok()).toBe(true); };
 
-async function heldSession() {
+async function heldSession(parts?: ReturnType<typeof useInputStore.getState>['attachedFiles']) {
   was = sendUnconfirmed.ms; sendUnconfirmed.ms = 1_500;
   const c = mounted = await mountedNativeComposer(true);
   await act(async () => {
@@ -42,6 +42,7 @@ async function heldSession() {
   await act(async () => { c.rerender(); });
   // Plain text only: the fixture's file and context part are not what this is about.
   await act(async () => { useInputStore.getState().setAttachedFiles([]); useInputStore.getState().setPendingSyntheticParts([]); });
+  if (parts) await act(async () => { useInputStore.getState().setAttachedFiles(parts); });
   return { c, held };
 }
 
@@ -110,4 +111,175 @@ test('a held send plus a newer draft typed in S before leaving: back on S, both 
   expect(c.text()).toContain('a newer draft');
   expect(c.text().indexOf('a newer draft')).toBeLessThan(c.text().indexOf('the held text'));
   await until(() => savedS().includes('a newer draft') && savedS().includes('the held text'));
+}, 30_000);
+
+// smarty-code#962 (2): two given-back texts joined in S's composer; the first is accepted late. Only its own copy goes:
+// the second stays, in the composer and in S's saved draft (never a double send of the first).
+test('two due texts joined, the first accepted late: only the second remains in the composer and the saved draft', async () => {
+  const { c } = await heldSession();
+  const replies = [deferred<Response>(), deferred<Response>()]; let n = 0;
+  c.handlers.prompt = async () => replies[n++].promise;
+  await c.replace('first held text'); await c.submit(); await until(() => c.prompts().length === 1);
+  await c.replace('second held text'); await c.submit(); await until(() => c.prompts().length === 2);
+  await show(c, other.id);
+  await act(async () => { await sleep(1_900); });
+  await show(c, session.id);
+  await until(() => c.text().includes('first held text') && c.text().includes('second held text'));
+  await until(() => savedS().includes('first held text') && savedS().includes('second held text'));
+  await act(async () => { replies[0].resolve(new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } })); await sleep(50); });
+  await until(() => !c.text().includes('first held text'));
+  expect(c.text().trim()).toBe('second held text');
+  await until(() => savedS().trim() === 'second held text');
+}, 30_000);
+
+// smarty-code#962 review r1: a late acceptance removes only the copy its recovery joined, intact where it was joined.
+const accept = () => new Response(null, { status: 204, headers: { 'x-smarty-prompt-delivery': 'prompt' } });
+async function dueWhileAway(c: NonNullable<typeof mounted>, texts: string[], newer?: string) {
+  const replies = texts.map(() => deferred<Response>()); let n = 0;
+  c.handlers.prompt = async () => replies[n++].promise;
+  for (const [i, text] of texts.entries()) { await c.replace(text); await c.submit(); await until(() => c.prompts().length === i + 1); }
+  if (newer) await c.replace(newer);
+  await show(c, other.id);
+  await act(async () => { await sleep(1_900); });
+  await show(c, session.id);
+  await until(() => texts.every(text => c.text().includes(text)) && texts.every(text => savedS().includes(text)));
+  return replies;
+}
+
+test('the given-back text edited by the person: its late acceptance removes nothing, shown or not', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text']);
+  await c.replace('first held text\nunsent continuation');
+  await until(() => savedS() === 'first held text\nunsent continuation');
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  expect(c.text()).toBe('first held text\nunsent continuation');
+  expect(savedS()).toBe('first held text\nunsent continuation');
+}, 30_000);
+
+test('the given-back text edited, then S not shown at its late acceptance: the saved draft keeps the edit', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text']);
+  await c.replace('first held text\nunsent continuation');
+  await show(c, other.id);
+  await until(() => savedS() === 'first held text\nunsent continuation');
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  expect(savedS()).toBe('first held text\nunsent continuation');
+  await show(c, session.id);
+  await until(() => c.text() === 'first held text\nunsent continuation');
+}, 30_000);
+
+test('a newer draft holding the same text: the late acceptance removes the joined copy, never the newer draft', async () => {
+  const { c } = await heldSession();
+  const [reply] = await dueWhileAway(c, ['first held text'], 'first held text\n\nunsent continuation');
+  expect(c.text().split('first held text').length - 1).toBe(2);
+  await act(async () => { reply.resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === 'first held text\n\nunsent continuation');
+  await until(() => savedS().trim() === 'first held text\n\nunsent continuation');
+}, 30_000);
+
+test('two joined texts both accepted in one tick, with a newer draft: only the newer draft remains', async () => {
+  const { c } = await heldSession();
+  const replies = await dueWhileAway(c, ['first held text', 'second held text'], 'a newer draft');
+  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === 'a newer draft');
+  await until(() => savedS().trim() === 'a newer draft');
+}, 30_000);
+
+test('two joined texts both accepted in one tick: the composer and the saved draft are empty', async () => {
+  const { c } = await heldSession();
+  const replies = await dueWhileAway(c, ['first held text', 'second held text']);
+  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  await until(() => c.text().trim() === '');
+  await until(() => savedS().trim() === '');
+}, 30_000);
+
+// smarty-code#962 review r2 1: a submitted text ending in newlines, joined intact, still goes on its late acceptance.
+for (const tail of ['\n', '\n\n']) {
+  const first = `first held text${tail}`;
+  test(`a joined text ending in ${tail.length} newline(s), accepted late while shown: only the other remains`, async () => {
+    const { c } = await heldSession();
+    const replies = await dueWhileAway(c, [first, 'second held text']);
+    await act(async () => { replies[0].resolve(accept()); await sleep(100); });
+    await until(() => c.text().trim() === 'second held text');
+    await until(() => savedS().trim() === 'second held text');
+  }, 30_000);
+  test(`a joined text ending in ${tail.length} newline(s), accepted late off-screen: only the other remains`, async () => {
+    const { c } = await heldSession();
+    const replies = await dueWhileAway(c, [first, 'second held text']);
+    await show(c, other.id);
+    await act(async () => { replies[0].resolve(accept()); await sleep(100); });
+    expect(savedS().trim()).toBe('second held text');
+    await show(c, session.id);
+    await until(() => c.text().trim() === 'second held text');
+  }, 30_000);
+}
+
+// smarty-code#962 review r2 2: an attachment-only send given back, then accepted late: its file goes, a newer one stays.
+test('an attachment-only send given back, accepted late: its file chip goes, a newly added file stays', async () => {
+  const file = { id: 'file-held', filename: 'held.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,aGVsZA==',
+    source: 'local' as const, file: new File(['held'], 'held.md', { type: 'text/plain' }), size: 4 };
+  const { c, held } = await heldSession([file]);
+  await c.replace(''); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => useInputStore.getState().attachedFiles.length === 0);
+  await until(() => useInputStore.getState().attachedFiles.some(f => f.id === 'file-held')); // The watchdog gives it back.
+  const newer = { ...file, id: 'file-newer', filename: 'newer.md' };
+  await act(async () => { useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, newer]); });
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => !useInputStore.getState().attachedFiles.some(f => f.id === 'file-held'));
+  expect(useInputStore.getState().attachedFiles.map(f => f.id)).toEqual(['file-newer']);
+}, 30_000);
+
+// smarty-code#962 review r3 1: the given-back block deleted by the person, newer text with the same words now in its
+// place: a late acceptance removes nothing, shown or after switching away; the newer draft stays whole.
+async function givenBackThenReplaced() {
+  const { c, held } = await heldSession();
+  await c.replace('A'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => c.text() === 'A'); // The watchdog gives it back while S is shown.
+  await c.replace('A\n\nA\n\nnewer notes');
+  await c.replace('A\n\nnewer notes'); // The given-back leading 'A\n\n' deleted.
+  await until(() => savedS() === 'A\n\nnewer notes');
+  return { c, held };
+}
+test('the given-back block deleted, a newer copy in its place, accepted while shown: the newer draft stays whole', async () => {
+  const { c, held } = await givenBackThenReplaced();
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  expect(c.text()).toBe('A\n\nnewer notes');
+  expect(savedS()).toBe('A\n\nnewer notes');
+}, 30_000);
+test('the given-back block deleted, a newer copy in its place, accepted after switching away: the newer draft stays whole', async () => {
+  const { c, held } = await givenBackThenReplaced();
+  await show(c, other.id);
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  expect(savedS()).toBe('A\n\nnewer notes');
+  await show(c, session.id);
+  await until(() => c.text() === 'A\n\nnewer notes');
+  await act(async () => { await sleep(100); });
+  expect(savedS()).toBe('A\n\nnewer notes');
+}, 30_000);
+
+// smarty-code#962 review r3 2: a newline-only composer with a file is a textless send: on acceptance its file goes.
+test('a newline-only send with a file given back, accepted late: its file goes, a newer file and newer text stay', async () => {
+  const file = { id: 'file-held', filename: 'held.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,aGVsZA==',
+    source: 'local' as const, file: new File(['held'], 'held.md', { type: 'text/plain' }), size: 4 };
+  const { c, held } = await heldSession([file]);
+  await c.replace('\n'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => useInputStore.getState().attachedFiles.length === 0);
+  await until(() => useInputStore.getState().attachedFiles.some(f => f.id === 'file-held')); // The watchdog gives it back.
+  const newer = { ...file, id: 'file-newer', filename: 'newer.md' };
+  await act(async () => { useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, newer]); });
+  await c.replace('typed later');
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => !useInputStore.getState().attachedFiles.some(f => f.id === 'file-held'));
+  expect(useInputStore.getState().attachedFiles.map(f => f.id)).toEqual(['file-newer']);
+  expect(c.text()).toBe('typed later');
+}, 30_000);
+
+test('text typed before the given-back block moves it: the late acceptance still removes it, the typed text stays', async () => {
+  const { c, held } = await heldSession();
+  await c.replace('A'); await c.submit(); await until(() => c.prompts().length === 1);
+  await until(() => c.text() === 'A');
+  await c.replace('intro\n\nA');
+  await act(async () => { held.resolve(accept()); await sleep(100); });
+  await until(() => c.text() === 'intro\n\n' || c.text() === 'intro');
+  await until(() => savedS().trim() === 'intro');
 }, 30_000);
