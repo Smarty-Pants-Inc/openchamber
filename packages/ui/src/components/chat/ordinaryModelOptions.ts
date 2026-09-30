@@ -62,16 +62,21 @@ export const RELAUNCH_MODEL_GRACE_MS = 3000;
 export function useRelaunchHeldOrdinaryState(state: OrdinaryModelState, reloading: boolean) {
   const last = React.useRef<OrdinaryModelState | null>(null);
   if (state.model) last.current = state;
-  const [grace, setGrace] = React.useState(false);
+  // The grace is derived during render, so the first frame after `reloading` ends already holds the model; an effect
+  // would start it only after that frame had committed "Unavailable" (review r1 of #778). The effect only re-renders at expiry.
   const wasReloading = React.useRef(reloading);
+  const endedAt = React.useRef<number | null>(null);
+  if (reloading) endedAt.current = null;
+  else if (wasReloading.current) endedAt.current = Date.now();
+  wasReloading.current = reloading;
+  const left = endedAt.current === null ? 0 : endedAt.current + RELAUNCH_MODEL_GRACE_MS - Date.now();
+  const grace = left > 0;
+  const [, expire] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
-    const ended = wasReloading.current && !reloading;
-    wasReloading.current = reloading;
-    if (!ended) return;
-    setGrace(true);
-    const timer = setTimeout(() => setGrace(false), RELAUNCH_MODEL_GRACE_MS);
+    if (!grace) return;
+    const timer = setTimeout(expire, left);
     return () => clearTimeout(timer);
-  }, [reloading]);
+  }, [grace, left]);
   const pending = !state.model && (reloading || grace);
   return { held: pending ? last.current : null, pending };
 }

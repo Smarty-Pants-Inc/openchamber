@@ -60,3 +60,25 @@ test('counterexample: not reloading and no model is Unavailable, also once the 3
   expect(view.text()).toContain('Unavailable');
   await view.unmount();
 });
+
+// Review r1 of #778: the first frame committed after `reloading` ends must already hold the model. A layout effect logs
+// the DOM of every commit before passive effects run, so a frame that an effect later corrects is still seen.
+test('the first commit after reloading ends holds the model, before any effect', async () => {
+  const win = new Window({ url: 'http://localhost' });
+  Object.assign(globalThis, { window: win, document: win.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const commits: string[] = [];
+  const Probe = () => { React.useLayoutEffect(() => { commits.push(host.textContent ?? ''); }); return null; };
+  const render = (state: OrdinaryModelState, reloading: boolean) => act(async () => {
+    root.render(<I18nProvider><OrdinaryModelControls state={state} reloading={reloading} /><Probe /></I18nProvider>);
+  });
+  await render(withModel('g1'), true);
+  await render(noModel, true);
+  commits.length = 0;
+  await render(noModel, false); // `connected`, model not back yet
+  expect(commits.length).toBeGreaterThan(0);
+  expect(commits[0]).toContain('GPT-6.1 Sol');
+  expect(commits.filter(text => text.includes('Unavailable'))).toEqual([]);
+  await act(async () => { root.unmount(); });
+});
