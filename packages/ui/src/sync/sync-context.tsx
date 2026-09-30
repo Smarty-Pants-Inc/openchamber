@@ -72,6 +72,7 @@ import { useTodosPersistStore } from "@/stores/useTodosPersistStore"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
 import { toast } from "@/components/ui"
 import { appendNotification } from "./notification-store"
+import { withoutSupersededOptimistic } from "./superseded-optimistic"
 import { recordSessionError, summarizeOpenCodeError, type OpenCodeSessionErrorPayload } from "./session-error-log"
 import {
   applyGlobalSessionStatusEvent,
@@ -3729,12 +3730,13 @@ export function buildSessionMessageRecordsSnapshot(
     return nextRecord
   })
 
+  const shownList = withoutSupersededOptimistic(nextList)
   const unchanged = Boolean(previous)
     && previous?.visibleMessages === visibleMessages
     && previous.suspendPartUpdates === suspendPartUpdates
     && previous.suspendedPartUpdatesMessageID === suspendedPartUpdatesMessageID
-    && previous.list.length === nextList.length
-    && previous.list.every((record, index) => record === nextList[index])
+    && previous.list.length === shownList.length
+    && previous.list.every((record, index) => record === shownList[index])
 
   if (unchanged && previous) {
     return previous
@@ -3747,7 +3749,7 @@ export function buildSessionMessageRecordsSnapshot(
     revertMessageID,
     suspendPartUpdates,
     suspendedPartUpdatesMessageID,
-    list: nextList,
+    list: shownList,
     byId: nextById,
   }
 }
