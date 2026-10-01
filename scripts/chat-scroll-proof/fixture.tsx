@@ -87,8 +87,11 @@ export function Fixture() {
     const timer = setTimeout(() => setTick(previous => previous + 1), 20);
     return () => clearTimeout(timer);
   }, [running, tick]);
+  // The pre-fix list uses this gesture release prop. Keep it in baseline
+  // replays; the fixed list ignores it because native end maintenance is off.
+  const legacyEndRelease = { endPinningReleased: scroll.userOwnsScroll };
   return <main className="fixed inset-0 bg-background text-foreground">
-    <MessageList ref={listRef} sessionKey={sessionID} messages={messages} isLoadingOlder={false} sessionIsWorking
+    <MessageList {...legacyEndRelease} ref={listRef} sessionKey={sessionID} messages={messages} isLoadingOlder={false} sessionIsWorking
       activeStreamingMessageId="live-answer" activeStreamingPhase="streaming"
       positions={epoch ? { total: prefixRecords + tailMessages.length,
         ranges: [...(firstWindowLoaded ? [{ start: 0, end: firstWindow.length }] : []), { start: prefixRecords, end: prefixRecords + tailMessages.length }], epoch } : undefined}
