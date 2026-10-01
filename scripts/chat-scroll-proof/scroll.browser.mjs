@@ -20,6 +20,7 @@ async function sample(page, readerId) {
         const reader = id ? document.querySelector(`[data-turn-id="${id}"]`) : null;
         frames.push({ time, frameGap: time - lastTime, top: scroller.scrollTop, height: scroller.scrollHeight, viewport: scroller.clientHeight,
           bottom: tail ? tail.getBoundingClientRect().bottom - box.bottom : null,
+          tailSize: tail?.getBoundingClientRect().height, measuredTailSize: window.scrollFixture.measuredTailSize(),
           reader: reader ? reader.getBoundingClientRect().top - box.top : null, tick: window.scrollFixture.tick });
         lastTime = time;
         // rAF runs before ResizeObserver delivers the virtualizer's sizes.
@@ -35,6 +36,7 @@ async function sample(page, readerId) {
 }
 async function evidence(info, frames) {
   const readerExpected = frames.some(frame => frame.reader !== null);
+  const effectiveHeight = frame => frame.height - Math.max(0, (frame.measuredTailSize ?? 0) - (frame.tailSize ?? frame.measuredTailSize ?? 0));
   const report = { frames: frames.length, deliveredTicks: frames.at(-1).tick,
     maxFrameGap: Math.max(...frames.map(frame => frame.frameGap)),
     missingTailFrames: frames.filter(frame => frame.bottom === null).length,
@@ -43,7 +45,7 @@ async function evidence(info, frames) {
     scrollReversals: frames.slice(1).filter((frame, i) => frame.top < frames[i].top - 4).length,
     // A completed tool/reasoning placeholder can shrink. At the bottom the
     // correct scroll delta is the content-height delta, in either direction.
-    unexplainedScrollJumps: frames.slice(1).filter((frame, i) => Math.abs((frame.top - frames[i].top) - (frame.height - frames[i].height)) > 4).length,
+    unexplainedScrollJumps: frames.slice(1).filter((frame, i) => Math.abs((frame.top - frames[i].top) - (effectiveHeight(frame) - effectiveHeight(frames[i]))) > 4).length,
     missingReaderFrames: frames.filter(frame => readerExpected && frame.reader === null).length,
     readerDrift: frames[0].reader === null ? null : Math.max(...frames.map(frame => frame.reader === null ? Infinity : Math.abs(frame.reader - frames[0].reader))),
     contentGrowth: frames.at(-1).height - frames[0].height };
@@ -158,6 +160,8 @@ test('Beginning loads the first positioned window, and reload opens at the end',
     const row = node.querySelector('[data-turn-id="prefix-user-0"]');
     return { scrollTop: node.scrollTop, offset: row.getBoundingClientRect().top - node.getBoundingClientRect().top, reads: window.scrollFixture.gapReads };
   });
+  await writeFile(info.outputPath('metrics.json'), JSON.stringify({ total, beginning }, null, 2));
+  console.log(`${info.project.name} Beginning: ${JSON.stringify({ total, beginning })}`);
   expect(beginning.reads).toBeGreaterThan(0);
   expect(beginning.scrollTop).toBe(0);
   expect(Math.abs(beginning.offset)).toBeLessThanOrEqual(4);

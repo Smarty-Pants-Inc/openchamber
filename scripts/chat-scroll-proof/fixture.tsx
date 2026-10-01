@@ -1,10 +1,12 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import type { Part } from '@opencode-ai/sdk/v2';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
+
 import MessageList, { type MessageListHandle } from '@/components/chat/MessageList';
 import type { ChatMessageEntry } from '@/components/chat/lib/turns/types';
-import { useChatTimelineScroll } from '@/hooks/useChatTimelineScroll';
+import { useChatTimelineScroll, type TimelineListHandle } from '@/hooks/useChatTimelineScroll';
 import { SyncProvider } from '@/sync/sync-context';
 import { ThemeSystemProvider } from '@/contexts/ThemeSystemContext';
 import { I18nProvider } from '@/lib/i18n';
@@ -17,7 +19,7 @@ declare const __CHAT_SCROLL_STYLE__: React.CSSProperties;
 declare global {
   interface Window {
     scrollFixture: { start: () => void; remount: (withGap?: boolean) => void; beginning: () => void; latest: () => void;
-      tick: number; done: boolean; userOwnsScroll: boolean; messageCount: number; gapReads: number; setAutoFollow: (enabled: boolean) => void };
+      tick: number; done: boolean; userOwnsScroll: boolean; messageCount: number; gapReads: number; measuredTailSize: () => number | undefined; setAutoFollow: (enabled: boolean) => void };
   }
 }
 const sessionID = 'scroll-proof';
@@ -61,6 +63,9 @@ export function Fixture() {
   const scroll = useChatTimelineScroll({ currentSessionId: sessionID, currentSessionKey: sessionID,
     sessionMessageCount: messages.length, composerOverlayHeight: 0, lastUserMessageId: 'live-user', sessionIsWorking: true });
   const listRef = React.useRef<MessageListHandle | null>(null);
+  const legendRef = React.useRef<TimelineListHandle | null>(null);
+  const registerScrollList = scroll.registerList;
+  const registerList = React.useCallback((list: TimelineListHandle | null) => { legendRef.current = list; registerScrollList(list); }, [registerScrollList]);
   React.useEffect(() => {
     window.scrollFixture = { start: () => setRunning(true), remount: (withGap = false) => { if (withGap) setPrefixRecords(22000); setEpoch(previous => previous ? `${previous}-next` : 'positions'); },
       beginning: () => {
@@ -69,11 +74,13 @@ export function Fixture() {
         // navigate. Navigating into an unloaded gap first is a different path.
         if (prefixRecords && !firstWindowLoaded) {
           gapReads.current += 1;
-          setFirstWindowLoaded(true);
+          // The real loader publishes its external-store update before its
+          // load promise resolves. Commit the fixture's local state likewise.
+          flushSync(() => setFirstWindowLoaded(true));
           requestAnimationFrame(() => listRef.current?.scrollToStart());
         } else listRef.current?.scrollToStart();
       }, latest: () => scroll.goToBottom('instant'),
-      tick, done: tick >= 240, userOwnsScroll: scroll.userOwnsScroll, messageCount: messages.length, gapReads: gapReads.current, setAutoFollow: enabled => useUIStore.setState({ streamingAutoFollowEnabled: enabled }) };
+      tick, done: tick >= 240, userOwnsScroll: scroll.userOwnsScroll, messageCount: messages.length, gapReads: gapReads.current, measuredTailSize: () => { const state = legendRef.current?.getState(); return state?.sizeAtIndex(state.data.length - 1); }, setAutoFollow: enabled => useUIStore.setState({ streamingAutoFollowEnabled: enabled }) };
   }, [firstWindowLoaded, messages.length, prefixRecords, scroll, tick]);
   React.useEffect(() => {
     if (!running || tick >= 240) return;
@@ -87,7 +94,7 @@ export function Fixture() {
         ranges: [...(firstWindowLoaded ? [{ start: 0, end: firstWindow.length }] : []), { start: prefixRecords, end: prefixRecords + tailMessages.length }], epoch } : undefined}
       positionOf={id => { const prefix = firstWindow.findIndex(message => message.info.id === id); return prefix >= 0 ? prefix : prefixRecords + tailMessages.findIndex(message => message.info.id === id); }}
       onLoadWindow={windows => { gapReads.current += windows.length; if (windows.some(window => window.start === 0)) setFirstWindowLoaded(true); }}
-      registerList={scroll.registerList}
+      registerList={registerList}
       anchorMessageId={scroll.anchorMessageId} onAnchorReady={scroll.onAnchorReady} onAnchorSizeChanged={scroll.onAnchorSizeChanged}
       onIsAtEndChange={scroll.onIsAtEndChange} onTimelineDataChange={scroll.onTimelineDataChange}
       scrollContainerProps={{ className: 'absolute inset-0 overflow-y-auto overflow-x-hidden chat-scroll', style: __CHAT_SCROLL_STYLE__, 'data-scrollbar': 'chat', tabIndex: 0 }} />
