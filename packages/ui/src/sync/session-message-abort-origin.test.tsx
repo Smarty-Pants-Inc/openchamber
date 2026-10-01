@@ -15,7 +15,7 @@ afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorRepor
 const target = { directory, sessionID: session.id };
 const sentReports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
 
-// Round 1: a quiet session has no later event/detail/heartbeat refresh to rescue its first read.
+// Round 1: stable detail and a healthy stream must not rescue a quiet session's canceled first read.
 for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
   test(`first history hydration ${scenario} commits once`, async () => {
     fixture = nativeDraftFixture();
@@ -27,6 +27,24 @@ for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
       addEventListener: documentEvents.addEventListener.bind(documentEvents),
       removeEventListener: documentEvents.removeEventListener.bind(documentEvents) });
     const root = createRoot(dom.container);
+    const streamStarted = deferred<void>();
+    let heartbeat = () => {};
+    const fixtureFetch = globalThis.fetch;
+    // Keep the real SDK/event pipeline, with a healthy stream and unchanged session detail.
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/global/event')) {
+        return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          heartbeat = () => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ directory,
+            payload: { type: 'server.heartbeat', properties: {} } })}\n\n`));
+          request.signal.addEventListener('abort', () => controller.close(), { once: true });
+          heartbeat(); streamStarted.resolve();
+        } }), { headers: { 'content-type': 'text/event-stream' } });
+      }
+      if (path.endsWith(`/session/${session.id}`)) return Response.json(session);
+      return fixtureFetch(input, init);
+    };
     const firstStarted = deferred<Request>();
     const firstResponse = deferred<Response>();
     const secondResponse = deferred<Response>();
@@ -50,19 +68,28 @@ for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
       stop = store.subscribe((state, previous) => { if (state.message[session.id] !== previous.message[session.id]) commits++; });
       reading = loader.ensure(target, { reason: 'navigation' });
       const first = await firstStarted.promise;
+      await streamStarted.promise;
+      await sleep(50); // Let the first heartbeat establish the connection before hiding.
       if (scenario !== 'healthy') {
         Object.assign(document, { visibilityState: 'hidden' });
         documentEvents.dispatchEvent(new Event('visibilitychange'));
         expect(first.signal.reason).toMatchObject({ origin: 'hidden' });
         expect(loader.getSnapshot(target)).toMatchObject({ status: 'idle', resolved: false, error: null });
         if (scenario === 'hide-show') { firstResponse.resolve(page('old')); await reading; }
+        const detail = await opencodeClient.getScopedSdkClient(directory).session.get({ sessionID: session.id });
+        expect(detail.data).toEqual(session);
+        heartbeat(); // No message update or reconnect that could request history.
+        await sleep(50);
+        expect(document.visibilityState).toBe('hidden');
+        expect(reads).toBe(1);
         Object.assign(document, { visibilityState: 'visible' });
         documentEvents.dispatchEvent(new Event('visibilitychange'));
         documentEvents.dispatchEvent(new Event('visibilitychange')); // Foreground demand is consumed once.
         await sleep(50);
         expect(reads).toBe(2);
         secondResponse.resolve(page('fresh'));
-        await loader.ensure(target, { reason: 'reactive' });
+        // Observe automatic foreground hydration without requesting another load.
+        for (let attempts = 0; attempts < 100 && loader.getSnapshot(target).status !== 'ready'; attempts++) await sleep(10);
         if (scenario === 'hide-show-stale') { firstResponse.resolve(page('old')); await reading; }
       } else { firstResponse.resolve(page('fresh')); await reading; }
       expect(loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true });
@@ -74,6 +101,7 @@ for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
       firstResponse.resolve(page('old')); secondResponse.resolve(page('fresh')); await reading;
       stop(); await act(async () => root.unmount()); await sleep(10);
       if (location) Object.defineProperty(globalThis, 'location', location); else Reflect.deleteProperty(globalThis, 'location');
+      globalThis.fetch = fixtureFetch;
       dom.restore();
     }
   }, 10_000);
