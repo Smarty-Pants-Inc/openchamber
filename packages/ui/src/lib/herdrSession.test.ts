@@ -98,7 +98,7 @@ describe('#1140: change order', () => {
   test('native idle first (Herdr still working): done, and it stays done when Herdr follows', () => {
     expect(run('turn-3', [['working', 'busy'], ['working', undefined], ['done', undefined]])).toEqual(['working', 'done', 'done']);
   });
-  test('the same values again (a re-render or a remount) do not reorder: still done', () => {
+  test('the same values again (a re-render) do not reorder: still done', () => {
     expect(run('turn-4', [['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', 'busy']])).toEqual(['working', 'done', 'done', 'done']);
   });
   test('a row first seen mid-window (Herdr done, native busy) has no order: native wins until it changes', () => {
@@ -120,5 +120,29 @@ describe('#1140: change order', () => {
     status('busy'); expect(entry()).toBe('busy'); expect(row(id, 'working', entry())).toBe('working');
     status('idle'); expect(entry()).toBeUndefined(); expect(row(id, 'working', entry())).toBe('done');
     expect(row(id, 'working', entry())).toBe('done'); // a re-render with the same stale sample stays done
+  });
+  // Round 3: a collapsed group unmounts its rows, so the row sees none of the changes made meanwhile.
+  test('unmounted while native goes idle -> busy and Herdr samples done: the remount shows Working (native wins)', () => {
+    const id = 'remount-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;
+    const status = (type: string) => applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type } } } as Event]);
+    const mounted = (h: ReturnType<typeof readHerdrState>, first = false) => {
+      const r = rowNativeStatus(id, h, entry(), first); return liveHerdrState(h, r.native, r.herdrIsNewer);
+    };
+    status('busy'); expect(mounted('working', true)).toBe('working'); expect(mounted('working')).toBe('working');
+    status('idle'); status('busy'); // the group is collapsed: the turn ends and a new one starts, no row renders
+    expect(entry()).toBe('busy');
+    expect(mounted('done', true)).toBe('working'); // expanded before Herdr samples the new turn's working
+    expect(mounted('done')).toBe('working'); // and a re-render keeps it
+    expect(mounted('working')).toBe('working');
+  });
+  test('a remount after the turn ended while unmounted (native idle, Herdr done) shows done', () => {
+    const id = 'remount-idle-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;
+    const status = (type: string) => applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type } } } as Event]);
+    status('busy'); expect(liveHerdrState('working', rowNativeStatus(id, 'working', entry(), true).native)).toBe('working');
+    status('idle');
+    const r = rowNativeStatus(id, 'done', entry(), true);
+    expect(r.native).toBe('idle'); expect(liveHerdrState('done', r.native, r.herdrIsNewer)).toBe('done');
+    const r2 = rowNativeStatus(id, 'working', entry(), true); // even a stale Herdr working: known idle wins on remount
+    expect(liveHerdrState('working', r2.native, r2.herdrIsNewer)).toBe('done');
   });
 });
