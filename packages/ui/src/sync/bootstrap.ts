@@ -1,5 +1,6 @@
 import type { OpencodeClient, PermissionRequest, Project, QuestionRequest } from "@opencode-ai/sdk/v2/client"
 import { retry } from "./retry"
+import { captureSessionStatusRead, isSessionStatusReadCurrent, type SessionStatusRead } from "./session-status-read"
 import { parseSessionStatusMap } from './session-status'
 import type { GlobalState, State } from "./types"
 import { runtimeFetch } from "../lib/runtime-fetch"
@@ -126,7 +127,7 @@ export async function bootstrapDirectory(input: {
   directory: string
   sdk: OpencodeClient
   getState: () => State
-  set: (patch: Partial<State>) => void
+  set: (patch: Partial<State>, read?: SessionStatusRead) => void
   isStale?: () => boolean
   global: {
     config: Record<string, unknown>
@@ -135,9 +136,9 @@ export async function bootstrapDirectory(input: {
   loadSessions: (directory: string) => Promise<void> | void
 }): Promise<"complete" | "failed" | "stale"> {
   const { directory, sdk, getState, set, global: g } = input
-  const commit = (patch: Partial<State>): boolean => {
-    if (input.isStale?.()) return false
-    set(patch)
+  const commit = (patch: Partial<State>, read?: SessionStatusRead): boolean => {
+    if (input.isStale?.() || (read && !isSessionStatusReadCurrent(read))) return false
+    set(patch, read)
     return true
   }
   const state = getState()
@@ -175,8 +176,11 @@ export async function bootstrapDirectory(input: {
     ),
     // Scoped like the watchdog's poll. The Smarty gateway answers an unscoped read with every fleet session, which put
     // them all into each directory's store; the scoped poll then saw them "stale" and resynced them forever (#126, 3.9).
-    retry(() => sdk.session.status(directory ? { directory } : undefined)
-      .then((x) => commit({ session_status: parseSessionStatusMap(unwrap(x, "session.status")), sessionStatusReady: true }))),
+    retry(() => {
+      const read = captureSessionStatusRead(getState().session_status)
+      return sdk.session.status(directory ? { directory } : undefined)
+        .then((x) => commit({ session_status: parseSessionStatusMap(unwrap(x, "session.status")), sessionStatusReady: true }, read))
+    }),
   ])
 
   if (input.isStale?.()) return "stale"

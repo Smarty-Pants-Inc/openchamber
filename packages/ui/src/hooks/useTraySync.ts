@@ -27,6 +27,7 @@ import { toast } from '@/components/ui';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
+import { captureSessionStatusRead, heldSessionStatusIds, isSessionStatusReadCurrent } from '@/sync/session-status-read';
 
 // Native tray/menu bar bridge. The Electron main process owns the Tray UI; this hook
 // streams a compact snapshot of live session/approval state to it via the
@@ -423,6 +424,20 @@ const buildSnapshot = (instanceName: string): TraySnapshot => {
   return { sessions, approvals, instanceName, usage: buildUsage(), dockBadgeCount };
 };
 
+export async function refreshTraySessionStatuses(targets: ReadonlyMap<string, string[]>, disposed: () => boolean): Promise<void> {
+  await Promise.all([...targets.entries()].map(async ([directory, sessionIds]) => {
+    // The tray may mount before sync is registered; global events still fence that cold read.
+    let store;
+    try { store = getSyncChildStores().getChild(directory); } catch { /* No directory owner yet. */ }
+    const read = captureSessionStatusRead(store?.getState().session_status);
+    // null means failure; a successful empty map is authoritative idle.
+    const raw = await opencodeClient.getSessionStatusForDirectory(directory).catch(() => null);
+    if (disposed() || raw === null || !isSessionStatusReadCurrent(read)) return;
+    const held = heldSessionStatusIds(read, directory, raw, sessionIds, store?.getState().session_status);
+    applyGlobalSessionStatusSnapshot(directory, raw, sessionIds, held);
+  }));
+}
+
 export const useTraySync = (): void => {
   React.useEffect(() => {
     if (!isTrayPlatform() || !isTrayEnabled() || !canUseElectronDesktopIPC()) return;
@@ -454,13 +469,7 @@ export const useTraySync = (): void => {
     // Cheap: ~ms per directory, bounded by the tray's visible session count.
     const refreshGlobalStatus = async () => {
       const targets = collectStatusPollDirectories();
-      await Promise.all([...targets.entries()].map(async ([directory, sessionIds]) => {
-        // null = fetch failed → keep that directory's current entries;
-        // {} = authoritative "everything here is idle".
-        const raw = await opencodeClient.getSessionStatusForDirectory(directory).catch(() => null);
-        if (disposed || raw === null) return;
-        applyGlobalSessionStatusSnapshot(directory, raw, sessionIds);
-      }));
+      await refreshTraySessionStatuses(targets, () => disposed);
     };
 
     // Coalesce bursts (e.g. token-by-token streaming updates a store rapidly)
