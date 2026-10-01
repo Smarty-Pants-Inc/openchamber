@@ -15,7 +15,6 @@ export const UNWATCHED_NOTICE = 'Changes on disk are not being followed right no
 export const TEXT = 'content';
 /** Room changes made by the bridge carry this origin, so a room can tell disk merges from people. */
 export const DISK_ORIGIN = 'disk';
-/** A revision this much shorter than the text last read is not merged without a person's word (net-lead round 3). */
 /** Whether `to` removes any text of `from` (net-lead round 4: a partial write that removes text is not merged unasked). */
 const REMOVES = (from, to) => diff(from, to).some(([op]) => op === diff.DELETE);
 /** Off unless enabled: the room layer that shows conflicts to people is not in production yet (code-lead, round 4). */
@@ -167,7 +166,10 @@ export function createDiskBridge({
   const disposePending = async () => {
     // Orphans the helper could not recover yet (a writer still held them): look again, and keep what it recovered.
     if (orphans) {
-      const again = await collectRecovered(helper, key, rel, recoveryDir).catch(() => null);
+      const again = await collectRecovered(helper, key, rel, recoveryDir).catch((error) => {
+        logError('smarty.coedit-collect-failed', error);
+        return null;
+      });
       if (again) {
         const known = new Set(pending.map((revision) => revision.entry));
         const mine = again.mine.filter((revision) => !known.has(revision.entry));
@@ -215,8 +217,15 @@ export function createDiskBridge({
    * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async () => {
-    const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch(() => null);
-    if (!reply?.ok) return false;
+    const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch((error) => {
+      logError('smarty.coedit-settle-failed', error);
+      return null;
+    });
+    if (!reply) return false;
+    if (!reply.ok) {
+      logError('smarty.coedit-settle-failed', new Error(`Co-edited file: ${reply.error}`));
+      return false;
+    }
     const txn = uncertain.lost;
     const record = (reply.records ?? []).find((r) => r.txn === txn);
     if (record && record.state !== 'published' && record.state !== 'aborted') return false; // Owned, or unknown.

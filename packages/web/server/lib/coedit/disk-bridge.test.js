@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount } from './safe-file.js';
+import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount, tokensFor } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -17,9 +17,9 @@ process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1'; // Tests run the helper as th
 process.env.COEDIT_FS_TEST = '1'; // The helper honours a test pause or fault only with this (smartyfs#32).
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const cleanups = [];
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  for (const cleanup of cleanups.splice(0)) cleanup();
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 /** The pids of coedit-fs processes (real or fake) started for `root`. */
@@ -46,7 +46,7 @@ const killHelper = (root) => {
 };
 
 /** A real project and file, a recovery directory outside it, and a room bridged to the file. */
-const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } = {}) => {
+const setup = async (content = 'hello world\n', { watch = false, retryMs = 50, retryLimit = 600 } = {}) => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-')));
   const root = path.join(home, 'project');
   const recoveryDir = path.join(home, 'recovery');
@@ -59,10 +59,10 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50 } 
   const open = (extra = {}) => {
     const doc = new Y.Doc();
     const conflicts = [];
-    const options = { root, file, doc, recoveryDir, hooks, debounceMs: 10, settleMs: 20, retryMs, onConflict: (c) => conflicts.push(c), enabled: true, ...extra };
-    if (!watch) options.watch = () => ({ close() {} });
+    const options = { root, file, doc, recoveryDir, hooks, debounceMs: 10, settleMs: 20, retryMs, retryLimit, onConflict: (c) => conflicts.push(c), enabled: true, ...extra };
+    if (!watch && !extra.watch) options.watch = () => ({ close() {} });
     const bridge = createDiskBridge(options);
-    cleanups.unshift(() => void bridge.close());
+    cleanups.unshift(() => bridge.close());
     return { bridge, doc, conflicts, text: doc.getText(TEXT) };
   };
   cleanups.push(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -664,8 +664,25 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
 
     it('a lost reply is matched to its own staged entry: another save\'s leftover entry does not make it published (round 2 note)', async () => {
       const t = await setup('a');
-      // A leftover of an earlier save, not pending: a displaced-looking entry for this key.
-      fs.writeFileSync(path.join(t.privateDir, `${keyOf(t.root, 'src/notes.md')}.0badc0de-1.staged`), 'something else');
+      // A real earlier save on THIS file leaves a displaced inode and its immutable transaction evidence.
+      // Keep the earlier outside bytes, then restore 'a' through that save so the later room edit starts there.
+      fs.writeFileSync(t.file, 'something else');
+      const earlier = startHelper(t.root, t.privateDir);
+      const writer = fs.openSync(t.file, 'a'); // Prevent that publish from disposing its displaced revision.
+      try {
+        const base = await readFile(earlier, 'src/notes.md');
+        const prior = await publish(earlier, 'src/notes.md', 'a', base.hash, {
+          recoveryDir: t.recoveryDir, key: keyOf(t.root, 'src/notes.md'),
+        });
+        expect(prior).toMatchObject({ ok: true, pending: { entry: expect.any(String) } });
+        const txn = prior.pending.entry.split('.')[1].split('-')[0];
+        const record = JSON.parse(fs.readFileSync(path.join(t.privateDir, `${keyOf(t.root, 'src/notes.md')}.${txn}.txn`), 'utf8'));
+        expect(record.ino).not.toBe(fs.statSync(path.join(t.privateDir, prior.pending.entry)).ino);
+        expect(t.disk()).toBe('a');
+      } finally {
+        await earlier.close();
+        fs.closeSync(writer); // The leftover is now settled, but still belongs to that earlier transaction.
+      }
       t.person((x) => x.insert(0, 'P'));
       t.hooks.helper = { pause: 'beforeExchange', pauseMs: 5000 };
       const saving = t.bridge.save();
@@ -677,6 +694,8 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.disk()).toBe('a'); // Never exchanged.
       expect(await t.bridge.save()).toEqual({ ok: true }); // So the room's P is saved now, not taken as published.
       expect(t.disk()).toBe('Pa');
+      expect(t.text.toString()).toBe('Pa'); // The later room's P was published exactly once.
+      expect(t.kept()).toContain('something else'); // The unrelated transaction's outside bytes survive.
     });
 
     it('close during a helper restart starts no helper after it (round 2 note)', async () => {
@@ -930,6 +949,333 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       await expect(t.bridge.sync()).rejects.toThrow(/regular file/);
       await t.bridge.close();
       expect(Date.now() - started).toBeLessThan(3000);
+    });
+  });
+
+  describe('smartyfs#46 bridge metadata boundary', () => {
+    const loseReply = async (t) => {
+      t.person((x) => x.insert(0, 'P'));
+      t.hooks.helper = { pause: 'afterExchange', pauseMs: 5000 };
+      const saving = t.bridge.save();
+      try {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+      } finally {
+        killHelper(t.root);
+        await saving;
+        delete t.hooks.helper;
+      }
+      expect(await saving).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+    };
+    const corruptRecord = (t) => {
+      const name = fs.readdirSync(t.privateDir).find((n) => n.endsWith('.txn'));
+      expect(name).toBeTruthy();
+      const file = path.join(t.privateDir, name);
+      const valid = fs.readFileSync(file);
+      const record = JSON.parse(valid);
+      delete record.ino;
+      const invalid = Buffer.from(JSON.stringify(record));
+      fs.writeFileSync(file, invalid);
+      return { name, file, invalid, restore: () => fs.writeFileSync(file, valid) };
+    };
+    const logged = (spy, type) => spy.mock.calls.map(([line]) => JSON.parse(line)).filter((event) => event.type === type);
+
+    it('reports an actual refused helper list while repeatedly holding a lost reply and its token', async () => {
+      const t = await setup('a', { retryMs: 60_000 });
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await loseReply(t);
+        const before = tokenCount();
+        t.hooks.helper = { fault: 'entryStat' };
+        for (let i = 0; i < 2; i += 1) {
+          await t.bridge.sync();
+          expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified', published: 'uncertain' });
+          expect(tokenCount()).toBe(before);
+          expect(t.text.toString()).toBe('Pa');
+          expect(t.staged()).toHaveLength(1);
+        }
+        expect(logged(spy, 'smarty.coedit-settle-failed')).toHaveLength(4);
+        for (const event of logged(spy, 'smarty.coedit-settle-failed')) {
+          expect(event).toMatchObject({ file: 'notes.md', error: expect.stringContaining('a private entry cannot be inspected') });
+        }
+      } finally {
+        delete t.hooks.helper;
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
+    });
+
+    it('an actual failed private-entry list reaches load and releases its watcher without loading or reporting recovery', async () => {
+      const t = await setup('a', { retryMs: 60_000 });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await loseReply(t);
+      const [entry] = t.staged();
+      const file = path.join(t.privateDir, entry);
+      const held = `${file}.held`;
+      fs.renameSync(file, held);
+      fs.mkdirSync(file); // Real helper refuses a nonregular retained entry, not a successful empty list.
+      const watchers = [];
+      const again = t.open({ watch: () => {
+        const watcher = { closed: false, close() { this.closed = true; } };
+        watchers.push(watcher);
+        return watcher;
+      } });
+      try {
+        await expect(again.bridge.load()).rejects.toThrow();
+        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, conflict: null });
+        expect(again.text.toString()).toBe('');
+        expect(again.conflicts).toEqual([]);
+        expect(watchers).toHaveLength(1);
+        expect(watchers[0].closed).toBe(true);
+        expect(fs.readFileSync(held, 'utf8')).toBe('a');
+      } finally {
+        fs.rmdirSync(file);
+        fs.renameSync(held, file);
+        await again.bridge.close();
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
+    });
+
+    it('an actual collection refusal logs bounded retries and preserves token/base until the retained entry is readable', async () => {
+      const t = await setup('a', { retryMs: 300, retryLimit: 2 });
+      const writer = fs.openSync(t.file, 'a');
+      let writerOpen = true;
+      let restore;
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await loseReply(t);
+        await sleep(350); // Finish the lost save's earlier flush-only retry episode before counting collection retries.
+        t.hooks.helper = { fault: 'entryHidden' };
+        await t.bridge.sync();
+        delete t.hooks.helper;
+        const key = keyOf(t.root, 'src/notes.md');
+        const tokens = tokensFor(key);
+        const [entry] = t.staged();
+        const file = path.join(t.privateDir, entry);
+        const held = `${file}.held`;
+        fs.renameSync(file, held);
+        fs.mkdirSync(file);
+        restore = () => { fs.rmdirSync(file); fs.renameSync(held, file); };
+        await expect.poll(() => logged(spy, 'smarty.coedit-collect-failed').length, { timeout: 3000 }).toBe(2);
+        await sleep(650);
+        const events = logged(spy, 'smarty.coedit-collect-failed');
+        expect(events).toHaveLength(2);
+        for (const event of events) expect(event).toMatchObject({ file: 'notes.md', error: expect.stringContaining('not a regular file') });
+        for (const token of Object.values(tokens)) expect(JSON.stringify(events)).not.toContain(token);
+        expect(JSON.stringify(tokensFor(key)) === JSON.stringify(tokens)).toBe(true);
+        expect(fs.readFileSync(held, 'utf8')).toBe('a');
+        restore();
+        restore = null;
+        fs.writeSync(writer, 'late\n');
+        fs.closeSync(writer);
+        writerOpen = false;
+        await t.bridge.sync();
+        expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(1);
+        expect(t.staged()).toEqual([]);
+        expect(tokensFor(key)).toEqual({});
+        expect(t.text.toString()).toBe('Pa');
+        expect(await t.bridge.save()).toEqual({ ok: true });
+      } finally {
+        delete t.hooks.helper;
+        restore?.();
+        if (writerOpen) fs.closeSync(writer);
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
+    });
+
+    it('an actual malformed transaction list reaches load, releases the watcher and never loads the room', async () => {
+      const t = await setup('a', { retryMs: 60_000 });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await loseReply(t);
+      const evidence = corruptRecord(t);
+      const watchers = [];
+      const again = t.open({ watch: () => {
+        const watcher = { closed: false, close() { this.closed = true; } };
+        watchers.push(watcher);
+        return watcher;
+      } });
+      try {
+        await expect(again.bridge.load()).rejects.toThrow(evidence.name);
+        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, conflict: null });
+        expect(again.text.toString()).toBe('');
+        expect(again.conflicts).toEqual([]);
+        expect(watchers).toHaveLength(1);
+        expect(watchers[0].closed).toBe(true);
+        expect(fs.readFileSync(evidence.file)).toEqual(evidence.invalid);
+      } finally {
+        evidence.restore();
+        await again.bridge.close();
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
+    });
+
+    for (const kind of ['txn', 'done']) {
+      it(`malformed ${kind} evidence holds repeated settlement, token and base; valid evidence later settles and delivers once`, async () => {
+        const t = await setup('a', { retryMs: 60_000 });
+        const writer = fs.openSync(t.file, 'a');
+        let writerOpen = true;
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        let evidence;
+        try {
+          await loseReply(t);
+          if (kind === 'txn') evidence = corruptRecord(t);
+          else {
+            const key = keyOf(t.root, 'src/notes.md');
+            const [txn] = Object.keys(tokensFor(key));
+            const name = `${key}.${txn}.${'0'.repeat(16)}.done`;
+            const file = path.join(t.privateDir, name);
+            const invalid = Buffer.from('{invalid receipt');
+            fs.writeFileSync(file, invalid);
+            evidence = { name, file, invalid, restore: () => fs.unlinkSync(file) };
+          }
+          const key = keyOf(t.root, 'src/notes.md');
+          const tokens = tokensFor(key);
+          const [entry] = t.staged();
+          const bytes = fs.readFileSync(path.join(t.privateDir, entry));
+          fs.writeFileSync(t.file, 'Pa\nagent');
+          for (let i = 0; i < 2; i += 1) {
+            await t.bridge.sync();
+            expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: 'unverified', published: 'uncertain' });
+            expect(t.bridge.state()).toMatchObject({ gone: false, loaded: true, conflict: { conflict: 'unverified' } });
+            expect(t.text.toString()).toBe('Pa');
+            expect(t.disk()).toBe('Pa\nagent');
+            expect(JSON.stringify(tokensFor(key)) === JSON.stringify(tokens)).toBe(true);
+            expect(fs.readFileSync(evidence.file)).toEqual(evidence.invalid);
+            expect(fs.readFileSync(path.join(t.privateDir, entry))).toEqual(bytes);
+          }
+          const events = logged(spy, 'smarty.coedit-settle-failed');
+          expect(events).toHaveLength(4);
+          for (const event of events) expect(event).toMatchObject({ file: 'notes.md', error: expect.stringContaining(evidence.name) });
+          for (const token of Object.values(tokens)) expect(JSON.stringify(events)).not.toContain(token);
+          expect(JSON.stringify(events)).not.toContain(evidence.invalid.toString());
+          evidence.restore();
+          evidence = null;
+          fs.writeSync(writer, 'late\n');
+          fs.closeSync(writer);
+          writerOpen = false;
+          const origins = [];
+          t.doc.on('update', (_update, origin) => origins.push(origin));
+          await t.bridge.sync();
+          expect(t.text.toString()).toBe('Pa\nagent'); // Original base follows our snapshot, not the agent revision or replayed P.
+          expect(t.disk()).toBe('Pa\nagent');
+          expect(origins).toEqual([DISK_ORIGIN]);
+          expect(t.bridge.state().conflict).toBe(null);
+          // sync collects before settlement: this call enrolls the revision; the next call disposes it.
+          expect(t.staged()).toEqual([entry]);
+          expect(fs.readFileSync(path.join(t.privateDir, entry))).toEqual(Buffer.concat([bytes, Buffer.from('late\n')]));
+          expect(JSON.stringify(tokensFor(key)) === JSON.stringify(tokens)).toBe(true);
+          expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(0);
+          await t.bridge.sync();
+          expect(t.staged()).toEqual([]);
+          expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(1);
+          expect(tokensFor(key)).toEqual({});
+          expect(t.conflicts.filter((event) => event.conflict === 'raced')).toHaveLength(1);
+          await t.bridge.sync();
+          expect(t.text.toString()).toBe('Pa\nagent');
+          expect(t.disk()).toBe('Pa\nagent');
+          expect(origins).toEqual([DISK_ORIGIN]);
+          expect(t.staged()).toEqual([]);
+          expect(tokensFor(key)).toEqual({});
+          expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(1);
+          expect(t.conflicts.filter((event) => event.conflict === 'raced')).toHaveLength(1);
+          expect(await t.bridge.save()).toEqual({ ok: true });
+        } finally {
+          evidence?.restore();
+          if (writerOpen) fs.closeSync(writer);
+          await t.bridge.sync();
+          await t.bridge.close();
+        }
+        expect(helperPids(t.root).filter(alive)).toEqual([]);
+      });
+    }
+
+    it('malformed orphan evidence reports bounded retry failures, keeps the token/base and later delivers valid bytes', async () => {
+      const t = await setup('a', { retryMs: 300, retryLimit: 2 });
+      const writer = fs.openSync(t.file, 'a');
+      let writerOpen = true;
+      let evidence;
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await loseReply(t);
+        await sleep(350); // Finish the lost save's earlier flush-only retry episode before counting collection retries.
+        t.hooks.helper = { fault: 'entryHidden' }; // Settlement misses data, but ack authoritatively says pending.
+        await t.bridge.sync();
+        delete t.hooks.helper;
+        evidence = corruptRecord(t);
+        const key = keyOf(t.root, 'src/notes.md');
+        const tokens = tokensFor(key);
+        const [entry] = t.staged();
+        const bytes = fs.readFileSync(path.join(t.privateDir, entry));
+        await expect.poll(() => logged(spy, 'smarty.coedit-collect-failed').length, { timeout: 3000 }).toBe(2);
+        await sleep(650); // Exhausted budget: no third collection or token retirement.
+        const events = logged(spy, 'smarty.coedit-collect-failed');
+        expect(events).toHaveLength(2);
+        for (const event of events) expect(event).toMatchObject({ file: 'notes.md', error: expect.stringContaining(evidence.name) });
+        for (const token of Object.values(tokens)) expect(JSON.stringify(events)).not.toContain(token);
+        expect(JSON.stringify(tokensFor(key)) === JSON.stringify(tokens)).toBe(true);
+        expect(fs.readFileSync(evidence.file)).toEqual(evidence.invalid);
+        expect(fs.readFileSync(path.join(t.privateDir, entry))).toEqual(bytes);
+        evidence.restore();
+        evidence = null;
+        fs.writeSync(writer, 'late\n');
+        fs.closeSync(writer);
+        writerOpen = false;
+        await t.bridge.sync(); // An explicit call can collect after timer exhaustion without restarting its budget.
+        expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(1);
+        expect(t.staged()).toEqual([]);
+        expect(tokensFor(key)).toEqual({});
+        expect(t.text.toString()).toBe('Pa');
+        expect(await t.bridge.save()).toEqual({ ok: true });
+      } finally {
+        delete t.hooks.helper;
+        evidence?.restore();
+        if (writerOpen) fs.closeSync(writer);
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
+    });
+
+    it('refused collection preserves a settled token and its displaced base across transport and helper failures', async () => {
+      const t = await setup('a', { retryMs: 60_000 });
+      const writer = fs.openSync(t.file, 'a');
+      let helper;
+      try {
+        t.person((x) => x.insert(0, 'P'));
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        const key = keyOf(t.root, 'src/notes.md');
+        const tokens = tokensFor(key);
+        const [entry] = t.staged();
+        const badName = `${key}.${Object.keys(tokens)[0]}.txn`;
+        const failed = { call: async () => ({ ok: false, error: `invalid metadata ${badName}` }) };
+        const lost = { call: async () => { throw new Error('coedit-fs connection lost'); } };
+        for (const connection of [failed, lost, failed]) {
+          await expect(collectRecovered(connection, key, 'src/notes.md', t.recoveryDir)).rejects.toThrow();
+          expect(JSON.stringify(tokensFor(key)) === JSON.stringify(tokens)).toBe(true);
+        }
+        killHelper(t.root);
+        await expect.poll(() => helperPids(t.root).filter(alive)).toEqual([]);
+        helper = startHelper(t.root, t.privateDir);
+        const collected = await collectRecovered(helper, key, 'src/notes.md', t.recoveryDir);
+        expect(collected.mine).toHaveLength(1);
+        expect(collected.mine[0].entry).toBe(entry);
+        expect(collected.mine[0].hash).toBe(hashBytes(Buffer.from('a')));
+        expect(collected.mine[0].token === Object.values(tokens)[0]).toBe(true);
+      } finally {
+        fs.writeSync(writer, 'late\n');
+        fs.closeSync(writer);
+        await helper?.close();
+        await t.bridge.sync();
+        await t.bridge.close();
+      }
+      expect(t.kept().filter((bytes) => bytes === 'alate\n')).toHaveLength(1);
+      expect(helperPids(t.root).filter(alive)).toEqual([]);
     });
   });
 

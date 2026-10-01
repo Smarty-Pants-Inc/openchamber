@@ -40,8 +40,9 @@ round 4); until then no conflict could be seen.
     - **Records:** before any change, each publish creates `<key>.<txn>.txn` in the private directory. It is an
       **immutable** record (the staged inode, and the hash of the originating bridge's secret token), made
       atomically: an unnamed file is written, `fsync`ed and `flock`ed, then linked, so it is never visible partial
-      or unlocked. A publish that cannot establish it changes nothing, and a txn whose record or outcome already exists
-      for the file is refused before anything is created. A cleanup removes a record only when it still holds the inode
+      or unlocked. A publish that cannot establish it changes nothing. An existing record, outcome or surviving
+      delivery marker reserves that transaction ID for the file, so a publish cannot reuse it. Persisted schemas and
+      verification rules are in [Persistence](#persistence). A cleanup removes a record only when it still holds the inode
       that same invocation linked, never another transaction's name (#412 round 6). The outcome is a separate immutable
       `<key>.<txn>.out` (`published` or `aborted`), made the same way. It is flushed again (file and directory) every
       time before anything relies on it, so an interrupted or unflushed outcome is never trusted.
@@ -54,8 +55,10 @@ round 4); until then no conflict could be seen.
       reconnects, or is reopened in the same process, reclaims its pending revision and its late bytes. No other
       process can list its bytes or dispose it, ever, without the token (until it is an **old orphan**, 7 days).
     - **A gone origin** (#428): each record keeps the pid and start time of the process that connected. Only proof
-      counts as exit: `kill(pid, 0)` returns ESRCH, or the pid is readable with another start time (reused). A hidden
-      or unreadable `/proc` (`hidepid` returns ENOENT for a live process), or EPERM, counts as alive. Once its origin is
+      counts as exit: `kill(pid, 0)` returns ESRCH, or a known positive recorded start time differs from the
+      readable current start time, proving pid reuse. A recorded `start: 0` does not prove reuse of a live pid.
+      Unknown origin `pid: 0`, hidden or unreadable `/proc` (`hidepid` returns ENOENT for a live process), and EPERM
+      alone remain unknown, treated as alive for recovery. Once its origin is
       proven gone, the **helper itself** recovers the orphan: when a lease shows no writer is left, it writes the
       final bytes into the recovery directory **its origin bound** (#428 round 2): the directory the originating
       connection named in `hello` is stored, with its device and inode, in the transaction's immutable record, and is
@@ -63,8 +66,9 @@ round 4); until then no conflict could be seen.
       destination is not recovered (the 7-day rule applies). The directory must be private: the served account owns
       it, no one else has any access (no other bits; ACL entries only for trusted accounts), and it is outside the
       project and the private directory. The helper-owned copy is private too: created with 0600, then given one ACL
-      entry letting the served account read and write it, with no access for anyone else. It is fsynced and uses the
-      bridge's recovery-name format. A durable marker records the delivery, and only then is the entry removed.
+      entry letting the served account read and write it, with no access for anyone else. The ACL mask can make
+      `stat` report 0660 without granting the owning group access. It is fsynced and uses the bridge's recovery-name
+      format. The helper verifies the durable delivery marker and actual copy before removing retained bytes.
       Callers get only metadata (the path and hash), never the bytes, and cannot dispose it. The restarted bridge
       shows each delivered copy once (`raced`). **Setup:** with the service, the recovery directory needs the same
       grant as a project root (`setfacl -m u:smarty-coedit:rwx <recovery dir>`).
@@ -86,7 +90,8 @@ round 4); until then no conflict could be seen.
     - **Acknowledgement:** a bridge that settled a lost reply `ack`s with its token. The receipt goes only when no
       data entry is left: while its data is pending, the record keeps guarding that data. The connection that
       published a transaction retires it when its own dispose succeeds (it heard the reply). A claim that disposes
-      the data leaves the outcome for the originating bridge's `ack`. Records with no data left go after 30 days.
+      the data leaves the outcome for the originating bridge's `ack`. Valid records with no data left may retire
+      after 30 days by record ctime; invalid evidence stays, as described in Persistence.
   - **Closing** says whether the helper is **quiescent** (`close()` resolves `{ quiescent }`). A spawned helper is
     killed and awaited. A service helper, which this account cannot kill, is sent `bye`: operations run one at a time,
     so its answer means none is in flight, and it then exits. Only that answer within `closeMs` gives
@@ -222,7 +227,9 @@ round 4); until then no conflict could be seen.
   `retryLimit` times (default 600) per waiting episode. Pending revisions, an unconfirmed flush or orphans keep the
   episode open; the counter resets only when none remain. Collection needs no further write while that budget lasts.
   At exhaustion, data stays private; an explicit `sync()` or `save()` can try again but does not reset the timer budget.
-  A collected late write is kept and shown as `raced`.
+  A collected late write is kept and shown as `raced`. Settlement/list and orphan-collection errors go through the
+  existing logger as `smarty.coedit-settle-failed` and `smarty.coedit-collect-failed`. This reporting does not change
+  state or retry behavior. The warning/refusal architecture in smartyfs#43 remains deferred.
 - **Watching:** `load()` starts the directory watcher before its first read; a failed load closes it, and a second
   `load()` is refused. A failed load also cancels a restart its watcher scheduled, and a new watcher always replaces
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
@@ -252,6 +259,65 @@ round 4); until then no conflict could be seen.
 - `root`, `file` and `recoveryDir` must be canonical absolute paths; `file` must be inside `root`, and `recoveryDir`
   outside it, on the same filesystem. Non-UTF-8 files are refused. `load()`, `acceptDisk()` and `save()` run one at a
   time.
+
+## Persistence
+
+The helper validates persisted evidence before granting it authority. This does not change protocol 3 or add a
+public API. The existing `.txn` format is exactly `{ino,ack,pid,start,dest}`, with every field required. Missing,
+extra or wrong-type fields fail, rather than selecting a default mode.
+
+| Field | Persisted contract |
+| --- | --- |
+| `ino` | Positive u64 staged inode. |
+| `ack` | String, explicitly empty for tokenless mode or exactly 64 lowercase hex characters for the token hash. |
+| `pid` | Integer from 0 through `i32::MAX`. Zero means unknown origin and requires `start: 0`. |
+| `start` | u64 process start time. Zero is unknown, including with a positive live pid, not proof of pid reuse. |
+| `dest` | Explicitly null for an unbound destination, or exactly `{path,dev,ino}`. `path` is canonical absolute and NUL-free, `dev` is u64, and `ino` is positive u64. |
+
+u64 ranges from 0 through `2^64 - 1`. Empty `ack`, null `dest` and unknown origin are intentional modes, never
+inferred from missing fields. A plain helper request may omit `ack`, but its writer emits an explicit empty field
+and validates the complete record before publishing. A failed `fstat` of the bound recovery directory is an error,
+not an explicit null destination.
+
+A version-1 `.done` is exactly `{version,key,txn,record,path,hash,copy:{dev,ino}}`. All fields are required,
+including the exact nested fields. `record` is a validated `.txn` snapshot with a bound destination. It must match
+an extant `.txn`, but remains self-contained after transaction retirement. `version` is integer 1, `key` is 16
+lowercase hex characters, `txn` is 1 to 32 lowercase hex characters, and `hash` is 64 lowercase hex characters.
+The filename must be `<key>.<txn>.<hash16>.done`, where `hash16` is the first 16 characters of `hash`. `path` must
+name one writer-format basename directly beneath the snapshot's `dest.path`, with the matching
+`<time>-<random8>-<key>-rec<txn><hash16>-<tail>` binding, a nonempty tail and at most 255 bytes. It cannot contain a
+second path component or NUL. `copy` records the delivered device as u64 and a positive u64 inode.
+
+Before trusting outcomes, listing or claiming data, acknowledging, disposing or aging entries, the helper
+preflights all metadata for that file key, even for the connection's own transaction. It opens metadata without
+following links and checks the actual descriptor is regular, helper-owned and private, without an access ACL.
+Transaction-bearing staged entries require a valid record, even when their identity is malformed. Invalid evidence
+fails that file's operation, is retained and reported, and never ages out. Invalid file A does not block file B.
+Metadata diagnostics name the metadata filename only, not its contents, token hash or untrusted destination path.
+Legacy path/hash-only `.done` markers are unverified evidence. They are retained and reported, never automatically
+migrated and never authority to unlink retained bytes.
+
+A receipt is not enough on its own. The helper reopens the original bound private recovery directory and checks
+its device/inode, then opens the copy beneath that descriptor without links. The actual copy must be regular,
+helper-owned and private, with the recorded device/inode. Under a read lease it verifies the full SHA-256 hash, stable
+bytes and stat observations. Any disposal or orphan recovery with prior deliveries repeats verification against
+all leased retained bytes before unlinking them. Each retry confirms record, marker, copy and directories with
+`fsync`. A verification or pre-unlink flush failure retains the bytes and reports an error, never busy or absence.
+A failed flush after unlink reports unconfirmed durability and leaves delivery evidence for retry. A read lease protects the
+opened inode, not its namespace. The accepted same-account name-substitution and directory-owner relocation
+limits below remain.
+
+A missing copy with retained data always fails. A recent missing copy with an unretired `.txn` also fails. Only
+with no retained data is a missing copy historical after transaction retirement or the marker's 7-day ctime period.
+Historical missing copies are omitted from `recovered`, not reported as fresh deliveries. A valid marker with no
+retained data may age out after that period, even if its copy still exists. No-data transaction records may retire
+after 30 days by record ctime. These are implementation contracts, not runtime proof of actual 7/30-day aging.
+
+| Helper operation | Relevant reply and failure contract |
+| --- | --- |
+| `list` | Keeps the current `entries`, `records` and `recovered` arrays. Verified current deliveries use the unchanged `{marker,path,hash}` shape. Invalid metadata fails the list before outcome or age mutations; operational outcome write/flush failure still leaves an `unknown` outcome. |
+| `dispose` | Own-connection, claimed and tokenless disposal all require valid same-file evidence. Any prior delivery must still verify before retained-byte unlink. Already-absent data is idempotent success only after preflight. |
+| `ack` | Validates same-file evidence first. Pending data returns explicit `pending: true`; successful retirement or confirmed complete absence returns explicit `pending: false`. Absence never fabricates a publication outcome. |
 
 ## Accepted limits
 - **An in-place writer of the same account** (`O_TRUNC` then write, no rename) can change the file at any moment.

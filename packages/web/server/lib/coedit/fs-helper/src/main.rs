@@ -224,23 +224,103 @@ fn unlink_if_ours(priv_fd: RawFd, name: &str, fd: &OwnedFd) {
     }
 }
 
-/// A private file's bytes: None only on ENOENT; any other failure is an error.
+/// Persisted evidence is untrusted until its entire schema has been checked. No missing field selects a mode.
+#[derive(Clone, PartialEq, Eq)]
+struct RecoveryDir {
+    path: String,
+    dev: u64,
+    ino: u64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct TxnRecord {
+    ino: u64,
+    ack: String,
+    pid: i32,
+    start: u64,
+    dest: Option<RecoveryDir>,
+}
+
+fn exact_fields(value: &Value, fields: &[&str]) -> bool {
+    value.as_object().is_some_and(|o| o.len() == fields.len() && fields.iter().all(|f| o.contains_key(*f)))
+}
+
+fn lower_hex(s: &str, min: usize, max: usize) -> bool {
+    (min..=max).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn absolute_path(path: &str) -> bool {
+    path.starts_with('/') && !path.contains('\0')
+        && (path == "/" || path[1..].split('/').all(|p| !p.is_empty() && p != "." && p != ".."))
+}
+
+impl TxnRecord {
+    fn parse(v: &Value) -> Option<Self> {
+        if !exact_fields(v, &["ino", "ack", "pid", "start", "dest"]) { return None; }
+        let ino = v["ino"].as_u64().filter(|i| *i > 0)?;
+        let ack = v["ack"].as_str()?;
+        if !ack.is_empty() && !lower_hex(ack, 64, 64) { return None; }
+        let pid = i32::try_from(v["pid"].as_u64()?).ok()?;
+        let start = v["start"].as_u64()?;
+        if pid == 0 && start != 0 { return None; }
+        let dest = if v["dest"].is_null() {
+            None
+        } else {
+            let d = &v["dest"];
+            if !exact_fields(d, &["path", "dev", "ino"]) { return None; }
+            let path = d["path"].as_str()?;
+            if !absolute_path(path) { return None; }
+            Some(RecoveryDir { path: path.to_string(), dev: d["dev"].as_u64()?, ino: d["ino"].as_u64().filter(|i| *i > 0)? })
+        };
+        Some(Self { ino, ack: ack.to_string(), pid, start, dest })
+    }
+
+    fn value(&self) -> Value {
+        let dest = self.dest.as_ref().map(|d| json!({"path": d.path, "dev": d.dev, "ino": d.ino}));
+        json!({"ino": self.ino, "ack": self.ack, "pid": self.pid, "start": self.start, "dest": dest})
+    }
+}
+
+/// Diagnostics name evidence, never its contents, token hash, or untrusted path.
+fn metadata_error(name: &str, reason: &str) -> String {
+    format!("invalid metadata {name}: {reason}")
+}
+
+fn check_metadata(fd: RawFd, name: &str) -> Result<(), String> {
+    let st = fstat(fd).map_err(|_| metadata_error(name, "cannot inspect"))?;
+    // SAFETY: geteuid cannot fail.
+    if !is_reg(&st) || st.st_uid != unsafe { libc::geteuid() } || st.st_mode & 0o7077 != 0
+        || xattr(fd, ACCESS_ACL).map_err(|_| metadata_error(name, "cannot inspect ACL"))?.is_some() {
+        return Err(metadata_error(name, "must be a regular helper-owned private file"));
+    }
+    Ok(())
+}
+
+/// A metadata file's bytes: None only on ENOENT; never follows a link or reads a special/foreign file.
 fn read_private(priv_fd: RawFd, name: &str) -> Result<Option<(OwnedFd, Vec<u8>)>, String> {
     let fd = match open_private(priv_fd, name) {
         Ok(fd) => fd,
         Err(libc::ENOENT) => return Ok(None),
-        Err(e) => return Err(os_err("open", e)),
+        Err(_) => return Err(metadata_error(name, "cannot open without following links")),
     };
-    let bytes = read_all(&fd)?;
+    check_metadata(fd.as_raw_fd(), name)?;
+    let bytes = read_all(&fd).map_err(|_| metadata_error(name, "cannot read"))?;
     Ok(Some((fd, bytes)))
 }
 
-/// A transaction's immutable record ({ino, ack}): None only when there is none.
-fn record_info(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<Value>, String> {
-    match read_private(priv_fd, &format!("{key}.{txn}.txn"))? {
-        None => Ok(None),
-        Some((_, bytes)) => serde_json::from_slice(&bytes).map(Some).map_err(|_| "the transaction record cannot be read".to_string()),
-    }
+/// An exact, trusted transaction snapshot. Missing and invalid records are different from explicit tokenless mode.
+fn record_info(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<TxnRecord>, String> {
+    let name = format!("{key}.{txn}.txn");
+    if !lower_hex(key, 16, 16) || !lower_hex(txn, 1, 32) { return Err(metadata_error(&name, "invalid filename")); }
+    let Some((fd, bytes)) = read_private(priv_fd, &name)? else { return Ok(None) };
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| metadata_error(&name, "invalid JSON"))?;
+    let record = TxnRecord::parse(&value).ok_or_else(|| metadata_error(&name, "invalid transaction schema"))?;
+    if !fsync(fd.as_raw_fd()) || !fsync(priv_fd) { return Err(metadata_error(&name, "cannot confirm durability")); }
+    Ok(Some(record))
+}
+
+fn required_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<TxnRecord, String> {
+    record_info(priv_fd, key, txn)?.ok_or_else(|| metadata_error(&format!("{key}.{txn}.txn"), "missing transaction record"))
 }
 
 /// A transaction's durable outcome, flushed again before it is trusted: None when no outcome exists yet.
@@ -259,14 +339,14 @@ fn outcome(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<Option<S
 /// it is decided from the staged name (our inode: aborted; another inode: published; a complete scan that finds none:
 /// aborted) and created immutably. Any failed observation or write is an error: the outcome stays unknown.
 fn resolve(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<String, String> {
+    let record = required_record(priv_fd, key, txn)?;
     if let Some(state) = outcome(priv_fd, key, txn, req)? {
         return Ok(state);
     }
-    let record = record_info(priv_fd, key, txn)?.ok_or("the transaction record is gone")?;
     let state = match staged_name(priv_fd, key, txn, req)? {
         None => "aborted",
         Some(name) => match stat_entry(priv_fd, &name)? {
-            Some(st) if Some(st.st_ino as u64) != record["ino"].as_u64() => "published",
+            Some(st) if st.st_ino as u64 != record.ino => "published",
             Some(_) => "aborted",
             None => return Err("the staged entry changed during recovery".into()),
         },
@@ -282,14 +362,20 @@ fn resolve(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<String, 
 }
 
 /// Removes a transaction's record and outcome (its data entry is gone and its bridge has settled or heard it).
-fn retire(priv_fd: RawFd, key: &str, txn: &str) {
+fn retire(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<(), String> {
+    required_record(priv_fd, key, txn)?;
+    if staged_name(priv_fd, key, txn, req)?.is_some() { return Err("the transaction still has retained data".into()); }
+    validate_evidence(priv_fd, key, req)?;
     for suffix in ["out", "txn"] {
-        if let Ok(c) = cstr(&format!("{key}.{txn}.{suffix}")) {
-            // SAFETY: unlinks one private file.
-            unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
+        let name = format!("{key}.{txn}.{suffix}");
+        let c = cstr(&name)?;
+        // SAFETY: unlinks validated evidence only after the transaction has no retained data.
+        if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 && errno() != libc::ENOENT {
+            return Err(metadata_error(&name, "cannot retire"));
         }
     }
-    fsync(priv_fd);
+    if !fsync(priv_fd) { return Err("the retired transaction cannot be confirmed durable".into()); }
+    Ok(())
 }
 
 /// The staged entry of a transaction, `<key>.<txn>-<unique>.staged`: None only when a complete scan finds none.
@@ -298,8 +384,7 @@ fn staged_name(priv_fd: RawFd, key: &str, txn: &str, req: &Value) -> Result<Opti
         return Err("the private dir cannot be scanned".into());
     }
     let prefix = format!("{key}.{txn}-");
-    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
-        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+    for n in key_names(priv_fd, key)? {
         if n.starts_with(&prefix) && n.ends_with(".staged") {
             return Ok(Some(n));
         }
@@ -325,12 +410,16 @@ fn stat_entry(priv_fd: RawFd, name: &str) -> Result<Option<libc::stat>, String> 
 fn txn_of(entry: &str, key: &str) -> Option<String> {
     let rest = entry.strip_prefix(key)?.strip_prefix('.')?;
     let (txn, _) = rest.split_once('-')?;
-    txn.bytes().all(|b| b.is_ascii_hexdigit()).then(|| txn.to_string())
+    // A hyphenated staged identity is transaction-bearing even when its txn is malformed. Never reclassify it
+    // as a legacy unowned entry; required_record will reject its filename or missing evidence.
+    Some(txn.to_string())
 }
 
 /// Takes a transaction's record lock: Some(fd), None while another live connection owns it, or Err (no record: ENOENT).
 fn lock_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<OwnedFd>, i32> {
-    let fd = open_private(priv_fd, &format!("{key}.{txn}.txn"))?;
+    let name = format!("{key}.{txn}.txn");
+    let fd = open_private(priv_fd, &name)?;
+    check_metadata(fd.as_raw_fd(), &name).map_err(|_| libc::EINVAL)?;
     // SAFETY: flock on our own fd.
     if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
         return Ok(Some(fd));
@@ -345,23 +434,26 @@ fn lock_record(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<OwnedFd>, 
 /// matches the record's hash), anyone once it is an old orphan (ORPHAN_SECS), or anyone for a record with no token
 /// (tests, and none written by the bridge).
 fn may_recover(priv_fd: RawFd, key: &str, txn: &str, token: Option<&str>, _req: &Value) -> Result<bool, String> {
-    let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(true) };
-    let want = record["ack"].as_str().unwrap_or("");
-    if want.is_empty() || token.is_some_and(|t| !t.is_empty() && hex(t.as_bytes()) == want) {
+    let record = required_record(priv_fd, key, txn)?;
+    let want = &record.ack;
+    if want.is_empty() || token.is_some_and(|t| !t.is_empty() && hex(t.as_bytes()) == *want) {
         return Ok(true);
     }
     // A caller never gains authority from its origin's exit (#428 round 1): that only lets the HELPER recover the
     // bytes itself (recover_orphan). Without the token, a caller may act only on an old orphan (7 days).
-    let st = stat_entry(priv_fd, &format!("{key}.{txn}.txn"))?.ok_or("the transaction record is gone")?;
+    let name = format!("{key}.{txn}.txn");
+    let (fd, _) = read_private(priv_fd, &name)?.ok_or_else(|| metadata_error(&name, "missing transaction record"))?;
+    let st = fstat(fd.as_raw_fd()).map_err(|_| metadata_error(&name, "cannot inspect retention age"))?;
     Ok(now_secs() - st.st_ctime as i64 > ORPHAN_SECS)
 }
 
 /// Whether a transaction's originating process is PROVEN gone (#428 round 1, finding 2): `kill(pid, 0)` says ESRCH (in
-/// this helper's PID namespace), or the pid is readable with another start time (reused). Anything else, including a
-/// hidden or unreadable /proc (hidepid returns ENOENT for a live process) and EPERM, counts as alive.
-fn origin_gone(record: &Value, req: &Value) -> bool {
-    let (Some(pid), Some(start)) = (record["pid"].as_i64(), record["start"].as_u64()) else { return false };
-    if pid <= 0 {
+/// this helper's PID namespace), or a known nonzero recorded start differs from a readable start (reused). An unknown
+/// recorded start (0), hidden or unreadable /proc (hidepid returns ENOENT for a live process), and EPERM without
+/// readable reuse proof count as alive.
+fn origin_gone(record: &TxnRecord, req: &Value) -> bool {
+    let (pid, start) = (record.pid, record.start);
+    if pid == 0 {
         return false;
     }
     // SAFETY: signal 0 only checks existence and permission; no signal is sent.
@@ -371,62 +463,240 @@ fn origin_gone(record: &Value, req: &Value) -> bool {
     }
     // Tests only: procfs hides the process (as hidepid does): ENOENT at the read, for a live process.
     let looked = if test_fault(req, "procHidden") { Ok(None) } else { process_start(pid as i32) };
-    matches!(looked, Ok(Some(now)) if now != start)
+    matches!(looked, Ok(Some(now)) if start != 0 && now != start)
 }
 
-/// The helper's own recovery of an orphan whose originating process is proven gone (#428 round 1, finding 1). Under
-/// the record's lock, once a lease shows no writer is left, the displaced entry's final bytes are delivered by the
-/// helper itself into the bridge's recovery directory (named in hello): a new file (O_TMPFILE, 0644 inside that 0700
-/// directory, fsynced), linked under the bridge's recovery-name format with the file's key, and the directory
-/// fsynced. A durable marker `<key>.<txn>.<hash16>.done` (immutable, holding that name) records the delivery. Only then
-/// is the entry removed. No caller ever receives the bytes. Without an admitted recovery directory nothing is
-/// recovered (the 7-day rule applies). Returns whether the entry is now recovered (false while a writer holds it).
-fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value) -> Result<bool, String> {
-    // The destination its ORIGIN bound into the record, reopened and verified to be that same directory, still
-    // private; never the requesting connection's. None, or any mismatch: nothing is recovered (the 7-day rule).
-    let Some(record) = record_info(priv_fd, key, txn)? else { return Ok(false) };
-    let (Some(recovery_path), Some(dev), Some(ino)) = (record["dest"]["path"].as_str(), record["dest"]["dev"].as_u64(), record["dest"]["ino"].as_u64()) else {
-        return Ok(false);
-    };
-    let Ok(dest) = open_recovery(recovery_path, priv_fd, None) else { return Ok(false) };
-    if !fstat(dest.as_raw_fd()).is_ok_and(|st| same(&st, ino, dev)) {
-        return Ok(false);
+/// Version 1 receipts are self-contained after txn retirement. Old path/hash-only receipts are unverified and
+/// retained as errors, never migrated or used for cleanup.
+struct DoneRecord {
+    key: String,
+    txn: String,
+    record: TxnRecord,
+    path: String,
+    hash: String,
+    dev: u64,
+    ino: u64,
+}
+
+impl DoneRecord {
+    fn parse(v: &Value, name: &str, key: &str) -> Option<Self> {
+        if !exact_fields(v, &["version", "key", "txn", "record", "path", "hash", "copy"]) || v["version"].as_u64()? != 1 { return None; }
+        let k = v["key"].as_str()?;
+        let txn = v["txn"].as_str()?;
+        let hash = v["hash"].as_str()?;
+        if k != key || !lower_hex(k, 16, 16) || !lower_hex(txn, 1, 32) || !lower_hex(hash, 64, 64)
+            || name != format!("{k}.{txn}.{}.done", &hash[..16]) { return None; }
+        let record = TxnRecord::parse(&v["record"])?;
+        let dest = record.dest.as_ref()?;
+        let path = v["path"].as_str()?;
+        let prefix = format!("{}/", dest.path.trim_end_matches('/'));
+        let base = path.strip_prefix(&prefix)?;
+        // The writer's one recovery-format basename, with no second component or alternate transaction.
+        let stamp = base.get(..24)?;
+        if !stamp.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 | 13 | 16 | 19 => b == b'-', 10 => b == b'T', 23 => b == b'Z', _ => b.is_ascii_digit(),
+        }) { return None; }
+        let rest = base.get(24..)?.strip_prefix('-')?;
+        let random = rest.get(..8)?;
+        if !lower_hex(random, 8, 8) { return None; }
+        let binding = format!("-{k}-rec{txn}{}-", &hash[..16]);
+        let tail = rest.get(8..)?.strip_prefix(&binding)?;
+        if tail.is_empty() || base.len() > 255 || base.contains('/') || base.contains('\0') { return None; }
+        let copy = &v["copy"];
+        if !exact_fields(copy, &["dev", "ino"]) { return None; }
+        Some(Self { key: k.to_string(), txn: txn.to_string(), record, path: path.to_string(), hash: hash.to_string(),
+            dev: copy["dev"].as_u64()?, ino: copy["ino"].as_u64().filter(|i| *i > 0)? })
     }
-    let recovery = dest.as_raw_fd();
-    let Some(staged) = staged_name(priv_fd, key, txn, req)? else { return Ok(true) };
-    let fd = match open_private(priv_fd, &staged) {
+
+    fn value(&self) -> Value {
+        json!({"version": 1, "key": self.key, "txn": self.txn, "record": self.record.value(), "path": self.path,
+            "hash": self.hash, "copy": {"dev": self.dev, "ino": self.ino}})
+    }
+}
+
+fn done_info(priv_fd: RawFd, name: &str, key: &str) -> Result<(OwnedFd, DoneRecord), String> {
+    let (fd, bytes) = read_private(priv_fd, name)?.ok_or_else(|| metadata_error(name, "missing delivery receipt"))?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| metadata_error(name, "invalid JSON"))?;
+    let done = DoneRecord::parse(&value, name, key).ok_or_else(|| metadata_error(name, "unverified delivery schema or binding"))?;
+    if record_info(priv_fd, key, &done.txn)?.is_some_and(|r| r != done.record) {
+        return Err(metadata_error(name, "transaction snapshot differs"));
+    }
+    Ok((fd, done))
+}
+
+/// Keeps the verified copy leased until the caller finishes its unlink. This protects the opened inode, not names:
+/// the directory owner can still rename/unlink it, and same-account private-name substitution remains a limit.
+struct ReadLease(OwnedFd);
+
+impl Drop for ReadLease {
+    fn drop(&mut self) {
+        // SAFETY: releases the lease on the descriptor this object owns, before its close.
+        unsafe { libc::fcntl(self.0.as_raw_fd(), libc::F_SETLEASE, libc::F_UNLCK) };
+    }
+}
+
+struct VerifiedDelivery {
+    _dest: OwnedFd,
+    _copy: ReadLease,
+}
+
+fn copy_private(fd: RawFd, st: &libc::stat) -> Result<bool, String> {
+    // SAFETY: geteuid cannot fail. The ACL mask may make the mode 0660 for a 0600 + peer-ACL delivery.
+    if !is_reg(st) || st.st_uid != unsafe { libc::geteuid() } || st.st_mode & 0o7007 != 0 { return Ok(false); }
+    match xattr(fd, ACCESS_ACL)? {
+        None => Ok(st.st_mode & 0o070 == 0),
+        Some(acl) => Ok(acl_entries(&acl).is_some_and(|entries| entries.iter().all(|&(tag, perm, id)| match tag {
+            ACL_USER => perm == 0 || trusted(id),
+            ACL_GROUP_OBJ | ACL_GROUP | ACL_OTHER => perm == 0,
+            ACL_USER_OBJ | ACL_MASK => true,
+            _ => false,
+        }))),
+    }
+}
+
+/// Reopen the original bound directory and verify the actual delivered inode/bytes, including on every retry.
+/// A missing copy is historical only after txn retirement or the 7-day receipt period AND with no retained data.
+/// Historical receipts are omitted from fresh deliveries and may age out. A recent unresolved missing copy fails.
+fn verify_delivery(priv_fd: RawFd, name: &str, marker: &OwnedFd, done: &DoneRecord, retained: bool,
+    bytes: Option<&[u8]>, req: &Value) -> Result<Option<VerifiedDelivery>, String> {
+    let err = |reason| metadata_error(name, reason);
+    let bound = done.record.dest.as_ref().ok_or_else(|| err("missing destination snapshot"))?;
+    let dest = open_recovery(&bound.path, priv_fd, None).map_err(|_| err("bound recovery directory cannot be reopened privately"))?;
+    if !same(&fstat(dest.as_raw_fd()).map_err(|_| err("cannot inspect destination"))?, bound.ino, bound.dev) {
+        return Err(err("bound recovery directory changed"));
+    }
+    let base = done.path.rsplit('/').next().ok_or_else(|| err("invalid recovery basename"))?;
+    let copy = match open_beneath(dest.as_raw_fd(), base, RDONLY) {
         Ok(fd) => fd,
-        Err(libc::ENOENT) => return Ok(true),
-        Err(e) => return Err(os_err("open", e)),
+        Err(libc::ENOENT) if !retained && (now_secs() - fstat(marker.as_raw_fd())?.st_ctime as i64 > ORPHAN_SECS
+            || record_info(priv_fd, &done.key, &done.txn)?.is_none()) => {
+            if test_fault(req, "recordSync") || !fsync(marker.as_raw_fd()) || !fsync(dest.as_raw_fd()) || !fsync(priv_fd) {
+                return Err(err("historical receipt cannot be confirmed durable"));
+            }
+            return Ok(None);
+        }
+        Err(_) => return Err(err("delivered copy is missing or cannot be opened safely")),
     };
-    if !is_reg(&fstat(fd.as_raw_fd())?) {
-        return Err("not a regular file".into());
+    let before = fstat(copy.as_raw_fd()).map_err(|_| err("cannot inspect delivered copy"))?;
+    if !same(&before, done.ino, done.dev) || !copy_private(copy.as_raw_fd(), &before).map_err(|_| err("cannot inspect copy privacy"))? {
+        return Err(err("delivered copy identity or privacy differs"));
     }
-    // SAFETY: fcntl lease calls on our own fd.
+    // SAFETY: lease on our opened copy. A writer-held copy is not proof of stable delivered bytes, not success/busy.
+    if unsafe { libc::fcntl(copy.as_raw_fd(), libc::F_SETLEASE, libc::F_RDLCK) } != 0 {
+        return Err(err("delivered copy cannot be leased for verification"));
+    }
+    let copy = ReadLease(copy);
+    let actual = read_all(&copy.0).map_err(|_| err("cannot read delivered copy"))?;
+    let after = fstat(copy.0.as_raw_fd()).map_err(|_| err("cannot reinspect delivered copy"))?;
+    if hex(&actual) != done.hash || bytes.is_some_and(|b| b != actual)
+        || before.st_size != after.st_size || before.st_mtime != after.st_mtime || before.st_mtime_nsec != after.st_mtime_nsec
+        || before.st_ctime != after.st_ctime || before.st_ctime_nsec != after.st_ctime_nsec {
+        return Err(err("delivered bytes differ or changed during verification"));
+    }
+    if test_fault(req, "recordSync") || test_fault(req, "deliverSync") || !fsync(copy.0.as_raw_fd()) || !fsync(marker.as_raw_fd())
+        || test_fault(req, "dirSync") || !fsync(dest.as_raw_fd()) || test_fault(req, "privSync") || !fsync(priv_fd) {
+        return Err(err("delivery cannot be confirmed durable"));
+    }
+    Ok(Some(VerifiedDelivery { _dest: dest, _copy: copy }))
+}
+
+fn key_names(priv_fd: RawFd, key: &str) -> Result<Vec<String>, String> {
+    let prefix = format!("{key}.");
+    let mut names = Vec::new();
+    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|_| "the private dir cannot be scanned")? {
+        let n = e.map_err(|_| "the private dir cannot be scanned")?.file_name();
+        if n.as_encoded_bytes().starts_with(prefix.as_bytes()) {
+            let text = n.to_str().ok_or_else(|| metadata_error(&n.to_string_lossy(), "invalid filename encoding"))?;
+            names.push(text.to_string());
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// Preflight the entire file key before outcomes, authority, cleanup or list mutations. Invalid evidence cannot
+/// produce successful partial absence; another key is independent. Transaction-bearing entries require records.
+fn validate_evidence(priv_fd: RawFd, key: &str, req: &Value) -> Result<Vec<String>, String> {
+    let names = key_names(priv_fd, key)?;
+    for name in &names {
+        if let Some(txn) = name.strip_suffix(".txn").and_then(|n| n.strip_prefix(&format!("{key}."))) {
+            required_record(priv_fd, key, txn)?;
+        }
+    }
+    for name in &names {
+        if name.ends_with(".staged") {
+            if let Some(txn) = txn_of(name, key) { required_record(priv_fd, key, &txn)?; }
+        } else if let Some(txn) = name.strip_suffix(".out").and_then(|n| n.strip_prefix(&format!("{key}."))) {
+            required_record(priv_fd, key, txn)?;
+            let (_, bytes) = read_private(priv_fd, name)?.ok_or_else(|| metadata_error(name, "missing outcome"))?;
+            if bytes != b"published" && bytes != b"aborted" { return Err(metadata_error(name, "invalid outcome")); }
+        } else if name.ends_with(".done") {
+            let (fd, done) = done_info(priv_fd, name, key)?;
+            let prefix = format!("{key}.{}-", done.txn);
+            let retained = names.iter().any(|n| n.starts_with(&prefix) && n.ends_with(".staged"));
+            verify_delivery(priv_fd, name, &fd, &done, retained, None, req)?;
+        }
+    }
+    Ok(names)
+}
+
+/// Verify any prior delivery against these leased retained bytes before any path can unlink them.
+fn verify_txn_deliveries(priv_fd: RawFd, key: &str, txn: &str, bytes: &[u8], req: &Value) -> Result<Vec<VerifiedDelivery>, String> {
+    let prefix = format!("{key}.{txn}.");
+    let mut verified = Vec::new();
+    for name in key_names(priv_fd, key)?.iter().filter(|n| n.starts_with(&prefix) && n.ends_with(".done")) {
+        let (fd, done) = done_info(priv_fd, name, key)?;
+        verified.push(verify_delivery(priv_fd, name, &fd, &done, true, Some(bytes), req)?
+            .ok_or_else(|| metadata_error(name, "missing retained-byte delivery"))?);
+    }
+    Ok(verified)
+}
+
+/// Under the record lock and a retained-inode read lease, deliver into the origin's bound directory, never the
+/// requesting connection's. The copy is helper-owned, 0600 plus peer read/write ACL. A version-1 receipt binds the
+/// transaction snapshot and actual delivered inode/hash. Verify and fsync all evidence on EVERY retry before
+/// unlink. A lease protects an inode, not the owner's directory names; accepted rename/substitution limits remain.
+fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value) -> Result<bool, String> {
+    let record = required_record(priv_fd, key, txn)?;
+    let Some(bound) = &record.dest else { return Ok(false) };
+    let record_name = format!("{key}.{txn}.txn");
+    let dest = open_recovery(&bound.path, priv_fd, None).map_err(|_| metadata_error(&record_name, "bound recovery directory cannot be reopened privately"))?;
+    if !same(&fstat(dest.as_raw_fd())?, bound.ino, bound.dev) {
+        return Err(metadata_error(&record_name, "bound recovery directory changed"));
+    }
+    let Some(staged) = staged_name(priv_fd, key, txn, req)? else { return Ok(false) };
+    let fd = open_private(priv_fd, &staged).map_err(|e| os_err("open retained data", e))?;
+    if !is_reg(&fstat(fd.as_raw_fd())?) { return Err("not a regular file".into()); }
+    // SAFETY: a lease on our retained descriptor; EAGAIN alone means a writer is still open.
     if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_RDLCK) } != 0 {
         return if errno() == libc::EAGAIN { Ok(false) } else { Err(fail("lease")) };
     }
-    let unlock = || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETLEASE, libc::F_UNLCK) };
-    let result = (|| {
-        let bytes = read_all(&fd)?;
-        let h16 = hex(&bytes)[..16].to_string();
-        let marker = format!("{key}.{txn}.{h16}.done");
-        if stat_entry(priv_fd, &marker)?.is_none() {
-            let delivered = deliver(recovery, key, &format!("rec{txn}{h16}"), name, &bytes, req)?;
-            // Where: always the origin's own destination.
-            let meta = json!({"path": format!("{}/{delivered}", recovery_path.trim_end_matches('/')), "hash": hex(&bytes)}).to_string();
-            create_immutable(priv_fd, &marker, meta.as_bytes(), false, req).map_err(|e| e.message().to_string())?;
-        }
-        let c = cstr(&staged)?;
-        // SAFETY: unlinks the displaced entry, whose bytes are now durably delivered.
-        if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 {
-            return Err(fail("unlinkat"));
-        }
-        fsync(priv_fd);
-        Ok(true)
-    })();
-    unlock();
-    result
+    let fd = ReadLease(fd);
+    let bytes = read_all(&fd.0)?;
+    let hash = hex(&bytes);
+    let h16 = &hash[..16];
+    let marker = format!("{key}.{txn}.{h16}.done");
+    let prior = verify_txn_deliveries(priv_fd, key, txn, &bytes, req)?;
+    let _verified = if prior.is_empty() {
+        let delivered = deliver(dest.as_raw_fd(), key, &format!("rec{txn}{h16}"), name, &bytes, req)?;
+        let copy = open_beneath(dest.as_raw_fd(), &delivered, RDONLY).map_err(|_| metadata_error(&marker, "cannot inspect new delivery"))?;
+        let st = fstat(copy.as_raw_fd())?;
+        let path = format!("{}/{delivered}", bound.path.trim_end_matches('/'));
+        let done = DoneRecord { key: key.to_string(), txn: txn.to_string(), record,
+            path, hash, dev: st.st_dev as u64, ino: st.st_ino as u64 };
+        // Validate our own writer before publishing even a receipt.
+        let value = done.value();
+        if DoneRecord::parse(&value, &marker, key).is_none() { return Err(metadata_error(&marker, "writer produced an invalid receipt")); }
+        create_immutable(priv_fd, &marker, value.to_string().as_bytes(), false, req).map_err(|e| metadata_error(&marker, e.message()))?;
+        verify_txn_deliveries(priv_fd, key, txn, &bytes, req)?
+    } else { prior };
+    if _verified.is_empty() { return Err(metadata_error(&marker, "missing delivery receipt before unlink")); }
+    required_record(priv_fd, key, txn)?; // Retry durability includes the immutable transaction snapshot.
+    let c = cstr(&staged)?;
+    // SAFETY: the opened retained inode's bytes match the durably verified delivered copy; names are not leased.
+    if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 { return Err(fail("unlinkat")); }
+    if !fsync(priv_fd) { return Err("the recovered entry unlink cannot be confirmed durable".into()); }
+    Ok(true)
 }
 
 /// Writes `bytes` as a new file in the recovery directory, named as the bridge names its copies
@@ -1064,30 +1334,41 @@ fn publish_op(root: RawFd, priv_fd: RawFd, req: &Value, unsynced: &mut Unsynced,
     if txn.len() > 32 || !txn.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
         return Err("invalid txn".into());
     }
-    // A txn already in use on this file (its record or outcome exists) is refused before anything is created: a
-    // publish never touches another transaction's names (#412 round 6).
-    for suffix in ["txn", "out"] {
-        if stat_entry(priv_fd, &format!("{key}.{txn}.{suffix}"))?.is_some() {
-            return Err("this transaction id is already in use: nothing published".into());
-        }
+    // Surviving delivery receipts also reserve this full identity after transaction retirement.
+    let prefix = format!("{key}.{txn}.");
+    if key_names(priv_fd, &key)?.iter().any(|n| n.starts_with(&prefix) && (n.ends_with(".txn") || n.ends_with(".out") || n.ends_with(".done"))) {
+        return Err("this transaction id is already in use: nothing published".into());
     }
-    // Only the originating bridge knows the token behind this hash: acknowledgement needs it (#412 round 4, finding 1).
-    let ack_hash = req["ack"].as_str().unwrap_or("").to_string();
-    if ack_hash.len() > 64 || !ack_hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
-        return Err("invalid ack".into());
-    }
+    // Plain helper callers may intentionally omit ack. The persisted writer always emits an explicit valid field.
+    let ack_hash = match req.get("ack") {
+        None => String::new(),
+        Some(Value::String(s)) if s.is_empty() || lower_hex(s, 64, 64) => s.clone(),
+        _ => return Err("invalid ack".into()),
+    };
     // The transaction record, before any change (#412 round 3): created exclusively, locked by this connection, and
     // durable with our staged inode, so the outcome can always be decided from it. Without it, nothing is published.
     let record_name = format!("{key}.{txn}.txn");
     let (origin_pid, origin_start) = match (testing(), req["testOrigin"].as_array()) {
         // Tests only: a chosen origin (a pid reused by another process, or one that cannot be looked up).
-        (true, Some(o)) => (o[0].as_i64().unwrap_or(0) as i32, o[1].as_u64().unwrap_or(0)),
+        (true, Some(o)) if o.len() == 2 => (
+            i32::try_from(o[0].as_u64().ok_or("invalid test origin pid")?).map_err(|_| "invalid test origin pid")?,
+            o[1].as_u64().ok_or("invalid test origin start")?,
+        ),
+        (true, Some(_)) => return Err("invalid test origin".into()),
         _ => ORIGIN.get().copied().unwrap_or((0, 0)),
     };
     // The recovery destination is bound to this transaction here, as its origin admitted it (#428 round 2): a later
     // connection's hello never retargets it.
-    let dest = RECOVERY.get().and_then(|(fd, path)| fstat(*fd).ok().map(|st| json!({"path": path, "dev": st.st_dev as u64, "ino": st.st_ino as u64})));
-    let record_bytes = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start, "dest": dest}).to_string();
+    let dest = match RECOVERY.get() {
+        Some((fd, path)) => {
+            let st = fstat(*fd)?;
+            Some(json!({"path": path, "dev": st.st_dev as u64, "ino": st.st_ino as u64}))
+        }
+        None => None, // Intentionally unbound, never a failed destination observation.
+    };
+    let value = json!({"ino": ours.st_ino as u64, "ack": ack_hash, "pid": origin_pid, "start": origin_start, "dest": dest});
+    let trusted = TxnRecord::parse(&value).ok_or("the writer cannot establish a valid transaction record: nothing published")?;
+    let record_bytes = trusted.value().to_string();
     let record = match create_immutable(priv_fd, &record_name, record_bytes.as_bytes(), true, req) {
         Ok(fd) => fd,
         // Linked by us but not flushed: ours, proven by its inode, so it goes. Before our link: never ours to touch.
@@ -1227,6 +1508,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
     let key = key(req)?;
     let _lock = lock_key(priv_fd, &key)?;
     let hash = req["hash"].as_str().ok_or("hash")?;
+    validate_evidence(priv_fd, &key, req)?;
     // An entry from before transaction records (no txn in its name) has no owner to ask: an orphan.
     let Some(txn) = txn_of(&entry, &key) else {
         return dispose_named(priv_fd, req, &entry, hash);
@@ -1240,13 +1522,15 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
         let lock = match lock_record(priv_fd, &key, &txn) {
             Ok(Some(fd)) => Some(fd),
             Ok(None) => return Ok(json!({"ok": false, "owned": true})),
-            Err(libc::ENOENT) => None, // No record: an entry from before records, or one aged out.
-            Err(e) => return Err(os_err("the transaction record", e)),
+            Err(libc::ENOENT) if stat_entry(priv_fd, &entry)?.is_none() => None, // Idempotent disposal of absent data only.
+            Err(libc::ENOENT) => return Err(metadata_error(&format!("{key}.{txn}.txn"), "missing transaction record")),
+            Err(_) => return Err(metadata_error(&format!("{key}.{txn}.txn"), "transaction record cannot be locked")),
         };
         if let Some(fd) = lock {
             if !may_recover(priv_fd, &key, &txn, token, req)? {
                 // Never this caller's; if its origin is proven gone, the helper recovers the bytes itself.
-                if record_info(priv_fd, &key, &txn)?.is_some_and(|r| origin_gone(&r, req)) && resolve(priv_fd, &key, &txn, req).is_ok() {
+                if origin_gone(&required_record(priv_fd, &key, &txn)?, req) {
+                    resolve(priv_fd, &key, &txn, req)?;
                     let (_, file_name) = split(req["path"].as_str().ok_or("path")?)?;
                     let recovered = recover_orphan(priv_fd, &key, &txn, &file_name, req)?;
                     return Ok(json!({"ok": false, "owned": true, "recovered": recovered}));
@@ -1261,6 +1545,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
             return dispose_named(priv_fd, req, &entry, hash);
         }
     }
+    resolve(priv_fd, &key, &txn, req)?; // Own-connection authority also requires valid durable evidence.
     let mine = owned.remove(&id).ok_or("lost ownership")?;
     // The owner acts only on exactly the entry its transaction produced, still holding that displaced inode.
     let genuine = entry == mine.entry && matches!(stat_entry(priv_fd, &entry), Ok(Some(st)) if st.st_ino as u64 == mine.ino);
@@ -1273,7 +1558,7 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
         // Its data is gone. Retired only by the connection that published it (its bridge heard the reply); after a
         // claim, the outcome stays for the originating bridge until it acks (#412 round 5).
         if mine.heard {
-            retire(priv_fd, &key, &txn);
+            retire(priv_fd, &key, &txn, req)?;
         }
     } else {
         owned.insert(id, mine); // Still pending (busy, late bytes, an error): this connection keeps owning it.
@@ -1300,24 +1585,27 @@ fn ack_op(priv_fd: RawFd, req: &Value) -> Result<Value, String> {
     }
     let token = req["token"].as_str().unwrap_or("");
     let _lock = lock_key(priv_fd, &key)?;
+    validate_evidence(priv_fd, &key, req)?;
     let done = match lock_record(priv_fd, &key, txn) {
         Ok(Some(_fd)) => {
             // Only the originating bridge's secret token may remove the receipt; the txn in `list` grants nothing.
-            let record = record_info(priv_fd, &key, txn)?.ok_or("the transaction record is gone")?;
-            let want = record["ack"].as_str().unwrap_or("");
-            if token.is_empty() || want.is_empty() || hex(token.as_bytes()) != want {
+            let record = required_record(priv_fd, &key, txn)?;
+            let want = &record.ack;
+            if token.is_empty() || want.is_empty() || hex(token.as_bytes()) != *want {
                 return Ok(json!({"ok": false, "error": "not this transaction's owner"}));
             }
             // Its retained data is still there: the record keeps guarding it until that data is disposed (#412 r5).
             if staged_name(priv_fd, &key, txn, req)?.is_some() {
                 return Ok(json!({"ok": true, "pending": true}));
             }
-            retire(priv_fd, &key, txn);
-            json!({"ok": true})
+            resolve(priv_fd, &key, txn, req)?;
+            retire(priv_fd, &key, txn, req)?;
+            json!({"ok": true, "pending": false})
         }
         Ok(None) => return Ok(json!({"ok": false, "owned": true})),
-        Err(libc::ENOENT) => json!({"ok": true}),
-        Err(e) => return Err(os_err("the transaction record", e)),
+        // Complete absence permits an idempotent ack only, never an inferred publication outcome.
+        Err(libc::ENOENT) => json!({"ok": true, "pending": false}),
+        Err(_) => return Err(metadata_error(&format!("{key}.{txn}.txn"), "transaction record cannot be locked")),
     };
     // Tests only: the ack is done (no record is left), but its reply does not arrive (smartyfs#37 item 16).
     if test_fault(req, "ackLost") {
@@ -1354,6 +1642,15 @@ fn dispose_entry(priv_fd: RawFd, req: &Value, entry: &str, hash: &str, fd: &Owne
         unlock();
         return Ok(json!({"ok": false, "changed": true, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
+    let key = key(req)?;
+    let deliveries = match txn_of(entry, &key) {
+        Some(txn) => verify_txn_deliveries(priv_fd, &key, &txn, &bytes, req),
+        None => Ok(Vec::new()),
+    };
+    let _deliveries = match deliveries {
+        Ok(v) => v,
+        Err(e) => { unlock(); return Err(e); }
+    };
     let c = cstr(entry)?;
     // SAFETY: unlinks one entry of the private dir.
     if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 {
@@ -1371,14 +1668,8 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
     // Waits for any operation on this file by another connection: a live transaction is never listed as a leftover.
     let _lock = lock_key(priv_fd, &key)?;
     let prefix = format!("{key}.");
-    // A scan error fails the whole list (the bridge holds): a partial scan could hide a record or an entry.
-    let mut names: Vec<String> = Vec::new();
-    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
-        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
-        if n.starts_with(&prefix) {
-            names.push(n);
-        }
-    }
+    // Validate ALL evidence before owned-here, outcomes, recovery or age-out can change anything.
+    let names = validate_evidence(priv_fd, &key, req)?;
     // Transaction records (#412 rounds 3 to 5): each with its authoritative outcome, and whether this caller may act
     // on its retained data. A live connection's is `owned`; an unowned one is `owned` too unless the caller shows its
     // originating bridge's token (in `tokens`) or it is an old orphan. Outcomes are never omitted: unknown if
@@ -1398,19 +1689,19 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
                 let has_data = staged_name(priv_fd, &key, &txn, req).map(|n| n.is_some()).unwrap_or(true);
                 let old = fstat(fd.as_raw_fd()).map(|st| now_secs() - st.st_ctime as i64 > 30 * 86_400).unwrap_or(false);
                 if old && !has_data {
-                    retire(priv_fd, &key, &txn);
+                    retire(priv_fd, &key, &txn, req)?;
                     continue;
                 }
                 let state = resolve(priv_fd, &key, &txn, req).map(|s| json!(s)).unwrap_or(json!("unknown"));
-                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str(), req).unwrap_or(false) {
+                if may_recover(priv_fd, &key, &txn, tokens[txn.as_str()].as_str(), req)? {
                     records.push(json!({"txn": txn, "state": state}));
                 } else {
                     // Its origin proven gone, the helper recovers the bytes itself (never a tokenless caller): `orphan`
                     // tells the caller to look again later while a writer still holds them.
                     let waiting = has_data
-                        && record_info(priv_fd, &key, &txn).ok().flatten().is_some_and(|r| origin_gone(&r, req))
+                        && origin_gone(&required_record(priv_fd, &key, &txn)?, req)
                         && state != json!("unknown")
-                        && !recover_orphan(priv_fd, &key, &txn, &file_name, req).unwrap_or(false);
+                        && !recover_orphan(priv_fd, &key, &txn, &file_name, req)?;
                     guarded.insert(txn.clone());
                     records.push(json!({"txn": txn, "state": state, "owned": true, "orphan": waiting}));
                 }
@@ -1419,11 +1710,7 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
                 guarded.insert(txn.clone());
                 records.push(json!({"txn": txn, "owned": true}));
             }
-            Err(libc::ENOENT) => {} // Removed between the scan and now (by its owner or an authorized ack).
-            Err(_) => {
-                guarded.insert(txn.clone());
-                records.push(json!({"txn": txn, "state": "unknown", "owned": true}));
-            }
+            Err(_) => return Err(metadata_error(name, "transaction record cannot be locked")),
         }
     }
     let mut entries = Vec::new();
@@ -1440,6 +1727,7 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
         if stat_entry(priv_fd, name)?.is_none() {
             continue;
         }
+        if let Some(txn) = txn_of(name, &key) { required_record(priv_fd, &key, &txn)?; }
         // Not this caller's to take over: named, but with no bytes (#412 rounds 2 to 5).
         if txn_of(name, &key).is_some_and(|t| guarded.contains(&t)) {
             entries.push(json!({"entry": name, "owned": true}));
@@ -1456,27 +1744,23 @@ fn list_op(priv_fd: RawFd, req: &Value, owned: &Owned) -> Result<Value, String> 
         let bytes = read_all(&fd)?;
         entries.push(json!({"entry": name, "hash": hex(&bytes), "data": B64.encode(&bytes)}));
     }
-    // What the helper itself delivered to the recovery directory (metadata only: where, and the bytes' hash); the
-    // markers age out with the retention period.
+    // Only verified current copies are fresh recovered deliveries. Valid historical pruned receipts are omitted,
+    // not fabricated deliveries. Invalid receipts never expire; retained-byte receipts never age out.
     let mut recovered = Vec::new();
-    let mut markers = Vec::new();
-    for e in std::fs::read_dir(format!("/proc/self/fd/{priv_fd}")).map_err(|e| e.to_string())? {
-        let n = e.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
-        if n.starts_with(&prefix) && n.ends_with(".done") {
-            markers.push(n);
+    let current = key_names(priv_fd, &key)?;
+    for name in current.iter().filter(|n| n.ends_with(".done")) {
+        let (fd, done) = done_info(priv_fd, name, &key)?;
+        let staged_prefix = format!("{key}.{}-", done.txn);
+        let retained = current.iter().any(|n| n.starts_with(&staged_prefix) && n.ends_with(".staged"));
+        let verified = verify_delivery(priv_fd, name, &fd, &done, retained, None, req)?;
+        if !retained && now_secs() - fstat(fd.as_raw_fd())?.st_ctime as i64 > ORPHAN_SECS {
+            let c = cstr(name)?;
+            // SAFETY: schema/binding verified and no retained bytes, never an invalid receipt or unlink authority.
+            if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 { return Err(metadata_error(name, "cannot retire delivery receipt")); }
+            if !fsync(priv_fd) { return Err(metadata_error(name, "receipt retirement cannot be confirmed durable")); }
+        } else if verified.is_some() {
+            recovered.push(json!({"marker": name, "path": done.path, "hash": done.hash}));
         }
-    }
-    for name in markers {
-        let Some((fd, bytes)) = read_private(priv_fd, &name)? else { continue };
-        if fstat(fd.as_raw_fd()).map(|st| now_secs() - st.st_ctime as i64 > ORPHAN_SECS).unwrap_or(false) {
-            if let Ok(c) = cstr(&name) {
-                // SAFETY: unlinks one delivery marker past the retention period.
-                unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) };
-            }
-            continue;
-        }
-        let meta: Value = serde_json::from_slice(&bytes).unwrap_or(json!({}));
-        recovered.push(json!({"marker": name, "path": meta["path"], "hash": meta["hash"]}));
     }
     Ok(json!({"ok": true, "entries": entries, "records": records, "recovered": recovered}))
 }
