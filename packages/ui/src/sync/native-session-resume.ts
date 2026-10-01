@@ -86,7 +86,10 @@ async function follow(record: ContinueRecord, requestId: string, first: NativeCr
     if (!owns(record)) return;
     if (!isRuntimeRequestScopeCurrent(target.scope) || remaining() <= 0) { unknown(); return; }
     let next: NativeCreationState;
-    try { next = await withNativeCreationDeadline(() => opencodeClient.readNativeCreation(target.directory, now.operationId), remaining()); }
+    try { next = await withNativeCreationDeadline(() => {
+      if (!owns(record) || !isRuntimeRequestScopeCurrent(target.scope)) throw new NativeCreationError('unknown');
+      return opencodeClient.readNativeCreation(target.directory, now.operationId);
+    }, remaining()); }
     catch { unknown(); return; }
     if (!owns(record)) return;
     if (!isRuntimeRequestScopeCurrent(target.scope)) { unknown(); return; }
