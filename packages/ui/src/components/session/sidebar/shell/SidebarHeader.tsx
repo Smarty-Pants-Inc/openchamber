@@ -35,6 +35,7 @@ type Props = {
   setSessionSearchQuery: (value: string) => void;
   hasSessionSearchQuery: boolean;
   searchMatchCount: number;
+  bulkActionsReady: boolean;
   collapseAllProjects: () => void;
   expandAllProjects: () => void;
 };
@@ -59,6 +60,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
     setSessionSearchQuery,
     hasSessionSearchQuery,
     searchMatchCount,
+    bulkActionsReady,
     collapseAllProjects,
     expandAllProjects,
   } = props;
@@ -286,11 +288,11 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 {!isSingleProjectMode ? (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={collapseAllProjects} className="flex items-center gap-2">
+                    <DropdownMenuItem disabled={!bulkActionsReady} onClick={collapseAllProjects} className="flex items-center gap-2">
                       <Icon name="contract-up-down" className="h-4 w-4" />
                       <span>{t('sessions.sidebar.header.displayMode.collapseAll')}</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={expandAllProjects} className="flex items-center gap-2">
+                    <DropdownMenuItem disabled={!bulkActionsReady} onClick={expandAllProjects} className="flex items-center gap-2">
                       <Icon name="expand-up-down" className="h-4 w-4" />
                       <span>{t('sessions.sidebar.header.displayMode.expandAll')}</span>
                     </DropdownMenuItem>
