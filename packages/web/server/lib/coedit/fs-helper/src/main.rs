@@ -594,8 +594,8 @@ fn done_info(priv_fd: RawFd, name: &str, key: &str) -> Result<(OwnedFd, DoneReco
     Ok((fd, done))
 }
 
-/// Keeps the verified copy leased until the caller finishes its unlink. This protects the opened inode, not names:
-/// the directory owner can still rename/unlink it, and same-account private-name substitution remains a limit.
+/// Holds a read lease on stable bytes. This protects the opened inode, not its directory names.
+/// A delivered inode alone is never durable protection for retained-byte removal.
 struct ReadLease(OwnedFd);
 
 impl Drop for ReadLease {
@@ -647,6 +647,7 @@ fn verify_delivery(priv_fd: RawFd, name: &str, marker: &OwnedFd, done: &DoneReco
         }
         Err(_) => return Err(err("delivered copy is missing or cannot be opened safely")),
     };
+    test_gate(req, "deliveryOpened", &done.path)?; // After open, before the first delivered-inode observation.
     let before = fstat(copy.as_raw_fd()).map_err(|_| err("cannot inspect delivered copy"))?;
     if !same(&before, done.ino, done.dev) || !copy_private(copy.as_raw_fd(), &before).map_err(|_| err("cannot inspect copy privacy"))? {
         return Err(err("delivered copy identity or privacy differs"));
@@ -710,14 +711,38 @@ fn validate_evidence(priv_fd: RawFd, key: &str, req: &Value) -> Result<Vec<Strin
     Ok(names)
 }
 
-/// Verify any prior delivery against these leased retained bytes before any path can unlink them.
+/// An independent copy of the retained bytes, never a hard link to the peer-writable delivery or displaced inode.
+/// The served account cannot reach this 0600 file in the helper's 0700 directory. Existing anchors must match
+/// exactly and are fsynced again on retry. They are not staged entries, cannot be named by dispose, and are never
+/// removed by receipt/transaction retirement. Releasing them needs a separate authorized retention decision.
+fn protect_delivery(priv_fd: RawFd, marker: &str, bytes: &[u8], req: &Value) -> Result<(), String> {
+    let name = format!("{marker}.anchor");
+    let fd = match read_private(priv_fd, &name)? {
+        Some((fd, actual)) => {
+            if actual != bytes { return Err(metadata_error(&name, "protected bytes differ")); }
+            fd
+        }
+        None => {
+            if test_fault(req, "anchorCreate") { return Err(metadata_error(&name, "cannot create protected copy")); }
+            create_immutable(priv_fd, &name, bytes, false, req).map_err(|e| metadata_error(&name, e.message()))?
+        }
+    };
+    if test_fault(req, "anchorSync") || !fsync(fd.as_raw_fd()) || !fsync(priv_fd) {
+        return Err(metadata_error(&name, "protected copy cannot be confirmed durable"));
+    }
+    Ok(())
+}
+
+/// Verify any prior delivery and protect these leased retained bytes before any path can unlink them.
 fn verify_txn_deliveries(priv_fd: RawFd, key: &str, txn: &str, bytes: &[u8], req: &Value) -> Result<Vec<VerifiedDelivery>, String> {
     let prefix = format!("{key}.{txn}.");
     let mut verified = Vec::new();
     for name in key_names(priv_fd, key)?.iter().filter(|n| n.starts_with(&prefix) && n.ends_with(".done")) {
         let (fd, done) = done_info(priv_fd, name, key)?;
-        verified.push(verify_delivery(priv_fd, name, &fd, &done, true, Some(bytes), req)?
-            .ok_or_else(|| metadata_error(name, "missing retained-byte delivery"))?);
+        let delivery = verify_delivery(priv_fd, name, &fd, &done, true, Some(bytes), req)?
+            .ok_or_else(|| metadata_error(name, "missing retained-byte delivery"))?;
+        protect_delivery(priv_fd, name, bytes, req)?;
+        verified.push(delivery);
     }
     Ok(verified)
 }
@@ -725,7 +750,7 @@ fn verify_txn_deliveries(priv_fd: RawFd, key: &str, txn: &str, bytes: &[u8], req
 /// Under the record lock and a retained-inode read lease, deliver into the origin's bound directory, never the
 /// requesting connection's. The copy is helper-owned, 0600 plus peer read/write ACL. A version-1 receipt binds the
 /// transaction snapshot and actual delivered inode/hash. Verify and fsync all evidence on EVERY retry before
-/// unlink. A lease protects an inode, not the owner's directory names; accepted rename/substitution limits remain.
+/// unlink, with an independent durable private anchor before retained removal. A lease alone cannot protect names.
 fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value) -> Result<bool, String> {
     let record = required_record(priv_fd, key, txn)?;
     let Some(bound) = &record.dest else { return Ok(false) };
@@ -768,7 +793,7 @@ fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value)
     }
     required_record(priv_fd, key, txn)?; // Retry durability includes the immutable transaction snapshot.
     let c = cstr(&staged)?;
-    // SAFETY: the opened retained inode's bytes match the durably verified delivered copy; names are not leased.
+    // SAFETY: independently copied bytes are durably named in the helper-private directory before this unlink.
     if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 { return Err(fail("unlinkat")); }
     if !fsync(priv_fd) { return Err("the recovered entry unlink cannot be confirmed durable".into()); }
     Ok(true)
@@ -1030,6 +1055,17 @@ fn test_pause(req: &Value, point: &str) {
     if testing() && req["pause"].as_str() == Some(point) {
         std::thread::sleep(std::time::Duration::from_millis(req["pauseMs"].as_u64().unwrap_or(0).min(10_000)));
     }
+}
+
+/// Tests only: a socket handshake, with no sleeps or timing window. The test resumes this exact point.
+fn test_gate(req: &Value, point: &str, path: &str) -> Result<(), String> {
+    if !testing() || req["gate"].as_str() != Some(point) { return Ok(()); }
+    let socket = req["gateSocket"].as_str().ok_or("missing test gate socket")?;
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    writeln!(stream, "{}", json!({"path": path})).map_err(|e| e.to_string())?;
+    let mut resume = [0];
+    stream.read_exact(&mut resume).map_err(|e| e.to_string())
 }
 
 /// Tests only: the step `point` fails as with EIO.
@@ -1735,7 +1771,7 @@ fn dispose_entry(priv_fd: RawFd, req: &Value, entry: &str, hash: &str, fd: &Owne
         Err(e) => { unlock(); return Err(e); }
     };
     let c = cstr(entry)?;
-    // SAFETY: unlinks one entry of the private dir.
+    // SAFETY: prior-delivery bytes have durable helper-private anchors; no delivery namespace can authorize loss.
     if unsafe { libc::unlinkat(priv_fd, c.as_ptr(), 0) } != 0 {
         let err = fail("unlinkat");
         unlock();

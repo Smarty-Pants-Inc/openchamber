@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer } from 'node:net';
 
 import { ensureHelper } from './ensure-built.js';
 
@@ -75,7 +76,7 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
 
   const target = () => path.join(root, 'docs/a.md');
   const docs = () => fs.readdirSync(path.join(root, 'docs')).sort();
-  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')); // Locks and transaction records are not entries.
+  const staged = () => fs.readdirSync(priv).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done') && !n.endsWith('.anchor')); // Evidence and private delivery anchors are not entries.
   const read = async () => {
     const r = await h.call({ op: 'read', path: 'docs/a.md' });
     expect(r.ok).toBe(true);
@@ -1144,6 +1145,112 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
           expect(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))).toMatchObject({ ack: '', dest: null });
           expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry, hash: sha('one\n') }], recovered: [] });
           expect(await dispose(entry, sha('one\n'))).toMatchObject({ ok: true });
+        });
+      });
+
+      describe('#481 P1 unlinked delivery', () => {
+        test.each(['fresh', 'retry', 'dispose'])('%s protects exact late bytes after open then last-name unlink', async (phase) => {
+          const late = Buffer.from('one\nlate-only-P1\n');
+          expect(await h.call({ op: 'hello', recovery: recoveryDir() })).toMatchObject({ ok: true });
+          const writer = fs.openSync(target(), 'a');
+          let p;
+          try {
+            p = await publish(await read(), { txn: TXN, ack: sha('t'), testOrigin: gone() });
+            expect(p).toMatchObject({ ok: true, published: true });
+            fs.writeSync(writer, late.subarray(Buffer.byteLength('one\n')));
+          } finally {
+            fs.closeSync(writer);
+          }
+          await h.finish();
+          h = helper(root, priv);
+          // Publish a genuine receipt without removing retained data. No fixture backup/hard link remains.
+          if (phase !== 'fresh') {
+            expect(await h.call({ op: 'list', path: 'docs/a.md', fault: 'privSync' })).toMatchObject({ ok: false });
+            expect(fs.readdirSync(priv).filter((n) => n.endsWith('.done'))).toHaveLength(1);
+          }
+          expect(fs.readFileSync(path.join(priv, p.displaced))).toEqual(late);
+          expect(fs.statSync(path.join(priv, p.displaced)).nlink).toBe(1);
+          const socketPath = path.join(dir, 'delivery-gate.sock');
+          let opened = 0, removed, gateError;
+          // A retry/dispose first verifies during preflight. Unlink during the verification authorizing removal.
+          const unlinkAt = phase === 'fresh' ? 1 : 2;
+          const server = createServer((socket) => {
+            createInterface({ input: socket }).once('line', (line) => {
+              try {
+                opened += 1;
+                const { path: copy } = JSON.parse(line);
+                if (opened === unlinkAt) {
+                  expect(fs.statSync(copy).nlink).toBe(1);
+                  expect(fs.readFileSync(copy)).toEqual(late);
+                  fs.unlinkSync(copy);
+                  expect(fs.existsSync(copy)).toBe(false);
+                  removed = copy;
+                }
+              } catch (error) { gateError = error; }
+              socket.end('r'); // Only now do the helper's first fstat, checks and disposal run.
+            });
+          });
+          await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
+          try {
+            const reply = await h.call({ op: phase === 'dispose' ? 'dispose' : 'list', path: 'docs/a.md',
+              entry: p.displaced, hash: sha(late), token: phase === 'dispose' ? 't' : undefined,
+              gate: 'deliveryOpened', gateSocket: socketPath });
+            expect(gateError).toBeUndefined();
+            expect(opened).toBe(unlinkAt);
+            expect(removed).toBeTruthy();
+            // Let every delivery fd close. Only durable names in the helper's private dir count as protection.
+            await h.finish();
+            const protectedBytes = () => fs.readdirSync(priv).filter((n) => n.endsWith('.staged') || n.endsWith('.anchor'))
+              .map((n) => fs.readFileSync(path.join(priv, n)));
+            console.log(`P1 ${phase}: reply=${JSON.stringify(reply)} protectedCopies=${protectedBytes().length}`);
+            expect(protectedBytes(), 'last-name unlink must not erase the only late bytes').toContainEqual(late);
+            h = helper(root, priv);
+            await h.call({ op: 'list', path: 'docs/a.md' }); // A later retry cannot consume the protection.
+            await h.call({ op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: sha(late), token: 't' });
+            await h.call({ op: 'ack', path: 'docs/a.md', txn: TXN, token: 't' });
+            await h.finish();
+            expect(protectedBytes()).toContainEqual(late);
+          } finally {
+            await new Promise((resolve) => server.close(resolve));
+          }
+        });
+      });
+
+      describe('#481 P1 protected copy', () => {
+        test.each(['anchorCreate', 'anchorSync'])('%s failure keeps retained bytes until protection is durable', async (fault) => {
+          const { entry, marker, copy } = await delivered(true);
+          const anchor = path.join(priv, `${marker}.anchor`);
+          fs.unlinkSync(anchor); // A legacy/interrupted retry has a real receipt but no anchor yet.
+          for (let retry = 0; retry < 2; retry += 1) {
+            expect(await h.call({ op: 'list', path: 'docs/a.md', fault })).toMatchObject({ ok: false, error: expect.stringContaining(`${marker}.anchor`) });
+            expect(fs.readFileSync(path.join(priv, entry), 'utf8')).toBe('one\n');
+          }
+          expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [], recovered: [{ marker, path: copy }] });
+          expect(fs.readFileSync(anchor, 'utf8')).toBe('one\n');
+          expect(fs.existsSync(path.join(priv, entry))).toBe(false);
+          expect(fs.statSync(anchor).ino).not.toBe(fs.statSync(copy).ino);
+          expect(fs.statSync(anchor).mode & 0o7777).toBe(0o600);
+          expect(getXattr(anchor, 'system.posix_acl_access')).toBe('none');
+        });
+        test.each(['bytes', 'mode', 'link'])('an existing anchor with changed %s cannot authorize retained unlink', async (kind) => {
+          const { entry, marker, copy } = await delivered(true);
+          const anchor = path.join(priv, `${marker}.anchor`);
+          if (kind === 'bytes') fs.writeFileSync(anchor, 'altered\n');
+          if (kind === 'mode') fs.chmodSync(anchor, 0o640);
+          if (kind === 'link') { fs.unlinkSync(anchor); fs.symlinkSync(copy, anchor); }
+          const before = evidence();
+          refused(await h.call({ op: 'list', path: 'docs/a.md' }), before, `${marker}.anchor`);
+          expect(fs.readFileSync(path.join(priv, entry), 'utf8')).toBe('one\n');
+        });
+        test('the served protocol cannot dispose an anchor and receipt retirement cannot release it', async () => {
+          const { marker, copy } = await delivered(false);
+          const anchor = path.join(priv, `${marker}.anchor`);
+          expect(await dispose(`${marker}.anchor`, sha('one\n'))).toMatchObject({ ok: false, error: 'invalid entry' });
+          expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: TXN, token: 't' })).toMatchObject({ ok: true, pending: false });
+          fs.unlinkSync(copy);
+          expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [], records: [], recovered: [] });
+          await h.finish();
+          expect(fs.readFileSync(anchor, 'utf8')).toBe('one\n');
         });
       });
 

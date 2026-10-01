@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount, tokensFor } from './safe-file.js';
+import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount, tokensFor, UNCERTAIN_NOTICE, UNSYNCED_NOTICE } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -78,7 +78,7 @@ const setup = async (content = 'hello world\n', { watch = false, retryMs = 50, r
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, before), 'person');
   };
   /** The helper's private staging entries (displaced or staged revisions). */
-  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done')) : []);
+  const staged = () => (fs.existsSync(privateDir) ? fs.readdirSync(privateDir).filter((n) => !n.endsWith('-lock') && !n.endsWith('.txn') && !n.endsWith('.out') && !n.endsWith('.done') && !n.endsWith('.anchor')) : []);
   /** Saves with the helper paused at `point`, running `fn` inside that window. */
   const saveDuring = async (point, fn) => {
     hooks.helper = { pause: point, pauseMs: 3000 };
@@ -920,6 +920,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(again.text.toString()).toBe('Plog\n');
       expect(t.kept().filter((k) => k === 'log\nlate\n')).toHaveLength(1);
       expect(t.staged()).toEqual([]);
+      const anchors = fs.readdirSync(t.privateDir).filter((name) => name.endsWith('.anchor'));
+      expect(anchors).toHaveLength(1);
+      expect(fs.readFileSync(path.join(t.privateDir, anchors[0]), 'utf8')).toBe('log\nlate\n');
       // Loading again does not keep it twice.
       await again.bridge.close();
       const third = t.open();
@@ -2041,6 +2044,222 @@ createInterface({ input: control }).on('line', (line) => {
       });
     }
 
+    for (const fault of ['afterExchange', 'dirSync']) {
+      for (const watching of ['stopped', 'restart', 'recovered', 'none']) {
+        it(`#481 round 3 publish await: ${fault} with ${watching} watcher resolves only its publication notice`, async () => {
+          const gate = await settlementGate();
+          const { home, root, file } = fresh();
+          fs.writeFileSync(file, 'a');
+          const { made, watch } = fakeWatch();
+          let starts = 0;
+          const boundedWatch = (dir, onChange) => {
+            starts += 1;
+            if (watching === 'stopped' && starts > 1) throw new Error('ENOSPC: watcher restarts unavailable');
+            return watch(dir, onChange);
+          };
+          const doc = new Y.Doc();
+          const hooks = {};
+          const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch: boundedWatch, settleMs: 5, retryMs: 11, retryLimit: watching === 'none' ? 0 : 2, enabled: true });
+          const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+          let writer;
+          try {
+            await gate.ready;
+            await bridge.load();
+            writer = fs.openSync(file, 'a'); // Genuine busy displaced inode prevents automatic receipt retirement.
+            if (watching === 'recovered') {
+              made[0].emit('error', new Error('EMFILE: warning recovered before publication'));
+              const cleared = bridge.state().conflict;
+              expect(cleared).toMatchObject({ conflict: 'unwatched' });
+              await expect.poll(() => bridge.state().conflict, { timeout: 3000 }).toBe(null);
+              expect(made).toHaveLength(2);
+              expect(made[1].closed).toBe(false);
+            }
+            doc.getText(TEXT).insert(0, 'P');
+            hooks.helper = { fault };
+            await gate.arm('publish');
+            const held = gate.held();
+            const saving = bridge.save();
+            const actual = await held;
+            expect(actual.op).toBe('publish');
+            expect(actual.reply.published).toBe(true);
+            expect(actual.reply.synced).toBe(fault === 'afterExchange');
+            if (fault === 'afterExchange') expect(actual.reply.uncertain).toBeTruthy();
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+            const ino = fs.statSync(file).ino;
+            let warning = null;
+            if (watching === 'stopped' || watching === 'restart') {
+              made[0].emit('error', new Error('EMFILE: warning during actual publication await'));
+              warning = bridge.state().conflict;
+              expect(warning).toMatchObject({ conflict: 'unwatched' });
+              if (watching === 'stopped') await expect.poll(() => starts, { timeout: 3000 }).toBe(3);
+              else await expect.poll(() => made.length, { timeout: 3000 }).toBe(2);
+            }
+            const updates = [];
+            doc.on('update', (_update, origin) => updates.push(origin));
+            gate.release();
+            const result = await saving;
+            expect(result).toEqual({ ok: false, conflict: 'unverified', published: fault === 'afterExchange' ? 'uncertain' : true, recovery: expect.any(String), notice: fault === 'afterExchange' ? UNCERTAIN_NOTICE : UNSYNCED_NOTICE });
+            expect(bridge.state().conflict).toMatchObject({ conflict: 'unverified', notice: result.notice });
+            expect(bridge.state().conflict.kept ?? null).toBe(warning);
+            // Keep the real flush fault through the bounded automatic retry budget, then allow manual resolution.
+            if (fault === 'dirSync' && (watching === 'stopped' || watching === 'restart')) await expect.poll(() => gate.count('flush'), { timeout: 3000 }).toBeGreaterThanOrEqual(watching === 'restart' ? 4 : 3);
+            if (fault === 'dirSync' && watching === 'restart') {
+              await bridge.acceptDisk(); // Replacement has read authoritative bytes, but the flush still fails.
+              expect(bridge.state().conflict).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+              expect(bridge.state().conflict.kept).toBeUndefined(); // Only its watcher warning has recovered.
+            }
+            delete hooks.helper;
+            if (fault === 'afterExchange' && watching === 'stopped') {
+              fs.writeFileSync(file, 'PaZ');
+              await bridge.sync(); // A different real revision restates uncertainty without dropping the kept warning.
+              expect(bridge.state().conflict.kept).toBe(warning);
+              expect(doc.getText(TEXT).toString()).toBe('Pa');
+              fs.writeFileSync(file, 'Pa');
+            }
+            await bridge.sync();
+            await bridge.acceptDisk(); // Drain a replacement catch-up already queued by the live watcher.
+            await gate.observe();
+            if (watching === 'restart') await expect.poll(() => bridge.state().conflict, { timeout: 3000 }).toBe(null);
+            expect(bridge.state().conflict).toBe(watching === 'stopped' ? warning : null);
+            expect(doc.getText(TEXT).toString()).toBe('Pa');
+            expect(updates).toEqual([]); // Settlement adopts the snapshot, never replays P as a disk merge.
+            expect(fs.statSync(file).ino).toBe(ino);
+            expect(await bridge.save()).toEqual({ ok: true });
+            await gate.observe();
+            expect(gate.count('publish')).toBe(1);
+            expect(fs.statSync(file).ino).toBe(ino);
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+            expect(bridge.state().conflict).toBe(watching === 'stopped' ? warning : null);
+          } finally {
+            gate.release();
+            if (writer !== undefined) fs.closeSync(writer);
+            expect(await bridge.close()).toEqual({ quiescent: true });
+            await gate.stop();
+            expect(made.every((w) => w.closed)).toBe(true);
+            expect(helperPids(root).filter(alive)).toEqual([]);
+            errors.mockRestore();
+            doc.destroy();
+          }
+        });
+      }
+    }
+
+    for (const response of ['read', 'flush', 'ack']) {
+      it(`#481 round 3 resolution await: ${response} preserves the current warning identity`, async () => {
+        const gate = await settlementGate();
+        const { home, root, file } = fresh();
+        fs.writeFileSync(file, 'a');
+        const { made, watch } = fakeWatch();
+        const doc = new Y.Doc();
+        const hooks = {};
+        const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryMs: 60_000, retryLimit: response === 'ack' ? 2 : 0, enabled: true });
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        let writer;
+        try {
+          await gate.ready;
+          await bridge.load();
+          writer = fs.openSync(file, 'a');
+          doc.getText(TEXT).insert(0, 'P');
+          hooks.helper = { fault: response === 'flush' ? 'dirSync' : 'afterExchange' };
+          if (response === 'ack') await gate.lose(); // Real published reply lost at EOF, never a fabricated response.
+          const saved = await bridge.save();
+          expect(saved).toMatchObject({ ok: false, conflict: 'unverified', published: response === 'flush' ? true : 'uncertain' });
+          const notice = bridge.state().conflict;
+          expect(notice.kept).toBeUndefined();
+          delete hooks.helper;
+          const ino = fs.statSync(file).ino;
+          const armed = gate.arm(response);
+          const held = gate.held();
+          const syncing = bridge.sync();
+          await armed; // A lost helper respawns only when sync issues its first request.
+          const actual = await held;
+          expect(actual.op).toBe(response);
+          expect(actual.reply.ok).toBe(true);
+          made[0].emit('error', new Error(`EMFILE: new warning during ${response} await`));
+          const warning = bridge.state().conflict;
+          expect(warning).not.toBe(notice);
+          expect(warning).toMatchObject({ conflict: 'unwatched' });
+          const updates = [];
+          doc.on('update', (_update, origin) => updates.push(origin));
+          gate.release();
+          await syncing;
+          expect(bridge.state().conflict).toBe(warning);
+          expect(doc.getText(TEXT).toString()).toBe('Pa');
+          expect(updates).toEqual([]);
+          expect(await bridge.save()).toEqual({ ok: true });
+          await gate.observe();
+          expect(gate.count('publish')).toBe(1);
+          expect(fs.statSync(file).ino).toBe(ino);
+          expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+          expect(bridge.state().conflict).toBe(warning);
+        } finally {
+          gate.release();
+          if (writer !== undefined) fs.closeSync(writer);
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          await gate.stop();
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root).filter(alive)).toEqual([]);
+          errors.mockRestore();
+          doc.destroy();
+        }
+      });
+    }
+
+    it('#481 round 3 lost publication: private list and ack restore a kept stopped-watcher warning', async () => {
+      const gate = await settlementGate();
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const { made, watch } = fakeWatch();
+      const doc = new Y.Doc();
+      const hooks = {};
+      const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryMs: 60_000, retryLimit: 2, enabled: true });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      let writer;
+      try {
+        await gate.ready;
+        await bridge.load();
+        writer = fs.openSync(file, 'a');
+        doc.getText(TEXT).insert(0, 'P');
+        hooks.helper = { fault: 'afterExchange' };
+        await gate.lose();
+        await gate.arm('read');
+        const held = gate.held();
+        const saving = bridge.save();
+        expect((await held).reply.hash).toBe(hashBytes(Buffer.from('a')));
+        made[0].emit('error', new Error('EMFILE: watcher stops before the real lost publication'));
+        const warning = bridge.state().conflict;
+        gate.release();
+        const result = await saving;
+        expect(result).toEqual({ ok: false, conflict: 'unverified', published: 'uncertain', recovery: expect.any(String), notice: UNCERTAIN_NOTICE });
+        expect(bridge.state().conflict.kept).toBe(warning);
+        delete hooks.helper;
+        const ino = fs.statSync(file).ino;
+        const armed = gate.arm('ack');
+        const ack = gate.held();
+        const syncing = bridge.sync();
+        await armed;
+        expect((await ack).reply).toMatchObject({ ok: true, pending: true });
+        expect(bridge.state().conflict.kept).toBe(warning); // List has adopted the base; the ack await still owns this notice.
+        gate.release();
+        await syncing;
+        expect(bridge.state().conflict).toBe(warning);
+        expect(doc.getText(TEXT).toString()).toBe('Pa');
+        expect(await bridge.save()).toEqual({ ok: true });
+        await gate.observe();
+        expect(gate.count('publish')).toBe(1);
+        expect(fs.statSync(file).ino).toBe(ino);
+        expect(bridge.state().conflict).toBe(warning);
+      } finally {
+        gate.release();
+        if (writer !== undefined) fs.closeSync(writer);
+        expect(await bridge.close()).toEqual({ quiescent: true });
+        await gate.stop();
+        expect(helperPids(root).filter(alive)).toEqual([]);
+        errors.mockRestore();
+        doc.destroy();
+      }
+    });
+
     for (const response of ['read', 'list', 'ack']) {
       for (const active of [false, true]) {
         it(`#481 round 2: settlement ${response} with ${active ? 'active' : 'failed'} replacement preserves watcher ownership`, async () => {
@@ -2292,6 +2511,152 @@ createInterface({ input: control }).on('line', (line) => {
         },
       };
     };
+
+    for (const diskText of ['ac', '']) {
+      for (const order of ['hold-first', 'watch-first', 'no-warning']) {
+        const reason = diskText ? 'removed' : 'truncated';
+        it(`#481 held warning: ${reason} ${order} acceptance resolves only its content condition`, async () => {
+          const { home, root, file } = fresh();
+          fs.writeFileSync(file, 'abc');
+          const doc = new Y.Doc();
+          const made = [];
+          let starts = 0;
+          const boundedWatch = (dir, onChange) => {
+            starts += 1;
+            if (starts > 1) throw new Error('ENOSPC: held-content restart unavailable');
+            const watcher = fs.watch(dir, onChange);
+            made.push(watcher);
+            return watcher;
+          };
+          const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch: boundedWatch, debounceMs: 60_000, settleMs: 5, retryMs: 11, retryLimit: 2, enabled: true });
+          const origins = [];
+          let warning = null;
+          const stopWatching = async () => {
+            made[0].emit('error', new Error('EMFILE: held-content watcher stopped'));
+            warning = bridge.state().conflict;
+            expect(warning).toMatchObject({ conflict: 'unwatched', notice: expect.any(String) });
+            await expect.poll(() => starts, { timeout: 3000 }).toBe(3);
+            expect(bridge.state().conflict).toBe(warning);
+          };
+          try {
+            await bridge.load();
+            doc.on('update', (_update, origin) => origins.push(origin));
+            if (order === 'watch-first') await stopWatching();
+            fs.writeFileSync(file, diskText); // A real outside removal/truncation, not a helper response.
+            const inode = fs.statSync(file).ino;
+            await bridge.sync();
+            expect(bridge.state().conflict).toMatchObject({ conflict: reason });
+            if (order === 'hold-first') await stopWatching();
+            expect(doc.getText(TEXT).toString()).toBe('abc');
+            expect(origins).toEqual([]);
+            expect(await bridge.save()).toEqual({ ok: false, conflict: reason });
+            expect(fs.readFileSync(file, 'utf8')).toBe(diskText);
+            expect(fs.statSync(file).ino).toBe(inode);
+            await bridge.acceptDisk();
+            expect(doc.getText(TEXT).toString()).toBe(diskText);
+            expect(origins).toEqual([DISK_ORIGIN]);
+            expect(await bridge.save()).toEqual({ ok: true }); // Verifies the adopted base against a real helper read.
+            expect(fs.readFileSync(file, 'utf8')).toBe(diskText);
+            expect(fs.statSync(file).ino).toBe(inode);
+            console.info('HELD acceptance', reason, order, JSON.stringify({ room: doc.getText(TEXT).toString(), disk: fs.readFileSync(file, 'utf8'), warning: bridge.state().conflict, starts }));
+            expect(bridge.state().conflict).toBe(warning); // Exact independent identity, not merely the warning kind.
+            await bridge.acceptDisk(); // No hold grants no authority over the independent warning.
+            expect(bridge.state().conflict).toBe(warning);
+          } finally {
+            expect(await bridge.close()).toEqual({ quiescent: true });
+            expect(helperPids(root)).toEqual([]);
+            doc.destroy();
+          }
+        });
+      }
+    }
+
+    for (const order of ['hold-first', 'watch-first']) {
+      it(`#481 held warning: active replacement ${order} clears only watching and keeps the content hold`, async () => {
+        const { home, root, file } = fresh();
+        fs.writeFileSync(file, 'abc');
+        const doc = new Y.Doc();
+        const made = [];
+        const watch = (dir, onChange) => {
+          const watcher = fs.watch(dir, onChange);
+          made.push(watcher);
+          return watcher;
+        };
+        const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch, debounceMs: 60_000, settleMs: 5, retryMs: 100, retryLimit: 2, enabled: true });
+        try {
+          await bridge.load();
+          if (order === 'watch-first') made[0].emit('error', new Error('EMFILE: before hold'));
+          fs.writeFileSync(file, 'ac');
+          await bridge.sync();
+          if (order === 'hold-first') made[0].emit('error', new Error('EMFILE: after hold'));
+          await expect.poll(() => made.length, { timeout: 3000 }).toBe(2);
+          await expect.poll(() => bridge.state().conflict?.conflict, { timeout: 3000 }).toBe('removed');
+          await expect.poll(() => bridge.state().conflict?.kept, { timeout: 3000 }).toBeUndefined();
+          expect(doc.getText(TEXT).toString()).toBe('abc');
+          expect(await bridge.save()).toEqual({ ok: false, conflict: 'removed' });
+          expect(fs.readFileSync(file, 'utf8')).toBe('ac');
+          await bridge.acceptDisk();
+          expect(doc.getText(TEXT).toString()).toBe('ac');
+          expect(bridge.state().conflict).toBe(null);
+          expect(await bridge.save()).toEqual({ ok: true });
+        } finally {
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          expect(helperPids(root)).toEqual([]);
+          doc.destroy();
+        }
+      });
+    }
+
+    it('#481 held warning: acceptance with no hold preserves a stopped watcher exactly', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'abc');
+      const doc = new Y.Doc();
+      let watcher;
+      const watch = (dir, onChange) => { watcher = fs.watch(dir, onChange); return watcher; };
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryLimit: 0, enabled: true });
+      try {
+        await bridge.load();
+        watcher.emit('error', new Error('EMFILE: no hold'));
+        const warning = bridge.state().conflict;
+        await bridge.acceptDisk();
+        expect(bridge.state().conflict).toBe(warning);
+        expect(await bridge.save()).toEqual({ ok: true });
+        expect(bridge.state().conflict).toBe(warning);
+        expect(doc.getText(TEXT).toString()).toBe('abc');
+      } finally {
+        expect(await bridge.close()).toEqual({ quiescent: true });
+        expect(helperPids(root)).toEqual([]);
+        doc.destroy();
+      }
+    });
+
+    it('#481 held warning: acceptance preserves the exact raced recovery a content hold carries', async () => {
+      const t = await setup('abc', { retryLimit: 0 });
+      t.person((x) => x.insert(0, 'P'));
+      const raced = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pabc');
+        fs.writeFileSync(t.file, 'Qabc');
+      });
+      expect(raced).toMatchObject({ conflict: 'raced', published: true });
+      const warning = t.bridge.state().conflict;
+      const recovered = fs.readFileSync(warning.recovery, 'utf8');
+      fs.writeFileSync(t.file, 'ac');
+      await t.bridge.sync();
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed', kept: warning });
+      expect(t.text.toString()).toBe('Pabc');
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'removed' });
+      expect(t.disk()).toBe('ac');
+      await t.bridge.acceptDisk();
+      expect(t.text.toString()).toBe('ac');
+      expect(t.bridge.state().conflict).toBe(warning);
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state().conflict).toBe(warning);
+      expect(fs.readFileSync(warning.recovery, 'utf8')).toBe(recovered);
+      await t.bridge.acceptDisk();
+      expect(t.bridge.state().conflict).toBe(warning);
+      expect(await t.bridge.close()).toEqual({ quiescent: true });
+      expect(helperPids(t.root)).toEqual([]);
+    });
 
     it('#481 round 1: an older catch-up cannot clear a newer stopped-watcher warning after restarts exhaust', async () => {
       const { home, root, file } = fresh();

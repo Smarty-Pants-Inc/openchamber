@@ -158,10 +158,11 @@ export function createDiskBridge({
    */
   const confirmDurable = async () => {
     if (!unsynced) return true;
+    const warning = conflict; // This flush can resolve only the notice it started with, not one raised during its await.
     const reply = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel, entry: unsynced.entry }).catch(() => null);
     if (reply?.ok) {
       unsynced = null;
-      if (!uncertain && conflict?.conflict === 'unverified') conflict = null;
+      if (!uncertain && conflict === warning && warning?.conflict === 'unverified') conflict = warning.kept ?? null;
       return true;
     }
     if (!unsynced.raised) raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
@@ -267,7 +268,7 @@ export function createDiskBridge({
     if (acked?.ok && !acked.pending && !enrolled) forgetToken(key, txn);
     else if (!enrolled) orphans = true; // Look again (list with this token) until its data is enrolled or gone.
     uncertain = null;
-    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = null;
+    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = warning.kept ?? null;
     scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).
     return true;
   };
@@ -281,7 +282,10 @@ export function createDiskBridge({
     if (uncertain.lost) {
       if (await settleByPrivateDir(owns)) return true;
       if (!owns()) return false;
-      if (uncertain.seen !== 'unlisted') raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+      if (uncertain.seen !== 'unlisted') {
+        const kept = conflict?.kept ?? independentWarning(conflict);
+        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE, ...(kept?.conflict === 'unwatched' && { kept }) });
+      }
       uncertain.seen = 'unlisted';
       return false;
     }
@@ -293,13 +297,16 @@ export function createDiskBridge({
       baseHash = uncertain.nextHash;
     } else if (disk === null || disk.hash !== baseHash) {
       const seen = disk?.hash ?? 'gone';
-      if (uncertain.seen !== seen) raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+      if (uncertain.seen !== seen) {
+        const kept = conflict?.kept ?? independentWarning(conflict);
+        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE, ...(kept?.conflict === 'unwatched' && { kept }) });
+      }
       uncertain.seen = seen;
       return false;
     }
     uncertain = null;
     // Settlement resolves only its own uncertainty notice, never a separate stopped-watcher/recovery warning.
-    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = null;
+    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = warning.kept ?? null;
     return true;
   };
   /** Retention (smartyfs#37): this file's recovery copies, at load and then every `pruneMs` (a day) while open. */
@@ -353,6 +360,11 @@ export function createDiskBridge({
       void syncFor(restarted).then((caughtUp) => {
         if (!caughtUp || closed || watcher !== restarted) return;
         if (conflict?.conflict === 'unwatched') conflict = null;
+        // A publication still awaiting flush keeps its own notice when only watching has recovered.
+        else if (conflict?.kept?.conflict === 'unwatched' && conflict.conflict === 'unverified') {
+          conflict = { ...conflict };
+          delete conflict.kept;
+        }
         // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
         else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };
       }).catch((error) => logError('smarty.coedit-sync-failed', error));
@@ -371,7 +383,11 @@ export function createDiskBridge({
       gone = false;
       held = null;
     } else if (REMOVES(baseText, disk.text)) {
-      if (held?.hash !== disk.hash) raise({ conflict: disk.text.length === 0 ? 'truncated' : 'removed' });
+      // A watcher error may have replaced this hold's notice; catch-up must represent both conditions again.
+      if (held?.hash !== disk.hash || !['removed', 'truncated'].includes(conflict?.conflict)) {
+        const kept = independentWarning(conflict);
+        raise({ conflict: disk.text.length === 0 ? 'truncated' : 'removed', ...(kept && { kept }) });
+      }
       held = disk;
     } else {
       held = null;
@@ -431,7 +447,8 @@ export function createDiskBridge({
       if (closed || !held) return;
       merge(held);
       held = null;
-      conflict = null;
+      // Acceptance resolves the content hold, not a direct or carried watcher/recovery warning.
+      conflict = independentWarning(conflict);
     }),
     /** Merges a settled outside write into the room now (the watcher also calls it). */
     sync,
@@ -477,7 +494,8 @@ export function createDiskBridge({
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
         uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, token, since: Date.now(), seen: null };
-        return raise(result);
+        const kept = independentWarning(conflict);
+        return raise({ ...result, ...(kept?.conflict === 'unwatched' && { kept }) });
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
       if (!result.ok && !result.published) {
@@ -491,7 +509,10 @@ export function createDiskBridge({
       baseText = next;
       baseHash = hashBytes(Buffer.from(next, 'utf8'));
       gone = false; // Ours is the file now.
-      if (!result.ok) return raise(result);
+      if (!result.ok) {
+        const kept = notFlushed ? independentWarning(conflict) : null;
+        return raise({ ...result, ...(kept?.conflict === 'unwatched' && { kept }) });
+      }
       // A successful publish resolves prior content conflicts, not a stopped watcher or a newer warning.
       const kept = independentWarning(conflict);
       conflict = conflict !== warning || kept?.conflict === 'unwatched' ? kept : null;

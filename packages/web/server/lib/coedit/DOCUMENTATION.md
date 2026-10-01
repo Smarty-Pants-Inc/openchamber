@@ -168,6 +168,9 @@ round 4); until then no conflict could be seen.
   replacement that inserts text too or leaves the file longer than before. It may be a writer that truncated and
   paused (net-lead round 4). An empty revision is `truncated`; any other deleting revision is `removed`. The hold
   clears when disk returns to the base, a revision with no deletion arrives, or the person accepts it (`acceptDisk()`).
+  Creating or accepting a content hold preserves direct and carried independent watcher/recovery warnings. Acceptance
+  merges the held bytes and resolves only the content condition; a working watcher's catch-up may resolve its own
+  warning without accepting the held revision.
   While one is held, `save()` returns that conflict and writes nothing: the disk does not hold the room's text, so it
   is never reported as saved (smartyfs#33 A). A save with nothing new to write reads the file through the helper
   first: it is `ok` only if the disk holds the base, else `changed` (for example a `raced` save not yet synced) or `gone`, with nothing written,
@@ -179,7 +182,10 @@ round 4); until then no conflict could be seen.
   the independent warning still stored after publication returns. Verified base reads resolve direct and carried
   presence/content refusals, not their independent warnings. A successful publish preserves a stopped-watcher
   warning and any newer independent warning that arrived during its await. A carried watcher warning clears when
-  watching resumes.
+  watching resumes. Published uncertain and unflushed results also carry the current independent stopped-watcher
+  warning without changing public save-result fields. Settlement and flush restore only the unresolved carried warning
+  when resolving their own notice, checked by identity across the await, so a newer warning is not erased or a recovered
+  warning restored.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
@@ -315,11 +321,23 @@ A receipt is not enough on its own. The helper reopens the original bound privat
 its device/inode, then opens the copy beneath that descriptor without links. The actual copy must be regular,
 helper-owned and private, with the recorded device/inode. Under a read lease it verifies the full SHA-256 hash, stable
 bytes and stat observations. Any disposal or orphan recovery with prior deliveries repeats verification against
-all leased retained bytes before unlinking them. Each retry confirms record, marker, copy and directories with
-`fsync`. A verification or pre-unlink flush failure retains the bytes and reports an error, never busy or absence.
-A failed flush after unlink reports unconfirmed durability and leaves delivery evidence for retry. A read lease protects the
-opened inode, not its namespace. The accepted same-account name-substitution and directory-owner relocation
-limits below remain.
+all leased retained bytes before unlinking them. Before either orphan recovery or prior-delivery disposal removes
+retained data, it also writes an independent `<receipt>.anchor` copy of those bytes in the helper's private directory.
+The anchor is a new 0600 inode with no ACL, not a hard link to a peer-writable copy. Each retry checks its privacy
+and exact bytes, then confirms the anchor and private directory with `fsync` before unlink. The served account
+cannot name anchors through `dispose`, and `list` does not expose their bytes. Existing protocol and receipt schemas
+are unchanged. Older receipts acquire an anchor from retained bytes only when those bytes are about to be removed.
+
+Each retry also confirms record, marker, delivered copy and directories with `fsync`. A verification, anchor-write
+or pre-unlink flush failure retains the bytes and reports an error, never busy or absence. A failed flush after
+unlink reports unconfirmed durability and leaves protected bytes and delivery evidence for retry. A read lease
+protects the opened inode, not its namespace; the anchor remains even if the served account unlinks that delivery
+after open or later. Transaction acknowledgement and receipt age-out never remove anchors. This helper deliberately
+keeps them without automatic pruning: safe release requires an authorized transfer or a helper-enforced retention
+policy, not the served directory's remaining names. Private storage can grow without a bound. Safe retention and
+retrieval after receipt retirement are tracked in [smartyfs#69](https://github.com/Smarty-Pants-Inc/smartyfs/issues/69).
+There is no public restore API for anchors in this change. The bridge's recovery-copy pruning policy is unchanged.
+The accepted same-account private-entry interference and directory-owner relocation limits below remain.
 
 A missing copy with retained data always fails. A recent missing copy with an unretired `.txn` also fails. Only
 with no retained data is a missing copy historical after transaction retirement or the marker's 7-day ctime period.
