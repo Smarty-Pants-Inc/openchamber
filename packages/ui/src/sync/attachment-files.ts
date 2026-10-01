@@ -403,6 +403,13 @@ export const prepareAttachmentFiles = (
   return import("./document-attachments").then(async ({ extractDocumentAttachments }) => {
     const extracted = await extractDocumentAttachments(file, reservedFilenames)
     if (!extracted) return
+    // Keep archive preflight, but deliver the workbook itself so formulas, styles and charts survive.
+    if (extensionOf(file.name) === "xlsx") {
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      const original = file.type === mimeType ? file
+        : new File([file], file.name, { type: mimeType, lastModified: file.lastModified })
+      return [{ file: original, mimeType }]
+    }
     const prepared: PreparedAttachmentFile[] = [{ file: extracted.textFile, mimeType: "text/plain" }]
     for (const image of extracted.images) {
       const output = await prepareAttachmentFile(image)
