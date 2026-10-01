@@ -7,7 +7,8 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { resetClientErrorReportsForPage } from '@/lib/clientErrorReport';
 import { useSessionUIStore } from './session-ui-store';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
-import { SyncProvider } from './sync-context';
+import { SyncProvider, useSessionMessageLoadState, useSessionRenderable } from './sync-context';
+import { useSync } from './use-sync';
 import { acceptedView, deferred, directory, nativeDraftFixture, session } from './native-draft-fixture';
 
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
@@ -103,6 +104,129 @@ for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
       if (location) Object.defineProperty(globalThis, 'location', location); else Reflect.deleteProperty(globalThis, 'location');
       globalThis.fetch = fixtureFetch;
       dom.restore();
+    }
+  }, 10_000);
+}
+
+// Match the expanded BtwPanel's stable ensure effect and mounted load-state subscription.
+function MountedFork({ sessionID }: { sessionID: string }) {
+  const sync = useSync();
+  const renderable = useSessionRenderable(sessionID, directory);
+  useSessionMessageLoadState(sessionID, directory);
+  React.useEffect(() => {
+    if (!renderable) void sync.ensureSessionRenderable(sessionID, false, directory);
+  }, [renderable, sessionID, sync]);
+  return null;
+}
+
+for (const finish of ['foreground', 'unmount', 'hidden-empty'] as const) {
+  test(`mounted idle fork first history survives hiding until ${finish}`, async () => {
+    fixture = nativeDraftFixture();
+    const dom = installHookTestDom();
+    const documentEvents = new EventTarget();
+    const location = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: new URL('http://synthetic.invalid/') });
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true,
+      addEventListener: documentEvents.addEventListener.bind(documentEvents),
+      removeEventListener: documentEvents.removeEventListener.bind(documentEvents) });
+    const root = createRoot(dom.container);
+    const fork = { ...session, id: '01234567-1234-4234-9234-012345678902', parentID: session.id };
+    const forkTarget = { directory, sessionID: fork.id };
+    const streamStarted = deferred<void>();
+    let heartbeat = () => {};
+    const fixtureFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/global/event')) return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        heartbeat = () => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ directory,
+          payload: { type: 'server.heartbeat', properties: {} } })}\n\n`));
+        request.signal.addEventListener('abort', () => controller.close(), { once: true });
+        heartbeat(); streamStarted.resolve();
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      if (path.endsWith(`/session/${session.id}`)) return Response.json(session);
+      if (path.endsWith(`/session/${fork.id}`)) return Response.json(fork);
+      return fixtureFetch(input, init);
+    };
+    const forkStarted = deferred<Request>();
+    const forkResponse = deferred<Response>();
+    let parentReads = 0, forkReads = 0, commits = 0;
+    const page = (sessionID: string, id: string) => Response.json([{ info: { id, sessionID, role: 'user', time: { created: 1 },
+      agent: 'build', model: { providerID: 'p', modelID: 'm' } }, parts: [] }]);
+    fixture.handlers.history = async request => {
+      if (new URL(request.url).pathname.endsWith(`/session/${fork.id}/message`)) {
+        forkReads++; forkStarted.resolve(request); return forkResponse.promise;
+      }
+      parentReads++; return page(session.id, 'parent');
+    };
+    useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: directory });
+    let stop = () => {};
+    try {
+      const sdk = opencodeClient.getSdkClient();
+      await act(async () => root.render(<SyncProvider sdk={sdk} directory="">{null}</SyncProvider>));
+      const loader = getImperativeSessionMessageLoader()!;
+      const { getSyncChildStores } = await import('./sync-refs');
+      const store = getSyncChildStores().ensureChild(directory, { bootstrap: false });
+      store.setState({ session: [session, fork], session_status: { [session.id]: { type: 'idle' }, [fork.id]: { type: 'idle' } } });
+      await loader.ensure(target, { reason: 'navigation' });
+      stop = store.subscribe((state, previous) => { if (state.message[fork.id] !== previous.message[fork.id]) commits++; });
+      if (finish === 'hidden-empty') useSessionUIStore.setState({ currentSessionId: fork.id, currentSessionDirectory: directory });
+      await act(async () => root.render(<SyncProvider sdk={sdk} directory=""><MountedFork sessionID={fork.id} /></SyncProvider>));
+      const first = await forkStarted.promise;
+      await streamStarted.promise;
+      await sleep(50);
+      Object.assign(document, { visibilityState: 'hidden' });
+      await act(async () => documentEvents.dispatchEvent(new Event('visibilitychange')));
+      const detail = await opencodeClient.getScopedSdkClient(directory).session.get({ sessionID: fork.id });
+      expect(detail.data).toEqual(fork);
+      heartbeat(); await sleep(50);
+      expect(forkReads).toBe(1);
+      expect(parentReads).toBe(1);
+      if (finish === 'hidden-empty') {
+        await act(async () => {
+          forkResponse.resolve(Response.json([]));
+          for (let attempts = 0; attempts < 100 && loader.getSnapshot(forkTarget).status !== 'ready'; attempts++) await sleep(10);
+        });
+        expect(loader.getSnapshot(forkTarget)).toMatchObject({ status: 'ready', resolved: true });
+        Object.assign(document, { visibilityState: 'visible' });
+        await act(async () => {
+          documentEvents.dispatchEvent(new Event('visibilitychange'));
+          await sleep(50);
+        });
+        expect(store.getState().message[fork.id]).toEqual([]);
+        expect(commits).toBe(1);
+        expect(first.signal.aborted).toBe(false);
+      } else if (finish === 'foreground') {
+        Object.assign(document, { visibilityState: 'visible' });
+        documentEvents.dispatchEvent(new Event('visibilitychange'));
+        documentEvents.dispatchEvent(new Event('visibilitychange'));
+        await act(async () => {
+          forkResponse.resolve(page(fork.id, 'fork'));
+          // Only observe after the original navigation/effect demand: no manual ensure or refresh.
+          for (let attempts = 0; attempts < 100 && loader.getSnapshot(forkTarget).status !== 'ready'; attempts++) await sleep(10);
+        });
+        expect(loader.getSnapshot(forkTarget)).toMatchObject({ status: 'ready', resolved: true });
+        expect(store.getState().message[fork.id]?.map(message => message.id)).toEqual(['fork']);
+        expect(commits).toBe(1);
+        expect(first.signal.aborted).toBe(false);
+      } else {
+        await act(async () => root.render(<SyncProvider sdk={sdk} directory="">{null}</SyncProvider>));
+        expect(first.signal.reason).toMatchObject({ origin: 'disposed' });
+        forkResponse.resolve(page(fork.id, 'fork')); await sleep(50);
+        Object.assign(document, { visibilityState: 'visible' });
+        documentEvents.dispatchEvent(new Event('visibilitychange')); await sleep(50);
+        expect(loader.getSnapshot(forkTarget)).toMatchObject({ status: 'idle', resolved: false });
+        expect(store.getState().message[fork.id]).toBeUndefined();
+        expect(commits).toBe(0);
+      }
+      expect(parentReads).toBe(1);
+      expect(forkReads).toBe(1);
+      expect(sentReports()).toEqual([]);
+    } finally {
+      forkResponse.resolve(page(fork.id, 'fork'));
+      stop(); await act(async () => root.unmount()); await sleep(10);
+      if (location) Object.defineProperty(globalThis, 'location', location); else Reflect.deleteProperty(globalThis, 'location');
+      globalThis.fetch = fixtureFetch; dom.restore();
     }
   }, 10_000);
 }
