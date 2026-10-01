@@ -8,7 +8,7 @@ import { useHumanAuth } from '@/lib/human-auth';
 import { readTabSession, recordTabShownSession, tabSessionNamespace } from './tab-session-route';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { isVSCodeRuntime } from '@/lib/desktop';
-import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view';
+import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent, subscribePersonalSidebarViewMutations } from '@/lib/sidebar-view';
 
 /** Keep route intent through discovery; unknown membership is not an absent session. */
 export async function openSessionFromRoute(sessionId: string, options?: { initial?: boolean; personalReveal?: boolean }): Promise<void> {
@@ -31,11 +31,31 @@ export async function openSessionFromRoute(sessionId: string, options?: { initia
   const current = () => isRuntimeRequestScopeCurrent(scope) && readLastActiveSession(runtimeKey)?.sessionId === id
     && (!personal || (preferenceAdmission !== undefined && isPersonalSidebarAdmissionCurrent(preferenceAdmission)
       && useSessionUIStore.getState().sessionRevealRevision === routeRevision));
-  const namespace = personal ? await tabSessionNamespace(scope) : null;
+  // Keep manual collapse sticky while the owner GET classifies this link, without starting a reload ticket.
+  const projects: Record<string, boolean> = {};
+  const groups: Record<string, boolean> = {};
+  const collapsed = { projects, groups };
+  const stopCapture = personal ? subscribePersonalSidebarViewMutations(patch => {
+    if (!current()) return;
+    for (const field of ['projects', 'groups'] as const) {
+      collapsed[field] = { ...collapsed[field],
+        ...Object.fromEntries(Object.entries(patch[field] ?? {}).filter(([, value]) => value === true)) };
+    }
+  }) : undefined;
+  let namespace: string | null;
+  try { namespace = personal ? await tabSessionNamespace(scope) : null; }
+  finally { stopCapture?.(); }
   if (!current() || useSessionUIStore.getState().sessionRevealRevision !== revision) return;
   const ownReload = Boolean(options?.initial && namespace && readTabSession(namespace) === id);
   const ticket = personal && namespace && !ownReload ? initial.beginSessionReveal(scope, preferenceAdmission) : undefined;
   routeRevision = ticket?.revision ?? revision;
+  const live = useSessionUIStore.getState();
+  // Begin notifies synchronous subscribers: transfer only to our still-live marker, never its successor.
+  if (ticket && current() && live.sessionRevealRevision === ticket.revision
+    && live.sessionRevealIntent?.revision === ticket.revision && live.sessionRevealIntent.scope === scope
+    && live.sessionRevealIntent.preferenceAdmission === preferenceAdmission) {
+    live.blockSessionReveal(collapsed);
+  }
 
   const status = useProjectsStore.getState().managedCatalogStatus;
   if (!isVSCodeRuntime() && status !== 'stock' && status !== 'ready') {
