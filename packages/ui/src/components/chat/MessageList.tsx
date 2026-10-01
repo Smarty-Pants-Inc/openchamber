@@ -1367,17 +1367,48 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }), [baseDisplayMessages, retryOverlay]);
 
     const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
+    // Keep only committed layout coordinates, never message records. An index event fences reads immediately but
+    // its empty coverage is not a replacement page and must not insert a session-sized gap into visible content.
+    const committedLayoutRef = React.useRef<{
+        sessionKey: string; positions?: SessionPositions; positionOf: Map<string, number>; revision: number;
+    }>({ sessionKey, positionOf: new Map(), revision: 0 });
+    if (committedLayoutRef.current.sessionKey !== sessionKey) {
+        committedLayoutRef.current = { sessionKey, positionOf: new Map(), revision: 0 };
+    }
+    const layout = committedLayoutRef.current;
+    const nativePositions = positions?.historyEpoch !== undefined;
+    const coherentPositions = positions && (positions.ranges.length > 0 || positions.total === 0);
+    if (nativePositions && coherentPositions && layout.positions !== positions) {
+        // Same ancestry is not a waiver for a real gap-layout correction under a new positional projection.
+        if (layout.positions && layout.positions.historyEpoch === positions.historyEpoch && layout.positions.epoch !== positions.epoch
+            && JSON.stringify(gapsOf(layout.positions.ranges, layout.positions.total)) !== JSON.stringify(gapsOf(positions.ranges, positions.total))) {
+            layout.revision += 1;
+        }
+        layout.positions = positions;
+        layout.positionOf = new Map();
+        for (const message of displayMessages) {
+            const at = positionOf?.(message.info.id);
+            if (at !== undefined) layout.positionOf.set(message.info.id, at);
+        }
+    }
+    const awaitingPositions = nativePositions && !coherentPositions;
+    const layoutPositions = awaitingPositions ? layout.positions : positions;
+    const committedPositionOf = layout.positionOf;
+    const layoutPositionOf = React.useMemo(
+        () => awaitingPositions ? (id: string) => committedPositionOf.get(id) : positionOf,
+        [awaitingPositions, committedPositionOf, positionOf],
+    );
     // smarty-code#583: the first loaded message of each window after a gap, so its opening replies show.
     const windowStartIds = React.useMemo(() => {
-        if (!positions || !positionOf || positions.ranges.length === 0) return undefined;
-        const starts = new Set(positions.ranges.filter((range) => range.start > 0).map((range) => range.start));
+        if (!layoutPositions || !layoutPositionOf || layoutPositions.ranges.length === 0) return undefined;
+        const starts = new Set(layoutPositions.ranges.filter((range) => range.start > 0).map((range) => range.start));
         const ids = new Set<string>();
         for (const message of displayMessages) {
-            const position = positionOf(message.info.id);
+            const position = layoutPositionOf(message.info.id);
             if (position !== undefined && starts.has(position)) ids.add(message.info.id);
         }
         return ids.size ? ids : undefined;
-    }, [displayMessages, positions, positionOf]);
+    }, [displayMessages, layoutPositions, layoutPositionOf]);
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         windowStartIds,
         sessionKey,
@@ -1448,16 +1479,21 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     );
     // smarty-code#583: the list as long as the whole session, with a gap row for each unloaded range of positions.
     const allEntries = React.useMemo<TimelineEntry[]>(
-        () => positions && positionOf
-            ? insertGaps(renderEntries, gapsOf(positions.ranges, positions.total), positionOf, GAP_RECORD_PX,
-                positions.ranges[positions.ranges.length - 1]?.end ?? 0)
+        () => layoutPositions && layoutPositionOf
+            ? insertGaps(renderEntries, gapsOf(layoutPositions.ranges, layoutPositions.total), layoutPositionOf, GAP_RECORD_PX,
+                layoutPositions.ranges[layoutPositions.ranges.length - 1]?.end ?? 0)
             : renderEntries,
-        [positionOf, positions, renderEntries],
+        [layoutPositionOf, layoutPositions, renderEntries],
     );
 
-    // smarty-code#583: the timeline is mounted anew when the session's positions arrive or change epoch (see its key).
-    // The reader's place in the list being replaced is read now, while it is still registered.
-    const timelineKey = `${sessionKey}:${positions?.epoch ?? 'unpositioned'}`;
+    // Native history changes only at a coherent layout boundary. First positioning still initializes the whole
+    // session (#583); a rewritten history still restores the reader's row and nonzero offset (#457).
+    // Older gateways retain the positional-epoch contract. The reader is captured while the old list is registered.
+    const timelineKey = nativePositions
+        ? layoutPositions?.historyEpoch !== undefined
+            ? `native:${JSON.stringify([sessionKey, layoutPositions.historyEpoch, layout.revision])}`
+            : `${sessionKey}:unpositioned`
+        : `${sessionKey}:${positions?.epoch ?? 'unpositioned'}`;
     const initialScroll = React.useMemo(
         () => initialScrollFor(readerPlace(listRef.current?.getState(), (key) => {
             // The reader's row where it is on screen now, relative to the scroller (the list header included).
@@ -1499,6 +1535,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             anim.sessionKey = sessionKey;
             anim.previousOrder = currentUserOrder;
             anim.animatedIds = new Set();
+        }
+
+        // An offscreen send may be armed without ever mounting. Once its display identity leaves the projection,
+        // discard that own animation token so a later durable alias cannot replay it over already-visible content.
+        if (anim.animatedIds.size > 0) {
+            const shownIds = new Set(currentUserOrder);
+            for (const id of anim.animatedIds) if (!shownIds.has(id)) anim.animatedIds.delete(id);
         }
 
         // Detect appended user messages
@@ -1900,7 +1943,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         // arriving inside the streaming tail keeps its own animations.
         <FadeInDisabledProvider disabled>
             <TimelineList
-                // smarty-code#583: when the session's positions first arrive (or its index epoch changes), the list goes
+                // smarty-code#583: when the session's positions first arrive (or its history/layout changes), the list goes
                 // from the loaded rows alone to the whole session's length at once (gap rows above them, ~80 px a
                 // record). Kept mounted, the list's own position keeping applied that insertion as a scroll offset
                 // more than once (candidate: a 17.4k-record session reached 2.2M px with its rows at 0.73M px and
