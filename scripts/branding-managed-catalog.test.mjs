@@ -36,6 +36,25 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
+  assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
+  delete historical.proxyConnectionSource;
+  const proxyConnection = historical.files.filter(entry => 'proxyConnectionSha256' in entry);
+  assert.deepEqual(proxyConnection.map(entry => entry.path), ['packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of proxyConnection) {
+    assert.equal(entry.proxyConnectionSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+    assert.equal(entry.proxyConnectionSha256, entry.combinedSha256);
+    assert.equal(entry.preProxyConnectionCombinedSha256, 'a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68');
+    assert.equal(entry.preProxyConnectionCombinedSha256, entry.codeMadeListSha256);
+    assert.ok(entry.proxyConnectionNote);
+    entry.combinedSha256 = entry.preProxyConnectionCombinedSha256;
+    delete entry.preProxyConnectionCombinedSha256;
+    delete entry.proxyConnectionSha256;
+    delete entry.proxyConnectionNote;
+  }
+  assert.equal(digest(JSON.stringify(historical)), '2513793752310488e83c73a53feb82d7c460dee9c95d70db10e3b7220d29f9b9');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), '72239c6062dcc912d129a727209d7c92c926532b465469c363a1f49b3cfab822');
+
   // Security comment 5919567288 extends the released held-open correction, not its historical output.
   assert.deepEqual(historical.personalSidebarRevealProvenance, {
     reviewedHead: 'a536a54446b8009d3b85a617e6f67d8434d5de96',

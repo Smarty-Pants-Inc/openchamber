@@ -921,6 +921,9 @@ export const registerOpenCodeProxy = (app, deps) => {
           proxyReq.removeHeader?.('x-opencode-directory-encoding');
         }
 
+        // ponytail: Connection is hop-by-hop; a client's close must not reach the keep-alive upstream (#1147).
+        proxyReq.removeHeader('connection');
+
         // Defensive: request identity encoding from upstream OpenCode.
         // This avoids compressed-body/header mismatches in multi-proxy setups.
         proxyReq.setHeader('accept-encoding', 'identity');
