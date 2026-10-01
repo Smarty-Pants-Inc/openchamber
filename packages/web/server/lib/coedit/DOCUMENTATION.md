@@ -24,9 +24,10 @@ round 4); until then no conflict could be seen.
 ## Save and recovery rules
 - **The helper runs as its own account** (smartyfs#32). The **coedit-fs service** configuration has systemd start
   one helper per connection to `OPENCHAMBER_COEDIT_SOCKET` (`/run/smarty-coedit/fs.sock`, only the served account may
-  connect), as the system account `smarty-coedit`, with its private directory `/var/lib/smarty-coedit/staging` (inside
-  its own 0700 home). So no program running as the account it serves can reach its staged or displaced entries. The
-  bridge sends the project root in the first request (`hello {root}`); nothing else is served before it.
+  connect), as the system account `smarty-coedit`, with its private directory `/var/lib/smarty-coedit/staging`.
+  The home `/var/lib/smarty-coedit` is root-owned, group `smarty-coedit`, mode 0710. Its entries stay root-controlled.
+  The helper owns staging, mode 0700. The served account cannot reach its staged or displaced entries. The bridge
+  sends the project root in the first request (`hello {root}`); nothing else is served before it.
   - **The service authorizes what a connection may name** (#412 finding 1). Any process of the served account can
     connect, so the helper itself checks: the root must belong to the served account, and must be neither the private
     directory, inside it, nor an ancestor of it (compared by device and inode, walking `..`). Paths resolve beneath
