@@ -169,7 +169,7 @@ test('Forge workflows bind exact successor bytes without replacing coverage or p
   });
   assert.equal(sha256(read('branding/coverage.json')), overlay.forgeRunnerProvenance.coverageSha256);
   const expected = [
-    ['.github/workflows/oc-review.yml', 'b1a9b7c0c4743c1af912dd1ca505b4c4e9c73bcc1ef41e985512f4a436c4c71a', '0aee779d18d348867daa53840e6a56cbbcb55eda3c83847cf9b089f5bd560080'],
+    ['.github/workflows/oc-review.yml', 'b1a9b7c0c4743c1af912dd1ca505b4c4e9c73bcc1ef41e985512f4a436c4c71a', '674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297'],
     ['.github/workflows/docs-source.yml', '238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc', '238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc'],
     ['.github/workflows/build-macos-arm64-dmg.yml', '282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357', '973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4'],
     ['.github/workflows/mobile-ci.yml', '915c779672e7d1208049f607edd7a6272798b31b4390a2cffba1b876753763b5', 'ba7b58fbd604d6b23c1ad0474e802e42dd6772c937f9bef3eebbf6fc9a074131'],

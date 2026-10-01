@@ -60,6 +60,11 @@ jobs:
       - name: Changelog outputs match their sources
         run: bun run changelog:check
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+
       - name: Tests
         run: bun run test
 
