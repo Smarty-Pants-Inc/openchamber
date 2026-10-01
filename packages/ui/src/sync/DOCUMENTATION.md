@@ -219,6 +219,8 @@ Rules:
 2. One in-flight request is shared by all callers. Foreground demand may promote the visible load kind of an existing prefetch without starting another request.
 3. Load state is explicit per session: `idle`, `loading`, `ready`, or `error`. Fetch failure preserves prior materialized records and exposes retry; it never becomes authoritative empty success.
 4. Async commits are generation-checked. Runtime switches, forced refreshes, eviction, and disposal must reject stale completion.
+   Each history read has a loader-owned abort controller. Navigation, last-consumer cleanup, page hide/unload, runtime rebinding, disposal, and supersession abort with a typed lifecycle reason. They retire the applicable generation without reporting a failure or erasing materialized records. Window reads survive same-epoch tail refreshes.
+   Unowned current aborts remain visible failures. Reports include the error name and HTTP status when available, otherwise ` (network)` for proven fetch failures or ` (aborted)` for aborts. A bare status-less `AbortError` is never reported.
 5. Prefetch coverage and persisted directory data are runtime-scoped. Legacy persisted directory entries may seed startup continuity, but they are not live truth.
 6. Message and part materialization preserves references for unchanged records and maintains direct message-to-parts lookup. Consumers subscribe to the selected session's records rather than broad message/part containers.
    Directory `sessionStatusReady` records successful status-snapshot authority independently of bootstrap's general readiness. Before that flag or an explicit session status arrives, telemetry treats an omitted status as unknown. A failed status request cannot grant idle authority; the flag is not persisted.

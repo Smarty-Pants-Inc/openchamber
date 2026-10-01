@@ -89,23 +89,25 @@ export function reportUnhandled(error: Error, now = Date.now()): void {
  * What a failed operation's report says about its error (smarty-code#1058): its name and its HTTP status, found on the
  * error or on its `cause` chain (a wrapped SDK failure keeps the fetch's own error there). Only a TypeError/NetworkError
  * from the fetch or body-read boundary, with no HTTP status, gets ` (network)`. Processing errors do not. Callers report
- * only a CURRENT failure (the loader returns early for a stale read),
+ * only a CURRENT failure after rejecting explicitly owned lifecycle cancellation. Status-less aborts get ` (aborted)`,
  * so an abort that reaches here is a failure the person sees (#451 r2: a relay body cut by the read limit): it is named,
  * `TimeoutError` when its reason says the read limit fired, never hidden.
  */
 const HttpStatus = z.union([z.object({ status: z.number().int() }), z.object({ response: z.instanceof(Response) })
   .transform(({ response }) => ({ status: response.status }))]);
 export function failureReport(error: Error, boundary: 'fetch' | 'processing' = 'processing') {
-  let name = 'Error', status: number | undefined, network = false;
+  let name = 'Error', status: number | undefined, network = false, aborted = false;
   for (let at: Error | undefined = error, depth = 0; at && depth < 5; at = at.cause instanceof Error ? at.cause : undefined, depth++) {
     // A read-limit abort names its cause (native fetch rejects with the signal's TimeoutError reason; a relay body may not).
-    if (at.name === 'AbortError' && at.cause instanceof Error && at.cause.name === 'TimeoutError') { name = 'TimeoutError'; break; }
+    if (at.name === 'AbortError' && at.cause instanceof Error && at.cause.name === 'TimeoutError') name = 'TimeoutError';
+    aborted ||= at.name === 'AbortError' || at.name === 'TimeoutError';
     // Only a class-shaped name is a code; anything else could be content.
     if (name === 'Error' && /^[A-Z][A-Za-z]{0,40}Error$/.test(at.name)) name = at.name;
     network ||= boundary === 'fetch' && (at.name === 'TypeError' || at.name === 'NetworkError');
     status ??= HttpStatus.safeParse(at).data?.status;
   }
-  return { message: status === undefined && network ? `${name} (network)` : name, status };
+  const cause = status !== undefined ? '' : network ? ' (network)' : aborted ? ' (aborted)' : '';
+  return { message: `${name}${cause}`, status };
 }
 
 let listening = false;

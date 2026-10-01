@@ -5,7 +5,7 @@ import { failureReport, resetClientErrorReportsForPage } from '@/lib/clientError
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 
 // smarty-code#1058: on 3.59, 12 of 16 session-messages reports said only "Error", with no status, all on just-created
-// sessions. A report names the error and its HTTP status; an aborted or superseded read is no failure and not reported.
+// sessions. Reports name current failures and their cause; only owned lifecycle cancellations are silent.
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
 afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorReportsForPage(); });
 const Report = z.object({ kind: z.string(), at: z.number(), message: z.string().optional(), sessionID: z.string().optional(),
@@ -26,12 +26,51 @@ test('a current read cut mid-body by the read limit (relay tunnel: its own Abort
   expect(fixture.loader.getSnapshot(target).status).toBe('error');
   const sent = await reports();
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.message).toBe('AbortError');
+  expect(sent[0]!.message).toBe('AbortError (aborted)');
 });
 test('an abort whose cause is the read limit is named TimeoutError', () => {
   const limit = new DOMException('signal timed out', 'TimeoutError');
   expect(failureReport(new Error('wrapped', { cause: Object.assign(new DOMException('aborted', 'AbortError'), { cause: limit }) })))
-    .toEqual({ message: 'TimeoutError', status: undefined });
+    .toEqual({ message: 'TimeoutError (aborted)', status: undefined });
+});
+
+test('an unknown current prefetch abort reports its name and aborted cause (#1058)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => { throw new DOMException('unknown cancellation', 'AbortError'); };
+  await fixture.loader.prefetch(target);
+  await sleep(50);
+  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.prefetch', message: 'AbortError (aborted)', status: undefined }]);
+});
+
+test('a current timeout abort is reported with its cause (#1058)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => { throw new DOMException('read limit fired', 'TimeoutError'); };
+  await fixture.loader.ensure(target, { reason: 'navigation' });
+  await sleep(50);
+  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.initial', message: 'TimeoutError (aborted)', status: undefined }]);
+});
+
+test('a 503 is reported with its status (#1058)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => Response.json({ name: 'UnavailableError' }, { status: 503 });
+  await fixture.loader.ensure(target, { reason: 'navigation' });
+  await sleep(50);
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.initial', message: 'Error', status: 503 }]);
+}, 10_000);
+
+test('a timeout cause does not discard HTTP status elsewhere in the chain (#1058)', () => {
+  const timeout = new DOMException('read limit fired', 'TimeoutError');
+  const abort = Object.assign(new DOMException('aborted', 'AbortError'), { cause: timeout });
+  expect(failureReport(Object.assign(new Error('wrapped', { cause: abort }), { status: 503 }), 'fetch'))
+    .toEqual({ message: 'TimeoutError', status: 503 });
+  Object.assign(timeout, { status: 404 });
+  expect(failureReport(new Error('wrapped', { cause: abort }), 'fetch'))
+    .toEqual({ message: 'TimeoutError', status: 404 });
 });
 
 const staleView = () => Response.json([], { headers: { 'x-smarty-ordinary-view': `ov2_${'b'.repeat(64)}` } });
@@ -160,7 +199,7 @@ test('an error carrying a status keeps it; a current abort on its cause chain is
     .toEqual({ message: 'RangeError', status: 500 });
   expect(failureReport(Object.assign(new Error('x'), { response: new Response(null, { status: 429 }) })))
     .toEqual({ message: 'Error', status: 429 });
-  expect(failureReport(new Error('wrapped', { cause: new DOMException('stop', 'AbortError') }))).toEqual({ message: 'AbortError', status: undefined });
+  expect(failureReport(new Error('wrapped', { cause: new DOMException('stop', 'AbortError') }))).toEqual({ message: 'AbortError (aborted)', status: undefined });
   // A name that is not class-shaped may be content: never sent.
   expect(failureReport(Object.assign(new Error('x'), { name: 'merger plan' }))).toEqual({ message: 'Error', status: undefined });
 });

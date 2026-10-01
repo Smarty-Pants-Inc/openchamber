@@ -3096,6 +3096,27 @@ export function SyncProvider(props: {
     }
   }, [childStores, messageLoader])
 
+  useEffect(() => {
+    // Selection publication is authoritative, including tab close and navigation to a draft.
+    const stopNavigation = useSessionUIStore.subscribe((state, previous) => {
+      if (state.currentSessionId === previous.currentSessionId && state.currentSessionDirectory === previous.currentSessionDirectory) return
+      if (previous.currentSessionId && previous.currentSessionDirectory) {
+        messageLoader.cancelReads({ directory: previous.currentSessionDirectory, sessionID: previous.currentSessionId }, "navigation")
+      }
+    })
+    const hidden = () => { if (document.visibilityState === "hidden") messageLoader.cancelReads(undefined, "hidden") }
+    const unload = () => messageLoader.cancelReads(undefined, "unload")
+    globalThis.document?.addEventListener("visibilitychange", hidden)
+    globalThis.window?.addEventListener?.("pagehide", unload)
+    globalThis.window?.addEventListener?.("beforeunload", unload)
+    return () => {
+      stopNavigation()
+      globalThis.document?.removeEventListener("visibilitychange", hidden)
+      globalThis.window?.removeEventListener?.("pagehide", unload)
+      globalThis.window?.removeEventListener?.("beforeunload", unload)
+    }
+  }, [messageLoader])
+
   // Subscribe to child store for streaming state derivation
   useEffect(() => {
     if (!props.directory) return

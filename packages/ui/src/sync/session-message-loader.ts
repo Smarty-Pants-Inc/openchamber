@@ -60,11 +60,22 @@ export type SessionMessageLoadState = {
 
 export type SessionPositions = { total: number; ranges: Range[]; epoch?: string }
 
+type LifecycleCancellationReason = "navigation" | "hidden" | "unload" | "disposed" | "superseded" | "runtime-changed"
+
+/** A reason owned by this loader, never inferred from an upstream AbortError's name or message. */
+class LifecycleReadCancellation extends Error {
+  override name = "AbortError"
+  constructor(readonly origin: LifecycleCancellationReason) { super("Session history lifecycle cancellation") }
+}
+
+type PendingHistoryRead = { controller: AbortController; kind: "load" | "window" | "replacement" }
+
 type LoaderEntry = {
   target: SessionMessageTarget
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
+  reads: Set<PendingHistoryRead>
   /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
    * reloads of one failed open are one error, however often they fail. */
   reportId: string
@@ -252,6 +263,11 @@ export class SessionMessageLoader {
     this.runtimeKey = configuration.runtimeKey
     this.sdkEpoch += 1
     for (const entry of this.entries.values()) {
+      this.abortReads(entry, "runtime-changed")
+      entry.replaceEpoch++
+      entry.windowLoads.clear()
+      entry.queuedRefresh = null
+      entry.queuedRefreshLimit = 0
       entry.snapshot = {
         ...entry.snapshot,
         status: entry.snapshot.resolved ? "ready" : "idle",
@@ -507,12 +523,13 @@ export class SessionMessageLoader {
     // connections) converges: View only events are full-state only, and the gateway tail publishes anything a read saw
     // beyond its baseline at its next tick, because a read never moves that baseline (the gateway's readOnlyReadBaseline
     // capability, smarty-code#507; view-only-watch.ts watches only such a gateway).
+    this.abortReads(entry, "superseded", (read) => read.kind === "replacement")
     const epoch = ++entry.replaceEpoch
     const owns = () => !this.disposed && !signal?.aborted && entry.replaceEpoch === epoch
       && this.entries.get(this.keyFor(normalized)) === entry && this.childStores.getChild(normalized.directory) === store
     for (let attempt = 0; owns(); attempt++) {
       const events = sessionMessageEventCount(normalized.sessionID), commits = entry.commits, demand = entry.demand
-      const page = await this.fetchPage(normalized, getInitialPageSize(), undefined, "refresh", undefined, () => !owns())
+      const page = await this.fetchPage(normalized, getInitialPageSize(), undefined, "refresh", undefined, () => !owns(), undefined, undefined, signal, "replacement")
         .catch(() => null)
       if (!owns() || entry.ordinary) return // Another load adopted an ordinary view: the session left View only.
       // It left View only: the ordinary loading path owns that transition, including its coverage (smarty-code#497).
@@ -672,7 +689,10 @@ export class SessionMessageLoader {
     if (!normalized) return () => undefined
     const entry = this.getEntry(normalized)
     entry.listeners.add(listener)
-    return () => entry.listeners.delete(listener)
+    return () => {
+      if (!entry.listeners.delete(listener)) return
+      if (!entry.listeners.size && this.entries.get(this.keyFor(normalized)) === entry) this.cancelReads(normalized, "disposed")
+    }
   }
 
   optimisticAdd(input: SessionMessageTarget & { message: Message; parts: Part[] }): void {
@@ -748,8 +768,35 @@ export class SessionMessageLoader {
     }
   }
 
+  /** Retire owned reads without erasing materialized history or turning cancellation into a load failure. */
+  cancelReads(target: SessionMessageTarget | undefined, reason: LifecycleCancellationReason): void {
+    const normalized = target ? this.normalizeTarget(target) : undefined
+    if (target && !normalized) return
+    const selected = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    const entries = normalized ? selected ? [selected] : [] : this.entries.values()
+    for (const entry of entries) {
+      if (!entry.inflight && !entry.reads.size && !entry.windowLoads.size) continue
+      this.abortReads(entry, reason)
+      this.bumpGeneration(entry)
+      entry.replaceEpoch++
+      entry.inflight = null
+      entry.queuedRefresh = null
+      entry.queuedRefreshLimit = 0
+      entry.windowLoads.clear()
+      this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null, error: null })
+    }
+  }
+
+  private abortReads(entry: LoaderEntry, reason: LifecycleCancellationReason,
+    includes: (read: PendingHistoryRead) => boolean = () => true): void {
+    for (const read of entry.reads) {
+      if (includes(read) && !read.controller.signal.aborted) read.controller.abort(new LifecycleReadCancellation(reason))
+    }
+  }
+
   dispose(): void {
     this.disposed = true
+    this.cancelReads(undefined, "disposed")
     this.sdkEpoch += 1
     for (const entry of this.entries.values()) {
       this.bumpGeneration(entry)
@@ -791,6 +838,7 @@ export class SessionMessageLoader {
         : createDefaultState(),
       listeners: new Set(),
       inflight: null,
+      reads: new Set(),
       reportId: newOperationId(),
       openUnanswered: false,
       loadedOnce: false,
@@ -821,7 +869,8 @@ export class SessionMessageLoader {
 
   /** keepWindows: a same-epoch tail refresh; window reads in flight stay valid (openchamber#363 r13). */
   private bumpGeneration(entry: LoaderEntry, keepWindows = false): number {
-    if (!keepWindows) entry.windowGeneration++
+    this.abortReads(entry, "superseded", (read) => read.kind === "load" || (!keepWindows && read.kind === "window"))
+    if (!keepWindows) { entry.windowGeneration++; entry.windowLoads.clear() }
     const generation = entry.snapshot.generation + 1
     entry.snapshot = { ...entry.snapshot, generation }
     return generation
@@ -980,7 +1029,16 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
     at?: number,
     epoch?: string,
+    release?: AbortSignal,
+    kind: PendingHistoryRead["kind"] = at !== undefined ? "window" : "load",
   ): Promise<FetchedPage> {
+    const entry = this.entries.get(this.keyFor(target))
+    const read: PendingHistoryRead = { controller: new AbortController(), kind }
+    entry?.reads.add(read)
+    const { controller } = read
+    const released = () => controller.abort(new LifecycleReadCancellation("navigation"))
+    release?.addEventListener("abort", released, { once: true })
+    if (release?.aborted) released()
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
     const finishPagePerformance = startSessionLoadPerformanceEvent({
@@ -999,7 +1057,8 @@ export class SessionMessageLoader {
       // too slow to load) will not answer sooner, and three tries kept the page on its loading skeleton for over a
       // minute with nothing said (smarty-code#536, #562). It fails at once; the page shows why, with Try again.
       const result = await retry(async () => {
-        if (cancelled?.()) throw new SupersededReadError("Session history read cancelled") // Not transient: no retry, no request.
+        if (cancelled?.() && !controller.signal.aborted) controller.abort(new LifecycleReadCancellation("superseded"))
+        controller.signal.throwIfAborted() // Only this read's owned cancellation stops dispatch and retries.
         attempts += 1
         // smarty-code#583: the SDK passes `$query_` keys through. A newest page asks from the end (`at=-n`);
         // an older gateway ignores it. Window reads also name their index epoch so a changed index returns 409.
@@ -1010,7 +1069,8 @@ export class SessionMessageLoader {
         let response: Awaited<ReturnType<OpencodeClient["session"]["messages"]>>
         try {
           response = await this.sdk.session.messages({ sessionID: target.sessionID, directory: target.directory,
-            limit, before, ...query })
+            limit, before, ...query }, { signal: controller.signal })
+          controller.signal.throwIfAborted()
           assertSdkSuccess(response, "session.messages")
         } catch (error) {
           // Only the SDK fetch/body read and its returned error, never page processing below, name a network failure.
@@ -1024,7 +1084,7 @@ export class SessionMessageLoader {
           throw error
         }
         return { data, response: response.response }
-      }, { retryIf: error => isTransientError(error) && !(opening && error instanceof Error && unanswered(error)) })
+      }, { retryIf: error => !controller.signal.aborted && isTransientError(error) && !(opening && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
@@ -1056,6 +1116,8 @@ export class SessionMessageLoader {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
     } finally {
+      release?.removeEventListener("abort", released)
+      entry?.reads.delete(read)
       if (performance) performance.retryCount += Math.max(0, attempts - 1)
     }
   }
@@ -1228,6 +1290,7 @@ export class SessionMessageLoader {
         if (!isCurrent()) return
         this.commitPage(normalized, entry, store, page, "prepend", isCurrent)
       }, (error: unknown) => {
+        if (!isCurrent()) return
         // 409: the positions this window was asked by belong to an older index epoch: start over (contract section 3).
         if ((error as { status?: number })?.status === 409 && isCurrent()) {
           this.epochChanged(normalized, entry, entry.snapshot.positions?.total ?? 0, undefined)
@@ -1235,7 +1298,7 @@ export class SessionMessageLoader {
         }
         throw error
       })
-      .finally(() => { entry.windowLoads.delete(key) })
+      .finally(() => { if (entry.windowLoads.get(key) === load) entry.windowLoads.delete(key) })
     entry.windowLoads.set(key, load)
     return load
   }
