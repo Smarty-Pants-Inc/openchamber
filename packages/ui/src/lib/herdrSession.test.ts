@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
-import { HERDR_STATE_DOT, herdrSignature, liveHerdrState, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
+import { HERDR_STATE_DOT, herdrChangedLast, herdrSignature, liveHerdrState, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
 
 test('each Herdr state reads as itself and has its own marker; stock rows have none (smarty-code#126 (c)5)', () => {
   const states = ['working', 'blocked', 'done', 'idle', 'unknown', 'ended'] as const;
@@ -75,5 +75,28 @@ describe('#1140: liveHerdrState', () => {
     expect(liveHerdrState('working', 'busy')).toBe('working');
     expect(liveHerdrState('done', 'idle')).toBe('done');
     expect(liveHerdrState('idle', 'idle')).toBe('idle');
+  });
+});
+
+// #1140 (code-lead 02:32Z): done takes whichever comes first, Herdr's done or native idle; Working follows native busy;
+// the marker never bounces back.
+describe('#1140: change order', () => {
+  const run = (id: string, steps: Array<[ReturnType<typeof readHerdrState>, string | undefined]>) =>
+    steps.map(([h, n]) => liveHerdrState(h, n, herdrChangedLast(id, h, n)));
+  test('a whole turn: Working at native busy, done at Herdr\'s earlier done, no bounce while native is still busy', () => {
+    expect(run('turn-1', [['done', 'idle'], ['done', 'busy'], ['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', 'idle']]))
+      .toEqual(['done', 'working', 'working', 'done', 'done', 'done']);
+  });
+  test('a new turn after a stale done: native busy is newer, so Working (not the stale done)', () => {
+    expect(run('turn-2', [['done', 'idle'], ['done', 'busy']])).toEqual(['done', 'working']);
+  });
+  test('native idle first (Herdr still working): done, and it stays done when Herdr follows', () => {
+    expect(run('turn-3', [['working', 'busy'], ['working', 'idle'], ['done', 'idle']])).toEqual(['working', 'done', 'done']);
+  });
+  test('the same values again (a re-render or a remount) do not reorder: still done', () => {
+    expect(run('turn-4', [['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', 'busy']])).toEqual(['working', 'done', 'done', 'done']);
+  });
+  test('a row first seen mid-window (Herdr done, native busy) has no order: native wins until it changes', () => {
+    expect(run('turn-5', [['done', 'busy'], ['done', 'idle']])).toEqual(['working', 'done']);
   });
 });
