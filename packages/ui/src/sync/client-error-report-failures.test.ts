@@ -103,6 +103,57 @@ test('a network failure is reported as a TypeError with no HTTP answer', async (
     .toEqual([{ kind: 'session-messages.initial', message: 'TypeError (network)', status: undefined }]);
 }, 10_000);
 
+test('a malformed page processed after the body read reports TypeError without claiming a network failure (#1125)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => Response.json([{ info: { id: 'malformed', sessionID: session.id,
+    role: 'user', time: { created: 1 } }, parts: {} }]);
+  await fixture.loader.ensure(target, { reason: 'navigation' });
+  await sleep(50);
+  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  expect(fixture.loader.getSnapshot(target).error).toBeInstanceOf(TypeError);
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.initial', message: 'TypeError', status: undefined }]);
+});
+
+test('a non-ordinary refresh superseded without replacement reads reports failure without exhaustion (#1125)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => Response.json([]);
+  await fixture.loader.ensure(target, { reason: 'navigation' });
+  expect(fixture.loader.getSnapshot(target).status).toBe('ready');
+  expect(fixture.loader.isOrdinary(target, fixture.runtimeA)).toBe(false);
+  let reads = 0;
+  fixture.handlers.history = async () => {
+    reads++;
+    fixture!.loader.invalidateOrdinaryViews();
+    return staleView();
+  };
+  await fixture.loader.refreshTail(target, 50);
+  await sleep(50);
+  expect(reads).toBe(1);
+  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.refresh', message: 'SupersededReadError', status: undefined }]);
+});
+
+test('a TypeError while reading the response body still reports a network failure (#1125)', async () => {
+  fixture = nativeDraftFixture();
+  fixture.handlers.history = async () => new Response(new ReadableStream({ start(controller) {
+    controller.error(new TypeError('Body stream failed'));
+  } }), { headers: { 'content-type': 'application/json' } });
+  await fixture.loader.ensure(target, { reason: 'navigation' });
+  await sleep(50);
+  expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  expect((await reports()).map(({ kind, message, status }) => ({ kind, message, status })))
+    .toEqual([{ kind: 'session-messages.initial', message: 'TypeError (network)', status: undefined }]);
+}, 10_000);
+
+test('network names require fetch provenance and an HTTP status still wins on the cause chain (#1125)', () => {
+  const failure = new Error('wrapped', { cause: new TypeError('Failed to fetch') });
+  expect(failureReport(failure)).toEqual({ message: 'TypeError', status: undefined });
+  expect(failureReport(failure, 'fetch')).toEqual({ message: 'TypeError (network)', status: undefined });
+  const httpFailure = new Error('wrapped', { cause: Object.assign(new TypeError('Failed to read'), { status: 502 }) });
+  expect(failureReport(httpFailure, 'fetch')).toEqual({ message: 'TypeError', status: 502 });
+});
 test('an error carrying a status keeps it; a current abort on its cause chain is named, not hidden (#451 r2)', () => {
   expect(failureReport(Object.assign(new Error('boom'), { status: 502 }))).toEqual({ message: 'Error', status: 502 });
   expect(failureReport(new Error('wrapped', { cause: Object.assign(new RangeError('x'), { status: 500 }) })))

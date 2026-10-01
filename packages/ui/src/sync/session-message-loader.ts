@@ -119,11 +119,16 @@ type FetchedPage = {
   ordinaryView?: string
   readOnly: boolean
   viewEpoch: number
+  /** The open read across reconnects through both replacement reads, not just a single stale refresh. */
+  replacementReadsExhausted?: boolean
   /** The journal state a View only newest page reflects (`x-smarty-journal-at`, #278 r11). */
   journalAt?: string
   /** The session's live message-event revision when the read started (sessionMessageEventCount). */
   eventsAtRead: number
 }
+
+/** Position keys forwarded by the SDK's `$query_` passthrough for history range reads. */
+type HistoryPositionQuery = { $query_at?: number; $query_epoch?: string }
 
 type LoadPerformanceDetails = {
   retryCount: number
@@ -197,10 +202,11 @@ const assertSdkSuccess = (result: {
 }
 
 /** A read the loader itself gave up: its view was read across a stream reconnect, or its owner cancelled it. When a newer
- * read took over, the load is stale and not reported; when the load is still current it failed for the person (the open
- * used up its replacement reads): reported as `SupersededReadError (superseded-exhausted)` (smarty-code#1058 r1). */
+ * read took over, the load is stale and not reported; when the load is still current it failed for the person. Only an
+ * open that used up its replacement reads reports ` (superseded-exhausted)` (smarty-code#1058 r1, #1125). */
 export class SupersededReadError extends Error {
   override name = "SupersededReadError"
+  constructor(message: string, readonly replacementReadsExhausted = false) { super(message) }
 }
 
 const filterIdentifiedParts = (parts: Part[]): Part[] => parts
@@ -227,6 +233,8 @@ export class SessionMessageLoader {
   private ordinaryEpoch = 0
   private disposed = false
   private readonly entries = new Map<string, LoaderEntry>()
+  /** Error identity preserves boundary provenance without changing the error the page sees or retaining failures. */
+  private readonly fetchFailures = new WeakSet<Error>()
 
   constructor(
     private readonly childStores: ChildStoreManager,
@@ -874,8 +882,8 @@ export class SessionMessageLoader {
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536), with the error's name
         // and HTTP status (smarty-code#1058). Only an obsolete read is silent (the !isCurrent() return above): a current
         // abort (a relay body cut by the read limit, #451 r2) or a superseded read with no successor (r1) is reported.
-        const report = failureReport(failure)
-        if (failure instanceof SupersededReadError) report.message += " (superseded-exhausted)"
+        const report = failureReport(failure, this.fetchFailures.has(failure) ? "fetch" : "processing")
+        if (failure instanceof SupersededReadError && failure.replacementReadsExhausted) report.message += " (superseded-exhausted)"
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
         reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, sessionID: target.sessionID, runtimeKey, operationId,
@@ -958,7 +966,8 @@ export class SessionMessageLoader {
     performance?: LoadPerformanceDetails): Promise<FetchedPage> {
     for (let attempt = 0; ; attempt++) {
       const page = await this.fetchPage(target, limit, undefined, "initial-page", performance)
-      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || attempt >= 2 || !isCurrent()) return page
+      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || !isCurrent()) return page
+      if (attempt >= 2) return { ...page, replacementReadsExhausted: true }
     }
   }
 
@@ -992,19 +1001,22 @@ export class SessionMessageLoader {
       const result = await retry(async () => {
         if (cancelled?.()) throw new SupersededReadError("Session history read cancelled") // Not transient: no retry, no request.
         attempts += 1
-        const response = await this.sdk.session.messages({
-          sessionID: target.sessionID,
-          directory: target.directory,
-          limit,
-          before,
-          // smarty-code#583: a window by position (the gateway's range read); the SDK passes `$query_` keys through.
-          // A newest page asks from the end (`at=-n`): the gateway then tells its position and the session's size. An
-          // older gateway ignores `at` and serves the same newest page.
-          ...(at !== undefined ? { $query_at: at } : before === undefined && limit <= 500 ? { $query_at: -limit } : {}),
-          // A window names the index epoch its positions came from: the gateway answers 409 once it has changed.
-          ...(at !== undefined && epoch !== undefined ? { $query_epoch: epoch } : {}),
-        } as Parameters<OpencodeClient["session"]["messages"]>[0])
-        assertSdkSuccess(response, "session.messages")
+        // smarty-code#583: the SDK passes `$query_` keys through. A newest page asks from the end (`at=-n`);
+        // an older gateway ignores it. Window reads also name their index epoch so a changed index returns 409.
+        const query: HistoryPositionQuery = {}
+        if (at !== undefined) query.$query_at = at
+        else if (before === undefined && limit <= 500) query.$query_at = -limit
+        if (at !== undefined && epoch !== undefined) query.$query_epoch = epoch
+        let response: Awaited<ReturnType<OpencodeClient["session"]["messages"]>>
+        try {
+          response = await this.sdk.session.messages({ sessionID: target.sessionID, directory: target.directory,
+            limit, before, ...query })
+          assertSdkSuccess(response, "session.messages")
+        } catch (error) {
+          // Only the SDK fetch/body read and its returned error, never page processing below, name a network failure.
+          if (error instanceof Error) this.fetchFailures.add(error)
+          throw error
+        }
         const data = response.data
         if (!Array.isArray(data)) {
           const error: Error & { status?: number } = new Error("session.messages returned no data")
@@ -1069,7 +1081,7 @@ export class SessionMessageLoader {
       entry.positionOf.clear()
     }
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
-      throw new SupersededReadError("Ordinary history view was disconnected before materialization")
+      throw new SupersededReadError("Ordinary history view was disconnected before materialization", page.replacementReadsExhausted)
     }
     // A session shown live whose Pi then ended is read from its journal: read-only, with no view. It leaves ordinary mode
     // here, not "could not be loaded" (smarty-code#963 residual, 3.54). A live page without a view is still refused.
