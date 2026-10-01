@@ -22,7 +22,7 @@ const en = sidebarHerdrI18n.en;
 
 test('each Continue state says what is true, and offers only safe actions', async () => {
   const root = createRoot(dom.container);
-  const resume = { directory: '/p/smarty-code', sessionID: 'ses_ended', project: 'smarty-code' };
+  const resume = { directory: '/p/smarty-code', sessionID: 'ses_ended', project: 'smarty-code', available: true };
   const buttons = () => [...dom.container.querySelectorAll('button')].map(b => b.textContent);
   const text = () => dom.container.textContent ?? '';
   const show = async (value: ContinueStatus | undefined) => { status = value; await act(async () => root.render(<FleetViewOnlyBanner ended resume={resume} />)); };

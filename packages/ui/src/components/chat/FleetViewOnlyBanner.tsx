@@ -14,11 +14,11 @@ export const FLEET_ENROLLMENT_URL = 'https://github.com/Smarty-Pants-Inc/smarty-
  * offer to continue it in a new Pi (smarty-code#365), following that start until the view turns live.
  */
 export const FleetViewOnlyBanner: React.FC<{ noIdentity?: boolean; ended?: boolean; reloading?: boolean;
-    resume?: { directory: string; sessionID: string; project: string } }> = ({ noIdentity = false, ended = false, reloading = false, resume }) => {
+    resume?: { directory: string; sessionID: string; project: string; available: boolean } }> = ({ noIdentity = false, ended = false, reloading = false, resume }) => {
     const { t } = useI18n();
     const status = useContinueStatus(resume?.sessionID, resume?.directory);
     const run = (work: (directory: string, sessionID: string) => Promise<void>) => {
-        if (!resume) return;
+        if (!resume || (work === continueEndedSession && !resume.available)) return;
         // Only a refusal the server explained arrives here (still running, open in a tab); nothing is retried.
         void work(resume.directory, resume.sessionID).catch(error => {
             toast.error(error instanceof NativeCreationError && error.detail !== undefined
@@ -27,7 +27,8 @@ export const FleetViewOnlyBanner: React.FC<{ noIdentity?: boolean; ended?: boole
     };
     const project = { project: resume?.project ?? '' };
     // Continue is offered again only where no start is known to be running: never after a reply that was lost.
-    const canContinue = !status || status.status === 'stopped' || (status.status === 'unknown' && status.checked === true);
+    const canContinue = resume?.available === true
+        && (!status || status.status === 'stopped' || (status.status === 'unknown' && status.checked === true));
     return (
         <div className="w-full py-3" data-testid="fleet-view-only">
             <div className="chat-input-column">

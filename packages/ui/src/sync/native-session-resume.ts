@@ -22,11 +22,20 @@ const targetFor = (directory: string, sessionID: string): ContinueTarget => {
   return { directory, sessionID, key: keyFor(scope.runtimeKey, directory, sessionID), scope };
 };
 const POLL_MS = 1000, LIMIT_MS = 330_000;
-const current = new Map<string, ContinueStatus>();
+type ContinueRecord = { target: ContinueTarget; value: ContinueStatus };
+const current = new Map<string, ContinueRecord>();
 const listeners = new Set<() => void>();
-const set = (key: string, value: ContinueStatus | undefined) => {
-  if (value) current.set(key, value); else current.delete(key);
+const owns = (record: ContinueRecord) => current.get(record.target.key) === record;
+const publish = (record: ContinueRecord, value: ContinueStatus | undefined) => {
+  if (!owns(record)) return;
+  if (value) record.value = value; else current.delete(record.target.key);
   listeners.forEach(listener => listener());
+};
+const claim = (target: ContinueTarget, value: ContinueStatus): ContinueRecord => {
+  const record = { target, value };
+  current.set(target.key, record);
+  publish(record, value);
+  return record;
 };
 const STOPPED = ['denied', 'cancelled', 'expired'];
 export const resumeTiming = { poll: (ms: number) => new Promise<void>(done => setTimeout(done, ms)) };
@@ -34,31 +43,38 @@ export const resumeTiming = { poll: (ms: number) => new Promise<void>(done => se
 export function useContinueStatus(sessionID: string | null | undefined, directory?: string): ContinueStatus | undefined {
   const key = sessionID && directory ? keyFor(getRuntimeKey(), directory, sessionID) : undefined;
   return React.useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    () => (key ? current.get(key) : undefined), () => undefined);
+    () => (key ? current.get(key)?.value : undefined), () => undefined);
 }
 
 /** Follow only this operation's captured transport; the loader owns the read-only-to-live history transition. */
-async function follow(target: ContinueTarget, requestId: string, first: NativeCreationState) {
+async function follow(record: ContinueRecord, requestId: string, first: NativeCreationState) {
+  const { target } = record;
   const began = Date.now();
   let now = first;
-  const unknown = () => set(target.key, { status: 'unknown', requestId, operationId: now.operationId });
+  const unknown = () => publish(record, { status: 'unknown', requestId, operationId: now.operationId });
   for (;;) {
+    if (!owns(record)) return;
     if (!isRuntimeRequestScopeCurrent(target.scope) || now.directory !== target.directory) { unknown(); return; }
     if (now.phase === 'ready') {
+      publish(record, { status: 'starting', requestId, operationId: now.operationId });
+      if (!owns(record)) return;
       const loader = getImperativeSessionMessageLoader();
       if (!loader) { unknown(); return; }
-      try { await loader.ensure({ directory: target.directory, sessionID: target.sessionID }, { reason: 'navigation', force: true }); }
+      const historyTarget = { directory: target.directory, sessionID: target.sessionID };
+      try { await loader.refreshTail(historyTarget, loader.getSnapshot(historyTarget).limit); }
       catch { unknown(); return; }
-      if (!isRuntimeRequestScopeCurrent(target.scope)) { unknown(); return; }
+      if (!owns(record)) return;
+      if (!isRuntimeRequestScopeCurrent(target.scope) || getImperativeSessionMessageLoader() !== loader) { unknown(); return; }
       const view = loader.getSnapshot({ directory: target.directory, sessionID: target.sessionID });
       if (view.status !== 'ready' || !view.resolved || view.readOnly === true) { unknown(); return; }
-      set(target.key, undefined);
+      publish(record, undefined);
       return;
     }
-    if (STOPPED.includes(now.phase)) { set(target.key, { status: 'stopped' }); return; }
-    set(target.key, { status: 'starting', requestId, operationId: now.operationId });
+    if (STOPPED.includes(now.phase)) { publish(record, { status: 'stopped' }); return; }
+    publish(record, { status: 'starting', requestId, operationId: now.operationId });
     if (Date.now() - began > LIMIT_MS) { unknown(); return; }
     await resumeTiming.poll(POLL_MS);
+    if (!owns(record)) return;
     if (!isRuntimeRequestScopeCurrent(target.scope)) { unknown(); return; }
     now = await opencodeClient.readNativeCreation(target.directory, now.operationId).catch(() => now);
   }
@@ -66,35 +82,38 @@ async function follow(target: ContinueTarget, requestId: string, first: NativeCr
 
 export async function continueEndedSession(directory: string, sessionID: string): Promise<void> {
   const target = targetFor(directory, sessionID);
-  const known = current.get(target.key);
+  const known = current.get(target.key)?.value;
   if (known?.status === 'starting' || (known?.status === 'unknown' && known.checked !== true)) return;
   const requestId = crypto.randomUUID();
-  set(target.key, { status: 'starting', requestId });
+  const record = claim(target, { status: 'starting', requestId });
   let start: NativeCreationState;
   try { start = await opencodeClient.resumeNativeSession(directory, sessionID, requestId); }
   catch (error) {
+    if (!owns(record)) return;
     // A safe message alone is not proof of refusal: a 5xx may explicitly describe an unknown outcome.
     if (isRuntimeRequestScopeCurrent(target.scope) && error instanceof NativeCreationError && error.detail !== undefined
       && error.status !== undefined && error.status >= 400 && error.status < 500 && error.status !== 408) {
-      set(target.key, undefined); throw error;
+      publish(record, undefined); throw error;
     }
-    set(target.key, { status: 'unknown', requestId }); return;
+    publish(record, { status: 'unknown', requestId }); return;
   }
-  await follow(target, requestId, start);
+  await follow(record, requestId, start);
 }
 
 /** Check again only reads. A failed list preserves unknown; only an answered list can say no matching start was listed. */
 export async function checkContinue(directory: string, sessionID: string): Promise<void> {
   const target = targetFor(directory, sessionID);
-  const known = current.get(target.key);
+  const known = current.get(target.key)?.value;
   if (known?.status !== 'unknown') return;
+  const record = claim(target, known);
   const listed = await opencodeClient.listNativeCreations(directory).catch(() => undefined);
+  if (!owns(record)) return;
   if (!listed || !isRuntimeRequestScopeCurrent(target.scope)) {
-    set(target.key, { status: 'unknown', requestId: known.requestId, operationId: known.operationId }); return;
+    publish(record, { status: 'unknown', requestId: known.requestId, operationId: known.operationId }); return;
   }
   const start = listed.find(operation => operation.clientRequestId === known.requestId || operation.operationId === known.operationId);
-  if (start) { await follow(target, known.requestId, start); return; }
-  set(target.key, { ...known, checked: true });
+  if (start) { await follow(record, known.requestId, start); return; }
+  publish(record, { ...known, checked: true });
 }
 
 /** Tests model a page load. */

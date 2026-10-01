@@ -5,7 +5,7 @@ import { noteSessionReadFailed } from "@/lib/openSessionReadFailure";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source, SessionStatus as SDKSessionStatus } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
-import { sessionVoiceSchema, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
+import { sessionVoiceSchema, NativeCreationError, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
   nativeCreationListSchema, type NativeCreationResult, type NativeCreationReply } from './nativeCreation';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
@@ -721,6 +721,14 @@ class OpencodeService {
     return { mode, clientRequestId: capabilities?.creationClientRequestId === 1, abandon: capabilities?.creationAbandon === 1 };
   }
 
+  /** An explicit selected-project capability, not inferred from ordinary Create support. */
+  async supportsNativeResume(directory: string): Promise<boolean> {
+    const scope = captureRuntimeRequestScope();
+    const response = await this.getScopedSdkClient(directory).global.health();
+    assertRuntimeRequestScope(scope);
+    return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.ordinaryResume === 1;
+  }
+
   /**
    * Whether this session takes voice calls. A gateway with `sessionVoiceStatus` answers per session, with one plain
    * reason when not (smarty-code#126); a failed status read has no reason (the caller shows a generic one). An older
@@ -797,6 +805,10 @@ class OpencodeService {
 
   /** smarty-code#365: request one new Pi for an ended session and return its authoritative start state. */
   async resumeNativeSession(directory: string, sessionID: string, clientRequestId: string) {
+    const scope = captureRuntimeRequestScope();
+    const supported = await this.supportsNativeResume(directory);
+    assertRuntimeRequestScope(scope);
+    if (!supported) throw new NativeCreationError('unsupported', undefined, 'Continuing a session is not supported here', undefined, 501);
     return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, '/resume', { sessionID, clientRequestId })).nativeCreation;
   }
 
