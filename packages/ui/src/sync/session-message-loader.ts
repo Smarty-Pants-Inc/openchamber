@@ -776,9 +776,9 @@ export class SessionMessageLoader {
     const entries = normalized ? selected ? [selected] : [] : this.entries.values()
     for (const entry of entries) {
       if (!entry.inflight && !entry.reads.size && !entry.windowLoads.size) continue
-      // Mounted consumers, including an expanded /btw fork, still need their first page.
-      // Keep that bounded read alive; releasing the last subscriber still cancels it.
-      if (reason === "hidden" && entry.listeners.size && !entry.snapshot.resolved) continue
+      // Mounted consumers still need their reads, including first hydration and visible gap windows.
+      // Keep that bounded work alive on hide; releasing the last subscriber still cancels it.
+      if (reason === "hidden" && entry.listeners.size) continue
       this.abortReads(entry, reason)
       this.bumpGeneration(entry)
       entry.replaceEpoch++
