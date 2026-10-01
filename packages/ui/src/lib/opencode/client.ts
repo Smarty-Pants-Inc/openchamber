@@ -7,6 +7,7 @@ import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
 import { sessionVoiceSchema, NativeCreationError, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
   nativeCreationListSchema, type NativeCreationResult, type NativeCreationReply } from './nativeCreation';
+import { withNativeCreationDeadline } from './nativeCreationDeadline';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -724,7 +725,10 @@ class OpencodeService {
   /** An explicit selected-project capability, not inferred from ordinary Create support. */
   async supportsNativeResume(directory: string): Promise<boolean> {
     const scope = captureRuntimeRequestScope();
-    const response = await this.getScopedSdkClient(directory).global.health();
+    const response = await withNativeCreationDeadline(signal => {
+      assertRuntimeRequestScope(scope);
+      return this.getScopedSdkClient(directory).global.health({ signal });
+    });
     assertRuntimeRequestScope(scope);
     return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.ordinaryResume === 1;
   }
@@ -783,10 +787,16 @@ class OpencodeService {
       options.headers = { ...NATIVE_CREATION_FIELDS, 'Content-Type': 'application/json' };
       options.body = JSON.stringify(reply);
     }
-    const response = await runtimeFetch(`/api/session/creation${suffix}`, options);
-    const body: unknown = await response.json();
+    const body = await withNativeCreationDeadline(async signal => {
+      assertRuntimeRequestScope(scope);
+      const response = await runtimeFetch(`/api/session/creation${suffix}`, { ...options, signal });
+      assertRuntimeRequestScope(scope);
+      const body: unknown = await response.json();
+      assertRuntimeRequestScope(scope);
+      if (!response.ok) throw nativeCreationFailure(body, response.status);
+      return body;
+    });
     assertRuntimeRequestScope(scope);
-    if (!response.ok) throw nativeCreationFailure(body, response.status);
     return body;
   }
 

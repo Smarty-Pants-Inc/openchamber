@@ -26,6 +26,18 @@ newer Continue cohort. A ready operation queues a fresh authoritative tail behin
 older loader work and clears recovery only when that current loader/runtime accepts
 a resolved writable view. Failure/readonly history leaves recovery reachable.
 
+Each capability, resume POST, operation GET or list wait has a75s limit, including
+its response body. The POST limit exceeds the server's60s handoff. These are
+separate waits, not a75s bound for the whole action. A timeout retains the original
+request and last known operation as unknown, so Check again stays reachable after
+a remount. Only reads recover it. A late reply cannot publish over a newer attempt,
+and a browser abort does not prove that native launch was cancelled.
+
+A ready operation's fresh-history observation also has a75s limit. Expiring that
+observation does not cancel the loader's shared read or its queued freshness work.
+Recovery clears only after the current loader accepts a resolved writable view;
+a timed-out or failed list is never treated as an authoritative empty list.
+
 Late session-only project trust is server-owned by the existing operation GET/list
 seam after the60s POST handoff. An exclusive attempt precedes the native choice;
 concurrent reads, lost replies and recreated operation owners cannot replay it.

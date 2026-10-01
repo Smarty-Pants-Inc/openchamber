@@ -1,6 +1,7 @@
 import React from 'react';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, type NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { NATIVE_CREATION_DEADLINE_MS, withNativeCreationDeadline } from '@/lib/opencode/nativeCreationDeadline';
 import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
 
@@ -61,7 +62,13 @@ async function follow(record: ContinueRecord, requestId: string, first: NativeCr
       const loader = getImperativeSessionMessageLoader();
       if (!loader) { unknown(); return; }
       const historyTarget = { directory: target.directory, sessionID: target.sessionID };
-      try { await loader.refreshTail(historyTarget, loader.getSnapshot(historyTarget).limit); }
+      // Observation only: the shared loader read and queued freshness demand keep their independent lifetime.
+      try { await withNativeCreationDeadline(() => {
+        if (!owns(record) || !isRuntimeRequestScopeCurrent(target.scope) || getImperativeSessionMessageLoader() !== loader) {
+          throw new NativeCreationError('unknown');
+        }
+        return loader.refreshTail(historyTarget, loader.getSnapshot(historyTarget).limit);
+      }); }
       catch { unknown(); return; }
       if (!owns(record)) return;
       if (!isRuntimeRequestScopeCurrent(target.scope) || getImperativeSessionMessageLoader() !== loader) { unknown(); return; }
@@ -72,11 +79,18 @@ async function follow(record: ContinueRecord, requestId: string, first: NativeCr
     }
     if (STOPPED.includes(now.phase)) { publish(record, { status: 'stopped' }); return; }
     publish(record, { status: 'starting', requestId, operationId: now.operationId });
-    if (Date.now() - began > LIMIT_MS) { unknown(); return; }
-    await resumeTiming.poll(POLL_MS);
+    const remaining = () => Math.min(NATIVE_CREATION_DEADLINE_MS, LIMIT_MS - (Date.now() - began));
+    if (remaining() <= 0) { unknown(); return; }
+    try { await withNativeCreationDeadline(() => resumeTiming.poll(POLL_MS), remaining()); }
+    catch { unknown(); return; }
+    if (!owns(record)) return;
+    if (!isRuntimeRequestScopeCurrent(target.scope) || remaining() <= 0) { unknown(); return; }
+    let next: NativeCreationState;
+    try { next = await withNativeCreationDeadline(() => opencodeClient.readNativeCreation(target.directory, now.operationId), remaining()); }
+    catch { unknown(); return; }
     if (!owns(record)) return;
     if (!isRuntimeRequestScopeCurrent(target.scope)) { unknown(); return; }
-    now = await opencodeClient.readNativeCreation(target.directory, now.operationId).catch(() => now);
+    now = next;
   }
 }
 
@@ -97,6 +111,8 @@ export async function continueEndedSession(directory: string, sessionID: string)
     }
     publish(record, { status: 'unknown', requestId }); return;
   }
+  if (!owns(record)) return;
+  if (!isRuntimeRequestScopeCurrent(target.scope)) { publish(record, { status: 'unknown', requestId }); return; }
   await follow(record, requestId, start);
 }
 
