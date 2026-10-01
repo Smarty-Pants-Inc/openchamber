@@ -2940,9 +2940,10 @@ export function SyncProvider(props: {
         if (fleet && isStatusUnavailable(directory)) {
           if (noteStatusUnavailablePoll(directory)) {
             // Clearing unavailable native entries is not idle, even for rows that never rendered the outage.
-            forgetRowNativeStatus(candidateSessionIds)
-            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
-            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds, undefined, (clearedIds) => {
+              forgetRowNativeStatus(clearedIds)
+              applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
+            })
           }
           return
         }
