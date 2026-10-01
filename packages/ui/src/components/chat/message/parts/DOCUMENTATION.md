@@ -51,6 +51,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 ## Current important behavior
 
+- Chat HTTP(S) links and grouped fetch-link rows use the local `external-link`
+  sprite. Rendering link icons never fetches favicons or sends conversation
+  hostnames to a third party. Link targets and loopback preview actions are
+  unchanged across web, desktop, VS Code, hosted mobile, and Capacitor mobile.
+
 - Assistant markdown treats raw HTML as inert visible text. The final generated
   HTML is sanitized as defense in depth, with script and style elements
   forbidden, so message content cannot inject active DOM or application-wide

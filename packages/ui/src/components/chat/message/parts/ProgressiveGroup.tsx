@@ -23,7 +23,6 @@ import { ensureOutsideFileGrantForDesktop } from '@/lib/outsideFileGrants';
 import ReasoningPart from './ReasoningPart';
 import JustificationBlock from './JustificationBlock';
 import { areRenderRelevantPartsEqual } from '../renderCompare';
-import { getExternalFaviconUrl } from '@/lib/url';
 import { getDirectoryForFilePath, getRelativeFilePath, isFilePathWithinDirectory, normalizeFilePath, toAbsoluteFilePath } from '@/lib/path-utils';
 
 const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
@@ -45,29 +44,6 @@ interface ProgressiveGroupProps {
     animatedToolIds?: Set<string>;
     renderJustificationActions?: (activity: TurnActivityPart) => React.ReactNode;
 }
-
-const ExternalLinkFavicon: React.FC<{ href: string }> = ({ href }) => {
-    const [failed, setFailed] = React.useState(false);
-    const faviconUrl = React.useMemo(() => getExternalFaviconUrl(href), [href]);
-
-    if (!faviconUrl || failed) {
-        return null;
-    }
-
-    return (
-        <span className="inline-flex size-[18px] flex-shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)]">
-            <img
-                src={faviconUrl}
-                alt=""
-                aria-hidden="true"
-                loading="lazy"
-                decoding="async"
-                className="size-3.5 rounded-sm"
-                onError={() => setFailed(true)}
-            />
-        </span>
-    );
-};
 
 const isActivityRunning = (activity: TurnActivityPart): boolean => {
     if (activity.kind !== 'tool') return false;
@@ -738,7 +714,9 @@ const StaticToolRowInner: React.FC<{
                         style={{ color: 'var(--status-info)' }}
                         title={url}
                     >
-                        <ExternalLinkFavicon href={url} />
+                        <span className="inline-flex size-[18px] flex-shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)]">
+                            <Icon name="external-link" className="size-3.5" />
+                        </span>
                         <span className="min-w-0 truncate">{url}</span>
                     </a>
                 ))
