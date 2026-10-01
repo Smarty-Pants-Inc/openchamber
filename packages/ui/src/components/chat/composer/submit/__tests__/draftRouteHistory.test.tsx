@@ -11,6 +11,7 @@ import * as managedRefresh from '@/lib/managed-project-refresh';
 import * as globalSessions from '@/stores/useGlobalSessionsStore';
 import { useRouter } from '@/hooks/useRouter';
 import { readLastActiveSession } from '@/sync/last-session-cache';
+import { readChatDraft } from '@/lib/chatDraftPersistence';
 
 // smarty-code#113 (OC#213 review): a draft action cancels a pending session restore at once, address bar included, so
 // a reload before the restore settles shows the draft; leaving a shown session keeps its history entry.
@@ -70,6 +71,69 @@ test('leaving a shown session for New session keeps its history entry: Back retu
     expect(shown()).toBeNull();
     // The draft was pushed as its own entry, so the previous one (Back) is still the session just left.
     expect(push.mock.calls.map(call => String(call[2]))).toEqual([`/?session=${session.id}`, `/?session=${other.id}`, '/']);
+  } finally { push.mockRestore(); }
+});
+
+test('a settled managed route leaves New in history and on remount, with unsent text owned by A', async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  await c.replace(''); // The fixture's starting draft must not seed the next New composer.
+  await act(async () => {
+    useProjectsStore.getState().applyManagedCatalog([{ id: 'a', worktree: directory }]);
+    useGlobalSessionsStore.getState().applySnapshot([session], [], 'ready');
+    useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null, nativeDraftCreations: new Map() });
+    window.history.replaceState(null, '', `/?session=${session.id}`);
+    await mountRouter(c);
+  });
+  // Only the actual mounted router selects A, after its subscription starts with null.
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  expect(useSessionUIStore.getState().currentSessionDirectory).toBe(directory);
+  expect(shown()).toBe(session.id);
+  expect(readLastActiveSession(c.runtimeA)?.sessionId).toBe(session.id);
+  const newer = 'Newer unsent text owned by session A';
+  await c.replace(newer);
+  expect(c.text()).toBe(newer);
+  const push = spyOn(window.history, 'pushState');
+  try {
+    await act(async () => { useSessionUIStore.getState().openNewSessionDraft(); await settle(); });
+    expect(c.text()).toBe('');
+    expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(useSessionUIStore.getState().newSessionDraft.selectedProjectId).toBe('a');
+    expect(useSessionUIStore.getState().newSessionDraft.directoryOverride).toBe(directory);
+    expect(readLastActiveSession(c.runtimeA)).toBeNull();
+    expect(readChatDraft({ runtimeKey: c.runtimeA, directory, sessionId: session.id }).text).toBe(newer);
+    expect(c.prompts()).toHaveLength(0);
+    // A remains the preceding history entry; New must push its own address for Back.
+    expect({ query: shown(), pushes: push.mock.calls.map(call => String(call[2])) })
+      .toEqual({ query: null, pushes: ['/'] });
+    const newURL = window.location.href;
+    await act(async () => {
+      root?.unmount(); root = undefined;
+      useSessionUIStore.setState(state => ({ currentSessionId: null, currentSessionDirectory: null,
+        newSessionDraft: { ...state.newSessionDraft, open: false }, nativeDraftCreations: new Map() }));
+      window.history.replaceState(null, '', newURL);
+      c.remount();
+      await mountRouter(c);
+    });
+    expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+    await act(async () => { useSessionUIStore.getState().openNewSessionDraft({ automatic: true }); await settle(); });
+    expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(useSessionUIStore.getState().newSessionDraft.selectedProjectId).toBe('a');
+    expect(useSessionUIStore.getState().newSessionDraft.directoryOverride).toBe(directory);
+    expect(c.prompts()).toHaveLength(0);
+    expect(c.text()).toBe('');
+    expect(shown()).toBeNull();
+    expect(readLastActiveSession(c.runtimeA)).toBeNull();
+    await act(async () => {
+      root?.unmount(); root = undefined;
+      window.history.replaceState(null, '', `/?session=${session.id}`);
+      await mountRouter(c);
+    });
+    expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+    expect(shown()).toBe(session.id);
+    expect(c.text()).toBe(newer);
+    expect(c.prompts()).toHaveLength(0);
   } finally { push.mockRestore(); }
 });
 
