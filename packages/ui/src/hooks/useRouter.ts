@@ -182,10 +182,12 @@ export function useRouter(): void {
       return;
     }
     // A cleared restore pointer drops its ?session= unless the router's own navigation will move off that session
-    // (#113): while a route is still being applied, the router ignores selection changes, so the restore is pending.
+    // (#113): while a route is still being applied, the router suppresses URL updates, so the restore is pending.
     setShownSessionProbe(() => ({ applying: isApplyingRouteRef.current, shown: useSessionUIStore.getState().currentSessionId }));
 
     let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId;
+    // Receipt work skipped during route application still needs its own later selection notification.
+    let prevReceiptSessionId = prevSessionId;
 
     const unsubscribe = useSessionUIStore.subscribe((state) => {
       const sessionId = state.currentSessionId;
@@ -193,13 +195,15 @@ export function useRouter(): void {
       // An explicit draft cancels a receipt even while route application suppresses URL sync.
       // The automatic boot draft still has its pending restore pointer and must not erase it.
       const cleared = sessionId === null && !readLastActiveSession(getRuntimeKey());
-      if (cleared || (sessionId !== prevSessionId && !isApplyingRouteRef.current)) {
+      if (cleared || (sessionId !== prevReceiptSessionId && !isApplyingRouteRef.current)) {
+        prevReceiptSessionId = sessionId;
         const scope = captureRuntimeRequestScope();
         void tabSessionNamespace(scope).then(namespace => {
           if (namespace) recordTabShownSession(scope, namespace, sessionId);
         });
       }
-      if (sessionId === prevSessionId || isApplyingRouteRef.current) return;
+      // Keep the baseline current during route application; syncURLFromState suppresses URL publication.
+      if (sessionId === prevSessionId) return;
       prevSessionId = sessionId;
       syncURLFromState();
     });
