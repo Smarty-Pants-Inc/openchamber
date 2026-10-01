@@ -1874,7 +1874,9 @@ class OpencodeService {
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
     const key = JSON.stringify([effectiveDirectory ?? '', sessionId ?? null]);
 
-    const existing = this.configProvidersInFlight.get(key);
+    // Native recovery/relaunch must not reuse a catalog read dispatched for an older generation.
+    // Only project catalog reads share an in-flight request.
+    const existing = sessionId ? undefined : this.configProvidersInFlight.get(key);
     if (existing) {
       return existing;
     }
@@ -1893,6 +1895,7 @@ class OpencodeService {
       return unwrapSdkData(response, 'config.providers');
     })();
 
+    if (sessionId) return request;
     this.configProvidersInFlight.set(key, request);
     try {
       return await request;

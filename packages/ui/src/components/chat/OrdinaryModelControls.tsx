@@ -25,7 +25,7 @@ export function OrdinaryModelControls({ state: listed, target, className, reload
   const { t } = useI18n();
   const [busy, setBusy] = React.useState(false);
   const current = state.model;
-  const catalog = useOrdinaryModelCatalog(target, current);
+  const catalog = useOrdinaryModelCatalog(target, state, reloading);
   const { options } = catalog;
   const selected = current ? options.find(option => option.key === optionKey(current.providerID, current.modelID)) : undefined;
 

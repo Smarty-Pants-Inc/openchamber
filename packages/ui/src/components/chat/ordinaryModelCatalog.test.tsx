@@ -17,6 +17,7 @@ const { selectProvidersForDirectory, useConfigStore } = await import('@/stores/u
 import { deferred } from '@/lib/runtime-isolation-fixture';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
 import type { Provider } from '@opencode-ai/sdk/v2';
+import type { OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 
 const model = (id: string): Provider['models'][string] => ({
   id, providerID: 'p', name: id, family: 'fixture', api: { id, url: '', npm: '' },
@@ -41,17 +42,20 @@ function mount() {
     React.useLayoutEffect(() => { commits.push([...host.querySelectorAll('[role="combobox"]')].map(el => el.textContent ?? '')); });
     return null;
   }
-  const render = (sessionId: string, modelID = 'common') => act(async () => {
+  const renderState = (sessionId: string, state: OrdinaryModelState, reloading = false) => act(async () => {
     root.render(<I18nProvider><OrdinaryModelControls target={{ sessionId, directory: '/repo' }}
-      state={{ generation: sessionId, sequence: 1, thinkingLevel: null,
-        model: { providerID: 'p', modelID, name: modelID } }} /><Probe /></I18nProvider>);
+      state={state} reloading={reloading} /><Probe /></I18nProvider>);
+  });
+  const render = (sessionId: string, modelID = 'common') => renderState(sessionId, {
+    generation: sessionId, sequence: 1, thinkingLevel: null,
+    model: { providerID: 'p', modelID, name: modelID },
   });
   const open = () => act(async () => {
     host.querySelector<HTMLButtonElement>('[role="combobox"]')?.dispatchEvent(
       new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
   });
   const options = () => [...document.querySelectorAll('[role="option"]')].map(el => el.textContent);
-  return { render, open, options, commits, host, unmount: async () => {
+  return { render, renderState, open, options, commits, host, unmount: async () => {
     await act(async () => root.unmount()); host.remove();
   } };
 }
@@ -84,6 +88,143 @@ test('the menu uses only its session catalog; switching refetches and never pain
     await act(async () => { held.resolve(Response.json({ providers: [y], default: {} })); });
     await view.open();
     expect(view.options()).toEqual(['common', 'y-only']);
+  } finally { await view.unmount(); }
+});
+
+const nativeState = (generation: string, available = true, sequence = 1): OrdinaryModelState => ({
+  generation, sequence, thinkingLevel: null,
+  model: available ? { providerID: 'p', modelID: 'common', name: 'common' } : null,
+});
+
+test('the same session recovers its menu after an unavailable native catalog returns 503', async () => {
+  const requests: URL[] = [];
+  globalThis.fetch = async input => {
+    requests.push(new URL(input instanceof Request ? input.url : String(input)));
+    return requests.length === 1 ? Response.json({ error: 'Disconnected session' }, { status: 503 })
+      : Response.json({ providers: [provider('common', 'recovered-only')], default: {} });
+  };
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1', false));
+    expect(view.host.textContent).toContain('Unavailable');
+    await view.renderState('X', nativeState('g1'));
+    await view.open();
+    expect(view.options()).toEqual(['common', 'recovered-only']);
+    await view.renderState('X', nativeState('g1', true, 2));
+    expect(requests.map(url => [url.pathname, url.searchParams.get('directory'), url.searchParams.get('session')]))
+      .toEqual(Array.from({ length: 2 }, () => ['/api/config/providers', '/repo', 'X']));
+  } finally { await view.unmount(); }
+});
+
+for (const recovery of ['unavailable', 'reloading']) {
+  test(`the same session replaces its old menu on ${recovery} recovery without a generation change`, async () => {
+    let calls = 0;
+    globalThis.fetch = async () => Response.json({
+      providers: [++calls === 1 ? provider('common', 'old-only') : provider('common', 'recovered-only')], default: {},
+    });
+    const view = mount();
+    try {
+      await view.renderState('X', nativeState('g1'));
+      await view.open();
+      expect(view.options()).toEqual(['common', 'old-only']);
+      await view.renderState('X', nativeState('g1', recovery === 'reloading'), recovery === 'reloading');
+      await view.renderState('X', nativeState('g1'));
+      await view.open();
+      expect(view.options()).toEqual(['common', 'recovered-only']);
+      await view.renderState('X', nativeState('g1', true, 2));
+      expect(calls).toBe(2);
+    } finally { await view.unmount(); }
+  });
+}
+
+test('a new native generation replaces the menu even when its current model overlaps the old catalog', async () => {
+  let calls = 0;
+  const fresh = deferred<Response>();
+  globalThis.fetch = async () => ++calls === 1
+    ? Response.json({ providers: [provider('common', 'old-only')], default: {} }) : fresh.promise;
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1'));
+    await view.open();
+    expect(view.options()).toEqual(['common', 'old-only']);
+    view.commits.length = 0;
+    await view.renderState('X', nativeState('g2'));
+    expect(view.commits[0]).toEqual([]); // No stale picker, even before passive effects run.
+    await act(async () => { fresh.resolve(Response.json({ providers: [provider('common', 'new-only')], default: {} })); });
+    await view.open();
+    expect(view.options()).toEqual(['common', 'new-only']);
+    await view.renderState('X', nativeState('g2', true, 2));
+    expect(calls).toBe(2);
+  } finally { await view.unmount(); }
+});
+
+test('a late catalog from the previous native generation cannot populate the same session menu', async () => {
+  const old = deferred<Response>();
+  let calls = 0;
+  globalThis.fetch = async () => ++calls === 1 ? old.promise
+    : Response.json({ providers: [provider('common', 'new-only')], default: {} });
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1'));
+    await view.renderState('X', nativeState('g2'));
+    await act(async () => { old.resolve(Response.json({ providers: [provider('common', 'old-only')], default: {} })); });
+    await view.open();
+    expect(view.options()).toEqual(['common', 'new-only']);
+    expect(calls).toBe(2);
+  } finally { await view.unmount(); }
+});
+
+test('a relaunch with no model and no generation reads once when the fresh native report arrives', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => Response.json({
+    providers: [++calls === 1 ? provider('common', 'old-only') : provider('common', 'new-only')], default: {},
+  });
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1'));
+    const unavailable: OrdinaryModelState = { generation: null, sequence: 0, thinkingLevel: null, model: null };
+    await view.renderState('X', unavailable, true);
+    await view.renderState('X', unavailable, false);
+    expect(calls).toBe(1); // No read while reloading or waiting for the native model.
+    await view.renderState('X', nativeState('g2'));
+    await view.open();
+    expect(view.options()).toEqual(['common', 'new-only']);
+    expect(calls).toBe(2); // Recovery and generation change together still produce only one read.
+  } finally { await view.unmount(); }
+});
+
+test('a failed recovery stays closed without retrying until another native recovery', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => ++calls < 3 ? Response.json({ error: 'Disconnected session' }, { status: 503 })
+    : Response.json({ providers: [provider('common', 'recovered-only')], default: {} });
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1', false));
+    await view.renderState('X', nativeState('g1'));
+    expect(view.host.textContent).toContain('Unavailable');
+    expect(view.host.querySelector('[role="combobox"]')).toBeNull();
+    await view.renderState('X', nativeState('g1', true, 2));
+    expect(calls).toBe(2); // Neither errors nor later same-generation sequences start a retry loop.
+    await view.renderState('X', nativeState('g1', false, 3));
+    await view.renderState('X', nativeState('g1', true, 4));
+    await view.open();
+    expect(view.options()).toEqual(['common', 'recovered-only']);
+    expect(calls).toBe(3);
+  } finally { await view.unmount(); }
+});
+
+test('the bounded missing-model retry belongs to each native generation', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; return Response.json({ providers: [provider('other')], default: {} }); };
+  const view = mount();
+  try {
+    await view.renderState('X', nativeState('g1'));
+    expect(calls).toBe(2);
+    await view.renderState('X', nativeState('g2'));
+    expect(calls).toBe(4);
+    await view.renderState('X', nativeState('g2', true, 2));
+    expect(calls).toBe(4);
+    expect(view.host.querySelector('[role="combobox"]')).toBeNull();
   } finally { await view.unmount(); }
 });
 
