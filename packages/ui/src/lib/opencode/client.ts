@@ -311,7 +311,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       } else {
         signal = timeout.signal;
       }
-      // A read ends at body completion, not at response headers. This also keeps a polyfilled timeout alive.
+      // A request ends at body completion, not at response headers. This also keeps a polyfilled timeout alive.
       const cleanup = () => {
         detachFallback?.();
         timeout.cleanup();
@@ -353,7 +353,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
           url: { value: response.url }, redirected: { value: response.redirected }, type: { value: response.type },
         });
         bodyOwnsCleanup = true;
-        return guardRuntimeReadResponse(forwarded, scope);
+        return method === 'GET' || method === 'HEAD' ? guardRuntimeReadResponse(forwarded, scope) : forwarded;
       } catch (error) {
         if (timeout.signal.aborted && !callerSignal?.aborted) {
           throw new Error(`OpenCode request timed out after ${requestTimeoutMs}ms`);

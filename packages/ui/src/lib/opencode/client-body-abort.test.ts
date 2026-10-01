@@ -4,6 +4,49 @@ import { createRuntimeOpencodeClient } from './client';
 import { switchRuntimeEndpoint } from '../runtime-switch';
 import { deferred } from '../runtime-isolation-fixture';
 
+// Dispatch mutations using the official SDK, then rebind the same runtime while its accepted body is pending.
+for (const method of ['PATCH', 'DELETE'] as const) {
+  test(`accepted ${method} body returns to its origin across a same-key rebind`, async () => {
+    const body = deferred<ReadableStreamDefaultController<Uint8Array>>();
+    const readingBody = deferred<void>();
+    const calls: string[] = [];
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      if (!new URL(request.url).pathname.endsWith('/session/session')) return Response.json({});
+      calls.push(request.method);
+      return new Response(new ReadableStream<Uint8Array>({ start: body.resolve, pull: () => readingBody.resolve() },
+        { highWaterMark: 0 }), { headers: { 'content-type': 'application/json', 'x-origin-receipt': method } });
+    });
+    const runtime = { apiBaseUrl: 'http://synthetic.invalid', runtimeKey: `accepted-${method}` };
+    switchRuntimeEndpoint(runtime);
+    const sdk = createRuntimeOpencodeClient({ baseUrl: 'http://synthetic.invalid/api', requestTimeoutMs: 1000 });
+    const receipt = method === 'PATCH'
+      ? { id: 'session', time: { archived: 1 } }
+      : true;
+    const pending = method === 'PATCH'
+      ? sdk.session.update({ sessionID: 'session', time: { archived: 1 } }, { throwOnError: true })
+      : sdk.session.delete({ sessionID: 'session' }, { throwOnError: true });
+    // Attach a rejection handler before releasing the body so RED runs cannot leak a rejection.
+    const result = pending.then(value => value, error => ({ error }));
+    const controller = await body.promise;
+    let closed = false;
+    try {
+      await readingBody.promise;
+      switchRuntimeEndpoint(runtime);
+      controller.enqueue(new TextEncoder().encode(JSON.stringify(receipt))); controller.close(); closed = true;
+      const accepted = await result;
+      expect('error' in accepted).toBe(false);
+      if ('error' in accepted) throw accepted.error;
+      expect(accepted.data).toEqual(receipt);
+      expect(accepted.response.headers.get('x-origin-receipt')).toBe(method);
+      expect(calls).toEqual([method]);
+    } finally {
+      if (!closed) { controller.enqueue(new TextEncoder().encode(JSON.stringify(receipt))); controller.close(); }
+      await result; fetch.mockRestore();
+    }
+  });
+}
+
 // Use the real SDK and runtimeFetch. Headers are ready while the JSON body is still pending.
 for (const source of ['caller', 'native-timeout', 'fallback-timeout'] as const) {
   test(`without AbortSignal.any, ${source} cancels a body after headers`, async () => {
