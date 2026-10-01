@@ -15,6 +15,70 @@ afterEach(() => { fixture?.dispose(); fixture = undefined; resetClientErrorRepor
 const target = { directory, sessionID: session.id };
 const sentReports = () => fixture!.requests.filter(request => new URL(request.url).pathname === '/api/client-error');
 
+// Round 1: a quiet session has no later event/detail/heartbeat refresh to rescue its first read.
+for (const scenario of ['healthy', 'hide-show', 'hide-show-stale'] as const) {
+  test(`first history hydration ${scenario} commits once`, async () => {
+    fixture = nativeDraftFixture();
+    const dom = installHookTestDom();
+    const documentEvents = new EventTarget();
+    const location = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: new URL('http://synthetic.invalid/') });
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true,
+      addEventListener: documentEvents.addEventListener.bind(documentEvents),
+      removeEventListener: documentEvents.removeEventListener.bind(documentEvents) });
+    const root = createRoot(dom.container);
+    const firstStarted = deferred<Request>();
+    const firstResponse = deferred<Response>();
+    const secondResponse = deferred<Response>();
+    let reads = 0, commits = 0;
+    const page = (id: string) => Response.json([{ info: { id, sessionID: session.id, role: 'user', time: { created: 1 },
+      agent: 'build', model: { providerID: 'p', modelID: 'm' } }, parts: [] }]);
+    fixture.handlers.history = async request => {
+      reads++;
+      if (reads === 1) { firstStarted.resolve(request); return firstResponse.promise; }
+      return secondResponse.promise;
+    };
+    useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: directory });
+    let reading: Promise<void> | undefined;
+    let stop = () => {};
+    try {
+      await act(async () => root.render(<SyncProvider sdk={opencodeClient.getSdkClient()} directory="">{null}</SyncProvider>));
+      const loader = getImperativeSessionMessageLoader()!;
+      // Count actual store publications, not loader notifications or visibility callbacks.
+      const { getSyncChildStores } = await import('./sync-refs');
+      const store = getSyncChildStores().ensureChild(directory, { bootstrap: false });
+      stop = store.subscribe((state, previous) => { if (state.message[session.id] !== previous.message[session.id]) commits++; });
+      reading = loader.ensure(target, { reason: 'navigation' });
+      const first = await firstStarted.promise;
+      if (scenario !== 'healthy') {
+        Object.assign(document, { visibilityState: 'hidden' });
+        documentEvents.dispatchEvent(new Event('visibilitychange'));
+        expect(first.signal.reason).toMatchObject({ origin: 'hidden' });
+        expect(loader.getSnapshot(target)).toMatchObject({ status: 'idle', resolved: false, error: null });
+        if (scenario === 'hide-show') { firstResponse.resolve(page('old')); await reading; }
+        Object.assign(document, { visibilityState: 'visible' });
+        documentEvents.dispatchEvent(new Event('visibilitychange'));
+        documentEvents.dispatchEvent(new Event('visibilitychange')); // Foreground demand is consumed once.
+        await sleep(50);
+        expect(reads).toBe(2);
+        secondResponse.resolve(page('fresh'));
+        await loader.ensure(target, { reason: 'reactive' });
+        if (scenario === 'hide-show-stale') { firstResponse.resolve(page('old')); await reading; }
+      } else { firstResponse.resolve(page('fresh')); await reading; }
+      expect(loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true });
+      expect(store.getState().message[session.id]?.map(message => message.id)).toEqual(['fresh']);
+      expect(commits).toBe(1);
+      expect(reads).toBe(scenario === 'healthy' ? 1 : 2);
+      expect(sentReports()).toEqual([]);
+    } finally {
+      firstResponse.resolve(page('old')); secondResponse.resolve(page('fresh')); await reading;
+      stop(); await act(async () => root.unmount()); await sleep(10);
+      if (location) Object.defineProperty(globalThis, 'location', location); else Reflect.deleteProperty(globalThis, 'location');
+      dom.restore();
+    }
+  }, 10_000);
+}
+
 function holdHistory() {
   const started = deferred<Request>();
   let fail = () => {};

@@ -1,10 +1,11 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
 import { answersUnsuccessful } from './responseCopy';
+import { guardRuntimeReadResponse } from './runtime-response';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
 import { noteRuntimeAnswered } from './runtime-reachability';
 import { getRuntimeUrlResolver, type RuntimeUrlQuery } from './runtime-url';
-import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from './runtime-switch';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
 export interface RuntimeFetchOptions extends RequestInit {
   query?: RuntimeUrlQuery;
@@ -195,26 +196,6 @@ const resolveRuntimeFetchInput = (input: string | URL | Request, query?: Runtime
 
   const target = buildRuntimeFetchUrl(input.url, query);
   return target === input.url ? input : new Request(target, input);
-};
-
-// Response headers can arrive before a switch while the body is still pending.
-// Guard the standard buffered readers, including SDK text parsing and clones.
-// Streaming consumers retain their own event-pipeline generation checks.
-const guardRuntimeReadResponse = (response: Response, scope: RuntimeRequestScope): Response => {
-  const guard = <T>(read: () => Promise<T>) => async (): Promise<T> => {
-    assertRuntimeRequestScope(scope);
-    const value = await read();
-    assertRuntimeRequestScope(scope);
-    return value;
-  };
-  response.json = guard(response.json.bind(response));
-  response.text = guard(response.text.bind(response));
-  response.arrayBuffer = guard(response.arrayBuffer.bind(response));
-  response.blob = guard(response.blob.bind(response));
-  response.formData = guard(response.formData.bind(response));
-  const clone = response.clone.bind(response);
-  response.clone = () => guardRuntimeReadResponse(clone(), scope);
-  return response;
 };
 
 const reportUpgradeFailure = (runtimeKey: string, operationId: string, status?: number) => {

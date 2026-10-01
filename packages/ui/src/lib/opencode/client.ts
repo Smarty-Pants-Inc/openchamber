@@ -36,6 +36,7 @@ export type FetchPermissionResult =
   | { state: "unknown" };
 import { getRuntimeUrlResolver } from "@/lib/runtime-url";
 import { runtimeFetch, type RuntimeFetchOptions } from "@/lib/runtime-fetch";
+import { guardRuntimeReadResponse } from "@/lib/runtime-response";
 import { noteRuntimeHealth, runtimeAnsweredRecently } from "@/lib/runtime-reachability";
 import { assertRuntimeRequestScope, captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from "@/lib/runtime-switch";
 import { parseSessionStatusMap, type SessionStatus } from '@/sync/session-status';
@@ -310,6 +311,12 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       } else {
         signal = timeout.signal;
       }
+      // A read ends at body completion, not at response headers. This also keeps a polyfilled timeout alive.
+      const cleanup = () => {
+        detachFallback?.();
+        timeout.cleanup();
+      };
+      let bodyOwnsCleanup = false;
       try {
         const response = await runtimeFetch(input, { ...init, signal });
         // #811: a failed read of a session (5xx/404) may mean its Pi ended; the open one's row is refreshed now.
@@ -317,15 +324,43 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
           const session = /\/session\/([^/?]+)(?:\/message)?(?:\?|$)/.exec(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)?.[1];
           if (session) noteSessionReadFailed(decodeURIComponent(session));
         }
-        return response;
+        if (!response.body) return response;
+        const reader = response.body.getReader();
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) {
+                cleanup();
+                reader.releaseLock();
+                controller.close();
+              } else controller.enqueue(chunk.value);
+            } catch (error) {
+              cleanup();
+              reader.releaseLock();
+              controller.error(timeout.signal.aborted && !callerSignal?.aborted
+                ? new Error(`OpenCode request timed out after ${requestTimeoutMs}ms`)
+                : error);
+            }
+          },
+          async cancel(reason) {
+            try { await reader.cancel(reason); } finally { cleanup(); reader.releaseLock(); }
+          },
+        }, { highWaterMark: 0 });
+        const forwarded = new Response(body, response);
+        // Response's constructor copies status and headers, but not transport metadata.
+        Object.defineProperties(forwarded, {
+          url: { value: response.url }, redirected: { value: response.redirected }, type: { value: response.type },
+        });
+        bodyOwnsCleanup = true;
+        return guardRuntimeReadResponse(forwarded, scope);
       } catch (error) {
         if (timeout.signal.aborted && !callerSignal?.aborted) {
           throw new Error(`OpenCode request timed out after ${requestTimeoutMs}ms`);
         }
         throw error;
       } finally {
-        detachFallback?.();
-        timeout.cleanup();
+        if (!bodyOwnsCleanup) cleanup();
       }
     },
   });
