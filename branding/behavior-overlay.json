@@ -457,7 +457,7 @@
       "path": "packages/web/server/lib/opencode/proxy.js",
       "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
       "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
-      "combinedSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
+      "combinedSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication.",
       "preHerdrListCombinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
@@ -471,7 +471,10 @@
       "inboxStreamNote": "smarty-code#701: /api/inbox/events is forwarded as a stream (the inbox badge), like /api/event",
       "preCodeMadeListCombinedSha256": "914309d73880ae6b89a80192e9ad45702f7125057565d8afa4ac7e2f35eaf7b1",
       "codeMadeListSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
-      "codeMadeListNote": "smarty-code#957: the session-list allowlist also keeps ordinaryCodeMade"
+      "codeMadeListNote": "smarty-code#957: the session-list allowlist also keeps ordinaryCodeMade",
+      "preProxyConnectionCombinedSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
+      "proxyConnectionSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
+      "proxyConnectionNote": "openchamber#491 / smarty-code#1147: the actual proxyReq hook removes the hop-by-hop Connection header before forwarding upstream, with a ponytail comment. No request replay or retry behavior is added; earlier branding and session-list evidence remains unchanged."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
@@ -640,5 +643,6 @@
     "finding": "openchamber#454 security comment 5919567288 P2 - Failed owner admission leaves A's pending reveal able to write B's preferences",
     "predecessorLedgerSha256": "05d8f3cad425c23bb31213a20db92b20e082474c6b7c312bf13a69d40b9b40e7",
     "predecessorLedgerBytesSha256": "98dd971ce744a0dfa0570c41a644f4b8a92d2ed4718b2357a47d5f06f4ad9c7d"
-  }
+  },
+  "proxyConnectionSource": "e9f6fdc38ffbadf43113d1b8202489332f6fe95f"
 }
