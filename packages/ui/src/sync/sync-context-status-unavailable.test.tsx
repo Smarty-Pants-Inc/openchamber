@@ -6,9 +6,10 @@ import { switchRuntimeEndpoint } from '../lib/runtime-switch';
 import { opencodeClient } from '../lib/opencode/client';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useProjectsStore } from '../stores/useProjectsStore';
-import { applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from './global-session-status';
-import { recordStatusUnavailable, useStatusUnavailableStore } from './status-unavailable';
-import { SyncProvider, useSyncRuntime } from './sync-context';
+import { applyGlobalSessionStatusEvents, applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from './global-session-status';
+import { liveHerdrState, rowNativeStatus } from '../lib/herdrSession';
+import { recordStatusUnavailable, useStatusUnavailable, useStatusUnavailableStore } from './status-unavailable';
+import { SyncProvider, useGlobalSessionStatus, useSyncRuntime } from './sync-context';
 
 // smarty-code#539: the gateway answers `/session/status?unknown=1` with the healthy projects' statuses and lists each
 // project whose own read failed under `smarty.unknown`. Absent is not idle there: the page keeps the last status for
@@ -57,8 +58,10 @@ test('a later fleet read replaces the set, a malformed marker counts as none, an
 const connected = new TextEncoder().encode(
   `data: ${JSON.stringify({ directory: '/a', payload: { id: 'evt', type: 'server.connected', properties: {} } })}\n\n`);
 
-test('the watchdog keeps an unknown project busy for one poll, then clears it; a healthy project is unaffected', async () => {
-  await withFleet(() => Response.json({ ses_a: { type: 'busy' }, ...unknownB }), async (reads) => {
+for (const visibility of ['mounted', 'hidden'] as const) {
+test(`registered watchdog (${visibility} rows): outage/recovery falls back to Herdr; real busy and idle still win`, async () => {
+  let unknown = false;
+  await withFleet(() => Response.json({ ses_a: { type: 'busy' }, ...(unknown ? unknownB : {}) }), async (reads) => {
     const dom = installHookTestDom();
     Object.assign(document, { hasFocus: () => true, visibilityState: 'visible' });
     const root = createRoot(dom.container);
@@ -78,27 +81,98 @@ test('the watchdog keeps an unknown project busy for one poll, then clears it; a
     const initialProjects = useProjectsStore.getState();
     useConfigStore.setState({ settingsMessageStreamTransport: 'sse', isConnected: false });
     let runtime!: ReturnType<typeof useSyncRuntime>;
+    const observed = new Map<string, ReturnType<typeof liveHerdrState>>();
+    let sampled: ReturnType<typeof liveHerdrState> = 'working';
+    const Row = ({ id }: { id: string }) => {
+      const entry = useGlobalSessionStatus(id);
+      const unavailable = useStatusUnavailable('/b');
+      const rendered = React.useRef(false);
+      const native = rowNativeStatus(id, sampled, entry?.type, !rendered.current, unavailable);
+      rendered.current = true;
+      const state = liveHerdrState(sampled, native.native, native.herdrIsNewer);
+      React.useLayoutEffect(() => {
+        observed.set(id, state);
+        return () => { observed.delete(id); };
+      });
+      return null;
+    };
     const Selected = () => { runtime = useSyncRuntime(); return null; };
+    const render = (generation = 0, visible = true) => act(async () => root.render(
+      <SyncProvider sdk={opencodeClient.getSdkClient()} directory="/a"><Selected />
+        {visible && <><Row key={`busy-${generation}`} id="ses_b" /><Row key={`retry-${generation}`} id="ses_retry" /></>}
+      </SyncProvider>));
+    const expectRows = (state: string) => {
+      for (const id of ['ses_b', 'ses_retry']) expect(observed.get(id)).toBe(state);
+    };
     const status = (directory: string, id: string) => runtime.childStores.getChild(directory)?.getState().session_status[id]?.type;
     try {
-      await act(async () => root.render(<SyncProvider sdk={opencodeClient.getSdkClient()} directory="/a"><Selected /></SyncProvider>));
-      useProjectsStore.setState({ managedCatalogAdmitted: true });
-      for (const [directory, id] of [['/a', 'ses_a'], ['/b', 'ses_b']] as const) {
-        runtime.childStores.ensureChild(directory, { bootstrap: false }).setState({ session_status: { [id]: { type: 'busy' } } });
-        applyGlobalSessionStatusSnapshot(directory, { [id]: { type: 'busy' } });
-      }
+      await render();
+      await act(async () => {
+        useProjectsStore.setState({ managedCatalogAdmitted: true });
+        for (const [directory, id] of [['/a', 'ses_a'], ['/b', 'ses_b']] as const) {
+          runtime.childStores.ensureChild(directory, { bootstrap: false }).setState({ session_status: { [id]: { type: 'busy' } } });
+          applyGlobalSessionStatusSnapshot(directory, { [id]: { type: 'busy' } });
+        }
+        const retry = { type: 'retry', attempt: 1, message: 'retry', next: Date.now() + 60_000 } as const;
+        runtime.childStores.getChild('/b')?.setState(state => ({ session_status: { ...state.session_status, ses_retry: retry } }));
+        applyGlobalSessionStatusSnapshot('/b', { ses_b: { type: 'busy' }, ses_retry: retry });
+      });
+      expectRows('working');
       await act(async () => new Promise(done => setTimeout(done, 300)));
+      expect(useStatusUnavailableStore.getState().directories.size).toBe(0);
+      expectRows('working'); // Healthy bootstrap seeds native history before either row is hidden.
+      if (visibility === 'hidden') { await render(0, false); expect(observed.size).toBe(0); }
+      unknown = true;
       reads.length = 0;
       await act(async () => new Promise(done => setTimeout(done, 5_200)));
       // First poll: the last status is kept, and neither the fleet map's absence nor a /b read makes it idle.
       expect(reads).toEqual(['fleet?unknown=1']);
       expect(status('/b', 'ses_b')).toBe('busy');
       expect(useGlobalSessionStatusStore.getState().statusById.has('ses_b')).toBe(true);
+      expect(status('/b', 'ses_retry')).toBe('retry');
+      if (visibility === 'hidden') expect(observed.size).toBe(0);
+      else expectRows('working');
       await act(async () => new Promise(done => setTimeout(done, 5_000)));
       // Still unknown at the next poll: its busy is cleared, in its store and in the global index.
       expect(reads.filter(read => read === '/b')).toEqual([]);
       expect(status('/b', 'ses_b')).toBe('idle');
       expect(useGlobalSessionStatusStore.getState().statusById.has('ses_b')).toBe(false);
+      expect(useGlobalSessionStatusStore.getState().statusById.has('ses_retry')).toBe(false);
+      expect(status('/b', 'ses_retry')).toBe('idle');
+      if (visibility === 'hidden') expect(observed.size).toBe(0);
+      else {
+        expectRows('working'); // Clearing an unavailable native entry is NOT a completed turn.
+        await render(1); // Collapse/reopen during the outage: #484's remount must keep the fallback.
+        expectRows('working');
+      }
+      unknown = false;
+      await act(async () => new Promise(done => setTimeout(done, 5_200)));
+      expect(useStatusUnavailableStore.getState().directories.size).toBe(0);
+      expect(useGlobalSessionStatusStore.getState().statusById.has('ses_b')).toBe(false);
+      expect(useGlobalSessionStatusStore.getState().statusById.has('ses_retry')).toBe(false);
+      if (visibility === 'hidden') {
+        expect(observed.size).toBe(0); // Neither row rendered during either unknown poll or healthy recovery.
+        await render(1);
+      }
+      expectRows('working'); // Recovery with no native entry is not evidence that the turn completed.
+      sampled = 'done';
+      await render(1);
+      expectRows('done');
+      if (visibility === 'hidden') await render(1, false);
+      await act(async () => applyGlobalSessionStatusEvents('/b', ['ses_b', 'ses_retry'].map(sessionID => ({
+        id: `busy-${sessionID}`, type: 'session.status', properties: { sessionID, status: { type: 'busy' } },
+      }))));
+      if (visibility === 'hidden') { expect(observed.size).toBe(0); await render(2); }
+      expectRows('working'); // Recovered current busy beats stale Herdr done, including on remount.
+      sampled = 'working';
+      await render(2);
+      if (visibility === 'hidden') await render(2, false);
+      await act(async () => applyGlobalSessionStatusEvents('/b', ['ses_b', 'ses_retry'].map(sessionID => ({
+        id: `idle-${sessionID}`, type: 'session.status', properties: { sessionID, status: { type: 'idle' } },
+      }))));
+      expect(useGlobalSessionStatusStore.getState().statusById.has('ses_b')).toBe(false);
+      if (visibility === 'hidden') { expect(observed.size).toBe(0); await render(3); }
+      expectRows('done'); // Real idle while hidden still finishes on remount, with stale Herdr working.
       expect(status('/a', 'ses_a')).toBe('busy');
       expect(useGlobalSessionStatusStore.getState().statusById.has('ses_a')).toBe(true);
     } finally {
@@ -107,4 +181,5 @@ test('the watchdog keeps an unknown project busy for one poll, then clears it; a
       dom.restore();
     }
   });
-}, 20_000);
+}, 30_000);
+}
