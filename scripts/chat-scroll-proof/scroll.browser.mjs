@@ -163,8 +163,10 @@ test('Beginning loads the first positioned window, and reload opens at the end',
   await writeFile(info.outputPath('metrics.json'), JSON.stringify({ total, beginning }, null, 2));
   console.log(`${info.project.name} Beginning: ${JSON.stringify({ total, beginning })}`);
   expect(beginning.reads).toBeGreaterThan(0);
-  expect(beginning.scrollTop).toBe(0);
-  expect(Math.abs(beginning.offset)).toBeLessThanOrEqual(4);
+  // Keep these failures fatal to the test, but still collect the independent
+  // reload measurement when the unchanged build misses Beginning.
+  expect.soft(beginning.scrollTop).toBe(0);
+  expect.soft(Math.abs(beginning.offset)).toBeLessThanOrEqual(4);
   await page.reload();
   await page.waitForFunction(() => window.scrollFixture && document.querySelector('[data-turn-id="live-user"]'));
   await page.waitForTimeout(500);
