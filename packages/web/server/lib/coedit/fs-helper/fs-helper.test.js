@@ -49,7 +49,7 @@ function helper(root, priv) {
     createInterface({ input: child.stdout }).once('line', (l) => resolve(JSON.parse(l)));
     child.stdin.write(`${line}\n`);
   });
-  return { call, raw, stop: () => { child.kill(); return exited; } };
+  return { call, raw, finish: () => { child.stdin.end(); return exited; }, stop: () => { child.kill(); return exited; } };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -90,6 +90,110 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
     fs.writeFileSync(path.join(root, 'docs/e.tmp'), text);
     fs.renameSync(path.join(root, 'docs/e.tmp'), target());
   };
+
+  describe('#481 repeated disposal completion', () => {
+    beforeEach(() => { h.stop = h.finish; }); // New cases close only their own helper, by EOF, even on failure.
+    const claimedReceipt = async (token = 'origin-secret') => {
+      const r = await read();
+      const extra = { txn: 'aaa111' }; if (token !== null) extra.ack = sha(token);
+      const p = await publish(r, extra);
+      expect(p).toMatchObject({ ok: true, published: true });
+      expect(fs.readFileSync(path.join(priv, p.displaced), 'utf8')).toBe('one\n');
+      const record = path.join(priv, `${KEY}.aaa111.txn`);
+      expect(JSON.parse(fs.readFileSync(record)).ack).toBe(token === null ? '' : sha(token));
+      await h.finish();
+      const req = { op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash };
+      if (token !== null) req.token = token;
+      const claimant = helper(root, priv);
+      try { expect(await claimant.call(req)).toMatchObject({ ok: true }); }
+      finally { await claimant.finish(); }
+      expect(fs.existsSync(path.join(priv, p.displaced))).toBe(false);
+      expect(fs.existsSync(record)).toBe(true);
+      expect(fs.readFileSync(path.join(priv, `${KEY}.aaa111.out`), 'utf8')).toBe('published');
+      return { req, record, token };
+    };
+
+    test('lost first dispose reply: H1 publish/EOF, H2 claim/dispose/EOF, H3 identical dispose then ack', async () => {
+      const t = await claimedReceipt(); // The first successful dispose reply is not used to settle the origin.
+      const next = helper(root, priv);
+      try {
+        expect(await next.call({ op: 'hello' })).toMatchObject({ ok: true, protocol: 3 });
+        expect(await next.call({ op: 'list', path: 'docs/a.md', tokens: { aaa111: t.token } })).toMatchObject({ ok: true, entries: [], records: [{ txn: 'aaa111', state: 'published' }] });
+        const repeated = await next.call(t.req);
+        const ack = await next.call({ op: 'ack', path: 'docs/a.md', txn: 'aaa111', token: t.token });
+        expect(repeated).toMatchObject({ ok: true });
+        expect(ack).toMatchObject({ ok: true, pending: false }); // No synthetic absent-entry owner may retain the lock.
+        expect(fs.existsSync(t.record)).toBe(false);
+        expect(fs.existsSync(path.join(priv, `${KEY}.aaa111.out`))).toBe(false);
+      } finally { await next.finish(); }
+    });
+
+    test('same claiming connection can repeat disposal and ack without a retained lock', async () => {
+      const r = await read(); const p = await publish(r, { txn: 'aaa111', ack: sha('secret') });
+      expect(p).toMatchObject({ ok: true, published: true }); await h.finish();
+      const next = helper(root, priv);
+      try {
+        const req = { op: 'dispose', path: 'docs/a.md', entry: p.displaced, hash: r.hash, token: 'secret' };
+        expect(await next.call(req)).toMatchObject({ ok: true });
+        expect(await next.call(req)).toMatchObject({ ok: true });
+        expect(await next.call({ op: 'ack', path: 'docs/a.md', txn: 'aaa111', token: 'secret' })).toMatchObject({ ok: true, pending: false });
+      } finally { await next.finish(); }
+    });
+
+    test('absent data does not grant wrong or missing token authority', async () => {
+      const t = await claimedReceipt(); const next = helper(root, priv);
+      try {
+        expect(await next.call({ ...t.req, token: 'wrong' })).toMatchObject({ ok: false, owned: true });
+        const req = { ...t.req }; delete req.token;
+        expect(await next.call(req)).toMatchObject({ ok: false, owned: true });
+        expect(fs.existsSync(t.record)).toBe(true);
+      } finally { await next.finish(); }
+    });
+
+    test.each(['txn', 'out', 'done', 'other-txn'])('absent data with malformed %s refuses before authority; unrelated key is unaffected', async (kind) => {
+      const t = await claimedReceipt();
+      if (kind === 'txn') { const record = JSON.parse(fs.readFileSync(t.record)); delete record.ack; fs.writeFileSync(t.record, JSON.stringify(record)); }
+      if (kind === 'out') fs.writeFileSync(path.join(priv, `${KEY}.aaa111.out`), 'invalid');
+      if (kind === 'done') fs.writeFileSync(path.join(priv, `${KEY}.aaa111.${sha('one\n').slice(0, 16)}.done`), '{}', { mode: 0o600 });
+      if (kind === 'other-txn') fs.writeFileSync(path.join(priv, `${KEY}.bbb222.txn`), '{}', { mode: 0o600 });
+      const next = helper(root, priv);
+      try {
+        expect(await next.call(t.req)).toMatchObject({ ok: false, error: expect.stringMatching(/metadata/) });
+        if (kind === 'txn') expect(await next.call({ ...t.req, token: 'wrong' })).toMatchObject({ ok: false, error: expect.stringMatching(/metadata/) });
+        expect(await next.call({ op: 'ack', path: 'docs/a.md', txn: 'aaa111', token: t.token })).toMatchObject({ ok: false });
+        expect(await next.call({ op: 'list', path: 'docs/b.md' })).toMatchObject({ ok: true, entries: [], records: [] });
+        expect(fs.existsSync(t.record)).toBe(true);
+      } finally { await next.finish(); }
+    });
+
+    test('absence still requires durable outcome; a non-ENOENT stat error cannot acquire ownership', async () => {
+      const t = await claimedReceipt(); const next = helper(root, priv);
+      try {
+        expect(await next.call({ ...t.req, fault: 'recordSync' })).toMatchObject({ ok: false, error: expect.stringMatching(/durable/) });
+        expect(await next.call({ ...t.req, entry: `${KEY}.aaa111-${'x'.repeat(300)}.staged` })).toMatchObject({ ok: false, error: expect.stringMatching(/stat/) });
+        expect(await next.call({ op: 'ack', path: 'docs/a.md', txn: 'aaa111', token: t.token })).toMatchObject({ ok: true, pending: false });
+      } finally { await next.finish(); }
+    });
+
+    test('an owned exact absent entry completes, but another absent name cannot impersonate it', async () => {
+      const r = await read(); const p = await publish(r, { txn: 'aaa111', ack: sha('secret') });
+      expect(p).toMatchObject({ ok: true, published: true }); fs.unlinkSync(path.join(priv, p.displaced));
+      expect(await dispose(`${KEY}.aaa111-bogus.staged`, r.hash)).toMatchObject({ ok: false });
+      expect(fs.existsSync(path.join(priv, `${KEY}.aaa111.txn`))).toBe(true);
+      expect(await dispose(p.displaced, r.hash)).toMatchObject({ ok: true });
+      expect(fs.existsSync(path.join(priv, `${KEY}.aaa111.txn`))).toBe(false);
+      await h.finish();
+    });
+
+    test('explicit tokenless duplicate succeeds without making its receipt token-ackable', async () => {
+      const t = await claimedReceipt(null); const next = helper(root, priv);
+      try {
+        expect(await next.call(t.req)).toMatchObject({ ok: true });
+        expect(await next.call({ op: 'ack', path: 'docs/a.md', txn: 'aaa111', token: 'wrong' })).toMatchObject({ ok: false, error: "not this transaction's owner" });
+        expect(fs.existsSync(t.record)).toBe(true);
+      } finally { await next.finish(); }
+    });
+  });
 
   test('a plain publish installs ours and keeps the displaced revision in the private dir until disposed', async () => {
     const r = await read();
@@ -920,6 +1024,129 @@ describe.skipIf(!built)('coedit-fs (openchamber#380)', () => {
         fs.unlinkSync(saved);
         return { entry, marker, copy, meta: JSON.parse(fs.readFileSync(path.join(priv, marker), 'utf8')) };
       };
+      describe('#481 raw duplicate members', () => {
+        // Insert RAW members into the actual writer bytes. JSON.stringify would erase this boundary.
+        const member = (raw, field) => {
+          const found = raw.match(new RegExp(`"${field}":(?:"[^"\\\\]*"|[0-9]+|null|\\{(?:[^{}]|\\{[^{}]*\\})*\\})`));
+          expect(found, `writer member ${field}`).not.toBeNull();
+          return found[0];
+        };
+        const duplicate = (raw, field, later) => {
+          const first = member(raw, field);
+          return raw.replace(first, `${first},${later ?? first}`);
+        };
+        const nestedDuplicate = (raw, parent, field, later) => {
+          const object = member(raw, parent);
+          return raw.replace(object, duplicate(object, field, later));
+        };
+        const saveProbe = (label, raw, before, reply) => {
+          // Optional failing-first artifacts; fixtures remain under the test's ordinary TMPDIR otherwise.
+          const out = process.env.COEDIT_FS_FIXTURE_OUT;
+          if (!out) return;
+          fs.mkdirSync(out, { recursive: true });
+          fs.writeFileSync(path.join(out, `${label}.raw.json`), raw);
+          fs.writeFileSync(path.join(out, `${label}.evidence.json`), JSON.stringify({ before, reply, after: evidence() }, null, 2));
+        };
+        const liveRetained = async (extra = {}, bound = true) => {
+          if (bound) expect(await h.call({ op: 'hello', recovery: recoveryDir() })).toMatchObject({ ok: true });
+          const reply = await publish(await read(), { txn: TXN, ack: sha('t'), ...extra });
+          expect(reply).toMatchObject({ ok: true, published: true });
+          const record = JSON.parse(fs.readFileSync(recordPath(), 'utf8'));
+          // No testOrigin override: the writer records the genuine, still-live caller.
+          expect(record).toMatchObject({ pid: process.pid, start: startOf(process.pid) });
+          expect(fs.readFileSync(outcomePath(), 'utf8')).toBe('published');
+          await h.stop();
+          h = helper(root, priv); // Release the connection lock, NOT the origin's ownership.
+          return reply.displaced;
+        };
+        const boundaries = [
+          ['tokenless-list', { op: 'list' }],
+          ['tokenless-dispose', { op: 'dispose' }],
+          ['pending-ack', { op: 'ack', txn: TXN, token: 't' }],
+        ];
+        test.each(['plain', 'escaped'].flatMap((key) => boundaries.map(([label, request]) => [key, label, request])))('txn %s later empty ack refuses %s with a live token origin', async (key, label, request) => {
+          const entry = await liveRetained();
+          const original = fs.readFileSync(recordPath(), 'utf8');
+          expect(JSON.parse(original).ack).toBe(sha('t'));
+          const raw = duplicate(original, 'ack', key === 'plain' ? '"ack":""' : '"\\u0061ck":""');
+          fs.writeFileSync(recordPath(), raw);
+          const before = evidence();
+          const reply = await h.call({ path: 'docs/a.md', entry, hash: sha('one\n'), ...request });
+          saveProbe(`txn-${key}-${label}`, raw, before, reply);
+          refused(reply, before, `${KEY}.${TXN}.txn`);
+        });
+        test.each([
+          ['ino-identical', (raw) => duplicate(raw, 'ino'), { op: 'list', tokens: { [TXN]: 't' } }],
+          ['dest-identical', (raw) => duplicate(raw, 'dest'), { op: 'dispose', token: 't' }],
+          ['dest-ino-identical', (raw) => nestedDuplicate(raw, 'dest', 'ino'), { op: 'ack', txn: TXN, token: 't' }],
+        ])('txn %s refuses the ownership operation without normalizing identical members', async (label, mutate, request) => {
+          const entry = await liveRetained();
+          const raw = mutate(fs.readFileSync(recordPath(), 'utf8'));
+          fs.writeFileSync(recordPath(), raw);
+          const before = evidence();
+          const reply = await h.call({ path: 'docs/a.md', entry, hash: sha('one\n'), ...request });
+          saveProbe(`txn-${label}`, raw, before, reply);
+          refused(reply, before, `${KEY}.${TXN}.txn`);
+        });
+        test('txn identical ack refuses owned-here disposal', async () => {
+          expect(await h.call({ op: 'hello', recovery: recoveryDir() })).toMatchObject({ ok: true });
+          const reply = await publish(await read(), { txn: TXN, ack: sha('t') });
+          expect(reply).toMatchObject({ ok: true, published: true });
+          const raw = duplicate(fs.readFileSync(recordPath(), 'utf8'), 'ack');
+          fs.writeFileSync(recordPath(), raw);
+          const before = evidence();
+          const disposed = await dispose(reply.displaced, sha('one\n'));
+          saveProbe('txn-owned-here', raw, before, disposed);
+          refused(disposed, before, `${KEY}.${TXN}.txn`);
+        });
+        test.each([
+          ['record-identical', (raw) => duplicate(raw, 'record'), { op: 'list' }],
+          ['record-escaped-ack-identical', (raw) => nestedDuplicate(raw, 'record', 'ack', member(raw, 'ack').replace('"ack"', '"\\u0061ck"')), { op: 'list' }],
+          ['record-dest-ino-identical', (raw) => {
+            const record = member(raw, 'record');
+            return raw.replace(record, nestedDuplicate(record, 'dest', 'ino'));
+          }, { op: 'list' }],
+          ['copy-escaped-ino-identical', (raw) => nestedDuplicate(raw, 'copy', 'ino', member(member(raw, 'copy'), 'ino').replace('"ino"', '"\\u0069no"')), { op: 'list' }],
+          ['copy-identical-dispose', (raw) => nestedDuplicate(raw, 'copy', 'ino'), { op: 'dispose', token: 't' }],
+          ['record-identical-ack', (raw) => duplicate(raw, 'record'), { op: 'ack', txn: TXN, token: 't' }],
+          ['record-dest-identical-tokenless-dispose', (raw) => nestedDuplicate(raw, 'record', 'dest'), { op: 'dispose' }],
+        ])('done %s refuses the operation with the genuine copy and retained inode', async (label, mutate, request) => {
+          const { entry, marker, copy, meta } = await delivered(true);
+          expect(meta.copy).toEqual({ dev: fs.statSync(copy).dev, ino: fs.statSync(copy).ino });
+          const raw = mutate(fs.readFileSync(path.join(priv, marker), 'utf8'));
+          fs.writeFileSync(path.join(priv, marker), raw);
+          const before = evidence();
+          const reply = await h.call({ path: 'docs/a.md', entry, hash: sha('one\n'), ...request });
+          saveProbe(`done-${label}`, raw, before, reply);
+          refused(reply, before, marker);
+        });
+        test('control ordinary live-origin token ownership is not empty mode', async () => {
+          const entry = await liveRetained();
+          const before = evidence();
+          expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry, owned: true }], recovered: [] });
+          expect(await dispose(entry, sha('one\n'))).toMatchObject({ ok: false, owned: true });
+          expect(evidence()).toEqual(before);
+          expect(await h.call({ op: 'ack', path: 'docs/a.md', txn: TXN, token: 't' })).toMatchObject({ ok: true, pending: true });
+          expect(evidence()).toEqual(before);
+          expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry, hash: sha('one\n'), token: 't' })).toMatchObject({ ok: true });
+        });
+        test('control explicit null dest with a nonempty token remains owned', async () => {
+          const entry = await liveRetained({}, false);
+          expect(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))).toMatchObject({ ack: sha('t'), dest: null });
+          const before = evidence();
+          expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry, owned: true }], recovered: [] });
+          expect(await dispose(entry, sha('one\n'))).toMatchObject({ ok: false, owned: true });
+          expect(evidence()).toEqual(before);
+          expect(await h.call({ op: 'dispose', path: 'docs/a.md', entry, hash: sha('one\n'), token: 't' })).toMatchObject({ ok: true });
+        });
+        test('control omitted request ack writes explicit empty ack and null dest', async () => {
+          const entry = await liveRetained({ ack: undefined }, false);
+          expect(JSON.parse(fs.readFileSync(recordPath(), 'utf8'))).toMatchObject({ ack: '', dest: null });
+          expect(await h.call({ op: 'list', path: 'docs/a.md' })).toMatchObject({ ok: true, entries: [{ entry, hash: sha('one\n') }], recovered: [] });
+          expect(await dispose(entry, sha('one\n'))).toMatchObject({ ok: true });
+        });
+      });
+
       const invalidDone = [
         ['invalid JSON', () => '{'],
         ...[null, [], true, 1, 'marker'].map((value) => [`root ${JSON.stringify(value)}`, () => value]),

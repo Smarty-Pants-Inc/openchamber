@@ -24,6 +24,7 @@
 //! - `dispose {key,entry,hash}` -> `{ok:true,synced?}` | `{ok:false,busy:true}` | `{ok:false,changed:true,hash,data}`
 //! - `list {key}` -> `{ok:true,entries:[{entry,hash,data}]}`
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use serde_core::de::{Deserialize, Deserializer, Error as _, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
@@ -241,6 +242,75 @@ struct TxnRecord {
     dest: Option<RecoveryDir>,
 }
 
+/// Decode persisted JSON without collapsing duplicate decoded object keys, at any depth.
+/// serde_json still owns tokenization, number handling, syntax and recursion limits; the schema checks below
+/// remain authoritative. This wrapper is not used for requests or writer-generated values.
+struct PersistedValue(Value);
+
+impl<'de> Deserialize<'de> for PersistedValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct PersistedVisitor;
+
+        impl<'de> Visitor<'de> for PersistedVisitor {
+            type Value = Value;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a JSON value with unique object keys")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Value, E> {
+                Ok(Value::Bool(value))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Value, E> {
+                Ok(Value::Number(value.into()))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Value, E> {
+                Ok(Value::Number(value.into()))
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Value, E> {
+                Ok(serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number))
+            }
+
+            fn visit_str<E: serde_core::de::Error>(self, value: &str) -> Result<Value, E> {
+                self.visit_string(value.to_string())
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Value, E> {
+                Ok(Value::String(value))
+            }
+
+            fn visit_unit<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = sequence.next_element::<PersistedValue>()? {
+                    values.push(value.0);
+                }
+                Ok(Value::Array(values))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut object: A) -> Result<Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = object.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        // Never include the untrusted key or value in diagnostics.
+                        return Err(A::Error::custom("duplicate object key"));
+                    }
+                    values.insert(key, object.next_value::<PersistedValue>()?.0);
+                }
+                Ok(Value::Object(values))
+            }
+        }
+
+        deserializer.deserialize_any(PersistedVisitor).map(Self)
+    }
+}
+
 fn exact_fields(value: &Value, fields: &[&str]) -> bool {
     value.as_object().is_some_and(|o| o.len() == fields.len() && fields.iter().all(|f| o.contains_key(*f)))
 }
@@ -313,7 +383,7 @@ fn record_info(priv_fd: RawFd, key: &str, txn: &str) -> Result<Option<TxnRecord>
     let name = format!("{key}.{txn}.txn");
     if !lower_hex(key, 16, 16) || !lower_hex(txn, 1, 32) { return Err(metadata_error(&name, "invalid filename")); }
     let Some((fd, bytes)) = read_private(priv_fd, &name)? else { return Ok(None) };
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| metadata_error(&name, "invalid JSON"))?;
+    let value = serde_json::from_slice::<PersistedValue>(&bytes).map_err(|_| metadata_error(&name, "invalid JSON"))?.0;
     let record = TxnRecord::parse(&value).ok_or_else(|| metadata_error(&name, "invalid transaction schema"))?;
     if !fsync(fd.as_raw_fd()) || !fsync(priv_fd) { return Err(metadata_error(&name, "cannot confirm durability")); }
     Ok(Some(record))
@@ -516,7 +586,7 @@ impl DoneRecord {
 
 fn done_info(priv_fd: RawFd, name: &str, key: &str) -> Result<(OwnedFd, DoneRecord), String> {
     let (fd, bytes) = read_private(priv_fd, name)?.ok_or_else(|| metadata_error(name, "missing delivery receipt"))?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| metadata_error(name, "invalid JSON"))?;
+    let value = serde_json::from_slice::<PersistedValue>(&bytes).map_err(|_| metadata_error(name, "invalid JSON"))?.0;
     let done = DoneRecord::parse(&value, name, key).ok_or_else(|| metadata_error(name, "unverified delivery schema or binding"))?;
     if record_info(priv_fd, key, &done.txn)?.is_some_and(|r| r != done.record) {
         return Err(metadata_error(name, "transaction snapshot differs"));
@@ -691,6 +761,11 @@ fn recover_orphan(priv_fd: RawFd, key: &str, txn: &str, name: &str, req: &Value)
         verify_txn_deliveries(priv_fd, key, txn, &bytes, req)?
     } else { prior };
     if _verified.is_empty() { return Err(metadata_error(&marker, "missing delivery receipt before unlink")); }
+    // Tests only: signal this helper after a nonempty, genuinely verified delivery, before retained unlink.
+    if test_fault(req, "sigioAfterDelivery") {
+        // SAFETY: raise targets only this process; no external PID or kernel lease manipulation.
+        if unsafe { libc::raise(libc::SIGIO) } != 0 { return Err("test SIGIO raise failed".into()); }
+    }
     required_record(priv_fd, key, txn)?; // Retry durability includes the immutable transaction snapshot.
     let c = cstr(&staged)?;
     // SAFETY: the opened retained inode's bytes match the durably verified delivered copy; names are not leased.
@@ -1539,7 +1614,11 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
             }
             // The outcome is durable before the evidence it was derived from may go; otherwise nothing is removed.
             resolve(priv_fd, &key, &txn, req)?;
-            let ino = stat_entry(priv_fd, &entry)?.map(|st| st.st_ino as u64).unwrap_or(0);
+            let Some(st) = stat_entry(priv_fd, &entry)? else {
+                // Already disposed: release this temporary claim, keeping the receipt available for ack.
+                return Ok(json!({"ok": true}));
+            };
+            let ino = st.st_ino as u64;
             owned.insert(id.clone(), OwnedTxn { _record: fd, entry: entry.clone(), ino, heard: false });
         } else {
             return dispose_named(priv_fd, req, &entry, hash);
@@ -1548,7 +1627,11 @@ fn dispose_op(priv_fd: RawFd, req: &Value, owned: &mut Owned) -> Result<Value, S
     resolve(priv_fd, &key, &txn, req)?; // Own-connection authority also requires valid durable evidence.
     let mine = owned.remove(&id).ok_or("lost ownership")?;
     // The owner acts only on exactly the entry its transaction produced, still holding that displaced inode.
-    let genuine = entry == mine.entry && matches!(stat_entry(priv_fd, &entry), Ok(Some(st)) if st.st_ino as u64 == mine.ino);
+    let genuine = entry == mine.entry && match stat_entry(priv_fd, &entry) {
+        Ok(Some(st)) => st.st_ino as u64 == mine.ino,
+        Ok(None) => true, // Only the exact owned entry may complete after its data is already gone.
+        Err(_) => false,
+    };
     if !genuine {
         owned.insert(id, mine);
         return Ok(json!({"ok": false, "error": "not this transaction's entry"}));
@@ -1809,9 +1892,22 @@ fn main() {
         }
     }
     let _ = PEER.set(peer.unwrap_or(euid));
-    // A lease break is signalled with SIGIO, whose default action ends the process: the break only waits for our unlock.
-    // SAFETY: ignoring a signal at startup, before any thread exists.
-    unsafe { libc::signal(libc::SIGIO, libc::SIG_IGN) };
+    // SIGIO must terminate us before any further operation; never ignore a notification.
+    // SAFETY: configure this process's disposition/mask at startup, before any thread exists.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = libc::SIG_DFL;
+        if libc::sigemptyset(&mut action.sa_mask) != 0
+            || libc::sigaction(libc::SIGIO, &action, std::ptr::null_mut()) != 0 {
+            die(&fail("configure SIGIO disposition"));
+        }
+        let mut signals: libc::sigset_t = std::mem::zeroed();
+        if libc::sigemptyset(&mut signals) != 0
+            || libc::sigaddset(&mut signals, libc::SIGIO) != 0
+            || libc::sigprocmask(libc::SIG_UNBLOCK, &signals, std::ptr::null_mut()) != 0 {
+            die(&fail("unblock SIGIO"));
+        }
+    }
     let open_root = |root: &str| -> Result<RawFd, String> {
         let c = cstr(root)?;
         if !root.starts_with('/') {

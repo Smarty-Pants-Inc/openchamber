@@ -142,6 +142,12 @@ export function createDiskBridge({
     return result;
   };
 
+  // Presence/content refusals have no authority over a stopped watcher or a recovery notice they carry.
+  const independentWarning = (warning) => {
+    while (['gone', 'changed', 'removed', 'truncated'].includes(warning?.conflict)) warning = warning.kept ?? null;
+    return warning;
+  };
+
   // Outside text is merged unasked only as insertions. A revision that removes text may be a writer that truncated and
   // paused (net-lead round 4: C, pause, then CB would undo the room's deletion of B): it is a conflict until the person
   // accepts the disk (acceptDisk) or an insertion-only revision arrives; the room keeps its text, the base stays.
@@ -216,57 +222,71 @@ export function createDiskBridge({
    * pending. `aborted`, or no record at all (the helper died before any change): not published. Still owned by a live
    * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
-  const settleByPrivateDir = async () => {
-    const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch((error) => {
-      logError('smarty.coedit-settle-failed', error);
-      return null;
-    });
-    if (!reply) return false;
-    if (!reply.ok) {
-      logError('smarty.coedit-settle-failed', new Error(`Co-edited file: ${reply.error}`));
-      return false;
-    }
+  const settleByPrivateDir = async (owns) => {
+    const warning = conflict;
     const txn = uncertain.lost;
-    const record = (reply.records ?? []).find((r) => r.txn === txn);
-    if (record && record.state !== 'published' && record.state !== 'aborted') return false; // Owned, or unknown.
-    if (!record && Date.now() - uncertain.since > 29 * 86_400_000) return false;
-    const known = new Set(pending.map((revision) => revision.entry));
-    const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${txn}-`));
-    if (fresh.some((entry) => entry.owned)) return false;
-    if (record?.state === 'published') {
-      base = uncertain.snapshot;
-      baseText = uncertain.next;
-      baseHash = uncertain.nextHash;
-      gone = false;
-      for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash, token: uncertain.token }); // Late bytes are kept.
-    } else {
-      for (const entry of fresh) await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
+    if (!uncertain.listed) {
+      const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch((error) => {
+        logError('smarty.coedit-settle-failed', error);
+        return null;
+      });
+      if (!owns() || !reply) return false;
+      if (!reply.ok) {
+        logError('smarty.coedit-settle-failed', new Error(`Co-edited file: ${reply.error}`));
+        return false;
+      }
+      const record = (reply.records ?? []).find((r) => r.txn === txn);
+      if (record && record.state !== 'published' && record.state !== 'aborted') return false; // Owned, or unknown.
+      if (!record && Date.now() - uncertain.since > 29 * 86_400_000) return false;
+      const known = new Set(pending.map((revision) => revision.entry));
+      const fresh = reply.entries.filter((entry) => !known.has(entry.entry) && entry.entry.startsWith(`${key}.${txn}-`));
+      if (fresh.some((entry) => entry.owned)) return false;
+      if (record?.state === 'published') {
+        base = uncertain.snapshot;
+        baseText = uncertain.next;
+        baseHash = uncertain.nextHash;
+        gone = false;
+        for (const entry of fresh) pending.push({ entry: entry.entry, hash: uncertain.baseHash, token: uncertain.token }); // Late bytes are kept.
+      } else {
+        for (const entry of fresh) {
+          await dispose(helper, key, { entry: entry.entry, hash: uncertain.nextHash }, recoveryDir, rel, hooks);
+          if (!owns()) return false;
+        }
+      }
+      // This owner has adopted the immutable outcome and enrolled its data. If it stops during ack, the next
+      // owner resumes only the ack: re-listing our now-claimed record would report owned and strand settlement.
+      uncertain.listed = true;
     }
     // Settled: the receipt may go (the helper keeps the record while its data is pending, #412 round 5). The token is
     // dropped only on a VERIFIED no-data ack: an ack that says data is still pending, or one that fails, keeps it,
     // and a later list enrolls that data (#428 round 3; smartyfs#37 item 15).
     const acked = await helper.call({ ...testHooks(hooks), op: 'ack', path: rel, txn, token: uncertain.token }).catch(() => null);
+    if (!owns()) return false; // Keep uncertainty and token custody for a later owner, even if this ack reached disk.
     const enrolled = pending.some((revision) => revision.token === uncertain.token);
     settledToken(key, txn); // Its outcome is read: a later complete list decides whether its token is still needed.
     if (acked?.ok && !acked.pending && !enrolled) forgetToken(key, txn);
     else if (!enrolled) orphans = true; // Look again (list with this token) until its data is enrolled or gone.
     uncertain = null;
-    if (!unsynced) conflict = null;
+    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = null;
     scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).
     return true;
   };
   /** Settles an uncertain save by the disk: ours is adopted, the base clears it; anything else holds (returns false). */
-  const settleUncertain = async () => {
+  const settleUncertain = async (owns = () => !closed) => {
+    if (!owns()) return false;
     if (!uncertain) return true;
+    const warning = conflict;
     // A lost reply is settled only by the private dir (its list waits for any operation still in flight on this file,
     // #412 finding 3); if that cannot be read, the save stays held: the disk alone could clear it too early.
     if (uncertain.lost) {
-      if (await settleByPrivateDir()) return true;
+      if (await settleByPrivateDir(owns)) return true;
+      if (!owns()) return false;
       if (uncertain.seen !== 'unlisted') raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
       uncertain.seen = 'unlisted';
       return false;
     }
     const disk = await readFile(helper, rel);
+    if (!owns()) return false; // A stopped replacement cannot adopt its response or erase a newer warning.
     if (disk?.hash === uncertain.nextHash) {
       base = uncertain.snapshot;
       baseText = uncertain.next;
@@ -278,7 +298,8 @@ export function createDiskBridge({
       return false;
     }
     uncertain = null;
-    if (!unsynced) conflict = null; // Adopted by its hash; a pending flush still holds the conflict.
+    // Settlement resolves only its own uncertainty notice, never a separate stopped-watcher/recovery warning.
+    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = null;
     return true;
   };
   /** Retention (smartyfs#37): this file's recovery copies, at load and then every `pruneMs` (a day) while open. */
@@ -329,19 +350,22 @@ export function createDiskBridge({
       }
       rewatches = 0;
       // Outside writes made while unwatched are caught up now.
-      void sync().then(() => {
-        if (closed || watcher !== restarted) return;
+      void syncFor(restarted).then((caughtUp) => {
+        if (!caughtUp || closed || watcher !== restarted) return;
         if (conflict?.conflict === 'unwatched') conflict = null;
         // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
         else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };
       }).catch((error) => logError('smarty.coedit-sync-failed', error));
     }, retryMs);
   };
-  const sync = () => serial(async () => {
-    if (closed || base === null) return;
+  // Catch-up belongs to the watcher that requested it. Manual sync belongs only to the open bridge.
+  const syncFor = (owner = null) => serial(async () => {
+    const owns = () => !closed && (owner === null || watcher === owner);
+    if (!owns() || base === null) return false;
     await disposePending();
-    if (!(await settleUncertain())) return;
+    if (!owns() || !(await settleUncertain(owns))) return false;
     const disk = await readSettled(helper, rel, settleMs);
+    if (!owns()) return false;
     if (disk === null) gone = true;
     else if (disk.hash === baseHash) {
       gone = false;
@@ -353,7 +377,10 @@ export function createDiskBridge({
       held = null;
       merge(disk);
     }
+    return true; // Only an authoritative settled read completes catch-up; unresolved publication stays held.
   });
+
+  const sync = async () => { await syncFor(); }; // Public/manual sync needs no live watcher or completion result.
 
   return {
     load: () => serial(async () => {
@@ -425,7 +452,7 @@ export function createDiskBridge({
         // Any unresolved conflict (a raced save's recovery warning, a stopped watcher) is carried through these
         // transient refusals, never replaced by them, and is what their resolution leaves; it clears only through its
         // own path (#445 security r3, astra r2).
-        const kept = conflict?.transient ? conflict.kept : conflict;
+        const kept = conflict?.kept ?? (conflict?.transient ? null : conflict);
         // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
         const refuse = (reason) => raise({ conflict: reason, transient: true, ...(kept && { recovery: kept.recovery, notice: kept.notice, kept }) });
         if (disk === null) {
@@ -435,11 +462,12 @@ export function createDiskBridge({
         // The file exists: whatever this path said before about its absence or its bytes is refuted or restated here.
         gone = false;
         if (disk.hash !== baseHash) return refuse('changed');
-        // It holds the base: saved. A gone or changed refusal from this path is resolved to the warning it carried;
-        // other conflicts (a watcher failure, a raced save's notice) stay until their own path clears them (#445 r2).
-        if (conflict?.transient) conflict = conflict.kept ?? null;
+        // It holds the base: direct and carried presence/content refusals are disproved, including a modifying-save
+        // refusal carried by an unchanged save. Independent warnings stay until their own path clears them (#445 r2).
+        while (['gone', 'changed', 'removed', 'truncated'].includes(conflict?.conflict)) conflict = conflict.kept ?? null;
         return { ok: true };
       }
+      const warning = conflict; // Publication may await while a newer watcher warning arrives.
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
@@ -452,7 +480,11 @@ export function createDiskBridge({
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
-      if (!result.ok && !result.published) return raise(result);
+      if (!result.ok && !result.published) {
+        // Carry the warning still stored after the await, not a captured warning whose owner may have cleared it.
+        const kept = ['gone', 'changed'].includes(result.conflict) ? independentWarning(conflict) : null;
+        return raise({ ...result, ...(kept && { kept }) }); // Return fields remain those of the actual publish refusal.
+      }
       // Published (ok, or a conflict found after our bytes reached disk): the base follows what was written, so the
       // next sync does not replay the room's edit (net-lead round 4); a conflict is still shown.
       base = snapshot;
@@ -460,7 +492,9 @@ export function createDiskBridge({
       baseHash = hashBytes(Buffer.from(next, 'utf8'));
       gone = false; // Ours is the file now.
       if (!result.ok) return raise(result);
-      conflict = null;
+      // A successful publish resolves prior content conflicts, not a stopped watcher or a newer warning.
+      const kept = independentWarning(conflict);
+      conflict = conflict !== warning || kept?.conflict === 'unwatched' ? kept : null;
       return { ok: true };
     }),
     state: () => ({ gone, loaded: base !== null, conflict }),

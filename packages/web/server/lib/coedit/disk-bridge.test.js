@@ -1,5 +1,6 @@
 import { execFileSync, spawn, spawnSync } from 'child_process';
 import { EventEmitter } from 'events';
+import { createInterface } from 'readline';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
@@ -439,6 +440,149 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(t.text.toString()).toBe('Xa'); // Accepted: the room takes the disk, P once, never PPa.
         expect(await t.bridge.save()).toEqual({ ok: true });
         expect(t.disk()).toBe('Xa');
+      });
+    }
+
+    for (const reason of ['gone', 'changed']) {
+      for (const carried of [true, false]) {
+        it(`#481 P3: verified base clears a ${carried ? 'carried' : 'direct'} modifying-save ${reason} refusal without sync`, async () => {
+          const t = await setup('a');
+          t.person((x) => x.insert(0, 'P'));
+          if (reason === 'gone') fs.unlinkSync(t.file);
+          else fs.writeFileSync(t.file, 'b');
+          expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
+          const direct = t.bridge.state().conflict;
+          expect(direct).toMatchObject({ conflict: reason });
+          expect(direct.transient).toBeUndefined();
+          t.person((x) => x.delete(0, 1)); // Undo Pa to the loaded base, a.
+          if (carried) {
+            expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
+            expect(t.bridge.state().conflict).toMatchObject({ conflict: reason, transient: true, kept: direct });
+          }
+          console.info('P3 before restoration', reason, carried, JSON.stringify(t.bridge.state()));
+          fs.writeFileSync(t.file, 'a');
+          const { ino } = fs.statSync(t.file);
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          console.info('P3 verified base success', reason, carried, JSON.stringify(t.bridge.state()));
+          expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+          expect(t.text.toString()).toBe('a');
+          expect(t.disk()).toBe('a');
+          expect(fs.statSync(t.file).ino).toBe(ino); // No publish on authoritative no-change success.
+          expect(await t.bridge.save()).toEqual({ ok: true }); // A further success must not resurrect C0 either.
+          console.info('P3 repeated base success', reason, carried, JSON.stringify(t.bridge.state()));
+          expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+          expect(fs.statSync(t.file).ino).toBe(ino);
+        });
+      }
+    }
+
+    it('#481 P3 finish: non-UTF-8 mismatches remain refused until verified base, including repeated success', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const invalid = Buffer.from([0xff]);
+      fs.writeFileSync(t.file, invalid);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      const direct = t.bridge.state().conflict;
+      expect(direct).toMatchObject({ conflict: 'changed' });
+      expect(direct.transient).toBeUndefined();
+      t.person((x) => x.delete(0, 1));
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
+      const carried = t.bridge.state().conflict;
+      expect(carried).toMatchObject({ conflict: 'changed', transient: true, kept: direct });
+      await expect(t.bridge.sync()).rejects.toThrow(/not UTF-8 text/);
+      expect(t.bridge.state().conflict).toEqual(carried); // A decoding failure grants no clearing authority.
+      expect(fs.readFileSync(t.file)).toEqual(invalid);
+      console.info('P3 invalid bytes still refused', JSON.stringify(t.bridge.state()));
+      fs.writeFileSync(t.file, 'a');
+      const { ino } = fs.statSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      console.info('P3 valid base after invalid bytes', JSON.stringify(t.bridge.state()));
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(t.disk()).toBe('a');
+      expect(t.text.toString()).toBe('a');
+      expect(fs.statSync(t.file).ino).toBe(ino);
+    });
+
+    for (const diskText of ['', 'b']) {
+      it(`#481 P3: a ${diskText ? 'removed' : 'truncated'} hold stays until sync, then verified base clears its refuted refusal`, async () => {
+        const t = await setup('a');
+        const reason = diskText ? 'removed' : 'truncated';
+        fs.writeFileSync(t.file, diskText);
+        await t.bridge.sync();
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
+        fs.writeFileSync(t.file, 'a');
+        // A restored path is not enough: the hold has not been authoritatively re-read yet.
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
+        await t.bridge.sync();
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        expect(t.bridge.state().conflict).toBe(null);
+        expect(t.disk()).toBe('a');
+      });
+    }
+
+    it('#481 P3: a failed authoritative read preserves the existing refusal', async () => {
+      const t = await setup('a');
+      fs.unlinkSync(t.file);
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
+      const refusal = t.bridge.state().conflict;
+      fs.mkdirSync(t.file); // A real helper read failure, not authoritative absence or base.
+      await expect(t.bridge.save()).rejects.toThrow(/not a regular file/);
+      expect(t.bridge.state().conflict).toEqual(refusal);
+      fs.rmdirSync(t.file);
+    });
+
+    it('#481 P3: an unresolved recovery warning survives authoritative no-change success without a refusal', async () => {
+      const t = await setup('a');
+      t.person((x) => x.insert(0, 'P'));
+      const raced = await t.saveDuring('afterExchange', async () => {
+        await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+        fs.writeFileSync(t.file, 'Qa');
+      });
+      expect(raced).toMatchObject({ conflict: 'raced', published: true });
+      const warning = t.bridge.state().conflict;
+      expect(fs.readFileSync(warning.recovery, 'utf8')).toBeTruthy();
+      fs.writeFileSync(t.file, 'Pa'); // Restore the published base, no sync or intervening refusal.
+      expect(await t.bridge.save()).toEqual({ ok: true });
+      expect(t.bridge.state().conflict).toEqual(warning);
+    });
+
+    for (const reason of ['gone', 'changed']) {
+      it(`#481 final warning: modifying ${reason} refusal and verified base preserve a real raced recovery`, async () => {
+        const t = await setup('a');
+        t.person((x) => x.insert(0, 'P'));
+        const raced = await t.saveDuring('afterExchange', async () => {
+          await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa');
+          fs.writeFileSync(t.file, 'Qa');
+        });
+        expect(raced).toMatchObject({ conflict: 'raced', published: true });
+        const warning = t.bridge.state().conflict;
+        const recovered = fs.readFileSync(warning.recovery, 'utf8');
+        expect(warning).toMatchObject({ conflict: 'raced', notice: expect.any(String) });
+        t.person((x) => x.insert(0, 'Q'));
+        if (reason === 'gone') fs.unlinkSync(t.file);
+        else fs.writeFileSync(t.file, 'b');
+        expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
+        t.person((x) => x.delete(0, 1)); // Undo QPa to the published base Pa.
+        expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: reason });
+        const refusal = t.bridge.state().conflict;
+        fs.rmSync(t.file, { force: true });
+        fs.mkdirSync(t.file);
+        await expect(t.bridge.save()).rejects.toThrow(/not a regular file/);
+        expect(t.bridge.state().conflict).toBe(refusal);
+        fs.rmdirSync(t.file);
+        fs.writeFileSync(t.file, 'Pa');
+        const { ino } = fs.statSync(t.file);
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        console.info('FINAL recovery verified base', reason, JSON.stringify(t.bridge.state()));
+        expect(t.bridge.state().conflict).toBe(warning);
+        expect(await t.bridge.save()).toEqual({ ok: true });
+        expect(t.bridge.state().conflict).toBe(warning);
+        expect(fs.readFileSync(warning.recovery, 'utf8')).toBe(recovered);
+        expect(t.disk()).toBe('Pa');
+        expect(t.text.toString()).toBe('Pa');
+        expect(fs.statSync(t.file).ino).toBe(ino);
       });
     }
 
@@ -1714,6 +1858,382 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(made.every((w) => w.closed)).toBe(true);
     });
 
+    // The fixture owns each real helper independently of the bridge-owned pipe relay. Closing the bridge can
+    // end that relay only after its queue drains; control EOF then ends and awaits the real helper, without signals.
+    const settlementGate = async () => {
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'coedit-settlement-')));
+      const control = path.join(home, 'control.sock');
+      const binary = process.env.OPENCHAMBER_COEDIT_FS ?? path.join(import.meta.dirname, 'fs-helper/target/release/coedit-fs');
+      const connections = [];
+      const children = [];
+      const operations = [];
+      const exits = [];
+      let nextArm = null;
+      const events = new EventEmitter();
+      const wait = (event) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { events.removeListener(event, done); reject(new Error(`settlement relay: no ${event}`)); }, 3000);
+        const done = (value) => { clearTimeout(timer); resolve(value); };
+        events.once(event, done);
+      });
+      const server = net.createServer((connection) => {
+        connections.push(connection);
+        let child;
+        let armed = nextArm;
+        nextArm = null;
+        let held = null;
+        let losePublish = false;
+        const requests = new Map();
+        const send = (message) => connection.write(`${JSON.stringify(message)}\n`);
+        createInterface({ input: connection }).on('line', (line) => {
+          const message = JSON.parse(line);
+          if (message.event === 'ready') {
+            child = spawn(binary, message.args, { stdio: ['pipe', 'pipe', 'inherit'] });
+            const exited = new Promise((resolve, reject) => {
+              child.once('error', reject);
+              child.once('close', (code, signal) => { exits.push({ code, signal }); resolve(); });
+            });
+            children.push(exited);
+            child.stdin.on('error', (error) => { throw error; });
+            createInterface({ input: child.stdout }).on('line', (raw) => {
+              const reply = JSON.parse(raw);
+              const op = requests.get(reply.id);
+              requests.delete(reply.id);
+              if (losePublish && op === 'publish') {
+                losePublish = false;
+                child.stdin.end();
+                void exited.then(() => connection.end());
+              } else if (armed === op) {
+                armed = null;
+                held = raw;
+                events.emit('held', { op, reply });
+              } else send({ raw });
+            });
+            connection.fixture = {
+              arm: (response) => { armed = response; events.emit('armed'); },
+              lose: () => { losePublish = true; events.emit('armed'); },
+              release: () => { if (held !== null) { send({ raw: held }); held = null; } },
+            };
+            events.emit('ready');
+            if (armed) events.emit('armed');
+          } else if (message.event === 'requested') {
+            const request = JSON.parse(message.raw);
+            operations.push(request.op);
+            requests.set(request.id, request.op);
+            child.stdin.write(`${message.raw}\n`);
+          } else events.emit(message.event, message);
+        });
+        connection.on('end', () => child?.stdin.end());
+        connection.on('close', () => child?.stdin.end());
+      });
+      await new Promise((done) => server.listen(control, done));
+      const script = path.join(home, 'coedit-fs');
+      fs.writeFileSync(script, `#!${process.execPath}
+const net = require('net');
+const { createInterface } = require('readline');
+const control = net.createConnection(${JSON.stringify(control)});
+let started = false;
+const input = [];
+control.on('connect', () => {
+  control.write(JSON.stringify({ event: 'ready', args: process.argv.slice(2) }) + '\\n');
+  started = true;
+  for (const raw of input.splice(0)) control.write(JSON.stringify({ event: 'requested', raw }) + '\\n');
+});
+createInterface({ input: process.stdin }).on('line', (raw) => {
+  if (started) control.write(JSON.stringify({ event: 'requested', raw }) + '\\n');
+  else input.push(raw);
+}).on('close', () => control.end());
+createInterface({ input: control }).on('line', (line) => {
+  const message = JSON.parse(line);
+  if (message.raw) process.stdout.write(message.raw + '\\n');
+  if (message.observe) control.write(JSON.stringify({ event: 'observed' }) + '\\n');
+}).on('close', () => { process.stdin.destroy(); process.stdout.end(); });
+`, { mode: 0o755 });
+      const saved = process.env.OPENCHAMBER_COEDIT_FS;
+      process.env.OPENCHAMBER_COEDIT_FS = script;
+      const ready = wait('ready');
+      const stop = async () => {
+        // The caller closes the bridge first. Every relay's control socket must reach EOF, then its real child exits.
+        await Promise.all(connections.map((c) => c.destroyed ? Promise.resolve() : new Promise((done) => c.once('close', done))));
+        await Promise.all(children);
+        expect(exits).toHaveLength(connections.length);
+        expect(exits.every((result) => result.code === 0 && result.signal === null)).toBe(true);
+        console.info('FINAL relay cleanup', JSON.stringify({ controls: connections.length, exits }));
+      };
+      cleanups.push(async () => {
+        await stop();
+        await new Promise((done) => server.close(done));
+        if (saved === undefined) delete process.env.OPENCHAMBER_COEDIT_FS;
+        else process.env.OPENCHAMBER_COEDIT_FS = saved;
+        fs.rmSync(home, { recursive: true, force: true });
+      });
+      return {
+        ready,
+        count: (op) => operations.filter((operation) => operation === op).length,
+        observe: async () => { const observed = wait('observed'); connections.at(-1).write(JSON.stringify({ observe: true }) + '\n'); await observed; },
+        arm: (response) => {
+          const armed = wait('armed');
+          const connection = connections.at(-1);
+          if (connection.readableEnded || connection.destroyed) nextArm = response;
+          else connection.fixture.arm(response);
+          return armed;
+        },
+        lose: async () => { const armed = wait('armed'); connections.at(-1).fixture.lose(); await armed; },
+        held: () => wait('held'),
+        release: () => connections.at(-1)?.fixture.release(),
+        stop,
+      };
+    };
+
+    for (const outcome of ['gone', 'changed', 'ok', 'prior-ok']) {
+      it(`#481 final publish await: ${outcome} preserves the current stopped-watcher warning`, async () => {
+        const gate = await settlementGate();
+        const { home, root, file } = fresh();
+        fs.writeFileSync(file, 'a');
+        const { made, watch } = fakeWatch();
+        const doc = new Y.Doc();
+        const bridge = createDiskBridge({ root, file, doc, hooks: {}, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryLimit: 0, enabled: true });
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          await gate.ready;
+          await bridge.load();
+          doc.getText(TEXT).insert(0, 'P');
+          if (outcome === 'prior-ok') made[0].emit('error', new Error('EMFILE: captured prior warning'));
+          const prior = bridge.state().conflict;
+          await gate.arm('read');
+          const held = gate.held();
+          const saving = bridge.save();
+          expect((await held).reply.hash).toBe(hashBytes(Buffer.from('a')));
+          if (outcome !== 'prior-ok') made[0].emit('error', new Error('EMFILE: newer warning during publish await'));
+          const warning = bridge.state().conflict;
+          expect(warning).toMatchObject({ conflict: 'unwatched' });
+          if (outcome !== 'prior-ok') expect(warning).not.toBe(prior);
+          if (outcome === 'gone') fs.unlinkSync(file);
+          else if (outcome === 'changed') fs.writeFileSync(file, 'b');
+          gate.release();
+          const result = await saving;
+          if (outcome === 'gone' || outcome === 'changed') {
+            expect(result).toMatchObject({ ok: false, conflict: outcome, recovery: expect.any(String) });
+            expect(result.published).toBeUndefined();
+            expect(result.notice).toBeUndefined(); // No new public publish-result fields from the carried warning.
+            expect(bridge.state().conflict.kept).toBe(warning);
+            doc.getText(TEXT).delete(0, 1);
+            expect(await bridge.save()).toMatchObject({ ok: false, conflict: outcome });
+            fs.writeFileSync(file, 'a');
+            const { ino } = fs.statSync(file);
+            expect(await bridge.save()).toEqual({ ok: true });
+            expect(fs.statSync(file).ino).toBe(ino);
+          } else {
+            expect(result).toEqual({ ok: true });
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+          }
+          expect(bridge.state().conflict).toBe(warning);
+          expect(await bridge.save()).toEqual({ ok: true });
+          expect(bridge.state().conflict).toBe(warning);
+        } finally {
+          gate.release();
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          await gate.stop();
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root).filter(alive)).toEqual([]);
+          errors.mockRestore();
+          doc.destroy();
+        }
+      });
+    }
+
+    for (const response of ['read', 'list', 'ack']) {
+      for (const active of [false, true]) {
+        it(`#481 round 2: settlement ${response} with ${active ? 'active' : 'failed'} replacement preserves watcher ownership`, async () => {
+          const gate = await settlementGate();
+          const { home, root, file } = fresh();
+          fs.writeFileSync(file, 'a');
+          const { made, watch } = fakeWatch();
+          let starts = 0;
+          const boundedWatch = (dir, onChange) => {
+            starts += 1;
+            if (starts > 2) throw new Error('ENOSPC: no more watchers');
+            return watch(dir, onChange);
+          };
+          const doc = new Y.Doc();
+          const hooks = {};
+          const conflicts = [];
+          const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch: boundedWatch, settleMs: 5, retryMs: 11, retryLimit: 2, onConflict: (c) => conflicts.push(c), enabled: true });
+          const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+          let writer;
+          try {
+            await gate.ready;
+            await bridge.load();
+            writer = fs.openSync(file, 'a'); // Retained data stays pending, so retry timers cannot retire its token.
+            doc.getText(TEXT).insert(0, 'P');
+            hooks.helper = { fault: 'afterExchange' };
+            if (response !== 'read') await gate.lose(); // Drop the real uncertain reply; EOF releases its record lock.
+            expect(await bridge.save()).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+            delete hooks.helper;
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+            const ino = fs.statSync(file).ino;
+            const key = keyOf(root, 'f.md');
+            const beforeTokens = JSON.stringify(tokensFor(key));
+            const armed = gate.arm(response);
+            const held = gate.held();
+            made[0].emit('error', new Error('EMFILE: first watcher'));
+            const firstWarning = bridge.state().conflict;
+            await armed;
+            const result = await held;
+            expect(result.op).toBe(response);
+            expect(result.reply.ok).toBe(true);
+            if (response === 'read') expect(result.reply.hash).toBe(hashBytes(Buffer.from('Pa')));
+            if (response === 'list') expect(result.reply.records.some((record) => record.state === 'published')).toBe(true);
+            const reads = gate.count('read');
+            const acks = gate.count('ack');
+            expect(made).toHaveLength(2);
+            expect(made[1].closed).toBe(false);
+            let newerWarning;
+            if (!active) {
+              made[1].emit('error', new Error('EMFILE: replacement watcher'));
+              newerWarning = bridge.state().conflict;
+              expect(newerWarning).not.toBe(firstWarning);
+              await expect.poll(() => starts, { timeout: 3000 }).toBe(4);
+              expect(made.every((w) => w.closed)).toBe(true);
+            }
+            const updates = [];
+            doc.on('update', (_update, origin) => updates.push(origin));
+            gate.release();
+            await bridge.acceptDisk(); // Queue barrier without manually settling or reading a second time.
+            await gate.observe(); // Drain operation notifications on their ordered control stream.
+            expect(doc.getText(TEXT).toString()).toBe('Pa');
+            expect(gate.count('read')).toBe(reads + (active ? 2 : 0)); // No stale settled-read or replay after the gated result.
+            if (response === 'list') expect(gate.count('ack')).toBe(acks + (active ? 1 : 0));
+            expect(updates).toEqual([]);
+            expect(fs.statSync(file).ino).toBe(ino);
+            if (active) {
+              expect(bridge.state().conflict).toBe(null);
+              expect(conflicts.map((c) => c.conflict)).toEqual(['unverified', 'unwatched']);
+              expect(await bridge.save()).toEqual({ ok: true });
+              expect(fs.statSync(file).ino).toBe(ino); // Adopted base, no second publish.
+            } else {
+              expect(bridge.state().conflict).toBe(newerWarning);
+              expect(JSON.stringify(tokensFor(key))).toBe(beforeTokens);
+              if (response === 'read') {
+                fs.writeFileSync(file, 'a'); // Refutes stale snapshot adoption: uncertainty can settle as NOT published.
+                await bridge.sync(); // Manual settlement remains legal with no watcher.
+                expect(doc.getText(TEXT).toString()).toBe('Pa');
+                expect(bridge.state().conflict).toBe(newerWarning);
+                expect(await bridge.save()).toEqual({ ok: true });
+                expect(fs.statSync(file).ino).not.toBe(ino);
+              } else {
+                await bridge.sync(); // Published base already adopted before the ack await; never replay it.
+                expect(doc.getText(TEXT).toString()).toBe('Pa');
+                expect(bridge.state().conflict).toBe(newerWarning);
+                expect(await bridge.save()).toEqual({ ok: true });
+                expect(fs.statSync(file).ino).toBe(ino);
+              }
+            }
+          } finally {
+            gate.release();
+            if (writer !== undefined) fs.closeSync(writer);
+            expect(await bridge.close()).toEqual({ quiescent: true });
+            await gate.stop();
+            expect(made.every((w) => w.closed)).toBe(true);
+            expect(helperPids(root).filter(alive)).toEqual([]);
+            errors.mockRestore();
+            doc.destroy();
+          }
+        });
+      }
+    }
+
+    for (const caughtUp of [false, true]) {
+      it(`#481 round 2 held catch-up: active replacement ${caughtUp ? 'settles and reads authoritative disk' : 'stays held and keeps its warning'}`, async () => {
+        const gate = await settlementGate();
+        const { home, root, file } = fresh();
+        fs.writeFileSync(file, 'a');
+        const { made, watch } = fakeWatch();
+        const doc = new Y.Doc();
+        const hooks = {};
+        const conflicts = [];
+        const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryMs: 11, retryLimit: 2, onConflict: (c) => conflicts.push(c), enabled: true });
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        let writer;
+        try {
+          await gate.ready;
+          await bridge.load();
+          expect(bridge.sync.length).toBe(0);
+          writer = fs.openSync(file, 'a'); // Keep the real displaced inode pending, independent of retry timers.
+          doc.getText(TEXT).insert(0, 'P');
+          hooks.helper = { fault: 'afterExchange' };
+          expect(await bridge.save()).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+          delete hooks.helper;
+          expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+          const ino = fs.statSync(file).ino;
+          fs.writeFileSync(file, 'Pa and more');
+          expect(await bridge.sync()).toBeUndefined(); // Report this third revision once, marking uncertainty seen.
+          expect(conflicts.map((c) => c.conflict)).toEqual(['unverified', 'unverified']);
+          expect(doc.getText(TEXT).toString()).toBe('Pa');
+          if (caughtUp) fs.writeFileSync(file, 'Pa'); // This control can settle the actual publication.
+          const armed = gate.arm('read');
+          const held = gate.held();
+          made[0].emit('error', new Error('EMFILE: first watcher'));
+          const warning = bridge.state().conflict;
+          expect(warning).toMatchObject({ conflict: 'unwatched' });
+          await armed;
+          const result = await held;
+          expect(result.reply.ok).toBe(true);
+          expect(result.reply.hash).toBe(hashBytes(Buffer.from(caughtUp ? 'Pa' : 'Pa and more')));
+          expect(made).toHaveLength(2);
+          expect(made[1].closed).toBe(false); // W1 remains active throughout its completion.
+          const reads = gate.count('read');
+          const publishes = gate.count('publish');
+          const updates = [];
+          doc.on('update', (_update, origin) => updates.push(origin));
+          if (caughtUp) fs.writeFileSync(file, 'PaZ'); // Only the subsequent authoritative read can see Z.
+          gate.release();
+          await bridge.acceptDisk(); // Serial barrier, not another settlement attempt.
+          await gate.observe();
+          expect(gate.count('read')).toBe(reads + (caughtUp ? 2 : 0));
+          expect(gate.count('publish')).toBe(publishes);
+          expect(fs.statSync(file).ino).toBe(ino);
+          expect(conflicts.map((c) => c.conflict)).toEqual(['unverified', 'unverified', 'unwatched']);
+          if (caughtUp) {
+            expect(bridge.state().conflict).toBe(null);
+            expect(doc.getText(TEXT).toString()).toBe('PaZ'); // Adopt Pa, merge only Z: never replay P.
+            expect(updates).toEqual([DISK_ORIGIN]);
+            expect(await bridge.save()).toEqual({ ok: true });
+            await gate.observe();
+            expect(gate.count('publish')).toBe(publishes);
+            expect(fs.statSync(file).ino).toBe(ino);
+          } else {
+            expect(doc.getText(TEXT).toString()).toBe('Pa');
+            expect(updates).toEqual([]);
+            const retainedWarning = bridge.state().conflict;
+            expect(await bridge.save()).toEqual({ ok: false, conflict: 'unverified', published: 'uncertain' });
+            await gate.observe();
+            expect(gate.count('publish')).toBe(publishes); // Save is still blocked, not a warning-only hold.
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa and more');
+            expect(bridge.state().conflict).toBe(retainedWarning);
+            expect(retainedWarning).toBe(warning); // Already-seen uncertainty must not make catch-up clear unwatched.
+            fs.writeFileSync(file, 'a');
+            expect(await bridge.sync()).toBeUndefined();
+            expect(doc.getText(TEXT).toString()).toBe('Pa');
+            expect(updates).toEqual([]);
+            expect(await bridge.save()).toEqual({ ok: true });
+            await gate.observe();
+            expect(gate.count('publish')).toBe(publishes + 1); // Base remained a, never adopted the held third revision.
+            expect(fs.readFileSync(file, 'utf8')).toBe('Pa');
+            expect(fs.statSync(file).ino).not.toBe(ino);
+          }
+        } finally {
+          gate.release();
+          if (writer !== undefined) fs.closeSync(writer);
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          await gate.stop();
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root).filter(alive)).toEqual([]);
+          errors.mockRestore();
+          doc.destroy();
+        }
+      });
+    }
+
     // Hold exactly one settled-read gap, after its first real helper read. All returned handles are native;
     // the bridge's other timers run normally and must be drained or cleared by close().
     const catchupGate = (settleMs) => {
@@ -1904,6 +2424,46 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         }
       }
     });
+
+    for (const reason of ['gone', 'changed']) {
+      it(`#481 final warning: modifying ${reason} refusal and verified base preserve a stopped watcher`, async () => {
+        const { home, root, file } = fresh();
+        fs.writeFileSync(file, 'a');
+        const { made, watch } = fakeWatch();
+        const doc = new Y.Doc();
+        const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch, settleMs: 5, retryLimit: 0, enabled: true });
+        cleanups.unshift(async () => { expect(await bridge.close()).toEqual({ quiescent: true }); doc.destroy(); });
+        await bridge.load();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        made[0].emit('error', new Error('EMFILE'));
+        const warning = bridge.state().conflict;
+        expect(warning).toMatchObject({ conflict: 'unwatched' });
+        doc.getText(TEXT).insert(0, 'P');
+        if (reason === 'gone') fs.unlinkSync(file);
+        else fs.writeFileSync(file, 'b');
+        expect(await bridge.save()).toEqual({ ok: false, conflict: reason });
+        doc.getText(TEXT).delete(0, 1); // Undo Pa to the loaded base a.
+        expect(await bridge.save()).toMatchObject({ ok: false, conflict: reason });
+        const refusal = bridge.state().conflict;
+        fs.rmSync(file, { force: true });
+        fs.mkdirSync(file);
+        await expect(bridge.save()).rejects.toThrow(/not a regular file/);
+        expect(bridge.state().conflict).toBe(refusal);
+        fs.rmdirSync(file);
+        fs.writeFileSync(file, 'a');
+        const { ino } = fs.statSync(file);
+        expect(await bridge.save()).toEqual({ ok: true });
+        console.info('FINAL watcher verified base', reason, JSON.stringify(bridge.state()));
+        expect(bridge.state().conflict).toBe(warning);
+        expect(await bridge.save()).toEqual({ ok: true });
+        expect(bridge.state().conflict).toBe(warning);
+        expect(doc.getText(TEXT).toString()).toBe('a');
+        expect(fs.readFileSync(file, 'utf8')).toBe('a');
+        expect(fs.statSync(file).ino).toBe(ino);
+        expect(made).toHaveLength(1);
+        expect(made[0].closed).toBe(true);
+      });
+    }
 
     it('#445 astra round 2: a stopped watcher\'s warning outlives no-change refusals and the success after them', async () => {
       const { home, root, file } = fresh();

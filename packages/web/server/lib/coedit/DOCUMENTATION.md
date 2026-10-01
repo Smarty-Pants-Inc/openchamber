@@ -14,7 +14,10 @@ round 4); until then no conflict could be seen.
 - `fs-helper/`: **coedit-fs**, a small Rust binary that does every file operation for the bridge (smartyfs#32; protocol
   below). Build: `cargo build --release` there; the bridge uses `fs-helper/target/release/coedit-fs`, or
   `OPENCHAMBER_COEDIT_FS`. Tests: `fs-helper/fs-helper.test.js`. The tests build it first (`fs-helper/ensure-built.js`),
-  not a CI step: the workflow and `package.json` files are bound by the branding ledger (`test:brand`).
+  not a CI step: the workflow and `package.json` files are bound by the branding ledger (`test:brand`). The separate
+  own-signal check runs with `COEDIT_SIGNAL_BIN=<built coedit-fs> node --test fs-helper/signal-handling.check.mjs`
+  from this module. It self-raises SIGIO after verified delivery, including an inherited blocked-mask control.
+  This checks signal handling, not forced kernel lease removal; it is not discovered by the Vitest suite.
 - The Hocuspocus room layer (a room per open file, with the Files view's auth and project admission) comes next; it
   shows conflicts and their notices to the people in the room.
 
@@ -113,6 +116,8 @@ round 4); until then no conflict could be seen.
     permissions; every other named entry and the original owning group keep their permissions after the original
     mask; the new mask is their union; other is kept; the helper's own group gets nothing. An ACL entry it does not
     understand refuses the publish.
+  - **Lease-break invalidation:** before `hello`, the helper sets `SIGIO` to default termination and explicitly
+    unblocks it. A lease-break signal ends the helper rather than letting held proof survive the break.
   - **The lease needs `CAP_LEASE`** (#412 finding 4; code-lead's approval on #412 and smarty-dev#2251). The displaced
     revision is usually the served account's inode, and only its owner or a holder of `CAP_LEASE` may lease it. The
     unit grants that one capability. A lease refused for any reason but an open writer (`EAGAIN`) is an error, never
@@ -170,7 +175,11 @@ round 4); until then no conflict could be seen.
   `gone`; when it holds the base again, the save is `ok` and a `gone` or `changed` conflict is resolved (other
   conflicts stay until their own path clears them). Such a refusal is `transient`: any unresolved conflict it meets
   (a `raced` save's `recovery` and `notice`, a stopped watcher's `unwatched`) is carried in it as `kept`, with its
-  `recovery` and `notice`, and is what its resolution leaves. A carried watcher warning clears when watching resumes.
+  `recovery` and `notice`, and is what its resolution leaves. Modifying-save `gone` and `changed` refusals also carry
+  the independent warning still stored after publication returns. Verified base reads resolve direct and carried
+  presence/content refusals, not their independent warnings. A successful publish preserves a stopped-watcher
+  warning and any newer independent warning that arrived during its await. A carried watcher warning clears when
+  watching resumes.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
@@ -236,7 +245,10 @@ round 4); until then no conflict could be seen.
   now"); restarting is attempted after `retryMs`, at most `retryLimit` times per failed-start episode. A successful
   watcher construction resets that counter; its catch-up sync clears the warning only if it succeeds. Later watcher
   errors can start another episode, so this is not a lifetime cap or a promise that continually changing bytes settle.
-  Catch-up clears a direct or carried stopped-watcher warning only while its own restarted watcher is still active on the open bridge.
+  Catch-up checks its restarted watcher ownership during settlement and again at completion. It clears a direct or
+  carried stopped-watcher warning only after an authoritative settled read while that watcher is still active on the
+  open bridge. Accepting a lost-reply outcome marks its list phase complete before acknowledgement, so a later
+  owner retries the ack without re-claiming the record. A stopped owner keeps uncertainty and token custody.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
 - **Recovery retention** (smartyfs#37, org's decision 2026-09-29): recovery copies are named
   `<time>-<random>-<key>-[ours-]<file name>`. When a bridge loads a file, and then daily (`pruneMs`), it deletes a copy of
@@ -265,7 +277,8 @@ round 4); until then no conflict could be seen.
 
 The helper validates persisted evidence before granting it authority. This does not change protocol 3 or add a
 public API. The existing `.txn` format is exactly `{ino,ack,pid,start,dest}`, with every field required. Missing,
-extra or wrong-type fields fail, rather than selecting a default mode.
+extra or wrong-type fields fail, rather than selecting a default mode. Duplicate decoded object keys are invalid
+recursively, including escaped spellings of the same key in nested objects.
 
 | Field | Persisted contract |
 | --- | --- |
@@ -317,7 +330,7 @@ after 30 days by record ctime. These are implementation contracts, not runtime p
 | Helper operation | Relevant reply and failure contract |
 | --- | --- |
 | `list` | Keeps the current `entries`, `records` and `recovered` arrays. Verified current deliveries use the unchanged `{marker,path,hash}` shape. Invalid metadata fails the list before outcome or age mutations; operational outcome write/flush failure still leaves an `unknown` outcome. |
-| `dispose` | Own-connection, claimed and tokenless disposal all require valid same-file evidence. Any prior delivery must still verify before retained-byte unlink. Already-absent data is idempotent success only after preflight. |
+| `dispose` | Own-connection, claimed and tokenless disposal all require valid same-file evidence. Any prior delivery must still verify before retained-byte unlink. Already-absent claimed data succeeds only after preflight, authorization and durable outcome resolution. It takes no connection ownership, so the receipt remains ackable. |
 | `ack` | Validates same-file evidence first. Pending data returns explicit `pending: true`; successful retirement or confirmed complete absence returns explicit `pending: false`. Absence never fabricates a publication outcome. |
 
 ## Accepted limits
