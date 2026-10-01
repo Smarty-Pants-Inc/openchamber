@@ -74,6 +74,7 @@ import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
+import { StepsLayout } from '@/components/chat/steps/StepsLayout';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
@@ -462,9 +463,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
-              <ErrorBoundary>
-                <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
-              </ErrorBoundary>
+              <StepsLayout mobile>
+                <ErrorBoundary>
+                  <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
+                </ErrorBoundary>
+              </StepsLayout>
             </div>
           </main>
         </div>

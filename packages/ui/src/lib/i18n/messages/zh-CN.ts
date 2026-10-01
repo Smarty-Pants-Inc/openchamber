@@ -8,7 +8,10 @@ import { settingsDict } from './zh-CN.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
+import { inboxStepsI18n } from './inbox-steps.i18n';
+
 export const dict: Record<I18nKey, string> = {
+  ...inboxStepsI18n['zh-CN'],
   'sessions.sidebar.projectAction.active': '项目操作正在运行',
   ...settingsDict,
   ...displayNameI18n['zh-CN'],
