@@ -147,6 +147,19 @@ repair bytes after writer quiescence. Dictation is outside this donor ledger.
 Historical checks unwind lifetime before Host and keep every earlier digest
 assertion. Review, owning CI and runtime proof stay separate.
 
+### Proxy Connection successor
+
+`proxyConnectionSource` names `e9f6fdc38ffbadf43113d1b8202489332f6fe95f`
+for openchamber#491 and smarty-code#1147. Only the existing `proxy.js` overlap
+gains `preProxyConnectionCombinedSha256`, `proxyConnectionSha256` and
+`proxyConnectionNote`. The actual `proxyReq` hook removes the hop-by-hop
+`Connection` header before forwarding upstream, with a ponytail comment.
+It adds no request replay or retries. The Code-made list output remains the exact
+predecessor. Both historical checks unwind this layer first and pin the whole
+preceding overlay's byte and parsed digests before running older assertions
+unchanged. Original coverage, branding, behavior and source evidence stay intact.
+This provenance is not an exact integrated-head CI or release receipt.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.

@@ -233,9 +233,22 @@ test('the Code-made session-list layer binds its exact commit over the inbox str
   const entry = overlays.get('packages/web/server/lib/opencode/proxy.js');
   assert.equal(overlay.codeMadeListSource, 'ebf56e66943ee912b727dab8ebb0e336d50f733d');
   assert.equal(entry.preCodeMadeListCombinedSha256, entry.inboxStreamSha256);
-  assert.equal(entry.codeMadeListSha256, entry.combinedSha256);
+  assert.equal(entry.codeMadeListSha256, entry.preProxyConnectionCombinedSha256);
   assert.ok(entry.codeMadeListNote);
   assert.deepEqual(overlay.files.filter(file => file.codeMadeListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
+});
+
+test('the proxy Connection layer binds its exact source and successor over the Code-made list layer (openchamber#491)', () => {
+  const file = 'packages/web/server/lib/opencode/proxy.js';
+  const entry = overlays.get(file);
+  assert.equal(overlay.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
+  assert.deepEqual(overlay.files.filter(candidate => 'proxyConnectionSha256' in candidate).map(candidate => candidate.path), [file]);
+  assert.equal(entry.preProxyConnectionCombinedSha256, 'a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68');
+  assert.equal(entry.preProxyConnectionCombinedSha256, entry.codeMadeListSha256);
+  assert.equal(entry.proxyConnectionSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+  assert.equal(entry.proxyConnectionSha256, entry.combinedSha256);
+  assert.equal(sha256(read(file)), entry.proxyConnectionSha256);
+  assert.ok(entry.proxyConnectionNote);
 });
 
 test('the model-prefs unload flush binds its exact fix commit over the settings client only (smarty-code#126 F6)', () => {
@@ -402,6 +415,25 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
+  assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
+  delete historical.proxyConnectionSource;
+  const proxyConnection = historical.files.filter(entry => 'proxyConnectionSha256' in entry);
+  assert.deepEqual(proxyConnection.map(entry => entry.path), ['packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of proxyConnection) {
+    assert.equal(entry.proxyConnectionSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+    assert.equal(entry.proxyConnectionSha256, entry.combinedSha256);
+    assert.equal(entry.preProxyConnectionCombinedSha256, 'a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68');
+    assert.equal(entry.preProxyConnectionCombinedSha256, entry.codeMadeListSha256);
+    assert.ok(entry.proxyConnectionNote);
+    entry.combinedSha256 = entry.preProxyConnectionCombinedSha256;
+    delete entry.preProxyConnectionCombinedSha256;
+    delete entry.proxyConnectionSha256;
+    delete entry.proxyConnectionNote;
+  }
+  assert.equal(sha256(JSON.stringify(historical)), '2513793752310488e83c73a53feb82d7c460dee9c95d70db10e3b7220d29f9b9');
+  assert.equal(sha256(`${JSON.stringify(historical, null, 2)}\n`), '72239c6062dcc912d129a727209d7c92c926532b465469c363a1f49b3cfab822');
+
   assert.deepEqual(historical.personalSidebarRevealProvenance, {
     reviewedHead: 'a536a54446b8009d3b85a617e6f67d8434d5de96',
     finding: "openchamber#454 security comment 5919567288 P2 - Failed owner admission leaves A's pending reveal able to write B's preferences",
