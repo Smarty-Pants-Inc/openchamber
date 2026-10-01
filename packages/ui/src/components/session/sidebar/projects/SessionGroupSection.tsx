@@ -1,4 +1,5 @@
 import { DirectoryActionIndicator } from '../sessions/DirectoryActionIndicator';
+import { useRevealSessionPagination } from '../list/sessionReveal';
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useShallow } from 'zustand/react/shallow';
@@ -463,6 +464,11 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
 
   const sessionIdsInFolders = React.useMemo(() => new Set(allFoldersForGroup.flatMap((f) => f.folder.sessionIds)), [allFoldersForGroup]);
   const ungroupedSessions = React.useMemo(() => sourceGroupNodes.filter((node) => !sessionIdsInFolders.has(node.session.id)), [sourceGroupNodes, sessionIdsInFolders]);
+  useRevealSessionPagination(groupKey, ungroupedSessions, count => {
+    if (count <= nonArchivedVisibleCount) return;
+    // The collection's existing page action adds seven rows to its supplied count.
+    showMoreGroupSessions(groupKey, count - 7);
+  });
   const rootFolders = React.useMemo(() => {
     const entryById = new Map(allFoldersForGroup.map((entry) => [entry.folder.id, entry]));
     return normalizeFolderRoots(allFoldersForGroup.map((entry) => entry.folder))

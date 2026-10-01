@@ -78,6 +78,65 @@ make every row observe unrelated streaming updates.
 - Pending-permission/question row badges fade with the same hover/menu-open rule as the date label, except on non-VS Code always-visible-actions rows, which reserve permanent padding and keep the badges shown. VS Code hover-reveals its actions over the row's right edge even under `alwaysShowActions`, so its badges keep fading (`selectRowBadgeVisibilityClass` in `sessions/sessionNodeItemUtils.ts`).
 
 
+## Personal open/create reveal
+
+`list/sessionReveal.ts` mounts an effect-only subscriber in the desktop collection
+and mobile sheet. Explicit local opens, including same-ID reopen, and creation
+capture one runtime/auth-scoped intent with its initiating preference-admission
+cohort. Creation captures before asynchronous preparation and forwards that
+ticket at selection. An initial shared `?session=`
+link is an explicit open, including when bootstrap already selected that ID.
+Only a reload of this tab's last admitted shown session is non-revealing. The
+router records that receipt in safe sessionStorage, keyed by runtime and the
+sidebar preference GET's admitted issuer/subject. Browser-wide last-session
+memory and cached human profile data never classify the link. A draft clears the
+tab receipt. Back/Forward and explicit same-ID reopen still reveal once.
+Embedded session chats and VS Code retain their existing navigation policy.
+Restore, background rows and model changes do not create reveal work. A later explicit choice retires earlier
+work; old request scopes cannot reveal the new person's view.
+
+Reveal waits for the selected root row in its admitted rendered group, consumes
+the marker before writing personal expansion through `lib/sidebar-view.ts`, and
+expands only its project and group. Explicit same-target collapse cancels pending
+work even before ownership arrives. Unrelated collapse does not cancel it.
+A waiting catalog open keeps its original scoped ticket through admission, so
+catalog publication cannot undo a later manual collapse.
+Desktop pagination uses the target group's sorted, unfoldered roots. Mobile uses
+the target bucket's actual roots. Neither path fetches history to reveal a row.
+
+Human mobile uses the same sparse personal maps and shared project defaults,
+without claiming `mobile-session-tree` anonymous values. Worktree keys adapt to
+`${projectId}:worktree:${normalizedPath}`; its unheaded root bucket uses
+`${projectId}:root`. Mobile still renders one root bucket rather than desktop's
+workspace subgroups. Legacy mobile and VS Code retain their existing view path.
+
+A current preference PATCH returning owner-mismatch 409 retires the old person's
+maps and request authority, then loads the newly admitted person's preferences.
+Queued old-person choices reject without dispatch or replay. A stale 409 cannot
+retire a newer view. Ordinary storage errors keep same-person rollback behavior.
+
+Before the preference GET admits an owner, desktop and mobile may queue local
+choices. Failure of that owner-admission attempt retires its pending choices and
+optimistic maps. A later successful read cannot authorize those old payloads;
+saving requires a fresh choice. Healthy same-person pre-admission choices still
+save after the original read succeeds. A stale failed read cannot retire a newer
+entry. An open/create ticket cannot borrow a successor cohort: failed admission
+revokes its expansion-save authority and delayed publication. A fresh open is
+required before saving expansion under the successor. Publication requires the
+original live marker; consumed work cannot resurrect even in the same cohort.
+First consumer mounting does not retire a healthy initiating cohort. Manual-collapse reveal cancellation
+remains local intent, independent of whether its durable preference save succeeds.
+
+#1061 covers root rows and containing project/worktree groups only. Child and
+folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1066).
+Parent and folder expansion remain manual, as agreed in the
+[scope decision](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1061#issuecomment-5909719193).
+A root hidden inside a manually collapsed folder is not a #1061 visibility claim.
+Mobile drawer page retention, a supported waiting-open caller/proof, cached
+read-only person-change maps/receipts and test-fixture placement are tracked in
+[#1132](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1132). That follow-up
+does not defer the failed-admission reveal fence or final repaired-head proof.
+
 ## Project action indicators
 
 `SidebarTerminalActivity` shares terminal discovery with the action header and terminal

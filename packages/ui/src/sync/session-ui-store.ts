@@ -20,6 +20,7 @@ import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
 import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import { runtimeFetch } from "@/lib/runtime-fetch"
+import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view'
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore, visibleProjects } from "@/stores/useProjectsStore"
 import { useSessionDisplayStore } from "@/stores/useSessionDisplayStore"
@@ -92,7 +93,7 @@ import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "
 import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
-import { getRuntimeKey } from "@/lib/runtime-switch"
+import { getRuntimeKey, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from "@/lib/runtime-switch"
 import { claimChatDraftOwnership, createChatDraftIdentity, type ChatDraftIdentity } from '@/lib/chatDraftPersistence'
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
@@ -108,6 +109,13 @@ import {
 } from '@/stores/useInputHistoryStore'
 
 export type { AttachedFile }
+
+export type SessionRevealTicket = { scope: RuntimeRequestScope; revision: number; preferenceAdmission: symbol }
+type SessionRevealIntent = SessionRevealTicket & {
+  sessionId: string | null;
+  collapsedProjects: ReadonlySet<string>;
+  collapsedGroups: ReadonlySet<string>;
+}
 
 type GoalCommand = { name: string; template?: string }
 
@@ -420,6 +428,14 @@ export type SessionUIState = {
   pendingChangesBarDismissed: Map<string, string>
   dismissPendingChangesBar: (sessionId: string, signature: string | null) => void
 
+  // One explicit navigation intent, never inferred from restored selection or SSE.
+  sessionRevealRevision: number
+  sessionRevealIntent: SessionRevealIntent | null
+  beginSessionReveal: (scope?: RuntimeRequestScope, preferenceAdmission?: symbol) => SessionRevealTicket
+  publishSessionReveal: (ticket: SessionRevealTicket, sessionId: string) => void
+  consumeSessionReveal: (revision: number) => boolean
+  blockSessionReveal: (patch: { projects?: Record<string, boolean>; groups?: Record<string, boolean> }) => void
+
   // Actions — UI state management
   setCurrentSession: (
     id: string | null,
@@ -427,6 +443,7 @@ export type SessionUIState = {
     /** "submitted-draft": the open draft's own new session, once its first message is admitted. "restore": the page
      * restoring a remembered session by itself. Neither is the person's new choice. */
     transition?: "submitted-draft" | "restore",
+    revealTicket?: SessionRevealTicket,
   ) => void
   clearMaterializedDraftSession: (sessionId: string) => void
   /**
@@ -723,7 +740,7 @@ export function consumeCatalogDraftTransfer(previous: ChatDraftIdentity | null, 
 }
 /** Reconcile reload/route intent only against a published, authoritative managed snapshot. */
 /** `chosen`: the person navigated to the remembered session (a route: Back, Forward, a link), not the page restoring it. */
-export function restoreManagedSessionSelection(sessions: readonly Session[], options?: { chosen?: boolean }): Session | null {
+export function restoreManagedSessionSelection(sessions: readonly Session[], options?: { chosen?: boolean; reveal?: boolean }): Session | null {
   const projects = useProjectsStore.getState()
   if (!projects.managedCatalogAdmitted || projects.managedCatalogStatus !== "ready") return null
   // An open still waiting for its project is the person's latest choice: no automatic restore over it (#608).
@@ -740,7 +757,7 @@ export function restoreManagedSessionSelection(sessions: readonly Session[], opt
   }
   if ((!store.currentSessionId || store.currentSessionId === session.id)
     && (store.currentSessionId !== session.id || store.currentSessionDirectory !== session.directory)) {
-    store.setCurrentSession(session.id, session.directory, options?.chosen ? undefined : "restore")
+    store.setCurrentSession(session.id, session.directory, options?.chosen && options.reveal !== false ? undefined : "restore")
   }
   return session
 }
@@ -929,6 +946,7 @@ const createSessionWithDraftLifecycle = async (
   parentID?: string | null,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
+  revealTicket = useSessionUIStore.getState().beginSessionReveal(),
 ): Promise<Session | null> => {
   const store = useSessionUIStore.getState()
   const draft = store.newSessionDraft
@@ -936,7 +954,7 @@ const createSessionWithDraftLifecycle = async (
 
   try {
     const resolved = await resolveCreatableDraftDirectory(draft, directoryOverride)
-    if (resolved.status === "aborted") return null
+    if (resolved.status === "aborted") { store.consumeSessionReveal(revealTicket.revision); return null }
     const directory = resolved.directory
     const session = await createSessionAction(
       title,
@@ -944,6 +962,7 @@ const createSessionWithDraftLifecycle = async (
       parentID ?? null,
       metadata,
       selectionTransition,
+      revealTicket,
     )
     if (!session) return null
 
@@ -960,6 +979,7 @@ const createSessionWithDraftLifecycle = async (
 
     return session
   } catch (error) {
+    store.consumeSessionReveal(revealTicket.revision)
     console.error("[session-ui-store] createSession failed", error)
     return null
   }
@@ -993,7 +1013,7 @@ export async function materializeOpenDraftSession(selection: {
   modelID: string
   agent?: string
   variant?: string
-}, draftOverride?: NewSessionDraftState, nativeIntent?: NativeDraftSend): Promise<MaterializedDraftSession | null> {
+}, draftOverride?: NewSessionDraftState, nativeIntent?: NativeDraftSend, revealTicket?: SessionRevealTicket): Promise<MaterializedDraftSession | null> {
   if (nativeIntent) assertNativeDraftReady(nativeIntent)
   const store = useSessionUIStore.getState()
   const draft = nativeIntent?.draft ?? draftOverride ?? store.newSessionDraft
@@ -1043,6 +1063,7 @@ export async function materializeOpenDraftSession(selection: {
       ? { openchamber: { project_context_pins: draftPins } }
       : undefined,
     "submitted-draft",
+    revealTicket,
   )
   if (!created?.id) {
     if (isChatDraft && draftDirectoryOverride) {
@@ -1127,6 +1148,39 @@ const PERSISTED_WORKTREE_MAP = readPersistedWorktreeTopology(runtimeMemoryKey())
 export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionId: null,
   currentSessionDirectory: null,
+  sessionRevealRevision: 0,
+  sessionRevealIntent: null,
+  beginSessionReveal: (scope = captureRuntimeRequestScope(), preferenceAdmission = capturePersonalSidebarAdmission()) => {
+    const revision = get().sessionRevealRevision + 1
+    const ticket = { scope, revision, preferenceAdmission }
+    set({ sessionRevealRevision: revision, sessionRevealIntent: { ...ticket, sessionId: null, collapsedProjects: new Set(), collapsedGroups: new Set() } })
+    return ticket
+  },
+  publishSessionReveal: (ticket, sessionId) => {
+    if (ticket.revision !== get().sessionRevealRevision) return
+    if (!isRuntimeRequestScopeCurrent(ticket.scope) || !isPersonalSidebarAdmissionCurrent(ticket.preferenceAdmission)) {
+      get().consumeSessionReveal(ticket.revision); return
+    }
+    const pending = get().sessionRevealIntent
+    if (pending?.revision !== ticket.revision) return
+    set({ sessionRevealIntent: { ...ticket, sessionId, collapsedProjects: pending.collapsedProjects, collapsedGroups: pending.collapsedGroups } })
+  },
+  consumeSessionReveal: (revision) => {
+    if (get().sessionRevealIntent?.revision !== revision) return false
+    set({ sessionRevealIntent: null })
+    return true
+  },
+  blockSessionReveal: (patch) => {
+    const intent = get().sessionRevealIntent
+    if (!intent || !isRuntimeRequestScopeCurrent(intent.scope)) return
+    const projects = Object.keys(patch.projects ?? {}).filter(key => patch.projects?.[key] === true)
+    const groups = Object.keys(patch.groups ?? {}).filter(key => patch.groups?.[key] === true)
+    if (!projects.length && !groups.length) return
+    set({ sessionRevealIntent: { ...intent,
+      collapsedProjects: new Set([...intent.collapsedProjects, ...projects]),
+      collapsedGroups: new Set([...intent.collapsedGroups, ...groups]),
+    } })
+  },
   materializedDraftSessionId: null,
   newSessionDraft: { ...DEFAULT_DRAFT },
   nativeDraftCreations: new Map(),
@@ -1147,7 +1201,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // setCurrentSession
   // ---------------------------------------------------------------------------
-  setCurrentSession: (id, directoryHint?: string | null, transition?: "submitted-draft" | "restore") => {
+  setCurrentSession: (id, directoryHint?: string | null, transition?: "submitted-draft" | "restore", revealTicket?: SessionRevealTicket) => {
     const selectionProjects = useProjectsStore.getState()
     // THE rule while an open waits for its project (#608): only the person's own selection (no transition) changes the
     // view, and it supersedes the waiting open; the page's own selections ("restore", "submitted-draft") are no-ops.
@@ -1156,6 +1210,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (transition) return
       selectionProjects.dropPendingOpen?.() // Optional: test doubles of the projects store may omit it.
     }
+    if (id && transition !== "submitted-draft" && isFirstSendInFlightFor(id)) return
+    if (!id && !transition && !revealTicket) set({ sessionRevealRevision: get().sessionRevealRevision + 1, sessionRevealIntent: null })
+    const ticket = revealTicket ?? (id && !transition ? get().beginSessionReveal() : undefined)
+    if (id && ticket) get().publishSessionReveal(ticket, id)
+    if (!id && ticket) get().consumeSessionReveal(ticket.revision)
     if (id && selectionProjects.managedCatalogAdmitted) {
       const selectedDirectory = directoryHint ? normalizePath(directoryHint)
         : resolveSessionDirectory(id, sid => get().worktreeMetadata.get(sid))
@@ -1164,7 +1223,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         // and shown as waiting, and opens when the project is admitted. Nothing is requested from that directory
         // until then (#608).
         if (selectedDirectory) {
-          selectionProjects.holdPendingOpen?.(id, selectedDirectory)
+          selectionProjects.holdPendingOpen?.(id, selectedDirectory, ticket)
           set({ currentSessionId: null, currentSessionDirectory: null })
         }
         return
@@ -1395,6 +1454,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // auto-draft at boot), which must NOT consume the pointer — the cold-launch
     // restore races exactly that auto-open.
     if (!options?.automatic) {
+      set({ sessionRevealRevision: get().sessionRevealRevision + 1, sessionRevealIntent: null })
       clearLastActiveSession(runtimeMemoryKey())
       useProjectsStore.getState().dropPendingOpen?.() // A newer choice than an open still waiting for its project (#608).
     }
@@ -1914,6 +1974,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
 
     const draft = options?.nativeIntent?.draft ?? options?.draftSnapshot ?? get().newSessionDraft
+    const draftRevealTicket = !capturedTarget && !options?.sessionId && draft.open
+      ? options?.nativeIntent?.revealTicket ?? get().beginSessionReveal() : undefined
     if (!capturedTarget && !options?.sessionId && draft.open) await preparedNativeDraft(draft)
     if (options?.nativeIntent) assertNativeDraftReady(options.nativeIntent)
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
@@ -1973,7 +2035,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         modelID,
         agent: trimmedAgent,
         variant,
-      }, options?.draftSnapshot, options?.nativeIntent)
+      }, options?.draftSnapshot, options?.nativeIntent, draftRevealTicket)
       if (!createdDraftSession) throw new Error("Failed to create session")
       const nativeDraft = createdDraftSession.nativeDraft
       const releaseNativeSend = nativeDraft ? beginNativeDraftSend(nativeDraft) : undefined
@@ -2059,6 +2121,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         // Successful admission belongs to its origin even when another draft/runtime is now visible.
         options?.onNativeAccepted?.()
         acceptNativeDraftSend(nativeDraft)
+        if (draftRevealTicket && get().currentSessionId === nativeDraft.session.id) {
+          get().publishSessionReveal(draftRevealTicket, nativeDraft.session.id)
+        }
       }
       return
       } finally { releaseNativeSend?.() }
