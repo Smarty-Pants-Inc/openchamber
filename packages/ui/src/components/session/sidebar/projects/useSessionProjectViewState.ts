@@ -17,18 +17,18 @@ export const useSessionProjectViewState = ({ isVSCode, projects }: Args) => {
   const latest = React.useRef({ personal, legacy, projects, collapsedProjects, collapsedGroups });
   latest.current = { personal, legacy, projects, collapsedProjects, collapsedGroups };
   // The preference owner rolls back and shows existing localized feedback. UI callbacks do not leak rejected promises.
-  const save = React.useCallback((patch: Parameters<typeof setPersonalSidebarView>[0], admission: symbol) => {
+  const save = React.useCallback((patch: Parameters<typeof setPersonalSidebarView>[0], admission?: symbol) => {
     void setPersonalSidebarView(patch, admission).catch(() => undefined);
   }, []);
   const toggleProject = React.useCallback((id: string) => {
     const view = latest.current;
     if (!view.personal.enabled) return view.legacy.actions.toggleProject(id);
-    save({ projects: { [id]: !view.collapsedProjects.has(id) } }, view.personal.admission);
+    save({ projects: { [id]: !view.collapsedProjects.has(id) } });
   }, [save]);
   const toggleGroup = React.useCallback((key: string) => {
     const view = latest.current;
     if (!view.personal.enabled) return view.legacy.actions.toggleGroup(key);
-    save({ groups: { [key]: !view.collapsedGroups.has(key) } }, view.personal.admission);
+    save({ groups: { [key]: !view.collapsedGroups.has(key) } });
   }, [save]);
   const collapseAllProjects = React.useCallback(() => {
     const view = latest.current;
