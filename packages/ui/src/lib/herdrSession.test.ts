@@ -1,6 +1,6 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
-import { HERDR_STATE_DOT, herdrSignature, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
+import { HERDR_STATE_DOT, herdrSignature, liveHerdrState, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
 
 test('each Herdr state reads as itself and has its own marker; stock rows have none (smarty-code#126 (c)5)', () => {
   const states = ['working', 'blocked', 'done', 'idle', 'unknown', 'ended'] as const;
@@ -48,4 +48,32 @@ test('a reloading fleet Pi is recognized and changes the row signature (smarty-c
   expect(isOrdinaryReloading({ ordinaryReloading: true })).toBe(true);
   expect(isOrdinaryReloading({})).toBe(false);
   expect(herdrSignature({ ordinaryReloading: true })).not.toBe(herdrSignature({}));
+});
+
+// smarty-code#1140: the row's running marker follows Herdr's sample (the gateway re-reads it every 2 s, 17-59 s under
+// load), while the page already has the session's native busy/idle status. Native status wins for running; Herdr keeps
+// what only it knows (blocked, ended) and is the fallback where there is no native status.
+describe('#1140: liveHerdrState', () => {
+  test('a native busy status while the Herdr sample is still stale (idle, done, unknown) shows working', () => {
+    for (const stale of ['idle', 'done', 'unknown'] as const) {
+      expect(liveHerdrState(stale, 'busy')).toBe('working');
+      expect(liveHerdrState(stale, 'retry')).toBe('working');
+    }
+  });
+  test('a native idle status while the Herdr sample still says working shows done', () => {
+    expect(liveHerdrState('working', 'idle')).toBe('done');
+  });
+  test('without a native status, Herdr is the fallback, unchanged', () => {
+    for (const s of ['working', 'blocked', 'done', 'idle', 'unknown', 'ended'] as const) expect(liveHerdrState(s, undefined)).toBe(s);
+  });
+  test('blocked and ended stay Herdr\'s; a stock row (no Herdr state) stays undefined', () => {
+    expect(liveHerdrState('blocked', 'busy')).toBe('blocked');
+    expect(liveHerdrState('ended', 'busy')).toBe('ended');
+    expect(liveHerdrState(undefined, 'busy')).toBe(undefined);
+  });
+  test('agreeing states are unchanged', () => {
+    expect(liveHerdrState('working', 'busy')).toBe('working');
+    expect(liveHerdrState('done', 'idle')).toBe('done');
+    expect(liveHerdrState('idle', 'idle')).toBe('idle');
+  });
 });

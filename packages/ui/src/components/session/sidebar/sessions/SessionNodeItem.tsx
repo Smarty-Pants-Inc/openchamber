@@ -60,7 +60,7 @@ import { useStatusUnavailable } from '@/sync/status-unavailable';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
-import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
+import { HERDR_STATE_DOT, liveHerdrState, readHerdrState } from '@/lib/herdrSession';
 import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import { rowActivity } from './rowActivity';
 import { HerdrStateText } from './HerdrStateText';
@@ -732,7 +732,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     menuOpen: isSessionMenuOpen,
     hideOnHoverClass,
   });
-  const herdrState = readHerdrState(session);
+  const herdrState = liveHerdrState(readHerdrState(session), sessionStatus?.type); // smarty-code#1140: native status first
   const { showStatusMarker, showActivityDuration, showStatusUnavailable } = rowActivity({
     herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration, statusUnavailable,
   });

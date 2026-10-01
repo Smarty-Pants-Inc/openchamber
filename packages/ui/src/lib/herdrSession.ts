@@ -14,6 +14,18 @@ export const readHerdrState = (session: unknown): HerdrState | undefined => {
   return STATES.has(value) ? value as HerdrState : 'unknown';
 };
 
+/**
+ * smarty-code#1140: the row's state with the session's native status applied. Herdr's state is a sample the gateway
+ * re-reads every 2 s (17-59 s under load); the native busy/idle status reaches the page as an event. Native status wins
+ * for running: busy or retry shows working, idle over a stale 'working' shows done. Herdr keeps what only it knows
+ * (blocked, ended), and stays the fallback where there is no native status (undefined). No new polling.
+ */
+export const liveHerdrState = (herdr: HerdrState | undefined, native: string | undefined): HerdrState | undefined => {
+  if (!herdr || !native || herdr === 'blocked' || herdr === 'ended') return herdr;
+  if (native === 'busy' || native === 'retry') return 'working';
+  return native === 'idle' && herdr === 'working' ? 'done' : herdr;
+};
+
 /** One distinct dot per Herdr state, as Herdr shows them apart. */
 export const HERDR_STATE_DOT: Record<HerdrState, string> = {
   working: 'bg-primary',
