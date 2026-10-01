@@ -195,5 +195,5 @@ export function usePersonalSidebarView() {
   const state = useView();
   useEffect(acquire, []);
   // Locking masks retired values in the same render, before any effect runs.
-  return { enabled, ...(enabled && auth === 'ok' && current(entry) ? state : empty) };
+  return { enabled, admission: entry.admission, ...(enabled && auth === 'ok' && current(entry) ? state : empty) };
 }
