@@ -182,10 +182,13 @@ round 4); until then no conflict could be seen.
   the independent warning still stored after publication returns. Verified base reads resolve direct and carried
   presence/content refusals, not their independent warnings. A successful publish preserves a stopped-watcher
   warning and any newer independent warning that arrived during its await. A carried watcher warning clears when
-  watching resumes. Published uncertain and unflushed results also carry the current independent stopped-watcher
-  warning without changing public save-result fields. Settlement and flush restore only the unresolved carried warning
-  when resolving their own notice, checked by identity across the await, so a newer warning is not erased or a recovered
-  warning restored.
+  watching resumes. Every notice writer, including load, recovered copies, disposal and durable raced publications,
+  carries the independent warnings still current after its awaits without changing public save-result fields. A watcher
+  failure also carries unresolved durability and recovery notices. Owned authoritative catch-up resolves only its
+  stopped-watcher notice. Settlement and flush remove only their own notice by identity, even when carried beneath
+  a content hold or a newer warning. A successful flush leaves the hold intact, and accepting it cannot restore the
+  resolved durability warning. A successful modifying publication resolves prior recovery notices, not stopped
+  observation or warnings that arrived during that publication.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named

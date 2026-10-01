@@ -94,7 +94,7 @@ export function createDiskBridge({
     }
   }; // Private entries still open for writing: removed once no one writes to them.
   let uncertain = null; // A save that may or may not have been published: { snapshot, next, nextHash, seen }.
-  let unsynced = null; // A published save not yet flushed: { raised, entry }. Nothing is acknowledged until a flush succeeds.
+  let unsynced = null; // A published save not yet flushed: { entry? }. Nothing is acknowledged until a flush succeeds.
   let base = null; // The room's state whose text was on disk at the last read or publish.
   let baseText = '';
   let baseHash = null;
@@ -133,7 +133,9 @@ export function createDiskBridge({
     gone = false;
   };
   const raise = (found) => {
-    conflict = { ...found, at: Date.now() };
+    // Every notice writer carries the warnings still current after its awaits. Public result fields stay unchanged.
+    const kept = found.kept ?? (found.notice ? independentWarning(conflict) : null);
+    conflict = { ...found, ...(kept && { kept }), at: Date.now() };
     onConflict(conflict);
     const result = { ok: false, conflict: found.conflict };
     if (found.published) result.published = found.published;
@@ -148,6 +150,33 @@ export function createDiskBridge({
     return warning;
   };
 
+  const findNotice = (kind, published) => {
+    for (let notice = conflict; notice; notice = notice.kept) {
+      if (notice.conflict === kind && (published === undefined || notice.published === published)) return notice;
+    }
+    return null;
+  };
+  // Splice only this notice, even beneath a hold or a newer warning. Keep identities stable across awaits.
+  const resolveNotice = (notice) => {
+    if (!notice) return;
+    if (conflict === notice) conflict = notice.kept ?? null;
+    else {
+      for (let parent = conflict; parent; parent = parent.kept) {
+        if (parent.kept !== notice) continue;
+        if (notice.kept) parent.kept = notice.kept;
+        else delete parent.kept;
+        // Unchanged-save refusals forward their carried warning's display fields.
+        if (parent.transient) {
+          for (const field of ['notice', 'recovery']) {
+            if (parent.kept?.[field]) parent[field] = parent.kept[field];
+            else delete parent[field];
+          }
+        }
+        break;
+      }
+    }
+  };
+
   // Outside text is merged unasked only as insertions. A revision that removes text may be a writer that truncated and
   // paused (net-lead round 4: C, pause, then CB would undo the room's deletion of B): it is a conflict until the person
   // accepts the disk (acceptDisk) or an insertion-only revision arrives; the room keeps its text, the base stays.
@@ -158,15 +187,14 @@ export function createDiskBridge({
    */
   const confirmDurable = async () => {
     if (!unsynced) return true;
-    const warning = conflict; // This flush can resolve only the notice it started with, not one raised during its await.
+    const warning = findNotice('unverified', true); // Resolve this flush notice, direct or carried, not a newer arrival.
     const reply = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel, entry: unsynced.entry }).catch(() => null);
     if (reply?.ok) {
       unsynced = null;
-      if (!uncertain && conflict === warning && warning?.conflict === 'unverified') conflict = warning.kept ?? null;
+      resolveNotice(warning);
       return true;
     }
-    if (!unsynced.raised) raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
-    unsynced.raised = true;
+    if (!findNotice('unverified', true)) raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
     return false;
   };
   /** Retries the removal of displaced revisions; bytes written into one meanwhile are kept and shown (residual 4). */
@@ -198,7 +226,7 @@ export function createDiskBridge({
       });
       if (done.late) raise({ conflict: 'raced', published: true, recovery: done.late, notice: DISTURBED_NOTICE });
       if (done.busy) still.push({ ...revision, hash: done.hash });
-      if (done.unsynced) unsynced ??= { raised: false };
+      if (done.unsynced) unsynced ??= {};
     }
     pending = still;
     if (unsynced) await confirmDurable();
@@ -224,7 +252,7 @@ export function createDiskBridge({
    * connection, unreadable, or an uncertainty older than the records are kept (30 days): held.
    */
   const settleByPrivateDir = async (owns) => {
-    const warning = conflict;
+    const warning = findNotice('unverified', 'uncertain');
     const txn = uncertain.lost;
     if (!uncertain.listed) {
       const reply = await helper.call({ ...testHooks(hooks), op: 'list', path: rel, tokens: tokensFor(key) }).catch((error) => {
@@ -268,7 +296,7 @@ export function createDiskBridge({
     if (acked?.ok && !acked.pending && !enrolled) forgetToken(key, txn);
     else if (!enrolled) orphans = true; // Look again (list with this token) until its data is enrolled or gone.
     uncertain = null;
-    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = warning.kept ?? null;
+    resolveNotice(warning);
     scheduleRetry(); // Entries enrolled here are collected on their own (#412 round 5, P2).
     return true;
   };
@@ -276,15 +304,15 @@ export function createDiskBridge({
   const settleUncertain = async (owns = () => !closed) => {
     if (!owns()) return false;
     if (!uncertain) return true;
-    const warning = conflict;
+    const warning = findNotice('unverified', 'uncertain');
     // A lost reply is settled only by the private dir (its list waits for any operation still in flight on this file,
     // #412 finding 3); if that cannot be read, the save stays held: the disk alone could clear it too early.
     if (uncertain.lost) {
       if (await settleByPrivateDir(owns)) return true;
       if (!owns()) return false;
       if (uncertain.seen !== 'unlisted') {
-        const kept = conflict?.kept ?? independentWarning(conflict);
-        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE, ...(kept?.conflict === 'unwatched' && { kept }) });
+        resolveNotice(warning);
+        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
       }
       uncertain.seen = 'unlisted';
       return false;
@@ -298,15 +326,15 @@ export function createDiskBridge({
     } else if (disk === null || disk.hash !== baseHash) {
       const seen = disk?.hash ?? 'gone';
       if (uncertain.seen !== seen) {
-        const kept = conflict?.kept ?? independentWarning(conflict);
-        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE, ...(kept?.conflict === 'unwatched' && { kept }) });
+        resolveNotice(warning);
+        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
       }
       uncertain.seen = seen;
       return false;
     }
     uncertain = null;
     // Settlement resolves only its own uncertainty notice, never a separate stopped-watcher/recovery warning.
-    if (!unsynced && conflict === warning && warning?.conflict === 'unverified' && warning.published === 'uncertain') conflict = warning.kept ?? null;
+    resolveNotice(warning);
     return true;
   };
   /** Retention (smartyfs#37): this file's recovery copies, at load and then every `pruneMs` (a day) while open. */
@@ -336,6 +364,7 @@ export function createDiskBridge({
       current.close();
       watcher = null;
       if (closed) return;
+      resolveNotice(findNotice('unwatched')); // A new failure replaces only the previous observation warning.
       raise({ conflict: 'unwatched', notice: UNWATCHED_NOTICE });
       scheduleRewatch();
     });
@@ -356,17 +385,11 @@ export function createDiskBridge({
         return;
       }
       rewatches = 0;
+      const warning = findNotice('unwatched');
       // Outside writes made while unwatched are caught up now.
       void syncFor(restarted).then((caughtUp) => {
         if (!caughtUp || closed || watcher !== restarted) return;
-        if (conflict?.conflict === 'unwatched') conflict = null;
-        // A publication still awaiting flush keeps its own notice when only watching has recovered.
-        else if (conflict?.kept?.conflict === 'unwatched' && conflict.conflict === 'unverified') {
-          conflict = { ...conflict };
-          delete conflict.kept;
-        }
-        // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
-        else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };
+        resolveNotice(warning);
       }).catch((error) => logError('smarty.coedit-sync-failed', error));
     }, retryMs);
   };
@@ -433,7 +456,7 @@ export function createDiskBridge({
       pending.push(...interrupted.pending);
       schedulePrune();
       if (!flushed || interrupted.unsynced) {
-        unsynced = { raised: true };
+        unsynced = {};
         raise({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
       }
       scheduleRetry();
@@ -488,14 +511,13 @@ export function createDiskBridge({
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
-      if (notFlushed) unsynced = { raised: true, entry: displaced?.entry }; // Raised with this result; a flush confirms it.
+      if (notFlushed) unsynced = { entry: displaced?.entry }; // Raised with this result; a flush confirms it.
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
       if (result.published === 'uncertain') {
         uncertain = { snapshot, next, nextHash: hashBytes(Buffer.from(next, 'utf8')), baseHash, lost: lost ?? null, token, since: Date.now(), seen: null };
-        const kept = independentWarning(conflict);
-        return raise({ ...result, ...(kept?.conflict === 'unwatched' && { kept }) });
+        return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
       if (!result.ok && !result.published) {
@@ -510,12 +532,15 @@ export function createDiskBridge({
       baseHash = hashBytes(Buffer.from(next, 'utf8'));
       gone = false; // Ours is the file now.
       if (!result.ok) {
-        const kept = notFlushed ? independentWarning(conflict) : null;
-        return raise({ ...result, ...(kept?.conflict === 'unwatched' && { kept }) });
+        return raise(result);
       }
-      // A successful publish resolves prior content conflicts, not a stopped watcher or a newer warning.
-      const kept = independentWarning(conflict);
-      conflict = conflict !== warning || kept?.conflict === 'unwatched' ? kept : null;
+      // Publication resolves prior recovery/content notices, not watching or warnings that arrived during its await.
+      for (let prior = independentWarning(warning); prior;) {
+        const next = prior.kept;
+        if (['raced', 'interrupted'].includes(prior.conflict)) resolveNotice(prior);
+        prior = next;
+      }
+      conflict = independentWarning(conflict);
       return { ok: true };
     }),
     state: () => ({ gone, loaded: base !== null, conflict }),

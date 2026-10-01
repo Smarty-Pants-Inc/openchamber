@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDiskBridge, DISK_ORIGIN, TEXT } from './disk-bridge.js';
-import { collectRecovered, hashBytes, keyOf, publish, readFile, startHelper, tokenCount, tokensFor, UNCERTAIN_NOTICE, UNSYNCED_NOTICE } from './safe-file.js';
+import { collectRecovered, DISTURBED_NOTICE, hashBytes, keyOf, publish, readFile, startHelper, tokenCount, tokensFor, UNCERTAIN_NOTICE, UNSYNCED_NOTICE } from './safe-file.js';
 import { ensureHelper } from './fs-helper/ensure-built.js';
 
 ensureHelper(); // The bridge runs only through the built helper.
@@ -693,11 +693,18 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.staged()).toHaveLength(1);
       delete t.hooks.helper; // The disk recovers.
       expect(await again.bridge.save()).toEqual({ ok: true });
-      expect(again.bridge.state().conflict).toBe(null);
+      // Confirmed durability resolves only the flush notice, not the independently reported interrupted recovery.
+      const recovered = again.bridge.state().conflict;
+      expect(recovered).toMatchObject({ conflict: 'interrupted', recovery: expect.any(String) });
+      expect(fs.readFileSync(recovered.recovery, 'utf8')).toBe('a');
       expect(t.staged()).toEqual([]);
       expect(fs.statSync(t.file).ino).toBe(ino); // Not published again.
       expect(again.text.toString()).toBe('Pa');
       expect(t.kept()).toContain('a'); // The displaced revision is in recovery.
+      again.text.insert(2, 'Q');
+      expect(await again.bridge.save()).toEqual({ ok: true });
+      expect(t.disk()).toBe('PaQ');
+      expect(again.bridge.state().conflict).toBe(null); // A modifying publication resolves its prior recovery notice.
     });
 
     it('a failed flush of the displaced revision\'s removal is not a durable save until a flush succeeds (review round 2: dispose synced)', async () => {
@@ -1986,6 +1993,350 @@ createInterface({ input: control }).on('line', (line) => {
         stop,
       };
     };
+
+    // Round 4: real helper replies, independently owned warnings, and the reverse reporting orders.
+    const r4Fixture = async (run, { restart = false, seed = null } = {}) => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'a');
+      const seedWriter = { fd: undefined };
+      cleanups.push(() => { if (seedWriter.fd !== undefined) { fs.closeSync(seedWriter.fd); seedWriter.fd = undefined; } });
+      if (seed) {
+        seedWriter.fd = fs.openSync(file, 'a');
+        if (seed === 'orphan') {
+          // A real origin exits without close; EOF drains its real helper before this fixture opens another.
+          const script = path.join(home, 'origin.mjs');
+          fs.writeFileSync(script, `
+            process.env.OPENCHAMBER_COEDIT_SAME_ACCOUNT = '1';
+            const Y = await import(${JSON.stringify(import.meta.resolve('yjs'))});
+            const { createDiskBridge, TEXT } = await import(${JSON.stringify(path.join(import.meta.dirname, 'disk-bridge.js'))});
+            const doc = new Y.Doc();
+            const bridge = createDiskBridge({ root: ${JSON.stringify(root)}, file: ${JSON.stringify(file)}, doc, recoveryDir: ${JSON.stringify(path.join(home, 'r'))}, watch: () => ({ close() {} }), enabled: true });
+            await bridge.load();
+            doc.getText(TEXT).insert(0, 'P');
+            console.log(JSON.stringify(await bridge.save()));
+            process.exit(0);
+          `);
+          const origin = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10_000 });
+          expect(origin.status).toBe(0);
+          expect(JSON.parse(origin.stdout.trim())).toEqual({ ok: true });
+          await expect.poll(() => helperPids(root).filter(alive), { timeout: 3000 }).toEqual([]);
+          fs.writeSync(seedWriter.fd, 'X');
+          fs.closeSync(seedWriter.fd); seedWriter.fd = undefined;
+        } else {
+          const seedDoc = new Y.Doc();
+          const previous = createDiskBridge({ root, file, doc: seedDoc, recoveryDir: path.join(home, 'r'), watch: () => ({ close() {} }), enabled: true });
+          try {
+            await previous.load();
+            seedDoc.getText(TEXT).insert(0, 'P');
+            expect(await previous.save()).toEqual({ ok: true });
+          } finally {
+            expect(await previous.close()).toEqual({ quiescent: true });
+            seedDoc.destroy();
+          }
+        }
+      }
+      const gate = await settlementGate();
+      const { made, watch } = fakeWatch();
+      let starts = 0;
+      let allowRestart = restart;
+      const boundedWatch = (dir, change) => {
+        starts += 1;
+        if (starts > 1 && !allowRestart) throw new Error('ENOSPC: round 4 restart unavailable');
+        return watch(dir, change);
+      };
+      const doc = new Y.Doc();
+      const text = doc.getText(TEXT);
+      const hooks = {};
+      const bridge = createDiskBridge({ root, file, doc, hooks, recoveryDir: path.join(home, 'r'), watch: boundedWatch, settleMs: 5, retryMs: 20, retryLimit: 2, enabled: true });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const disk = () => fs.readFileSync(file, 'utf8');
+      const stop = async () => {
+        const exhausted = starts + 2;
+        made.at(-1).emit('error', new Error('EMFILE: round 4 stopped observation'));
+        const warning = bridge.state().conflict;
+        expect(warning).toMatchObject({ conflict: 'unwatched', notice: 'Changes on disk are not being followed right now: this file may be out of date.' });
+        if (!allowRestart) await expect.poll(() => starts, { timeout: 3000 }).toBe(exhausted);
+        return warning;
+      };
+      try {
+        await gate.ready;
+        await run({ gate, home, root, file, doc, text, hooks, bridge, made, disk, stop, seedWriter, disableRestarts: () => { allowRestart = false; } });
+      } finally {
+        gate.release();
+        if (seedWriter.fd !== undefined) { fs.closeSync(seedWriter.fd); seedWriter.fd = undefined; }
+        expect(await bridge.close()).toEqual({ quiescent: true });
+        await gate.stop();
+        expect(made.every((w) => w.closed)).toBe(true);
+        expect(helperPids(root).filter(alive)).toEqual([]);
+        errors.mockRestore();
+        doc.destroy();
+      }
+    };
+
+    for (const kind of ['rename', 'in-place']) for (const stopped of [false, true]) {
+      it(`#481 round 4 synced raced ${kind}: ${stopped ? 'stopped' : 'control'}`, async () => {
+        await r4Fixture(async (t) => {
+          await t.bridge.load();
+          t.text.insert(0, 'P');
+          t.hooks.helper = { pause: 'afterExchange', pauseMs: 500 };
+          await t.gate.arm('publish');
+          const held = t.gate.held();
+          const saving = t.bridge.save();
+          await expect.poll(t.disk, { timeout: 3000 }).toBe('Pa');
+          const warning = stopped ? await t.stop() : null;
+          if (kind === 'rename') {
+            fs.writeFileSync(t.file + '.next', 'PaX');
+            fs.renameSync(t.file + '.next', t.file);
+          } else fs.appendFileSync(t.file, 'X');
+          const actual = await held;
+          expect(actual.reply.published).toBe(true);
+          expect(actual.reply.synced).toBe(true);
+          expect(actual.reply.uncertain).toBeTruthy();
+          t.gate.release();
+          const result = await saving;
+          delete t.hooks.helper;
+          expect(result).toEqual({ ok: false, conflict: 'raced', published: true, recovery: expect.any(String), notice: DISTURBED_NOTICE });
+          expect(fs.readFileSync(result.recovery, 'utf8')).toBe('a');
+          const raced = t.bridge.state().conflict;
+          const ino = fs.statSync(t.file).ino;
+          await t.bridge.sync();
+          await t.bridge.sync();
+          expect(t.text.toString()).toBe('PaX');
+          expect(fs.statSync(t.file).ino).toBe(ino);
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          expect(t.gate.count('publish')).toBe(1); // The saved P never replays.
+          t.text.insert(3, 'Q');
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          expect(t.disk()).toBe('PaXQ');
+          expect(t.gate.count('publish')).toBe(2); // Exact adopted base admits a modifying save.
+          expect(t.bridge.state().conflict).toEqual(warning);
+          expect(raced.kept ?? null).toEqual(warning);
+        });
+      });
+    }
+
+    for (const stopped of [false, true]) {
+      it(`#481 round 4 disposal flush: ${stopped ? 'stopped' : 'control'}`, async () => {
+        await r4Fixture(async (t) => {
+          await t.bridge.load();
+          let fd = fs.openSync(t.file, 'a');
+          try {
+            t.text.insert(0, 'P');
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            const warning = stopped ? await t.stop() : null;
+            t.hooks.helper = { fault: 'privSync' };
+            fs.closeSync(fd); fd = undefined; // No late bytes: only disposal durability is unresolved.
+            await t.bridge.sync();
+            const failed = t.bridge.state().conflict;
+            expect(failed).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+            expect(t.gate.count('dispose')).toBeGreaterThan(0);
+            expect(t.gate.count('flush')).toBeGreaterThan(1);
+            delete t.hooks.helper;
+            await t.bridge.sync();
+            expect(t.disk()).toBe('Pa');
+            expect(t.text.toString()).toBe('Pa');
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            expect(t.gate.count('publish')).toBe(1);
+            expect(t.bridge.state().conflict).toEqual(warning);
+            expect(failed.kept ?? null).toEqual(warning);
+          } finally { if (fd !== undefined) fs.closeSync(fd); }
+        });
+      });
+
+      it(`#481 round 4 load first flush: ${stopped ? 'stopped' : 'control'}`, async () => {
+        await r4Fixture(async (t) => {
+          t.hooks.helper = { fault: 'privSync' };
+          await t.gate.arm('flush');
+          const held = t.gate.held();
+          const loading = t.bridge.load();
+          const actual = await held;
+          expect(actual.reply.ok).toBe(false);
+          const warning = stopped ? await t.stop() : null;
+          t.gate.release();
+          await loading;
+          const failed = t.bridge.state().conflict;
+          expect(failed).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+          delete t.hooks.helper;
+          await t.bridge.sync();
+          expect(t.text.toString()).toBe('a');
+          expect(t.disk()).toBe('a');
+          t.text.insert(0, 'P');
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          expect(t.disk()).toBe('Pa');
+          expect(t.bridge.state().conflict).toEqual(warning);
+          expect(failed.kept ?? null).toEqual(warning);
+        });
+      });
+
+      it(`#481 round 4 late disposal: ${stopped ? 'stopped' : 'control'}`, async () => {
+        await r4Fixture(async (t) => {
+          await t.bridge.load();
+          let fd = fs.openSync(t.file, 'a');
+          try {
+            t.text.insert(0, 'P');
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            const warning = stopped ? await t.stop() : null;
+            fs.writeSync(fd, 'X'); fs.closeSync(fd); fd = undefined;
+            await t.bridge.sync();
+            const late = t.bridge.state().conflict;
+            expect(late).toMatchObject({ conflict: 'raced', published: true, recovery: expect.any(String) });
+            expect(fs.readFileSync(late.recovery, 'utf8')).toBe('aX');
+            await t.bridge.sync();
+            expect(t.text.toString()).toBe('Pa'); // Late displaced bytes are recovery, not target bytes.
+            t.text.insert(2, 'Q');
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            expect(t.disk()).toBe('PaQ');
+            expect(t.bridge.state().conflict).toEqual(warning);
+            expect(late.kept ?? null).toEqual(warning);
+          } finally { if (fd !== undefined) fs.closeSync(fd); }
+        });
+      });
+
+      it(`#481 round 4 reverse durability: ${stopped ? 'independent stopped' : 'recovered watcher'}`, async () => {
+        await r4Fixture(async (t) => {
+          await t.bridge.load();
+          t.text.insert(0, 'P');
+          t.hooks.helper = { fault: 'dirSync' };
+          const result = await t.bridge.save();
+          expect(result).toEqual({ ok: false, conflict: 'unverified', published: true, recovery: expect.any(String), notice: UNSYNCED_NOTICE });
+          const durability = t.bridge.state().conflict;
+          await t.gate.arm('read');
+          const held = t.gate.held();
+          await t.stop();
+          await held; // Working replacement reaches authoritative catch-up while flush still fails.
+          t.gate.release();
+          await t.bridge.acceptDisk(); // Queue barrier, no hold to accept.
+          await expect.poll(() => t.gate.count('flush'), { timeout: 3000 }).toBeGreaterThanOrEqual(4);
+          await t.bridge.acceptDisk();
+          const afterCatchup = t.bridge.state().conflict;
+          let independent = null;
+          if (stopped) {
+            t.disableRestarts();
+            const { kept: _durability, ...ownWarning } = await t.stop();
+            independent = ownWarning;
+          }
+          delete t.hooks.helper;
+          await t.bridge.sync();
+          expect(t.disk()).toBe('Pa');
+          expect(t.text.toString()).toBe('Pa');
+          expect(fs.readFileSync(result.recovery, 'utf8')).toBe('a');
+          expect(afterCatchup).toMatchObject({ conflict: 'unverified', published: true, recovery: result.recovery, notice: UNSYNCED_NOTICE });
+          expect(afterCatchup.at).toBe(durability.at);
+          if (!stopped) expect(t.bridge.state().conflict).toBe(null);
+          else expect(t.bridge.state().conflict).toEqual(independent);
+        }, { restart: true });
+      });
+
+      for (const accepted of ['a', '']) {
+        it(`#481 round 4 carried flush ${accepted ? 'removed' : 'truncated'}: ${stopped ? 'stopped' : 'warning-free'}`, async () => {
+          await r4Fixture(async (t) => {
+            await t.bridge.load();
+            const warning = stopped ? await t.stop() : null;
+            t.text.insert(0, 'P');
+            t.hooks.helper = { fault: 'dirSync' };
+            const result = await t.bridge.save();
+            expect(result).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+            fs.writeFileSync(t.file, accepted);
+            await t.bridge.sync();
+            const hold = t.bridge.state().conflict;
+            expect(hold.conflict).toBe(accepted ? 'removed' : 'truncated');
+            expect(hold.kept).toBeTruthy();
+            delete t.hooks.helper;
+            await t.bridge.sync();
+            expect(t.bridge.state().conflict.conflict).toBe(hold.conflict);
+            expect(t.text.toString()).toBe('Pa'); // Flush cannot accept held content.
+            expect(t.disk()).toBe(accepted);
+            const ino = fs.statSync(t.file).ino;
+            expect(await t.bridge.save()).toEqual({ ok: false, conflict: hold.conflict });
+            await t.bridge.acceptDisk();
+            expect(t.text.toString()).toBe(accepted);
+            expect(t.disk()).toBe(accepted);
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            expect(fs.statSync(t.file).ino).toBe(ino);
+            expect(t.gate.count('publish')).toBe(1); // Accepted base, no resurrection or replay.
+            expect(t.bridge.state().conflict).toEqual(warning);
+          });
+        });
+      }
+    }
+
+    for (const seed of ['interrupted', 'late-load', 'orphan']) for (const stopped of [false, true]) {
+      it(`#481 round 4 recovery ${seed}: ${stopped ? 'stopped' : 'control'}`, async () => {
+        await r4Fixture(async (t) => {
+          await t.gate.arm('list');
+          const held = t.gate.held();
+          const loading = t.bridge.load();
+          const actual = await held;
+          expect(actual.reply.ok).toBe(true);
+          if (seed === 'orphan') expect(actual.reply.recovered.length).toBeGreaterThan(0);
+          else expect(actual.reply.entries.length).toBeGreaterThan(0);
+          const warning = stopped ? await t.stop() : null;
+          if (seed === 'late-load') fs.writeSync(t.seedWriter.fd, 'X');
+          if (t.seedWriter.fd !== undefined) {
+            fs.closeSync(t.seedWriter.fd); t.seedWriter.fd = undefined;
+          }
+          t.gate.release();
+          await loading;
+          const recovery = t.bridge.state().conflict;
+          expect(recovery).toMatchObject({ conflict: seed === 'interrupted' ? 'interrupted' : 'raced', recovery: expect.any(String) });
+          expect(fs.readFileSync(recovery.recovery, 'utf8')).toBe(seed === 'interrupted' ? 'a' : 'aX');
+          expect(t.text.toString()).toBe('Pa');
+          await t.bridge.sync();
+          t.text.insert(2, 'Q');
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          expect(t.disk()).toBe('PaQ');
+          expect(t.gate.count('publish')).toBe(1);
+          expect(t.bridge.state().conflict).toEqual(warning);
+          // A late-load report also carries the original interrupted-copy notice, not just observation.
+          if (seed === 'late-load') {
+            expect(recovery.kept).toMatchObject({ conflict: 'interrupted', recovery: expect.any(String) });
+            expect(fs.readFileSync(recovery.kept.recovery, 'utf8')).toBe('a');
+            expect(recovery.kept.kept ?? null).toEqual(warning);
+          } else expect(recovery.kept ?? null).toEqual(warning);
+        }, { seed });
+      });
+    }
+
+    it('#481 round 4 reverse durability: control no watcher error', async () => {
+      await r4Fixture(async (t) => {
+        await t.bridge.load();
+        t.text.insert(0, 'P');
+        t.hooks.helper = { fault: 'dirSync' };
+        const result = await t.bridge.save();
+        expect(result).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+        await t.bridge.sync();
+        expect(t.bridge.state().conflict).toMatchObject({ conflict: result.conflict, published: result.published, recovery: result.recovery, notice: result.notice });
+        delete t.hooks.helper;
+        await t.bridge.sync();
+        expect(t.bridge.state().conflict).toBe(null);
+        expect(t.disk()).toBe('Pa');
+        expect(t.text.toString()).toBe('Pa');
+      });
+    });
+
+    for (const accepted of ['a', '']) {
+      it(`#481 round 4 carried flush ${accepted ? 'removed' : 'truncated'}: control flush before hold`, async () => {
+        await r4Fixture(async (t) => {
+          await t.bridge.load();
+          t.text.insert(0, 'P');
+          t.hooks.helper = { fault: 'dirSync' };
+          expect(await t.bridge.save()).toMatchObject({ conflict: 'unverified', published: true });
+          delete t.hooks.helper;
+          await t.bridge.sync();
+          expect(t.bridge.state().conflict).toBe(null);
+          fs.writeFileSync(t.file, accepted);
+          await t.bridge.sync();
+          expect(t.bridge.state().conflict.conflict).toBe(accepted ? 'removed' : 'truncated');
+          expect(t.text.toString()).toBe('Pa');
+          await t.bridge.acceptDisk();
+          expect(t.text.toString()).toBe(accepted);
+          expect(await t.bridge.save()).toEqual({ ok: true });
+          expect(t.disk()).toBe(accepted);
+          expect(t.bridge.state().conflict).toBe(null);
+          expect(t.gate.count('publish')).toBe(1);
+        });
+      });
+    }
 
     for (const outcome of ['gone', 'changed', 'ok', 'prior-ok']) {
       it(`#481 final publish await: ${outcome} preserves the current stopped-watcher warning`, async () => {
