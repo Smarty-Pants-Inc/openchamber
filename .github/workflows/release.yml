@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -529,19 +526,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  mobile-release:
-    needs: create-release
-    if: ${{ github.event.inputs.dry_run != 'true' }}
-    uses: ./.github/workflows/mobile-release.yml
-    with:
-      version_name: ${{ needs.create-release.outputs.version }}
-      build_number: ${{ github.run_number }}
-      release_tag: v${{ needs.create-release.outputs.version }}
-      upload_github_release: true
-    secrets: inherit
-
+  # Mobile releases must be dispatched separately via mobile-release.yml.
   finalize-release:
-    needs: [create-release, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, publish-npm, combine-electron-manifests, mobile-release]
+    needs: [create-release, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, publish-npm, combine-electron-manifests]
     runs-on: smarty-linux-x64
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

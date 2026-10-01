@@ -1,3 +1,4 @@
+# Runs only once Paul's public-fork decision allows Forge for this public repo (smarty-dev#1246); Forge group 13 refuses public repos.
 name: pr checks
 
 on:

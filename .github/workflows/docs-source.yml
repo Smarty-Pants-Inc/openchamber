@@ -1,16 +1,6 @@
 name: Docs Source
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/docs/**"
-      - "scripts/docs/**"
-      - "package.json"
-      - "branding/**"
-      - "scripts/apply-brand.mjs"
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:

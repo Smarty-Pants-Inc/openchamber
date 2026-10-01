@@ -16,36 +16,7 @@ on:
         required: false
         type: string
       upload_github_release:
-        description: Upload Android artifacts to GitHub Release. Requires release_tag when called by the release workflow.
-        required: false
-        default: false
-        type: boolean
-      build_android:
-        description: Build Android signed APK/AAB artifacts.
-        required: false
-        default: true
-        type: boolean
-      build_ios:
-        description: Build iOS IPA and upload it to TestFlight.
-        required: false
-        default: true
-        type: boolean
-  workflow_call:
-    inputs:
-      version_name:
-        description: Version name / marketing version. Leave empty to use package.json version.
-        required: false
-        type: string
-      build_number:
-        description: Build number. Leave empty to use GitHub run number.
-        required: false
-        type: string
-      release_tag:
-        description: Existing GitHub Release tag to attach Android artifacts to.
-        required: false
-        type: string
-      upload_github_release:
-        description: Upload Android artifacts to the matching GitHub Release.
+        description: Upload Android artifacts to GitHub Release. Requires release_tag.
         required: false
         default: false
         type: boolean
