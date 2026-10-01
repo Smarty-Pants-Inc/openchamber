@@ -24,26 +24,32 @@ export const readHerdrState = (session: unknown): HerdrState | undefined => {
 export const liveHerdrState = (herdr: HerdrState | undefined, native: string | undefined, herdrIsNewer = false): HerdrState | undefined => {
   if (!herdr || !native || herdr === 'blocked' || herdr === 'ended') return herdr;
   if (native === 'busy' || native === 'retry') return herdrIsNewer && (herdr === 'done' || herdr === 'idle') ? herdr : 'working';
-  return native === 'idle' && herdr === 'working' ? 'done' : herdr;
+  // Herdr's working sampled AFTER native idle is a new turn Herdr saw first: it stays Working.
+  return native === 'idle' && herdr === 'working' && !herdrIsNewer ? 'done' : herdr;
 };
 
 /**
- * Which of a row's two inputs changed last, per session, kept across row remounts (scroll, collapse). The same values
- * twice are no change, so a double render cannot reorder them. A row first seen has no order: native wins.
+ * The row's native status and which of its two inputs changed last, per session, kept across row remounts (scroll,
+ * collapse). The status store DELETES a settled session's entry (native idle reads as no entry), so an entry that goes
+ * from busy/retry to absent is known native idle, and stays idle until the next busy. A session never seen with a native
+ * status stays undefined: Herdr is the fallback there. The same values twice are no change, so a double render cannot
+ * reorder them. A row first seen has no order: native wins.
  */
 const changeOrder = new Map<string, { herdr?: HerdrState; native?: string; herdrAt: number; nativeAt: number }>();
 let changeTick = 0;
 const MAX_ORDERED_SESSIONS = 2048;
-export const herdrChangedLast = (sessionId: string, herdr: HerdrState | undefined, native: string | undefined): boolean => {
+export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined):
+  { native: string | undefined; herdrIsNewer: boolean } => {
   const o = changeOrder.get(sessionId);
   if (!o) {
     if (changeOrder.size >= MAX_ORDERED_SESSIONS) changeOrder.delete(changeOrder.keys().next().value!);
-    changeOrder.set(sessionId, { herdr, native, herdrAt: 0, nativeAt: 0 });
-    return false;
+    changeOrder.set(sessionId, { herdr, native: entry, herdrAt: 0, nativeAt: 0 });
+    return { native: entry, herdrIsNewer: false };
   }
+  const native = entry ?? (o.native === undefined ? undefined : 'idle');
   if (o.herdr !== herdr) { o.herdr = herdr; o.herdrAt = ++changeTick; }
   if (o.native !== native) { o.native = native; o.nativeAt = ++changeTick; }
-  return o.herdrAt > o.nativeAt;
+  return { native, herdrIsNewer: o.herdrAt > o.nativeAt };
 };
 
 /** One distinct dot per Herdr state, as Herdr shows them apart. */

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { Session } from '@opencode-ai/sdk/v2';
-import { HERDR_STATE_DOT, herdrChangedLast, herdrSignature, liveHerdrState, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
+import type { Event } from '@opencode-ai/sdk/v2/client';
+import { applyGlobalSessionStatusEvents, useGlobalSessionStatusStore } from '../sync/global-session-status';
+import { HERDR_STATE_DOT, rowNativeStatus, herdrSignature, liveHerdrState, herdrSuccessorOf, isHerdrEnded, isHerdrNoIdentity, readHerdrState, successorTarget } from './herdrSession';
 
 test('each Herdr state reads as itself and has its own marker; stock rows have none (smarty-code#126 (c)5)', () => {
   const states = ['working', 'blocked', 'done', 'idle', 'unknown', 'ended'] as const;
@@ -79,24 +81,44 @@ describe('#1140: liveHerdrState', () => {
 });
 
 // #1140 (code-lead 02:32Z): done takes whichever comes first, Herdr's done or native idle; Working follows native busy;
-// the marker never bounces back.
+// the marker never bounces back. Native input is the status store's entry: native idle is NO entry (the store deletes a
+// settled session), so the steps say undefined where native is idle, as the row receives it (openchamber#484 round 2).
 describe('#1140: change order', () => {
-  const run = (id: string, steps: Array<[ReturnType<typeof readHerdrState>, string | undefined]>) =>
-    steps.map(([h, n]) => liveHerdrState(h, n, herdrChangedLast(id, h, n)));
+  const row = (id: string, h: ReturnType<typeof readHerdrState>, n: string | undefined) => {
+    const r = rowNativeStatus(id, h, n); return liveHerdrState(h, r.native, r.herdrIsNewer);
+  };
+  const run = (id: string, steps: Array<[ReturnType<typeof readHerdrState>, string | undefined]>) => steps.map(([h, n]) => row(id, h, n));
   test('a whole turn: Working at native busy, done at Herdr\'s earlier done, no bounce while native is still busy', () => {
-    expect(run('turn-1', [['done', 'idle'], ['done', 'busy'], ['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', 'idle']]))
+    expect(run('turn-1', [['done', undefined], ['done', 'busy'], ['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', undefined]]))
       .toEqual(['done', 'working', 'working', 'done', 'done', 'done']);
   });
   test('a new turn after a stale done: native busy is newer, so Working (not the stale done)', () => {
-    expect(run('turn-2', [['done', 'idle'], ['done', 'busy']])).toEqual(['done', 'working']);
+    expect(run('turn-2', [['done', undefined], ['done', 'busy']])).toEqual(['done', 'working']);
   });
   test('native idle first (Herdr still working): done, and it stays done when Herdr follows', () => {
-    expect(run('turn-3', [['working', 'busy'], ['working', 'idle'], ['done', 'idle']])).toEqual(['working', 'done', 'done']);
+    expect(run('turn-3', [['working', 'busy'], ['working', undefined], ['done', undefined]])).toEqual(['working', 'done', 'done']);
   });
   test('the same values again (a re-render or a remount) do not reorder: still done', () => {
     expect(run('turn-4', [['working', 'busy'], ['done', 'busy'], ['done', 'busy'], ['done', 'busy']])).toEqual(['working', 'done', 'done', 'done']);
   });
   test('a row first seen mid-window (Herdr done, native busy) has no order: native wins until it changes', () => {
-    expect(run('turn-5', [['done', 'busy'], ['done', 'idle']])).toEqual(['working', 'done']);
+    expect(run('turn-5', [['done', 'busy'], ['done', undefined]])).toEqual(['working', 'done']);
+  });
+  test('no native status ever (a Herdr-only row): Herdr is the fallback, Working stays Working', () => {
+    expect(run('turn-6', [['working', undefined], ['working', undefined], ['done', undefined]])).toEqual(['working', 'working', 'done']);
+  });
+  test('after a known idle, a new turn Herdr samples first stays Working until native busy and idle follow', () => {
+    expect(run('turn-7', [['working', 'busy'], ['working', undefined], ['idle', undefined], ['working', undefined], ['working', 'busy'], ['working', undefined]]))
+      .toEqual(['working', 'done', 'idle', 'working', 'working', 'done']);
+  });
+  // Round 2: through the real reducer and the store selector the row subscribes to (useGlobalSessionStatus reads
+  // statusById.get(id)?.status), with Herdr's sample held at working the whole time.
+  test('busy -> idle through the global-status reducer clears Working while Herdr still says working', () => {
+    const id = 'reducer-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;
+    const status = (type: string) => applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type } } } as Event]);
+    expect(row(id, 'working', entry())).toBe('working'); // first seen: no native status yet, Herdr's working
+    status('busy'); expect(entry()).toBe('busy'); expect(row(id, 'working', entry())).toBe('working');
+    status('idle'); expect(entry()).toBeUndefined(); expect(row(id, 'working', entry())).toBe('done');
+    expect(row(id, 'working', entry())).toBe('done'); // a re-render with the same stale sample stays done
   });
 });
