@@ -311,6 +311,7 @@ export function createDiskBridge({
       raise({ conflict: 'unwatched', notice: UNWATCHED_NOTICE });
       scheduleRewatch();
     });
+    return current;
   };
   const scheduleRewatch = () => {
     if (closed || rewatchTimer || rewatches >= retryLimit) return;
@@ -318,8 +319,9 @@ export function createDiskBridge({
     rewatchTimer = setTimeout(() => {
       rewatchTimer = null;
       if (closed) return;
+      let restarted;
       try {
-        startWatch();
+        restarted = startWatch();
       } catch (error) {
         logError('smarty.coedit-watch-failed', error);
         scheduleRewatch();
@@ -328,6 +330,7 @@ export function createDiskBridge({
       rewatches = 0;
       // Outside writes made while unwatched are caught up now.
       void sync().then(() => {
+        if (closed || watcher !== restarted) return;
         if (conflict?.conflict === 'unwatched') conflict = null;
         // A transient refusal that carried the watcher warning keeps only itself (#445 astra r2).
         else if (conflict?.kept?.conflict === 'unwatched') conflict = { conflict: conflict.conflict, transient: true, at: conflict.at };

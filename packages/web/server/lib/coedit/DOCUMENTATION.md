@@ -236,6 +236,7 @@ round 4); until then no conflict could be seen.
   now"); restarting is attempted after `retryMs`, at most `retryLimit` times per failed-start episode. A successful
   watcher construction resets that counter; its catch-up sync clears the warning only if it succeeds. Later watcher
   errors can start another episode, so this is not a lifetime cap or a promise that continually changing bytes settle.
+  Catch-up clears a direct or carried stopped-watcher warning only while its own restarted watcher is still active on the open bridge.
 - **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
 - **Recovery retention** (smartyfs#37, org's decision 2026-09-29): recovery copies are named
   `<time>-<random>-<key>-[ours-]<file name>`. When a bridge loads a file, and then daily (`pruneMs`), it deletes a copy of

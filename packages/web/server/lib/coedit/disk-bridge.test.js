@@ -1714,6 +1714,197 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(made.every((w) => w.closed)).toBe(true);
     });
 
+    // Hold exactly one settled-read gap, after its first real helper read. All returned handles are native;
+    // the bridge's other timers run normally and must be drained or cleared by close().
+    const catchupGate = (settleMs) => {
+      const nativeSetTimeout = globalThis.setTimeout;
+      const nativeClearTimeout = globalThis.clearTimeout;
+      const timers = new Set();
+      let armed = false;
+      let release;
+      let enter;
+      const entered = new Promise((done) => { enter = done; });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((done, ms, ...args) => {
+        let handle;
+        if (armed && ms === settleMs) {
+          armed = false;
+          handle = nativeSetTimeout(() => {}, 60_000);
+          handle.unref();
+          release = () => {
+            nativeClearTimeout(handle);
+            timers.delete(handle);
+            release = null;
+            done(...args);
+          };
+          timers.add(handle);
+          enter();
+          return handle;
+        }
+        handle = nativeSetTimeout(() => {
+          timers.delete(handle);
+          done(...args);
+        }, ms);
+        timers.add(handle);
+        return handle;
+      });
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation((handle) => {
+        timers.delete(handle);
+        nativeClearTimeout(handle);
+      });
+      return {
+        arm: () => { armed = true; },
+        entered: async () => {
+          let bound;
+          try {
+            await Promise.race([entered, new Promise((_done, reject) => {
+              bound = nativeSetTimeout(() => reject(new Error('catch-up never entered the settled-read gap')), 3000);
+            })]);
+          } finally {
+            nativeClearTimeout(bound);
+          }
+        },
+        release: () => release?.(),
+        remaining: () => timers.size,
+        restore: () => {
+          for (const handle of timers) nativeClearTimeout(handle);
+          timeoutSpy.mockRestore();
+          clearSpy.mockRestore();
+        },
+      };
+    };
+
+    it('#481 round 1: an older catch-up cannot clear a newer stopped-watcher warning after restarts exhaust', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'v1\n');
+      const { made, watch } = fakeWatch();
+      let starts = 0;
+      const unavailableAfterReplacement = (dir, onChange) => {
+        starts += 1;
+        if (starts > 2) throw new Error('ENOSPC: no more watchers');
+        return watch(dir, onChange);
+      };
+      const doc = new Y.Doc();
+      const conflicts = [];
+      const gate = catchupGate(37);
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch: unavailableAfterReplacement, settleMs: 37, retryMs: 11, retryLimit: 2, onConflict: (c) => conflicts.push(c), enabled: true });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await bridge.load();
+        gate.arm();
+        made[0].emit('error', new Error('EMFILE: first watcher'));
+        const firstWarning = bridge.state().conflict;
+        expect(firstWarning).toMatchObject({ conflict: 'unwatched' });
+        await gate.entered();
+        expect(made).toHaveLength(2);
+        expect(made[0].closed).toBe(true);
+        expect(made[1].closed).toBe(false);
+        expect(doc.getText(TEXT).toString()).toBe('v1\n');
+        made[1].emit('error', new Error('EMFILE: replacement watcher'));
+        const newerWarning = bridge.state().conflict;
+        expect(newerWarning).not.toBe(firstWarning);
+        expect(newerWarning).toMatchObject({ conflict: 'unwatched' });
+        expect(conflicts).toEqual([firstWarning, newerWarning]);
+        await expect.poll(() => starts, { timeout: 3000 }).toBe(4); // Two unavailable restarts exhaust the budget.
+        expect(made.every((w) => w.closed)).toBe(true);
+        gate.release();
+        await bridge.sync(); // Serial barrier: the older catch-up and its completion have finished, not just started.
+        expect(doc.getText(TEXT).toString()).toBe('v1\n');
+        expect(errors.mock.calls.every(([line]) => JSON.parse(line).type === 'smarty.coedit-watch-failed')).toBe(true);
+        expect(bridge.state().conflict).toBe(newerWarning);
+      } finally {
+        gate.release();
+        try {
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root)).toEqual([]);
+          expect(gate.remaining()).toBe(0);
+        } finally {
+          gate.restore();
+          errors.mockRestore();
+          doc.destroy();
+        }
+      }
+    });
+
+    it('#481 round 1: an active replacement catches up outside edits and clears its own warning', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'v1\n');
+      const { made, watch } = fakeWatch();
+      const doc = new Y.Doc();
+      const gate = catchupGate(37);
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch, settleMs: 37, retryMs: 11, enabled: true });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await bridge.load();
+        gate.arm();
+        made[0].emit('error', new Error('EMFILE'));
+        const warning = bridge.state().conflict;
+        fs.writeFileSync(file, 'v1\nv2\n'); // No event from the stopped watcher.
+        await gate.entered();
+        expect(made).toHaveLength(2);
+        expect(made[1].closed).toBe(false);
+        expect(bridge.state().conflict).toBe(warning);
+        expect(doc.getText(TEXT).toString()).toBe('v1\n');
+        gate.release();
+        await bridge.sync();
+        expect(doc.getText(TEXT).toString()).toBe('v1\nv2\n');
+        expect(bridge.state().conflict).toBe(null);
+        expect(made[1].closed).toBe(false);
+        expect(errors).toHaveBeenCalledTimes(1);
+      } finally {
+        gate.release();
+        try {
+          expect(await bridge.close()).toEqual({ quiescent: true });
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root)).toEqual([]);
+          expect(gate.remaining()).toBe(0);
+        } finally {
+          gate.restore();
+          errors.mockRestore();
+          doc.destroy();
+        }
+      }
+    });
+
+    it('#481 round 1: close during catch-up releases its watcher and drains helper reads without restarting', async () => {
+      const { home, root, file } = fresh();
+      fs.writeFileSync(file, 'v1\n');
+      const { made, watch } = fakeWatch();
+      const doc = new Y.Doc();
+      const gate = catchupGate(37);
+      const bridge = createDiskBridge({ root, file, doc, recoveryDir: path.join(home, 'r'), watch, settleMs: 37, retryMs: 11, enabled: true });
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      let closing;
+      try {
+        await bridge.load();
+        gate.arm();
+        made[0].emit('error', new Error('EMFILE'));
+        await gate.entered();
+        expect(made).toHaveLength(2);
+        closing = bridge.close();
+        expect(made.every((w) => w.closed)).toBe(true); // close owns the active replacement synchronously.
+        gate.release();
+        expect(await closing).toEqual({ quiescent: true });
+        await bridge.sync(); // Closed work cannot start another helper or watcher.
+        expect(made).toHaveLength(2);
+        expect(helperPids(root)).toEqual([]);
+        expect(gate.remaining()).toBe(0);
+        expect(errors).toHaveBeenCalledTimes(1);
+      } finally {
+        gate.release();
+        try {
+          expect(await (closing ?? bridge.close())).toEqual({ quiescent: true });
+          expect(made.every((w) => w.closed)).toBe(true);
+          expect(helperPids(root)).toEqual([]);
+          expect(gate.remaining()).toBe(0);
+        } finally {
+          gate.restore();
+          errors.mockRestore();
+          doc.destroy();
+        }
+      }
+    });
+
     it('#445 astra round 2: a stopped watcher\'s warning outlives no-change refusals and the success after them', async () => {
       const { home, root, file } = fresh();
       fs.writeFileSync(file, 'a');
