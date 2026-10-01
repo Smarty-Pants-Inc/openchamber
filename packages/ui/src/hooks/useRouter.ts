@@ -202,8 +202,13 @@ export function useRouter(): void {
           if (namespace) recordTabShownSession(scope, namespace, sessionId);
         });
       }
-      // Keep the baseline current during route application; syncURLFromState suppresses URL publication.
-      if (sessionId === prevSessionId) return;
+      // Track selection during restoration; recover skipped publication only from a named session route.
+      if (sessionId === prevSessionId) {
+        if (isApplyingRouteRef.current) return;
+        const routedSessionId = parseRoute().sessionId;
+        // Back to a no-session entry deliberately keeps the selection without adding history.
+        if (!routedSessionId || routedSessionId === sessionId) return;
+      }
       prevSessionId = sessionId;
       syncURLFromState();
     });
