@@ -14,6 +14,46 @@ export const readHerdrState = (session: unknown): HerdrState | undefined => {
   return STATES.has(value) ? value as HerdrState : 'unknown';
 };
 
+/**
+ * smarty-code#1140: the row's state with the session's native status applied. Herdr's state is a sample the gateway
+ * re-reads every 2 s (17-59 s under load); the native busy/idle status reaches the page as an event, but its idle comes
+ * only after 2 s of owner idleness. So Working follows native busy, and done takes whichever comes FIRST: Herdr's done
+ * (when it changed after native busy) or native idle. Herdr keeps what only it knows (blocked, ended) and is the
+ * fallback where there is no native status. No new polling.
+ */
+export const liveHerdrState = (herdr: HerdrState | undefined, native: string | undefined, herdrIsNewer = false): HerdrState | undefined => {
+  if (!herdr || !native || herdr === 'blocked' || herdr === 'ended') return herdr;
+  if (native === 'busy' || native === 'retry') return herdrIsNewer && (herdr === 'done' || herdr === 'idle') ? herdr : 'working';
+  // Herdr's working sampled AFTER native idle is a new turn Herdr saw first: it stays Working.
+  return native === 'idle' && herdr === 'working' && !herdrIsNewer ? 'done' : herdr;
+};
+
+/**
+ * The row's native status and which of its two inputs changed last, per session, kept across row remounts (scroll,
+ * collapse). The status store DELETES a settled session's entry (native idle reads as no entry), so an entry that goes
+ * from busy/retry to absent is known native idle, and stays idle until the next busy. A session never seen with a native
+ * status stays undefined: Herdr is the fallback there. The same values twice are no change, so a re-render cannot
+ * reorder them. A row first seen, or its first render after a remount (`remounted`), has no order: native wins. Changes
+ * while a row is unmounted (a collapsed group) are not seen here, so their order is unknown (openchamber#484 round 3).
+ */
+const changeOrder = new Map<string, { herdr?: HerdrState; native?: string; herdrAt: number; nativeAt: number }>();
+let changeTick = 0;
+const MAX_ORDERED_SESSIONS = 2048;
+export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined, remounted = false):
+  { native: string | undefined; herdrIsNewer: boolean } => {
+  const o = changeOrder.get(sessionId);
+  if (!o) {
+    if (changeOrder.size >= MAX_ORDERED_SESSIONS) changeOrder.delete(changeOrder.keys().next().value!);
+    changeOrder.set(sessionId, { herdr, native: entry, herdrAt: 0, nativeAt: 0 });
+    return { native: entry, herdrIsNewer: false };
+  }
+  const native = entry ?? (o.native === undefined ? undefined : 'idle');
+  if (remounted) { o.herdr = herdr; o.native = native; o.herdrAt = 0; o.nativeAt = 0; return { native, herdrIsNewer: false }; }
+  if (o.herdr !== herdr) { o.herdr = herdr; o.herdrAt = ++changeTick; }
+  if (o.native !== native) { o.native = native; o.nativeAt = ++changeTick; }
+  return { native, herdrIsNewer: o.herdrAt > o.nativeAt };
+};
+
 /** One distinct dot per Herdr state, as Herdr shows them apart. */
 export const HERDR_STATE_DOT: Record<HerdrState, string> = {
   working: 'bg-primary',
