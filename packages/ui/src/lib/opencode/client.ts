@@ -768,7 +768,7 @@ class OpencodeService {
   }
 
   /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
-  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never>) {
+  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never> | { sessionID: string }) {
     const scope = captureRuntimeRequestScope();
     const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET', headers: { ...NATIVE_CREATION_FIELDS } };
     if (reply) {
@@ -793,6 +793,11 @@ class OpencodeService {
   /** Leave an unsettled start behind for good (smarty-code#340): the server settles it cancelled and admits a new one. */
   async abandonNativeCreation(directory: string, operationId: string) {
     return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}/abandon`, {})).nativeCreation;
+  }
+
+  /** smarty-code#365: continue an ended Code-created session in a new Pi; resolves once that Pi is enrolled. */
+  async resumeNativeSession(directory: string, sessionID: string): Promise<void> {
+    await this.nativeCreationRequest(directory, '/resume', { sessionID });
   }
 
   async replyNativeCreation(directory: string, operationId: string, reply: NativeCreationReply) {
