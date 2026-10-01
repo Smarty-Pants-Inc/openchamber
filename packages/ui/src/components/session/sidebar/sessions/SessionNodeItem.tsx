@@ -60,7 +60,7 @@ import { useStatusUnavailable } from '@/sync/status-unavailable';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
-import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
+import { HERDR_STATE_DOT, liveHerdrState, readHerdrState, rowNativeStatus } from '@/lib/herdrSession';
 import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import { rowActivity } from './rowActivity';
 import { HerdrStateText } from './HerdrStateText';
@@ -345,6 +345,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? (showQuickArchiveAction ? 'pr-18' : 'pr-14')
     : (showQuickArchiveAction ? 'pr-7' : 'pr-3');
   const suppressNextSelectRef = React.useRef(false);
+  const renderedRef = React.useRef(false); // smarty-code#1140: this mount has rendered (rowNativeStatus)
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
   const editingIdRef = React.useRef(editingId);
   editingIdRef.current = editingId;
@@ -732,7 +733,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     menuOpen: isSessionMenuOpen,
     hideOnHoverClass,
   });
-  const herdrState = readHerdrState(session);
+  const sampledHerdrState = readHerdrState(session);
+  // smarty-code#1140: Working follows native busy; done takes the first of Herdr's done and native idle.
+  // The store deletes a settled entry: rowNativeStatus reads busy -> absent as known native idle.
+  // A remount's first render has no order (status changes while the row was unmounted were not seen): native wins.
+  const rowNative = rowNativeStatus(session.id, sampledHerdrState, sessionStatus?.type, !renderedRef.current);
+  renderedRef.current = true;
+  const herdrState = liveHerdrState(sampledHerdrState, rowNative.native, rowNative.herdrIsNewer);
   const { showStatusMarker, showActivityDuration, showStatusUnavailable } = rowActivity({
     herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration, statusUnavailable,
   });
