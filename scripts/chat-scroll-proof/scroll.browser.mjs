@@ -22,21 +22,29 @@ async function sample(page, readerId) {
           bottom: tail ? tail.getBoundingClientRect().bottom - box.bottom : null,
           reader: reader ? reader.getBoundingClientRect().top - box.top : null, tick: window.scrollFixture.tick });
         lastTime = time;
-        if (!window.scrollFixture.done) requestAnimationFrame(read); else resolve();
+        // rAF runs before ResizeObserver delivers the virtualizer's sizes.
+        // Read after that rendering step, otherwise a corrected pre-paint
+        // estimate is wrongly counted as a visible jump.
+        if (!window.scrollFixture.done) requestAnimationFrame(nextTime => setTimeout(() => read(nextTime), 0)); else resolve();
       };
-      requestAnimationFrame(read);
+      requestAnimationFrame(time => setTimeout(() => read(time), 0));
       window.scrollFixture.start();
     });
     return frames;
   }, readerId);
 }
 async function evidence(info, frames) {
+  const readerExpected = frames.some(frame => frame.reader !== null);
   const report = { frames: frames.length, deliveredTicks: frames.at(-1).tick,
     maxFrameGap: Math.max(...frames.map(frame => frame.frameGap)),
     missingTailFrames: frames.filter(frame => frame.bottom === null).length,
     maxBottomError: Math.max(...frames.filter(frame => frame.bottom !== null).map(frame => Math.abs(frame.bottom))),
     bottomJumps: frames.slice(1).filter((frame, i) => frame.bottom !== null && frames[i].bottom !== null && Math.abs(frame.bottom - frames[i].bottom) > 4).length,
     scrollReversals: frames.slice(1).filter((frame, i) => frame.top < frames[i].top - 4).length,
+    // A completed tool/reasoning placeholder can shrink. At the bottom the
+    // correct scroll delta is the content-height delta, in either direction.
+    unexplainedScrollJumps: frames.slice(1).filter((frame, i) => Math.abs((frame.top - frames[i].top) - (frame.height - frames[i].height)) > 4).length,
+    missingReaderFrames: frames.filter(frame => readerExpected && frame.reader === null).length,
     readerDrift: frames[0].reader === null ? null : Math.max(...frames.map(frame => frame.reader === null ? Infinity : Math.abs(frame.reader - frames[0].reader))),
     contentGrowth: frames.at(-1).height - frames[0].height };
   await writeFile(info.outputPath('metrics.json'), JSON.stringify({ report, samples: frames }, null, 2));
@@ -55,10 +63,10 @@ test('follows streaming bottom without frame jumps', async ({ page }, info) => {
   expect(report.missingTailFrames).toBe(0);
   expect(report.maxBottomError).toBeLessThanOrEqual(4);
   expect(report.bottomJumps).toBe(0);
-  expect(report.scrollReversals).toBe(0);
+  expect(report.unexplainedScrollJumps).toBe(0);
 });
 
-test('reader stays put during updates and positions remount', async ({ page }, info) => {
+for (const withGap of [false, true]) test(`reader stays put during updates and ${withGap ? 'large-gap ' : ''}positions remount`, async ({ page }, info) => {
   await open(page);
   await page.mouse.move(180, 200);
   await page.mouse.wheel(0, -2200);
@@ -72,8 +80,9 @@ test('reader stays put during updates and positions remount', async ({ page }, i
   expect(await page.evaluate(() => window.scrollFixture.userOwnsScroll)).toBe(true);
   const pending = sample(page, readerId);
   await page.waitForTimeout(2000);
-  await page.evaluate(() => window.scrollFixture.remount());
+  await page.evaluate(gap => window.scrollFixture.remount(gap), withGap);
   const report = await evidence(info, await pending);
+  expect(report.missingReaderFrames).toBe(0);
   expect(report.readerDrift).toBeLessThanOrEqual(4);
 });
 
@@ -90,7 +99,7 @@ test('follow survives positions remount', async ({ page }, info) => {
 
 test('beginning and end clamp without phantom blank space', async ({ page }, info) => {
   await open(page);
-  await page.evaluate(() => window.scrollFixture.beginning());
+  await page.evaluate(() => { window.scrollFixture.beginning(); window.scrollFixture.start(); });
   await page.waitForTimeout(1000);
   const bounds = async () => page.evaluate(() => {
     const node = document.querySelector('[data-scrollbar="chat"]');
@@ -106,8 +115,9 @@ test('beginning and end clamp without phantom blank space', async ({ page }, inf
   await page.mouse.wheel(0, -10000);
   await page.waitForTimeout(500);
   const top = await bounds();
-  await page.evaluate(() => window.scrollFixture.latest());
-  await page.waitForTimeout(1000);
+  await page.evaluate(() => { window.scrollFixture.latest(); window.scrollFixture.remount(); });
+  await page.waitForFunction(() => window.scrollFixture.done);
+  await page.waitForTimeout(300);
   await page.locator('[data-scrollbar="chat"]').evaluate(node => { node.scrollTop = 10000000; });
   await page.mouse.wheel(0, 10000);
   await page.waitForTimeout(500);
@@ -121,4 +131,44 @@ test('beginning and end clamp without phantom blank space', async ({ page }, inf
   expect(bottom.last).not.toBeNull();
   expect(Math.abs(bottom.last)).toBeLessThanOrEqual(20);
   expect(top.overscroll).toBe('none');
+});
+
+test('auto-follow disabled leaves the streaming viewport untouched', async ({ page }, info) => {
+  await open(page);
+  await page.evaluate(() => window.scrollFixture.setAutoFollow(false));
+  await page.waitForTimeout(100);
+  const frames = await sample(page);
+  const drift = Math.max(...frames.map(frame => Math.abs(frame.top - frames[0].top)));
+  await writeFile(info.outputPath('metrics.json'), JSON.stringify({ drift, samples: frames }, null, 2));
+  expect(frames.at(-1).tick).toBe(240);
+  expect(drift).toBeLessThanOrEqual(4);
+});
+
+test('Beginning loads the first positioned window, and reload opens at the end', async ({ page }, info) => {
+  await open(page);
+  await page.evaluate(() => { window.scrollFixture.remount(true); window.scrollFixture.start(); });
+  await page.waitForTimeout(500);
+  const total = await page.locator('[data-scrollbar="chat"]').evaluate(node => node.scrollHeight);
+  expect(total).toBeGreaterThan(1700000);
+  await page.evaluate(() => window.scrollFixture.beginning());
+  await page.waitForFunction(() => document.querySelector('[data-turn-id="prefix-user-0"]'));
+  await page.waitForTimeout(500);
+  const beginning = await page.evaluate(() => {
+    const node = document.querySelector('[data-scrollbar="chat"]');
+    const row = node.querySelector('[data-turn-id="prefix-user-0"]');
+    return { scrollTop: node.scrollTop, offset: row.getBoundingClientRect().top - node.getBoundingClientRect().top, reads: window.scrollFixture.gapReads };
+  });
+  expect(beginning.reads).toBeGreaterThan(0);
+  expect(beginning.scrollTop).toBe(0);
+  expect(Math.abs(beginning.offset)).toBeLessThanOrEqual(4);
+  await page.reload();
+  await page.waitForFunction(() => window.scrollFixture && document.querySelector('[data-turn-id="live-user"]'));
+  await page.waitForTimeout(500);
+  const reload = await page.evaluate(() => {
+    const node = document.querySelector('[data-scrollbar="chat"]');
+    const row = node.querySelector('[data-turn-id="live-user"]');
+    return { error: row.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom };
+  });
+  await writeFile(info.outputPath('metrics.json'), JSON.stringify({ total, beginning, reload }, null, 2));
+  expect(Math.abs(reload.error)).toBeLessThanOrEqual(4);
 });
