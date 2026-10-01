@@ -23,8 +23,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.sessionStatusReadSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.sessionStatusReadSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +36,19 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Unwind PR486 before the OC477 Host/lifetime layers; keep every older digest assertion.
+  historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
+  for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
+    assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);
+    assert.equal(entry.preSessionStatusReadCombinedSha256, entry.managedCatalogSha256);
+    entry.combinedSha256 = entry.preSessionStatusReadCombinedSha256;
+    delete entry.preSessionStatusReadCombinedSha256;
+    delete entry.sessionStatusReadSha256;
+    delete entry.sessionStatusReadNote;
+  }
+  delete historical.sessionStatusReadProvenance;
+  assert.equal(digest(JSON.stringify(historical)),
+    'bd030308d3c48f3f8c2172fec59619b2ffba13a92e501e5b98843be17bbb1e94');
   // Unwind the finding-driven event repair before the initial Host patch.
   assert.deepEqual(historical.humanSessionLifetimeProvenance, {
     reviewedHead: '12463c2fb0e599623e631e772f1699e4e1669965',

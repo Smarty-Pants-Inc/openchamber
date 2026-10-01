@@ -526,7 +526,10 @@
       "brandingSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
       "behaviorSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26",
+      "combinedSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+      "preSessionStatusReadCombinedSha256": "08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26",
+      "sessionStatusReadSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+      "sessionStatusReadNote": "PR486 #1115/#1116: tray status polls capture request scope and hold newer events and foreign ordinary ownership. Original branding and managed-catalog predecessor hashes retained; presentation is unchanged.",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
@@ -593,6 +596,46 @@
       "reason": "OPENCHAMBER_WORKTREE_ROOT (smarty-code#629) places managed worktrees at <root>/<repository folder>/; in that shared root, removal deletes only git-registered worktrees, never an unregistered folder (#354 review). Branded strings are unchanged.",
       "worktreeRootAdded": true,
       "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154"
+    },
+    {
+      "path": "packages/ui/src/sync/bootstrap.ts",
+      "behaviorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+      "combinedSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+      "reason": "PR486 #1115/#1116: capture status-read scope and event/local versions before bootstrap dispatch; carry read provenance into the child/global commit. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49"
+    },
+    {
+      "path": "packages/ui/src/sync/global-session-status.ts",
+      "behaviorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+      "combinedSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df"
+    },
+    {
+      "path": "packages/ui/src/sync/sync-context.tsx",
+      "behaviorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+      "combinedSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6"
+    },
+    {
+      "path": "packages/ui/src/sync/session-status-read.ts",
+      "behaviorSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1",
+      "combinedSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1",
+      "reason": "PR486: new shared read-provenance and bootstrap-commit helper used by bootstrap, tray and sync context. Exact exported source bytes, not a generated branding module or donor import.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1"
+    },
+    {
+      "path": "packages/ui/src/sync/sync-context-status-provenance.test.ts",
+      "behaviorSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36",
+      "combinedSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36",
+      "reason": "PR486 #1115/#1116/#1129: exact existing ownership, in-flight event/deletion and omitted-sibling lifecycle regression record. Source provenance only; test cases and production behavior remain untouched.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -622,5 +665,10 @@
   "worktreeRootSource": "eb67e441840a09e303d91f035e79aab2b4b4245c",
   "sendClientIdSource": "82911fa40d53afe674a32964d0795ef13b9daf23",
   "coeditSource": "3dba6485d5e9037414eb2c6a78dd9c0f4749ebd6",
-  "statusUnavailableSource": "3ce8d22f06df56604bc170ad6fcfc4631336682b"
+  "statusUnavailableSource": "3ce8d22f06df56604bc170ad6fcfc4631336682b",
+  "sessionStatusReadProvenance": {
+    "pullRequest": 486,
+    "sourceHead": "f1a339a16dd4199c38cb033a607491a55cb1c6c7",
+    "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
+  }
 }
