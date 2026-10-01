@@ -17,17 +17,31 @@ mock.module('@/lib/voice/piVoiceMedia', () => ({ supportsPiVoice: () => true, br
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
 mock.module('@/components/ui', () => ({ toast: { error: () => undefined } }));
 
+const NAMES = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'DocumentFragment', 'Event', 'MouseEvent', 'PointerEvent', 'getComputedStyle', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+const previous = NAMES.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+
+function createWindow() {
+  const happy = new Window({ url: 'https://code.example.test' });
+  const values = { window: happy, document: happy.document, navigator: happy.navigator, Node: happy.Node,
+    Element: happy.Element, HTMLElement: happy.HTMLElement, DocumentFragment: happy.DocumentFragment,
+    Event: happy.Event, MouseEvent: happy.MouseEvent, PointerEvent: happy.PointerEvent,
+    getComputedStyle: happy.getComputedStyle.bind(happy), ResizeObserver: happy.ResizeObserver,
+    requestAnimationFrame: happy.requestAnimationFrame.bind(happy), cancelAnimationFrame: happy.cancelAnimationFrame.bind(happy),
+    IS_REACT_ACT_ENVIRONMENT: true };
+  for (const name of NAMES) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
+  return happy;
+}
+// Base UI selects browser layout effects at import time. Use the real tooltip, not a mocked one.
+createWindow();
 const { PiVoiceControl } = await import('./PiVoiceControl');
 const { RuntimeAPIContext } = await import('@/contexts/runtimeAPIContext');
 const { I18nProvider } = await import('@/lib/i18n');
-
-const NAMES = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
-const previous = NAMES.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
 let cleanup = () => {};
 afterEach(() => {
   cleanup();
   cleanup = () => {};
   pending.clear();
+  asked.length = 0;
   for (const [name, descriptor] of previous) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     else Reflect.deleteProperty(globalThis, name);
@@ -35,10 +49,7 @@ afterEach(() => {
 });
 
 async function mount(directory: string, isVSCode = false, sessionId = 's1') {
-  const happy = new Window({ url: 'https://code.example.test' });
-  const values = { window: happy, document: happy.document, navigator: happy.navigator, Node: happy.Node,
-    Element: happy.Element, HTMLElement: happy.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
-  for (const name of NAMES) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
+  const happy = createWindow();
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -83,7 +94,7 @@ for (const interaction of ['hover', 'focus', 'tap'] as const) {
     advertised.set('/reason', { available: false, reason });
     const { container, happy } = await mount('/reason');
     if (process.env.OC125_DOM_EVIDENCE) console.log('DOM before interaction:', container.innerHTML);
-    const trigger = container.querySelector<HTMLElement>('[data-slot="tooltip-trigger"]');
+    const trigger = happy.document.querySelector('span');
     expect(trigger).not.toBeNull();
     await act(async () => {
       if (interaction === 'hover') trigger?.dispatchEvent(new happy.MouseEvent('mouseover', { bubbles: true }));
@@ -107,7 +118,7 @@ for (const interaction of ['hover', 'focus', 'tap'] as const) {
     const { container, happy } = await mount('/retry');
     asked.length = 0;
     advertised.set('/retry', { available: true });
-    const trigger = container.querySelector<HTMLElement>('[data-slot="tooltip-trigger"]');
+    const trigger = happy.document.querySelector('span');
     expect(trigger).not.toBeNull();
     await act(async () => {
       if (interaction === 'hover') trigger?.dispatchEvent(new happy.MouseEvent('mouseover', { bubbles: true }));
@@ -153,6 +164,40 @@ test('unmount cancels unknown retries', async () => {
   expect(asked).toEqual([]);
 });
 
+test('an in-flight unknown probe completing after unmount cannot schedule another retry', async () => {
+  advertised.set('/late', { available: false, reason: unknownReason });
+  const { container, unmount } = await mount('/late');
+  let complete: (voice: Voice) => void = () => {};
+  pending.set('/late', new Promise(resolve => { complete = resolve; }));
+  asked.length = 0;
+  await act(async () => { container.querySelector<HTMLElement>('[data-slot="tooltip-trigger"]')?.click(); await settle(); });
+  expect(asked).toEqual(['s1@/late']);
+  unmount();
+  complete({ available: false, reason: unknownReason });
+  await new Promise(resolve => setTimeout(resolve, 2100));
+  expect(asked).toEqual(['s1@/late']);
+});
+
+test('a definitive no has no automatic retries; a failed interaction preserves its visible reason', async () => {
+  const reason = 'This session was started in Herdr.';
+  advertised.set('/known-no', { available: false, reason });
+  const { container, happy } = await mount('/known-no');
+  asked.length = 0;
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 2100)); });
+  expect(asked).toEqual([]);
+  advertised.delete('/known-no');
+  await act(async () => {
+    const trigger = happy.document.querySelector('span');
+    trigger?.dispatchEvent(new happy.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    trigger?.dispatchEvent(new happy.PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }));
+    trigger?.click();
+    await settle();
+  });
+  expect(asked).toEqual(['s1@/known-no']);
+  expect(container.querySelector('button')?.disabled).toBe(true);
+  expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toBe(reason);
+});
+
 test('a session change cancels the old retry', async () => {
   advertised.set('/old', { available: false, reason: unknownReason });
   advertised.set('/new', { available: true });
@@ -172,7 +217,7 @@ test('overlapping interactions share one probe, and a stale result cannot affect
   pending.set('/pending', new Promise(resolve => { complete = resolve; }));
   asked.length = 0;
   await act(async () => {
-    const trigger = container.querySelector<HTMLElement>('[data-slot="tooltip-trigger"]');
+    const trigger = happy.document.querySelector('span');
     trigger?.dispatchEvent(new happy.MouseEvent('mouseover', { bubbles: true }));
     trigger?.focus();
     trigger?.click();
@@ -248,10 +293,7 @@ test('ending a call from outside the control (the call bar) re-reads the session
   advertised.set('/with-voice', { available: true });
   const { driver, runtime } = fakePiVoiceDriver();
   runtime.key = (await import('@/lib/runtime-switch')).getRuntimeKey();
-  const happy = new Window({ url: 'https://code.example.test' });
-  const values = { window: happy, document: happy.document, navigator: happy.navigator, Node: happy.Node,
-    Element: happy.Element, HTMLElement: happy.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
-  for (const name of NAMES) Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
+  createWindow();
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
