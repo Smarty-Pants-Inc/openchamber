@@ -39,9 +39,9 @@ const EMPTY_UNGROUPED_MESSAGE_IDS = new Set<string>();
 // coherent scroll position instead of arbitrating between a virtualizer and a
 // separately-rendered tail.
 //
-// Scroll behavior the list owns natively, which is why none of it exists here
-// any more:
-//   • `maintainScrollAtEnd` keeps the live edge pinned as rows grow.
+// Timeline scroll ownership:
+//   • The scroll hook keeps the live edge pinned as rows grow; list-native
+//     animated end maintenance is disabled so it cannot compete.
 //   • `maintainVisibleContentPosition` preserves the read position when older
 //     history is prepended, replacing the manual anchor-hold and the mobile
 //     quiet-window prepend deferral.
@@ -319,6 +319,10 @@ const withShellBridgeDetails = (message: ChatMessageEntry, details: ShellBridgeD
     };
 };
 
+type TimelineMeasuredListRef = LegendListRef & {
+    getRenderedLastItemSize: () => number | null;
+};
+
 interface MessageListProps {
     sessionKey: string;
     messages: ChatMessageEntry[];
@@ -343,10 +347,7 @@ interface MessageListProps {
     directory?: string;
     // The list owns its scroll container; the timeline scroll hook drives it
     // through this ref and observes it through the callbacks below.
-    registerList?: (list: LegendListRef | null) => void;
-    // True while a real gesture owns the scroll; releases the list's own
-    // end pinning so the state machine, not the library heuristic, decides.
-    endPinningReleased?: boolean;
+    registerList?: (list: TimelineMeasuredListRef | null) => void;
     // The anchored row is identified by message id; the index it maps to is a
     // property of the row model, which only this component knows.
     anchorMessageId?: string | null;
@@ -992,7 +993,6 @@ type TimelineListProps = {
     initialScroll: ReturnType<typeof initialScrollFor>;
     streamingTailKey: string | null;
     registerList: (list: LegendListRef | null) => void;
-    endPinningReleased: boolean;
     anchoredEndSpace?: {
         anchorIndex: number;
         anchorOffset?: number;
@@ -1012,7 +1012,6 @@ const TimelineList = React.memo(({
     entries,
     initialScroll,
     registerList,
-    endPinningReleased,
     anchoredEndSpace,
     composerOverlayHeight,
     onIsAtEndChange,
@@ -1023,10 +1022,6 @@ const TimelineList = React.memo(({
     rowContext,
 }: TimelineListProps) => {
     const listRef = React.useRef<LegendListRef | null>(null);
-    // With streaming auto-follow off, content growth must never move the
-    // viewport; explicit commands (the scroll-to-bottom pill, session open)
-    // still scroll through the imperative handle.
-    const streamingAutoFollowEnabled = useUIStore((state) => state.streamingAutoFollowEnabled);
     const isAtEndRef = React.useRef(true);
 
     const setListRef = React.useCallback((list: LegendListRef | null) => {
@@ -1122,29 +1117,13 @@ const TimelineList = React.memo(({
                 recycleItems={false}
                 {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
                 contentInsetEndAdjustment={composerOverlayHeight}
-                // While a turn is anchored, the reserved end space — not the
-                // live edge — defines where the viewport rests.
-                // Also released while the width resizes: re-pinning against
-                // rows that are still re-measuring shakes the pinned
-                // viewport; once the resize settles the owning hook
-                // re-asserts the end for a streaming session and releases
-                // the pin for an idle one.
-                maintainScrollAtEnd={anchoredEndSpace || !streamingAutoFollowEnabled || isWidthResizing || endPinningReleased
-                    ? false
-                    // Animated only while the session actively streams: there
-                    // the block-step growth turns each correction into a glide
-                    // and reveal + scroll read as one motion. Outside of a live
-                    // stream — opening a historical session, late measurements —
-                    // corrections must be instant: an animated catch-up scrolls
-                    // visibly through the whole conversation on open, and an
-                    // in-flight glide can supersede explicit navigation.
-                    : {
-                        animated: rowContext.sessionIsWorking,
-                        on: { dataChange: true, itemLayout: true, layout: true, footerLayout: true },
-                    }}
+                // useChatTimelineScroll is the single end-follow owner. A
+                // library smooth scroll can outlive a growth correction or
+                // a reader gesture and overwrite the hook's new position.
+                maintainScrollAtEnd={false}
                 // Prepending older history must not move what the user is
-                // reading. Size restoration applies only during a width
-                // resize — see the observer above.
+                // reading. Size restoration applies away from the end and
+                // during a width resize.
                 maintainVisibleContentPosition={{ data: true, size: isWidthResizing || readingHistory, shouldRestorePosition: isContentRow }}
                 onScroll={handleScroll}
                 ListHeaderComponent={header}
@@ -1242,7 +1221,6 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     scrollToBottom,
     directory,
     registerList,
-    endPinningReleased = false,
     anchorMessageId = null,
     onAnchorReady,
     onAnchorSizeChanged,
@@ -1437,9 +1415,21 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // there is no small-list DOM path to transition out of, which is what used
     // to remount the history subtree mid-prepend.
     const listRef = React.useRef<LegendListRef | null>(null);
+    const entriesRef = React.useRef<TimelineEntry[]>([]);
     const handleRegisterList = React.useCallback((list: LegendListRef | null) => {
         listRef.current = list;
-        registerList?.(list);
+        registerList?.(list ? {
+            ...list,
+            // The virtualizer can retain a larger size for one painted frame
+            // after a remounted live row shrinks. Supply only the actual last
+            // row height; the scroll hook remains the sole end-follow owner.
+            getRenderedLastItemSize: () => {
+                const entry = entriesRef.current[entriesRef.current.length - 1];
+                const selector = entry ? entrySelector(entry.key) : undefined;
+                const row = selector ? list.getScrollableNode()?.querySelector<HTMLElement>(selector) : null;
+                return row?.getBoundingClientRect().height ?? null;
+            },
+        } : null);
     }, [registerList]);
 
     const renderEntries = React.useMemo(
@@ -1454,6 +1444,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             : renderEntries,
         [positionOf, positions, renderEntries],
     );
+    entriesRef.current = allEntries;
 
     // smarty-code#583: the timeline is mounted anew when the session's positions arrive or change epoch (see its key).
     // The reader's place in the list being replaced is read now, while it is still registered.
@@ -1654,6 +1645,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const cancelActiveHoldRef = React.useRef<(() => void) | null>(null);
     const latestNavigationRef = React.useRef({ messageIndexMap, scrollHistoryIndexIntoView });
     latestNavigationRef.current = { messageIndexMap, scrollHistoryIndexIntoView };
+    React.useEffect(() => () => { cancelActiveHoldRef.current?.(); }, []);
 
     React.useEffect(() => {
         if (!ref) {
@@ -1804,6 +1796,23 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             scrollToStart: () => {
                 cancelActiveHoldRef.current?.();
                 void listRef.current?.scrollToOffset({ offset: 0, animated: false });
+                const container = resolveScrollContainer();
+                const first = entriesRef.current[0];
+                const messageId = first && firstMessageIdOf(first);
+                const selector = first && entrySelector(first.key);
+                if (!container || !messageId || !selector) return;
+                // Beginning needs the same measurement settlement as other
+                // explicit navigation. Reuse the existing gesture-cancelled
+                // hold, targeting the whole first row rather than its header.
+                cancelActiveHoldRef.current = runAnchorHold({
+                    container,
+                    findElement: () => container.querySelector<HTMLElement>(selector),
+                    scrollAnchorRowIntoView: () => false,
+                    requestFrame: (step) => { window.requestAnimationFrame(step); },
+                }, { messageId, offsetTop: 0 }, {}, {
+                    stableFrames: ANCHOR_HOLD_STABLE_FRAMES,
+                    maxFrames: ANCHOR_HOLD_MAX_FRAMES,
+                });
             },
 
             scrollToBottom: () => {
@@ -1919,7 +1928,6 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 listFooter={listFooter}
                 scrollContainerProps={scrollContainerProps}
                 rowContext={rowContext}
-                endPinningReleased={endPinningReleased}
             />
         </FadeInDisabledProvider>
     );

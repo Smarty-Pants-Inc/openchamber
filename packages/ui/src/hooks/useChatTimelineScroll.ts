@@ -11,6 +11,7 @@ import {
     getAnchoredTurnMetrics,
     getRowBottom,
     resolveRealContentEndOffset,
+    resolveRenderedContentEndOffset,
     resolveTimelineIsAtEnd,
     TIMELINE_FOLLOW_REARM_THRESHOLD_PX,
     type TimelineListMeasurementState,
@@ -29,8 +30,8 @@ import {
 // of three mutually exclusive modes is active and, when a mode calls for it,
 // issues ONE deterministic scroll command:
 //
-//   • `following-end`      — pinned to the live edge. The list keeps us there
-//     through `maintainScrollAtEnd`; we only re-assert after a data change.
+//   • `following-end`      — pinned to the live edge. This hook corrects
+//     content growth before paint; the list does not run a competing follow.
 //   • `anchoring-new-turn` — the just-sent user message is parked near the TOP
 //     of the viewport and the reply streams into the reserved end space below
 //     it. The viewport does NOT move while the turn still fits; once the turn
@@ -60,6 +61,8 @@ export interface TimelineListHandle {
         ) => () => void;
     };
     getScrollableNode: () => HTMLElement | null;
+    /** Actual DOM height while the last row shrinks ahead of its list measurement. */
+    getRenderedLastItemSize?: () => number | null;
     scrollToEnd: (options?: { animated?: boolean }) => unknown;
     scrollToOffset: (params: { offset: number; animated?: boolean }) => unknown;
     scrollToIndex: (params: {
@@ -78,11 +81,9 @@ interface UseChatTimelineScrollOptions {
     // Id of the newest user message in the rendered timeline. When a send has
     // armed the anchor, the next new id here becomes the anchored row.
     lastUserMessageId: string | null;
-    // True while the session is producing output. Follow corrections glide
-    // only then. Outside a live stream — entering a session, a tab becoming
-    // active, rows re-measuring after a switch — the viewport must land on
-    // the end instantly: an animated catch-up scrolls visibly through the
-    // conversation and gets cut short by the next measurement.
+    // True while the session is producing output. Streaming respects the
+    // auto-follow preference; idle footer/measurement growth keeps an
+    // explicitly pinned end in view even when streaming auto-follow is off.
     sessionIsWorking: boolean;
     // Reveal gate of the session being opened. Held until the viewport is
     // pinned to the end, so the session is never shown scrolled to the top.
@@ -668,29 +669,22 @@ export const useChatTimelineScroll = ({
         };
     }, [queueSave, scheduleShowScrollButton, scrollNode]);
 
-    // Keep the live edge in view after content growth. Within a viewport of
-    // the end the remaining distance is glided so a revealed block and the
-    // scroll read as one motion; further behind, the viewport first jumps to
-    // one screen above the end and glides only that last screen, so the
-    // reader is never left staring at a gap several screens tall. Writes go
-    // to the scroll node directly: routing each chunk through the list's
-    // scrollToEnd bookkeeping roughly doubled frame production when measured.
-    // A user gesture interrupts the native smooth scroll on its own, and the
-    // gesture handler drops live follow so no later correction re-engages.
+    // Follow content growth in the same paint, not with a native smooth
+    // scroll that repeatedly restarts behind a moving target. The list owns
+    // reader compensation; this hook alone owns following the live edge.
     const followEnd = React.useCallback(() => {
         const node = scrollRef.current;
         if (!node) return;
-        const end = node.scrollHeight - node.clientHeight;
-        const distance = end - node.scrollTop;
-        if (distance <= 1) return;
-        if (!sessionIsWorkingRef.current) {
-            node.scrollTop = end;
-            return;
-        }
-        if (distance > node.clientHeight) {
-            node.scrollTop = end - node.clientHeight;
-        }
-        node.scrollTo({ top: end, behavior: 'smooth' });
+        const list = listRef.current;
+        const renderedSize = list?.getRenderedLastItemSize?.() ?? null;
+        const state = renderedSize !== null ? list?.getState() : null;
+        const end = resolveRenderedContentEndOffset({
+            scrollHeight: node.scrollHeight,
+            clientHeight: node.clientHeight,
+            measuredLastItemSize: state?.sizeAtIndex(state.data.length - 1),
+            renderedLastItemSize: renderedSize,
+        });
+        if (Math.abs(end - node.scrollTop) > 1) node.scrollTop = end;
     }, []);
 
     const onTimelineDataChange = React.useCallback(() => {
@@ -945,23 +939,20 @@ export const useChatTimelineScroll = ({
 
     // ── pinned end ──────────────────────────────────────────────────────────
     // "At the end" is an invariant, not a one-time scroll: while the reader
-    // sits on the end of a session that is not producing output, any growth
-    // of the content (a footer that decides to render, a row re-measured)
-    // keeps the end in view with one instant write. Output growth belongs to
-    // followEnd, which glides.
+    // sits on the end, content growth and shrinkage must land in the same
+    // paint as the end correction, including row measurements and footers.
     React.useEffect(() => {
         if (!scrollNode || typeof MutationObserver === 'undefined') return;
         const content = scrollNode.firstElementChild;
         if (!content) return;
         const pin = () => {
-            if (sessionIsWorkingRef.current) return;
+            if (sessionIsWorkingRef.current && !streamingAutoFollowEnabledRef.current) return;
             // A width resize re-wraps every row; pinning against each mutation
             // scrolls the idle reader around. The resize settle handler above
             // decides whether the pin survives the resize.
             if (widthResizingRef.current) return;
             if (userOwnsScrollRef.current || !isAtEndRef.current || modeRef.current !== 'following-end') return;
-            const end = scrollNode.scrollHeight - scrollNode.clientHeight;
-            if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
+            followEnd();
         };
         // A MutationObserver runs as a microtask right after the list writes
         // its layout (row positions, container height), before the frame is
@@ -976,7 +967,7 @@ export const useChatTimelineScroll = ({
             mutations.disconnect();
             resizes?.disconnect();
         };
-    }, [scrollNode]);
+    }, [followEnd, scrollNode]);
 
     // ── session lifecycle ───────────────────────────────────────────────────
     const lastSessionKeyRef = React.useRef<string | null>(null);
