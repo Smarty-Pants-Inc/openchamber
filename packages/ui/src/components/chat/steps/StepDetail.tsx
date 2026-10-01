@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { isStepDone, stepCopyTarget, type InboxStep } from '@/lib/inboxSteps';
-import { safeLink, useInboxStore } from '@/lib/smartyInbox';
+import { inboxItemState, safeLink, useInboxStore } from '@/lib/smartyInbox';
 import type { StepActions } from './useStepActions';
 
 type Props = { step: InboxStep; complete: boolean; actions: StepActions; compact?: boolean; mobile?: boolean };
@@ -12,6 +12,14 @@ export function StepDetail({ step, complete, actions, compact, mobile }: Props) 
   const guardedReopen = useInboxStore(s => s.guardedReopen);
   const { item, ordinal } = step;
   const done = isStepDone(item), status = actions.statuses.get(item.id);
+  const snoozed = inboxItemState(item) === 'snoozed';
+  const [, expireSnooze] = React.useReducer((revision: number) => revision + 1, 0);
+  React.useEffect(() => {
+    if (!snoozed || !item.snoozedUntil) return;
+    // One local expiry wakeup, not a watcher or read. Cleanup follows the displayed item's snooze.
+    const timer = setTimeout(expireSnooze, Date.parse(item.snoozedUntil) - Date.now() + 1);
+    return () => clearTimeout(timer);
+  }, [snoozed, item.snoozedUntil]);
   const [copyReceipt, setCopyReceipt] = React.useState<{ id: string; version: string; result: 'copied' | 'failed' } | null>(null);
   const copyStatus = copyReceipt?.id === item.id && copyReceipt.version === item.updated ? copyReceipt.result : null;
   const target = stepCopyTarget(item.recommendation ?? '');
@@ -30,14 +38,14 @@ export function StepDetail({ step, complete, actions, compact, mobile }: Props) 
     <Button variant="ghost" size={size} disabled={!complete || !target.safe || !target.text}
       aria-label={t('steps.copyLine', { step: ordinal, line: 1 })} onClick={() => void copy()}>{t('steps.copy')}</Button>
     {status?.state === 'uncertain' ? <Button size={size} variant="outline" onClick={() => void actions.check(item)}>{t('steps.checkStatus')}</Button>
-      : (!done || guardedReopen) && <Button size={size} variant="outline" disabled={disabled || Boolean(item.resolved && !done)}
+      : (!done || guardedReopen) && <Button size={size} variant="outline" disabled={disabled || snoozed || Boolean(item.resolved && !done)}
         aria-label={t(done ? 'steps.undoStep' : 'steps.doneStep', { step: ordinal })} aria-pressed={done}
         onClick={() => void actions.change(item, done)}>{status?.state === 'pending' ? t('steps.saving') : t(done ? 'steps.undo' : 'steps.done')}</Button>}
   </>;
   const feedback = status?.state === 'refused' ? status.error || t('common.unavailable')
     : status?.state === 'uncertain' ? t('steps.uncertain') : !target.safe ? t('steps.controlsRejected')
     : copyStatus ? t(copyStatus === 'copied' ? 'steps.copied' : 'steps.copyFailed')
-    : item.resolved && !done ? t('steps.otherResolution') : '';
+    : item.resolved && !done ? t('steps.otherResolution') : snoozed ? t('common.unavailable') : '';
   return <div data-step-id={item.id} className={done ? 'text-muted-foreground' : 'text-foreground'}>
     <div className="flex min-w-0 items-center gap-2">
       <div className="min-w-0 flex-1">

@@ -37,8 +37,9 @@ export class InboxRequestError extends Error {
   constructor(message: string, readonly uncertain: boolean) { super(message); }
 }
 const failure = async (response: Response) => {
-  const body = z.object({ data: z.object({ message: z.string().optional() }).optional() }).safeParse(await response.json().catch(() => null));
-  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, response.status >= 500 || response.status === 408);
+  const body = z.object({ data: z.object({ message: z.string().optional(), code: z.string().optional() }).optional() }).safeParse(await response.json().catch(() => null));
+  const unsupportedGuard = response.status === 501 && body.success && body.data.data?.code === 'smarty.inbox-guard-unavailable';
+  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408));
 };
 
 /** The list for one tab; a 403 means this account has no inbox (the page shows no badge). */
@@ -96,22 +97,41 @@ export const useInboxStore = create<Store>(set => ({
   }),
   invalidateSnapshot: () => set({ snapshotValid: false }),
   recordItem: item => set(s => {
+    const current = s.items.find(i => i.id === item.id);
+    if (current && Date.parse(current.updated) > Date.parse(item.updated)) return s;
     const items = [...s.items.filter(i => i.id !== item.id), item];
+    // Retained history is not badge authority after an open-only fallback.
+    if (!s.snapshotValid) return { items, revision: s.revision + 1 };
     const open = items.filter(i => inboxItemState(i) === 'open');
     return { items, openCount: open.length, p0Count: open.filter(i => i.priority === 'p0').length, revision: s.revision + 1 };
   }),
 }));
 
+// The normal path remains one all GET. A failed history read must not hide the ordinary open Inbox.
+async function loadWatchSnapshot(load: () => Promise<InboxListResult>, current: () => boolean) {
+  try { return { complete: true, result: await load() }; }
+  catch {
+    if (!current()) return null;
+    return { complete: false, result: await loadInbox('open') };
+  }
+}
+function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof loadWatchSnapshot>>>) {
+  const store = useInboxStore.getState(), r = snapshot.result;
+  if (snapshot.complete) { store.setItems(r.available, r.items, r); return; }
+  store.setOpenItems(r.available, r.items);
+  store.invalidateSnapshot(); // Open is badge authority, never a silently reduced Steps snapshot.
+}
 let latestInboxRefresh = 0;
 export const refreshInboxBadge = async () => {
   const generation = ++latestInboxRefresh;
   const scope = captureRuntimeRequestScope(), revision = useInboxStore.getState().revision;
+  const current = () => generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision;
   try {
-    const r = await loadInbox('all');
-    if (generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision) useInboxStore.getState().setItems(r.available, r.items, r);
+    const snapshot = await loadWatchSnapshot(() => loadInbox('all'), current);
+    if (snapshot && current()) applyWatchSnapshot(snapshot);
   } catch {
     // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
-    if (generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision) useInboxStore.getState().invalidateSnapshot();
+    if (current()) useInboxStore.getState().invalidateSnapshot();
   }
 };
 
@@ -119,9 +139,9 @@ export const refreshInboxBadge = async () => {
 export const INBOX_RETRY_MS = [5_000, 15_000, 60_000];
 
 /**
- * The badge and Steps share one all-state snapshot, refreshed on each existing watch event. A first load that
- * fails is retried (#365 review: one transient error must not remove the only entry point for the whole visit); a 403
- * (this account has no inbox) is an answer, and ends it.
+ * The badge and Steps share one all-state read on each existing watch event. If history fails, an open-only
+ * fallback keeps the Inbox and this same subscription available, without granting Steps authority. Failed first
+ * loads retry; a 403 (this account has no inbox) is an answer, and ends bootstrap.
  */
 export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_MS): () => void {
   let scope = captureRuntimeRequestScope();
@@ -129,13 +149,14 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
   useInboxStore.getState().setItems(false, []);
   const attempt = (n: number) => {
     const revision = useInboxStore.getState().revision, requestScope = scope;
-    void load().then(r => {
-      if (closed || requestScope !== scope || !isRuntimeRequestScopeCurrent(requestScope)) return;
-      if (revision === useInboxStore.getState().revision) useInboxStore.getState().setItems(r.available, r.items, r);
-      if (!r.available || !globalThis.EventSource) return;
+    const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
+    void loadWatchSnapshot(load, current).then(snapshot => {
+      if (!snapshot || !current()) return;
+      if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot);
+      if (!snapshot.result.available || !globalThis.EventSource) return;
       source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
-    }, () => { if (!closed && requestScope === scope) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
+    }, () => { if (current()) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
   };
   const unsubscribe = subscribeRuntimeEndpointChanged(() => {
     source?.close(); clearTimeout(timer);

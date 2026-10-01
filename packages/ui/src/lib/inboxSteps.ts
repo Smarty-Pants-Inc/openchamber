@@ -51,7 +51,7 @@ export const isStepDone = (item: InboxItem): boolean => Boolean(
 export function stepCopyTarget(text: string) {
   for (const character of text) {
     const code = character.charCodeAt(0);
-    if (code < 32 || (code >= 127 && code <= 159)) return { text, safe: false };
+    if (code < 32 || (code >= 127 && code <= 159) || /[\p{Cf}\u2028\u2029]/u.test(character)) return { text, safe: false };
   }
   return { text, safe: true };
 }

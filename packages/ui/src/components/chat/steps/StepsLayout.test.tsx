@@ -129,6 +129,14 @@ test('Done waits for the stored answer, rapid double click writes once, Undo use
   await view.cleanup();
 });
 
+test('snoozed Done refuses clicks while Copy remains available; the same item enables Done after expiry', async () => {
+  const view = await mount(), snoozed = item({ snoozedUntil: new Date(Date.now() + 100).toISOString() }); let posts = 0;
+  globalThis.fetch = async (_input, init) => { if (init?.method === 'POST') posts++; return json({ items: [snoozed] }); }; await publish([snoozed]);
+  expect(button(view.host, 'Mark step').disabled).toBe(true); expect(button(view.host, 'Copy step').disabled).toBe(false);
+  await act(async () => button(view.host, 'Mark step').click()); expect(posts).toBe(0);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
+  expect(button(view.host, 'Mark step').disabled).toBe(false); expect(posts).toBe(0); await view.cleanup();
+});
 test('generic resolutions never tick; conflicting groups never render a checklist or block unrelated lists', async () => {
   const view = await mount();
   await publish([item({ resolved: { at: 'v2', by: 'agent', action: 'ignore' } })]);

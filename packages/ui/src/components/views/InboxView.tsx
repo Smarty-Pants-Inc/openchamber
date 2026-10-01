@@ -7,6 +7,9 @@ import { toast } from '@/components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
+import { prepareInboxStepGuard } from '@/lib/inboxStepActions';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
@@ -28,7 +31,7 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   const reload = React.useCallback(() => {
     const mine = ++request.current;
     return loadInbox(shownTab.current).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
-      e => { if (mine === request.current) setError(String((e as Error).message)); });
+      e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
   // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
@@ -80,17 +83,46 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
 }
 
 function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void> }) {
+  const { t } = useI18n();
+  const guardedReopen = useInboxStore(s => s.guardedReopen);
+  const steps = Boolean(item.source?.startsWith('steps:'));
+  const canReopen = !steps || guardedReopen;
   const [busy, setBusy] = React.useState(false), [error, setError] = React.useState<string | null>(null);
   const [reply, setReply] = React.useState<null | 'respond' | 'edit'>(null), [text, setText] = React.useState('');
   const allowed = (action: string) => item.actions.includes(action);
+  const writeDisplayed = (target: InboxItem, action: InboxAction, body: Record<string, string>) => {
+    if (target.source?.startsWith('steps:') && (action === 'answer' || action === 'reopen')) {
+      if (action === 'reopen' && !useInboxStore.getState().guardedReopen) throw new Error(t('steps.undoUnavailable'));
+      const guard = prepareInboxStepGuard(target);
+      if (!guard) throw new Error(t('common.unavailable'));
+      return actOnInboxItem(target.id, action, { ...body, ...guard });
+    }
+    return actOnInboxItem(target.id, action, body);
+  };
   const act = async (action: InboxAction, body: Record<string, string>, done?: string) => {
     setBusy(true); setError(null);
+    const scope = captureRuntimeRequestScope();
     try {
-      await actOnInboxItem(item.id, action, body);
+      const stored = await writeDisplayed(item, action, body);
+      if (!isRuntimeRequestScopeCurrent(scope)) return;
+      if (steps) {
+        if (stored.id !== item.id || stored.to !== item.to) throw new Error(t('common.unavailable'));
+        useInboxStore.getState().recordItem(stored);
+      }
       if (action === 'answer') { setReply(null); setText(''); }
-      if (done) toast.success(done, { duration: 5000, action: { label: 'Undo', onClick: () => void actOnInboxItem(item.id, 'reopen', {}).then(onChanged).then(refreshInboxBadge, e => toast.error(String((e as Error).message))) } });
+      if (done) toast.success(done, { duration: 5000, action: canReopen ? { label: 'Undo', onClick: () => {
+        if (!isRuntimeRequestScopeCurrent(scope)) return;
+        void Promise.resolve().then(() => writeDisplayed(steps ? stored : item, 'reopen', {})).then(reopened => {
+          if (!isRuntimeRequestScopeCurrent(scope)) return;
+          if (steps) {
+            if (reopened.id !== item.id || reopened.to !== item.to) throw new Error(t('common.unavailable'));
+            useInboxStore.getState().recordItem(reopened);
+          }
+          return onChanged().then(() => { if (isRuntimeRequestScopeCurrent(scope)) return refreshInboxBadge(); });
+        }).catch(e => { if (isRuntimeRequestScopeCurrent(scope)) toast.error(e instanceof Error ? e.message : t('common.unavailable')); });
+      } } : undefined });
       await onChanged(); void refreshInboxBadge();
-    } catch (e) { setError(String((e as Error).message)); } finally { setBusy(false); }
+    } catch (e) { if (isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
   const state = inboxItemState(item);
   return (
@@ -117,10 +149,11 @@ function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem
               <Button size="sm" variant="ghost" onClick={() => setReply(null)}>Cancel</Button>
             </div>
           </div>) : null}
+        {steps && !guardedReopen ? <p className="mt-3 typography-micro text-muted-foreground">{t('steps.undoUnavailable')}</p> : null}
         {error ? <p role="alert" className="mt-3 typography-ui-label text-destructive">{error}</p> : null}
       </div>
       <div className={cn('flex flex-wrap gap-2 px-7 py-3', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
-        {state === 'resolved' ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
+        {state === 'resolved' ? canReopen && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
           {allowed('accept') ? <Button size="sm" disabled={busy} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
           {allowed('respond') ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setReply('respond')}>✎ Respond</Button> : null}
           {allowed('edit') ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setReply('edit')}>Edit</Button> : null}

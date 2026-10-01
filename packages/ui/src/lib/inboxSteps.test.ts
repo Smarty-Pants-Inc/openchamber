@@ -47,7 +47,7 @@ test('Done requires the stored exact answer and recipient actor, not generic res
 test('Copy preserves every raw byte in a line and refuses controls instead of sanitizing executable text', () => {
   const raw = '  printf "%s" "é"  $ literal ```sh smart “quote”';
   expect(stepCopyTarget(raw)).toEqual({ text: raw, safe: true });
-  for (const control of ['\n', '\u001b', '\r', '\t', '\u0000', '\u007f', '\u009b']) {
+  for (const control of ['\n', '\u001b', '\r', '\t', '\u0000', '\u007f', '\u009b', '\u061c', '\u200b', '\u200e', '\u202e', '\u202c', '\u2066', '\u2069', '\ufeff', '\u2028', '\u2029', '\u{e0001}']) {
     expect(stepCopyTarget(`safe${control}unsafe`)).toEqual({ text: `safe${control}unsafe`, safe: false });
   }
 });

@@ -1,4 +1,4 @@
-import { actOnInboxItem, InboxRequestError, loadInboxItem, type InboxItem } from './smartyInbox';
+import { actOnInboxItem, inboxItemState, InboxRequestError, loadInboxItem, type InboxItem } from './smartyInbox';
 import { isStepDone, STEP_DONE_REPORT } from './inboxSteps';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
@@ -9,20 +9,29 @@ export type StepActionResult =
 type StepActionDependencies = {
   write: typeof actOnInboxItem;
   read: typeof loadInboxItem;
-  operationKey: () => string;
+  operationKey: () => string | undefined;
 };
 const defaults: StepActionDependencies = {
-  write: actOnInboxItem, read: loadInboxItem, operationKey: () => crypto.randomUUID(),
+  write: actOnInboxItem, read: loadInboxItem, operationKey: () => globalThis.crypto?.randomUUID?.(),
 };
+
+/** Preparation cannot have written anything. Missing UUID support uses the existing Unavailable feedback. */
+export function prepareInboxStepGuard(item: InboxItem, operationKey = defaults.operationKey) {
+  try {
+    const opKey = operationKey();
+    return opKey ? { updated: item.updated, opKey } : null;
+  } catch { return null; }
+}
 
 /** One conditional write. An unknown response permits only a read, never an automatic replay. */
 export async function changeInboxStep(item: InboxItem, undo: boolean, dependencies = defaults): Promise<StepActionResult> {
-  if (undo ? !isStepDone(item) : Boolean(item.resolved) || item.actions.length !== 1 || item.actions[0] !== 'respond') {
+  if (undo ? !isStepDone(item) : inboxItemState(item) !== 'open' || item.actions.length !== 1 || item.actions[0] !== 'respond') {
     return { state: 'refused' };
   }
+  const body = prepareInboxStepGuard(item, dependencies.operationKey);
+  if (!body) return { state: 'refused' };
   const scope = captureRuntimeRequestScope();
   try {
-    const body = { updated: item.updated, opKey: dependencies.operationKey() };
     const stored = await dependencies.write(item.id, undo ? 'reopen' : 'answer', undo ? body : {
       ...body, text: STEP_DONE_REPORT, action: 'respond',
     });

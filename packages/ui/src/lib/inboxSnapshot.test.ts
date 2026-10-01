@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { groupInboxSteps } from './inboxSteps';
+import { groupInboxSteps, isStepDone, STEP_DONE_REPORT } from './inboxSteps';
 import { loadInbox, refreshInboxBadge, useInboxStore, watchInbox, type InboxItem } from './smartyInbox';
 
 const item: InboxItem = { id: 'step:a', to: 'paul', title: 'A — instruction', source: 'steps:v1:a:01/01',
@@ -63,6 +63,31 @@ test('a delayed refresh cannot overwrite a stored mutation; failed refresh prese
   globalThis.fetch = async () => { throw new Error('offline'); };
   await refreshInboxBadge();
   expect(useInboxStore.getState().items).toEqual([updated]); expect(useInboxStore.getState().snapshotValid).toBe(false);
+});
+
+test('a delayed Done U1 acknowledgement cannot overwrite an SSE snapshot reopened at U2; a newer acknowledgement applies', async () => {
+  const u0 = { ...item, updated: '2026-10-01T10:00:00.000Z' };
+  const stamp = { at: '2026-10-01T10:01:00.000Z', by: item.to, action: 'respond' };
+  const u1 = { ...u0, updated: stamp.at, answer: { ...stamp, text: STEP_DONE_REPORT }, resolved: stamp };
+  const u2 = { ...u0, updated: '2026-10-01T10:02:00.000Z' };
+  useInboxStore.getState().setItems(true, [u0]);
+  let release!: (response: Response) => void;
+  globalThis.fetch = async (_url, init) => init?.method === 'POST'
+    ? new Promise(resolve => { release = resolve; }) : json([u2]);
+  const { actOnInboxItem } = await import('./smartyInbox');
+  const delayedDone = actOnInboxItem(item.id, 'answer', { updated: u0.updated, opKey: 'late-done', action: 'respond', text: STEP_DONE_REPORT });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  await refreshInboxBadge();
+  const revision = useInboxStore.getState().revision;
+  release(new Response(JSON.stringify({ item: u1 })));
+  useInboxStore.getState().recordItem(await delayedDone);
+  expect(useInboxStore.getState().items).toEqual([u2]);
+  expect(useInboxStore.getState().revision).toBe(revision);
+  expect(isStepDone(useInboxStore.getState().items[0]!)).toBe(false);
+  const u3 = { ...u1, updated: '2026-10-01T10:03:00.000Z' };
+  useInboxStore.getState().recordItem(u3);
+  expect(useInboxStore.getState().items).toEqual([u3]);
+  expect(isStepDone(useInboxStore.getState().items[0]!)).toBe(true);
 });
 
 test('out-of-order snapshots cannot resurrect an older command under the same recipient/list', async () => {
