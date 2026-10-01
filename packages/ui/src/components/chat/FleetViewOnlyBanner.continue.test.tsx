@@ -9,12 +9,14 @@ import { nativeComposerDom } from './composer/submit/__tests__/nativeComposer-do
 const dom = nativeComposerDom();
 afterAll(async () => { await dom.restore(); });
 const toasts: string[] = [];
-mock.module('@/components/ui', () => ({ toast: { error: (text: string) => { toasts.push(text); } } }));
+mock.module('@/components/ui', () => ({ toast: { error: (text: string) => { toasts.push(text); }, info: (text: string) => { toasts.push(`info: ${text}`); } } }));
 // SAFETY: every key the banner asks for is a string entry of the English sidebar messages.
-mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => (sidebarHerdrI18n.en as Record<string, string>)[key] ?? key }) }));
+mock.module('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, vars?: Record<string, string>) =>
+  ((sidebarHerdrI18n.en as Record<string, string>)[key] ?? key).replace('{project}', vars?.project ?? '') }) }));
 const { FleetViewOnlyBanner } = await import('./FleetViewOnlyBanner');
 const { createRoot } = await import('react-dom/client');
-const deferred = () => { let reject: (error: Error) => void = () => {}; const promise = new Promise<void>((_, no) => { reject = no; }); return { promise, reject }; };
+const deferred = () => { let reject: (error: Error) => void = () => {}, resolve: (ready: boolean) => void = () => {};
+  const promise = new Promise<boolean>((yes, no) => { resolve = yes; reject = no; }); return { promise, reject, resolve }; };
 
 test('the ended view offers Continue in a new Pi; one click sends one request, and a refusal is shown, not retried', async () => {
   const root = createRoot(dom.container);
@@ -25,7 +27,9 @@ test('the ended view offers Continue in a new Pi; one click sends one request, a
     expect(button()).toBeUndefined(); // Offered only where the gateway can continue it.
     let calls = 0, refuse = deferred();
     const onContinue = () => { calls++; return refuse.promise; };
-    await act(async () => root.render(<FleetViewOnlyBanner ended onContinue={onContinue} />));
+    await act(async () => root.render(<FleetViewOnlyBanner ended project="smarty-code" onContinue={onContinue} />));
+    // What it does, in plain words (code-lead's condition for #365).
+    expect(dom.container.textContent).toContain('Starts a new Pi in smarty-code on this session.');
     await act(async () => { button()!.click(); });
     expect(button()!.disabled).toBe(true); // While it starts, a second click sends nothing.
     await act(async () => { button()!.click(); });
@@ -38,5 +42,10 @@ test('the ended view offers Continue in a new Pi; one click sends one request, a
     await act(async () => { button()!.click(); });
     await act(async () => { refuse.reject(new Error('network')); });
     expect(toasts[1]).toBe(sidebarHerdrI18n.en['sessions.sidebar.herdr.continueFailed']);
+    refuse = deferred();
+    await act(async () => { button()!.click(); });
+    await act(async () => { refuse.resolve(false); }); // Started, not ready yet: said plainly, not retried.
+    expect(toasts[2]).toBe(`info: ${sidebarHerdrI18n.en['sessions.sidebar.herdr.continueStarting']}`);
+    expect(calls).toBe(3);
   } finally { await act(async () => root.unmount()); }
 });
