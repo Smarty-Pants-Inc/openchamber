@@ -74,7 +74,6 @@ import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
 import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, isPiDisconnected, showsViewOnly, successorTarget } from '@/lib/herdrSession';
-import { continueEndedSession } from '@/sync/native-session-resume';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -1756,9 +1755,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 )}
                 {showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded) ? (
                     <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession) || globalEnded} reloading={isOrdinaryReloading(currentSession)}
-                        project={effectiveSessionDirectory?.split('/').filter(Boolean).at(-1)}
-                        onContinue={currentSessionId && effectiveSessionDirectory
-                            ? () => continueEndedSession(effectiveSessionDirectory, currentSessionId) : undefined} />
+                        resume={currentSessionId && effectiveSessionDirectory ? { directory: effectiveSessionDirectory, sessionID: currentSessionId,
+                            project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (
