@@ -285,7 +285,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: smarty-linux-x64
             arch: x64
             host_arch: x86_64
             artifact_arch: x86_64

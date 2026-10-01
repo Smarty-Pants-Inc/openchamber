@@ -10,7 +10,7 @@ concurrency:
 jobs:
   android-debug:
     name: Android debug APK
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     steps:
       - uses: actions/checkout@v4
 

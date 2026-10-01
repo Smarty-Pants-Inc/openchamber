@@ -72,7 +72,7 @@ env:
 jobs:
   resolve-version:
     name: Resolve mobile version
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
       build_number: ${{ steps.version.outputs.build_number }}
@@ -111,7 +111,7 @@ jobs:
   android-release:
     name: Android signed release
     if: inputs.build_android
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     needs: resolve-version
     permissions:
       contents: write
