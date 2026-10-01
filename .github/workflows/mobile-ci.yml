@@ -9,6 +9,7 @@ concurrency:
 
 jobs:
   android-debug:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     name: Android debug APK
     runs-on: smarty-linux-x64
     steps:
@@ -43,6 +44,7 @@ jobs:
           if-no-files-found: error
 
   ios-simulator:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     name: iOS simulator app
     runs-on: macos-15
     steps:

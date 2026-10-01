@@ -106,6 +106,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   build-desktop-electron-macos:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     needs: create-release
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -256,6 +257,7 @@ jobs:
           retention-days: 1
 
   build-desktop-electron-windows:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     needs: create-release
     # windows-latest currently resolves to a runner with Visual Studio 18,
     # which this electron/node-gyp stack does not detect correctly.
@@ -350,6 +352,7 @@ jobs:
           retention-days: 1
 
   build-desktop-electron-linux:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     needs: create-release
     strategy:
       fail-fast: false
