@@ -188,7 +188,9 @@ round 4); until then no conflict could be seen.
   may use the current warning's recovery. Verified success clears refusal metadata, not unresolved warning metadata.
   Uncertain publication and unconfirmed durability are distinct warning conditions even though both have the
   public label `unverified`. Settlement resolves only its uncertainty warning, and a confirmed flush resolves only
-  its durability warning. Each resolution checks its own warning identity or owner, so an older completion cannot
+  its durability warning. A definite raced publication with an unconfirmed flush raises both warnings immediately,
+  before any retry, while its public save result stays `raced` with the same recovery path and notice.
+  Each resolution checks its own warning identity or owner, so an older completion cannot
   remove a newer warning of the same kind or an unrelated condition. A no-change save success preserves every
   unresolved warning. A successful modifying publication resolves only the prior `raced` and `interrupted` warnings,
   not a stopped watcher or warnings raised during its await. Load, recovered copies, disposal and publication add
@@ -229,9 +231,10 @@ round 4); until then no conflict could be seen.
        next sync treats the writer's revision as any other, subject to settling and the deletion hold above.
      - Anything it cannot prove (a failed observation, the directory moved out of the project): `unverified` with
        `published: 'uncertain'`. A lost reply, a helper exit or a deadline after the request was sent is the same.
-     - Durability is reported on its own (`synced`). A failed directory fsync (after the exchange, or when `dispose`
-       flushes the private directory) makes the save `unverified` with `published: true`: the base follows ours, but
-       the save is **not acknowledged** and the displaced revision is **not removed** until a `flush` (the file's
+     - Durability is reported on its own (`synced`). For a definite publication, a failed directory fsync after the
+       exchange or during disposal raises an independent `unverified` warning with `published: true`. A simultaneous
+       race keeps the save result `raced`; otherwise it is `unverified`. The base follows ours, but the save is
+       **not acknowledged** and the displaced revision is **not removed** until a `flush` (the file's
        directory, then the private directory) succeeds. `sync()`, `save()` and the retry timer try the flush; until
        it succeeds `save()` returns the conflict and publishes nothing. A read of our bytes (maybe from the page
        cache) never counts as a flush. A lost reply is treated as not flushed too.
