@@ -2123,8 +2123,10 @@ createInterface({ input: control }).on('line', (line) => {
           try {
             t.text.insert(0, 'P');
             expect(await t.bridge.save()).toEqual({ ok: true });
-            const warning = stopped ? await t.stop() : null;
             t.hooks.helper = { fault: 'privSync' };
+            // Drain previously serialized no-fault disposals while the writer is still open, before closing it.
+            await t.bridge.sync();
+            const warning = stopped ? await t.stop() : null;
             fs.closeSync(fd); fd = undefined; // No late bytes: only disposal durability is unresolved.
             await t.bridge.sync();
             const failed = t.bridge.state().conflict;
