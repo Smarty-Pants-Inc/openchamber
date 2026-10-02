@@ -1370,20 +1370,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // Keep only committed layout coordinates, never message records. An index event fences reads immediately but
     // its empty coverage is not a replacement page and must not insert a session-sized gap into visible content.
     const committedLayoutRef = React.useRef<{
-        sessionKey: string; positions?: SessionPositions; positionOf: Map<string, number>; revision: number;
-    }>({ sessionKey, positionOf: new Map(), revision: 0 });
+        sessionKey: string; positions?: SessionPositions; positionOf: Map<string, number>; gaps: string; revision: number;
+    }>({ sessionKey, positionOf: new Map(), gaps: '[]', revision: 0 });
     if (committedLayoutRef.current.sessionKey !== sessionKey) {
-        committedLayoutRef.current = { sessionKey, positionOf: new Map(), revision: 0 };
+        committedLayoutRef.current = { sessionKey, positionOf: new Map(), gaps: '[]', revision: 0 };
     }
     const layout = committedLayoutRef.current;
     const nativePositions = positions?.historyEpoch !== undefined;
     const coherentPositions = positions && (positions.ranges.length > 0 || positions.total === 0);
-    if (nativePositions && coherentPositions && layout.positions !== positions) {
-        // Same ancestry is not a waiver for a real gap-layout correction under a new positional projection.
-        if (layout.positions && layout.positions.historyEpoch === positions.historyEpoch && layout.positions.epoch !== positions.epoch
-            && JSON.stringify(gapsOf(layout.positions.ranges, layout.positions.total)) !== JSON.stringify(gapsOf(positions.ranges, positions.total))) {
-            layout.revision += 1;
-        }
+    const previousLayoutPositions = layout.positions;
+    const committingLayout = nativePositions && coherentPositions && layout.positions !== positions;
+    if (committingLayout && positions) {
         layout.positions = positions;
         layout.positionOf = new Map();
         for (const message of displayMessages) {
@@ -1485,6 +1482,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             : renderEntries,
         [layoutPositionOf, layoutPositions, renderEntries],
     );
+
+    if (committingLayout && layout.positions) {
+        // Compare gaps actually rendered, not the omitted live-tail coverage gap. Closing that metadata-only gap
+        // during alias adoption must not remount the list and restart its whole-container paint gate (#1169).
+        const gaps = JSON.stringify(allEntries.filter((entry) => entry.kind === 'gap'));
+        if (previousLayoutPositions && previousLayoutPositions.historyEpoch === layout.positions.historyEpoch
+            && previousLayoutPositions.epoch !== layout.positions.epoch && layout.gaps !== gaps) {
+            layout.revision += 1;
+        }
+        layout.gaps = gaps;
+    }
 
     // Native history changes only at a coherent layout boundary. First positioning still initializes the whole
     // session (#583); a rewritten history still restores the reader's row and nonzero offset (#457).
