@@ -67,58 +67,60 @@ export class CSSVariableGenerator {
   private generateTailwindVariables(theme: Theme): string[] {
     const vars: string[] = [];
 
-    vars.push(`  --background: ${theme.colors.surface.background} !important;`);
-    vars.push(`  --foreground: ${theme.colors.surface.foreground} !important;`);
+    // ponytail: Keep aliases important so inline mobile bootstrap values cannot freeze the old theme.
+    vars.push(`  --background: var(--surface-background, ${theme.colors.surface.background}) !important;`);
+    vars.push(`  --foreground: var(--surface-foreground, ${theme.colors.surface.foreground}) !important;`);
 
-    vars.push(`  --muted: ${theme.colors.surface.muted} !important;`);
-    vars.push(`  --muted-foreground: ${theme.colors.surface.mutedForeground} !important;`);
+    vars.push(`  --muted: var(--surface-muted, ${theme.colors.surface.muted}) !important;`);
+    vars.push(`  --muted-foreground: var(--surface-muted-foreground, ${theme.colors.surface.mutedForeground}) !important;`);
 
-    vars.push(`  --card: ${theme.colors.surface.elevated} !important;`);
-    vars.push(`  --card-foreground: ${theme.colors.surface.elevatedForeground} !important;`);
+    vars.push(`  --card: var(--surface-elevated, ${theme.colors.surface.elevated}) !important;`);
+    vars.push(`  --card-foreground: var(--surface-elevated-foreground, ${theme.colors.surface.elevatedForeground}) !important;`);
 
-    vars.push(`  --popover: ${theme.colors.surface.elevated} !important;`);
-    vars.push(`  --popover-foreground: ${theme.colors.surface.elevatedForeground} !important;`);
+    vars.push(`  --popover: var(--surface-elevated, ${theme.colors.surface.elevated}) !important;`);
+    vars.push(`  --popover-foreground: var(--surface-elevated-foreground, ${theme.colors.surface.elevatedForeground}) !important;`);
 
-    vars.push(`  --border: ${theme.colors.interactive.border} !important;`);
-    vars.push(`  --input: ${theme.colors.interactive.border} !important;`);
+    vars.push(`  --border: var(--interactive-border, ${theme.colors.interactive.border}) !important;`);
+    vars.push(`  --input: var(--interactive-border, ${theme.colors.interactive.border}) !important;`);
 
-    vars.push(`  --primary: ${theme.colors.primary.base} !important;`);
-    vars.push(`  --primary-foreground: ${theme.colors.primary.foreground} !important;`);
+    vars.push(`  --primary: var(--primary-base, ${theme.colors.primary.base}) !important;`);
+    // --primary-foreground is already a semantic token, not a separate alias.
 
-    vars.push(`  --secondary: ${theme.colors.surface.muted} !important;`);
-    vars.push(`  --secondary-foreground: ${theme.colors.surface.mutedForeground} !important;`);
+    vars.push(`  --secondary: var(--surface-muted, ${theme.colors.surface.muted}) !important;`);
+    vars.push(`  --secondary-foreground: var(--surface-muted-foreground, ${theme.colors.surface.mutedForeground}) !important;`);
 
-    vars.push(`  --accent: ${theme.colors.surface.subtle} !important;`);
-    vars.push(`  --accent-foreground: ${theme.colors.surface.foreground} !important;`);
+    vars.push(`  --accent: var(--surface-subtle, ${theme.colors.surface.subtle}) !important;`);
+    vars.push(`  --accent-foreground: var(--surface-foreground, ${theme.colors.surface.foreground}) !important;`);
 
-    vars.push(`  --destructive: ${theme.colors.status.error} !important;`);
-    vars.push(`  --destructive-foreground: ${theme.colors.status.errorForeground} !important;`);
+    vars.push(`  --destructive: var(--status-error, ${theme.colors.status.error}) !important;`);
+    vars.push(`  --destructive-foreground: var(--status-error-foreground, ${theme.colors.status.errorForeground}) !important;`);
 
-    vars.push(`  --ring: ${theme.colors.interactive.focusRing} !important;`);
+    vars.push(`  --ring: var(--interactive-focus-ring, ${theme.colors.interactive.focusRing}) !important;`);
 
-const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
+    const sidebarBase = theme.colors.surface.sidebar || theme.colors.surface.muted;
+    const sidebarBaseRgb = hexToRgb(sidebarBase);
     const sidebarAccentRgb = hexToRgb(theme.colors.surface.subtle);
     const sidebarBorderRgb = hexToRgb(theme.colors.interactive.border);
 
-    vars.push(`  --sidebar-base: ${theme.colors.surface.muted} !important;`);
+    vars.push(`  --sidebar-base: var(--surface-sidebar, var(--surface-muted, ${theme.colors.surface.muted})) !important;`);
     if (sidebarBaseRgb) {
       vars.push(`  --sidebar-base-rgb: ${sidebarBaseRgb} !important;`);
     }
     vars.push(`  --sidebar: var(--sidebar-base) !important;`);
-    vars.push(`  --sidebar-foreground: ${theme.colors.surface.mutedForeground} !important;`);
-    vars.push(`  --sidebar-primary: ${theme.colors.primary.base} !important;`);
-    vars.push(`  --sidebar-primary-foreground: ${theme.colors.primary.foreground} !important;`);
-    vars.push(`  --sidebar-accent-base: ${theme.colors.surface.subtle} !important;`);
+    vars.push(`  --sidebar-foreground: var(--surface-muted-foreground, ${theme.colors.surface.mutedForeground}) !important;`);
+    vars.push(`  --sidebar-primary: var(--primary-base, ${theme.colors.primary.base}) !important;`);
+    vars.push(`  --sidebar-primary-foreground: var(--primary-foreground, ${theme.colors.primary.foreground}) !important;`);
+    vars.push(`  --sidebar-accent-base: var(--surface-subtle, ${theme.colors.surface.subtle}) !important;`);
     if (sidebarAccentRgb) {
       vars.push(`  --sidebar-accent-base-rgb: ${sidebarAccentRgb} !important;`);
     }
     vars.push(`  --sidebar-accent: var(--sidebar-accent-base) !important;`);
-    vars.push(`  --sidebar-accent-foreground: ${theme.colors.surface.foreground} !important;`);
-    vars.push(`  --sidebar-border: ${theme.colors.interactive.border} !important;`);
+    vars.push(`  --sidebar-accent-foreground: var(--surface-foreground, ${theme.colors.surface.foreground}) !important;`);
+    vars.push(`  --sidebar-border: var(--interactive-border, ${theme.colors.interactive.border}) !important;`);
     if (sidebarBorderRgb) {
       vars.push(`  --sidebar-border-rgb: ${sidebarBorderRgb} !important;`);
     }
-    vars.push(`  --sidebar-ring: ${theme.colors.interactive.focusRing} !important;`);
+    vars.push(`  --sidebar-ring: var(--interactive-focus-ring, ${theme.colors.interactive.focusRing}) !important;`);
 
     const isDark = theme.metadata.variant === 'dark';
     const strongAlpha = isDark ? 0.15 : 0.5;
@@ -132,12 +134,11 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
         `  --sidebar-overlay-soft: rgb(${sidebarBaseRgb} / ${softAlpha}) !important;`,
       );
     } else {
-      const base = theme.colors.surface.muted;
       vars.push(
-        `  --sidebar-overlay-strong: ${this.opacity(base, strongAlpha)} !important;`,
+        `  --sidebar-overlay-strong: ${this.opacity(sidebarBase, strongAlpha)} !important;`,
       );
       vars.push(
-        `  --sidebar-overlay-soft: ${this.opacity(base, softAlpha)} !important;`,
+        `  --sidebar-overlay-soft: ${this.opacity(sidebarBase, softAlpha)} !important;`,
       );
     }
 
@@ -147,36 +148,33 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
       });
     }
 
-    if (theme.colors.loading) {
-      vars.push(`  --loading-spinner: ${theme.colors.loading.spinner || theme.colors.primary.base};`);
-      vars.push(`  --loading-spinner-track: ${theme.colors.loading.spinnerTrack || theme.colors.surface.muted};`);
-    } else {
-      vars.push(`  --loading-spinner: ${theme.colors.primary.base};`);
-      vars.push(`  --loading-spinner-track: ${theme.colors.surface.muted};`);
-    }
+    vars.push(`  --loading-spinner: ${theme.colors.loading?.spinner || `var(--primary-base, ${theme.colors.primary.base})`};`);
+    vars.push(`  --loading-spinner-track: ${theme.colors.loading?.spinnerTrack || `var(--surface-muted, ${theme.colors.surface.muted})`};`);
 
     return vars;
   }
 
-  apply(theme: Theme): void {
+  apply(theme: Theme, tokenCSS = ''): void {
     const cssVars = this.generate(theme);
     const style = document.createElement('style');
     style.id = 'opencode-theme-variables';
 
+    // Zero-specificity defaults let unlayered token CSS override values even when applied first.
     let styleContent = '';
     if (theme.metadata.variant === 'dark') {
 
-      styleContent = `:root {\n${cssVars}\n}\n\n.dark {\n${cssVars}\n}`;
+      styleContent = `:where(:root) {\n${cssVars}\n}\n\n:where(.dark) {\n${cssVars}\n}`;
       document.documentElement.classList.add('dark');
       document.documentElement.classList.remove('light');
     } else {
 
-      styleContent = `:root {\n${cssVars}\n}\n\n:root:not(.dark) {\n${cssVars}\n}`;
+      styleContent = `:where(:root) {\n${cssVars}\n}\n\n:where(:root:not(.dark)) {\n${cssVars}\n}`;
       document.documentElement.classList.remove('dark');
       document.documentElement.classList.add('light');
     }
 
-    style.textContent = styleContent;
+    // Keep raw tokens in the selected stylesheet so replacing it removes every override.
+    style.textContent = tokenCSS ? `${styleContent}\n\n${tokenCSS}` : styleContent;
 
     const existing = document.getElementById('opencode-theme-variables');
     if (existing) {
@@ -205,6 +203,7 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     vars.push(`  --surface-background: ${surface.background};`);
     vars.push(`  --surface-foreground: ${surface.foreground};`);
     vars.push(`  --surface-muted: ${surface.muted};`);
+    vars.push(`  --surface-sidebar: ${surface.sidebar || surface.muted};`);
     vars.push(`  --surface-muted-foreground: ${surface.mutedForeground};`);
     vars.push(`  --surface-elevated: ${surface.elevated};`);
     vars.push(`  --surface-elevated-foreground: ${surface.elevatedForeground};`);

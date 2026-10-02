@@ -25,6 +25,7 @@ interface SurfaceColors {
   background: string;
   foreground: string;
   muted: string;
+  sidebar?: string;
   mutedForeground: string;
   elevated: string;
   elevatedForeground: string;

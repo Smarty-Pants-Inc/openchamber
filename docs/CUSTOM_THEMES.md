@@ -209,6 +209,32 @@ Smarty Code supports user-defined themes. Drop a JSON file into the themes direc
 }
 ```
 
+## CSS token overrides
+
+The selected JSON theme supplies CSS defaults for light and dark modes. Semantic
+names use kebab case, for example `surface.mutedForeground` becomes
+`--surface-muted-foreground`. Tailwind aliases such as `--background` read these
+semantic properties and keep the JSON color as their fallback.
+
+Generated defaults use zero-specificity selectors. Unlayered token CSS with a
+root selector can override them even when the theme stylesheet is applied later.
+Scope external token selectors to the themes they are intended to replace.
+
+The bundled OpenChamber defaults also apply the pinned Smarty token CSS from
+`packages/ui/src/styles/vendor/smarty-design-system/`. Its provenance records the
+upstream source and checksum. Their JSON colors mirror the pinned semantic
+colors, so browser chrome, splash screens and library APIs use the same palette.
+Tokens absent from the shared file retain the existing OpenChamber values.
+
+Custom themes, including replacements with a bundled theme's ID, and VS Code
+host themes keep their own generated CSS. Switching away from a bundled default
+removes the pinned stylesheet declarations. A custom theme's optional
+`surface.sidebar` controls its sidebar; otherwise it follows `surface.muted`.
+
+The upstream Tailwind spacing scale is not imported. Typography and spacing
+alignment remain open on `smarty-code#611`; this pin preserves OpenChamber's
+existing scales.
+
 ## Surface Alpha Requirement
 
 - `colors.surface.muted` and `colors.surface.elevated` must always use 90 alpha (`...90` in 8-digit hex, e.g. `#1C1B1A90`).
