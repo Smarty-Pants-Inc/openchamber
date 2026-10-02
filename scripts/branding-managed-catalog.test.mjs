@@ -36,6 +36,19 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Unwind Forge placement first; every older ledger assertion still runs below.
+  assert.equal(historical.forgeRunnerProvenance.reviewedHead, '7f2d8f550b160e7e74026a58dcd693d4befb3072');
+  delete historical.forgeRunnerProvenance;
+  historical.files = historical.files.filter(entry => !entry.forgeRunnerAdded);
+  const forgeWorkflow = historical.files.find(entry => entry.path === '.github/workflows/oc-review.yml');
+  assert.equal(forgeWorkflow.preForgeRunnerCombinedSha256, forgeWorkflow.humanAuthUiProofSha256);
+  assert.equal(forgeWorkflow.forgeRunnerSha256, forgeWorkflow.combinedSha256);
+  forgeWorkflow.combinedSha256 = forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.forgeRunnerBaseSha256;
+  delete forgeWorkflow.forgeRunnerSha256;
+  assert.equal(digest(JSON.stringify(historical)), '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5');
   // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
   assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   delete historical.proxyConnectionSource;

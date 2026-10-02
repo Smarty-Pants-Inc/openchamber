@@ -160,6 +160,25 @@ preceding overlay's byte and parsed digests before running older assertions
 unchanged. Original coverage, branding, behavior and source evidence stay intact.
 This provenance is not an exact integrated-head CI or release receipt.
 
+### Forge workflow successor
+
+`forgeRunnerProvenance` records Astra's round-2 findings on PR501 at
+`7f2d8f550b160e7e74026a58dcd693d4befb3072`. Seven workflow entries bind the
+final runner-policy bytes, including the already changed docs workflow.
+`oc-review.yml` keeps its branding, behavior and UI-proof hashes.
+`preForgeRunnerCombinedSha256` retains the previous ledger binding, and
+`forgeRunnerBaseSha256` records the reviewed round-2 bytes. New entries retain
+their round-2 hashes and any original donor coverage hash.
+
+Both historical ownership tests remove this layer first and check the complete
+preceding ledger's parsed and byte digests before running the older assertions.
+The original 770-file coverage ledger stays byte-identical. The new assertion
+checks its digest and all seven workflow outputs. The required `pr checks` job
+still runs the ownership check, but outside-fork PRs cannot schedule it on Forge.
+Unused hosted and Android jobs are disabled only in `Smarty-Pants-Inc/openchamber`;
+their upstream dispatch inputs and runner selections remain intact. Local checks
+do not replace an exact-head Forge run or native build evidence.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
