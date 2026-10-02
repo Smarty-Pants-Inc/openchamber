@@ -54,16 +54,16 @@ export const Checkbox = React.memo<CheckboxProps>(function Checkbox({
       <BaseCheckbox.Indicator
         keepMounted
         className={cn(
-          'flex items-center justify-center text-[var(--primary-base)]',
+          'flex items-center justify-center text-primary-text',
           // hide when fully unchecked (no state)
           'data-[unchecked]:hidden',
           iconClassName,
         )}
       >
         {indeterminate ? (
-          <Icon name="subtract" className={cn(iconSize, 'text-[var(--primary-base)]')} />
+          <Icon name="subtract" className={cn(iconSize, 'text-primary-text')} />
         ) : (
-          <Icon name="check" className={cn(iconSize, 'text-[var(--primary-base)]')} />
+          <Icon name="check" className={cn(iconSize, 'text-primary-text')} />
         )}
       </BaseCheckbox.Indicator>
     </BaseCheckbox.Root>

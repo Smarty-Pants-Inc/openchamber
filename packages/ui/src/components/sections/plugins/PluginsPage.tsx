@@ -248,7 +248,7 @@ export const PluginsPage: React.FC = () => {
             placeholder='{ }'
           />
           {!optionsValid && (
-            <p className="typography-micro text-[var(--status-error)]">
+            <p className="typography-micro text-status-error-text">
               {t('settings.plugins.page.field.options.invalidJson')}
             </p>
           )}

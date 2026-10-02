@@ -505,7 +505,7 @@ export const NotificationSettings: React.FC = () => {
           {isBrowser && (
             <div className="mt-1">
               {notificationPermission === 'denied' && (
-                <p className="typography-meta text-[var(--status-error)] mt-1">
+                <p className="typography-meta text-status-error-text mt-1">
                   {t('settings.notifications.page.delivery.permissionDenied')}
                 </p>
               )}
@@ -561,13 +561,13 @@ export const NotificationSettings: React.FC = () => {
               description={(
                 <>
                   {t('settings.notifications.page.template.variablesLabel')}{' '}
-                  <code className="text-[var(--primary-base)]">{'{project_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{worktree}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{branch}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{session_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{agent_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{model_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{last_message}'}</code>
+                  <code className="text-primary-text">{'{project_name}'}</code>{' '}
+                  <code className="text-primary-text">{'{worktree}'}</code>{' '}
+                  <code className="text-primary-text">{'{branch}'}</code>{' '}
+                  <code className="text-primary-text">{'{session_name}'}</code>{' '}
+                  <code className="text-primary-text">{'{agent_name}'}</code>{' '}
+                  <code className="text-primary-text">{'{model_name}'}</code>{' '}
+                  <code className="text-primary-text">{'{last_message}'}</code>
                 </>
               )}
             >

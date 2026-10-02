@@ -87,7 +87,7 @@ const JsonSummaryValue = React.memo(({
 
     const text = value === null ? 'null' : typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
     const renderedValue = typeof value === 'string' && isUrl(value) ? (
-        <a href={value} target="_blank" rel="noopener noreferrer" className="truncate text-[var(--status-info)] underline underline-offset-2 hover:opacity-80" title={value}>{value}</a>
+        <a href={value} target="_blank" rel="noopener noreferrer" className="truncate text-status-info-text underline underline-offset-2 hover:opacity-80" title={value}>{value}</a>
     ) : (
         <span className={cn('min-w-0 break-words', value === null ? 'text-[var(--surface-mutedForeground)]' : 'text-[var(--surface-foreground)]')}>{text}</span>
     );

@@ -37,15 +37,15 @@ export interface CommandAutocompleteHandle {
 const BASE_BADGE_CLASS = "text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0";
 const TYPE_BADGE_CLASS = cn(
   BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--primary-base)_12%,transparent)] text-[color-mix(in_srgb,var(--primary-base)_70%,transparent)] border-[color-mix(in_srgb,var(--primary-base)_24%,transparent)]"
+  "bg-[color-mix(in_srgb,var(--primary-base)_12%,transparent)] text-[color-mix(in_srgb,var(--primary-text,var(--primary-base))_70%,transparent)] border-[color-mix(in_srgb,var(--primary-base)_24%,transparent)]"
 );
 const USER_BADGE_CLASS = cn(
   BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--status-success)_12%,transparent)] text-[color-mix(in_srgb,var(--status-success)_70%,transparent)] border-[color-mix(in_srgb,var(--status-success)_24%,transparent)]"
+  "bg-[color-mix(in_srgb,var(--status-success)_12%,transparent)] text-[color-mix(in_srgb,var(--status-success-text,var(--status-success))_70%,transparent)] border-[color-mix(in_srgb,var(--status-success)_24%,transparent)]"
 );
 const PROJECT_BADGE_CLASS = cn(
   BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--status-info)_12%,transparent)] text-[color-mix(in_srgb,var(--status-info)_70%,transparent)] border-[color-mix(in_srgb,var(--status-info)_24%,transparent)]"
+  "bg-[color-mix(in_srgb,var(--status-info)_12%,transparent)] text-[color-mix(in_srgb,var(--status-info-text,var(--status-info))_70%,transparent)] border-[color-mix(in_srgb,var(--status-info)_24%,transparent)]"
 );
 const NEUTRAL_BADGE_CLASS = cn(
   BASE_BADGE_CLASS,

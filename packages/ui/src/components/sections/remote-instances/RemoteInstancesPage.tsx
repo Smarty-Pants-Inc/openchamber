@@ -1642,7 +1642,7 @@ export const RemoteInstancesPage: React.FC = () => {
                                   {t('settings.remoteInstances.clientAuth.state.thisDevice')}
                                 </span>
                               ) : null}
-                              <span className={cn('typography-micro truncate', isOnline && !client.revokedAt ? 'text-[var(--status-success)]' : 'text-muted-foreground')}>{statusText}</span>
+                              <span className={cn('typography-micro truncate', isOnline && !client.revokedAt ? 'text-status-success-text' : 'text-muted-foreground')}>{statusText}</span>
                             </div>
                           </div>
                           <Button type="button" variant="ghost" size="xs" className="!font-normal" onClick={() => void revokeRemoteClient(client)} disabled={Boolean(client.revokedAt)}>
@@ -1654,7 +1654,7 @@ export const RemoteInstancesPage: React.FC = () => {
                   </>
                 )}
               </div>
-              {remoteClientError ? <p className="typography-meta text-[var(--status-error)]">{remoteClientError}</p> : null}
+              {remoteClientError ? <p className="typography-meta text-status-error-text">{remoteClientError}</p> : null}
           </SettingsSection>
         ) : null}
 
@@ -1710,7 +1710,7 @@ export const RemoteInstancesPage: React.FC = () => {
                           )} />
                           <p className="typography-ui-label text-foreground truncate">{redactSensitiveUrl(host.label)}</p>
                           {directDefaultHostId === host.id ? <span className="typography-micro text-muted-foreground shrink-0">{t('desktopHostSwitcher.header.default')}</span> : null}
-                          <span className={cn('typography-micro shrink-0', isOnline ? 'text-[var(--status-success)]' : 'text-muted-foreground')}>
+                          <span className={cn('typography-micro shrink-0', isOnline ? 'text-status-success-text' : 'text-muted-foreground')}>
                             {t(statusKey)}
                             {isOnline && typeof probe?.latencyMs === 'number'
                               ? t('desktopHostSwitcher.status.ping', { ms: Math.max(0, Math.round(probe.latencyMs)) })
@@ -1746,7 +1746,7 @@ export const RemoteInstancesPage: React.FC = () => {
               })}
             </div>
 
-            {directError ? <p className="typography-meta text-[var(--status-error)]">{directError}</p> : null}
+            {directError ? <p className="typography-meta text-status-error-text">{directError}</p> : null}
         </SettingsSection> : null}
 
         {showInstanceManagement ? <Dialog open={directAddDialogOpen} onOpenChange={setDirectAddDialogOpen}>
@@ -1771,7 +1771,7 @@ export const RemoteInstancesPage: React.FC = () => {
                   <div key={header.id} className="flex w-full gap-2">
                     <Input className="h-8 font-mono text-xs" value={header.name} onChange={(event) => setDirectHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={t('settings.remoteInstances.direct.headers.field.namePlaceholder')} disabled={directSaving} />
                     <Input className="h-8 font-mono text-xs" value={header.value} onChange={(event) => setDirectHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('settings.remoteInstances.direct.headers.field.valuePlaceholder')} type="password" disabled={directSaving} />
-                    <button type="button" onClick={() => setDirectHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={t('settings.remoteInstances.direct.headers.removeAria')} disabled={directSaving}>
+                    <button type="button" onClick={() => setDirectHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-status-error-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={t('settings.remoteInstances.direct.headers.removeAria')} disabled={directSaving}>
                       <Icon name="close" className="h-4 w-4" />
                     </button>
                   </div>
@@ -1808,7 +1808,7 @@ export const RemoteInstancesPage: React.FC = () => {
                   <div key={header.id} className="flex w-full gap-2">
                     <Input className="h-8 font-mono text-xs" value={header.name} onChange={(event) => setDirectEditHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={t('settings.remoteInstances.direct.headers.field.namePlaceholder')} disabled={directSaving} />
                     <Input className="h-8 font-mono text-xs" value={header.value} onChange={(event) => setDirectEditHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('settings.remoteInstances.direct.headers.field.valuePlaceholder')} type="password" disabled={directSaving} />
-                    <button type="button" onClick={() => setDirectEditHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={t('settings.remoteInstances.direct.headers.removeAria')} disabled={directSaving}>
+                    <button type="button" onClick={() => setDirectEditHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-status-error-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={t('settings.remoteInstances.direct.headers.removeAria')} disabled={directSaving}>
                       <Icon name="close" className="h-4 w-4" />
                     </button>
                   </div>
@@ -1906,7 +1906,7 @@ export const RemoteInstancesPage: React.FC = () => {
                     </label>
                   ) : null}
                 </div>
-                {remoteClientError ? <p className="typography-meta text-[var(--status-error)]">{remoteClientError}</p> : null}
+                {remoteClientError ? <p className="typography-meta text-status-error-text">{remoteClientError}</p> : null}
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setAddDeviceOpen(false)} disabled={addDeviceCreating}>{t('settings.common.actions.cancel')}</Button>
                   <Button type="submit" size="xs" className="!font-normal" disabled={addDeviceCreating || !transportOptions}>{t('settings.remoteInstances.clientAuth.addDevice.create')}</Button>
@@ -1923,7 +1923,7 @@ export const RemoteInstancesPage: React.FC = () => {
                   <div className="flex items-center gap-2 rounded-md border border-[var(--interactive-border)] p-2">
                     <code className="min-w-0 flex-1 truncate typography-code text-muted-foreground">{pairingUrl}</code>
                     <Button type="button" variant="outline" size="xs" className="!font-normal shrink-0" onClick={handleCopyPairing}>
-                      <Icon name={pairingCopied ? 'check' : 'file-copy'} className={cn('h-3.5 w-3.5', pairingCopied && 'text-[var(--status-success)]')} />
+                      <Icon name={pairingCopied ? 'check' : 'file-copy'} className={cn('h-3.5 w-3.5', pairingCopied && 'text-status-success-text')} />
                       {pairingCopied ? t('settings.remoteInstances.clientAuth.actions.copied') : t('settings.common.actions.copyAll')}
                     </Button>
                   </div>
@@ -2011,7 +2011,7 @@ export const RemoteInstancesPage: React.FC = () => {
                     </div>
                   </div>
                   {failureDetail ? (
-                    <p className="typography-micro text-[var(--status-error)] break-words">{failureDetail}</p>
+                    <p className="typography-micro text-status-error-text break-words">{failureDetail}</p>
                   ) : null}
                 </div>
               );
@@ -2195,7 +2195,7 @@ export const RemoteInstancesPage: React.FC = () => {
               type="button"
               variant="outline"
               size="xs"
-              className="!font-normal text-[var(--status-error)] border-[var(--status-error)]/30 hover:text-[var(--status-error)]"
+              className="!font-normal text-status-error-text border-[var(--status-error)]/30 hover:text-status-error-text"
               onClick={() => {
                 const ok = window.confirm(t('settings.remoteInstances.page.confirm.removeInstance'));
                 if (!ok) return;
@@ -2217,7 +2217,7 @@ export const RemoteInstancesPage: React.FC = () => {
           </div>
           {currentState === 'error' && status?.detail ? (
             <div className="space-y-2 rounded-md border border-[var(--status-error)]/30 bg-[var(--status-error-background)] p-3">
-              <p className="typography-meta text-[var(--status-error)] break-words">{status.detail}</p>
+              <p className="typography-meta text-status-error-text break-words">{status.detail}</p>
               {currentRemedyHintKey ? (
                 <p className="typography-micro text-muted-foreground">{t(currentRemedyHintKey)}</p>
               ) : null}
@@ -2432,7 +2432,7 @@ export const RemoteInstancesPage: React.FC = () => {
                 />
               </div>
               {remoteLanExposed ? (
-                <p className="mt-2 typography-micro text-[var(--status-warning)] md:pl-[16rem]">
+                <p className="mt-2 typography-micro text-status-warning-text md:pl-[16rem]">
                   {t('settings.remoteInstances.page.field.remoteLanAccessWarning')}
                 </p>
               ) : null}
@@ -2637,7 +2637,7 @@ export const RemoteInstancesPage: React.FC = () => {
             />
           </div>
           {uiPasswordMissing ? (
-            <p className="typography-micro text-[var(--status-error)] md:pl-[16rem]">
+            <p className="typography-micro text-status-error-text md:pl-[16rem]">
               {t('settings.remoteInstances.page.field.uiPasswordMissingForLan')}
             </p>
           ) : null}
@@ -2709,7 +2709,7 @@ export const RemoteInstancesPage: React.FC = () => {
                       type="button"
                       variant="ghost"
                       size="xs"
-                      className="!font-normal h-6 w-6 px-0 text-[var(--status-error)] hover:text-[var(--status-error)]"
+                      className="!font-normal h-6 w-6 px-0 text-status-error-text hover:text-status-error-text"
                       onClick={() =>
                         updateDraft((current) => ({
                           ...current,
@@ -2957,7 +2957,7 @@ export const RemoteInstancesPage: React.FC = () => {
               </Button>
             </>
           ) : null}
-          {error ? <div className="ml-auto typography-meta text-[var(--status-error)]">{error}</div> : null}
+          {error ? <div className="ml-auto typography-meta text-status-error-text">{error}</div> : null}
         </div>
       </div>
 
@@ -2982,7 +2982,7 @@ export const RemoteInstancesPage: React.FC = () => {
           {logDialogLoading ? (
             <div className="typography-meta text-muted-foreground">{t('settings.remoteInstances.page.logsDialog.loading')}</div>
           ) : logDialogError ? (
-            <div className="typography-meta text-[var(--status-error)]">{logDialogError}</div>
+            <div className="typography-meta text-status-error-text">{logDialogError}</div>
           ) : (
             <pre className="max-h-[55vh] overflow-auto rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3 typography-micro text-foreground whitespace-pre-wrap break-words">
               {logDialogLines.length > 0 ? logDialogLines.join('\n') : t('settings.remoteInstances.page.logsDialog.empty')}

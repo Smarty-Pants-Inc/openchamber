@@ -104,7 +104,7 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
             className={cn(
               'flex h-9 w-9 touch-none select-none items-center justify-center rounded-md transition-colors',
               isActive
-                ? 'text-primary'
+                ? 'text-primary-text'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -129,7 +129,7 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
                 className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[0.625rem] font-semibold leading-none"
                 style={{
                   backgroundColor: 'var(--status-info-background)',
-                  color: 'var(--status-info)',
+                  color: 'var(--status-info-text, var(--status-info))',
                 }}
               >
                 {displayBadgeCount}

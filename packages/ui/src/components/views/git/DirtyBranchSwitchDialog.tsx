@@ -109,7 +109,7 @@ export const DirtyBranchSwitchDialog: React.FC<DirtyBranchSwitchDialogProps> = (
         <div className="flex flex-col gap-4">
           <DialogHeader>
             <div className="flex items-center gap-2">
-              <Icon name="alert" className="size-5 shrink-0 text-[var(--status-warning)]" />
+              <Icon name="alert" className="size-5 shrink-0 text-status-warning-text" />
               <DialogTitle>{t('gitView.dirtySwitch.title')}</DialogTitle>
             </div>
             <DialogDescription>
@@ -144,7 +144,7 @@ export const DirtyBranchSwitchDialog: React.FC<DirtyBranchSwitchDialogProps> = (
               {pendingAction === 'generate' ? (
                 <Icon name="loader-4" className="size-4 animate-spin" />
               ) : (
-                <Icon name="ai-generate-2" className="size-4 text-primary" />
+                <Icon name="ai-generate-2" className="size-4 text-primary-text" />
               )}
             </button>
           </div>

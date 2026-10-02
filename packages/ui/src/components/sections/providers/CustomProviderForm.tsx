@@ -141,7 +141,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         <p className={SETTINGS_HELPER_CLASS}>{t('settings.providers.page.custom.description')}</p>
 
         {authFailureHint ? (
-          <p className="typography-meta text-[var(--status-warning)]" role="status">
+          <p className="typography-meta text-status-warning-text" role="status">
             {authFailureHint}
           </p>
         ) : null}
@@ -160,7 +160,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             aria-invalid={Boolean(err.providerID)}
             aria-label={t('settings.providers.page.custom.field.providerID.label')}
           />
-          {err.providerID ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.providerID}</p> : null}
+          {err.providerID ? <p className="mt-1 typography-meta text-status-error-text">{err.providerID}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
@@ -200,7 +200,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             aria-invalid={Boolean(err.name)}
             aria-label={t('settings.providers.page.custom.field.name.label')}
           />
-          {err.name ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.name}</p> : null}
+          {err.name ? <p className="mt-1 typography-meta text-status-error-text">{err.name}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
@@ -215,7 +215,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             aria-invalid={Boolean(err.baseURL)}
             aria-label={t('settings.providers.page.custom.field.baseURL.label')}
           />
-          {err.baseURL ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.baseURL}</p> : null}
+          {err.baseURL ? <p className="mt-1 typography-meta text-status-error-text">{err.baseURL}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
@@ -239,7 +239,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             aria-invalid={Boolean(err.apiKey)}
             aria-label={t('settings.providers.page.custom.field.apiKey.label')}
           />
-          {err.apiKey ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.apiKey}</p> : null}
+          {err.apiKey ? <p className="mt-1 typography-meta text-status-error-text">{err.apiKey}</p> : null}
         </SettingsStackedField>
       </SettingsSection>
 
@@ -263,7 +263,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                     aria-label={t('settings.providers.page.custom.models.idLabel')}
                   />
                   {modelErrors[index]?.id ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.id}</p>
+                    <p className="mt-1 typography-meta text-status-error-text">{modelErrors[index]?.id}</p>
                   ) : null}
                 </div>
                 <div>
@@ -278,7 +278,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                     aria-label={t('settings.providers.page.custom.models.nameLabel')}
                   />
                   {modelErrors[index]?.name ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.name}</p>
+                    <p className="mt-1 typography-meta text-status-error-text">{modelErrors[index]?.name}</p>
                   ) : null}
                 </div>
               </div>
@@ -338,7 +338,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                     aria-label={t('settings.providers.page.custom.headers.keyLabel')}
                   />
                   {headerErrors[index]?.key ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.key}</p>
+                    <p className="mt-1 typography-meta text-status-error-text">{headerErrors[index]?.key}</p>
                   ) : null}
                 </div>
                 <div>
@@ -353,7 +353,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                     aria-label={t('settings.providers.page.custom.headers.valueLabel')}
                   />
                   {headerErrors[index]?.value ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.value}</p>
+                    <p className="mt-1 typography-meta text-status-error-text">{headerErrors[index]?.value}</p>
                   ) : null}
                 </div>
               </div>

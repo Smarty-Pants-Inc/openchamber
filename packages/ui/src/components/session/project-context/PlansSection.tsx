@@ -229,7 +229,7 @@ export const PlansSection: React.FC<{
                   onClick={() => void handleTogglePinned(plan.id, !pinnedPlanIds.has(plan.id))}
                   className={cn(
                     'inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                    pinnedPlanIds.has(plan.id) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                    pinnedPlanIds.has(plan.id) ? 'text-primary-text' : 'text-muted-foreground hover:text-foreground'
                   )}
                   aria-pressed={pinnedPlanIds.has(plan.id)}
                   aria-label={pinnedPlanIds.has(plan.id)

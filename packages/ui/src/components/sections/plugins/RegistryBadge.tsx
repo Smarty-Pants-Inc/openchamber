@@ -36,7 +36,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
     case 'npm-ok': {
       if (!info.hasUpdate || !info.latestVersion) return null;
       return wrap(
-        <span className="inline-flex items-center gap-0.5 text-[var(--status-success)]">
+        <span className="inline-flex items-center gap-0.5 text-status-success-text">
           <Icon name="arrow-up-s" className="h-3 w-3" />
           {info.latestVersion}
         </span>,
@@ -50,7 +50,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
       return wrap(
         <Icon
           name="error-warning"
-          className="h-3 w-3 text-[var(--status-warning)]"
+          className="h-3 w-3 text-status-warning-text"
         />,
         t('settings.plugins.registry.badge.missingVersion.tooltip', {
           version: info.currentVersion,
@@ -61,7 +61,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
       return wrap(
         <Icon
           name="error-warning"
-          className="h-3 w-3 text-[var(--status-error)]"
+          className="h-3 w-3 text-status-error-text"
         />,
         t('settings.plugins.registry.badge.missingPackage.tooltip', {
           name: info.name,
@@ -71,7 +71,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
       return wrap(
         <Icon
           name="error-warning"
-          className="h-3 w-3 text-[var(--status-error)]"
+          className="h-3 w-3 text-status-error-text"
         />,
         t('settings.plugins.registry.badge.malformed.tooltip'),
       );
@@ -84,7 +84,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
       return wrap(
         <Icon
           name="error-warning"
-          className="h-3 w-3 text-[var(--status-error)]"
+          className="h-3 w-3 text-status-error-text"
         />,
         t('settings.plugins.registry.badge.pathMissing.tooltip', {
           path: info.absolutePath,
@@ -94,7 +94,7 @@ export const RegistryBadge: React.FC<RegistryBadgeProps> = ({ spec }) => {
       return wrap(
         <Icon
           name="error-warning"
-          className="h-3 w-3 text-[var(--status-warning)]"
+          className="h-3 w-3 text-status-warning-text"
         />,
         t('settings.plugins.registry.badge.pathUnreadable.tooltip', {
           path: info.absolutePath,

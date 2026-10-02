@@ -319,7 +319,7 @@ const MobileFileRow: React.FC<{
     style={{ touchAction: 'manipulation' }}
   >
     {directory ? (
-      <RiFolder3Fill className="size-5 shrink-0 text-primary/80" />
+      <RiFolder3Fill className="size-5 shrink-0 text-primary-text/80" />
     ) : (
       <FileTypeIcon filePath={path} className="size-5 shrink-0" />
     )}

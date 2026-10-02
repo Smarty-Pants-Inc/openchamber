@@ -595,7 +595,7 @@ const SkillsInstalledPage: React.FC = () => {
             <SettingsStackedField
               label={(
                 <>
-                  {t('settings.common.field.description')} <span className="text-[var(--status-error)]">*</span>
+                  {t('settings.common.field.description')} <span className="text-status-error-text">*</span>
                 </>
               )}
               info={t('settings.skills.page.field.descriptionHint')}
@@ -684,14 +684,14 @@ const SkillsInstalledPage: React.FC = () => {
                       <Icon name="file" className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                       <span className="typography-ui-label text-foreground truncate">{file.path}</span>
                       {isNewSkill && (
-                        <span className="typography-micro text-[var(--status-warning)] bg-[var(--status-warning)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                        <span className="typography-micro text-status-warning-text bg-[var(--status-warning)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
                           {t('settings.skills.page.badge.pending')}
                         </span>
                       )}
                       {!isReadOnlySkill && (
                         <Button size="sm"
                           variant="ghost"
-                          className="h-5 w-5 px-0 flex-shrink-0 text-muted-foreground hover:text-[var(--status-error)] opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-5 w-5 px-0 flex-shrink-0 text-muted-foreground hover:text-status-error-text opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteFile(file.path);

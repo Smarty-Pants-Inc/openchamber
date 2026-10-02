@@ -721,7 +721,7 @@ export const ProvidersPage: React.FC = () => {
                                       <span className="truncate">{provider.name || provider.id}</span>
                                     </span>
                                     {candidateProviderId === provider.id && (
-                                      <Icon name="check" className="h-4 w-4 text-[var(--primary-base)]" />
+                                      <Icon name="check" className="h-4 w-4 text-primary-text" />
                                     )}
                                   </DropdownMenuItem>
                                 ))}
@@ -740,7 +740,7 @@ export const ProvidersPage: React.FC = () => {
                                       <span className="truncate">{customLabel}</span>
                                     </span>
                                     {candidateProviderId === CUSTOM_PROVIDER_ID && (
-                                      <Icon name="check" className="h-4 w-4 text-[var(--primary-base)]" />
+                                      <Icon name="check" className="h-4 w-4 text-primary-text" />
                                     )}
                                   </DropdownMenuItem>
                                 ) : null}
@@ -962,13 +962,13 @@ export const ProvidersPage: React.FC = () => {
             {!showAuthPanel ? (
               authStatusIncomplete ? (
                 <div className="flex items-center gap-1.5 py-1.5">
-                  <Icon name="alert" className="w-4 h-4 text-[var(--status-warning)] shrink-0" />
+                  <Icon name="alert" className="w-4 h-4 text-status-warning-text shrink-0" />
                   <span className="typography-ui-label text-foreground">{t('settings.providers.page.auth.incomplete')}</span>
                   <SettingsInfoHint>{incompleteAuthHint}</SettingsInfoHint>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 py-1.5">
-                  <Icon name="check" className="w-4 h-4 text-[var(--status-success)] shrink-0" />
+                  <Icon name="check" className="w-4 h-4 text-status-success-text shrink-0" />
                   <span className="typography-ui-label text-foreground">{t('settings.providers.page.auth.connected')}</span>
                   <SettingsInfoHint>{t('settings.providers.page.auth.useReconnectHint')}</SettingsInfoHint>
                 </div>
@@ -1046,7 +1046,7 @@ export const ProvidersPage: React.FC = () => {
               <Button
                 variant="ghost"
                 size="xs"
-                className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)]"
+                className="!font-normal text-status-error-text hover:text-status-error-text"
                 onClick={() => handleDisconnectProvider(selectedProvider.id)}
                 disabled={authBusyKey === `disconnect:${selectedProvider.id}`}
               >

@@ -76,7 +76,7 @@ const FieldLabel: React.FC<{
   <div className="flex items-center gap-1.5">
     <label htmlFor={htmlFor} className="typography-meta font-medium text-foreground">
       {children}
-      {required && <span className="text-destructive ml-0.5">*</span>}
+      {required && <span className="text-status-error-text ml-0.5">*</span>}
     </label>
     {info && info}
   </div>
@@ -564,7 +564,7 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
                           <button
                             type="button"
                             onClick={() => setSetupCommands(setupCommands.filter((_, i) => i !== index))}
-                            className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                            className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-status-error-text hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                             aria-label={t('multirun.launcher.setupCommands.removeCommandAria')}
                           >
                             <Icon name="close" className="h-3.5 w-3.5" />
@@ -619,7 +619,7 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(file.id)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="text-muted-foreground hover:text-status-error-text"
                     >
                       <Icon name="close" className="h-3 w-3" />
                     </button>
@@ -653,7 +653,7 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
                 className="px-3 py-2 rounded-lg typography-meta"
                 style={{
                   backgroundColor: 'var(--status-error-background)',
-                  color: 'var(--status-error)',
+                  color: 'var(--status-error-text, var(--status-error))',
                   borderWidth: 1,
                   borderColor: 'var(--status-error-border)',
                 }}
@@ -923,7 +923,7 @@ const RunGroupCard: React.FC<RunGroupCardProps> = ({
           <button
             type="button"
             onClick={() => onRemove(group.id)}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-status-error-text hover:bg-destructive/10"
             aria-label={t('multirun.launcher.groups.removeGroup')}
           >
             <Icon name="close" className="h-3.5 w-3.5" />

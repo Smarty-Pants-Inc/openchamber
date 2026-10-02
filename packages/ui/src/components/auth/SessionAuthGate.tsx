@@ -307,7 +307,7 @@ const ErrorScreen: React.FC<ErrorScreenProps> = ({ onRetry, errorType = 'network
     <AuthShell>
       <div className="flex flex-col items-center gap-6 text-center">
         <div className="space-y-2">
-          <h1 className="typography-ui-header font-semibold text-destructive">
+          <h1 className="typography-ui-header font-semibold text-status-error-text">
             {isRateLimit ? t('sessionAuth.error.rateLimitTitle') : t('sessionAuth.error.networkTitle')}
           </h1>
           <p className="typography-meta text-muted-foreground max-w-xs">
@@ -1009,7 +1009,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                 </label>
               )}
               {errorMessage && (
-                <p id="oc-ui-auth-error" className="typography-meta text-destructive">
+                <p id="oc-ui-auth-error" className="typography-meta text-status-error-text">
                   {errorMessage}
                 </p>
               )}

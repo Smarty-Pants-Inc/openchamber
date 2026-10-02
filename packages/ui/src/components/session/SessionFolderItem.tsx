@@ -177,7 +177,7 @@ const SessionFolderItemBase = <TSessionNode,>({
             // while they are revealed, mirroring session-row behavior.
             : (alwaysShowActions ? 'pr-20' : 'group-hover/folder:pr-20 group-focus-within/folder:pr-20'),
         )}>
-          <Icon name={folderIconName} className={cn('h-3.5 w-3.5 flex-shrink-0', isDropTarget ? 'text-primary' : 'text-muted-foreground')} />
+          <Icon name={folderIconName} className={cn('h-3.5 w-3.5 flex-shrink-0', isDropTarget ? 'text-primary-text' : 'text-muted-foreground')} />
 
           {renaming ? (
             <form
@@ -237,7 +237,7 @@ const SessionFolderItemBase = <TSessionNode,>({
             <div className="min-w-0 flex items-center gap-1.5 flex-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
+                  <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary-text' : 'text-muted-foreground')}>
                     {displayName ?? folder.name}
                   </span>
                 </TooltipTrigger>
@@ -309,7 +309,7 @@ const SessionFolderItemBase = <TSessionNode,>({
                   event.stopPropagation();
                   onDelete();
                 }}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-status-error-text hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 aria-label={archivedBucket
                   ? t('sessions.sidebar.folderItem.deleteArchivedInFolderAria', { folderName: folder.name })
                   : t('sessions.sidebar.folderItem.deleteFolderAria', { folderName: folder.name })}

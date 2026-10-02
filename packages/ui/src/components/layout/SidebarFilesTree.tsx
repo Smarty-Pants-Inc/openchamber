@@ -379,7 +379,7 @@ const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           <Item
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
-            className="text-destructive focus:text-destructive"
+            className="text-status-error-text focus:text-status-error-text"
           >
             <Icon name="delete-bin" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.delete')}
           </Item>
@@ -466,8 +466,8 @@ const FileRow: React.FC<FileRowProps> = ({
         {!isDir && status && <FileStatusDot status={status} />}
         {isDir && badge && (
           <span className="text-xs flex items-center gap-1 ml-auto mr-1">
-            {badge.modified > 0 && <span className="text-[var(--status-warning)]">M{badge.modified}</span>}
-            {badge.added > 0 && <span className="text-[var(--status-success)]">+{badge.added}</span>}
+            {badge.modified > 0 && <span className="text-status-warning-text">M{badge.modified}</span>}
+            {badge.added > 0 && <span className="text-status-success-text">+{badge.added}</span>}
           </span>
         )}
       </button>
@@ -1291,7 +1291,7 @@ export const SidebarFilesTree: React.FC = () => {
             <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
               {loadErrorsByDir[node.path] ? (
                 <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
-                  <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
+                  <span className="min-w-0 flex-1 truncate text-status-error-text" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
                   <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
                     <Icon name="refresh" className="h-3.5 w-3.5" />
                     {t('sidebarFilesTree.actions.refreshTitle')}

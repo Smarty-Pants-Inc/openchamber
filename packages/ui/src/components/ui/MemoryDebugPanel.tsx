@@ -427,8 +427,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span className="truncate text-[var(--surface-foreground)]">{stat.title}</span>
-                    {stat.isStreaming ? <Icon name="pulse" className="h-3 w-3 animate-pulse text-[var(--status-info)]" /> : null}
-                    {stat.isZombie ? <span className="text-[var(--status-warning)]">!</span> : null}
+                    {stat.isStreaming ? <Icon name="pulse" className="h-3 w-3 animate-pulse text-status-info-text" /> : null}
+                    {stat.isZombie ? <span className="text-status-warning-text">!</span> : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[var(--surface-muted-foreground)]">
@@ -441,7 +441,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
                       {t('memoryDebugPanel.metric.msgsValue', { count: stat.messageCount })}
                     </span>
                     {stat.backgroundCount > 0 ? (
-                      <span className="text-[var(--status-info)]">+{stat.backgroundCount}</span>
+                      <span className="text-status-info-text">+{stat.backgroundCount}</span>
                     ) : null}
                   </div>
                 </div>

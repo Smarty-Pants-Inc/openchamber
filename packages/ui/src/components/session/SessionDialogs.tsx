@@ -629,7 +629,7 @@ export const SessionDialogs: React.FC = () => {
                             : t('sessions.sidebar.sessionDialogs.worktree.pathUnavailable')}
                     </p>
                     {hasDirtyWorktrees && (
-                        <p className="typography-micro text-status-warning">{t('sessions.sidebar.sessionDialogs.worktree.uncommittedWarning')}</p>
+                        <p className="typography-micro text-status-warning-text">{t('sessions.sidebar.sessionDialogs.worktree.uncommittedWarning')}</p>
                     )}
 
                 </div>
@@ -662,7 +662,7 @@ export const SessionDialogs: React.FC = () => {
                 )}
             >
                 {deleteDialogShouldRemoveRemote ? (
-                    <Icon name="checkbox" className="size-4 text-primary" />
+                    <Icon name="checkbox" className="size-4 text-primary-text" />
                 ) : (
                     <Icon name="checkbox-blank" className="size-4" />
                 )}
@@ -691,7 +691,7 @@ export const SessionDialogs: React.FC = () => {
             )}
         >
             {deleteDialogShouldDeleteLocalBranch ? (
-                <Icon name="checkbox" className="size-4 text-primary" />
+                <Icon name="checkbox" className="size-4 text-primary-text" />
             ) : (
                 <Icon name="checkbox-blank" className="size-4" />
             )}
@@ -724,7 +724,7 @@ export const SessionDialogs: React.FC = () => {
                 className="inline-flex items-center gap-1.5 typography-meta text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                 aria-pressed={!showDeletionDialog}
             >
-                {!showDeletionDialog ? <Icon name="checkbox" className="size-4 text-primary" /> : <Icon name="checkbox-blank" className="size-4" />}
+                {!showDeletionDialog ? <Icon name="checkbox" className="size-4 text-primary-text" /> : <Icon name="checkbox-blank" className="size-4" />}
                 {t('sessions.sidebar.dialogs.neverAsk')}
             </button>
             <div className="flex items-center gap-2">

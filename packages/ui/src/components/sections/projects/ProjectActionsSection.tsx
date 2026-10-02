@@ -284,7 +284,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                     type="button"
                     variant="ghost"
                     size="xs"
-                    className="!font-normal h-7 w-7 px-0 text-muted-foreground hover:text-[var(--status-error)]"
+                    className="!font-normal h-7 w-7 px-0 text-muted-foreground hover:text-status-error-text"
                     onClick={() => handleRemoveAction(action.id)}
                   >
                     <Icon name="delete-bin" className="h-3.5 w-3.5" />
@@ -316,7 +316,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                                   onClick={() => updateAction(action.id, (current) => ({ ...current, icon: entry.key }))}
                                   className={cn(
                                     'inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-foreground hover:bg-[var(--interactive-hover)]',
-                                    selected && 'border-[var(--primary-base)] bg-[var(--primary-base)]/10 text-[var(--primary-base)]'
+                                    selected && 'border-[var(--primary-base)] bg-[var(--primary-base)]/10 text-primary-text'
                                   )}
                                   aria-label={t('settings.projects.actions.field.iconAria', { icon: entry.label })}
                                 >
@@ -478,7 +478,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       )}
 
       {validationError && actions.length > 0 ? (
-        <p className="typography-meta text-[var(--status-warning)]">{validationError}</p>
+        <p className="typography-meta text-status-warning-text">{validationError}</p>
       ) : null}
     </ProjectSettingsSubsection>
   );

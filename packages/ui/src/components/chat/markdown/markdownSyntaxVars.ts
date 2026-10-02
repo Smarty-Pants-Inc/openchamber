@@ -25,7 +25,7 @@ export const getMarkdownSyntaxVars = (theme: Theme): Record<string, string> => {
     '--md-syntax-type': base.type,
     '--md-syntax-variable': base.variable,
     '--md-syntax-property': tokens.variableProperty ?? base.variable,
-    '--md-syntax-inserted': status.success,
-    '--md-syntax-deleted': status.error,
+    '--md-syntax-inserted': `var(--status-success-text, ${status.success})`,
+    '--md-syntax-deleted': `var(--status-error-text, ${status.error})`,
   };
 };

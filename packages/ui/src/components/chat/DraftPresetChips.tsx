@@ -153,7 +153,7 @@ const TrashDropZone: React.FC = () => {
             // feedback is color-only (no resize).
             className={cn(
                 ROUND_ICON_BUTTON_CLASS,
-                isOver ? 'border-destructive text-destructive' : 'text-muted-foreground',
+                isOver ? 'border-destructive text-status-error-text' : 'text-muted-foreground',
             )}
             style={{
                 backgroundColor: currentTheme?.colors?.surface?.elevated,

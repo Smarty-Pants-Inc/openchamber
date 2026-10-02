@@ -204,7 +204,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                 <button
                     key={`skill-${slashIndex}-${skillName}`}
                     type="button"
-                    className="text-primary hover:underline"
+                    className="text-primary-text hover:underline"
                     onClick={(event) => {
                         event.stopPropagation();
                         openSkill(skillName);
@@ -233,7 +233,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                 <a
                     key={`agent-${index}`}
                     href={buildAgentMentionUrl(agentMention.name)}
-                    className="text-primary hover:underline"
+                    className="text-primary-text hover:underline"
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}

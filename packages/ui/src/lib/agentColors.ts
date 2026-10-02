@@ -1,14 +1,14 @@
 
 
 const AGENT_COLOR_PALETTE = [
-  { var: '--status-success', class: 'agent-success' },
-  { var: '--syntax-keyword', class: 'agent-keyword' },
-  { var: '--syntax-type', class: 'agent-type' },
-  { var: '--syntax-function', class: 'agent-function' },
-  { var: '--syntax-number', class: 'agent-number' },
-  { var: '--status-info', class: 'agent-info' },
-  { var: '--status-warning', class: 'agent-warning' },
-  { var: '--syntax-variable', class: 'agent-variable' },
+  { var: '--status-success', textVar: '--status-success-text', class: 'agent-success' },
+  { var: '--syntax-keyword', textVar: '--syntax-keyword', class: 'agent-keyword' },
+  { var: '--syntax-type', textVar: '--syntax-type', class: 'agent-type' },
+  { var: '--syntax-function', textVar: '--syntax-function', class: 'agent-function' },
+  { var: '--syntax-number', textVar: '--syntax-number', class: 'agent-number' },
+  { var: '--status-info', textVar: '--status-info-text', class: 'agent-info' },
+  { var: '--status-warning', textVar: '--status-warning-text', class: 'agent-warning' },
+  { var: '--syntax-variable', textVar: '--syntax-variable', class: 'agent-variable' },
 ];
 
 export function getAgentColor(agentName: string | undefined) {

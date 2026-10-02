@@ -78,7 +78,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
                         type="button"
                         className={cn(
                             'flex w-full items-center justify-between rounded-lg border border-border/40 bg-background/95 px-2 py-1.5 text-left',
-                            !agentName ? 'bg-primary/10 text-primary' : 'text-foreground'
+                            !agentName ? 'bg-primary/10 text-primary-text' : 'text-foreground'
                         )}
                         onClick={() => {
                             handleAgentChange('');
@@ -99,7 +99,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
                                 type="button"
                                 className={cn(
                                     'flex w-full items-center justify-between rounded-lg border border-border/40 bg-background/95 px-2 py-1.5 text-left',
-                                    isSelected ? 'bg-primary/10 text-primary' : 'text-foreground'
+                                    isSelected ? 'bg-primary/10 text-primary-text' : 'text-foreground'
                                 )}
                                 onClick={() => {
                                     handleAgentChange(agent.name);

@@ -307,7 +307,7 @@ export function ComposerContextChips({ draftTarget, colors }: ComposerContextChi
         }
         byKind('review', 'chat-1', t('chat.chatInput.reviewComments'), (draft) => REVIEW_SOURCES.includes(draft.source));
         byKind('pr-comment', 'git-pull-request', t('chat.chatInput.prCommentContext'), (draft) => draft.source === 'pr-comment');
-        byKind('pr-check', 'close-circle', t('chat.chatInput.prCheckContext'), (draft) => draft.source === 'pr-check', 'text-[var(--status-error)]');
+        byKind('pr-check', 'close-circle', t('chat.chatInput.prCheckContext'), (draft) => draft.source === 'pr-check', 'text-status-error-text');
         byKind('chat-quote', 'chat-1', t('chat.chatInput.chatQuoteContext'), (draft) => draft.source === 'chat-quote');
         byKind('annotation', 'global', t('chat.chatInput.previewAnnotations'), (draft) => draft.source === 'preview-annotation');
         return result;
@@ -375,7 +375,7 @@ export function ComposerContextChips({ draftTarget, colors }: ComposerContextChi
                         <Icon name={group.icon} className={`h-3.5 w-3.5 shrink-0 text-muted-foreground ${group.iconClassName ?? ''}`} />
                         <span className="truncate text-xs font-medium text-muted-foreground">{group.label}</span>
                         {group.count > 0 ? (
-                            <span className="text-xs font-semibold" style={{ color: colors?.status?.info }}>
+                            <span className="text-xs font-semibold" style={{ color: 'var(--status-info-text, var(--status-info))' }}>
                                 {group.count}
                             </span>
                         ) : null}

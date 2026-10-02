@@ -410,8 +410,8 @@ export const SkillsCatalogPage: React.FC<SkillsCatalogPageProps> = ({ mode, onMo
         {lastCatalogError && (
           <SettingsSection>
             <div className="rounded-lg border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-4 py-3">
-              <div className="typography-ui-label font-medium text-[var(--status-error)]">{t('settings.skills.catalog.page.error.catalogTitle')}</div>
-              <div className="typography-meta text-[var(--status-error)]/80 mt-1">{lastCatalogError.message}</div>
+              <div className="typography-ui-label font-medium text-status-error-text">{t('settings.skills.catalog.page.error.catalogTitle')}</div>
+              <div className="typography-meta text-status-error-text/80 mt-1">{lastCatalogError.message}</div>
             </div>
           </SettingsSection>
         )}
@@ -447,7 +447,7 @@ export const SkillsCatalogPage: React.FC<SkillsCatalogPageProps> = ({ mode, onMo
                 <Button
                   variant="ghost"
                   size="xs"
-                  className="!font-normal h-6 w-6 px-0 text-[var(--status-error)] hover:text-[var(--status-error)]"
+                  className="!font-normal h-6 w-6 px-0 text-status-error-text hover:text-status-error-text"
                   onClick={() => setIsRemoveCatalogDialogOpen(true)}
                   disabled={isRemovingCatalog}
                   title={t('settings.skills.catalog.page.actions.removeCatalogTitle')}
@@ -482,12 +482,12 @@ export const SkillsCatalogPage: React.FC<SkillsCatalogPageProps> = ({ mode, onMo
                           <div className="flex items-center gap-2">
                             <span className="typography-ui-label font-medium text-foreground truncate">{item.skillName}</span>
                             {installed && (
-                              <span className="typography-micro text-[var(--status-success)] bg-[var(--status-success)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                              <span className="typography-micro text-status-success-text bg-[var(--status-success)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
                                 {t('settings.skills.catalog.page.badge.installed', { scope: installedScope || t('settings.skills.catalog.page.badge.unknown') })}
                               </span>
                             )}
                             {!item.installable && (
-                              <span className="typography-micro text-[var(--status-warning)] bg-[var(--status-warning)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                              <span className="typography-micro text-status-warning-text bg-[var(--status-warning)]/10 px-1.5 py-0.5 rounded flex-shrink-0">
                                 {t('settings.skills.catalog.page.badge.notInstallable')}
                               </span>
                             )}
@@ -523,7 +523,7 @@ export const SkillsCatalogPage: React.FC<SkillsCatalogPageProps> = ({ mode, onMo
                           </div>
 
                           {item.warnings?.length ? (
-                            <div className="typography-micro text-[var(--status-warning)] mt-1.5 bg-[var(--status-warning)]/10 px-2 py-1 rounded w-fit">
+                            <div className="typography-micro text-status-warning-text mt-1.5 bg-[var(--status-warning)]/10 px-2 py-1 rounded w-fit">
                               {item.warnings.join(' · ')}
                             </div>
                           ) : null}
@@ -542,7 +542,7 @@ export const SkillsCatalogPage: React.FC<SkillsCatalogPageProps> = ({ mode, onMo
                             </Button>
                           )}
                           {installed ? (
-                            <span className="text-[var(--status-success)] flex items-center justify-center w-7 h-7" title={t('settings.skills.catalog.page.badge.installed', { scope: installedScope || '' })}>
+                            <span className="text-status-success-text flex items-center justify-center w-7 h-7" title={t('settings.skills.catalog.page.badge.installed', { scope: installedScope || '' })}>
                               <Icon name="check" className="h-4 w-4" />
                             </span>
                           ) : (

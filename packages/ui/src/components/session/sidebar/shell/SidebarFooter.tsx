@@ -64,7 +64,7 @@ export function SidebarFooter({
           type="button"
           variant="default"
           size="xs"
-          className="ml-auto border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)] hover:bg-[var(--status-info-background)]/80 hover:text-[var(--status-info)] dark:border-[var(--status-info-border)] dark:bg-[var(--status-info-background)] dark:hover:bg-[var(--status-info-background)]/80"
+          className="ml-auto border-[var(--status-info-border)] bg-[var(--status-info-background)] text-status-info-text hover:bg-[var(--status-info-background)]/80 hover:text-status-info-text dark:border-[var(--status-info-border)] dark:bg-[var(--status-info-background)] dark:hover:bg-[var(--status-info-background)]/80"
           onClick={onOpenUpdate}
         >
           {t('sessions.sidebar.footer.actions.update')}

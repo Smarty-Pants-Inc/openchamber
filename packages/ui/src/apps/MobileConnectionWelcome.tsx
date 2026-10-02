@@ -148,7 +148,7 @@ export const MobileConnectionWelcome: React.FC<{
             role="status"
             className="flex w-full items-center gap-3 rounded-[18px] border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-3.5 py-3"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-[var(--status-warning)]">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-status-warning-text">
               <Icon name={notice.kind === 'auth-expired' ? 'lock' : 'cloud-off'} className="size-[18px]" />
             </span>
             <p className="min-w-0 flex-1 typography-small text-foreground">
@@ -182,7 +182,7 @@ export const MobileConnectionWelcome: React.FC<{
               autoFocus
               className={mobileConnectionInputClass}
             />
-            {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
+            {error ? <p className="px-1 text-center typography-small text-status-error-text">{error}</p> : null}
             <Button type="submit" size="lg" className="mt-1 h-12 w-full" disabled={isPasswordBusy || !password.trim()}>
               {isPasswordBusy ? t('mobile.connect.connecting') : t('mobile.connect.unlockButton')}
             </Button>
@@ -217,7 +217,7 @@ export const MobileConnectionWelcome: React.FC<{
               </div>
             ) : null}
 
-            {error && !manualOpen ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
+            {error && !manualOpen ? <p className="px-1 text-center typography-small text-status-error-text">{error}</p> : null}
 
             {connections.length > 0 ? (
               <section className="flex w-full flex-col gap-2.5">
@@ -314,7 +314,7 @@ export const MobileConnectionWelcome: React.FC<{
                       className={cn(mobileConnectionInputClass, 'text-center')}
                     />
                     <p className="px-1 text-center typography-micro text-muted-foreground">{t('mobile.connect.token.hint')}</p>
-                    {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
+                    {error ? <p className="px-1 text-center typography-small text-status-error-text">{error}</p> : null}
                     <Button type="submit" variant={qrScanSupported ? 'outline' : 'default'} size="lg" className="h-12 w-full" disabled={isBusy || isScanning || !serverUrl.trim()}>
                       {isBusy ? t('mobile.connect.connecting') : t('mobile.connect.connectButton')}
                     </Button>

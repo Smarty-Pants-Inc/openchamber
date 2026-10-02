@@ -711,7 +711,7 @@ const StaticToolRowInner: React.FC<{
                             'min-w-0 flex-1 inline-flex items-center gap-1.5 underline decoration-[color:var(--status-info)] underline-offset-2 hover:opacity-90',
                             'truncate whitespace-nowrap', TOOL_ROW_DESCRIPTION_CLASS
                         )}
-                        style={{ color: 'var(--status-info)' }}
+                        style={{ color: 'var(--status-info-text, var(--status-info))' }}
                         title={url}
                     >
                         <span className="inline-flex size-[18px] flex-shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)]">

@@ -855,7 +855,7 @@ const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, on
           onClick={toggleArchivedSessions}
           className={cn(
             'inline-flex h-8 w-8 items-center justify-center p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-            showArchivedSessions ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+            showArchivedSessions ? 'text-primary-text' : 'text-muted-foreground hover:text-foreground',
           )}
           aria-label={t('sessions.sidebar.header.displayMode.showArchived')}
           aria-pressed={showArchivedSessions}

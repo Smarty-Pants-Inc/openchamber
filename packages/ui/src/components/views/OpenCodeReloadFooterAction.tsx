@@ -179,7 +179,7 @@ export const OpenCodeReloadFooterAction: React.FC<OpenCodeReloadFooterActionProp
               aria-pressed={dontShowAgain}
             >
               {dontShowAgain
-                ? <Icon name="checkbox" className="h-4 w-4 text-primary" />
+                ? <Icon name="checkbox" className="h-4 w-4 text-primary-text" />
                 : <Icon name="checkbox-blank" className="h-4 w-4" />}
               {t('settings.view.pendingRestart.confirm.dontShowAgain')}
             </button>

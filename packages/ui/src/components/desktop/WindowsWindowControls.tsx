@@ -213,7 +213,7 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
           // foreground (the --destructive pairing). The error-background wash
           // is a banner surface tint, not a glyph-button hover: against it the
           // on-solid foreground is unreadable in both modes.
-          'hover:bg-[var(--status-error)] hover:text-[var(--status-error-foreground)]',
+          'hover:bg-[var(--status-error-background)] hover:text-status-error-text',
         )}
         onClick={() => { void invokeDesktop('desktop_close_current_window'); }}
         title={t('header.windowControls.close')}

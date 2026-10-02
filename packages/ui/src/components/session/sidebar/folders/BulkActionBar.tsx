@@ -45,7 +45,7 @@ export const BulkActionBar: React.FC<Props> = ({
     ? t('sessions.sidebar.bulkActions.delete')
     : t('sessions.sidebar.bulkActions.archive');
   const iconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
-  const destructiveIconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50';
+  const destructiveIconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-status-error-text hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50';
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-t border-border px-2.5 py-1.5">
@@ -90,7 +90,7 @@ export const BulkActionBar: React.FC<Props> = ({
               {canRemoveFromFolder ? (
                 <DropdownMenuItem
                   onClick={onRemoveFromFolder}
-                  className="text-destructive focus:text-destructive"
+                  className="text-status-error-text focus:text-status-error-text"
                 >
                   <Icon name="close" className="mr-1 h-4 w-4" />
                   {t('sessions.sidebar.folders.removeFromFolder')}

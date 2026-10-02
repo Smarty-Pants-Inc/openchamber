@@ -11,6 +11,14 @@ export const sessionGoalStatusColor: Record<SessionGoalStatus, string> = {
   complete: 'var(--status-success)',
 };
 
+export const sessionGoalStatusTextColor = {
+  active: 'var(--status-info-text, var(--status-info))',
+  paused: 'var(--surface-muted-foreground)',
+  blocked: 'var(--status-warning-text, var(--status-warning))',
+  budgetLimited: 'var(--status-warning-text, var(--status-warning))',
+  complete: 'var(--status-success-text, var(--status-success))',
+} satisfies Record<SessionGoalStatus, string>;
+
 export const sessionGoalStatusLabelKey: Record<SessionGoalStatus, string> = {
   active: 'chat.goal.status.active',
   paused: 'chat.goal.status.paused',

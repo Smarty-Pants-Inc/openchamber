@@ -97,7 +97,7 @@ export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory 
               }}
               className="shrink-0 rounded p-0.5 transition-opacity hover:opacity-70 disabled:opacity-40"
             >
-              <Icon name="pushpin-2-fill" className="size-3.5" style={{ color: 'var(--primary)' }} />
+              <Icon name="pushpin-2-fill" className="size-3.5" style={{ color: 'var(--primary-text, var(--primary))' }} />
             </button>
           )}
           muted

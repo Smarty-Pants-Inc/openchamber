@@ -176,7 +176,7 @@ const LinearFilterMenu: React.FC<{
           aria-label={ariaLabel}
           title={compact ? label : undefined}
         >
-          <Icon name={icon} className={cn('size-3.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+          <Icon name={icon} className={cn('size-3.5 shrink-0', active ? 'text-primary-text' : 'text-muted-foreground')} />
           {!compact ? (
             <>
               <span className="min-w-0 truncate">{label}</span>
@@ -655,7 +655,7 @@ export const LinearIssuesView: React.FC = () => {
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         {createInWorktree ? (
-          <Icon name="checkbox" className="h-4 w-4 text-primary" />
+          <Icon name="checkbox" className="h-4 w-4 text-primary-text" />
         ) : (
           <Icon name="checkbox-blank" className="h-4 w-4" />
         )}
@@ -919,7 +919,7 @@ export const LinearIssuesView: React.FC = () => {
       <div className="px-3 pt-3 space-y-2">
         {showSearchField ? (
           <div className="relative">
-            <Icon name="search" className={cn('absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4', searchActive ? 'text-primary' : 'text-muted-foreground')} />
+            <Icon name="search" className={cn('absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4', searchActive ? 'text-primary-text' : 'text-muted-foreground')} />
             <Input
               ref={searchInputRef}
               placeholder={t('session.linearIssuePicker.searchPlaceholder')}

@@ -71,7 +71,7 @@ const AgentGroupItem: React.FC<AgentGroupItemProps> = ({ group, isSelected, isBu
   const relativeTime = formatRelativeTime(group.lastActive);
   const renderGroupMenuItems = (Item: React.ElementType) => (
     <Item
-      className="text-destructive focus:text-destructive"
+      className="text-status-error-text focus:text-status-error-text"
       onSelect={(e: React.MouseEvent) => {
         e.stopPropagation();
         setMenuOpen(false);

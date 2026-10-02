@@ -246,7 +246,7 @@ function DropdownMenuRadioItem({
       )}
       {...props}
     >
-      <span className="pointer-events-none absolute right-2 flex size-3.5 items-center justify-center text-primary">
+      <span className="pointer-events-none absolute right-2 flex size-3.5 items-center justify-center text-primary-text">
         <BaseMenu.RadioItemIndicator>
           <Icon name="check" className="size-3" />
         </BaseMenu.RadioItemIndicator>

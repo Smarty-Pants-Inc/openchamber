@@ -586,7 +586,7 @@ export function GitHubIssuePickerDialog({
                   {issue.title}
                 </p>
                 {issue.sourceRepo?.source === 'upstream' ? (
-                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info mt-0.5 inline-block">
+                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info-text mt-0.5 inline-block">
                     {issue.sourceRepo.owner}/{issue.sourceRepo.repo}
                   </span>
                 ) : null}
@@ -666,7 +666,7 @@ export function GitHubIssuePickerDialog({
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 {createInWorktree ? (
-                  <Icon name="checkbox" className="h-4 w-4 text-primary" />
+                  <Icon name="checkbox" className="h-4 w-4 text-primary-text" />
                 ) : (
                   <Icon name="checkbox-blank" className="h-4 w-4" />
                 )}

@@ -737,7 +737,7 @@ export const WalkthroughView = ({ directory: rootDirectory, visible = true }: Wa
           to Cancel — far too quiet for something that runs for tens of seconds. */}
       {entry.status === 'generating' && view && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-[var(--status-info-background)] px-3 py-2">
-          <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-[var(--status-info)]" />
+          <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-status-info-text" />
           <span className="typography-meta text-foreground">
             {entry.stage === 'collecting'
               ? t('walkthrough.stage.collecting')
@@ -754,7 +754,7 @@ export const WalkthroughView = ({ directory: rootDirectory, visible = true }: Wa
           claims Ukrainian over English prose. */}
       {(languageMissing || modelMissing) && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-[var(--status-info-background)] px-3 py-2">
-          <Icon name="information" className="size-4 shrink-0 text-[var(--status-info)]" />
+          <Icon name="information" className="size-4 shrink-0 text-status-info-text" />
           <span className="typography-meta text-foreground">
             {languageMissing && modelMissing
               ? t('walkthrough.missing.languageAndModel')
@@ -783,7 +783,7 @@ export const WalkthroughView = ({ directory: rootDirectory, visible = true }: Wa
 
       {view?.isStale && entry.status !== 'generating' && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-status-warning/10 px-3 py-2">
-          <Icon name="error-warning" className="size-4 shrink-0 text-status-warning" />
+          <Icon name="error-warning" className="size-4 shrink-0 text-status-warning-text" />
           <span className="typography-meta text-foreground">
             {t('walkthrough.stale.banner', { count: view.staleStopCount })}
           </span>
@@ -804,7 +804,7 @@ export const WalkthroughView = ({ directory: rootDirectory, visible = true }: Wa
 
       {entry.error && !blockedReason && entry.error.code !== 'no-provider-login' && (
         <div className="flex shrink-0 items-start gap-2 border-b border-border/60 bg-status-error/10 px-3 py-2">
-          <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-error" />
+          <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-error-text" />
           {/* Provider errors arrive as raw JSON bodies. Show a readable amount
               and keep the rest reachable rather than filling the panel. */}
           <span className="typography-meta line-clamp-2 text-foreground" title={entry.error.message}>

@@ -9,8 +9,8 @@ import type { UsageProviderGroup } from './usageGroups';
 const getWindowValueClass = (window: UsageWindow): string => {
   const usedPercent = window.usedPercent;
   if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)) return 'text-foreground';
-  if (usedPercent >= 80) return 'text-[var(--status-error)]';
-  if (usedPercent >= 50) return 'text-[var(--status-warning)]';
+  if (usedPercent >= 80) return 'text-status-error-text';
+  if (usedPercent >= 50) return 'text-status-warning-text';
   return 'text-foreground';
 };
 

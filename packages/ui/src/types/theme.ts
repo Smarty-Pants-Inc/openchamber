@@ -14,6 +14,7 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 
 interface ThemeColor {
   base: string;
+  text?: string;
   hover?: string;
   active?: string;
   foreground?: string;
@@ -48,21 +49,25 @@ interface InteractiveColors {
 
 interface StatusColors {
   error: string;
+  errorText?: string;
   errorForeground: string;
   errorBackground: string;
   errorBorder: string;
 
   warning: string;
+  warningText?: string;
   warningForeground: string;
   warningBackground: string;
   warningBorder: string;
 
   success: string;
+  successText?: string;
   successForeground: string;
   successBackground: string;
   successBorder: string;
 
   info: string;
+  infoText?: string;
   infoForeground: string;
   infoBackground: string;
   infoBorder: string;

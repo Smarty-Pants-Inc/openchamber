@@ -86,7 +86,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
             handleSaveEdit();
           }}
         >
-          <Icon name="git-branch" className="size-4 text-primary" />
+          <Icon name="git-branch" className="size-4 text-primary-text" />
           <input
             ref={inputRef}
             value={editBranchName}
@@ -126,7 +126,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
 
   return (
     <div className="flex w-full min-w-0 items-center gap-1.5 px-2 py-1 h-8">
-      <Icon name="git-branch" className="size-4 text-primary shrink-0" />
+      <Icon name="git-branch" className="size-4 text-primary-text shrink-0" />
       <div className="inline-flex min-w-0 max-w-full items-center gap-1">
         <span className="truncate typography-ui-label font-normal text-foreground">
           {currentBranch || t('gitView.branch.detachedHead')}

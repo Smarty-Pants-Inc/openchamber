@@ -108,7 +108,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
             {isGeneratingMessage ? (
               <Icon name="loader-4" className="size-4 animate-spin" />
             ) : (
-              <Icon name="ai-generate-2" className="size-4 text-primary" />
+              <Icon name="ai-generate-2" className="size-4 text-primary-text" />
             )}
             <span className="commit-actions__label">{t('gitView.commit.generate')}</span>
           </Button>

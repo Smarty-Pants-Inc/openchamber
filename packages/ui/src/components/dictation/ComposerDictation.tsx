@@ -395,12 +395,12 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
                                 </p>
                             )}
                             {status === 'failed' ? (
-                                <p className="typography-meta mt-1" style={{ color: currentTheme.colors.status.error }}>
+                                <p className="typography-meta mt-1" style={{ color: 'var(--status-error-text, var(--status-error))' }}>
                                     {error || t('chat.dictation.failed')}
                                 </p>
                             ) : null}
                             {status === 'recording' && error && !isModelDownloading ? (
-                                <p className="typography-meta mt-1" style={{ color: currentTheme.colors.status.warning }}>
+                                <p className="typography-meta mt-1" style={{ color: 'var(--status-warning-text, var(--status-warning))' }}>
                                     {error}
                                 </p>
                             ) : null}
@@ -460,7 +460,7 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
                                     <button
                                         type="button"
                                         {...keepKeyboardFocusProps}
-                                        className={cn(footerIconButtonClass, 'text-primary hover:text-primary')}
+                                        className={cn(footerIconButtonClass, 'text-primary-text hover:text-primary-text')}
                                         onClick={() => confirmWith('send')}
                                         title={t('chat.dictation.insertAndSend')}
                                         aria-label={t('chat.dictation.insertAndSend')}

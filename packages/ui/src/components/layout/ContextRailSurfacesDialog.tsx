@@ -60,7 +60,7 @@ export const ContextRailSurfacesDialog: React.FC<{
         {!allVisible ? (
           <div className="flex items-center justify-between border-t pt-3">
             {noneVisible ? (
-              <span className="text-xs text-destructive">{t('contextRail.configure.noneWarning')}</span>
+              <span className="text-xs text-status-error-text">{t('contextRail.configure.noneWarning')}</span>
             ) : <span />}
             <Button
               variant="link"

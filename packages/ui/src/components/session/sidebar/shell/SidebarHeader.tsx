@@ -173,7 +173,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={toggleSelectionMode}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent', selectionModeEnabled && 'bg-interactive-hover text-primary')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent', selectionModeEnabled && 'bg-interactive-hover text-primary-text')}
                   aria-label={selectionModeEnabled
                     ? t('sessions.sidebar.header.actions.exitSelection')
                     : t('sessions.sidebar.header.actions.selectSessions')}
@@ -222,7 +222,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     className="flex items-center justify-between"
                   >
                     <span>{t(labelKey)}</span>
-                    {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                    {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary-text" /> : null}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
@@ -242,7 +242,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                         className="flex items-center justify-between"
                       >
                         <span>{t(labelKey)}</span>
-                        {projectDisplayMode === mode ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                        {projectDisplayMode === mode ? <Icon name="check" className="h-4 w-4 text-primary-text" /> : null}
                       </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />
@@ -262,7 +262,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     className="flex items-center justify-between"
                   >
                     <span>{t(labelKey)}</span>
-                    {sessionGroupingMode === mode ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                    {sessionGroupingMode === mode ? <Icon name="check" className="h-4 w-4 text-primary-text" /> : null}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
@@ -275,7 +275,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     className="flex items-center justify-between"
                   >
                     <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
-                    {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                    {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary-text" /> : null}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
@@ -283,7 +283,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   className="flex items-center justify-between"
                 >
                   <span>{t('sessions.sidebar.header.displayMode.stickyHeaders')}</span>
-                  {stickyZoneHeaders ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                  {stickyZoneHeaders ? <Icon name="check" className="h-4 w-4 text-primary-text" /> : null}
                 </DropdownMenuItem>
                 {!isSingleProjectMode ? (
                   <>

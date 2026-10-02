@@ -270,28 +270,28 @@ export const ShortcutRecordingDialog: React.FC<ShortcutRecordingDialogProps> = (
         </div>
 
         {recording.settled && protectedConflict ? (
-          <p className="typography-meta text-[var(--status-error)]">
+          <p className="typography-meta text-status-error-text">
             {t('settings.openchamber.keyboardShortcuts.error.internalConflict')}
           </p>
         ) : recording.settled && prefixConflict ? (
-          <p className="typography-meta text-[var(--status-error)]">
+          <p className="typography-meta text-status-error-text">
             {t('settings.openchamber.keyboardShortcuts.error.prefixConflict', { action: actionLabel(prefixConflict.action) })}
           </p>
         ) : null}
         {recording.settled && exactConflict && !protectedConflict && !prefixConflict ? (
-          <p className="typography-meta text-[var(--status-warning)]">
+          <p className="typography-meta text-status-warning-text">
             {t('settings.openchamber.keyboardShortcuts.error.exactConflict', { action: actionLabel(exactConflict.action) })}
           </p>
         ) : null}
         {recording.settled && contextualPrefixConflict && !protectedConflict && !prefixConflict ? (
-          <p className="typography-meta text-[var(--status-warning)]">
+          <p className="typography-meta text-status-warning-text">
             {t('settings.openchamber.keyboardShortcuts.warning.contextualPrefix', {
               action: conflictActionLabel(contextualPrefixConflict),
             })}
           </p>
         ) : null}
         {recording.settled && combo && isRiskyBrowserShortcut(combo) ? (
-          <p className="typography-meta text-[var(--status-warning)]">
+          <p className="typography-meta text-status-warning-text">
             {t('settings.openchamber.keyboardShortcuts.warning.riskyBrowserShortcut')}
           </p>
         ) : null}

@@ -299,7 +299,7 @@ export function ChooserScreen({ onCliAvailable, localAvailable = true }: Chooser
 
             <div className="app-region-no-drag rounded-lg border border-border bg-background/60 backdrop-blur-sm px-4 py-3 font-mono text-sm">
               {copied ? (
-                <div className="flex items-center gap-2" style={{ color: 'var(--status-success)' }}>
+                <div className="flex items-center gap-2" style={{ color: 'var(--status-success-text, var(--status-success))' }}>
                   <Icon name="check" className="h-4 w-4" />
                   {t('onboarding.common.status.copiedToClipboard')}
                 </div>

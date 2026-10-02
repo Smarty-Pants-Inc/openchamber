@@ -163,7 +163,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                 {canAbort ? (
                     <button
                         type="button"
-                        className={cn(footerIconButtonClass, 'text-[var(--status-error)] hover:text-[var(--status-error)]')}
+                        className={cn(footerIconButtonClass, 'text-status-error-text hover:text-status-error-text')}
                         // The pill shows only while the keyboard is down — the
                         // tap must abort in place, never focus/expand the
                         // composer or raise the keyboard.

@@ -590,7 +590,7 @@ const SessionRow: React.FC<{
               'flex flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
               confirmingDelete
                 ? 'rounded-lg bg-destructive text-destructive-foreground'
-                : 'text-[var(--status-error)] active:opacity-80',
+                : 'text-status-error-text active:opacity-80',
             )}
             aria-label={confirmingDelete
               ? t('mobile.sessions.confirmDeleteSessionAria', { title })
@@ -679,7 +679,7 @@ const SessionRow: React.FC<{
               <span
                 className={cn(
                   'block min-w-0 flex-1 truncate typography-ui-label',
-                  active ? 'text-primary' : 'text-foreground',
+                  active ? 'text-primary-text' : 'text-foreground',
                 )}
               >
                 {title}
@@ -1771,7 +1771,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                               'flex flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
                               confirmingRemoveProjectId === node.project.id
                                 ? 'rounded-lg bg-destructive text-destructive-foreground'
-                                : 'text-[var(--status-error)] active:opacity-80',
+                                : 'text-status-error-text active:opacity-80',
                             )}
                             aria-label={confirmingRemoveProjectId === node.project.id
                               ? t('mobile.sessions.confirmRemoveProjectAria', { label: node.project.label })
@@ -1856,7 +1856,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                         <button
                                           type="button"
                                           tabIndex={revealedRowId === `wt:${bucket.key}` ? 0 : -1}
-                                          className="flex flex-1 items-center justify-center text-[var(--status-error)] transition-colors active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive"
+                                          className="flex flex-1 items-center justify-center text-status-error-text transition-colors active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive"
                                           aria-label={t('mobile.projectEdit.deleteWorktreeAria', { label: bucket.label })}
                                           onClick={() => {
                                             setRevealedRowId(null);
@@ -1896,7 +1896,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                         name="git-branch"
                                         className={cn(
                                           'size-4 shrink-0',
-                                          isActiveWt ? 'text-primary' : 'text-muted-foreground',
+                                          isActiveWt ? 'text-primary-text' : 'text-muted-foreground',
                                         )}
                                       />
                                       <span

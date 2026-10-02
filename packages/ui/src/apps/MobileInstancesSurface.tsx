@@ -178,7 +178,7 @@ export const MobileInstancesSurface: React.FC<{
               autoFocus
               className={inputClass}
             />
-            {error ? <p className="px-1 typography-small text-[var(--status-error)]">{error}</p> : null}
+            {error ? <p className="px-1 typography-small text-status-error-text">{error}</p> : null}
             <Button type="submit" size="lg" className="mt-1 h-12 w-full" disabled={isPasswordBusy || !password.trim()}>
               {isPasswordBusy ? t('mobile.connect.connecting') : t('mobile.connect.unlockButton')}
             </Button>
@@ -241,7 +241,7 @@ export const MobileInstancesSurface: React.FC<{
                         <span className="block truncate typography-ui-label text-foreground">{connection.label}</span>
                         <span className={cn(
                           'block truncate typography-small',
-                          isActive && !isConnectingRow ? 'text-[var(--status-success)]' : 'text-muted-foreground',
+                          isActive && !isConnectingRow ? 'text-status-success-text' : 'text-muted-foreground',
                         )}>
                           {statusText}
                         </span>
@@ -249,11 +249,12 @@ export const MobileInstancesSurface: React.FC<{
                       {isConnectingRow ? <Icon name="loader-4" className="size-5 shrink-0 animate-spin text-muted-foreground" /> : null}
                     </button>
                     <div className="flex items-center gap-0.5 pr-2">
+                      {/* ponytail: Keep the solid delete control opaque; fading can push on-fill text below AA. */}
                       {confirming ? (
                         <button
                           type="button"
                           aria-label={t('mobile.instances.confirmDeleteAria', { label: connection.label })}
-                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-destructive-foreground transition-opacity active:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-destructive-foreground transition-opacity active:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                           onClick={() => confirmDelete(connection.id)}
                           style={{ touchAction: 'manipulation' }}
                         >
@@ -325,7 +326,7 @@ export const MobileInstancesSurface: React.FC<{
                 <Icon name="add" className="size-[18px]" />
                 {t('mobile.instances.addManual')}
               </Button>
-              {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
+              {error ? <p className="px-1 text-center typography-small text-status-error-text">{error}</p> : null}
             </div>
           ) : (
             <form className="space-y-3" onSubmit={saveInstance}>
@@ -375,7 +376,7 @@ export const MobileInstancesSurface: React.FC<{
                 />
                 <p className="px-1 typography-micro text-muted-foreground">{t('mobile.connect.token.hint')}</p>
               </label>
-              {error ? <p className="px-1 typography-small text-[var(--status-error)]">{error}</p> : null}
+              {error ? <p className="px-1 typography-small text-status-error-text">{error}</p> : null}
               <Button type="submit" size="lg" className="mt-1 h-12 w-full">
                 {editingConnection ? t('mobile.instances.saveEdit') : t('mobile.instances.saveNew')}
               </Button>

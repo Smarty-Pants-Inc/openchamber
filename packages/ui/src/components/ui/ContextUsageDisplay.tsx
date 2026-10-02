@@ -64,9 +64,9 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   };
 
   const getPercentageColor = (pct: number) => {
-    if (pct >= 90) return 'text-status-error';
-    if (pct >= 75) return 'text-status-warning';
-    return 'text-status-success';
+    if (pct >= 90) return 'text-status-error-text';
+    if (pct >= 75) return 'text-status-warning-text';
+    return 'text-status-success-text';
   };
 
   const circularProgressSize = 20;

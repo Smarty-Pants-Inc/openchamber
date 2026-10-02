@@ -72,7 +72,7 @@
     font-size: 0.8125rem; /* 13px */
     font-weight: 500;
     line-height: 1.2;
-    color: var(--primary-base);
+    color: var(--primary-text, var(--primary-base));
     transition: color var(--transition-fast, 150ms ease-in-out);
   }
 

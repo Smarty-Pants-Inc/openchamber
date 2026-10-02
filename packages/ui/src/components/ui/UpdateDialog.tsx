@@ -313,7 +313,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
         {/* Header Section */}
         <div className="flex items-center mb-1">
           <DialogTitle className="flex items-center gap-2.5">
-            <Icon name="download-cloud" className="h-5 w-5 text-[var(--primary-base)]" />
+            <Icon name="download-cloud" className="h-5 w-5 text-primary-text" />
             <span className="text-lg font-semibold text-foreground">
               {webUpdateState === 'restarting' || webUpdateState === 'reconnecting'
                 ? t('updateDialog.header.updating')
@@ -331,7 +331,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 <span className="text-muted-foreground/50">→</span>
               )}
               {info?.version && (
-                <span className="text-[var(--primary-base)] font-medium">{info.version}</span>
+                <span className="text-primary-text font-medium">{info.version}</span>
               )}
             </div>
           )}
@@ -344,7 +344,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           {isWebRuntime && isWebUpdating && (
             <div className="rounded-lg bg-[var(--surface-elevated)]/30 p-5 border border-[var(--surface-subtle)]">
               <div className="flex items-center gap-3">
-                <Icon name="loader" className="h-5 w-5 animate-spin text-[var(--primary-base)]" />
+                <Icon name="loader" className="h-5 w-5 animate-spin text-primary-text" />
                 <div className="typography-ui-label text-foreground">
                   {webUpdateState === 'updating' && t('updateDialog.status.installingUpdate')}
                   {webUpdateState === 'restarting' && t('updateDialog.status.serverRestarting')}
@@ -366,7 +366,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
               >
                 {changelog.kind === 'raw' ? (
                   <div
-                    className="p-4 typography-markdown-body text-foreground leading-relaxed break-words [&_a]:!text-[var(--primary-base)] [&_a]:!no-underline [&_a:hover]:!underline [&_h3]:!mt-4 [&_h3]:!mb-1.5 [&_h3]:!text-xs [&_h3]:!font-medium [&_h3]:!uppercase [&_h3]:!tracking-wide [&_h3]:!text-muted-foreground [&_h3:first-child]:!mt-0"
+                    className="p-4 typography-markdown-body text-foreground leading-relaxed break-words [&_a]:!text-primary-text [&_a]:!no-underline [&_a:hover]:!underline [&_h3]:!mt-4 [&_h3]:!mb-1.5 [&_h3]:!text-xs [&_h3]:!font-medium [&_h3]:!uppercase [&_h3]:!tracking-wide [&_h3]:!text-muted-foreground [&_h3:first-child]:!mt-0"
                     onClickCapture={(e) => {
                       const target = e.target as HTMLElement;
                       const a = target.closest('a');
@@ -384,7 +384,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                     {changelog.sections.map((section) => (
                       <div key={section.version} className="p-4">
                         <div className="flex items-center gap-3 mb-3">
-                          <span className="typography-ui-label font-mono text-[var(--primary-base)] bg-[var(--primary-base)]/10 px-1.5 py-0.5 rounded">
+                          <span className="typography-ui-label font-mono text-primary-text bg-[var(--primary-base)]/10 px-1.5 py-0.5 rounded">
                             v{section.version}
                           </span>
                           <span className="text-sm font-medium text-muted-foreground">
@@ -392,7 +392,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                           </span>
                         </div>
                         <div
-                          className="typography-markdown-body text-foreground leading-relaxed break-words [&_a]:!text-[var(--primary-base)] [&_a]:!no-underline [&_a:hover]:!underline [&_h3]:!mt-4 [&_h3]:!mb-1.5 [&_h3]:!text-xs [&_h3]:!font-medium [&_h3]:!uppercase [&_h3]:!tracking-wide [&_h3]:!text-muted-foreground [&_h3:first-child]:!mt-0"
+                          className="typography-markdown-body text-foreground leading-relaxed break-words [&_a]:!text-primary-text [&_a]:!no-underline [&_a:hover]:!underline [&_h3]:!mt-4 [&_h3]:!mb-1.5 [&_h3]:!text-xs [&_h3]:!font-medium [&_h3]:!uppercase [&_h3]:!tracking-wide [&_h3]:!text-muted-foreground [&_h3:first-child]:!mt-0"
                           onClickCapture={(e) => {
                             const target = e.target as HTMLElement;
                             const a = target.closest('a');
@@ -430,7 +430,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                     'flex items-center justify-center p-2 rounded',
                     'text-muted-foreground hover:text-foreground hover:bg-[var(--interactive-hover)]',
                     'transition-colors',
-                    copied && 'text-[var(--status-success)]'
+                    copied && 'text-status-success-text'
                   )}
                   title={copied ? t('updateDialog.actions.copied') : t('updateDialog.actions.copyCommand')}
                 >
@@ -463,7 +463,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           {/* Error display */}
           {(error || webError) && (
             <div className="p-3 mt-4 bg-[var(--status-error-background)] border border-[var(--status-error-border)] rounded-lg">
-              <p className="text-sm text-[var(--status-error)]">{error || webError}</p>
+              <p className="text-sm text-status-error-text">{error || webError}</p>
             </div>
           )}
         </div>

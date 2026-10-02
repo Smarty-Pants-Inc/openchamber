@@ -63,7 +63,7 @@ export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcce
             title={ariaLabel}
         >
             {permissionAutoAcceptEnabled ? (
-                <Icon name="shield-check" className={cn(iconSizeClass)} style={{ color: 'var(--status-info)' }} />
+                <Icon name="shield-check" className={cn(iconSizeClass)} style={{ color: 'var(--status-info-text, var(--status-info))' }} />
             ) : (
                 <Icon name="shield-user" className={cn(iconSizeClass)} />
             )}

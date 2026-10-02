@@ -66,7 +66,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             className={cn(
                 footerIconButtonClass,
                 canSend && (currentSessionId || newSessionDraftOpen)
-                    ? 'text-primary hover:text-primary'
+                    ? 'text-primary-text hover:text-primary-text'
                     : 'opacity-30'
             )}
             aria-label={t('chat.chatInput.actions.sendMessageAria')}
@@ -95,7 +95,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     className={cn(
                         footerIconButtonClass,
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
-                        currentSessionId && !sendDisabledReason ? 'text-primary hover:text-primary' : 'opacity-30'
+                        currentSessionId && !sendDisabledReason ? 'text-primary-text hover:text-primary-text' : 'opacity-30'
                     )}
                     aria-label={t(sendWhileWorking ? 'chat.coSteer.sendWhileWorking' : 'chat.chatInput.actions.queueMessageAria')}
                     title={sendDisabledReason ?? (sendWhileWorking ? t('chat.coSteer.sendWhileWorking') : undefined)}
@@ -108,7 +108,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                 onClick={onAbort}
                 className={cn(
                     footerIconButtonClass,
-                    'text-[var(--status-error)] hover:text-[var(--status-error)]'
+                    'text-status-error-text hover:text-status-error-text'
                 )}
                 aria-label={t('chat.chatInput.actions.stopGeneratingAria')}
             >

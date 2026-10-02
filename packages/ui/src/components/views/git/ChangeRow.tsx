@@ -12,12 +12,12 @@ type ChangeDescriptor = {
 };
 
 const CHANGE_DESCRIPTORS: Record<string, ChangeDescriptor> = {
-  '?': { code: '?', color: 'var(--status-info)', description: 'Untracked file' },
-  A: { code: 'A', color: 'var(--status-success)', description: 'New file' },
-  D: { code: 'D', color: 'var(--status-error)', description: 'Deleted file' },
-  R: { code: 'R', color: 'var(--status-info)', description: 'Renamed file' },
-  C: { code: 'C', color: 'var(--status-info)', description: 'Copied file' },
-  M: { code: 'M', color: 'var(--status-warning)', description: 'Modified file' },
+  '?': { code: '?', color: 'var(--status-info-text, var(--status-info))', description: 'Untracked file' },
+  A: { code: 'A', color: 'var(--status-success-text, var(--status-success))', description: 'New file' },
+  D: { code: 'D', color: 'var(--status-error-text, var(--status-error))', description: 'Deleted file' },
+  R: { code: 'R', color: 'var(--status-info-text, var(--status-info))', description: 'Renamed file' },
+  C: { code: 'C', color: 'var(--status-info-text, var(--status-info))', description: 'Copied file' },
+  M: { code: 'M', color: 'var(--status-warning-text, var(--status-warning))', description: 'Modified file' },
 };
 
 const DEFAULT_DESCRIPTOR = CHANGE_DESCRIPTORS.M;
@@ -163,9 +163,9 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
           );
         })()}
         <span className="shrink-0 typography-micro">
-          <span style={{ color: 'var(--status-success)' }}>+{insertions}</span>
+          <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{insertions}</span>
           <span className="text-muted-foreground mx-0.5">/</span>
-          <span style={{ color: 'var(--status-error)' }}>-{deletions}</span>
+          <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{deletions}</span>
         </span>
         {showRevert ? (
           <Tooltip>

@@ -30,8 +30,8 @@ const STATUS_RANK: Record<string, number> = {
 
 /** Same icons the composer's todo dropdown uses, so one list does not read as two. */
 const statusIcon = (status: string): { name: 'record-circle' | 'checkbox-circle' | 'time'; color?: string } => {
-  if (status === 'in_progress') return { name: 'record-circle', color: 'var(--status-info)' };
-  if (status === 'completed') return { name: 'checkbox-circle', color: 'var(--status-success)' };
+  if (status === 'in_progress') return { name: 'record-circle', color: 'var(--status-info-text, var(--status-info))' };
+  if (status === 'completed') return { name: 'checkbox-circle', color: 'var(--status-success-text, var(--status-success))' };
   return { name: 'time' };
 };
 

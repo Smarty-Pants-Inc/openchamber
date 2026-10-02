@@ -1757,7 +1757,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                     <span className="typography-meta font-medium text-foreground truncate">
                                         {getModelDisplayName(model)}
                                     </span>
-                                    {isSelected ? <Icon name="check" className="size-4 flex-shrink-0 text-primary" /> : null}
+                                    {isSelected ? <Icon name="check" className="size-4 flex-shrink-0 text-primary-text" /> : null}
                                 </div>
                                 {contextText || indicatorIcons.length > 0 ? (
                                     <div className="flex min-w-0 items-center gap-1.5 overflow-hidden typography-micro text-muted-foreground">
@@ -1808,8 +1808,8 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                     toggleFavoriteModel(providerId, modelId);
                                 }}
                                 className={cn(
-                                    'model-favorite-button flex size-5 items-center justify-center hover:text-primary/80 flex-shrink-0',
-                                    isFavoriteModel(providerId, modelId) ? 'text-primary' : 'text-muted-foreground'
+                                    'model-favorite-button flex size-5 items-center justify-center hover:text-primary-text/80 flex-shrink-0',
+                                    isFavoriteModel(providerId, modelId) ? 'text-primary-text' : 'text-muted-foreground'
                                 )}
                                 aria-label={isFavoriteModel(providerId, modelId)
                                     ? t('chat.modelControls.unfavoriteAria')
@@ -1912,7 +1912,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                     {filteredFavorites.length > 0 && (
                         <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                <Icon name="star-fill" className="size-3 inline-block mr-1.5 text-primary" />
+                                <Icon name="star-fill" className="size-3 inline-block mr-1.5 text-primary-text" />
                                 {t('chat.modelControls.favorites')}
                             </div>
                             <div className="flex flex-col border-t border-border/30">
@@ -1974,7 +1974,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                             {provider.name}
                                         </span>
                                         {isActiveProvider && (
-                                            <span className="typography-micro text-primary/80">{t('chat.modelControls.current')}</span>
+                                            <span className="typography-micro text-primary-text/80">{t('chat.modelControls.current')}</span>
                                         )}
                                     </div>
                                     {isExpanded ? (
@@ -2061,7 +2061,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                         onClick={() => handleSelect(undefined)}
                     >
                         <span className="typography-meta font-medium text-foreground">{t('chat.modelControls.default')}</span>
-                        {isDefault && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
+                        {isDefault && <Icon name="check" className="size-4 text-primary-text flex-shrink-0" />}
                     </button>
 
                     {targetVariants.map((variant) => {
@@ -2080,7 +2080,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                 onClick={() => handleSelect(variant)}
                             >
                                 <span className="typography-meta font-medium text-foreground">{label}</span>
-                                {selected && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
+                                {selected && <Icon name="check" className="size-4 text-primary-text flex-shrink-0" />}
                             </button>
                         );
                     })}
@@ -2122,12 +2122,12 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                     <div className={cn('size-2.5 rounded-full flex-shrink-0', agentColor.class)} />
                                     <span
                                         className="typography-ui-label font-semibold"
-                                        style={isSelected ? { color: `var(${agentColor.var})` } : undefined}
+                                        style={isSelected ? { color: `var(${agentColor.textVar})` } : undefined}
                                     >
                                         {capitalizeAgentName(agent.name)}
                                     </span>
                                     {isSelected && (
-                                        <Icon name="check" className="size-4 text-primary ml-auto flex-shrink-0" />
+                                        <Icon name="check" className="size-4 text-primary-text ml-auto flex-shrink-0" />
                                     )}
                                 </div>
                                 {agent.description && (
@@ -2374,7 +2374,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                                 providerId={currentProviderId}
                                                 className={cn(controlIconSize, 'flex-shrink-0')}
                                             />
-                                            <Icon name="pencil-ai" className={cn(controlIconSize, 'text-primary/60 hidden')} />
+                                            <Icon name="pencil-ai" className={cn(controlIconSize, 'text-primary-text/60 hidden')} />
                                         </>
                                     ) : (
                                         <Icon name="pencil-ai" className={cn(controlIconSize, 'text-muted-foreground')} />
@@ -2652,7 +2652,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
 
         const displayVariant = currentVariant ?? t('chat.modelControls.default');
         const isDefault = !currentVariant;
-        const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
+        const colorClass = isDefault ? 'text-muted-foreground' : 'text-status-info-text';
 
         if (isCompact) {
             return (
@@ -2710,7 +2710,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                         <DropdownMenuItem className="typography-meta" onSelect={() => handleVariantSelect(undefined)}>
                             <div className="flex items-center justify-between gap-2 w-full min-w-0">
                                 <span className="typography-meta font-medium text-foreground truncate min-w-0">{t('chat.modelControls.default')}</span>
-                                {isDefault && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
+                                {isDefault && <Icon name="check" className="size-4 text-primary-text flex-shrink-0" />}
                             </div>
                         </DropdownMenuItem>
                         {availableVariants.length > 0 && <DropdownMenuSeparator />}
@@ -2725,7 +2725,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                 >
                                     <div className="flex items-center justify-between gap-2 w-full min-w-0">
                                         <span className="typography-meta font-medium text-foreground truncate min-w-0">{label}</span>
-                                        {selected && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
+                                        {selected && <Icon name="check" className="size-4 text-primary-text flex-shrink-0" />}
                                     </div>
                                 </DropdownMenuItem>
                             );
@@ -2777,7 +2777,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                                         'flex-shrink-0',
                                                         uiAgentName ? '' : 'text-muted-foreground'
                                                     )}
-                                                    style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).var})` } : undefined}
+                                                    style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).textVar})` } : undefined}
                                                 />
                                                 <span
                                                     className={cn(
@@ -2786,7 +2786,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                                         'font-medium min-w-0 truncate',
                                                         isDesktop ? 'max-w-[220px]' : undefined
                                                     )}
-                                                    style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).var})` } : undefined}
+                                                    style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).textVar})` } : undefined}
                                                 >
                                                     {getAgentDisplayName()}
                                                 </span>
@@ -2899,7 +2899,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                 'flex-shrink-0',
                                 uiAgentName ? '' : 'text-muted-foreground'
                             )}
-                            style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).var})` } : undefined}
+                            style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).textVar})` } : undefined}
                         />
                         <span
                             className={cn(
@@ -2908,7 +2908,7 @@ const ConfiguredModelControls: React.FC<ModelControlsProps> = ({
                                 'font-medium truncate min-w-0',
                                 isMobile && 'max-w-[60px]'
                             )}
-                            style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).var})` } : undefined}
+                            style={uiAgentName ? { color: `var(${getAgentColor(uiAgentName).textVar})` } : undefined}
                         >
                             {getAgentDisplayName()}
                         </span>

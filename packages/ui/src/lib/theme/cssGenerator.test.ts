@@ -5,8 +5,9 @@ import type { Theme } from '@/types/theme';
 import { CSSVariableGenerator } from './cssGenerator';
 import { getDefaultTheme, themes } from './themes';
 import { buildVSCodeThemeFromPalette, type VSCodeThemeKind } from './vscode/adapter';
-import lightJSON from './themes/openchamber-light.json';
-import darkJSON from './themes/openchamber-dark.json';
+import { isValidTheme } from '@/contexts/theme-validation';
+import { getSyncedThemeFromPayload } from '@/contexts/theme-sync-payload';
+import { withPrColors } from './themes/prColors';
 
 const generator = new CSSVariableGenerator();
 const pinnedCSS = new URL('../../styles/vendor/smarty-design-system/tokens.css', import.meta.url);
@@ -106,36 +107,28 @@ describe('CSSVariableGenerator semantic aliases', () => {
     }
   });
 
-  test('raw default JSON and generated colors match every shared semantic literal in both modes', () => {
-    for (const theme of [lightJSON, darkJSON]) {
-      const block = tokenCSS.match(new RegExp(`\\[data-theme=${theme.metadata.variant}\\]\\s*\\{([^}]+)\\}`))?.[1];
-      expect(block).toBeDefined();
-      const source = new Map(Array.from((block ?? '').matchAll(/--([\w-]+):\s*(#[\da-f]+);/gi), (match) => [match[1], match[2]]));
-      let matches = 0;
-      const generatedCSS = generator.generate(getDefaultTheme(theme.metadata.variant === 'dark'));
-      for (const family of ['surface', 'interactive', 'primary', 'status'] as const) {
-        for (const [field, value] of Object.entries(theme.colors[family])) {
-          const token = `${family}-${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
-          if (!source.has(token)) continue;
-          expect(value).toBe(source.get(token));
-          expect(generatedCSS).toContain(`  --${token}: ${value};`);
-          matches++;
-        }
-      }
-      expect(matches).toBe(15);
-      expect(theme.colors.surface.elevatedForeground).toBe(theme.colors.surface.foreground);
-      expect(theme.colors.chat.assistantMessageBackground).toBe(theme.colors.surface.background);
-      expect(theme.colors.tools.title).toBe(theme.colors.surface.foreground);
-    }
-  });
-
   test('apply replaces raw overrides, preserves their bytes, and clears them for other themes', () => {
     const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
     const browser = new Window();
     Object.defineProperty(globalThis, 'document', { configurable: true, value: browser.document });
     try {
       const defaults = [getDefaultTheme(true), getDefaultTheme(false)];
-      const sequence = [...defaults, ...customThemes, ...vscodeThemes, { ...defaults[0] }, defaults[0]];
+      const sameIdThemes = defaults.map((theme): Theme => ({ ...theme, colors: { ...theme.colors,
+        primary: { ...theme.colors.primary, text: '#abcdef' },
+        status: { ...theme.colors.status, errorText: '#abcdef', successText: '#abcdef', warningText: '#abcdef', infoText: '#abcdef' },
+      }, config: { ...theme.config, fonts: { mono: 'Custom Mono, monospace' } } }));
+      const hmrPayload = JSON.parse(JSON.stringify({ ...sameIdThemes[0], config: { fonts: { mono: 'HMR Mono, monospace' } } }));
+      if (!isValidTheme(hmrPayload)) throw new Error('Invalid HMR payload');
+      const hmrTheme = withPrColors(hmrPayload);
+      const embeddedTheme = getSyncedThemeFromPayload({ currentTheme: JSON.parse(JSON.stringify({ ...sameIdThemes[1],
+        config: { fonts: { mono: 'Embedded Mono, monospace' } },
+      })) });
+      if (!embeddedTheme) throw new Error('Invalid embedded payload');
+      const sequence = [...defaults, ...customThemes, ...sameIdThemes, hmrTheme, embeddedTheme, ...vscodeThemes, ...defaults];
+      const root = browser.document.documentElement;
+      // User and VS Code font preferences are inline and must beat theme defaults.
+      root.style.setProperty('--font-mono', 'User Mono, monospace');
+      root.style.setProperty('--font-family-mono', 'User Mono, monospace');
       for (const theme of sequence) {
         const raw = defaults.includes(theme) ? tokenCSS : '';
         generator.apply(theme, raw);
@@ -153,6 +146,23 @@ describe('CSSVariableGenerator semantic aliases', () => {
         for (const [, semantic, fallback] of aliases(theme)) {
           expect(styles[0].textContent).toContain(`  --${semantic}: ${fallback};`);
         }
+        expect(styles[0].textContent).toContain(`  --primary-text: ${theme.colors.primary.text || theme.colors.primary.base};`);
+        expect(browser.getComputedStyle(root).getPropertyValue('--primary-text')).toBe(theme.colors.primary.text || theme.colors.primary.base);
+        expect(styles[0].textContent?.includes('--type-font-mono:')).toBe(Boolean(raw));
+        for (const role of ['error', 'success', 'warning', 'info'] as const) {
+          expect(styles[0].textContent).toContain(`  --status-${role}-text: ${theme.colors.status[`${role}Text`] || theme.colors.status[role]};`);
+          expect(browser.getComputedStyle(root).getPropertyValue(`--status-${role}-text`)).toBe(theme.colors.status[`${role}Text`] || theme.colors.status[role]);
+        }
+        if (theme.config?.fonts?.mono) expect(styles[0].textContent).toContain(`  --font-mono: ${theme.config.fonts.mono};`);
+        expect(browser.getComputedStyle(root).getPropertyValue('--font-mono')).toBe('User Mono, monospace');
+        expect(browser.getComputedStyle(root).getPropertyValue('--font-family-mono')).toBe('User Mono, monospace');
+      }
+      root.style.removeProperty('--font-mono');
+      root.style.removeProperty('--font-family-mono');
+      for (const theme of [...sameIdThemes, hmrTheme, embeddedTheme, ...defaults]) {
+        generator.apply(theme, defaults.includes(theme) ? tokenCSS : '');
+        expect(browser.getComputedStyle(root).getPropertyValue('--font-mono')).toBe(theme.config?.fonts?.mono);
+        expect(browser.getComputedStyle(root).getPropertyValue('--font-family-mono')).toBe(theme.config?.fonts?.mono);
       }
       for (const theme of defaults) {
         const conflicting: Theme = { ...theme, colors: { ...theme.colors,

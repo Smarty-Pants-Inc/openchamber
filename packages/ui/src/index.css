@@ -27,7 +27,7 @@
   color: inherit;
 }
 .katex-error {
-  color: var(--destructive);
+  color: var(--status-error-text, var(--destructive));
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -1202,12 +1202,12 @@ html:not(.dark) .chat-scroll {
 /* Agent/skill mentions use the primary accent, not the markdown link color */
 .markdown-content a[data-openchamber-agent-mention="true"],
 .markdown-content a[data-skill-name] {
-  color: var(--primary);
+  color: var(--primary-text, var(--primary));
 }
 
 .markdown-content a[data-openchamber-agent-mention="true"]:hover,
 .markdown-content a[data-skill-name]:hover {
-  color: var(--primary);
+  color: var(--primary-text, var(--primary));
 }
 
 /* Markdown blockquote - use theme colors */

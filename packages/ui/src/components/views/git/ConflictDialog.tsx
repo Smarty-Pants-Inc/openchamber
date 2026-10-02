@@ -169,7 +169,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
         <div className="flex flex-col gap-4 overflow-hidden">
           <DialogHeader>
             <div className="flex items-center gap-2">
-              <Icon name="alert" className="size-5 shrink-0 text-[var(--status-warning)]" />
+              <Icon name="alert" className="size-5 shrink-0 text-status-warning-text" />
               <DialogTitle>{t('gitView.conflict.detectedTitle', { operation: operationLabel })}</DialogTitle>
             </div>
             <DialogDescription>
@@ -185,7 +185,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
           )}
 
           {loadError && (
-            <div className="rounded-lg bg-[var(--status-error-bg)] p-3 text-[var(--status-error)] typography-meta break-words">
+            <div className="rounded-lg bg-[var(--status-error-bg)] p-3 text-status-error-text typography-meta break-words">
               {t('gitView.conflict.errorLoadingDetails', { message: loadError })}
             </div>
           )}

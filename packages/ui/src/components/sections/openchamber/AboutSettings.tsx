@@ -170,7 +170,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         </div>
 
         {updateStore.error && (
-          <p className="rounded-xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2 typography-meta text-[var(--status-error)]">
+          <p className="rounded-xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2 typography-meta text-status-error-text">
             {updateStore.error}
           </p>
         )}
@@ -277,7 +277,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         
         {updateStore.error && (
           <div className="px-3 py-2 border-b border-border/40">
-            <p className="typography-meta text-[var(--status-error)]">{updateStore.error}</p>
+            <p className="typography-meta text-status-error-text">{updateStore.error}</p>
           </div>
         )}
 

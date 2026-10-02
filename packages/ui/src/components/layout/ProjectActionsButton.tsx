@@ -1132,9 +1132,9 @@ export const ProjectActionsButton = ({
                 : t('projectActions.actions.runNamedAria', { name: resolvedSelected.name })}
             >
               {isStoppingSelected || isWaitingForSelectedPreview
-                ? <Icon name="loader-4" className="h-5 w-5 animate-spin text-[var(--status-warning)]" />
+                ? <Icon name="loader-4" className="h-5 w-5 animate-spin text-status-warning-text" />
                 : selectedRunning
-                  ? <Icon name="stop" className="h-5 w-5 text-[var(--status-warning)]" />
+                  ? <Icon name="stop" className="h-5 w-5 text-status-warning-text" />
                   : <Icon name={selectedIconName} className="h-5 w-5" />}
             </button>
           </TooltipTrigger>
@@ -1191,9 +1191,9 @@ export const ProjectActionsButton = ({
                   <Icon name={iconName} className="h-4 w-4" />
                   <span className="typography-ui-label text-foreground truncate">{entry.name}</span>
                   {isStopping || runState?.status === 'waiting-for-preview'
-                    ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-[var(--status-warning)]" />
+                    ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-status-warning-text" />
                     : isRunning
-                      ? <Icon name="stop" className="ml-auto h-4 w-4 text-[var(--status-warning)]" />
+                      ? <Icon name="stop" className="ml-auto h-4 w-4 text-status-warning-text" />
                       : null}
                 </DropdownMenuItem>
               );
@@ -1231,9 +1231,9 @@ export const ProjectActionsButton = ({
           >
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
               {isStoppingSelected || isWaitingForSelectedPreview
-                ? <Icon name="loader-4" className="h-4 w-4 animate-spin text-[var(--status-warning)]" />
+                ? <Icon name="loader-4" className="h-4 w-4 animate-spin text-status-warning-text" />
                 : selectedRunning
-                  ? <Icon name="stop" className="h-4 w-4 text-[var(--status-warning)]" />
+                  ? <Icon name="stop" className="h-4 w-4 text-status-warning-text" />
                   : <Icon name={selectedIconName} className="h-4 w-4" />}
             </span>
           </button>
@@ -1301,9 +1301,9 @@ export const ProjectActionsButton = ({
                 <Icon name={iconName} className="h-4 w-4" />
                 <span className="typography-ui-label text-foreground truncate">{entry.name}</span>
                 {isStopping || runState?.status === 'waiting-for-preview'
-                  ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-[var(--status-warning)]" />
+                  ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-status-warning-text" />
                   : isRunning
-                    ? <Icon name="stop" className="ml-auto h-4 w-4 text-[var(--status-warning)]" />
+                    ? <Icon name="stop" className="ml-auto h-4 w-4 text-status-warning-text" />
                     : null}
               </DropdownMenuItem>
             );

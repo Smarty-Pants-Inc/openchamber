@@ -109,7 +109,7 @@ const NoteRow: React.FC<{
             onClick={onTogglePinned}
             className={cn(
               'inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-              pinned ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              pinned ? 'text-primary-text' : 'text-muted-foreground hover:text-foreground'
             )}
             aria-pressed={pinned}
             aria-label={pinned

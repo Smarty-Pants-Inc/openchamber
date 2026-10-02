@@ -345,6 +345,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text, var(--primary));
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -353,6 +354,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -367,6 +369,10 @@
   --color-status-warning: var(--status-warning);
   --color-status-error: var(--status-error);
   --color-status-info: var(--status-info);
+  --color-status-error-text: var(--status-error-text, var(--status-error));
+  --color-status-success-text: var(--status-success-text, var(--status-success));
+  --color-status-warning-text: var(--status-warning-text, var(--status-warning));
+  --color-status-info-text: var(--status-info-text, var(--status-info));
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -458,11 +464,13 @@
   /* Agent color variants - each maps to theme colors */
   .agent-primary {
     --agent-color: var(--primary);
+    --agent-text-color: var(--primary-text, var(--primary));
     --agent-color-bg: var(--primary);
   }
 
   .agent-info {
     --agent-color: var(--status-info);
+    --agent-text-color: var(--status-info-text, var(--status-info));
     --agent-color-bg: var(--status-info);
   }
 
@@ -473,6 +481,7 @@
 
   .agent-success {
     --agent-color: var(--status-success);
+    --agent-text-color: var(--status-success-text, var(--status-success));
     --agent-color-bg: var(--status-success);
   }
 
@@ -493,6 +502,7 @@
 
   .agent-warning {
     --agent-color: var(--status-warning);
+    --agent-text-color: var(--status-warning-text, var(--status-warning));
     --agent-color-bg: var(--status-warning);
   }
 
@@ -505,7 +515,7 @@
   .agent-badge {
     background: rgb(from var(--agent-color-bg) r g b / 0.1);
     border: 1px solid rgb(from var(--agent-color) r g b / 0.2);
-    color: var(--agent-color);
+    color: var(--agent-text-color, var(--agent-color));
   }
 
   .agent-badge:hover {

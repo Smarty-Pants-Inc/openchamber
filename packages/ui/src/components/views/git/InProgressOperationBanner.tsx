@@ -84,7 +84,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
     <div className="mx-4 mt-3 overflow-hidden rounded-lg border border-[var(--status-warning-border)]">
       <div className="flex flex-col gap-3 p-3">
         <div className="min-w-0">
-          <p className="typography-label text-[var(--status-warning)]">
+          <p className="typography-label text-status-warning-text">
             {title}
           </p>
           {description && (

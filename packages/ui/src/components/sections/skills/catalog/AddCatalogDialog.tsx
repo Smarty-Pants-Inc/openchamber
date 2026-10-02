@@ -308,7 +308,7 @@ export const AddCatalogDialog: React.FC<AddCatalogDialogProps> = ({ open, onOpen
           {identityOptions.length > 0 && !isVSCodeRuntime() ? (
             <div className="space-y-2">
               <div className="flex items-center">
-                <span className="typography-ui-label text-[var(--status-warning)]">{t('settings.skills.catalog.shared.auth.title')}</span>
+                <span className="typography-ui-label text-status-warning-text">{t('settings.skills.catalog.shared.auth.title')}</span>
                 <span className="typography-meta text-muted-foreground ml-2">{t('settings.skills.catalog.shared.auth.description')}</span>
                 <SettingsInfoHint className="ml-1">{t('settings.skills.catalog.shared.auth.footerHint')}</SettingsInfoHint>
               </div>

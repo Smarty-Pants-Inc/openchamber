@@ -67,7 +67,7 @@ const StopHeader = ({ stopView }: { stopView: WalkthroughStopView }) => {
       </div>
       <p className="typography-body text-muted-foreground">{stop.prose}</p>
       {stopView.isStale && (
-        <p className="typography-meta flex items-center gap-1.5 text-status-warning">
+        <p className="typography-meta flex items-center gap-1.5 text-status-warning-text">
           <Icon name="error-warning" className="size-3.5 shrink-0" />
           {stopView.hunks.length === 0
             ? t('walkthrough.stop.staleAll')

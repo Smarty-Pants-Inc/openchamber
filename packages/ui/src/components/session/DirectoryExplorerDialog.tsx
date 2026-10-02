@@ -642,7 +642,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
       onClick={() => setShowHidden((value) => !value)}
       className="flex flex-shrink-0 items-center gap-2 rounded-lg px-2 py-1 typography-meta text-muted-foreground transition-colors hover:bg-interactive-hover/40"
     >
-      {showHidden ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
+      {showHidden ? <Icon name="checkbox" className="h-4 w-4 text-primary-text" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
       {t('directoryExplorerDialog.toggle.showHidden')}
     </button>
   );
@@ -716,7 +716,7 @@ const StockDirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
           </div>
         ) : browseErrorReason && browseErrorReason !== 'not-found' ? (
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-            <div className="typography-ui-label text-status-error">
+            <div className="typography-ui-label text-status-error-text">
               {browseErrorReason === 'os-permission'
                 ? t('directoryExplorerDialog.browse.permissionDenied')
                 : t('directoryExplorerDialog.browse.loadFailed')}

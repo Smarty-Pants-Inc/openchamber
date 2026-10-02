@@ -373,7 +373,7 @@ export function GitHubIntegrationDialog({
               {/* Error */}
               {error && (
                 <div className="flex items-center justify-center h-full">
-                  <div className="flex items-center gap-2 p-2 rounded-md bg-destructive/10 text-destructive">
+                  <div className="flex items-center gap-2 p-2 rounded-md bg-destructive/10 text-status-error-text">
                     <Icon name="error-warning" className="h-4 w-4" />
                     <span className="typography-small">{error}</span>
                   </div>
@@ -400,7 +400,7 @@ export function GitHubIntegrationDialog({
                           <div className="min-w-0 flex-1">
                             <span className="typography-small line-clamp-2">{issue.title}</span>
                             {issue.sourceRepo?.source === 'upstream' ? (
-                              <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info mt-0.5 inline-block">
+                              <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info-text mt-0.5 inline-block">
                                 {issue.sourceRepo.owner}/{issue.sourceRepo.repo}
                               </span>
                             ) : null}
@@ -465,12 +465,12 @@ export function GitHubIntegrationDialog({
                                   {pr.head} → {pr.base}
                                 </span>
                                 {pr.sourceRepo?.source === 'upstream' ? (
-                                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info">
+                                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info-text">
                                     {pr.sourceRepo.owner}/{pr.sourceRepo.repo}
                                   </span>
                                 ) : null}
                                 {blocked && validation?.error && (
-                                  <span className="typography-micro text-destructive">
+                                  <span className="typography-micro text-status-error-text">
                                     {validation.error}
                                   </span>
                                 )}
@@ -526,7 +526,7 @@ export function GitHubIntegrationDialog({
         {/* Selected Issue/PR display - hidden on mobile (shown in header instead) */}
         {!isMobile && (selectedIssue || selectedPr) && (
           <div className="flex items-center gap-2 px-2 h-8 rounded-md bg-muted/50 border border-border/50">
-            <Icon name="check" className="h-3.5 w-3.5 text-status-success shrink-0" />
+            <Icon name="check" className="h-3.5 w-3.5 text-status-success-text shrink-0" />
             <span className="typography-small truncate max-w-[150px]">
               {selectedIssue
                 ? t('session.githubIntegration.selected.issueNumber', { number: selectedIssue.number })
@@ -615,7 +615,7 @@ export function GitHubIntegrationDialog({
               {/* Selected Item Inline Display */}
               {(selectedIssue || selectedPr) && (
                 <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-muted/50 border border-border/50">
-                  <Icon name="check" className="h-3.5 w-3.5 text-status-success shrink-0" />
+                  <Icon name="check" className="h-3.5 w-3.5 text-status-success-text shrink-0" />
                   <span className="typography-small truncate flex-1">
                     {selectedIssue
                       ? t('session.githubIntegration.selected.issueNumber', { number: selectedIssue.number })

@@ -28,7 +28,7 @@ const statusConfig = {
 };
 
 const priorityClassName = {
-  high: "text-[var(--status-warning)]",
+  high: "text-status-warning-text",
   medium: "text-muted-foreground",
   low: "text-muted-foreground/70",
 };
@@ -74,9 +74,9 @@ const TodoItemRow: React.FC<{ todo: TodoItem }> = ({ todo }) => {
 
   const statusIcon =
     todo.status === "in_progress" ? (
-      <Icon name="record-circle" className="h-3.5 w-3.5 text-[var(--status-info)]" aria-hidden="true" />
+      <Icon name="record-circle" className="h-3.5 w-3.5 text-status-info-text" aria-hidden="true" />
     ) : todo.status === "completed" ? (
-      <Icon name="checkbox-circle" className="h-3.5 w-3.5 text-[var(--status-success)]" aria-hidden="true" />
+      <Icon name="checkbox-circle" className="h-3.5 w-3.5 text-status-success-text" aria-hidden="true" />
     ) : (
       <Icon name="time" className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
     );
@@ -224,7 +224,7 @@ export const ComposerStatusBar: React.FC<ComposerStatusBarProps> = ({
       )}
       <span className="typography-meta flex items-center gap-1 tabular-nums" aria-hidden="true">
         <span className="flex items-center gap-0.5">
-          <Icon name="record-circle" className="h-3.5 w-3.5 text-[var(--status-info)]" />
+          <Icon name="record-circle" className="h-3.5 w-3.5 text-status-info-text" />
           {statusSummary.active}
         </span>
         <span>·</span>

@@ -201,7 +201,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
         <Icon name="pencil-ai" className="mr-1.5 h-4 w-4" />
         {t('sessions.sidebar.project.actions.edit')}
       </Item> : null}
-      {onClose ? <Item onClick={onClose} className="text-destructive focus:text-destructive">
+      {onClose ? <Item onClick={onClose} className="text-status-error-text focus:text-status-error-text">
         <Icon name="close" className="mr-1.5 h-4 w-4" />
         {t('sessions.sidebar.project.actions.closeProject')}
       </Item> : null}
@@ -310,7 +310,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                         <span className="flex min-w-0 items-center gap-1.5">
                           <ProjectHeaderIdentity {...option} />
                         </span>
-                        {option.id === id ? <Icon name="check" className="h-4 w-4 flex-shrink-0 text-primary" /> : null}
+                        {option.id === id ? <Icon name="check" className="h-4 w-4 flex-shrink-0 text-primary-text" /> : null}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>

@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon/Icon";
 import type { Session } from '@opencode-ai/sdk/v2';
 import { useI18n } from '@/lib/i18n';
 
+// ponytail: Keep destructive fills opaque on hover; fading can push on-fill text below AA.
 export type DeleteSessionConfirmState = {
   session: Session;
   descendantCount: number;
@@ -69,7 +70,7 @@ export function SessionDeleteConfirmDialog(props: {
             className="inline-flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
             aria-pressed={!showDeletionDialog}
           >
-            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
+            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary-text" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
             {t('sessions.sidebar.dialogs.neverAsk')}
           </button>
           <div className="flex items-center gap-2">
@@ -83,7 +84,7 @@ export function SessionDeleteConfirmDialog(props: {
             <button
               type="button"
               onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
             >
               {value?.archivedBucket ? t('sessions.sidebar.bulkActions.delete') : t('sessions.sidebar.bulkActions.archive')}
             </button>
@@ -139,7 +140,7 @@ export function BulkSessionDeleteConfirmDialog(props: {
             className="inline-flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
             aria-pressed={!showDeletionDialog}
           >
-            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
+            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary-text" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
             {t('sessions.sidebar.dialogs.neverAsk')}
           </button>
           <div className="flex items-center gap-2">
@@ -153,7 +154,7 @@ export function BulkSessionDeleteConfirmDialog(props: {
             <button
               type="button"
               onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
             >
               {archived ? t('sessions.sidebar.bulkActions.delete') : t('sessions.sidebar.bulkActions.archive')}
             </button>
@@ -216,7 +217,7 @@ export function FolderDeleteConfirmDialog(props: {
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+            className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
           >
             {t('sessions.sidebar.bulkActions.delete')}
           </button>

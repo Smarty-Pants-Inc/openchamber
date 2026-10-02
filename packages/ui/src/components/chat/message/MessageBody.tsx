@@ -82,9 +82,9 @@ const TurnChangedFileChipContent = React.memo(({ file, interactive = false }: { 
         <FileTypeIcon filePath={file.file} className="h-3.5 w-3.5 flex-shrink-0" />
         <span className="max-w-52 truncate text-foreground/80" title={file.file}>{getDisplayFileName(file.file)}</span>
         <span className="flex-shrink-0 inline-flex items-center gap-0 typography-meta" style={{ fontSize: '0.8rem', lineHeight: '1' }}>
-            <span style={{ color: 'var(--status-success)' }}>+{file.additions}</span>
+            <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{file.additions}</span>
             <span className="text-muted-foreground/70">/</span>
-            <span style={{ color: 'var(--status-error)' }}>-{file.deletions}</span>
+            <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{file.deletions}</span>
         </span>
     </span>
 ));
@@ -333,7 +333,7 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
                     <span className={cn(
                         'inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none',
                         status === 'error'
-                            ? 'bg-[var(--status-error-background)] text-[var(--status-error)]'
+                            ? 'bg-[var(--status-error-background)] text-status-error-text'
                             : 'bg-foreground/5 text-muted-foreground'
                     )}>
                         {status}
@@ -672,7 +672,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 size="icon"
                                 className={cn(
                                     'h-6 w-6 bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                    contextPinned ? 'text-[color:var(--status-info)]' : 'text-muted-foreground',
+                                    contextPinned ? 'text-status-info-text' : 'text-muted-foreground',
                                 )}
                                 disabled={contextPinPending}
                                 aria-pressed={contextPinned}
@@ -706,7 +706,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 }}
                             >
                                 {isMessageCopied ? (
-                                    <Icon name="check" className="h-3 w-3 text-[color:var(--status-success)]" />
+                                    <Icon name="check" className="h-3 w-3 text-status-success-text" />
                                 ) : (
                                     <Icon name="file-copy" className="h-3 w-3" />
                                 )}
@@ -1003,7 +1003,7 @@ const AssistantMessageActionButtons = React.memo(({
                             }}
                         >
                             {isMessageCopied ? (
-                                <Icon name="check" className="h-3.5 w-3.5 text-[color:var(--status-success)]" />
+                                <Icon name="check" className="h-3.5 w-3.5 text-status-success-text" />
                             ) : (
                                 <Icon name="file-copy" className="h-3.5 w-3.5" />
                             )}
@@ -2081,7 +2081,7 @@ const AssistantMessageBody = React.memo(({
                             size="icon"
                             className={cn(
                                 'h-8 w-8 bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                contextPinned ? 'text-[color:var(--status-info)]' : 'text-muted-foreground',
+                                contextPinned ? 'text-status-info-text' : 'text-muted-foreground',
                             )}
                             disabled={contextPinPending}
                             aria-pressed={contextPinned}
@@ -2171,7 +2171,7 @@ const AssistantMessageBody = React.memo(({
                         <FadeInOnReveal key="assistant-error">
                             <div className="group/assistant-text relative mt-3 max-w-full break-words rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-4 py-3 text-base leading-relaxed">
                                 <div className="flex items-center gap-3">
-                                    <Icon name="information" className="size-4 shrink-0 text-[var(--status-info)]" />
+                                    <Icon name="information" className="size-4 shrink-0 text-status-info-text" />
                                     <div className="min-w-0 flex-1 break-words">
                                         <SimpleMarkdownRenderer
                                             content={errorMessage ?? ''}
@@ -2223,7 +2223,7 @@ const AssistantMessageBody = React.memo(({
                                     <Icon
                                         name="brain-ai-3"
                                         className="h-3.5 w-3.5 flex-shrink-0"
-                                        style={{ color: `var(${getAgentColor(footerAgentName).var})` }}
+                                        style={{ color: `var(${getAgentColor(footerAgentName).textVar})` }}
                                     />
                                 )}
                                 <span className="truncate">{footerModelName}</span>

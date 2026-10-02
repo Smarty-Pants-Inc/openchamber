@@ -100,9 +100,9 @@ const statusDotClass = (status: HostDisplayStatus): string => {
 
 // Text tone matching statusDotClass, for the per-row status line.
 const statusTextClass = (status: HostDisplayStatus): string => {
-  if (status === 'ok') return 'text-[var(--status-success)]';
-  if (status === 'auth' || status === 'update-recommended') return 'text-[var(--status-warning)]';
-  if (status === 'incompatible' || status === 'wrong-service' || status === 'unreachable') return 'text-[var(--status-error)]';
+  if (status === 'ok') return 'text-status-success-text';
+  if (status === 'auth' || status === 'update-recommended') return 'text-status-warning-text';
+  if (status === 'incompatible' || status === 'wrong-service' || status === 'unreachable') return 'text-status-error-text';
   return 'text-muted-foreground';
 };
 
@@ -887,7 +887,7 @@ export function DesktopHostSwitcherDialog({
                             </span>
                           )}
                           {isSsh && (
-                            <span className="typography-micro flex-shrink-0 px-1 rounded leading-none pb-px text-[var(--status-info)] bg-[var(--status-info)]/10">
+                            <span className="typography-micro flex-shrink-0 px-1 rounded leading-none pb-px text-status-info-text bg-[var(--status-info)]/10">
                               SSH
                             </span>
                           )}
@@ -937,8 +937,8 @@ export function DesktopHostSwitcherDialog({
                             className={cn(
                               'h-8 w-8 rounded-md inline-flex items-center justify-center hover:bg-interactive-hover transition-colors',
                               isDefault
-                                ? 'text-primary hover:text-primary/80'
-                                : 'text-muted-foreground/60 hover:text-primary/80',
+                                ? 'text-primary-text hover:text-primary-text/80'
+                                : 'text-muted-foreground/60 hover:text-primary-text/80',
                             )}
                             onClick={() => void setDefault(host.id)}
                             aria-label={isDefault ? t('desktopHostSwitcher.actions.defaultInstanceAria') : t('desktopHostSwitcher.actions.setAsDefaultAria')}
@@ -1031,7 +1031,7 @@ export function DesktopHostSwitcherDialog({
         </div>
 
         {error && (
-          <div className="flex-shrink-0 typography-meta text-status-error">{error}</div>
+          <div className="flex-shrink-0 typography-meta text-status-error-text">{error}</div>
         )}
     </>
   );

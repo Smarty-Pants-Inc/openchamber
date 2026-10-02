@@ -1,6 +1,14 @@
+import { z } from 'zod';
 import type { Theme } from '@/types/theme';
 import { SEMANTIC_TYPOGRAPHY, VSCODE_TYPOGRAPHY } from '@/lib/typography';
 import { isVSCodeRuntime } from '@/lib/desktop';
+
+const optionalColorSchema = z.string().trim().min(1);
+
+const resolveOptionalColor = (value: string | undefined, fallback: string): string => {
+  const parsed = optionalColorSchema.safeParse(value);
+  return parsed.success ? parsed.data : fallback;
+};
 
 const hexToRgb = (value: string | undefined | null): string | null => {
   if (!value || typeof value !== 'string') {
@@ -97,7 +105,7 @@ export class CSSVariableGenerator {
 
     vars.push(`  --ring: var(--interactive-focus-ring, ${theme.colors.interactive.focusRing}) !important;`);
 
-    const sidebarBase = theme.colors.surface.sidebar || theme.colors.surface.muted;
+    const sidebarBase = resolveOptionalColor(theme.colors.surface.sidebar, theme.colors.surface.muted);
     const sidebarBaseRgb = hexToRgb(sidebarBase);
     const sidebarAccentRgb = hexToRgb(theme.colors.surface.subtle);
     const sidebarBorderRgb = hexToRgb(theme.colors.interactive.border);
@@ -190,6 +198,7 @@ export class CSSVariableGenerator {
   private generatePrimaryColors(primary: Theme['colors']['primary']): string[] {
     const vars: string[] = [];
     vars.push(`  --primary-base: ${primary.base};`);
+    vars.push(`  --primary-text: ${resolveOptionalColor(primary.text, primary.base)};`);
     vars.push(`  --primary-hover: ${primary.hover || this.darken(primary.base, 10)};`);
     vars.push(`  --primary-active: ${primary.active || this.darken(primary.base, 20)};`);
     vars.push(`  --primary-foreground: ${primary.foreground || '#ffffff'};`);
@@ -203,7 +212,7 @@ export class CSSVariableGenerator {
     vars.push(`  --surface-background: ${surface.background};`);
     vars.push(`  --surface-foreground: ${surface.foreground};`);
     vars.push(`  --surface-muted: ${surface.muted};`);
-    vars.push(`  --surface-sidebar: ${surface.sidebar || surface.muted};`);
+    vars.push(`  --surface-sidebar: ${resolveOptionalColor(surface.sidebar, surface.muted)};`);
     vars.push(`  --surface-muted-foreground: ${surface.mutedForeground};`);
     vars.push(`  --surface-elevated: ${surface.elevated};`);
     vars.push(`  --surface-elevated-foreground: ${surface.elevatedForeground};`);
@@ -231,21 +240,25 @@ export class CSSVariableGenerator {
     const vars: string[] = [];
 
     vars.push(`  --status-error: ${status.error};`);
+    vars.push(`  --status-error-text: ${resolveOptionalColor(status.errorText, status.error)};`);
     vars.push(`  --status-error-foreground: ${status.errorForeground};`);
     vars.push(`  --status-error-background: ${status.errorBackground};`);
     vars.push(`  --status-error-border: ${status.errorBorder};`);
 
     vars.push(`  --status-warning: ${status.warning};`);
+    vars.push(`  --status-warning-text: ${resolveOptionalColor(status.warningText, status.warning)};`);
     vars.push(`  --status-warning-foreground: ${status.warningForeground};`);
     vars.push(`  --status-warning-background: ${status.warningBackground};`);
     vars.push(`  --status-warning-border: ${status.warningBorder};`);
 
     vars.push(`  --status-success: ${status.success};`);
+    vars.push(`  --status-success-text: ${resolveOptionalColor(status.successText, status.success)};`);
     vars.push(`  --status-success-foreground: ${status.successForeground};`);
     vars.push(`  --status-success-background: ${status.successBackground};`);
     vars.push(`  --status-success-border: ${status.successBorder};`);
 
     vars.push(`  --status-info: ${status.info};`);
+    vars.push(`  --status-info-text: ${resolveOptionalColor(status.infoText, status.info)};`);
     vars.push(`  --status-info-foreground: ${status.infoForeground};`);
     vars.push(`  --status-info-background: ${status.infoBackground};`);
     vars.push(`  --status-info-border: ${status.infoBorder};`);

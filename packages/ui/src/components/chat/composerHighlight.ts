@@ -99,20 +99,20 @@ const STYLE_PRIORITY: Record<AnyStyle, number> = {
 };
 
 const STYLE_CLASS: Record<AnyStyle, string> = {
-    mentionFile: 'text-[var(--status-info)]',
-    mentionAgent: 'text-[var(--status-success)]',
-    mentionCommand: 'text-[var(--primary)]',
-    mentionSnippet: 'text-[var(--status-warning)]',
+    mentionFile: 'text-status-info-text',
+    mentionAgent: 'text-status-success-text',
+    mentionCommand: 'text-primary-text',
+    mentionSnippet: 'text-status-warning-text',
     code: 'rounded-[6px] bg-[var(--markdown-inline-code-bg)] text-[var(--markdown-inline-code)]',
     codeFence: 'bg-[var(--surface-subtle)] text-[var(--markdown-inline-code)]',
     // A `~path` is written for the reader's benefit, not to attach anything —
     // it takes the same colour as a file mention, since it names the same kind
     // of thing.
-    path: 'text-[var(--status-info)]',
-    link: 'text-[var(--status-info)] underline',
+    path: 'text-status-info-text',
+    link: 'text-status-info-text underline',
     linkUrl: 'text-muted-foreground',
     heading: 'text-[var(--syntax-keyword)]',
-    attention: 'font-semibold text-[var(--status-warning)]',
+    attention: 'font-semibold text-status-warning-text',
     blockquote: 'text-muted-foreground',
     listMarker: 'text-[var(--syntax-keyword)]',
     marker: 'text-muted-foreground',

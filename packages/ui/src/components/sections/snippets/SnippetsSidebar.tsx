@@ -92,7 +92,7 @@ export const SnippetsSidebar: React.FC<SnippetsSidebarProps> = ({ onItemSelect }
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-fit min-w-20">
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setConfirmDeleteSnippet(snippet); }} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setConfirmDeleteSnippet(snippet); }} className="text-status-error-text focus:text-status-error-text">
                   <Icon name="delete-bin" className="h-4 w-4 mr-px" />
                   {t('settings.common.actions.delete')}
                 </DropdownMenuItem>
@@ -100,7 +100,7 @@ export const SnippetsSidebar: React.FC<SnippetsSidebarProps> = ({ onItemSelect }
             </DropdownMenu>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-fit min-w-20">
-              <ContextMenuItem onClick={(e) => { e.stopPropagation(); setConfirmDeleteSnippet(snippet); }} className="text-destructive focus:text-destructive">
+              <ContextMenuItem onClick={(e) => { e.stopPropagation(); setConfirmDeleteSnippet(snippet); }} className="text-status-error-text focus:text-status-error-text">
                 <Icon name="delete-bin" className="h-4 w-4 mr-px" />
                 {t('settings.common.actions.delete')}
               </ContextMenuItem>

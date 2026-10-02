@@ -13,7 +13,9 @@ export function useAppFontEffects() {
 
     const root = document.documentElement;
     const uiStack = UI_FONT_OPTION_MAP[uiFont]?.stack ?? UI_FONT_OPTION_MAP[DEFAULT_UI_FONT].stack;
-    const monoStack = CODE_FONT_OPTION_MAP[monoFont]?.stack ?? CODE_FONT_OPTION_MAP[DEFAULT_MONO_FONT].stack;
+    const monoStack = monoFont === DEFAULT_MONO_FONT
+      ? `var(--type-font-mono, ${CODE_FONT_OPTION_MAP[DEFAULT_MONO_FONT].stack})`
+      : CODE_FONT_OPTION_MAP[monoFont]?.stack ?? CODE_FONT_OPTION_MAP[DEFAULT_MONO_FONT].stack;
     void loadUiFont(uiFont);
     void loadMonoFont(monoFont);
 

@@ -220,7 +220,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
               <span aria-hidden="true">{ahead}</span>
             </span>
           ) : null}
-          {currentBranch === branch ? <Icon name="check" className="size-4 shrink-0 text-primary" /> : null}
+          {currentBranch === branch ? <Icon name="check" className="size-4 shrink-0 text-primary-text" /> : null}
         </button>
       );
     };
@@ -234,7 +234,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
           disabled={disabled}
           onClick={() => setIsOpen(true)}
         >
-          <Icon name="git-branch" className="size-4 text-primary" />
+          <Icon name="git-branch" className="size-4 text-primary-text" />
           <span className="min-w-0 truncate font-medium text-left">
             {currentBranch || t('gitView.branch.detachedHead')}
           </span>
@@ -256,7 +256,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
             />
             {switchBlockedNotice ? (
               <div className="flex items-start gap-2 px-2 py-1">
-                <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
+                <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-status-warning-text" aria-hidden="true" />
                 <span className="typography-micro text-muted-foreground">{switchBlockedNotice}</span>
               </div>
             ) : null}
@@ -291,7 +291,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
               className="h-8 min-w-0 max-w-full justify-start gap-1.5 px-2 py-1"
               disabled={disabled}
             >
-              <Icon name="git-branch" className="size-4 text-primary" />
+              <Icon name="git-branch" className="size-4 text-primary-text" />
               <span className="min-w-0 truncate font-medium text-left">
                 {currentBranch || t('gitView.branch.detachedHead')}
               </span>
@@ -316,7 +316,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
           />
           {switchBlockedNotice ? (
             <div className="flex items-start gap-2 border-b border-border/60 px-3 py-2">
-              <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
+              <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-status-warning-text" aria-hidden="true" />
               <span className="typography-micro text-muted-foreground">{switchBlockedNotice}</span>
             </div>
           ) : null}
@@ -440,7 +440,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
                           ) : null;
                         })()}
                       </span>
-                      {currentBranch === branch ? <span className="typography-micro text-primary">{t('gitView.branch.currentBadge')}</span> : null}
+                      {currentBranch === branch ? <span className="typography-micro text-primary-text">{t('gitView.branch.currentBadge')}</span> : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -466,7 +466,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
                     )}
                   </span>
                   {currentBranch === branch && (
-                    <span className="typography-micro text-primary">{t('gitView.branch.currentBadge')}</span>
+                    <span className="typography-micro text-primary-text">{t('gitView.branch.currentBadge')}</span>
                   )}
                 </CommandItem>
               ))}

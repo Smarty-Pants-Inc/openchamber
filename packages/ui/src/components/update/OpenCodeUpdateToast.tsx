@@ -73,7 +73,7 @@ export const OpenCodeUpdateToast: React.FC = () => {
           ? t('opencodeUpdate.toast.updated.descriptionWithVersion', { version: payload.version })
           : t('opencodeUpdate.toast.updated.description'),
         duration: Infinity,
-        icon: <Icon name="check" className="h-4 w-4 text-[var(--status-success)]" />,
+        icon: <Icon name="check" className="h-4 w-4 text-status-success-text" />,
         action: {
           label: t('opencodeUpdate.toast.actions.reload'),
           onClick: reloadOpenCode,

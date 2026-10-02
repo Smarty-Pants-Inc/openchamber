@@ -68,7 +68,7 @@ export function DesktopConnectionRecovery({
               opacity: 0.15,
             }}
           >
-            <div style={{ color: 'var(--status-warning)' }}>
+            <div style={{ color: 'var(--status-warning-text, var(--status-warning))' }}>
               {getRecoveryIcon(config.iconKey)}
             </div>
           </div>

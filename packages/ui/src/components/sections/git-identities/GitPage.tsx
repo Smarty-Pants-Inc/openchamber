@@ -266,7 +266,7 @@ const IdentityRow: React.FC<IdentityRowProps> = ({
       {!isReadOnly && onDelete && (
         <Item
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onDelete(); }}
-          className="text-destructive focus:text-destructive"
+          className="text-status-error-text focus:text-status-error-text"
         >
           <Icon name="delete-bin" className="h-4 w-4 mr-px" />
           {t('settings.common.actions.delete')}
@@ -304,7 +304,7 @@ const IdentityRow: React.FC<IdentityRowProps> = ({
               {authType}
             </span>
             {isDefault && (
-              <span className="typography-micro text-primary bg-primary/12 px-1 rounded flex-shrink-0 leading-none pb-px border border-primary/25">
+              <span className="typography-micro text-primary-text bg-primary/12 px-1 rounded flex-shrink-0 leading-none pb-px border border-primary/25">
                 {t('settings.gitIdentities.page.badge.default')}
               </span>
             )}

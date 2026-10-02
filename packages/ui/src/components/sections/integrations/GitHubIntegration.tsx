@@ -26,7 +26,7 @@ export const GitHubIntegration: React.FC = () => {
       ? (status?.user?.login?.trim() || t('settings.github.page.status.active'))
       : t('settings.integrations.github.status.notConnected');
   const statusClassName = connected
-    ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
+    ? 'bg-[var(--status-success)]/15 text-status-success-text'
     : 'bg-[var(--surface-muted)] text-muted-foreground';
 
   return (

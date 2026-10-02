@@ -388,7 +388,7 @@ export function GitHubPrPickerDialog({
                   {pr.title}
                 </p>
                 {pr.sourceRepo?.source === 'upstream' ? (
-                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info">
+                  <span className="typography-micro px-1 py-0.5 rounded bg-status-info/10 text-status-info-text">
                     {pr.sourceRepo.owner}/{pr.sourceRepo.repo}
                   </span>
                 ) : null}

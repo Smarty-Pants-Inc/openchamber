@@ -97,13 +97,13 @@ function formatCommitDate(date: string, timeFormatPreference: TimeFormatPreferen
 function getChangeTypeColor(changeType: string) {
   switch (changeType) {
     case 'A':
-      return 'text-[var(--status-success)]';
+      return 'text-status-success-text';
     case 'D':
-      return 'text-[var(--status-error)]';
+      return 'text-status-error-text';
     case 'M':
-      return 'text-[var(--status-warning)]';
+      return 'text-status-warning-text';
     case 'R':
-      return 'text-[var(--status-info)]';
+      return 'text-status-info-text';
     default:
       return 'text-muted-foreground';
   }
@@ -587,11 +587,11 @@ export const HistoryCommitRow = React.memo(({
                     </span>
                     {!file.isBinary && (
                       <span className="shrink-0">
-                        <span style={{ color: 'var(--status-success)' }}>
+                        <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>
                           +{file.insertions}
                         </span>
                         <span className="text-muted-foreground mx-0.5">/</span>
-                        <span style={{ color: 'var(--status-error)' }}>
+                        <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>
                           -{file.deletions}
                         </span>
                       </span>
@@ -628,7 +628,7 @@ export const HistoryCommitRow = React.memo(({
                                 type="button"
                                 variant="ghost"
                                 size="xs"
-                                className="h-6 px-0 text-primary hover:bg-transparent hover:underline"
+                                className="h-6 px-0 text-primary-text hover:bg-transparent hover:underline"
                                 onClick={() => {
                                   setForceRenderLargePaths(prev => new Set(prev).add(file.path));
                                   void loadFileDiff(file);
