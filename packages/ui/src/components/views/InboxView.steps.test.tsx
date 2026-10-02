@@ -90,13 +90,13 @@ test('Steps with unsupported guarded reopen show an explanation and no Reopen wr
   expect(posts).toEqual([]);
 });
 
-for (const steps of [true, false]) test(`${steps ? 'Steps' : 'ordinary Inbox'} Snooze keeps the existing write; only ordinary Inbox offers unguarded Undo`, async () => {
-  const host = await mount(steps ? open : { ...open, source: 'net-lead' });
+for (const steps of [true, false]) test(`${steps ? 'Steps' : 'ordinary Inbox'} Snooze guards the displayed version; Undo requires guarded capability`, async () => {
+  const host = await mount(steps ? open : { ...open, source: 'net-lead' }, !steps);
   await click(host, 'Snooze');
   const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('1 hour'));
   if (!choice) throw new Error('Missing 1 hour snooze');
   await act(async () => choice.click()); await settle();
-  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/snooze', body: { for: '1h' } }]);
+  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/snooze', body: { for: '1h', updated: open.updated } }]);
   const last = toast.getHistory().at(-1);
   expect(last && 'title' in last ? last.title : null).toBe('Snoozed for 1 hour');
   const action = last && 'action' in last ? last.action : undefined;
@@ -232,15 +232,22 @@ test('a failed Steps response keeps its uncertainty lock after selecting another
   expect(posts).toHaveLength(1);
 });
 
-test('ordinary Inbox Respond remains unguarded and ordinary resolved items retain Reopen', async () => {
+test('ordinary Inbox Respond uses strict displayed guards without Done and supported resolved items retain Reopen', async () => {
   const ordinary = { ...open, source: 'net-lead' };
-  let host = await mount(ordinary);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let host = await mount(ordinary, true);
   await respond(host);
-  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/answer', body: { text: 'A generic response', action: 'respond' } }]);
+  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/answer', body: { text: 'A generic response', action: 'respond', updated: ordinary.updated, opKey: posts[0]?.body.opKey } }]);
+  expect(uuid.test(posts[0]?.body.opKey ?? '')).toBe(true);
+  const answerKey = posts[0]?.body.opKey;
+  expect(isStepDone(useInboxStore.getState().items[0]!)).toBe(false);
+  expect(host.textContent).not.toContain('Step marked done');
   await unmount(); posts.length = 0;
-  host = await mount({ ...ordinary, resolved: { at: ordinary.updated } });
+  host = await mount({ ...ordinary, resolved: { at: ordinary.updated } }, true);
   await click(host, 'Reopen');
-  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/reopen', body: {} }]);
+  expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/reopen', body: { updated: ordinary.updated, opKey: posts[0]?.body.opKey } }]);
+  expect(uuid.test(posts[0]?.body.opKey ?? '')).toBe(true);
+  expect(posts[0]?.body.opKey).not.toBe(answerKey);
 });
 
 // The pinned row stays mounted while the Inbox mounts conditionally (desktop and phone shells).

@@ -1,12 +1,14 @@
-import { afterAll, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
 
 // smarty-code#701: the inbox page against a fake gateway /inbox: P0 first, only the actions an item allows, Accept
 // resolves at once and its toast's Undo reopens, a 413 keeps the typed response and shows the gateway's message.
-const posts: { url: string; body: unknown }[] = [];
+const posts: { url: string; body: { text?: string; action?: string; updated?: string; opKey?: string } }[] = [];
 const toasts: { message: string; undo?: () => void }[] = [];
+const versions = new Map<string, string>();
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let answerStatus = 200;
 let postGate: Promise<void> | null = null;
 const base = { to: 'paul', links: [], created: '2026-09-28T10:00:00.000Z', updated: '2026-09-28T10:00:00.000Z', source: 'net-lead' };
@@ -22,9 +24,14 @@ mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch: async (url: string, in
     posts.push({ url, body: JSON.parse(String(init.body)) });
     if (postGate) await postGate;
     if (url.endsWith('/answer') && answerStatus !== 200) return json({ data: { message: 'Answer text is too long for the inbox (at most 3500 bytes); nothing was sent' } }, answerStatus);
-    return json({ person: 'paul', item: items[0] });
+    const id = decodeURIComponent(url.split('/').at(-2)!);
+    const target = items.find(item => item.id === id) ?? resolvedItem;
+    const updated = new Date(Date.parse(versions.get(id) ?? target.updated) + 60_000).toISOString();
+    versions.set(id, updated);
+    return json({ person: target.to, item: { ...target, updated } });
   }
-  return listResponder(url);
+  const response = await listResponder(url);
+  return json({ ...await response.json(), capabilities: { guardedReopen: true } }, response.status);
 } }));
 const ui = await import('@/components/ui');
 mock.module('@/components/ui', () => ({ ...ui, toast: { ...ui.toast,
@@ -32,6 +39,8 @@ mock.module('@/components/ui', () => ({ ...ui, toast: { ...ui.toast,
   error: (message: string) => { toasts.push({ message }); } } }));
 const { InboxView } = await import('./InboxView');
 const { I18nProvider } = await import('@/lib/i18n');
+const { useInboxStore } = await import('@/lib/smartyInbox');
+beforeEach(() => { versions.clear(); useInboxStore.getState().setItems(false, [], { capabilities: { guardedReopen: true } }); });
 const View = () => <I18nProvider><InboxView onClose={() => undefined} /></I18nProvider>;
 
 const win = new Window({ url: 'http://localhost' });
@@ -59,10 +68,11 @@ test('the inbox lists P0 first; an item shows only its actions; Accept resolves 
   expect(host.textContent).toContain('javascript:alert(1)');
 
   await click([...host.querySelectorAll('article button')].find(b => b.textContent?.includes('Accept'))); await settle();
-  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/resolve', body: { action: 'accept' } });
+  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/resolve', body: { action: 'accept', updated: base.updated } });
   expect(toasts.at(-1)?.message).toBe('Accepted');
   await act(async () => { toasts.at(-1)!.undo!(); }); await settle();
-  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/reopen', body: {} });
+  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/reopen', body: { updated: '2026-09-28T10:01:00.000Z', opKey: posts.at(-1)?.body.opKey } });
+  expect(uuid.test(posts.at(-1)?.body.opKey ?? '')).toBe(true);
 
   await click(host.querySelector('[data-inbox-item="ask:1"]')); await settle();
   expect(buttons(host)).toEqual(['✎ Respond', 'Snooze ▾']);
@@ -83,7 +93,8 @@ test('a response too long for the store keeps the text and shows the gateway mes
     props.onChange({ target: { value: 'a long answer' } });
   });
   await click([...host.querySelectorAll('article button')].find(b => b.textContent === 'Send')); await settle();
-  expect(posts.at(-1)).toEqual({ url: '/api/inbox/ask%3A1/answer', body: { text: 'a long answer', action: 'respond' } });
+  expect(posts.at(-1)).toEqual({ url: '/api/inbox/ask%3A1/answer', body: { text: 'a long answer', action: 'respond', updated: base.updated, opKey: posts.at(-1)?.body.opKey } });
+  expect(uuid.test(posts.at(-1)?.body.opKey ?? '')).toBe(true);
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('too long');
   expect((host.querySelector('textarea') as unknown as HTMLTextAreaElement).value).toBe('a long answer');
   await act(async () => root.unmount());
@@ -164,7 +175,8 @@ test('an Undo after a tab change refreshes the tab shown, not Open', async () =>
   await click(tabButton(host, 'Resolved')); await settle();
   const releaseOpen = gateOpen();
   await act(async () => { toasts.at(-1)!.undo!(); }); await settle();
-  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/reopen', body: {} });
+  expect(posts.at(-1)).toEqual({ url: '/api/inbox/p0x/reopen', body: { updated: '2026-09-28T10:01:00.000Z', opKey: posts.at(-1)?.body.opKey } });
+  expect(uuid.test(posts.at(-1)?.body.opKey ?? '')).toBe(true);
   await releaseOpen(() => expect(ids(host)).toEqual(['done1']));
   await act(async () => root.unmount());
 });
