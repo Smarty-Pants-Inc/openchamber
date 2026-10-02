@@ -84,7 +84,7 @@ export function SessionDeleteConfirmDialog(props: {
             <button
               type="button"
               onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive-solid px-3 typography-ui-label text-destructive-solid-foreground hover:bg-destructive-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
             >
               {value?.archivedBucket ? t('sessions.sidebar.bulkActions.delete') : t('sessions.sidebar.bulkActions.archive')}
             </button>
@@ -154,7 +154,7 @@ export function BulkSessionDeleteConfirmDialog(props: {
             <button
               type="button"
               onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive-solid px-3 typography-ui-label text-destructive-solid-foreground hover:bg-destructive-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
             >
               {archived ? t('sessions.sidebar.bulkActions.delete') : t('sessions.sidebar.bulkActions.archive')}
             </button>
@@ -217,7 +217,7 @@ export function FolderDeleteConfirmDialog(props: {
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+            className="inline-flex h-8 items-center justify-center rounded-md bg-destructive-solid px-3 typography-ui-label text-destructive-solid-foreground hover:bg-destructive-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
           >
             {t('sessions.sidebar.bulkActions.delete')}
           </button>

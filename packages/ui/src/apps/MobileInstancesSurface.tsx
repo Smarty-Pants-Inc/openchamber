@@ -254,7 +254,7 @@ export const MobileInstancesSurface: React.FC<{
                         <button
                           type="button"
                           aria-label={t('mobile.instances.confirmDeleteAria', { label: connection.label })}
-                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-destructive-foreground transition-opacity active:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-destructive-solid px-3 text-destructive-solid-foreground transition-opacity active:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                           onClick={() => confirmDelete(connection.id)}
                           style={{ touchAction: 'manipulation' }}
                         >

@@ -355,6 +355,13 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  /* Solid controls opt into paired tokens; raw destructive still owns alpha tints. */
+  --color-destructive-solid: var(--status-error-fill, var(--destructive));
+  --color-destructive-solid-foreground: var(--status-on-error-fill, var(--destructive-foreground));
+  --color-status-success-solid: var(--status-success-fill, var(--status-success));
+  --color-status-success-solid-foreground: var(--status-on-success-fill, var(--color-white));
+  --color-status-warning-solid: var(--status-warning-fill, var(--status-warning));
+  --color-status-warning-solid-foreground: var(--status-on-warning-fill, var(--background));
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

@@ -589,7 +589,7 @@ const SessionRow: React.FC<{
             className={cn(
               'flex flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
               confirmingDelete
-                ? 'rounded-lg bg-destructive text-destructive-foreground'
+                ? 'rounded-lg bg-destructive-solid text-destructive-solid-foreground'
                 : 'text-status-error-text active:opacity-80',
             )}
             aria-label={confirmingDelete
@@ -1770,7 +1770,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                             className={cn(
                               'flex flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
                               confirmingRemoveProjectId === node.project.id
-                                ? 'rounded-lg bg-destructive text-destructive-foreground'
+                                ? 'rounded-lg bg-destructive-solid text-destructive-solid-foreground'
                                 : 'text-status-error-text active:opacity-80',
                             )}
                             aria-label={confirmingRemoveProjectId === node.project.id

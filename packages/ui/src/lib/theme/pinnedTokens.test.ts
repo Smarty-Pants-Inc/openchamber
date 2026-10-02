@@ -6,11 +6,20 @@ import type { Theme } from '@/types/theme';
 import { buildTextMateThemeFromAppTheme } from '@/lib/shiki/textMateThemeFromAppTheme';
 import { CSSVariableGenerator } from './cssGenerator';
 import { getDefaultTheme } from './themes';
+import { buildVSCodeThemeFromPalette } from './vscode/adapter';
 import lightJSON from './themes/openchamber-light.json';
 import darkJSON from './themes/openchamber-dark.json';
 
 const tokenCSS = readFileSync(new URL('../../styles/vendor/smarty-design-system/tokens.css', import.meta.url), 'utf8');
 const generator = new CSSVariableGenerator();
+const designCSS = readFileSync(new URL('../../styles/design-system.css', import.meta.url), 'utf8');
+const solidAliases = ['destructive-solid', 'destructive-solid-foreground', 'status-success-solid',
+  'status-success-solid-foreground', 'status-warning-solid', 'status-warning-solid-foreground'];
+const solidCSS = solidAliases.map((alias) => {
+  const value = designCSS.match(new RegExp(`--color-${alias}: ([^;]+);`))?.[1];
+  if (!value) throw new Error(`Missing solid alias ${alias}`);
+  return `--${alias}: ${value};`;
+}).join('\n');
 
 // Parse the vendored declarations only in tests. JSON consumers receive resolved literals.
 function declarations(variant: string): Map<string, string> {
@@ -112,22 +121,55 @@ describe('default JSON mirrors pinned Smarty tokens', () => {
       expect(theme.colors.primary.foreground).toBe(resolve(source, 'primary-foreground'));
     });
 
-    test(`${theme.metadata.variant} destructive aliases pass AA for normal-size text on the solid error fill`, () => {
+    test(`${theme.metadata.variant} pin3 paired fills are explicit and raw JSON roles stay separate`, () => {
+      const source = declarations(theme.metadata.variant);
+      const expected = theme.metadata.variant === 'dark'
+        ? ['#e8705f', '#a0af54', '#d0a215', '#66a0c8', '#1c1b1a']
+        : ['#af3029', '#536907', '#8e6b01', '#205ea6', '#fffdf4'];
+      for (const [index, role] of ['error', 'success', 'warning', 'info'].entries()) {
+        const fill = resolve(source, `status-${role}-fill`);
+        const foreground = resolve(source, `status-on-${role}-fill`);
+        expect(fill).toBe(expected[index]);
+        expect(foreground).toBe(expected[4]);
+        expect(contrast(foreground, fill)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    test(`${theme.metadata.variant} solid aliases use pin3 pairs and restore exact selected fallbacks`, () => {
       const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
       const browser = new Window();
       Object.defineProperty(globalThis, 'document', { configurable: true, value: browser.document });
       try {
-        generator.apply(getDefaultTheme(theme.metadata.variant === 'dark'), tokenCSS);
-        const css = browser.getComputedStyle(browser.document.documentElement);
-        // MobileSessionsSheet and ConfirmDialogs use bg-destructive text-destructive-foreground.
-        const fill = css.getPropertyValue('--destructive').trim();
-        const foreground = css.getPropertyValue('--destructive-foreground').trim();
-        expect(fill).toBe(theme.colors.status.error);
-        expect(foreground).toBe(theme.colors.status.errorForeground);
-        expect(contrast(foreground, fill)).toBeGreaterThanOrEqual(4.5);
-        if (theme.metadata.variant === 'dark') {
-          expect(contrast('#1c1b1a', fill)).toBeLessThan(4.5);
-          expect(contrast('#000000', fill)).toBeGreaterThanOrEqual(4.5);
+        const probe = browser.document.createElement('style');
+        probe.textContent = `:root { --color-white: #fff; ${solidCSS} }`;
+        browser.document.head.append(probe);
+        const base = getDefaultTheme(theme.metadata.variant === 'dark');
+        const custom: Theme = { ...base, colors: { ...base.colors, status: { ...base.colors.status,
+          error: '#123456', errorForeground: '#abcdef', success: '#234567', warning: '#345678' },
+          surface: { ...base.colors.surface, background: '#456789' } } };
+        const vscode = buildVSCodeThemeFromPalette({ kind: theme.metadata.variant === 'dark' ? 'dark' : 'light', colors: {} });
+        const source = declarations(theme.metadata.variant);
+        for (const selected of [base, custom, vscode, base]) {
+          const pinned = selected === base;
+          generator.apply(selected, pinned ? tokenCSS : '');
+          const css = browser.getComputedStyle(browser.document.documentElement);
+          const value = (name: string) => css.getPropertyValue(`--${name}`).trim();
+          expect(value('destructive')).toBe(selected.colors.status.error);
+          expect(value('destructive-foreground')).toBe(selected.colors.status.errorForeground);
+          for (const [alias, role, fallback] of [
+            ['destructive-solid', 'error', selected.colors.status.errorForeground],
+            ['status-success-solid', 'success', '#fff'],
+            ['status-warning-solid', 'warning', selected.colors.surface.background],
+          ]) {
+            const fill = value(alias);
+            const foreground = value(`${alias}-foreground`);
+            const rawFill = role === 'error' ? selected.colors.status.error
+              : role === 'success' ? selected.colors.status.success : selected.colors.status.warning;
+            expect(fill).toBe(pinned ? resolve(source, `status-${role}-fill`) : rawFill);
+            expect(foreground).toBe(pinned ? resolve(source, `status-on-${role}-fill`) : fallback);
+            if (pinned) expect(contrast(foreground, fill)).toBeGreaterThanOrEqual(4.5);
+          }
+          expect(value('status-info-fill')).toBe(pinned ? resolve(source, 'status-info-fill') : '');
         }
       } finally {
         if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
