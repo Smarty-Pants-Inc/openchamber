@@ -1,8 +1,6 @@
 name: stale
 
 on:
-  schedule:
-    - cron: "30 1 * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +10,7 @@ permissions:
 jobs:
   stale:
     if: ${{ github.repository == 'openchamber/openchamber' }}
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     steps:
       - name: Generate bot app token
         id: app-token
