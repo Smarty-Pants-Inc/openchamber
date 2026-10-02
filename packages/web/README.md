@@ -245,6 +245,24 @@ systemctl --user enable --now opencode openchamber
 - Background notifications plus reliable cross-tab session activity tracking
 - Built-in self-update + restart flow that keeps your server settings intact
 
+## Tests with read-only dependency links
+
+When a private fixture uses a shared `node_modules` symlink, run
+`bun run test:fixture` from `packages/web`, not `bun run test`. The fixture
+command disables Vitest's result cache and loads the config in memory, so it
+does not write result-cache or bundled-config files through the dependency link.
+Keep temporary files and raw reports in directories owned by each caller:
+
+```bash
+TMPDIR="$OWNER_TMPDIR" bun run test:fixture path/to/fixture.test.js \
+  --reporter=json --outputFile="$OWNER_REPORT_DIR/raw.json"
+```
+
+Create those directories before running. Concurrent callers must use separate
+`OWNER_TMPDIR` and `OWNER_REPORT_DIR` paths. Do not install dependencies or change
+shared files or cache permissions for a fixture run. Ordinary installed-project
+`bun run test` keeps its default caching.
+
 ## License
 
 MIT
