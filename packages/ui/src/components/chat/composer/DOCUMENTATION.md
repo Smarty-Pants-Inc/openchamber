@@ -278,6 +278,19 @@ claim that slot, and delayed writes or accepted cleanup must still own it. The
 draft ID stays out of the durable key and envelope. This is page-lifetime ownership,
 not a creation journal or cross-reload guarantee.
 
+`native-draft-sent.ts` keeps one project-wide sent-start marker for runtime and
+directory. New markers record the sender's `chatDraftTabs.tabId()` lineage, and
+ensure, admission and history recovery preserve it alongside the operation and
+submission. Admission consumes only the sender tab or a duplicate sharing that
+lineage. Equal text and an older save do not authorize consumption in an independent
+tab. The same lineage still applies the draft-generation and submission-time guards,
+including after a reload and on queued storage events. Project-wide unresolved-start
+coordination, stopped outcomes and explicit recovery controls remain unchanged.
+Legacy markers without lineage still resolve pending or stopped starts, but admission
+never consumes a draft. Only an explicit Send continuing its exact saved request may
+add lineage to an unresolved legacy marker before dispatch. History reads cannot
+infer that ownership, so a legacy delivered copy can remain as draft text.
+
 Accepted cleanup asks this owner to consume the submitted snapshot. A matching
 mounted draft settles its live editor text and mentions before saved cleanup;
 an unmounted draft uses the snapshot flushed by `useComposerDraft`. The old

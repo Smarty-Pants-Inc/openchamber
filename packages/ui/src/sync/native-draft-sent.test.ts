@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { claimChatDraftOwnership, consumeChatDraft, createChatDraftIdentity, readChatDraft, subscribeChatDraftConsumption, writeChatDraft } from '@/lib/chatDraftPersistence';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { tabId } from '@/lib/chatDraftTabs';
 import { directory, nativeDraftFixture, session } from './native-draft-fixture';
 import { admitSentStart, ensureSentStart, keepSentTextAsDraft, markSentStart, releaseSentStart, resetSentStartsForPage, resolveSentStart, sentStartLocks } from './native-draft-sent';
 
@@ -24,9 +25,10 @@ const request = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', newer = 'ffffffff-ffff-4
 let fixture: ReturnType<typeof nativeDraftFixture> | undefined;
 afterEach(() => { fixture?.dispose(); fixture = undefined; localStorage.clear(); held.clear(); resetSentStartsForPage(); });
 const markKey = () => `oc.nativeCreation.sent:${JSON.stringify([fixture!.runtimeA, directory])}`;
-/** Another tab's Send marked it; this page did not. */
+/** A duplicate with this tab's lineage marked it; this page did not. */
 const markedElsewhere = (id = request, admitted = false) => localStorage.setItem(markKey(),
-  JSON.stringify(admitted ? { clientRequestId: id, admitted, text: 'hello', at: Date.now() } : { clientRequestId: id }));
+  JSON.stringify(admitted ? { clientRequestId: id, tabId: tabId(), admitted, text: 'hello', at: Date.now() }
+    : { clientRequestId: id, tabId: tabId() }));
 const start = (phase: NativeCreationState['phase'], native = false): NativeCreationState => {
   const value: NativeCreationState = { operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', directory,
     generation: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', revision: 3, phase, expiresAt: Date.now() + 60_000, canInitialReady: false,
@@ -126,7 +128,7 @@ test("an older Send's admission or end never touches a newer start's mark or loc
   admitSentStart(fixture!.runtimeA, directory, request);
   releaseSentStart(request);
   await new Promise(done => setTimeout(done, 1));
-  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: newer });
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: newer, tabId: tabId() });
   expect([...held]).toEqual([lock(newer)]);
   admitSentStart(fixture!.runtimeA, directory, newer);
   await new Promise(done => setTimeout(done, 1));
@@ -151,7 +153,7 @@ test('this tab continues its own start; an unknown start can be kept as an unsen
   expect(readChatDraft(draft()).text).toBe('hello');
 });
 
-test('an admitted Send carries the text it submitted, and every tab consumes its own copy of it once', async () => {
+test('an admitted Send carries its submitted text, and same-lineage duplicates consume their copies once', async () => {
   server([], []);
   // The sending tab consumed an older text before; its Send's own submitted text is what it admits.
   write('older message C');
@@ -160,7 +162,7 @@ test('an admitted Send carries the text it submitted, and every tab consumes its
   admitSentStart(fixture!.runtimeA, directory, request, 'same text in both tabs');
   expect(JSON.parse(localStorage.getItem(markKey())!)).toMatchObject({ admitted: true, text: 'same text in both tabs' });
   expect(await resolve()).toBeNull(); // The sending tab itself: handled, so its next draft is never blocked.
-  for (let page = 0; page < 2; page++) { // Two other tabs, each with a live copy of that text.
+  for (let page = 0; page < 2; page++) { // Reloads or duplicates retaining the sender's tab id.
     resetSentStartsForPage();
     const seen: string[] = [];
     const stop = subscribeChatDraftConsumption((identity, submitted) => { if (identity.draftId === draftId) seen.push(submitted); });
@@ -174,7 +176,7 @@ test('an admitted Send carries the text it submitted, and every tab consumes its
 test('an expired admitted mark never consumes a later draft with the same text', async () => {
   server([], []);
   write('hello'); // A new, unsent prompt that happens to equal the old delivered text.
-  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, admitted: true, text: 'hello', at: Date.now() - 700_000 }));
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: tabId(), admitted: true, text: 'hello', at: Date.now() - 700_000 }));
   expect(await resolve()).toBeNull();
   expect(readChatDraft(draft()).text).toBe('hello');
   expect(localStorage.getItem(markKey())).toBeNull();
@@ -224,7 +226,7 @@ test('a stale keep-as-draft click after another tab admitted the request keeps t
 // Review of #220 (fbcc3093): after a reload within the mark's lifetime, a later draft with the same words survives.
 test('send, reload within ten minutes, New session, type the same text: the new draft survives', async () => {
   server([], []);
-  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, admitted: true, text: 'hello', at: Date.now() - 60_000 }));
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: tabId(), admitted: true, text: 'hello', at: Date.now() - 60_000 }));
   resetSentStartsForPage(); // The reload: this page's memory of what it handled is gone.
   write('hello'); // New session, then the same words typed as a new message (saved after the admission).
   expect(await resolve()).toBe('delivered'); // Unlocked...
@@ -257,7 +259,7 @@ test('a start that expired after it left the listing releases its text, and says
   ] as const) {
     server([], [], undefined, read);
     write('hello');
-    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, operationId }));
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: tabId(), operationId }));
     expect(await resolve()).toBe(outcome);
     expect(localStorage.getItem(markKey()) !== null).toBe(marker);
     expect(readChatDraft(draft()).text).toBe('hello'); // The text is never lost.
@@ -269,7 +271,7 @@ test('a start that expired after it left the listing releases its text, and says
 test('the mark of an accepted start keeps its operation', () => {
   fixture = nativeDraftFixture();
   markSentStart(fixture.runtimeA, directory, request, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, tabId: tabId(), operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   releaseSentStart(request);
 });
 
@@ -278,9 +280,95 @@ test('a recovered start\'s mark gains its operation, keeps its submission, and n
   const op = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', submission = { text: 'hello', at: 5 };
   localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, submittedText: 'hello', submittedAt: 5 }));
   expect(ensureSentStart(fixture.runtimeA, directory, request, undefined, op)).toBe('marked');
-  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, submittedText: 'hello', submittedAt: 5, operationId: op });
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, tabId: tabId(), submittedText: 'hello', submittedAt: 5, operationId: op });
   expect(ensureSentStart(fixture.runtimeA, directory, request, submission)).toBe('marked'); // A later POST keeps it.
   expect(JSON.parse(localStorage.getItem(markKey())!).operationId).toBe(op);
   expect(ensureSentStart(fixture.runtimeA, directory, newer, undefined, op)).toBe('elsewhere'); // Another live start's mark.
   expect(JSON.parse(localStorage.getItem(markKey())!).clientRequestId).toBe(request);
+});
+
+test('mark, ensure and admission persist the sender lineage and original operation and submission', () => {
+  fixture = nativeDraftFixture();
+  const operationId = start('ready').operationId, submission = { text: 'hello', at: 5 };
+  markSentStart(fixture.runtimeA, directory, request, operationId);
+  expect(ensureSentStart(fixture.runtimeA, directory, request, submission)).toBe('marked');
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, tabId: tabId(), operationId,
+    submittedText: 'hello', submittedAt: 5 });
+  admitSentStart(fixture.runtimeA, directory, request, submission.text, submission.at);
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, tabId: tabId(), operationId,
+    submittedText: 'hello', submittedAt: 5, admitted: true, text: 'hello', at: 5 });
+});
+
+test('ensure and admission never relabel an existing foreign lineage', () => {
+  fixture = nativeDraftFixture();
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: 'independent-tab' }));
+  expect(ensureSentStart(fixture.runtimeA, directory, request, { text: 'hello', at: 5 })).toBe('marked');
+  expect(JSON.parse(localStorage.getItem(markKey())!).tabId).toBe('independent-tab');
+  admitSentStart(fixture.runtimeA, directory, request, 'hello', 5);
+  expect(JSON.parse(localStorage.getItem(markKey())!).tabId).toBe('independent-tab');
+});
+
+test('foreign and lineage-free admissions never consume an equal-text independent draft', async () => {
+  for (const lineage of ['independent-tab', undefined]) {
+    server([], []);
+    write('hello');
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: lineage, admitted: true, text: 'hello', at: Date.now() }));
+    const seen: string[] = [];
+    const stop = subscribeChatDraftConsumption((_identity, text) => { seen.push(text); });
+    try { expect(await resolve()).toBeNull(); } finally { stop(); }
+    expect(readChatDraft(draft()).text).toBe('hello');
+    expect(seen).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(markKey())!).tabId).toBe(lineage);
+    fixture!.dispose(); fixture = undefined; localStorage.clear(); resetSentStartsForPage();
+  }
+});
+
+test('foreign and legacy history recovery preserves independent text and marker provenance', async () => {
+  for (const lineage of ['independent-tab', undefined]) {
+    server([start('ready', true)], ['hello']);
+    write('hello');
+    const operationId = start('ready').operationId, submittedAt = Date.now();
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: lineage, operationId, submittedText: 'hello', submittedAt }));
+    const seen: string[] = [];
+    const stop = subscribeChatDraftConsumption((_identity, text) => { seen.push(text); });
+    try { expect(await resolve()).toBeNull(); } finally { stop(); }
+    expect(readChatDraft(draft()).text).toBe('hello');
+    expect(seen).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(markKey())!)).toMatchObject({ clientRequestId: request, operationId,
+      submittedText: 'hello', submittedAt, admitted: true, text: 'hello', at: submittedAt });
+    expect(JSON.parse(localStorage.getItem(markKey())!).tabId).toBe(lineage);
+    fixture!.dispose(); fixture = undefined; localStorage.clear(); resetSentStartsForPage();
+  }
+});
+
+test('foreign and legacy unresolved starts keep project-wide pending and stopped recovery controls', async () => {
+  for (const lineage of ['independent-tab', undefined]) {
+    server([start('awaiting-trust')], []);
+    write('hello');
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: lineage }));
+    held.add(lock());
+    expect(await resolve()).toBe('pending');
+    expect(readChatDraft(draft()).text).toBe('hello');
+    held.delete(lock());
+    fixture!.dispose(); fixture = undefined;
+    server([start('expired')], []);
+    // The fixture runtime changes, so place the same unresolved mark and owned draft in its new scope.
+    write('hello');
+    localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: lineage }));
+    expect(await resolve()).toBe('expired');
+    expect(readChatDraft(draft()).text).toBe('hello');
+    expect(localStorage.getItem(markKey())).toBeNull();
+    fixture!.dispose(); fixture = undefined; localStorage.clear(); resetSentStartsForPage();
+  }
+});
+
+test('same-lineage history recovery retains its operation, submission and lineage on admission', async () => {
+  server([start('ready', true)], ['hello']);
+  write('hello');
+  const operationId = start('ready').operationId, submittedAt = Date.now();
+  localStorage.setItem(markKey(), JSON.stringify({ clientRequestId: request, tabId: tabId(), operationId, submittedText: 'hello', submittedAt }));
+  expect(await resolve()).toBe('delivered');
+  expect(readChatDraft(draft()).text).toBe('');
+  expect(JSON.parse(localStorage.getItem(markKey())!)).toEqual({ clientRequestId: request, tabId: tabId(), operationId,
+    submittedText: 'hello', submittedAt, admitted: true, text: 'hello', at: submittedAt });
 });
