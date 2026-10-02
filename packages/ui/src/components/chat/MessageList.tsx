@@ -336,7 +336,7 @@ interface MessageListProps {
      * and the window loader: the list is then as long as the session, with a gap row for each unloaded range. */
     positions?: SessionPositions;
     positionOf?: (messageId: string) => number | undefined;
-    onLoadWindow?: (windows: Window[]) => void;
+    onLoadWindow?: WindowRequest;
     /** Older history exists above the loaded window (its leading assistant messages then render). */
     hasOlderHistory?: boolean;
     scrollToBottom?: () => void;
@@ -382,7 +382,7 @@ import { assembleRenderEntries, buildStaticRenderEntries, buildTrailingUngrouped
 import { GapRow } from './components/GapRow';
 import { TIMELINE_DRAW_DISTANCE } from './lib/gapWindow';
 import { entrySelector, initialScrollFor, readerPlace } from './lib/readerPlace';
-import type { Window } from './lib/windowQueue';
+import type { WindowRequest } from './lib/windowQueue';
 import { gapsOf } from '@/sync/position-windows';
 import type { SessionPositions } from '@/sync/session-message-loader';
 
@@ -899,7 +899,7 @@ MessageListEntry.displayName = 'MessageListEntry';
 // `renderItem` so the render callback keeps a stable identity — a changing
 // `renderItem` makes the list re-render every mounted row on every commit.
 type TimelineRowContextValue = {
-    onLoadWindow?: (windows: Window[]) => void;
+    onLoadWindow?: WindowRequest;
     scrollToBottom?: () => void;
     stickyUserHeader: boolean;
     defaultActivityExpanded: boolean;
@@ -1856,7 +1856,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         };
     }, [allEntries, anchorMessageId, onAnchorReady, onAnchorSizeChanged]);
 
-    const loadWindow = useStableEvent((windows: Window[]) => { onLoadWindow?.(windows); });
+    const loadWindow: WindowRequest = useStableEvent((windows, trigger) => { onLoadWindow?.(windows, trigger); });
     const rowContext = React.useMemo(() => ({
         onLoadWindow: onLoadWindow ? loadWindow : undefined,
         scrollToBottom: stableScrollToBottom,

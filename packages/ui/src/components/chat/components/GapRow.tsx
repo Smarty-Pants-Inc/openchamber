@@ -2,7 +2,7 @@ import React from 'react';
 
 import type { GapEntry } from '../lib/turns/renderEntries';
 import { GAP_SCROLL_READ_MS, GAP_SETTLE_MS, gapWindows } from '../lib/gapWindow';
-import type { Window } from '../lib/windowQueue';
+import type { WindowRequest } from '../lib/windowQueue';
 
 /** How long a gap stays on screen before it is read (smarty-code#583). */
 
@@ -12,7 +12,7 @@ import type { Window } from '../lib/windowQueue';
  * into it from below, its start when scrolling down into it, or around the point the reader landed on (a jump or a
  * scrollbar drag). The loaded records then take its place.
  */
-export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (windows: Window[]) => void }) {
+export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: WindowRequest }) {
     const ref = React.useRef<HTMLDivElement | null>(null);
     // The chunk by value: the row object is rebuilt on each list render, and re-observing then restarted the settle timer.
     const { key, start, end, gapStart, gapEnd, heightPx } = gap;
@@ -26,7 +26,7 @@ export function GapRow({ gap, onLoadWindow }: { gap: GapEntry; onLoadWindow?: (w
             lastLoad = Date.now();
             const box = node.getBoundingClientRect(), view = root?.getBoundingClientRect();
             const viewTop = view?.top ?? 0, viewBottom = view?.bottom ?? window.innerHeight;
-            onLoadWindow(gapWindows(chunk, { top: box.top, bottom: box.bottom }, { top: viewTop, bottom: viewBottom }));
+            onLoadWindow(gapWindows(chunk, { top: box.top, bottom: box.bottom }, { top: viewTop, bottom: viewBottom }), { start, end });
         };
         // A placeholder taller than the view stays intersecting while the reader scrolls through it, so the observer does
         // not fire again: the window around the reader's new place was never read, and the list stayed blank for the

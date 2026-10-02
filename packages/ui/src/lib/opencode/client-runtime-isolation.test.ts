@@ -138,10 +138,8 @@ test('a response body held across a switch cannot seed the current config cache'
     if (urlOf(input).endsWith('/auth/url-token')) return mint();
     calls += 1;
     if (calls > 1) return Response.json({ model: 'b' });
-    const response = new Response(new ReadableStream<Uint8Array>({ start: body.resolve }), { headers: { 'content-type': 'application/json' } });
-    const text = response.text.bind(response);
-    response.text = () => { reading.resolve(); return text(); };
-    return response;
+    return new Response(new ReadableStream<Uint8Array>({ start: body.resolve, pull: () => reading.resolve() },
+      { highWaterMark: 0 }), { headers: { 'content-type': 'application/json' } });
   };
   await switchTo('a');
   const old = opencodeClient.getConfig('/repo');

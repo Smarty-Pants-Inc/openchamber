@@ -47,7 +47,10 @@ export function nativeDraftFixture() {
     snippet: async (): Promise<Response> => Response.json({ text: 'expanded X' }),
     magic: async (): Promise<Response> => Response.json({ version: 1, overrides: {} }),
     knowledge: async (): Promise<Response> => new Response(null, { status: 404 }),
-    history: async (): Promise<Response> => Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } }),
+    history: async (request: Request): Promise<Response> => {
+      if (request.method !== 'GET') throw new Error('Expected history GET');
+      return Response.json([], { headers: { 'x-smarty-ordinary-view': acceptedView } });
+    },
     prompt: async (request: Request): Promise<Response> => {
       if (request.method !== 'POST') throw new Error('Expected native prompt POST');
       return new Response(null, { status: 204 });
@@ -61,7 +64,7 @@ export function nativeDraftFixture() {
     // A directory the server is not setting up reads ready (service.getWorktreeBootstrapStatus); the start asks it first.
     if (url.pathname.endsWith('/git/worktrees/bootstrap-status')) return handlers.bootstrap();
     if (url.pathname.endsWith('/session') && request.method === 'POST') return handlers.create(request);
-    if (url.pathname.endsWith('/message') && request.method === 'GET') return handlers.history();
+    if (url.pathname.endsWith('/message') && request.method === 'GET') return handlers.history(request);
     if (url.pathname.endsWith('/prompt_async')) return handlers.prompt(request);
     if (url.pathname.endsWith('/session-knowledge')) return handlers.knowledge();
     if (url.pathname.endsWith('/config/settings')) return handlers.settings();

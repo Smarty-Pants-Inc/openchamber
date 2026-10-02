@@ -103,8 +103,11 @@ test('mounted cookie recovery releases mint rejection and rebinds the retained l
     const previousStreamOpens = streamOpens;
     const body = deferred<string>();
     const reading = deferred<void>();
-    heldRead = json({});
-    heldRead.text = () => { reading.resolve(); return body.promise; };
+    heldRead = new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
+      reading.resolve();
+      controller.enqueue(new TextEncoder().encode(await body.promise));
+      controller.close();
+    } }, { highWaterMark: 0 }), { headers: { 'content-type': 'application/json' } });
     const oldRead = before.sdk.session.get({ sessionID: 'held' }, { throwOnError: true });
     const rejectedRead = oldRead.then(() => 'published', (error: Error) => error.message);
     await Promise.race([reading.promise, oldRead.then(() => { throw new Error('Read completed without consuming held body'); })]);
