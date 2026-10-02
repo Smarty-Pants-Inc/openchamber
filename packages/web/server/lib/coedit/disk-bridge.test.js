@@ -677,6 +677,116 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.disk()).toBe('a');
     });
 
+    for (const [scenario, raced, unsynced] of [
+      ['combined race and failed directory flush', true, true],
+      ['race-only control', true, false],
+      ['flush-only control', false, true],
+    ]) {
+      it(`#76: ${scenario} reports each warning immediately and resolves only confirmed durability`, async () => {
+        const t = await setup('a', { retryLimit: 0 }); // No delivery watcher or retry can expose the missing warning for us.
+        t.person((x) => x.insert(0, 'P'));
+        const updates = [];
+        t.doc.on('update', (_update, origin) => updates.push(origin));
+        t.hooks.helper = {
+          ...(raced && { pause: 'afterExchange', pauseMs: 3000 }),
+          ...(unsynced && { fault: 'dirSync' }),
+        };
+        const saving = t.bridge.save();
+        try {
+          if (raced) {
+            await expect.poll(() => t.disk(), { timeout: 3000 }).toBe('Pa'); // Actual exchange evidence, not a guessed window.
+            fs.appendFileSync(t.file, 'X'); // Changes the published inode's bytes before the helper observes it.
+          }
+          const result = await saving;
+          t.hooks.helper = unsynced ? { fault: 'dirSync' } : {}; // Subsequent real flushes fail without another pause.
+          expect(result).toEqual({
+            ok: false, conflict: raced ? 'raced' : 'unverified', published: true,
+            recovery: expect.any(String), notice: raced ? DISTURBED_NOTICE : UNSYNCED_NOTICE,
+          }); // Simultaneous durability must not change the public save fields.
+          expect(t.disk()).toBe(raced ? 'PaX' : 'Pa');
+          expect(t.text.toString()).toBe('Pa');
+          const { ino } = fs.statSync(t.file);
+          const warnings = t.bridge.state().warnings;
+          // This assertion is BEFORE any sync, save or retry. Combined publication must expose both conditions now.
+          expect(warnings.map((warning) => warning.conflict).sort()).toEqual(
+            [...(raced ? ['raced'] : []), ...(unsynced ? ['unverified'] : [])].sort());
+          const race = warnings.find((warning) => warning.conflict === 'raced');
+          const durability = warnings.find((warning) => warning.conflict === 'unverified');
+          if (raced) expect(race).toMatchObject({ conflict: 'raced', published: true, recovery: result.recovery, notice: DISTURBED_NOTICE });
+          if (unsynced) expect(durability).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().conflict).toBe(raced ? race : durability);
+          expect(t.conflicts).toHaveLength(warnings.length);
+          for (const warning of warnings) expect(t.conflicts).toContain(warning); // onConflict delivers both exact notices.
+          expect(fs.readFileSync(result.recovery, 'utf8')).toBe('a');
+          expect(t.kept().sort()).toEqual(['Pa', 'a']); // Both recovery copies were written through the real path.
+          const retained = t.staged();
+          expect(retained).toHaveLength(unsynced ? 1 : 0);
+          if (unsynced) expect(fs.readFileSync(path.join(t.privateDir, retained[0]), 'utf8')).toBe('a');
+
+          await t.bridge.sync(); // A failed flush may still merge the authoritative outside insertion.
+          const syncedBase = raced ? 'PaX' : 'Pa';
+          expect(t.text.toString()).toBe(syncedBase); // PaX, never PPaX: the publication already adopted P.
+          expect(updates).toEqual(raced ? [DISK_ORIGIN] : []);
+          expect(t.bridge.state().warnings).toEqual(warnings);
+          for (const warning of warnings) expect(t.bridge.state().warnings).toContain(warning);
+          if (unsynced) {
+            expect(t.bridge.state().warnings.find((warning) => warning.conflict === 'unverified')).toBe(durability);
+            expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'unverified', published: true });
+            const refusal = t.bridge.state().refusal;
+            expect(refusal).toMatchObject({ conflict: 'unverified', published: true });
+            expect(t.bridge.state().conflict).toBe(refusal);
+            expect(t.bridge.state().warnings).toEqual(warnings);
+            for (const warning of warnings) expect(t.bridge.state().warnings).toContain(warning);
+            expect(t.bridge.state().warnings.find((warning) => warning.conflict === 'unverified')).toBe(durability);
+            expect(t.staged()).toEqual(retained);
+            expect(fs.readFileSync(path.join(t.privateDir, retained[0]), 'utf8')).toBe('a');
+            expect(fs.statSync(t.file).ino).toBe(ino); // Held save never exchanges another inode.
+            expect(t.text.toString()).toBe(syncedBase);
+            expect(updates).toEqual(raced ? [DISK_ORIGIN] : []); // Held save never replays or re-merges the insertion.
+            expect(t.conflicts).toHaveLength(warnings.length + 1); // Failed flush does not refresh either warning.
+            delete t.hooks.helper;
+            await t.bridge.sync(); // The actual successful flush resolves ONLY its durability warning.
+            expect(t.bridge.state().refusal).toBe(refusal); // Sync has no authority over the previous save refusal.
+            expect(t.bridge.state().conflict).toBe(refusal);
+            expect(t.staged()).toEqual([]);
+          }
+          expect(t.bridge.state().warnings).toEqual(raced ? [race] : []);
+          if (raced) expect(t.bridge.state().warnings[0]).toBe(race);
+          expect(fs.readFileSync(result.recovery, 'utf8')).toBe('a');
+          expect(t.kept().sort()).toEqual(['Pa', 'a']);
+          expect(await t.bridge.save()).toEqual({ ok: true }); // Authoritative no-change success, not another publication.
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(raced ? [race] : []);
+          expect(t.bridge.state().conflict).toBe(raced ? race : null);
+          if (raced) {
+            // A later no-change refusal and the authoritative base restored WITHOUT sync cannot clear raced recovery.
+            fs.writeFileSync(t.file, `${syncedBase}Y`);
+            expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', recovery: result.recovery, notice: DISTURBED_NOTICE });
+            fs.writeFileSync(t.file, syncedBase);
+            expect(await t.bridge.save()).toEqual({ ok: true });
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings).toEqual([race]);
+            expect(t.bridge.state().warnings[0]).toBe(race);
+            expect(t.bridge.state().conflict).toBe(race);
+            expect(fs.readFileSync(race.recovery, 'utf8')).toBe('a');
+          }
+          expect(fs.statSync(t.file).ino).toBe(ino); // Final success reads the authoritative base; it writes nothing.
+          expect(t.disk()).toBe(syncedBase);
+          expect(t.text.toString()).toBe(syncedBase);
+          expect(updates).toEqual(raced ? [DISK_ORIGIN] : []);
+          expect(t.kept().sort()).toEqual(['Pa', 'a']);
+          expect(t.staged()).toEqual([]);
+        } finally {
+          await saving; // Drain the admitted publication even if waiting for disk evidence failed.
+          delete t.hooks.helper;
+          expect(await t.bridge.close()).toEqual({ quiescent: true });
+          expect(helperPids(t.root).filter(alive)).toEqual([]);
+          t.doc.destroy();
+        }
+      });
+    }
+
     it('a failed directory sync holds through sync and save while flushes keep failing; a later flush confirms it with no replay (review round 2: durability)', async () => {
       const t = await setup('a', { retryMs: 60_000 });
       t.person((x) => x.insert(0, 'P'));
