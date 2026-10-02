@@ -24,13 +24,13 @@ export function StepDetail({ step, complete, actions, compact, mobile }: Props) 
   const copyStatus = copyReceipt?.id === item.id && copyReceipt.version === item.updated ? copyReceipt.result : null;
   const target = stepCopyTarget(item.recommendation ?? '');
   const copy = async () => {
-    if (!target.safe) return;
+    if (!complete || !actions.isCurrent() || !target.safe) return;
     setCopyReceipt(null);
     const receipt = { id: item.id, version: item.updated };
     try {
       const result = await copyTextToClipboard(target.text);
-      setCopyReceipt({ ...receipt, result: result.ok ? 'copied' : 'failed' });
-    } catch { setCopyReceipt({ ...receipt, result: 'failed' }); }
+      if (actions.isCurrent()) setCopyReceipt({ ...receipt, result: result.ok ? 'copied' : 'failed' });
+    } catch { if (actions.isCurrent()) setCopyReceipt({ ...receipt, result: 'failed' }); }
   };
   const disabled = !complete || status?.state === 'pending' || status?.state === 'uncertain';
   const size = mobile ? 'lg' : 'sm';

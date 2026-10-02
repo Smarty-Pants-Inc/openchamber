@@ -2,6 +2,9 @@ import { afterAll, expect, test } from 'bun:test';
 import { groupInboxSteps, isStepDone, STEP_DONE_REPORT } from './inboxSteps';
 import { loadInbox, refreshInboxBadge, useInboxStore, watchInbox, type InboxItem } from './smartyInbox';
 
+import { captureRuntimeRequestScope } from './runtime-switch';
+import { useAuthSessionStore } from './runtime-auth-expiry';
+
 const item: InboxItem = { id: 'step:a', to: 'paul', title: 'A — instruction', source: 'steps:v1:a:01/01',
   actions: ['respond'], recommendation: 'raw', links: [], priority: 'normal', created: 'v0', updated: 'v1' };
 const originalFetch = globalThis.fetch;
@@ -60,6 +63,7 @@ test('a delayed refresh cannot overwrite a stored mutation; failed refresh prese
   const updated = { ...item, updated: 'v2' }; useInboxStore.getState().recordItem(updated);
   release(json([item])); await refresh;
   expect(useInboxStore.getState().items).toEqual([updated]);
+  expect(useInboxStore.getState().snapshotValid).toBe(false);
   globalThis.fetch = async () => { throw new Error('offline'); };
   await refreshInboxBadge();
   expect(useInboxStore.getState().items).toEqual([updated]); expect(useInboxStore.getState().snapshotValid).toBe(false);
@@ -88,6 +92,33 @@ test('a delayed Done U1 acknowledgement cannot overwrite an SSE snapshot reopene
   useInboxStore.getState().recordItem(u3);
   expect(useInboxStore.getState().items).toEqual([u3]);
   expect(isStepDone(useInboxStore.getState().items[0]!)).toBe(true);
+});
+
+test('a replacement full snapshot retains newer receipt text and its conflict blockers', async () => {
+  const newer = { ...item, updated: '2026-10-01T10:02:00.000Z', recommendation: 'current command' };
+  const older = { ...item, updated: '2026-10-01T10:01:00.000Z', recommendation: 'stale command' };
+  useInboxStore.getState().setItems(true, [newer]);
+  useInboxStore.getState().invalidateSnapshot();
+  globalThis.fetch = async () => json([older, { to: item.to, source: item.source, title: 123 }]);
+  await refreshInboxBadge();
+  expect(useInboxStore.getState().items).toEqual([newer]);
+  expect(useInboxStore.getState().snapshotValid).toBe(true);
+  expect(groupInboxSteps(useInboxStore.getState().items, useInboxStore.getState().invalidStepGroups)).toEqual([]);
+});
+
+test('retired identity scopes cannot commit snapshots or item receipts even after B has loaded', () => {
+  useInboxStore.getState().setItems(true, [item]);
+  const aScope = captureRuntimeRequestScope();
+  useAuthSessionStore.getState().markAuthenticated();
+  expect(useInboxStore.getState()).toMatchObject({ items: [], snapshotValid: false, guardedReopen: false });
+  const b = { ...item, to: 'other', title: 'B — instruction' };
+  useInboxStore.getState().setItems(true, [b]);
+  const revision = useInboxStore.getState().revision;
+  useInboxStore.getState().recordItem(item, aScope);
+  useInboxStore.getState().setItems(true, [item], { capabilities: { guardedReopen: true } }, aScope);
+  expect(useInboxStore.getState().items).toEqual([b]);
+  expect(useInboxStore.getState().revision).toBe(revision);
+  expect(useInboxStore.getState().guardedReopen).toBe(false);
 });
 
 test('out-of-order snapshots cannot resurrect an older command under the same recipient/list', async () => {

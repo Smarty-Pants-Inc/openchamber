@@ -16,6 +16,7 @@ export function groupInboxSteps(items: InboxItem[], poisoned: readonly string[] 
     if (!item.source?.startsWith('steps:v1:')) continue;
     const claimedId = item.source.split(':')[2] ?? '';
     const key = JSON.stringify([item.to, claimedId]);
+    if (invalid.has(key)) continue;
     const match = SOURCE.exec(item.source);
     const ordinal = Number(match?.[2]), total = Number(match?.[3]);
     const separator = item.title.indexOf(' — ');
@@ -26,8 +27,9 @@ export function groupInboxSteps(items: InboxItem[], poisoned: readonly string[] 
       continue;
     }
     const group = groups.get(key) ?? { key, id: claimedId, to: item.to, topic, total, complete: false, steps: [] };
-    if (group.total !== total || group.topic !== topic || group.steps.some(s => s.ordinal === ordinal || s.item.id === item.id)) {
+    if (group.steps.length >= group.total || group.total !== total || group.topic !== topic || group.steps.some(s => s.ordinal === ordinal || s.item.id === item.id)) {
       invalid.add(key);
+      continue;
     }
     group.steps.push({ ordinal, item });
     groups.set(key, group);

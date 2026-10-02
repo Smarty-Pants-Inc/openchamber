@@ -3,9 +3,12 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
 import { I18nProvider } from '@/lib/i18n';
-import { refreshInboxBadge, useInboxStore, type InboxItem } from '@/lib/smartyInbox';
+import { refreshInboxBadge, useInboxStore, watchInbox, type InboxItem } from '@/lib/smartyInbox';
 import { STEP_DONE_REPORT } from '@/lib/inboxSteps';
 import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+import { useHumanAuth } from '@/lib/human-auth';
+import { setPersonalSidebarView, usePersonalSidebarView } from '@/lib/sidebar-view';
 
 const win = new Window({ url: 'http://localhost' });
 const values = { window: win, document: win.document, navigator: win.navigator, HTMLElement: win.HTMLElement,
@@ -30,11 +33,16 @@ const item = (over: Partial<InboxItem> = {}): InboxItem => ({ id: 'step:a:1', to
 const json = (body: { item?: InboxItem; items?: InboxItem[] }) => new Response(JSON.stringify({ ...body,
   person: 'paul', capabilities: { guardedReopen: true } }), { headers: { 'content-type': 'application/json' } });
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
-const mount = async (mobile = false) => {
+function InboxWatcher() {
+  usePersonalSidebarView();
+  React.useEffect(() => watchInbox(), []);
+  return null;
+}
+const mount = async (mobile = false, watcher = false) => {
   useInboxStore.getState().setItems(true, []);
   const host = document.createElement('div'); document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => root.render(<I18nProvider><StepsLayout mobile={mobile}>
+  await act(async () => root.render(<I18nProvider>{watcher && <InboxWatcher />}<StepsLayout mobile={mobile}>
     <textarea aria-label="Draft" defaultValue="half-written draft" /><div data-scrollbar="chat"><p>Reading anchor</p></div>
   </StepsLayout></I18nProvider>));
   const scroller = host.querySelector<HTMLElement>('[data-scrollbar="chat"]')!;
@@ -209,6 +217,130 @@ test('Check status returning unchanged A cannot discard an in-flight all-state a
     expect([...document.querySelectorAll('select[aria-label="List"] option')].map(option => option.textContent)).toContain('Another');
     expect(posts).toBe(1); expect(itemReads).toBe(2); expect(allReads).toBe(2);
   } finally { await view.cleanup(); }
+});
+
+test('Check status with a changed receipt revokes group authority and replaces a revision-discarded full read', async () => {
+  const view = await mount();
+  const a = item({ created: '2026-10-01T10:00:00.000Z', updated: '2026-10-01T10:00:00.000Z' });
+  const changed = { ...a, updated: '2026-10-01T10:01:00.000Z' };
+  const b = item({ id: 'step:b:1', source: 'steps:v1:b:01/01', title: 'Another — next', created: a.created, updated: a.updated });
+  let holdAll = false, itemReads = 0, posts = 0, allReads = 0;
+  const receipts: ((response: Response) => void)[] = [];
+  globalThis.fetch = async (input, init) => {
+    if (init?.method === 'POST') { posts++; throw new Error('lost acknowledgement'); }
+    if (String(input).includes('state=all')) {
+      allReads++;
+      return holdAll ? new Promise(resolve => { receipts.push(resolve); }) : json({ items: [a] });
+    }
+    itemReads++;
+    if (itemReads === 1) throw new Error('offline reconciliation');
+    return json({ item: changed });
+  };
+  try {
+    await publish([a]);
+    await act(async () => button(view.host, 'Mark step').click()); await settle();
+    holdAll = true;
+    const stale = refreshInboxBadge(); await settle();
+    await act(async () => [...view.host.querySelectorAll('button')].find(b => b.textContent === 'Check status')!.click()); await settle();
+    expect(useInboxStore.getState().snapshotValid).toBe(false);
+    expect(button(view.host, 'Mark step').disabled).toBe(true);
+    expect(allReads).toBe(3);
+    await act(async () => { receipts[0]!(json({ items: [a, b] })); await stale; });
+    expect(useInboxStore.getState().snapshotValid).toBe(false);
+    expect(useInboxStore.getState().items).toEqual([changed]);
+    // The replacement all-state read discovers a malformed conflict member, not just A's item version.
+    await act(async () => receipts[1]!(Response.json({ person: a.to, items: [changed, b,
+      { to: a.to, source: a.source, title: 123 }], capabilities: { guardedReopen: true } })));
+    await settle();
+    expect(useInboxStore.getState().snapshotValid).toBe(true);
+    expect(view.host.querySelector('[data-step-id]')?.getAttribute('data-step-id')).toBe(b.id);
+    expect(view.host.textContent).not.toContain('Run the check');
+    expect(posts).toBe(1); expect(itemReads).toBe(2); expect(allReads).toBe(3);
+  } finally { await view.cleanup(); }
+});
+
+for (const mobile of [false, true]) test(`sidebar 409 same-origin A to B recovery clears mounted ${mobile ? 'phone' : 'desktop'} Steps without an inbox event and rebinds one watcher`, async () => {
+  const originalSource = Object.getOwnPropertyDescriptor(globalThis, 'EventSource');
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
+  const sources: { closed: boolean; onmessage: (() => void) | null }[] = [];
+  class InboxSource {
+    closed = false;
+    onmessage: (() => void) | null = null;
+    constructor() { sources.push(this); }
+    close() { this.closed = true; }
+  }
+  Object.defineProperty(globalThis, 'EventSource', { configurable: true, value: InboxSource });
+  useHumanAuth.setState({ enabled: true });
+  const a = item({ title: 'Private A topic — Private A instruction', recommendation: 'Private A command' });
+  const b = item({ to: 'other', title: 'Private B topic — Private B instruction', recommendation: 'Private B command' });
+  let person = 'paul', allReads = 0, posts = 0, holdA = false;
+  let releaseB!: (response: Response) => void, releaseA!: (response: Response) => void, releaseReceipt!: (response: Response) => void;
+  const owners: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/auth/url-token')) return Response.json({ token: 'fixture-token', expiresAt: Date.now() + 60_000 });
+    if (url.endsWith('/api/config/sidebar-view')) {
+      if (init?.method === 'PATCH') {
+        owners.push(JSON.parse(String(init.body)).owner.subject);
+        return Response.json({}, { status: 409 });
+      }
+      return Response.json({ owner: { issuer: 'issuer', subject: person }, projects: { p: true }, groups: {} });
+    }
+    if (init?.method === 'POST') { posts++; return new Promise(resolve => { releaseReceipt = resolve; }); }
+    allReads++;
+    if (person !== 'paul') return new Promise(resolve => { releaseB = resolve; });
+    return holdA ? new Promise(resolve => { releaseA = resolve; }) : json({ items: [a] });
+  };
+  const view = await mount(mobile, true);
+  try {
+    await settle();
+    expect(view.host.textContent).toContain('Private A topic');
+    expect(sources.filter(source => !source.closed)).toHaveLength(1);
+    await act(async () => button(view.host, 'Copy step').click()); await settle();
+    expect(view.host.textContent).toContain('Copied');
+    expect(copied).toEqual([a.recommendation!]);
+    await act(async () => button(view.host, 'Mark step').click()); await settle();
+    expect(view.host.textContent).toContain('Saving');
+    await act(async () => button(view.host, 'All steps').click()); await settle();
+    expect(document.body.textContent).toContain('Private A command');
+    holdA = true;
+    const staleRefresh = refreshInboxBadge(); await settle();
+    person = 'other';
+    const generation = useAuthSessionStore.getState().recoveryGeneration;
+    await act(async () => { await setPersonalSidebarView({ projects: { p: false } }).catch(() => undefined); });
+    expect(owners).toEqual(['paul']);
+    expect(useAuthSessionStore.getState()).toMatchObject({ state: 'ok', recoveryGeneration: generation + 1 });
+    expect(view.host.textContent).not.toContain('Private A');
+    expect(document.body.textContent).not.toContain('Private A');
+    expect(useInboxStore.getState().items).toEqual([]);
+    expect(useInboxStore.getState().snapshotValid).toBe(false);
+    expect(sources[0]?.closed).toBe(true);
+    expect(allReads).toBe(3);
+    await act(async () => { releaseA(json({ items: [a] })); await staleRefresh; });
+    const stamp = { at: 'v2', by: a.to, action: 'respond' };
+    await act(async () => releaseReceipt(json({ item: { ...a, updated: 'v2', answer: { ...stamp, text: STEP_DONE_REPORT }, resolved: stamp } })));
+    await settle();
+    expect(view.host.textContent).not.toContain('Private A');
+    expect(useInboxStore.getState().items).toEqual([]);
+    await act(async () => releaseB(Response.json({ person: 'other', items: [b], capabilities: { guardedReopen: true } })));
+    await settle();
+    expect(view.host.textContent).toContain('Private B topic');
+    expect(view.host.textContent).not.toContain('Saving');
+    expect(view.host.textContent).not.toContain('Copied');
+    expect(button(view.host, 'Mark step').disabled).toBe(false);
+    expect(useInboxStore.getState().items).toEqual([b]);
+    expect(sources.filter(source => !source.closed)).toHaveLength(1);
+    expect(sources).toHaveLength(2); expect(posts).toBe(1); expect(allReads).toBe(3);
+    sources[0]?.onmessage?.(); await settle(); expect(allReads).toBe(3);
+    expect(document.querySelector('select[aria-label="List"]')).toBeNull();
+    expect(view.host.querySelector('textarea')?.value).toBe('half-written draft');
+  } finally {
+    await view.cleanup(); useHumanAuth.setState({ enabled: false });
+    if (originalSource) Object.defineProperty(globalThis, 'EventSource', originalSource); else Reflect.deleteProperty(globalThis, 'EventSource');
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard); else Reflect.deleteProperty(navigator, 'clipboard');
+  }
 });
 
 test('a write completing after a runtime/identity switch cannot publish into the new inbox', async () => {

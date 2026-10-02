@@ -6,17 +6,18 @@ import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { useI18n } from '@/lib/i18n';
 import { isStepDone, selectStepList, type InboxStepList } from '@/lib/inboxSteps';
 import { useInboxStore } from '@/lib/smartyInbox';
+import { isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { StepDetail } from './StepDetail';
 import { useStepActions } from './useStepActions';
 
-export function StepsRow({ lists, mobile }: { lists: InboxStepList[]; mobile?: boolean }) {
+export function StepsRow({ lists, mobile, scope }: { lists: InboxStepList[]; mobile?: boolean; scope: RuntimeRequestScope | null }) {
   const { t } = useI18n();
   const [selected, setSelected] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
-  const actions = useStepActions();
+  const actions = useStepActions(scope);
   const snapshotValid = useInboxStore(s => s.snapshotValid);
   const guardedReopen = useInboxStore(s => s.guardedReopen);
-  const list = selectStepList(lists, selected);
+  const list = scope && isRuntimeRequestScopeCurrent(scope) ? selectStepList(lists, selected) : undefined;
   // Keep the first selection even if the gateway's priority/newest ordering changes.
   React.useEffect(() => { if (list && list.key !== selected) setSelected(list.key); }, [list, selected]);
   if (!list) return null;

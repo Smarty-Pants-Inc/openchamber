@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { create } from 'zustand';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
-import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged, type RuntimeRequestScope } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 
 const itemSchema = z.object({
   id: z.string().min(1), to: z.string(), title: z.string(),
@@ -79,34 +80,41 @@ export async function loadInboxItem(id: string, fetcher: Fetcher = runtimeFetch)
 }
 
 type Store = {
+  snapshotScope: RuntimeRequestScope | null;
   available: boolean; openCount: number; p0Count: number; pageOpen: boolean; revision: number; items: InboxItem[]; snapshotValid: boolean; guardedReopen: boolean; invalidStepGroups: string[];
   setOpenItems: (available: boolean, items: InboxItem[]) => void; setPageOpen: (open: boolean) => void;
-  setItems: (available: boolean, items: InboxItem[], details?: SnapshotDetails) => void;
-  recordItem: (item: InboxItem) => void;
+  setItems: (available: boolean, items: InboxItem[], details?: SnapshotDetails, scope?: RuntimeRequestScope) => void;
+  recordItem: (item: InboxItem, scope?: RuntimeRequestScope) => void;
   invalidateSnapshot: () => void;
 };
 export const useInboxStore = create<Store>(set => ({
-  available: false, openCount: 0, p0Count: 0, pageOpen: false, revision: 0, items: [], snapshotValid: false, guardedReopen: false, invalidStepGroups: [],
+  snapshotScope: null, available: false, openCount: 0, p0Count: 0, pageOpen: false, revision: 0, items: [], snapshotValid: false, guardedReopen: false, invalidStepGroups: [],
   setOpenItems: (available, items) => set(s => ({ available, openCount: items.length,
     p0Count: items.filter(i => i.priority === 'p0').length, revision: s.revision + 1 })),
   setPageOpen: pageOpen => set({ pageOpen }),
-  setItems: (available, items, details) => set(s => {
+  setItems: (available, items, details, scope = captureRuntimeRequestScope()) => set(s => {
+    if (!isRuntimeRequestScopeCurrent(scope)) return s;
     const open = items.filter(i => inboxItemState(i) === 'open');
-    return { available, items, snapshotValid: available, guardedReopen: details?.capabilities?.guardedReopen ?? false,
+    return { snapshotScope: scope, available, items, snapshotValid: available, guardedReopen: details?.capabilities?.guardedReopen ?? false,
       invalidStepGroups: details?.invalidStepGroups ?? [], openCount: open.length, p0Count: open.filter(i => i.priority === 'p0').length, revision: s.revision + 1 };
   }),
   invalidateSnapshot: () => set({ snapshotValid: false }),
-  recordItem: item => set(s => {
+  recordItem: (item, scope = captureRuntimeRequestScope()) => set(s => {
+    if (!isRuntimeRequestScopeCurrent(scope) || !s.snapshotScope || !isRuntimeRequestScopeCurrent(s.snapshotScope)) return s;
     const current = s.items.find(i => i.id === item.id);
     if (current && (Date.parse(current.updated) > Date.parse(item.updated) || JSON.stringify(current) === JSON.stringify(item))) return s;
     const items = [...s.items.filter(i => i.id !== item.id), item];
     // Retained history is not badge authority after an open-only fallback.
     if (!s.snapshotValid) return { items, revision: s.revision + 1 };
     const open = items.filter(i => inboxItemState(i) === 'open');
-    return { items, openCount: open.length, p0Count: open.filter(i => i.priority === 'p0').length, revision: s.revision + 1 };
+    return { items, snapshotValid: false, openCount: open.length, p0Count: open.filter(i => i.priority === 'p0').length, revision: s.revision + 1 };
   }),
 }));
 
+// Verified recovery also covers a same-origin person replacement without an App remount.
+useAuthSessionStore.subscribe((state, before) => {
+  if (state.recoveryGeneration !== before.recoveryGeneration) useInboxStore.getState().setItems(false, []);
+});
 // The normal path remains one all GET. A failed history read must not hide the ordinary open Inbox.
 async function loadWatchSnapshot(load: () => Promise<InboxListResult>, current: () => boolean) {
   try { return { complete: true, result: await load() }; }
@@ -115,24 +123,45 @@ async function loadWatchSnapshot(load: () => Promise<InboxListResult>, current: 
     return { complete: false, result: await loadInbox('open') };
   }
 }
-function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof loadWatchSnapshot>>>) {
+function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof loadWatchSnapshot>>>, scope: RuntimeRequestScope) {
   const store = useInboxStore.getState(), r = snapshot.result;
-  if (snapshot.complete) { store.setItems(r.available, r.items, r); return; }
+  if (snapshot.complete) {
+    // A status/item receipt can be newer than a subsequent list projection. Preserve its version, not stale text.
+    const receipts = new Map(store.items.map(item => [item.id, item]));
+    const items = r.items.map(item => {
+      const receipt = receipts.get(item.id);
+      return store.snapshotScope && isRuntimeRequestScopeCurrent(store.snapshotScope) && receipt?.to === item.to
+        && Date.parse(receipt.updated) > Date.parse(item.updated) ? receipt : item;
+    });
+    store.setItems(r.available, items, r, scope);
+    return;
+  }
   store.setOpenItems(r.available, r.items);
   store.invalidateSnapshot(); // Open is badge authority, never a silently reduced Steps snapshot.
 }
 let latestInboxRefresh = 0;
-export const refreshInboxBadge = async () => {
-  const generation = ++latestInboxRefresh;
+let pendingInboxRefresh: { scope: RuntimeRequestScope; revision: number; promise: Promise<void> } | null = null;
+export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise<void> => {
   const scope = captureRuntimeRequestScope(), revision = useInboxStore.getState().revision;
-  const current = () => generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision;
-  try {
-    const snapshot = await loadWatchSnapshot(() => loadInbox('all'), current);
-    if (snapshot && current()) applyWatchSnapshot(snapshot);
-  } catch {
-    // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
-    if (current()) useInboxStore.getState().invalidateSnapshot();
+  // Check status can join an unchanged receipt's all-state read, never a read predating a changed receipt.
+  if (options?.reusePending && pendingInboxRefresh?.revision === revision && isRuntimeRequestScopeCurrent(pendingInboxRefresh.scope)) {
+    return pendingInboxRefresh.promise;
   }
+  const generation = ++latestInboxRefresh;
+  const current = () => generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision;
+  const promise = (async () => {
+    try {
+      const snapshot = await loadWatchSnapshot(() => loadInbox('all'), current);
+      if (snapshot && current()) applyWatchSnapshot(snapshot, scope);
+    } catch {
+      // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
+      if (current()) useInboxStore.getState().invalidateSnapshot();
+    }
+  })();
+  const pending = { scope, revision, promise };
+  pendingInboxRefresh = pending;
+  void promise.then(() => { if (pendingInboxRefresh === pending) pendingInboxRefresh = null; });
+  return promise;
 };
 
 /** Retries of a first load that failed (a network error, a gateway restart): 5 s, 15 s, then every 60 s. */
@@ -152,18 +181,22 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
     const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
     void loadWatchSnapshot(load, current).then(snapshot => {
       if (!snapshot || !current()) return;
-      if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot);
+      if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
       if (!snapshot.result.available || !globalThis.EventSource) return;
       source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
     }, () => { if (current()) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
   };
-  const unsubscribe = subscribeRuntimeEndpointChanged(() => {
+  const restart = () => {
     source?.close(); clearTimeout(timer);
     scope = captureRuntimeRequestScope();
     useInboxStore.getState().setItems(false, []);
     attempt(0);
+  };
+  const unsubscribe = subscribeRuntimeEndpointChanged(restart);
+  const unsubscribeAuth = useAuthSessionStore.subscribe((state, before) => {
+    if (state.recoveryGeneration !== before.recoveryGeneration) restart();
   });
   attempt(0);
-  return () => { closed = true; unsubscribe(); clearTimeout(timer); source?.close(); };
+  return () => { closed = true; unsubscribe(); unsubscribeAuth(); clearTimeout(timer); source?.close(); };
 }

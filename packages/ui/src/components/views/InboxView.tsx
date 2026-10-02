@@ -114,7 +114,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
       if (!stored || !isRuntimeRequestScopeCurrent(scope)) return;
       if (steps) {
         if (stored.id !== item.id || stored.to !== item.to) throw new Error(t('common.unavailable'));
-        useInboxStore.getState().recordItem(stored);
+        useInboxStore.getState().recordItem(stored, scope);
       }
       if (action === 'answer') { setReply(null); setText(''); }
       if (done) toast.success(done, { duration: 5000, action: canReopen ? { label: 'Undo', onClick: () => {
@@ -123,7 +123,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
           if (!reopened || !isRuntimeRequestScopeCurrent(scope)) return;
           if (steps) {
             if (reopened.id !== item.id || reopened.to !== item.to) throw new Error(t('common.unavailable'));
-            useInboxStore.getState().recordItem(reopened);
+            useInboxStore.getState().recordItem(reopened, scope);
           }
           return onChanged().then(() => { if (!steps && isRuntimeRequestScopeCurrent(scope)) return refreshInboxBadge(); });
         }).catch(e => { if (isRuntimeRequestScopeCurrent(scope)) toast.error(e instanceof Error ? e.message : t('common.unavailable')); });

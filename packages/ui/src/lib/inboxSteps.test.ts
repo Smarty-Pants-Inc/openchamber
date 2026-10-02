@@ -28,6 +28,25 @@ test('malformed tags, duplicate ordinals, inconsistent totals, topics and action
   expect(groupInboxSteps([step(1, { source: 'steps:v1:bad id:01/01' })])).toEqual([]);
 });
 
+test('large duplicate blocks stop scanning a poisoned group and preserve an unrelated complete list', () => {
+  let idReads = 0;
+  const counted = (ordinal: number, id: string, source?: string) => {
+    const entry = step(ordinal, { id });
+    if (source) entry.source = source;
+    Object.defineProperty(entry, 'id', { get: () => { idReads++; return id; } });
+    return entry;
+  };
+  const duplicates = [1, 2].flatMap(ordinal => Array.from({ length: 12_000 }, (_, n) => counted(ordinal, `duplicate:${ordinal}:${n}`)));
+  const valid = [1, 2, 3].map(ordinal => counted(ordinal, `valid:${ordinal}`, `steps:v1:valid:0${ordinal}/03`));
+  const lists = groupInboxSteps([...duplicates, ...valid]);
+  expect(lists.map(list => ({ id: list.id, complete: list.complete, steps: list.steps.length })))
+    .toEqual([{ id: 'valid', complete: true, steps: 3 }]);
+  // ID getters count duplicate-search predicate work, not elapsed time. The valid group proves the counter fires.
+  console.log(`duplicate-block ID comparisons: ${idReads}`);
+  expect(idReads).toBeGreaterThan(0);
+  expect(idReads).toBeLessThanOrEqual(198);
+});
+
 test('new arrivals preserve selected list; an invalidated selection falls back to the next valid group', () => {
   const first = groupInboxSteps([step(1)]);
   const second = groupInboxSteps([step(1, { id: 'other', source: 'steps:v1:other:01/01', title: 'Other — next' }), step(1)]);
