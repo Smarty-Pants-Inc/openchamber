@@ -3,6 +3,7 @@ import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
+import { NativeDraftIdentity } from './composer/ui/NativeDraftIdentity';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
 import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
@@ -3494,6 +3495,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
+                <NativeDraftIdentity observedCapability={{ runtimeKey: activeRuntimeKey, directory: newSessionDraft.directoryOverride ?? currentDirectory ?? null, mode: nativeCreation.mode }} />
                 <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void submitComposer(); }} />
                 {sessionLoadFailed ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">

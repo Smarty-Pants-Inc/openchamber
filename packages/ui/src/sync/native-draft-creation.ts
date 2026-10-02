@@ -5,6 +5,7 @@ import { NativeCreationError, type NativeCreatedSession, type NativeCreationStat
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { createNativeSession } from './session-actions';
+import { resolveDraftProjectDirectory } from './native-draft-identity';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
 type DraftTarget = { runtimeKey: string; draftId: number; directory: string; projectId: string };
@@ -67,7 +68,7 @@ export function assertManagedDraftTarget(draft: NewSessionDraftState, directory 
   const state = useProjectsStore.getState();
   if (!state.managedCatalogAdmitted) return;
   if (state.managedCatalogStatus !== 'ready') throw new NativeCreationError('unavailable');
-  const project = visibleProjects(state).find(project => project.id === draft.selectedProjectId);
+  const { project } = resolveDraftProjectDirectory(draft, visibleProjects(state), 'explicit');
   if (draft.target !== 'project' || !project || directory !== draft.directoryOverride
     || !isManagedProjectDirectory(state.managedRows, project.path, directory)) throw new NativeCreationError('target');
 }
@@ -110,7 +111,7 @@ export async function prepareNativeDraft(clientRequestId?: string): Promise<void
   const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
   assertManagedDraftTarget(draft);
   if (nativeCreationForDraft(store.nativeDraftCreations, draft, runtimeKey)) return;
-  const project = visibleProjects(useProjectsStore.getState()).find(p => p.id === draft.selectedProjectId);
+  const { project } = resolveDraftProjectDirectory(draft, visibleProjects(useProjectsStore.getState()), 'explicit');
   if (!isNativeDraftTarget(draft) || !draft.directoryOverride || !project) throw new NativeCreationError('target');
   const pending: NativeDraftCreation = { status: 'creating', runtimeKey, draftId: draft.draftId,
     directory: draft.directoryOverride, projectId: project.id };
@@ -165,8 +166,8 @@ export async function preparedNativeDraft(draft: NewSessionDraftState): Promise<
   if (creation?.status === 'created') return creation.session;
   if (creation?.status === 'failed') throw creation.error;
   if (creation) throw new NativeCreationError('required');
-  const projectDirectory = visibleProjects(useProjectsStore.getState()).find(p => p.id === draft.selectedProjectId)?.path;
-  const directory = draft.directoryOverride ?? projectDirectory ?? opencodeClient.getDirectory();
+  const resolved = resolveDraftProjectDirectory(draft, visibleProjects(useProjectsStore.getState()), 'project');
+  const directory = resolved.directory ?? opencodeClient.getDirectory();
   if (!directory) throw new NativeCreationError('target');
   if (await opencodeClient.supportsNativeCreation(directory)) throw new NativeCreationError('required');
   if (runtimeKey !== getRuntimeKey()) throw new NativeCreationError('stale');
