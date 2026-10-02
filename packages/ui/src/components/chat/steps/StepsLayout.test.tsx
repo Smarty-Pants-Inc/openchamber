@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
 import { I18nProvider } from '@/lib/i18n';
-import { useInboxStore, type InboxItem } from '@/lib/smartyInbox';
+import { refreshInboxBadge, useInboxStore, type InboxItem } from '@/lib/smartyInbox';
 import { STEP_DONE_REPORT } from '@/lib/inboxSteps';
 import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
 
@@ -177,6 +177,38 @@ test('new lists do not replace selection; desktop dropdown and phone sheet close
     expect(document.activeElement).toBe(trigger);
     await view.cleanup();
   }
+});
+
+test('Check status returning unchanged A cannot discard an in-flight all-state arrival of list B', async () => {
+  const view = await mount();
+  const a = item({ created: '2026-10-01T10:00:00.000Z', updated: '2026-10-01T10:00:00.000Z' });
+  const b = item({ id: 'step:b:1', source: 'steps:v1:b:01/01', title: 'Another — next', created: a.created, updated: a.updated });
+  let holdAll = false, releaseAll!: (response: Response) => void;
+  let itemReads = 0, posts = 0, allReads = 0;
+  globalThis.fetch = async (input, init) => {
+    if (init?.method === 'POST') { posts++; throw new Error('lost acknowledgement'); }
+    if (String(input).includes('state=all')) {
+      allReads++;
+      return holdAll ? new Promise(resolve => { releaseAll = resolve; }) : json({ items: [a] });
+    }
+    itemReads++;
+    if (itemReads === 1) throw new Error('offline reconciliation');
+    return json({ item: a });
+  };
+  try {
+    await publish([a]);
+    await act(async () => button(view.host, 'Mark step').click()); await settle();
+    expect(view.host.textContent).toContain('Check status');
+    holdAll = true;
+    const pending = refreshInboxBadge(); await settle();
+    await act(async () => [...view.host.querySelectorAll('button')].find(b => b.textContent === 'Check status')!.click()); await settle();
+    await act(async () => { releaseAll(json({ items: [a, b] })); await pending; }); await settle();
+    expect(useInboxStore.getState().items).toEqual([a, b]);
+    expect(useInboxStore.getState().openCount).toBe(2);
+    await act(async () => button(view.host, 'All steps').click()); await settle();
+    expect([...document.querySelectorAll('select[aria-label="List"] option')].map(option => option.textContent)).toContain('Another');
+    expect(posts).toBe(1); expect(itemReads).toBe(2); expect(allReads).toBe(2);
+  } finally { await view.cleanup(); }
 });
 
 test('a write completing after a runtime/identity switch cannot publish into the new inbox', async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { changeInboxStep } from './inboxStepActions';
+import { actOnInboxStep, changeInboxStep } from './inboxStepActions';
 import { STEP_DONE_REPORT } from './inboxSteps';
 import { actOnInboxItem, InboxRequestError, type InboxItem } from './smartyInbox';
 
@@ -101,6 +101,20 @@ test('known unsupported answer 501 is refused without read; lost stored acknowle
     expect(await changeInboxStep(open, false, deps)).toEqual(refused
       ? { state: 'refused', error: message } : { state: 'uncertain', item: done });
     expect(writes).toHaveLength(1); expect(reads).toHaveLength(refused ? 0 : 1);
+  }
+});
+
+test('generic Inbox responses retain their text and share the one-read no-replay guard', async () => {
+  for (const uncertain of [false, true]) {
+    writes.length = reads.length = 0;
+    const response = { ...done, answer: { ...stamp, text: 'A generic response' } };
+    const result = await actOnInboxStep(open, 'answer', { text: response.answer.text, action: 'respond' },
+      dependencies(async () => { if (uncertain) throw new InboxRequestError('ack unavailable', true); return response; }, async () => response));
+    expect(result).toEqual({ state: uncertain ? 'uncertain' : 'stored', item: response });
+    expect(writes).toEqual([{ id: open.id, action: 'answer', body: {
+      text: 'A generic response', action: 'respond', updated: open.updated, opKey: 'one-operation',
+    } }]);
+    expect(reads).toHaveLength(uncertain ? 1 : 0);
   }
 });
 

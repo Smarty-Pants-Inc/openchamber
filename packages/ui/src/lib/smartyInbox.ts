@@ -98,7 +98,7 @@ export const useInboxStore = create<Store>(set => ({
   invalidateSnapshot: () => set({ snapshotValid: false }),
   recordItem: item => set(s => {
     const current = s.items.find(i => i.id === item.id);
-    if (current && Date.parse(current.updated) > Date.parse(item.updated)) return s;
+    if (current && (Date.parse(current.updated) > Date.parse(item.updated) || JSON.stringify(current) === JSON.stringify(item))) return s;
     const items = [...s.items.filter(i => i.id !== item.id), item];
     // Retained history is not badge authority after an open-only fallback.
     if (!s.snapshotValid) return { items, revision: s.revision + 1 };
