@@ -57,6 +57,87 @@ async function evidence(info, frames) {
   return report;
 }
 
+async function viewportMetrics(page, readerId = null) {
+  return page.locator('[data-scrollbar="chat"]').evaluate((node, id) => {
+    const reader = id ? node.querySelector(`[data-turn-id="${id}"]`) : null;
+    const tail = node.querySelector('[data-turn-id="live-user"]');
+    return { top: node.scrollTop, height: node.scrollHeight, viewport: node.clientHeight, width: node.clientWidth,
+      tailBottom: tail ? tail.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom : null,
+      reader: reader ? reader.getBoundingClientRect().top - node.getBoundingClientRect().top : null,
+      tick: window.scrollFixture.tick, messages: window.scrollFixture.messageCount };
+  }, readerId);
+}
+async function heightOnlyResize(page, height, before, fixedContent = true, readerId = null) {
+  await page.setViewportSize({ width: page.viewportSize().width, height });
+  await page.waitForTimeout(500);
+  const after = await viewportMetrics(page, readerId);
+  expect(after.width).toBe(before.width);
+  expect(after.viewport).toBe(height);
+  if (fixedContent) expect(after.height).toBe(before.height);
+  expect(after.tick).toBe(before.tick);
+  expect(after.messages).toBe(before.messages);
+  return after;
+}
+
+// No transcript/data updates during resize: totalSize callbacks cannot mask
+// a missing viewport-layout correction. Use idle mode like composer growth.
+test('height-only resize keeps the idle end pinned and subsequent streaming visible', async ({ page }, info) => {
+  await open(page);
+  await page.evaluate(() => window.scrollFixture.setWorking(false));
+  await page.waitForTimeout(500);
+  const before = await viewportMetrics(page);
+  expect(before.height).toBeGreaterThan(before.viewport * 2);
+  expect(before.tailBottom).not.toBeNull();
+  expect(Math.abs(before.tailBottom)).toBeLessThanOrEqual(4);
+  const shrunk = await heightOnlyResize(page, before.viewport - 240, before);
+  const grown = await heightOnlyResize(page, before.viewport + 100, before);
+  await writeFile(info.outputPath('resize.json'), JSON.stringify({ before, shrunk, grown }, null, 2));
+  console.log(`${info.project.name} pinned height-only resize: ${JSON.stringify({ before, shrunk, grown })}`);
+  expect(shrunk.tailBottom).not.toBeNull();
+  expect(grown.tailBottom).not.toBeNull();
+  expect.soft(Math.abs(shrunk.tailBottom)).toBeLessThanOrEqual(4);
+  expect.soft(Math.abs(grown.tailBottom)).toBeLessThanOrEqual(4);
+  await page.evaluate(() => window.scrollFixture.setWorking(true));
+  const report = await evidence(info, await sample(page));
+  expect(report.contentGrowth).toBeGreaterThan(500);
+  expect(report.missingTailFrames).toBe(0);
+  expect(report.maxBottomError).toBeLessThanOrEqual(4);
+});
+
+test('height-only resize preserves scrollback until the reader explicitly returns to latest', async ({ page }, info) => {
+  await open(page);
+  await page.mouse.move(180, 200);
+  await page.mouse.wheel(0, -2200);
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => window.scrollFixture.userOwnsScroll)).toBe(true);
+  const readerId = await page.locator('[data-scrollbar="chat"]').evaluate(node =>
+    [...node.querySelectorAll('[data-turn-id]')].find(row => row.getBoundingClientRect().top >= node.getBoundingClientRect().top)?.dataset.turnId);
+  expect(readerId).toBeTruthy();
+  const before = await viewportMetrics(page, readerId);
+  const shrunk = await heightOnlyResize(page, before.viewport - 240, before, false, readerId);
+  const grown = await heightOnlyResize(page, before.viewport + 100, before, false, readerId);
+  // Newly mounted virtualized rows may settle estimates. The visible row and
+  // offset, not an uncompensated absolute scrollTop, identify the reader's place.
+  expect(shrunk.reader).not.toBeNull();
+  expect(grown.reader).not.toBeNull();
+  expect(Math.abs(shrunk.reader - before.reader)).toBeLessThanOrEqual(4);
+  expect(Math.abs(grown.reader - before.reader)).toBeLessThanOrEqual(4);
+  await page.evaluate(() => window.scrollFixture.start());
+  await page.waitForFunction(() => window.scrollFixture.done);
+  const streamed = await viewportMetrics(page, readerId);
+  expect(streamed.reader).not.toBeNull();
+  expect(Math.abs(streamed.reader - before.reader)).toBeLessThanOrEqual(4);
+  // Explicit latest is the only point where resize may take ownership again.
+  await page.evaluate(() => window.scrollFixture.latest());
+  await page.waitForTimeout(1200);
+  const latest = await viewportMetrics(page);
+  const repinned = await heightOnlyResize(page, before.viewport - 240, latest);
+  await writeFile(info.outputPath('resize.json'), JSON.stringify({ before, shrunk, grown, streamed, latest, repinned }, null, 2));
+  console.log(`${info.project.name} reader height-only resize: ${JSON.stringify({ before, shrunk, grown, streamed, latest, repinned })}`);
+  expect(repinned.tailBottom).not.toBeNull();
+  expect(Math.abs(repinned.tailBottom)).toBeLessThanOrEqual(4);
+});
+
 test('follows streaming bottom without frame jumps', async ({ page }, info) => {
   await open(page);
   const frames = await sample(page);

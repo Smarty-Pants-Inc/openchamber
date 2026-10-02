@@ -963,9 +963,21 @@ export const useChatTimelineScroll = ({
         mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
         const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pin);
         resizes?.observe(content);
+        // Composer growth and keyboard/window height changes resize only the
+        // viewport, not the transcript. Ignore the initial observation: a
+        // newly registered list may still be restoring a scrollback reader.
+        let viewportHeight: number | null = null;
+        const viewportResizes = resizes === null ? null : new ResizeObserver(() => {
+            const height = scrollNode.clientHeight;
+            const previousHeight = viewportHeight;
+            viewportHeight = height;
+            if (previousHeight !== null && Math.abs(height - previousHeight) >= 1) pin();
+        });
+        viewportResizes?.observe(scrollNode);
         return () => {
             mutations.disconnect();
             resizes?.disconnect();
+            viewportResizes?.disconnect();
         };
     }, [followEnd, scrollNode]);
 

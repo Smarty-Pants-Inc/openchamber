@@ -19,7 +19,7 @@ declare const __CHAT_SCROLL_STYLE__: React.CSSProperties;
 declare global {
   interface Window {
     scrollFixture: { start: () => void; remount: (withGap?: boolean) => void; beginning: () => void; latest: () => void;
-      tick: number; done: boolean; userOwnsScroll: boolean; messageCount: number; gapReads: number; measuredTailSize: () => number | undefined; setAutoFollow: (enabled: boolean) => void };
+      tick: number; done: boolean; userOwnsScroll: boolean; messageCount: number; gapReads: number; measuredTailSize: () => number | undefined; setAutoFollow: (enabled: boolean) => void; setWorking: (enabled: boolean) => void };
   }
 }
 const sessionID = 'scroll-proof';
@@ -54,6 +54,7 @@ useUIStore.setState({ streamingAutoFollowEnabled: true, stickyUserHeader: false 
 export function Fixture() {
   const [tick, setTick] = React.useState(0);
   const [running, setRunning] = React.useState(false);
+  const [working, setWorking] = React.useState(true);
   const [epoch, setEpoch] = React.useState<string | undefined>();
   const [prefixRecords, setPrefixRecords] = React.useState(0);
   const [firstWindowLoaded, setFirstWindowLoaded] = React.useState(false);
@@ -61,7 +62,7 @@ export function Fixture() {
   const tailMessages = React.useMemo(() => [...history, liveUser, assistant('live-answer', 'live-user', 180, liveParts(tick), false)], [tick]);
   const messages = React.useMemo(() => firstWindowLoaded ? [...firstWindow, ...tailMessages] : tailMessages, [firstWindowLoaded, tailMessages]);
   const scroll = useChatTimelineScroll({ currentSessionId: sessionID, currentSessionKey: sessionID,
-    sessionMessageCount: messages.length, composerOverlayHeight: 0, lastUserMessageId: 'live-user', sessionIsWorking: true });
+    sessionMessageCount: messages.length, composerOverlayHeight: 0, lastUserMessageId: 'live-user', sessionIsWorking: working });
   const listRef = React.useRef<MessageListHandle | null>(null);
   const legendRef = React.useRef<TimelineListHandle | null>(null);
   const registerScrollList = scroll.registerList;
@@ -80,7 +81,7 @@ export function Fixture() {
           requestAnimationFrame(() => listRef.current?.scrollToStart());
         } else listRef.current?.scrollToStart();
       }, latest: () => scroll.goToBottom('instant'),
-      tick, done: tick >= 240, userOwnsScroll: scroll.userOwnsScroll, messageCount: messages.length, gapReads: gapReads.current, measuredTailSize: () => { const state = legendRef.current?.getState(); return state?.sizeAtIndex(state.data.length - 1); }, setAutoFollow: enabled => useUIStore.setState({ streamingAutoFollowEnabled: enabled }) };
+      tick, done: tick >= 240, userOwnsScroll: scroll.userOwnsScroll, messageCount: messages.length, gapReads: gapReads.current, measuredTailSize: () => { const state = legendRef.current?.getState(); return state?.sizeAtIndex(state.data.length - 1); }, setAutoFollow: enabled => useUIStore.setState({ streamingAutoFollowEnabled: enabled }), setWorking };
   }, [firstWindowLoaded, messages.length, prefixRecords, scroll, tick]);
   React.useEffect(() => {
     if (!running || tick >= 240) return;
@@ -91,8 +92,8 @@ export function Fixture() {
   // replays; the fixed list ignores it because native end maintenance is off.
   const legacyEndRelease = { endPinningReleased: scroll.userOwnsScroll };
   return <main className="fixed inset-0 bg-background text-foreground">
-    <MessageList {...legacyEndRelease} ref={listRef} sessionKey={sessionID} messages={messages} isLoadingOlder={false} sessionIsWorking
-      activeStreamingMessageId="live-answer" activeStreamingPhase="streaming"
+    <MessageList {...legacyEndRelease} ref={listRef} sessionKey={sessionID} messages={messages} isLoadingOlder={false} sessionIsWorking={working}
+      activeStreamingMessageId={working ? 'live-answer' : null} activeStreamingPhase={working ? 'streaming' : undefined}
       positions={epoch ? { total: prefixRecords + tailMessages.length,
         ranges: [...(firstWindowLoaded ? [{ start: 0, end: firstWindow.length }] : []), { start: prefixRecords, end: prefixRecords + tailMessages.length }], epoch } : undefined}
       positionOf={id => { const prefix = firstWindow.findIndex(message => message.info.id === id); return prefix >= 0 ? prefix : prefixRecords + tailMessages.findIndex(message => message.info.id === id); }}
