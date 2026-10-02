@@ -33,6 +33,26 @@ export interface TimelineListMeasurementState {
     readonly sizeAtIndex: (index: number) => number | undefined;
 }
 
+interface RenderedContentEndMetrics {
+    scrollHeight: number;
+    clientHeight: number;
+    measuredLastItemSize: number | undefined;
+    renderedLastItemSize: number | null;
+}
+
+/** Preserve footer/insets, excluding only a last row's stale larger measurement. */
+export const resolveRenderedContentEndOffset = ({
+    scrollHeight,
+    clientHeight,
+    measuredLastItemSize,
+    renderedLastItemSize,
+}: RenderedContentEndMetrics): number => {
+    const excess = measuredLastItemSize !== undefined && renderedLastItemSize !== null
+        ? Math.max(0, measuredLastItemSize - renderedLastItemSize)
+        : 0;
+    return Math.max(0, scrollHeight - clientHeight - excess);
+};
+
 export interface AnchoredTurnMetrics {
     readonly anchorTop: number;
     readonly lastBottom: number;

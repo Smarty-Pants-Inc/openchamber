@@ -6,6 +6,7 @@ import {
     getRowBottom,
     resolveChatListAnchoredEndSpace,
     resolveRealContentEndOffset,
+    resolveRenderedContentEndOffset,
     resolveTimelineIsAtEnd,
     type TimelineListMeasurementState,
 } from './timelineScrollAnchoring';
@@ -26,6 +27,31 @@ const buildState = ({
     scrollLength,
     positionAtIndex: (index) => positions[index],
     sizeAtIndex: (index) => sizes[index],
+});
+
+describe('resolveRenderedContentEndOffset', () => {
+    test('excludes stale last-row excess while preserving footer and composer space', () => {
+        // 1,000px history + 760px stale row + 140px footer/inset.
+        expect(resolveRenderedContentEndOffset({ scrollHeight: 1900, clientHeight: 900,
+            measuredLastItemSize: 760, renderedLastItemSize: 703.5 })).toBe(943.5);
+    });
+
+    test('returns to the native end when the last measurement catches up', () => {
+        expect(resolveRenderedContentEndOffset({ scrollHeight: 1843.5, clientHeight: 900,
+            measuredLastItemSize: 703.5, renderedLastItemSize: 703.5 })).toBe(943.5);
+    });
+
+    test('does not double-count a growing row already included in native scrollHeight', () => {
+        expect(resolveRenderedContentEndOffset({ scrollHeight: 2000, clientHeight: 900,
+            measuredLastItemSize: 703.5, renderedLastItemSize: 800 })).toBe(1100);
+    });
+
+    test('uses native bounds without a rendered row and clamps short content at the top', () => {
+        expect(resolveRenderedContentEndOffset({ scrollHeight: 1900, clientHeight: 900,
+            measuredLastItemSize: 760, renderedLastItemSize: null })).toBe(1000);
+        expect(resolveRenderedContentEndOffset({ scrollHeight: 500, clientHeight: 900,
+            measuredLastItemSize: undefined, renderedLastItemSize: null })).toBe(0);
+    });
 });
 
 describe('getRowBottom', () => {

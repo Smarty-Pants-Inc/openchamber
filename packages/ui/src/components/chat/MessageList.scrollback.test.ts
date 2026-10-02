@@ -18,3 +18,13 @@ test('size compensation is on while reading history and during a width resize, a
     expect(/isAtEndRef\.current = isAtEnd;\s*setReadingHistory\(!isAtEnd\);/.test(source)).toBe(true);
     expect(source).toContain('const [readingHistory, setReadingHistory] = React.useState(false);');
 });
+
+test('Beginning reuses the gesture-cancelled hold through late measurements', () => {
+    const start = source.slice(source.indexOf('scrollToStart: () => {'), source.indexOf('scrollToBottom: () => {', source.indexOf('scrollToStart: () => {')));
+    expect(start).toContain('runAnchorHold(');
+    expect(start).toContain('offsetTop: 0');
+});
+
+test('the scroll hook is the sole live-end follow owner', () => {
+    expect(source).toContain('maintainScrollAtEnd={false}');
+});

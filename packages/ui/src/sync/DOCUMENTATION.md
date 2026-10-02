@@ -678,10 +678,29 @@ until the viewport is pinned; the recap note holds it until the session record
 is in memory, because it cannot decide whether it renders before that and would
 otherwise grow the footer under a pinned viewport. The reveal itself runs on
 the next frame after the last hold releases, with one exact pin against the
-final content height. Afterwards "at the end" is an invariant, not a scroll:
-while the reader sits on the end of a session that is not producing output,
-content growth re-pins with one instant write; output growth belongs to the
-follow logic, which glides only while the session is working.
+final content height. Afterwards "at the end" is an invariant, not a scroll.
+`useChatTimelineScroll` alone follows the live edge with immediate corrections
+before paint, including streaming growth and shrinkage. List-native end
+maintenance is disabled; the list still owns reader size/data compensation.
+Height-only viewport changes, including composer growth and keyboard/window
+resize, reuse the hook's guarded pin. The first viewport observation is ignored
+so a list remount can restore the reader before any resize correction. Gesture
+ownership, anchored-turn mode, streaming preference and width-resize suspension
+still take precedence; a scrolled reader is not pulled to the end.
+A last row can shrink before the virtualizer commits its smaller size. The
+list supplies its rendered last-row height, and the follow hook subtracts only
+that stale excess from the end target, leaving footer/composer space intact.
+Browser scroll anchoring stays disabled to avoid applying that compensation
+twice. The chat scroller disables boundary bounce with `overscroll-behavior:
+none`. Beginning reuses the existing bounded, gesture-cancelled navigation
+hold for the first loaded row, so late window measurements do not displace
+that explicit target.
+
+The Chromium regression fixture in `scripts/chat-scroll-proof/README.md`
+covers live follow, height-only viewport shrink/grow, reader offset across
+positions remounts with large gaps, Beginning and reload at desktop and phone
+sizes. The height-only checks hold transcript data unchanged while resizing,
+then verify streaming and explicit return-to-latest ownership separately.
 
 `bun run profile:switch` measures both moments; see `scripts/perf/DOCUMENTATION.md`.
 

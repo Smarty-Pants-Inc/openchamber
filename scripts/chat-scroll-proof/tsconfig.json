@@ -1,0 +1,5 @@
+{
+  "extends": "../../packages/ui/tsconfig.json",
+  "compilerOptions": { "types": ["@types/dom-speech-recognition", "vite/client", "node"] },
+  "include": ["fixture.tsx", "../../packages/ui/src/**/*.d.ts"]
+}

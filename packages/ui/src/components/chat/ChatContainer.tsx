@@ -109,8 +109,8 @@ const DRAFT_EXIT_DURATION_MS = 120;
 const COMPOSER_MOVE_DURATION_MS = 180;
 const CHAT_SCROLL_STYLE = {
     overflowAnchor: 'none',
-    overscrollBehavior: 'contain',
-    overscrollBehaviorY: 'contain',
+    overscrollBehavior: 'none',
+    overscrollBehaviorY: 'none',
 } as const;
 const CHAT_NAVIGATION_IGNORED_TARGET_SELECTOR = [
     'a[href]',
@@ -532,7 +532,6 @@ const ChatViewport = React.memo(({
                     positionOf={positionOf}
                     onLoadWindow={onLoadWindow}
                     scrollToBottom={scrollToBottom}
-                    endPinningReleased={endPinningReleased}
                     directory={directory}
                     registerList={registerList}
                     anchorMessageId={anchorMessageId}
