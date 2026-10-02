@@ -20,7 +20,10 @@
       "path": "package.json",
       "brandingSha256": "10703a004c8983a720eb3de993ee9ba0a0261f8352b4d8ecd2827309fcb9803b",
       "behaviorSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
-      "combinedSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "combinedSha256": "d8ecee6e2824868314b157d9e4a4410186079652a0aeb901f19fe10ee0ec1b02",
+      "preChatScrollRegistrationCombinedSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "chatScrollRegistrationSha256": "d8ecee6e2824868314b157d9e4a4410186079652a0aeb901f19fe10ee0ec1b02",
+      "chatScrollRegistrationNote": "openchamber#503 comment 5943134567 P2: bind the existing test:chat-scroll registration in reviewed head 4b2. Earlier Playwright source/hash and branding evidence stay unchanged. This records package bytes, not full-app proof, CI acceptance or finding closure.",
       "behaviorSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
       "reason": "Pin Playwright 1.63.0 for isolated actual-component proof in the existing disposable hosted candidate job."
     },
@@ -644,5 +647,11 @@
     "predecessorLedgerSha256": "05d8f3cad425c23bb31213a20db92b20e082474c6b7c312bf13a69d40b9b40e7",
     "predecessorLedgerBytesSha256": "98dd971ce744a0dfa0570c41a644f4b8a92d2ed4718b2357a47d5f06f4ad9c7d"
   },
-  "proxyConnectionSource": "e9f6fdc38ffbadf43113d1b8202489332f6fe95f"
+  "proxyConnectionSource": "e9f6fdc38ffbadf43113d1b8202489332f6fe95f",
+  "chatScrollRegistrationProvenance": {
+    "reviewedHead": "4b2a06d89756098b8cbd1e5e65a66e6613d304dd",
+    "finding": "https://github.com/Smarty-Pants-Inc/openchamber/pull/503#issuecomment-5943134567 P2 - test:chat-scroll registration leaves the package ownership overlay stale",
+    "predecessorLedgerSha256": "67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2",
+    "predecessorLedgerBytesSha256": "b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5"
+  }
 }

@@ -36,6 +36,29 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Restore the complete reviewed 4b2 ledger before every earlier unwind assertion.
+  assert.deepEqual(historical.chatScrollRegistrationProvenance, {
+    reviewedHead: '4b2a06d89756098b8cbd1e5e65a66e6613d304dd',
+    finding: 'https://github.com/Smarty-Pants-Inc/openchamber/pull/503#issuecomment-5943134567 P2 - test:chat-scroll registration leaves the package ownership overlay stale',
+    predecessorLedgerSha256: '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2',
+    predecessorLedgerBytesSha256: 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5',
+  });
+  delete historical.chatScrollRegistrationProvenance;
+  const registration = historical.files.filter(entry => 'chatScrollRegistrationSha256' in entry);
+  assert.deepEqual(registration.map(entry => entry.path), ['package.json']);
+  for (const entry of registration) {
+    assert.equal(entry.chatScrollRegistrationSha256, 'd8ecee6e2824868314b157d9e4a4410186079652a0aeb901f19fe10ee0ec1b02');
+    assert.equal(entry.chatScrollRegistrationSha256, entry.combinedSha256);
+    assert.equal(entry.preChatScrollRegistrationCombinedSha256, '7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7');
+    assert.equal(entry.preChatScrollRegistrationCombinedSha256, entry.behaviorSha256);
+    assert.ok(entry.chatScrollRegistrationNote);
+    entry.combinedSha256 = entry.preChatScrollRegistrationCombinedSha256;
+    delete entry.preChatScrollRegistrationCombinedSha256;
+    delete entry.chatScrollRegistrationSha256;
+    delete entry.chatScrollRegistrationNote;
+  }
+  assert.equal(digest(JSON.stringify(historical)), '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5');
   // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
   assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   delete historical.proxyConnectionSource;

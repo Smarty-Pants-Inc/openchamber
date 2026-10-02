@@ -48,6 +48,20 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   }
 });
 
+test('chat-scroll registration binds only package bytes above the preserved Playwright evidence', () => {
+  assert.deepEqual(overlay.files.filter(entry => 'chatScrollRegistrationSha256' in entry).map(entry => entry.path), ['package.json']);
+  const entry = overlays.get('package.json');
+  assert.equal(entry.behaviorSource, '0d0f988aa98c345bf2bfc79d0c9b4e753347d744');
+  assert.equal(entry.behaviorSha256, '7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7');
+  assert.equal(entry.preChatScrollRegistrationCombinedSha256, entry.behaviorSha256);
+  assert.equal(entry.chatScrollRegistrationSha256, 'd8ecee6e2824868314b157d9e4a4410186079652a0aeb901f19fe10ee0ec1b02');
+  assert.equal(entry.chatScrollRegistrationSha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.chatScrollRegistrationSha256);
+  assert.ok(entry.chatScrollRegistrationNote);
+  assert.equal(json('package.json').scripts['test:chat-scroll'],
+    'node node_modules/@playwright/test/cli.js test --config scripts/chat-scroll-proof/playwright.config.mjs');
+});
+
 test('attribution overlay binds only its exact reviewed source without replacing donor evidence', () => {
   assert.equal(overlay.attributionSource, '3c71ed6017b1f30ba9bbb6be1ab259a98075279b');
   for (const file of attributionPaths) {
@@ -173,7 +187,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.statusUnavailableSha256 ?? changed.inboxStreamSha256 ?? changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.chatScrollRegistrationSha256 ?? changed.statusUnavailableSha256 ?? changed.inboxStreamSha256 ?? changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);
@@ -415,6 +429,29 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  // Restore the complete reviewed 4b2 ledger before every earlier unwind assertion.
+  assert.deepEqual(historical.chatScrollRegistrationProvenance, {
+    reviewedHead: '4b2a06d89756098b8cbd1e5e65a66e6613d304dd',
+    finding: 'https://github.com/Smarty-Pants-Inc/openchamber/pull/503#issuecomment-5943134567 P2 - test:chat-scroll registration leaves the package ownership overlay stale',
+    predecessorLedgerSha256: '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2',
+    predecessorLedgerBytesSha256: 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5',
+  });
+  delete historical.chatScrollRegistrationProvenance;
+  const registration = historical.files.filter(entry => 'chatScrollRegistrationSha256' in entry);
+  assert.deepEqual(registration.map(entry => entry.path), ['package.json']);
+  for (const entry of registration) {
+    assert.equal(entry.chatScrollRegistrationSha256, 'd8ecee6e2824868314b157d9e4a4410186079652a0aeb901f19fe10ee0ec1b02');
+    assert.equal(entry.chatScrollRegistrationSha256, entry.combinedSha256);
+    assert.equal(entry.preChatScrollRegistrationCombinedSha256, '7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7');
+    assert.equal(entry.preChatScrollRegistrationCombinedSha256, entry.behaviorSha256);
+    assert.ok(entry.chatScrollRegistrationNote);
+    entry.combinedSha256 = entry.preChatScrollRegistrationCombinedSha256;
+    delete entry.preChatScrollRegistrationCombinedSha256;
+    delete entry.chatScrollRegistrationSha256;
+    delete entry.chatScrollRegistrationNote;
+  }
+  assert.equal(sha256(JSON.stringify(historical)), '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2');
+  assert.equal(sha256(`${JSON.stringify(historical, null, 2)}\n`), 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5');
   // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
   assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   delete historical.proxyConnectionSource;
