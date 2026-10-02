@@ -57,7 +57,7 @@ test('attribution overlay binds only its exact reviewed source without replacing
   for (const file of attributionPaths) {
     const entry = overlays.get(file);
     assert.equal(entry.behaviorSource, overlay.attributionSource, file);
-    assert.equal(entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, entry.combinedSha256, file);
+    assert.equal(entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, entry.combinedSha256, file);
   }
   const original = attributionPaths.map(file => {
     const entry = overlays.get(file);
@@ -72,7 +72,7 @@ test('native creation overlay binds its exact source and only the twelve attribu
   for (const file of attributionPaths) {
     const entry = overlays.get(file);
     assert.match(entry.nativeCreationSha256, /^[a-f0-9]{64}$/, file);
-    assert.equal(entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, sha256(read(file)), file);
+    assert.equal(entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, sha256(read(file)), file);
   }
   const original = attributionPaths.map(file => [file, overlays.get(file).nativeCreationSha256]);
   assert.equal(sha256(JSON.stringify(original)), '3134c3a04a369259adc2504b65f7c8a4300a5a9f9fcc60a04392765a60c5da41');
@@ -84,8 +84,23 @@ test('foundation copy binds only the eleven locale outputs and preserves earlier
   assert.deepEqual(overlay.files.filter(entry => entry.foundationCopySha256).map(entry => entry.path), locales);
   for (const file of locales) {
     const entry = overlays.get(file);
-    assert.equal(entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
+    assert.equal(entry.inboxStepsSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
     assert.notEqual(entry.foundationCopySha256, entry.nativeCreationSha256, file);
+  }
+});
+
+test('the inbox Steps locale layer binds its exact source over Status unavailable (smarty-code#1119)', () => {
+  assert.equal(overlay.inboxStepsSource, 'f2a293d2eb5f4570fcad5088ce39065ae1e59271');
+  const locales = attributionPaths.filter(file => file.includes('/i18n/messages/'));
+  assert.deepEqual(overlay.files.filter(entry => 'inboxStepsSha256' in entry).map(entry => entry.path), locales);
+  for (const file of locales) {
+    const entry = overlays.get(file);
+    assert.equal(entry.preInboxStepsCombinedSha256, entry.statusUnavailableSha256, file);
+    assert.match(entry.inboxStepsSha256, /^[a-f0-9]{64}$/, file);
+    assert.notEqual(entry.inboxStepsSha256, entry.preInboxStepsCombinedSha256, file);
+    assert.equal(entry.inboxStepsSha256, entry.combinedSha256, file);
+    assert.equal(sha256(read(file)), entry.inboxStepsSha256, file);
+    assert.equal(entry.inboxStepsNote, 'smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.', file);
   }
 });
 
@@ -214,7 +229,7 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
     const changed = overlays.get(file);
     if (changed) {
       assert.equal(normalize.length, 0, file);
-      assert.equal(changed.statusUnavailableSha256 ?? changed.inboxStreamSha256 ?? changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
+      assert.equal(changed.inboxStepsSha256 ?? changed.statusUnavailableSha256 ?? changed.inboxStreamSha256 ?? changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);
       assert.equal(changed.brandingSha256, stockSha256, file);
     }
     assert.equal(sha256(source), changed?.combinedSha256 ?? stockSha256, file);
@@ -456,7 +471,23 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
-  // Unwind Forge placement first; every older ledger assertion still runs below.
+  // Unwind Steps to the exact upstream ledger, retaining Forge placement and provenance.
+  assert.equal(historical.inboxStepsSource, 'f2a293d2eb5f4570fcad5088ce39065ae1e59271');
+  delete historical.inboxStepsSource;
+  const inboxSteps = historical.files.filter(entry => 'inboxStepsSha256' in entry);
+  assert.deepEqual(inboxSteps.map(entry => entry.path), attributionPaths.filter(file => file.includes('/i18n/messages/')));
+  for (const entry of inboxSteps) {
+    assert.equal(entry.inboxStepsSha256, entry.combinedSha256);
+    assert.equal(entry.preInboxStepsCombinedSha256, entry.statusUnavailableSha256);
+    assert.ok(entry.inboxStepsNote);
+    entry.combinedSha256 = entry.preInboxStepsCombinedSha256;
+    delete entry.preInboxStepsCombinedSha256;
+    delete entry.inboxStepsSha256;
+    delete entry.inboxStepsNote;
+  }
+  assert.equal(sha256(JSON.stringify(historical)), '6db9d621c04a942e308030a4d7a7cf60d55af973bf8d5064659c1cab342aa2e3');
+  assert.equal(sha256(`${JSON.stringify(historical, null, 2)}\n`), 'ded363c23fa52c512a26726c144ff50e0a8a8d2aecafacfc99a2e48d058ecb56');
+  // Unwind Forge placement next; every older ledger assertion still runs below.
   assert.equal(historical.forgeRunnerProvenance.reviewedHead, '7f2d8f550b160e7e74026a58dcd693d4befb3072');
   delete historical.forgeRunnerProvenance;
   historical.files = historical.files.filter(entry => !entry.forgeRunnerAdded);

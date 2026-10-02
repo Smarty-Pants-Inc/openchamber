@@ -24,8 +24,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256));
+    assert.equal(entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256));
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -37,7 +37,23 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // Unwind Forge placement first; every older ledger assertion still runs below.
+  // Unwind Steps to the exact upstream ledger, retaining Forge placement and provenance.
+  assert.equal(historical.inboxStepsSource, 'f2a293d2eb5f4570fcad5088ce39065ae1e59271');
+  delete historical.inboxStepsSource;
+  const inboxSteps = historical.files.filter(entry => 'inboxStepsSha256' in entry);
+  assert.deepEqual(inboxSteps.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
+  for (const entry of inboxSteps) {
+    assert.equal(entry.inboxStepsSha256, entry.combinedSha256);
+    assert.equal(entry.preInboxStepsCombinedSha256, entry.statusUnavailableSha256);
+    assert.ok(entry.inboxStepsNote);
+    entry.combinedSha256 = entry.preInboxStepsCombinedSha256;
+    delete entry.preInboxStepsCombinedSha256;
+    delete entry.inboxStepsSha256;
+    delete entry.inboxStepsNote;
+  }
+  assert.equal(digest(JSON.stringify(historical)), '6db9d621c04a942e308030a4d7a7cf60d55af973bf8d5064659c1cab342aa2e3');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'ded363c23fa52c512a26726c144ff50e0a8a8d2aecafacfc99a2e48d058ecb56');
+  // Unwind Forge placement next; every older ledger assertion still runs below.
   assert.equal(historical.forgeRunnerProvenance.reviewedHead, '7f2d8f550b160e7e74026a58dcd693d4befb3072');
   delete historical.forgeRunnerProvenance;
   historical.files = historical.files.filter(entry => !entry.forgeRunnerAdded);

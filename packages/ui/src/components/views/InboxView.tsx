@@ -7,6 +7,9 @@ import { toast } from '@/components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
+import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
@@ -18,6 +21,7 @@ const age = (iso: string) => {
 
 export function InboxView({ onClose, compact }: { onClose: () => void; compact?: boolean }): React.ReactNode {
   const openCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+  const stepActions = useStepActions();
   const [tab, setTab] = React.useState<InboxState>('open');
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -28,13 +32,16 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   const reload = React.useCallback(() => {
     const mine = ++request.current;
     return loadInbox(shownTab.current).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
-      e => { if (mine === request.current) setError(String((e as Error).message)); });
+      e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
   // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
   // response being typed) away (#365 review).
   React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
-  const selected = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
+  const listed = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
+  // A status read can be newer than the tab response. Keep its displayed version until the list catches up.
+  const selected = listed?.source?.startsWith('steps:') ? useInboxStore.getState().items.find(i =>
+    i.id === listed.id && i.to === listed.to && Date.parse(i.updated) >= Date.parse(listed.updated)) ?? listed : listed;
 
   const list = (
     <div className={cn('flex min-h-0 flex-col', !compact && 'w-[390px] shrink-0 border-r border-border')}>
@@ -74,23 +81,56 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   return (
     <div className="flex h-full min-h-0 bg-background">
       {compact ? null : list}
-      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} /> : null}
+      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} /> : null}
     </div>
   );
 }
 
-function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void> }) {
+function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions }) {
+  const { t } = useI18n();
+  const guardedReopen = useInboxStore(s => s.guardedReopen);
+  const steps = Boolean(item.source?.startsWith('steps:'));
+  const canReopen = !steps || guardedReopen;
   const [busy, setBusy] = React.useState(false), [error, setError] = React.useState<string | null>(null);
   const [reply, setReply] = React.useState<null | 'respond' | 'edit'>(null), [text, setText] = React.useState('');
+  const status = steps ? stepActions.status(item) : undefined;
+  const locked = busy || status?.state === 'pending' || status?.state === 'uncertain';
   const allowed = (action: string) => item.actions.includes(action);
+  const writeDisplayed = async (target: InboxItem, action: InboxAction, body: Record<string, string>) => {
+    if (target.source?.startsWith('steps:') && (action === 'answer' || action === 'reopen')) {
+      if (action === 'reopen' && !useInboxStore.getState().guardedReopen) throw new Error(t('steps.undoUnavailable'));
+      const result = await stepActions.act(target, action, body);
+      if (result?.state === 'refused') throw new Error(result.error || t('common.unavailable'));
+      return result?.state === 'stored' ? result.item : null;
+    }
+    return actOnInboxItem(target.id, action, body);
+  };
   const act = async (action: InboxAction, body: Record<string, string>, done?: string) => {
+    if (locked) return;
     setBusy(true); setError(null);
+    const scope = captureRuntimeRequestScope();
     try {
-      await actOnInboxItem(item.id, action, body);
+      const stored = await writeDisplayed(item, action, body);
+      if (!stored || !isRuntimeRequestScopeCurrent(scope)) return;
+      if (steps) {
+        if (stored.id !== item.id || stored.to !== item.to) throw new Error(t('common.unavailable'));
+        useInboxStore.getState().recordItem(stored, scope);
+      }
       if (action === 'answer') { setReply(null); setText(''); }
-      if (done) toast.success(done, { duration: 5000, action: { label: 'Undo', onClick: () => void actOnInboxItem(item.id, 'reopen', {}).then(onChanged).then(refreshInboxBadge, e => toast.error(String((e as Error).message))) } });
-      await onChanged(); void refreshInboxBadge();
-    } catch (e) { setError(String((e as Error).message)); } finally { setBusy(false); }
+      if (done) toast.success(done, { duration: 5000, action: canReopen ? { label: 'Undo', onClick: () => {
+        if (!isRuntimeRequestScopeCurrent(scope)) return;
+        void Promise.resolve().then(() => writeDisplayed(steps ? stored : item, 'reopen', {})).then(reopened => {
+          if (!reopened || !isRuntimeRequestScopeCurrent(scope)) return;
+          if (steps) {
+            if (reopened.id !== item.id || reopened.to !== item.to) throw new Error(t('common.unavailable'));
+            useInboxStore.getState().recordItem(reopened, scope);
+          }
+          return onChanged().then(() => { if (!steps && isRuntimeRequestScopeCurrent(scope)) return refreshInboxBadge(); });
+        }).catch(e => { if (isRuntimeRequestScopeCurrent(scope)) toast.error(e instanceof Error ? e.message : t('common.unavailable')); });
+      } } : undefined });
+      await onChanged();
+      if (!steps || (action !== 'answer' && action !== 'reopen')) void refreshInboxBadge();
+    } catch (e) { if (isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
   const state = inboxItemState(item);
   return (
@@ -113,22 +153,27 @@ function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem
           <div className="mt-4">
             <Textarea aria-label={reply === 'edit' ? 'Your edit' : 'Your response'} value={text} onChange={e => setText(e.target.value)} rows={4} autoFocus />
             <div className="mt-2 flex gap-2">
-              <Button size="sm" disabled={busy || !text.trim()} onClick={() => void act('answer', { text, action: reply })}>Send</Button>
+              <Button size="sm" disabled={locked || !text.trim()} onClick={() => void act('answer', { text, action: reply })}>Send</Button>
               <Button size="sm" variant="ghost" onClick={() => setReply(null)}>Cancel</Button>
             </div>
           </div>) : null}
+        {steps && !guardedReopen ? <p className="mt-3 typography-micro text-muted-foreground">{t('steps.undoUnavailable')}</p> : null}
+        {status?.state === 'uncertain' ? <div className="mt-3">
+          <p role="alert" className="typography-ui-label text-muted-foreground">{t('steps.uncertain')}</p>
+          <Button size="sm" variant="outline" onClick={() => void stepActions.check(item)}>{t('steps.checkStatus')}</Button>
+        </div> : null}
         {error ? <p role="alert" className="mt-3 typography-ui-label text-destructive">{error}</p> : null}
       </div>
       <div className={cn('flex flex-wrap gap-2 px-7 py-3', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
-        {state === 'resolved' ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
-          {allowed('accept') ? <Button size="sm" disabled={busy} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
-          {allowed('respond') ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setReply('respond')}>✎ Respond</Button> : null}
-          {allowed('edit') ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setReply('edit')}>Edit</Button> : null}
+        {state === 'resolved' ? canReopen && <Button size="sm" variant="outline" disabled={locked} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
+          {allowed('accept') ? <Button size="sm" disabled={locked} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
+          {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>✎ Respond</Button> : null}
+          {allowed('edit') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('edit')}>Edit</Button> : null}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={busy}>Snooze ▾</Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={locked}>Snooze ▾</Button></DropdownMenuTrigger>
             <DropdownMenuContent>{SNOOZES.map(([value, label]) => <DropdownMenuItem key={value} onSelect={() => void act('snooze', { for: value }, `Snoozed for ${label}`)}>{label}</DropdownMenuItem>)}</DropdownMenuContent>
           </DropdownMenu>
-          {allowed('ignore') ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act('resolve', { action: 'ignore' }, 'Ignored')}>Ignore</Button> : null}
+          {allowed('ignore') ? <Button size="sm" variant="ghost" disabled={locked} onClick={() => void act('resolve', { action: 'ignore' }, 'Ignored')}>Ignore</Button> : null}
         </>}
       </div>
     </article>
