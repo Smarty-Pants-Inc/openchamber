@@ -500,7 +500,10 @@ export function createDiskBridge({
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
-      if (notFlushed) unsynced = { entry: displaced?.entry }; // Raised with this result; a flush confirms it.
+      if (notFlushed) unsynced = { entry: displaced?.entry }; // Only a confirmed flush releases this hold.
+      if (notFlushed && result.published === true && result.conflict === 'raced') {
+        raise({ conflict: 'unverified', published: true, recovery: result.recovery, notice: UNSYNCED_NOTICE });
+      }
       scheduleRetry();
       if (result.conflict === 'gone') gone = true;
       // Unknown whether ours reached the disk: the base stays, and sync or save settles it by the disk's hash.
