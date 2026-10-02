@@ -169,27 +169,29 @@ round 4); until then no conflict could be seen.
   replacement that inserts text too or leaves the file longer than before. It may be a writer that truncated and
   paused (net-lead round 4). An empty revision is `truncated`; any other deleting revision is `removed`. The hold
   clears when disk returns to the base, a revision with no deletion arrives, or the person accepts it (`acceptDisk()`).
-  Creating or accepting a content hold preserves direct and carried independent watcher/recovery warnings. Acceptance
-  merges the held bytes and resolves only the content condition; a working watcher's catch-up may resolve its own
-  warning without accepting the held revision.
+  A content hold has its own warning. Creating it preserves watcher, recovery and durability warnings; resetting
+  or accepting it resolves only the content warning. Acceptance merges the held bytes. A working watcher's catch-up
+  may resolve its own warning without accepting the held revision. A successful flush leaves the hold intact, and
+  accepting it cannot restore a resolved durability warning.
   While one is held, `save()` returns that conflict and writes nothing: the disk does not hold the room's text, so it
   is never reported as saved (smartyfs#33 A). A save with nothing new to write reads the file through the helper
-  first: it is `ok` only if the disk holds the base, else `changed` (for example a `raced` save not yet synced) or `gone`, with nothing written,
-  raised to the room like any other conflict (`onConflict`, `state().conflict`). A file it finds present clears
-  `gone`; when it holds the base again, the save is `ok` and a `gone` or `changed` conflict is resolved (other
-  conflicts stay until their own path clears them). Such a refusal is `transient`: any unresolved conflict it meets
-  (a `raced` save's `recovery` and `notice`, a stopped watcher's `unwatched`) is carried in it as `kept`, with its
-  `recovery` and `notice`, and is what its resolution leaves. Modifying-save `gone` and `changed` refusals also carry
-  the independent warning still stored after publication returns. Verified base reads resolve direct and carried
-  presence/content refusals, not their independent warnings. A successful publish preserves a stopped-watcher
-  warning and any newer independent warning that arrived during its await. A carried watcher warning clears when
-  watching resumes. Every notice writer, including load, recovered copies, disposal and durable raced publications,
-  carries the independent warnings still current after its awaits without changing public save-result fields. A watcher
-  failure also carries unresolved durability and recovery notices. Owned authoritative catch-up resolves only its
-  stopped-watcher notice. Settlement and flush remove only their own notice by identity, even when carried beneath
-  a content hold or a newer warning. A successful flush leaves the hold intact, and accepting it cannot restore the
-  resolved durability warning. A successful modifying publication resolves prior recovery notices, not stopped
-  observation or warnings that arrived during that publication.
+  first: it is `ok` only if the disk holds the base, else `changed` or `gone`, with nothing written. A file it finds
+  present clears the `gone` state; a verified base read makes the save `ok` without clearing its warnings.
+- **Refusals and warnings** (smartyfs#43): `state()` returns `{ gone, loaded, refusal, warnings, conflict }`.
+  Only `save()` sets or clears `refusal`. Every save clears the previous refusal at the start, before any work,
+  including attempts that later refuse or throw. Load, sync, watcher recovery, settlement, flush and `acceptDisk()`
+  cannot clear it. `warnings` is an array snapshot of lasting conditions,
+  keyed internally by kind, so independent conditions coexist. Entries retain their `conflict` discriminator;
+  neither refusals nor warnings use `transient` or `kept`. The compatibility `conflict` is the refusal, else the
+  latest warning, else null. `onConflict` reports detected refusals and warnings.
+  Uncertain publication and unconfirmed durability are distinct warning conditions even though both have the
+  public label `unverified`. Settlement resolves only its uncertainty warning, and a confirmed flush resolves only
+  its durability warning. Each resolution checks its own warning identity or owner, so an older completion cannot
+  remove a newer warning of the same kind or an unrelated condition. A no-change save success preserves every
+  unresolved warning. A successful modifying publication resolves only the prior `raced` and `interrupted` warnings,
+  not a stopped watcher or warnings raised during its await. Load, recovered copies, disposal and publication add
+  their warnings without replacing independent conditions. Content-hold reset and acceptance have no authority
+  over a save refusal.
 - **Save = one attempt to publish** over exactly the revision last read (`publish`):
   1. The file's bytes must still hash to that revision (else `changed`, or `gone`: a deleted file is never recreated).
      A copy is kept in `recoveryDir` (0700, outside the project, `O_EXCL`, fsynced), and so is **ours** (named
@@ -248,18 +250,21 @@ round 4); until then no conflict could be seen.
   At exhaustion, data stays private; an explicit `sync()` or `save()` can try again but does not reset the timer budget.
   A collected late write is kept and shown as `raced`. Settlement/list and orphan-collection errors go through the
   existing logger as `smarty.coedit-settle-failed` and `smarty.coedit-collect-failed`. This reporting does not change
-  state or retry behavior. The warning/refusal architecture in smartyfs#43 remains deferred.
+  state or retry behavior.
 - **Watching:** `load()` starts the directory watcher before its first read; a failed load closes it, and a second
   `load()` is refused. A failed load also cancels a restart its watcher scheduled, and a new watcher always replaces
   (closes) the old one. A watcher error closes it and raises `unwatched` ("Changes on disk are not being followed right
   now"); restarting is attempted after `retryMs`, at most `retryLimit` times per failed-start episode. A successful
   watcher construction resets that counter; its catch-up sync clears the warning only if it succeeds. Later watcher
   errors can start another episode, so this is not a lifetime cap or a promise that continually changing bytes settle.
-  Catch-up checks its restarted watcher ownership during settlement and again at completion. It clears a direct or
-  carried stopped-watcher warning only after an authoritative settled read while that watcher is still active on the
-  open bridge. Accepting a lost-reply outcome marks its list phase complete before acknowledgement, so a later
-  owner retries the ack without re-claiming the record. A stopped owner keeps uncertainty and token custody.
-- **`gone`** clears when an outside write brings the file back, or when a save publishes over it.
+  Catch-up checks its restarted watcher ownership during settlement and again at completion. It clears its own
+  stopped-watcher warning only after an authoritative settled read while that watcher is still active on the
+  open bridge, and only for the matching warning identity. Accepting a lost-reply outcome marks its list phase
+  complete before acknowledgement, so a later owner retries the ack without re-claiming the record. A stopped owner
+  keeps uncertainty and token custody.
+- **`gone` state** clears on a sync base match, a disk merge, confirmed publication or a no-change save's presence
+  read. A held-removal sync does not clear it just because the file is present. This does not clear a save-owned
+  `gone` refusal; only a later save can do that.
 - **Recovery retention** (smartyfs#37, org's decision 2026-09-29): recovery copies are named
   `<time>-<random>-<key>-[ours-]<file name>`. When a bridge loads a file, and then daily (`pruneMs`), it deletes a copy of
   that file only when it is **older than 7 days and not among the file's newest 20**. It considers only regular files

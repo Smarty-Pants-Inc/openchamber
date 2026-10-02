@@ -37,6 +37,8 @@ export const coeditEnabled = () => process.env.OPENCHAMBER_COEDIT === '1';
  *   until a later flush succeeds; a cached read of our bytes is no durability receipt.
  * - A deleted file is never recreated by a save (`gone`); a later outside write brings it back into the room.
  * - A watcher error is shown (`unwatched`); watching restarts on its own (at most `retryLimit` tries) and catches up.
+ * - Only save owns `state().refusal`. Independent `state().warnings` last until their own cause resolves;
+ *   `state().conflict` shows the refusal first, otherwise the latest warning.
  *
  * `root` and `file` must be canonical (realpath) absolute paths, as the room's admission resolves them.
  */
@@ -99,7 +101,8 @@ export function createDiskBridge({
   let baseText = '';
   let baseHash = null;
   let gone = false;
-  let conflict = null;
+  let refusal = null; // Only save owns the last attempt's refusal, including clearing it before any work.
+  const warnings = new Map(); // Independent conditions, in last-raised order, not wall-clock order.
   let queue = Promise.resolve();
   let watcher = null;
   let timer = null;
@@ -132,62 +135,48 @@ export function createDiskBridge({
     baseHash = disk.hash;
     gone = false;
   };
-  const raise = (found) => {
-    // Every notice writer carries the warnings still current after its awaits. Public result fields stay unchanged.
-    const kept = found.kept ?? (found.notice ? independentWarning(conflict) : null);
-    conflict = { ...found, ...(kept && { kept }), at: Date.now() };
-    onConflict(conflict);
+  const conflictResult = (found) => {
     const result = { ok: false, conflict: found.conflict };
     if (found.published) result.published = found.published;
     if (found.recovery) result.recovery = found.recovery;
     if (found.notice) result.notice = found.notice;
     return result;
   };
-
-  // Presence/content refusals have no authority over a stopped watcher or a recovery notice they carry.
-  const independentWarning = (warning) => {
-    while (['gone', 'changed', 'removed', 'truncated'].includes(warning?.conflict)) warning = warning.kept ?? null;
-    return warning;
+  // Uncertain publication and unconfirmed durability have separate resolutions despite their shared public kind.
+  const warningKey = (found) => found.conflict === 'unverified' ? `unverified:${found.published}` : found.conflict;
+  const latestWarning = () => [...warnings.values()].at(-1) ?? null;
+  const raise = (found) => {
+    const kind = warningKey(found);
+    const warning = { ...found, at: Date.now() };
+    warnings.delete(kind); // Refreshing the same kind makes it the latest warning too.
+    warnings.set(kind, warning);
+    onConflict(warning);
+    return conflictResult(found);
   };
-
-  const findNotice = (kind, published) => {
-    for (let notice = conflict; notice; notice = notice.kept) {
-      if (notice.conflict === kind && (published === undefined || notice.published === published)) return notice;
-    }
-    return null;
+  // Called only by save. Recording a refusal does not replace or resolve any independent condition.
+  const refuse = (found) => {
+    refusal = { ...found, at: Date.now() };
+    onConflict(refusal);
+    return conflictResult(found);
   };
-  // Splice only this notice, even beneath a hold or a newer warning. Keep identities stable across awaits.
+  const findNotice = (kind, published) => warnings.get(warningKey({ conflict: kind, published })) ?? null;
+  // An older completion cannot clear a newer warning of the same kind.
   const resolveNotice = (notice) => {
-    if (!notice) return;
-    if (conflict === notice) conflict = notice.kept ?? null;
-    else {
-      for (let parent = conflict; parent; parent = parent.kept) {
-        if (parent.kept !== notice) continue;
-        if (notice.kept) parent.kept = notice.kept;
-        else delete parent.kept;
-        // Unchanged-save refusals forward their carried warning's display fields.
-        if (parent.transient) {
-          for (const field of ['notice', 'recovery']) {
-            if (parent.kept?.[field]) parent[field] = parent.kept[field];
-            else delete parent[field];
-          }
-        }
-        break;
-      }
-    }
+    if (notice && warnings.get(warningKey(notice)) === notice) warnings.delete(warningKey(notice));
   };
 
   // Outside text is merged unasked only as insertions. A revision that removes text may be a writer that truncated and
   // paused (net-lead round 4: C, pause, then CB would undo the room's deletion of B): it is a conflict until the person
   // accepts the disk (acceptDisk) or an insertion-only revision arrives; the room keeps its text, the base stays.
   let held = null;
+  let holdWarning = null; // The exact warning for the held content, independent of saves and other conditions.
   /**
    * Completes a failed flush (the file's directory, then the private dir). Until it succeeds the save stays a conflict
    * (raised once) and nothing is acknowledged; a helper that cannot answer keeps it held.
    */
   const confirmDurable = async () => {
     if (!unsynced) return true;
-    const warning = findNotice('unverified', true); // Resolve this flush notice, direct or carried, not a newer arrival.
+    const warning = findNotice('unverified', true); // Resolve this flush notice, not a newer arrival.
     const reply = await helper.call({ ...testHooks(hooks), op: 'flush', path: rel, entry: unsynced.entry }).catch(() => null);
     if (reply?.ok) {
       unsynced = null;
@@ -311,8 +300,7 @@ export function createDiskBridge({
       if (await settleByPrivateDir(owns)) return true;
       if (!owns()) return false;
       if (uncertain.seen !== 'unlisted') {
-        resolveNotice(warning);
-        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+        raise({ ...warning, conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
       }
       uncertain.seen = 'unlisted';
       return false;
@@ -326,8 +314,7 @@ export function createDiskBridge({
     } else if (disk === null || disk.hash !== baseHash) {
       const seen = disk?.hash ?? 'gone';
       if (uncertain.seen !== seen) {
-        resolveNotice(warning);
-        raise({ conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
+        raise({ ...warning, conflict: 'unverified', published: 'uncertain', notice: UNCERTAIN_NOTICE });
       }
       uncertain.seen = seen;
       return false;
@@ -364,7 +351,6 @@ export function createDiskBridge({
       current.close();
       watcher = null;
       if (closed) return;
-      resolveNotice(findNotice('unwatched')); // A new failure replaces only the previous observation warning.
       raise({ conflict: 'unwatched', notice: UNWATCHED_NOTICE });
       scheduleRewatch();
     });
@@ -405,15 +391,20 @@ export function createDiskBridge({
     else if (disk.hash === baseHash) {
       gone = false;
       held = null;
+      resolveNotice(holdWarning);
+      holdWarning = null;
     } else if (REMOVES(baseText, disk.text)) {
-      // A watcher error may have replaced this hold's notice; catch-up must represent both conditions again.
-      if (held?.hash !== disk.hash || !['removed', 'truncated'].includes(conflict?.conflict)) {
-        const kept = independentWarning(conflict);
-        raise({ conflict: disk.text.length === 0 ? 'truncated' : 'removed', ...(kept && { kept }) });
+      if (held?.hash !== disk.hash) {
+        resolveNotice(holdWarning);
+        const kind = disk.text.length === 0 ? 'truncated' : 'removed';
+        raise({ conflict: kind });
+        holdWarning = findNotice(kind);
       }
       held = disk;
     } else {
       held = null;
+      resolveNotice(holdWarning);
+      holdWarning = null;
       merge(disk);
     }
     return true; // Only an authoritative settled read completes catch-up; unresolved publication stays held.
@@ -470,44 +461,40 @@ export function createDiskBridge({
       if (closed || !held) return;
       merge(held);
       held = null;
-      // Acceptance resolves the content hold, not a direct or carried watcher/recovery warning.
-      conflict = independentWarning(conflict);
+      // Acceptance resolves only the exact content hold, not watcher/recovery warnings or a save refusal.
+      resolveNotice(holdWarning);
+      holdWarning = null;
     }),
     /** Merges a settled outside write into the room now (the watcher also calls it). */
     sync,
-    /** { ok: true } | { ok: false, conflict: 'gone' | 'changed' | 'unverified' | 'raced', published?, recovery?, notice? }. */
+    /** { ok: true } | { ok: false, conflict: 'gone' | 'changed' | 'removed' | 'truncated' | 'unverified' | 'raced', published?, recovery?, notice? }. */
     save: () => serial(async () => {
+      refusal = null; // Even a rejected or throwing attempt supersedes the previous save's refusal.
       if (closed || base === null) throw new Error('Co-edited file is not loaded');
-      if (!(await settleUncertain())) return { ok: false, conflict: 'unverified', published: 'uncertain' };
+      if (!(await settleUncertain())) return refuse({ conflict: 'unverified', published: 'uncertain' });
       await disposePending(); // Completes a failed flush first, then removes what it held.
-      if (unsynced) return { ok: false, conflict: 'unverified', published: true };
+      if (unsynced) return refuse({ conflict: 'unverified', published: true });
       // A held disk revision (it removes text) waits for acceptDisk(): nothing can be saved over it, and the disk does
       // not hold the room's text, so this is never reported as saved (smartyfs#33 A).
-      if (held) return { ok: false, conflict: held.text.length === 0 ? 'truncated' : 'removed' };
+      if (held) return refuse({ conflict: held.text.length === 0 ? 'truncated' : 'removed' });
       const next = text.toString();
       if (next === baseText) {
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
-        // Any unresolved conflict (a raced save's recovery warning, a stopped watcher) is carried through these
-        // transient refusals, never replaced by them, and is what their resolution leaves; it clears only through its
-        // own path (#445 security r3, astra r2).
-        const kept = conflict?.kept ?? (conflict?.transient ? null : conflict);
-        // Shown to the room like any other refusal (onConflict, state().conflict: smartyfs#33 P3).
-        const refuse = (reason) => raise({ conflict: reason, transient: true, ...(kept && { recovery: kept.recovery, notice: kept.notice, kept }) });
+        // Keep the existing no-change result's display fields without coupling the warning's lifetime to refusal.
+        const warning = latestWarning();
+        const display = { ...(warning?.recovery && { recovery: warning.recovery }), ...(warning?.notice && { notice: warning.notice }) };
         if (disk === null) {
           gone = true; // Observed absent here, as a sync would.
-          return refuse('gone');
+          return refuse({ conflict: 'gone', ...display });
         }
-        // The file exists: whatever this path said before about its absence or its bytes is refuted or restated here.
         gone = false;
-        if (disk.hash !== baseHash) return refuse('changed');
-        // It holds the base: direct and carried presence/content refusals are disproved, including a modifying-save
-        // refusal carried by an unchanged save. Independent warnings stay until their own path clears them (#445 r2).
-        while (['gone', 'changed', 'removed', 'truncated'].includes(conflict?.conflict)) conflict = conflict.kept ?? null;
+        if (disk.hash !== baseHash) return refuse({ conflict: 'changed', ...display });
+        // No-change success clears no warnings, including recovery, interruption and stopped observation.
         return { ok: true };
       }
-      const warning = conflict; // Publication may await while a newer watcher warning arrives.
+      const priorRecovery = ['raced', 'interrupted'].map((kind) => findNotice(kind));
       const snapshot = Y.encodeStateAsUpdate(doc); // Taken with `next`, before any await.
       const { pending: displaced, unsynced: notFlushed, lost, token, ...result } = await publish(helper, rel, next, baseHash, { recoveryDir, key, hooks });
       if (displaced) pending.push(displaced);
@@ -520,11 +507,7 @@ export function createDiskBridge({
         return raise(result);
       }
       // Not published: the base stays, so the next sync reads what is on disk as an outside change.
-      if (!result.ok && !result.published) {
-        // Carry the warning still stored after the await, not a captured warning whose owner may have cleared it.
-        const kept = ['gone', 'changed'].includes(result.conflict) ? independentWarning(conflict) : null;
-        return raise({ ...result, ...(kept && { kept }) }); // Return fields remain those of the actual publish refusal.
-      }
+      if (!result.ok && !result.published) return refuse(result);
       // Published (ok, or a conflict found after our bytes reached disk): the base follows what was written, so the
       // next sync does not replay the room's edit (net-lead round 4); a conflict is still shown.
       base = snapshot;
@@ -534,16 +517,11 @@ export function createDiskBridge({
       if (!result.ok) {
         return raise(result);
       }
-      // Publication resolves prior recovery/content notices, not watching or warnings that arrived during its await.
-      for (let prior = independentWarning(warning); prior;) {
-        const next = prior.kept;
-        if (['raced', 'interrupted'].includes(prior.conflict)) resolveNotice(prior);
-        prior = next;
-      }
-      conflict = independentWarning(conflict);
+      // Only the captured pre-publication recovery notices resolve, never a newer same-kind arrival.
+      for (const warning of priorRecovery) resolveNotice(warning);
       return { ok: true };
     }),
-    state: () => ({ gone, loaded: base !== null, conflict }),
+    state: () => ({ gone, loaded: base !== null, refusal, warnings: [...warnings.values()], conflict: refusal ?? latestWarning() }),
     /** Stops watching and retrying; waits for work in progress (at most `closeMs`), then ends the helper. */
     close() {
       closed = true;

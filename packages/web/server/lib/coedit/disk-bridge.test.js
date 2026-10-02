@@ -118,7 +118,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
   it('loads the file into the room', async () => {
     const { text, bridge } = await setup('line one\nline two\n');
     expect(text.toString()).toBe('line one\nline two\n');
-    expect(bridge.state()).toEqual({ gone: false, loaded: true, conflict: null });
+    expect(bridge.state()).toEqual({ gone: false, loaded: true, refusal: null, warnings: [], conflict: null });
   });
 
   it('merges an outside write into the room as a minimal edit, keeping what people typed meanwhile', async () => {
@@ -425,15 +425,19 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(result).toMatchObject({ ok: false, conflict: 'raced', published: true });
         expect(t.disk()).toBe('Xa');
         // At once, before any sync: the room is unchanged, but the disk is not its text. Not saved, nothing written.
-        // The raced save's recovery copy and notice are carried, not replaced (#445 security round 3).
+        // The recovery warning survives separately; the public refusal still forwards its display fields (#445 security round 3).
         const warning = { recovery: result.recovery, notice: result.notice };
         expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
         expect(t.conflicts.at(-1)).toMatchObject({ conflict: 'changed', ...warning }); // Shown to the room (smartyfs#33 P3).
-        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
+        expect(t.bridge.state().refusal).toMatchObject({ conflict: 'changed' });
+        expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
+        expect(t.bridge.state().warnings).toHaveLength(1);
+        expect(t.bridge.state().warnings[0]).toMatchObject({ conflict: 'raced', ...warning });
         expect(t.disk()).toBe('Xa');
         await t.bridge.sync(); // P -> X removes text: held for the person, the room keeps Pa.
         expect(t.text.toString()).toBe('Pa');
-        expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed' });
+        expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal); // Sync cannot clear the last save refusal.
+        expect(t.bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(['raced', 'removed']);
         expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'removed' }); // Not reported as saved.
         expect(t.disk()).toBe('Xa'); // The other writer's bytes are not overwritten.
         await t.bridge.acceptDisk();
@@ -444,33 +448,37 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
     }
 
     for (const reason of ['gone', 'changed']) {
-      for (const carried of [true, false]) {
-        it(`#481 P3: verified base clears a ${carried ? 'carried' : 'direct'} modifying-save ${reason} refusal without sync`, async () => {
+      for (const repeated of [true, false]) {
+        it(`#481 P3: verified base clears a ${repeated ? 'repeated' : 'direct'} modifying-save ${reason} refusal without sync`, async () => {
           const t = await setup('a');
           t.person((x) => x.insert(0, 'P'));
           if (reason === 'gone') fs.unlinkSync(t.file);
           else fs.writeFileSync(t.file, 'b');
           expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
-          const direct = t.bridge.state().conflict;
+          const direct = t.bridge.state().refusal;
           expect(direct).toMatchObject({ conflict: reason });
-          expect(direct.transient).toBeUndefined();
+          expect(t.bridge.state().conflict).toBe(direct);
+          expect(t.bridge.state().warnings).toEqual([]);
           t.person((x) => x.delete(0, 1)); // Undo Pa to the loaded base, a.
-          if (carried) {
+          if (repeated) {
             expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
-            expect(t.bridge.state().conflict).toMatchObject({ conflict: reason, transient: true, kept: direct });
+            expect(t.bridge.state().refusal).toMatchObject({ conflict: reason });
+            expect(t.bridge.state().refusal).not.toBe(direct); // This save owns a new refusal, not a carried one.
+            expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
+            expect(t.bridge.state().warnings).toEqual([]);
           }
-          console.info('P3 before restoration', reason, carried, JSON.stringify(t.bridge.state()));
+          console.info('P3 before restoration', reason, repeated, JSON.stringify(t.bridge.state()));
           fs.writeFileSync(t.file, 'a');
           const { ino } = fs.statSync(t.file);
           expect(await t.bridge.save()).toEqual({ ok: true });
-          console.info('P3 verified base success', reason, carried, JSON.stringify(t.bridge.state()));
-          expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+          console.info('P3 verified base success', reason, repeated, JSON.stringify(t.bridge.state()));
+          expect(t.bridge.state()).toEqual({ gone: false, loaded: true, refusal: null, warnings: [], conflict: null });
           expect(t.text.toString()).toBe('a');
           expect(t.disk()).toBe('a');
           expect(fs.statSync(t.file).ino).toBe(ino); // No publish on authoritative no-change success.
           expect(await t.bridge.save()).toEqual({ ok: true }); // A further success must not resurrect C0 either.
-          console.info('P3 repeated base success', reason, carried, JSON.stringify(t.bridge.state()));
-          expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+          console.info('P3 repeated base success', reason, repeated, JSON.stringify(t.bridge.state()));
+          expect(t.bridge.state()).toEqual({ gone: false, loaded: true, refusal: null, warnings: [], conflict: null });
           expect(fs.statSync(t.file).ino).toBe(ino);
         });
       }
@@ -482,24 +490,27 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       const invalid = Buffer.from([0xff]);
       fs.writeFileSync(t.file, invalid);
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
-      const direct = t.bridge.state().conflict;
+      const direct = t.bridge.state().refusal;
       expect(direct).toMatchObject({ conflict: 'changed' });
-      expect(direct.transient).toBeUndefined();
+      expect(t.bridge.state().warnings).toEqual([]);
       t.person((x) => x.delete(0, 1));
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed' });
-      const carried = t.bridge.state().conflict;
-      expect(carried).toMatchObject({ conflict: 'changed', transient: true, kept: direct });
+      const repeated = t.bridge.state().refusal;
+      expect(repeated).toMatchObject({ conflict: 'changed' });
+      expect(repeated).not.toBe(direct);
+      expect(t.bridge.state().warnings).toEqual([]);
       await expect(t.bridge.sync()).rejects.toThrow(/not UTF-8 text/);
-      expect(t.bridge.state().conflict).toEqual(carried); // A decoding failure grants no clearing authority.
+      expect(t.bridge.state().conflict).toBe(repeated); // Sync failure cannot change save-owned refusal.
+      expect(t.bridge.state().refusal).toBe(repeated);
       expect(fs.readFileSync(t.file)).toEqual(invalid);
       console.info('P3 invalid bytes still refused', JSON.stringify(t.bridge.state()));
       fs.writeFileSync(t.file, 'a');
       const { ino } = fs.statSync(t.file);
       expect(await t.bridge.save()).toEqual({ ok: true });
       console.info('P3 valid base after invalid bytes', JSON.stringify(t.bridge.state()));
-      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(t.bridge.state()).toEqual({ gone: false, loaded: true, refusal: null, warnings: [], conflict: null });
       expect(await t.bridge.save()).toEqual({ ok: true });
-      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: null });
+      expect(t.bridge.state()).toEqual({ gone: false, loaded: true, refusal: null, warnings: [], conflict: null });
       expect(t.disk()).toBe('a');
       expect(t.text.toString()).toBe('a');
       expect(fs.statSync(t.file).ino).toBe(ino);
@@ -522,14 +533,16 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       });
     }
 
-    it('#481 P3: a failed authoritative read preserves the existing refusal', async () => {
+    it('#481 P3: a failed authoritative read clears the previous save refusal without claiming success', async () => {
       const t = await setup('a');
       fs.unlinkSync(t.file);
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone' });
-      const refusal = t.bridge.state().conflict;
+      expect(t.bridge.state().refusal).toMatchObject({ conflict: 'gone' });
       fs.mkdirSync(t.file); // A real helper read failure, not authoritative absence or base.
       await expect(t.bridge.save()).rejects.toThrow(/not a regular file/);
-      expect(t.bridge.state().conflict).toEqual(refusal);
+      expect(t.bridge.state()).toEqual({ gone: true, loaded: true, refusal: null, warnings: [], conflict: null });
+      expect(t.text.toString()).toBe('a');
+      expect(fs.statSync(t.file).isDirectory()).toBe(true);
       fs.rmdirSync(t.file);
     });
 
@@ -566,11 +579,14 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
         expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason });
         t.person((x) => x.delete(0, 1)); // Undo QPa to the published base Pa.
         expect(await t.bridge.save()).toMatchObject({ ok: false, conflict: reason });
-        const refusal = t.bridge.state().conflict;
+        expect(t.bridge.state().refusal).toMatchObject({ conflict: reason });
+        expect(t.bridge.state().warnings).toEqual([warning]);
         fs.rmSync(t.file, { force: true });
         fs.mkdirSync(t.file);
         await expect(t.bridge.save()).rejects.toThrow(/not a regular file/);
-        expect(t.bridge.state().conflict).toBe(refusal);
+        expect(t.bridge.state().refusal).toBe(null);
+        expect(t.bridge.state().warnings).toEqual([warning]);
+        expect(t.bridge.state().conflict).toBe(warning);
         fs.rmdirSync(t.file);
         fs.writeFileSync(t.file, 'Pa');
         const { ino } = fs.statSync(t.file);
@@ -628,13 +644,20 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(warning.recovery).toBeTruthy();
       // No sync anywhere below: changed, then gone, then the base again.
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'changed', ...warning });
-      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'changed', ...warning });
+      expect(t.bridge.state().refusal).toMatchObject({ conflict: 'changed' });
+      expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
+      expect(t.bridge.state().warnings).toHaveLength(1);
+      expect(t.bridge.state().warnings[0]).toMatchObject({ conflict: 'raced', ...warning });
       fs.unlinkSync(t.file);
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'gone', ...warning });
-      expect(t.bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone', ...warning } });
+      expect(t.bridge.state()).toMatchObject({ gone: true, refusal: { conflict: 'gone' } });
+      expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
+      expect(t.bridge.state().warnings).toHaveLength(1);
+      expect(t.bridge.state().warnings[0]).toMatchObject({ conflict: 'raced', ...warning });
       fs.writeFileSync(t.file, 'Pa'); // The base again.
       expect(await t.bridge.save()).toEqual({ ok: true });
-      expect(t.bridge.state()).toMatchObject({ gone: false, conflict: { conflict: 'raced', ...warning } }); // Kept.
+      expect(t.bridge.state()).toMatchObject({ gone: false, refusal: null, conflict: { conflict: 'raced', ...warning } });
+      expect(t.bridge.state().warnings).toEqual([t.bridge.state().conflict]);
       expect(t.disk()).toBe('Pa');
     });
 
@@ -670,7 +693,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       const keptBefore = t.kept().length;
       delete t.hooks.helper; // The disk recovers.
       await t.bridge.sync();
-      expect(t.bridge.state().conflict).toBe(null);
+      expect(t.bridge.state().refusal).toMatchObject({ conflict: 'unverified', published: true });
+      expect(t.bridge.state().warnings).toEqual([]); // Flush resolves its warning, not the last save refusal.
+      expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
       expect(t.staged()).toEqual([]);
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(fs.statSync(t.file).ino).toBe(ino);
@@ -735,7 +760,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       expect(t.disk()).toBe('Pa and more');
       fs.writeFileSync(t.file, 'a'); // Back to the base: it was never ours, so it clears.
       await t.bridge.sync();
-      expect(t.bridge.state().conflict).toBe(null);
+      expect(t.bridge.state().refusal).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+      expect(t.bridge.state().warnings).toEqual([]);
+      expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
       expect(t.text.toString()).toBe('QPa');
     });
 
@@ -1176,7 +1203,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       } });
       try {
         await expect(again.bridge.load()).rejects.toThrow();
-        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, conflict: null });
+        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, refusal: null, warnings: [], conflict: null });
         expect(again.text.toString()).toBe('');
         expect(again.conflicts).toEqual([]);
         expect(watchers).toHaveLength(1);
@@ -1254,7 +1281,7 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
       } });
       try {
         await expect(again.bridge.load()).rejects.toThrow(evidence.name);
-        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, conflict: null });
+        expect(again.bridge.state()).toEqual({ gone: false, loaded: false, refusal: null, warnings: [], conflict: null });
         expect(again.text.toString()).toBe('');
         expect(again.conflicts).toEqual([]);
         expect(watchers).toHaveLength(1);
@@ -1319,7 +1346,9 @@ describe('co-edit disk bridge (smartyfs#18)', () => {
           expect(t.text.toString()).toBe('Pa\nagent'); // Original base follows our snapshot, not the agent revision or replayed P.
           expect(t.disk()).toBe('Pa\nagent');
           expect(origins).toEqual([DISK_ORIGIN]);
-          expect(t.bridge.state().conflict).toBe(null);
+          expect(t.bridge.state().warnings).toEqual([]);
+          expect(t.bridge.state().refusal).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+          expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
           // sync collects before settlement: this call enrolls the revision; the next call disposes it.
           expect(t.staged()).toEqual([entry]);
           expect(fs.readFileSync(path.join(t.privateDir, entry))).toEqual(Buffer.concat([bytes, Buffer.from('late\n')]));
@@ -2098,6 +2127,8 @@ createInterface({ input: control }).on('line', (line) => {
           expect(result).toEqual({ ok: false, conflict: 'raced', published: true, recovery: expect.any(String), notice: DISTURBED_NOTICE });
           expect(fs.readFileSync(result.recovery, 'utf8')).toBe('a');
           const raced = t.bridge.state().conflict;
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(warning ? [warning, raced] : [raced]);
           const ino = fs.statSync(t.file).ino;
           await t.bridge.sync();
           await t.bridge.sync();
@@ -2110,7 +2141,8 @@ createInterface({ input: control }).on('line', (line) => {
           expect(t.disk()).toBe('PaXQ');
           expect(t.gate.count('publish')).toBe(2); // Exact adopted base admits a modifying save.
           expect(t.bridge.state().conflict).toEqual(warning);
-          expect(raced.kept ?? null).toEqual(warning);
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(warning ? [warning] : []);
         });
       });
     }
@@ -2131,6 +2163,8 @@ createInterface({ input: control }).on('line', (line) => {
             await t.bridge.sync();
             const failed = t.bridge.state().conflict;
             expect(failed).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings).toEqual(warning ? [warning, failed] : [failed]);
             expect(t.gate.count('dispose')).toBeGreaterThan(0);
             expect(t.gate.count('flush')).toBeGreaterThan(1);
             delete t.hooks.helper;
@@ -2140,7 +2174,8 @@ createInterface({ input: control }).on('line', (line) => {
             expect(await t.bridge.save()).toEqual({ ok: true });
             expect(t.gate.count('publish')).toBe(1);
             expect(t.bridge.state().conflict).toEqual(warning);
-            expect(failed.kept ?? null).toEqual(warning);
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings).toEqual(warning ? [warning] : []);
           } finally { if (fd !== undefined) fs.closeSync(fd); }
         });
       });
@@ -2158,6 +2193,8 @@ createInterface({ input: control }).on('line', (line) => {
           await loading;
           const failed = t.bridge.state().conflict;
           expect(failed).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(warning ? [warning, failed] : [failed]);
           delete t.hooks.helper;
           await t.bridge.sync();
           expect(t.text.toString()).toBe('a');
@@ -2166,7 +2203,8 @@ createInterface({ input: control }).on('line', (line) => {
           expect(await t.bridge.save()).toEqual({ ok: true });
           expect(t.disk()).toBe('Pa');
           expect(t.bridge.state().conflict).toEqual(warning);
-          expect(failed.kept ?? null).toEqual(warning);
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(warning ? [warning] : []);
         });
       });
 
@@ -2182,6 +2220,8 @@ createInterface({ input: control }).on('line', (line) => {
             await t.bridge.sync();
             const late = t.bridge.state().conflict;
             expect(late).toMatchObject({ conflict: 'raced', published: true, recovery: expect.any(String) });
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings).toEqual(warning ? [warning, late] : [late]);
             expect(fs.readFileSync(late.recovery, 'utf8')).toBe('aX');
             await t.bridge.sync();
             expect(t.text.toString()).toBe('Pa'); // Late displaced bytes are recovery, not target bytes.
@@ -2189,7 +2229,8 @@ createInterface({ input: control }).on('line', (line) => {
             expect(await t.bridge.save()).toEqual({ ok: true });
             expect(t.disk()).toBe('PaQ');
             expect(t.bridge.state().conflict).toEqual(warning);
-            expect(late.kept ?? null).toEqual(warning);
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings).toEqual(warning ? [warning] : []);
           } finally { if (fd !== undefined) fs.closeSync(fd); }
         });
       });
@@ -2214,8 +2255,8 @@ createInterface({ input: control }).on('line', (line) => {
           let independent = null;
           if (stopped) {
             t.disableRestarts();
-            const { kept: _durability, ...ownWarning } = await t.stop();
-            independent = ownWarning;
+            independent = await t.stop();
+            expect(t.bridge.state().warnings).toEqual([durability, independent]);
           }
           delete t.hooks.helper;
           await t.bridge.sync();
@@ -2242,10 +2283,13 @@ createInterface({ input: control }).on('line', (line) => {
             await t.bridge.sync();
             const hold = t.bridge.state().conflict;
             expect(hold.conflict).toBe(accepted ? 'removed' : 'truncated');
-            expect(hold.kept).toBeTruthy();
+            expect(t.bridge.state().refusal).toBe(null);
+            expect(t.bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(
+              [hold.conflict, 'unverified', ...(warning ? ['unwatched'] : [])].sort());
             delete t.hooks.helper;
             await t.bridge.sync();
-            expect(t.bridge.state().conflict.conflict).toBe(hold.conflict);
+            expect(t.bridge.state().conflict).toBe(hold);
+            expect(t.bridge.state().warnings).toEqual(warning ? [warning, hold] : [hold]);
             expect(t.text.toString()).toBe('Pa'); // Flush cannot accept held content.
             expect(t.disk()).toBe(accepted);
             const ino = fs.statSync(t.file).ino;
@@ -2280,6 +2324,11 @@ createInterface({ input: control }).on('line', (line) => {
           t.gate.release();
           await loading;
           const recovery = t.bridge.state().conflict;
+          const recoveryWarnings = t.bridge.state().warnings;
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(recoveryWarnings.map((entry) => entry.conflict).sort()).toEqual(
+            [seed === 'interrupted' ? 'interrupted' : 'raced', ...(seed === 'late-load' ? ['interrupted'] : []), ...(warning ? ['unwatched'] : [])].sort());
+          expect(recoveryWarnings.find((entry) => entry.conflict === 'unwatched') ?? null).toBe(warning);
           expect(recovery).toMatchObject({ conflict: seed === 'interrupted' ? 'interrupted' : 'raced', recovery: expect.any(String) });
           expect(fs.readFileSync(recovery.recovery, 'utf8')).toBe(seed === 'interrupted' ? 'a' : 'aX');
           expect(t.text.toString()).toBe('Pa');
@@ -2289,12 +2338,14 @@ createInterface({ input: control }).on('line', (line) => {
           expect(t.disk()).toBe('PaQ');
           expect(t.gate.count('publish')).toBe(1);
           expect(t.bridge.state().conflict).toEqual(warning);
-          // A late-load report also carries the original interrupted-copy notice, not just observation.
+          // Late-load recovery retains the original interrupted-copy notice as a separate condition.
           if (seed === 'late-load') {
-            expect(recovery.kept).toMatchObject({ conflict: 'interrupted', recovery: expect.any(String) });
-            expect(fs.readFileSync(recovery.kept.recovery, 'utf8')).toBe('a');
-            expect(recovery.kept.kept ?? null).toEqual(warning);
-          } else expect(recovery.kept ?? null).toEqual(warning);
+            const interrupted = recoveryWarnings.find((entry) => entry.conflict === 'interrupted');
+            expect(interrupted).toMatchObject({ conflict: 'interrupted', recovery: expect.any(String) });
+            expect(fs.readFileSync(interrupted.recovery, 'utf8')).toBe('a');
+          }
+          expect(t.bridge.state().refusal).toBe(null);
+          expect(t.bridge.state().warnings).toEqual(warning ? [warning] : []);
         }, { seed });
       });
     }
@@ -2370,8 +2421,11 @@ createInterface({ input: control }).on('line', (line) => {
           if (outcome === 'gone' || outcome === 'changed') {
             expect(result).toMatchObject({ ok: false, conflict: outcome, recovery: expect.any(String) });
             expect(result.published).toBeUndefined();
-            expect(result.notice).toBeUndefined(); // No new public publish-result fields from the carried warning.
-            expect(bridge.state().conflict.kept).toBe(warning);
+            expect(result.notice).toBeUndefined(); // Independent warnings add no public publish-result fields.
+            expect(bridge.state().refusal).toMatchObject({ conflict: outcome });
+            expect(bridge.state().conflict).toBe(bridge.state().refusal);
+            expect(bridge.state().warnings).toEqual([warning]);
+            expect(bridge.state().warnings[0]).toBe(warning);
             doc.getText(TEXT).delete(0, 1);
             expect(await bridge.save()).toMatchObject({ ok: false, conflict: outcome });
             fs.writeFileSync(file, 'a');
@@ -2453,19 +2507,24 @@ createInterface({ input: control }).on('line', (line) => {
             const result = await saving;
             expect(result).toEqual({ ok: false, conflict: 'unverified', published: fault === 'afterExchange' ? 'uncertain' : true, recovery: expect.any(String), notice: fault === 'afterExchange' ? UNCERTAIN_NOTICE : UNSYNCED_NOTICE });
             expect(bridge.state().conflict).toMatchObject({ conflict: 'unverified', notice: result.notice });
-            expect(bridge.state().conflict.kept ?? null).toBe(warning);
+            expect(bridge.state().refusal).toBe(null);
+            expect(bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(warning ? ['unverified', 'unwatched'] : ['unverified']);
+            expect(bridge.state().warnings.find((entry) => entry.conflict === 'unwatched') ?? null).toBe(warning);
             // Keep the real flush fault through the bounded automatic retry budget, then allow manual resolution.
             if (fault === 'dirSync' && (watching === 'stopped' || watching === 'restart')) await expect.poll(() => gate.count('flush'), { timeout: 3000 }).toBeGreaterThanOrEqual(watching === 'restart' ? 4 : 3);
             if (fault === 'dirSync' && watching === 'restart') {
               await bridge.acceptDisk(); // Replacement has read authoritative bytes, but the flush still fails.
               expect(bridge.state().conflict).toMatchObject({ conflict: 'unverified', published: true, notice: UNSYNCED_NOTICE });
-              expect(bridge.state().conflict.kept).toBeUndefined(); // Only its watcher warning has recovered.
+              expect(bridge.state().warnings).toEqual([bridge.state().conflict]); // Only its watcher warning has recovered.
+              expect(bridge.state().refusal).toBe(null);
             }
             delete hooks.helper;
             if (fault === 'afterExchange' && watching === 'stopped') {
               fs.writeFileSync(file, 'PaZ');
               await bridge.sync(); // A different real revision restates uncertainty without dropping the kept warning.
-              expect(bridge.state().conflict.kept).toBe(warning);
+              expect(bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(['unverified', 'unwatched']);
+              expect(bridge.state().warnings.find((entry) => entry.conflict === 'unwatched')).toBe(warning);
+              expect(bridge.state().refusal).toBe(null);
               expect(doc.getText(TEXT).toString()).toBe('Pa');
               fs.writeFileSync(file, 'Pa');
             }
@@ -2518,7 +2577,8 @@ createInterface({ input: control }).on('line', (line) => {
           const saved = await bridge.save();
           expect(saved).toMatchObject({ ok: false, conflict: 'unverified', published: response === 'flush' ? true : 'uncertain' });
           const notice = bridge.state().conflict;
-          expect(notice.kept).toBeUndefined();
+          expect(bridge.state().refusal).toBe(null);
+          expect(bridge.state().warnings).toEqual([notice]);
           delete hooks.helper;
           const ino = fs.statSync(file).ino;
           const armed = gate.arm(response);
@@ -2584,7 +2644,9 @@ createInterface({ input: control }).on('line', (line) => {
         gate.release();
         const result = await saving;
         expect(result).toEqual({ ok: false, conflict: 'unverified', published: 'uncertain', recovery: expect.any(String), notice: UNCERTAIN_NOTICE });
-        expect(bridge.state().conflict.kept).toBe(warning);
+        expect(bridge.state().refusal).toBe(null);
+        expect(bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(['unverified', 'unwatched']);
+        expect(bridge.state().warnings.find((entry) => entry.conflict === 'unwatched')).toBe(warning);
         delete hooks.helper;
         const ino = fs.statSync(file).ino;
         const armed = gate.arm('ack');
@@ -2592,7 +2654,9 @@ createInterface({ input: control }).on('line', (line) => {
         const syncing = bridge.sync();
         await armed;
         expect((await ack).reply).toMatchObject({ ok: true, pending: true });
-        expect(bridge.state().conflict.kept).toBe(warning); // List has adopted the base; the ack await still owns this notice.
+        expect(bridge.state().refusal).toBe(null);
+        expect(bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(['unverified', 'unwatched']);
+        expect(bridge.state().warnings.find((entry) => entry.conflict === 'unwatched')).toBe(warning); // Ack still owns the uncertainty notice.
         gate.release();
         await syncing;
         expect(bridge.state().conflict).toBe(warning);
@@ -2781,8 +2845,11 @@ createInterface({ input: control }).on('line', (line) => {
             await gate.observe();
             expect(gate.count('publish')).toBe(publishes); // Save is still blocked, not a warning-only hold.
             expect(fs.readFileSync(file, 'utf8')).toBe('Pa and more');
-            expect(bridge.state().conflict).toBe(retainedWarning);
-            expect(retainedWarning).toBe(warning); // Already-seen uncertainty must not make catch-up clear unwatched.
+            expect(bridge.state().refusal).toMatchObject({ conflict: 'unverified', published: 'uncertain' });
+            expect(bridge.state().conflict).toBe(bridge.state().refusal);
+            expect(bridge.state().warnings.map((entry) => entry.conflict).sort()).toEqual(['unverified', 'unwatched']);
+            expect(bridge.state().warnings.find((entry) => entry.conflict === 'unwatched')).toBe(warning);
+            expect(retainedWarning).toBe(warning); // Already-seen uncertainty cannot clear the watcher warning.
             fs.writeFileSync(file, 'a');
             expect(await bridge.sync()).toBeUndefined();
             expect(doc.getText(TEXT).toString()).toBe('Pa');
@@ -2912,8 +2979,11 @@ createInterface({ input: control }).on('line', (line) => {
             expect(fs.readFileSync(file, 'utf8')).toBe(diskText);
             expect(fs.statSync(file).ino).toBe(inode);
             console.info('HELD acceptance', reason, order, JSON.stringify({ room: doc.getText(TEXT).toString(), disk: fs.readFileSync(file, 'utf8'), warning: bridge.state().conflict, starts }));
+            expect(bridge.state().refusal).toBe(null);
+            expect(bridge.state().warnings).toEqual(warning ? [warning] : []);
             expect(bridge.state().conflict).toBe(warning); // Exact independent identity, not merely the warning kind.
             await bridge.acceptDisk(); // No hold grants no authority over the independent warning.
+            expect(bridge.state().warnings).toEqual(warning ? [warning] : []);
             expect(bridge.state().conflict).toBe(warning);
           } finally {
             expect(await bridge.close()).toEqual({ quiescent: true });
@@ -2944,13 +3014,16 @@ createInterface({ input: control }).on('line', (line) => {
           if (order === 'hold-first') made[0].emit('error', new Error('EMFILE: after hold'));
           await expect.poll(() => made.length, { timeout: 3000 }).toBe(2);
           await expect.poll(() => bridge.state().conflict?.conflict, { timeout: 3000 }).toBe('removed');
-          await expect.poll(() => bridge.state().conflict?.kept, { timeout: 3000 }).toBeUndefined();
+          await expect.poll(() => bridge.state().warnings.map((entry) => entry.conflict), { timeout: 3000 }).toEqual(['removed']);
+          expect(bridge.state().refusal).toBe(null);
           expect(doc.getText(TEXT).toString()).toBe('abc');
           expect(await bridge.save()).toEqual({ ok: false, conflict: 'removed' });
           expect(fs.readFileSync(file, 'utf8')).toBe('ac');
           await bridge.acceptDisk();
           expect(doc.getText(TEXT).toString()).toBe('ac');
-          expect(bridge.state().conflict).toBe(null);
+          expect(bridge.state().warnings).toEqual([]);
+          expect(bridge.state().refusal).toMatchObject({ conflict: 'removed' });
+          expect(bridge.state().conflict).toBe(bridge.state().refusal);
           expect(await bridge.save()).toEqual({ ok: true });
         } finally {
           expect(await bridge.close()).toEqual({ quiescent: true });
@@ -2995,13 +3068,17 @@ createInterface({ input: control }).on('line', (line) => {
       const recovered = fs.readFileSync(warning.recovery, 'utf8');
       fs.writeFileSync(t.file, 'ac');
       await t.bridge.sync();
-      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed', kept: warning });
+      expect(t.bridge.state().refusal).toBe(null);
+      expect(t.bridge.state().conflict).toMatchObject({ conflict: 'removed' });
+      expect(t.bridge.state().warnings).toEqual([warning, t.bridge.state().conflict]);
       expect(t.text.toString()).toBe('Pabc');
       expect(await t.bridge.save()).toEqual({ ok: false, conflict: 'removed' });
       expect(t.disk()).toBe('ac');
       await t.bridge.acceptDisk();
       expect(t.text.toString()).toBe('ac');
-      expect(t.bridge.state().conflict).toBe(warning);
+      expect(t.bridge.state().warnings).toEqual([warning]);
+      expect(t.bridge.state().refusal).toMatchObject({ conflict: 'removed' });
+      expect(t.bridge.state().conflict).toBe(t.bridge.state().refusal);
       expect(await t.bridge.save()).toEqual({ ok: true });
       expect(t.bridge.state().conflict).toBe(warning);
       expect(fs.readFileSync(warning.recovery, 'utf8')).toBe(recovered);
@@ -3162,11 +3239,14 @@ createInterface({ input: control }).on('line', (line) => {
         expect(await bridge.save()).toEqual({ ok: false, conflict: reason });
         doc.getText(TEXT).delete(0, 1); // Undo Pa to the loaded base a.
         expect(await bridge.save()).toMatchObject({ ok: false, conflict: reason });
-        const refusal = bridge.state().conflict;
+        expect(bridge.state().refusal).toMatchObject({ conflict: reason });
+        expect(bridge.state().warnings).toEqual([warning]);
         fs.rmSync(file, { force: true });
         fs.mkdirSync(file);
         await expect(bridge.save()).rejects.toThrow(/not a regular file/);
-        expect(bridge.state().conflict).toBe(refusal);
+        expect(bridge.state().refusal).toBe(null);
+        expect(bridge.state().warnings).toEqual([warning]);
+        expect(bridge.state().conflict).toBe(warning);
         fs.rmdirSync(file);
         fs.writeFileSync(file, 'a');
         const { ino } = fs.statSync(file);
@@ -3197,17 +3277,21 @@ createInterface({ input: control }).on('line', (line) => {
       // No sync anywhere below: changed, then gone, then the base again.
       fs.writeFileSync(file, 'b');
       expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'changed', notice: unwatched.notice });
-      expect(bridge.state().conflict).toMatchObject({ conflict: 'changed', kept: { conflict: 'unwatched' } });
+      expect(bridge.state().refusal).toMatchObject({ conflict: 'changed' });
+      expect(bridge.state().conflict).toBe(bridge.state().refusal);
+      expect(bridge.state().warnings).toEqual([unwatched]);
       fs.unlinkSync(file);
       expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' });
-      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      expect(bridge.state().refusal).toMatchObject({ conflict: 'gone' });
+      expect(bridge.state().conflict).toBe(bridge.state().refusal);
+      expect(bridge.state().warnings).toEqual([unwatched]);
       fs.writeFileSync(file, 'a');
       expect(await bridge.save()).toEqual({ ok: true });
       expect(bridge.state().conflict).toMatchObject({ conflict: 'unwatched' }); // Still not watching: still shown.
       expect(made).toHaveLength(1);
     });
 
-    it('#445 astra round 2: watching that resumes clears the watcher warning a refusal carried, and only it', async () => {
+    it('#445 astra round 2: watching that resumes clears only its warning, leaving the save refusal', async () => {
       const { home, root, file } = fresh();
       fs.writeFileSync(file, 'a');
       const { made, watch } = fakeWatch();
@@ -3216,12 +3300,16 @@ createInterface({ input: control }).on('line', (line) => {
       await bridge.load();
       vi.spyOn(console, 'error').mockImplementation(() => {});
       made[0].emit('error', new Error('EMFILE'));
+      const warning = bridge.state().warnings[0];
       fs.unlinkSync(file);
       expect(await bridge.save()).toMatchObject({ ok: false, conflict: 'gone' }); // Before the restart.
-      expect(bridge.state().conflict).toMatchObject({ conflict: 'gone', kept: { conflict: 'unwatched' } });
+      const refusal = bridge.state().refusal;
+      expect(refusal).toMatchObject({ conflict: 'gone' });
+      expect(bridge.state().conflict).toBe(refusal);
+      expect(bridge.state().warnings).toEqual([warning]);
       await expect.poll(() => made.length, { timeout: 3000 }).toBe(2); // Watching again.
-      await expect.poll(() => bridge.state().conflict?.kept, { timeout: 3000 }).toBeUndefined();
-      expect(bridge.state()).toMatchObject({ gone: true, conflict: { conflict: 'gone' } }); // The file is still gone.
+      await expect.poll(() => bridge.state().warnings, { timeout: 3000 }).toEqual([]);
+      expect(bridge.state()).toEqual({ gone: true, loaded: true, refusal, warnings: [], conflict: refusal });
       fs.writeFileSync(file, 'a');
       expect(await bridge.save()).toEqual({ ok: true });
       expect(bridge.state().conflict).toBe(null);
