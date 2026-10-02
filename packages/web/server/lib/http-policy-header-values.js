@@ -1,5 +1,8 @@
 import { validateHeaderName } from 'node:http';
 
+// RFC HTTP OWS is only SP/HTAB; Unicode whitespace must not create valid directive names.
+const trimOWS = value => value.replace(/^[ \t]+|[ \t]+$/g, '');
+
 // RFC quoted-string/quoted-pair: commas inside extension values are not separators.
 function cacheDirectives(value) {
   const parts = [];
@@ -14,7 +17,7 @@ function cacheDirectives(value) {
   if (quoted || escaped) throw new Error('Invalid cache control quoted value');
   parts.push(value.slice(start));
   return parts.map(part => {
-    const matched = part.trim().match(/^([^=\s]+)(?:[ \t]*=[ \t]*(.*))?$/);
+    const matched = trimOWS(part).match(/^([^=\s]+)(?:[ \t]*=[ \t]*(.*))?$/);
     if (!matched) throw new Error('Invalid cache control directive');
     const [, name, argument] = matched;
     validateHeaderName(name);
@@ -32,7 +35,7 @@ function cacheDirectives(value) {
 /** Normalize/validate every value before publication; do not defer validation to Express vary(). */
 export function validatedPolicyHeaderValue(name, value) {
   if (name === 'vary') {
-    const fields = value.split(',').map(field => field.trim());
+    const fields = value.split(',').map(trimOWS);
     fields.forEach(field => validateHeaderName(field));
     return fields.join(', ');
   }
