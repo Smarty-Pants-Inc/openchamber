@@ -5,11 +5,11 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { OrdinaryModelChange, OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
-import { selectProvidersForDirectory, useConfigStore } from '@/stores/useConfigStore';
+import { useOrdinaryModelCatalog } from './useOrdinaryModelCatalog';
 import { getImperativeSessionMessageLoader } from '@/sync/session-message-loader';
 import { formatEffortLabel } from './mobileControlsUtils';
 import {
-  buildOrdinaryModelOptions, ordinaryOptionKey as optionKey, useAppliedOrdinaryState, useRelaunchHeldOrdinaryState,
+  ordinaryOptionKey as optionKey, useAppliedOrdinaryState, useRelaunchHeldOrdinaryState,
 } from './ordinaryModelOptions';
 import { PiVoiceControl } from './PiVoiceControl';
 
@@ -23,24 +23,16 @@ export function OrdinaryModelControls({ state: listed, target, className, reload
   const [state, setApplied] = useAppliedOrdinaryState(listed);
   const { held, pending } = useRelaunchHeldOrdinaryState(state, reloading);
   const { t } = useI18n();
-  // A chat column may show a session from a project that is not the active one.
-  const providers = useConfigStore(s => selectProvidersForDirectory(s, target?.directory));
-  const loadProviders = useConfigStore(s => s.loadProviders);
   const [busy, setBusy] = React.useState(false);
-  const options = React.useMemo(() => buildOrdinaryModelOptions(providers), [providers]);
   const current = state.model;
+  const catalog = useOrdinaryModelCatalog(target, state, reloading);
+  const { options } = catalog;
   const selected = current ? options.find(option => option.key === optionKey(current.providerID, current.modelID)) : undefined;
-  const directory = target?.directory;
-  const missing = Boolean(current && !selected);
-  // The project catalog may have been read before any native session was live. Re-read it once.
-  React.useEffect(() => {
-    if (directory && missing) void loadProviders({ directory, source: 'ordinaryModelControls' });
-  }, [directory, missing, loadProviders]);
 
-  if (!current) {
+  if (!current || (target && catalog.status !== 'ready')) {
     // A relaunch: the last model, read-only (no picker, so nothing stale can be applied), or a neutral loading state.
     const shown = held?.model;
-    if (pending) {
+    if (pending || (target && catalog.status === 'loading')) {
       return <div className={cn('flex min-w-0 items-center gap-2 typography-meta text-muted-foreground', className)}
         aria-live="polite" aria-busy="true">
         {shown ? <>
