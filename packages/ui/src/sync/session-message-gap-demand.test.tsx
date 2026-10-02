@@ -22,12 +22,13 @@ const box = (top: number, height: number): DOMRect => ({ x: 0, y: top, top, bott
 const chunk = (start: number): GapEntry => ({ kind: 'gap', key: `gap:${start}`, start, end: start + 100,
   gapStart: 0, gapEnd: 3450, heightPx: 8000 });
 
-for (const jump of [true, false]) {
-  test(jump ? 'a scrollbar jump drops the adjacent chunk bundle after one GET and one commit'
+for (const scenario of ['jump', 'read-ahead', 'repeat']) {
+  const jump = scenario === 'jump', repeat = scenario === 'repeat';
+  test(repeat ? 'a repeated scroll during the first read preserves admitted read-ahead with one GET per window' : jump ? 'a scrollbar jump drops the adjacent chunk bundle after one GET and one commit'
     : 'a genuinely uncovered near chunk still loads its directional read-ahead', async () => {
     const happy = new Window({ width: 1200, height: 1000 });
     const observers = new Map<Element, (entries: { isIntersecting: boolean }[]) => void>();
-    const globals = { window: happy, document: happy.document, Element: happy.Element, HTMLElement: happy.HTMLElement,
+    const globals = { window: happy, document: happy.document, Event: happy.Event, Element: happy.Element, HTMLElement: happy.HTMLElement,
       IS_REACT_ACT_ENVIRONMENT: true,
       IntersectionObserver: class {
         constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
@@ -44,7 +45,7 @@ for (const jump of [true, false]) {
       expect(request.method).toBe('GET');
       const start = Number(query.get('at')), end = Math.min(4000, start + Number(query.get('limit')));
       reads.push({ start, end });
-      if (start === 1942) { started.resolve(); await held.promise; }
+      if (start === 1942 || (repeat && start === 2200)) { started.resolve(); await held.promise; }
       return Response.json(Array.from({ length: end - start }, (_, i) => record(`m${String(start + i + 1).padStart(5, '0')}`)),
         { headers: { 'x-smarty-at': String(start), 'x-smarty-total': '4000', 'x-smarty-index-epoch': 'e1', 'x-smarty-read-only': '1' } });
     } });
@@ -79,10 +80,19 @@ for (const jump of [true, false]) {
         expect(reads).toEqual([{ start: 1942, end: 2442 }]);
         expect(demands).toEqual([[{ start: 1942, limit: 500 }], [{ start: 2200, limit: 500 }, { start: 2700, limit: 500 }]]);
       }
+      if (repeat) {
+        await started.promise;
+        expect(reads).toEqual([{ start: 2200, end: 2700 }]);
+        await act(async () => { scroller.dispatchEvent(new Event('scroll')); await sleep(150); });
+        expect(demands).toEqual([
+          [{ start: 2200, limit: 500 }, { start: 2700, limit: 500 }],
+          [{ start: 2200, limit: 500 }, { start: 2700, limit: 500 }],
+        ]);
+      }
       // Release without any more scroll/observer input. Keep both rows mounted so cleanup cannot protect the queue.
       await act(async () => { held.resolve(); await sleep(250); });
       const expected = jump ? [{ start: 1942, end: 2442 }] : [{ start: 2200, end: 2700 }, { start: 2700, end: 3200 }];
-      console.info(`gap ${jump ? 'jump' : 'read-ahead'}: ${JSON.stringify(reads)}, commits=${commits}, coverage publications=${publications}`);
+      console.info(`gap ${scenario}: ${JSON.stringify(reads)}, commits=${commits}, coverage publications=${publications}`);
       expect(reads).toEqual(expected);
       expect(commits).toBe(expected.length);
       expect(publications).toBe(expected.length);
