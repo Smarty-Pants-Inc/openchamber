@@ -124,12 +124,12 @@ type ChangeDescriptor = {
 };
 
 const CHANGE_DESCRIPTORS: Record<string, ChangeDescriptor> = {
-    '?': { code: '?', color: 'var(--status-info)', descriptionKey: 'diffView.change.untracked' },
-    A: { code: 'A', color: 'var(--status-success)', descriptionKey: 'diffView.change.new' },
-    D: { code: 'D', color: 'var(--status-error)', descriptionKey: 'diffView.change.deleted' },
-    R: { code: 'R', color: 'var(--status-info)', descriptionKey: 'diffView.change.renamed' },
-    C: { code: 'C', color: 'var(--status-info)', descriptionKey: 'diffView.change.copied' },
-    M: { code: 'M', color: 'var(--status-warning)', descriptionKey: 'diffView.change.modified' },
+    '?': { code: '?', color: 'var(--status-info-text, var(--status-info))', descriptionKey: 'diffView.change.untracked' },
+    A: { code: 'A', color: 'var(--status-success-text, var(--status-success))', descriptionKey: 'diffView.change.new' },
+    D: { code: 'D', color: 'var(--status-error-text, var(--status-error))', descriptionKey: 'diffView.change.deleted' },
+    R: { code: 'R', color: 'var(--status-info-text, var(--status-info))', descriptionKey: 'diffView.change.renamed' },
+    C: { code: 'C', color: 'var(--status-info-text, var(--status-info))', descriptionKey: 'diffView.change.copied' },
+    M: { code: 'M', color: 'var(--status-warning-text, var(--status-warning))', descriptionKey: 'diffView.change.modified' },
 };
 
 const DEFAULT_CHANGE_DESCRIPTOR = CHANGE_DESCRIPTORS.M;
@@ -240,8 +240,8 @@ const formatDiffTotals = (
                 options?.className,
             )}
         >
-            {added ? <span style={{ color: 'var(--status-success)' }}>+{added}</span> : null}
-            {removed ? <span style={{ color: 'var(--status-error)' }}>-{removed}</span> : null}
+            {added ? <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{added}</span> : null}
+            {removed ? <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{removed}</span> : null}
         </span>
     );
 };
@@ -569,8 +569,8 @@ const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
         size="sm"
         className={cn(
             'h-6 w-6 rounded-none bg-transparent p-0 text-muted-foreground opacity-70 hover:bg-transparent hover:text-foreground hover:opacity-100',
-            tone === 'failure' && 'text-[var(--status-error)] hover:text-[var(--status-error)]',
-            tone === 'success' && 'text-[var(--status-success)] hover:text-[var(--status-success)]'
+            tone === 'failure' && 'text-status-error-text hover:text-status-error-text',
+            tone === 'success' && 'text-status-success-text hover:text-status-success-text'
         )}
         disabled={disabled}
         title={label}
@@ -916,7 +916,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                             </div>
                             <button
                                 type="button"
-                                className="typography-ui-label text-primary hover:underline"
+                                className="typography-ui-label text-primary-text hover:underline"
                                 onClick={() => setDiffRetryNonce((nonce) => nonce + 1)}
                             >
                                 {t('diffView.actions.retry')}
@@ -939,7 +939,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                             </div>
                             <button
                                 type="button"
-                                className="typography-ui-label text-primary hover:underline"
+                                className="typography-ui-label text-primary-text hover:underline"
                                 onClick={() => setForceRenderLarge(true)}
                             >
                                 {t('diffView.actions.renderAnyway')}
@@ -2024,7 +2024,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                                             onClick={() => effectiveDirectory && currentBranch && setBaseOverride(effectiveDirectory, currentBranch, branch)}
                                             className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
                                         >
-                                            <Icon name="git-branch" className="size-3.5 text-primary" />
+                                            <Icon name="git-branch" className="size-3.5 text-primary-text" />
                                             <span className="truncate typography-ui-label text-foreground" title={branch}>{branch}</span>
                                         </button>
                                     ))}

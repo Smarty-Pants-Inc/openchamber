@@ -477,7 +477,7 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
                           const newCommands = setupCommands.filter((_, i) => i !== index);
                           setSetupCommands(newCommands);
                         }}
-                        className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-status-error-text hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                         aria-label={t('agentManager.empty.setupCommands.removeCommandAria')}
                       >
                         <Icon name="close" className="h-4 w-4" />
@@ -572,7 +572,7 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(file.id)}
-                      className="text-muted-foreground hover:text-destructive ml-0.5"
+                      className="text-muted-foreground hover:text-status-error-text ml-0.5"
                     >
                       <Icon name="close" className="h-3.5 w-3.5" />
                     </button>
@@ -618,7 +618,7 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
                   className={cn(
                       'flex items-center justify-center text-muted-foreground transition-none outline-none focus:outline-none flex-shrink-0',
                       isValid
-                          ? 'text-primary hover:text-primary'
+                          ? 'text-primary-text hover:text-primary-text'
                           : 'opacity-30'
                   )}
                   aria-label={t('agentManager.empty.actions.startAgentGroupAria')}

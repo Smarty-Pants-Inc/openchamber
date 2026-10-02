@@ -709,9 +709,9 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
               </div>
               {count > 0 ? <span className={cn('typography-micro flex-shrink-0', isHighlighted ? 'text-interactive-selection-foreground/70' : 'text-muted-foreground')}>x{count}</span> : null}
               {renderRowEnd?.(entry, { isHighlighted, isSelected })}
-              {isSelected ? <Icon name="check" className="h-4 w-4 text-primary flex-shrink-0" /> : null}
+              {isSelected ? <Icon name="check" className="h-4 w-4 text-primary-text flex-shrink-0" /> : null}
               {onToggleFavorite ? (
-                <button type="button" disabled={disabled} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFavorite(entry); }} className={cn('model-favorite-button flex h-4 w-4 items-center justify-center hover:text-primary/80 flex-shrink-0 disabled:pointer-events-none', favorite ? 'text-primary' : 'text-muted-foreground')} aria-label={favorite ? labels.unfavorite : labels.favorite} title={favorite ? labels.unfavorite : labels.favorite}>
+                <button type="button" disabled={disabled} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFavorite(entry); }} className={cn('model-favorite-button flex h-4 w-4 items-center justify-center hover:text-primary-text/80 flex-shrink-0 disabled:pointer-events-none', favorite ? 'text-primary-text' : 'text-muted-foreground')} aria-label={favorite ? labels.unfavorite : labels.favorite} title={favorite ? labels.unfavorite : labels.favorite}>
                   <Icon name={favorite ? 'star-fill' : 'star'} className="h-3.5 w-3.5" />
                 </button>
               ) : null}
@@ -849,7 +849,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   const leadingSectionKey = stuckSectionKey ?? (!includeNotSelected ? visibleSectionKeys[0] ?? null : null);
   const renderSectionIdentity = (sectionKey: string): React.ReactNode => {
     if (sectionKey === 'favorites') {
-      return <><Icon name="star-fill" className="h-4 w-4 flex-shrink-0 text-primary" /><span className="min-w-0 truncate">{labels.favorites}</span></>;
+      return <><Icon name="star-fill" className="h-4 w-4 flex-shrink-0 text-primary-text" /><span className="min-w-0 truncate">{labels.favorites}</span></>;
     }
     if (sectionKey === 'recent') {
       return <><Icon name="time" className="h-4 w-4 flex-shrink-0" /><span className="min-w-0 truncate">{labels.recent}</span></>;
@@ -905,7 +905,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
               >
                 <Icon name="close" className="h-3.5 w-3.5" />
                 <span>{labels.notSelected}</span>
-                {!selectedModel ? <Icon name="check" className="h-4 w-4 text-primary ml-auto" /> : null}
+                {!selectedModel ? <Icon name="check" className="h-4 w-4 text-primary-text ml-auto" /> : null}
               </button>
               <div className="h-px bg-border/40 my-1" />
             </>
@@ -918,7 +918,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
           {filteredFavorites.length > 0 ? (
             <div className="relative">
               {renderSectionSentinel('favorites')}
-              {renderSectionHeader('favorites', <Icon name="star-fill" className="h-4 w-4 text-primary" />, labels.favorites)}
+              {renderSectionHeader('favorites', <Icon name="star-fill" className="h-4 w-4 text-primary-text" />, labels.favorites)}
               {!isSectionCollapsed('favorites') && (favoriteSortingEnabled ? (
                 <DndContext sensors={favoriteRowSensors} collisionDetection={closestCenter} onDragEnd={handleFavoriteDragEnd}>
                   <SortableContext items={filteredFavorites.map((entry) => `${entry.providerID}:${entry.modelID}`)} strategy={verticalListSortingStrategy}>

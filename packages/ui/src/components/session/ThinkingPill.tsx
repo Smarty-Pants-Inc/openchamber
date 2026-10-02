@@ -38,7 +38,7 @@ export const ThinkingPill = ({ value, options, disabled, onChange }: ThinkingPil
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-w-[220px]" portalToBody>
         <DropdownMenuItem className="typography-meta" onSelect={() => onChange('')}>
-          <span className={cn('font-medium', !value && 'text-primary')}>
+          <span className={cn('font-medium', !value && 'text-primary-text')}>
             {t('rightSidebar.contextNotesTodo.sendDialog.variant.default')}
           </span>
         </DropdownMenuItem>
@@ -48,7 +48,7 @@ export const ThinkingPill = ({ value, options, disabled, onChange }: ThinkingPil
             className="typography-meta"
             onSelect={() => onChange(option)}
           >
-            <span className={cn('font-medium capitalize', value === option && 'text-primary')}>
+            <span className={cn('font-medium capitalize', value === option && 'text-primary-text')}>
               {option}
             </span>
           </DropdownMenuItem>

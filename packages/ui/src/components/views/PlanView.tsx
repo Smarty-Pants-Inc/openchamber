@@ -892,12 +892,12 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
         <div className="min-w-0 flex-1">
           <div className="typography-ui-label font-medium truncate">{parsedTitle}</div>
           {loadError ? (
-            <div className="typography-micro text-[color:var(--status-error)] truncate" title={loadError}>
+            <div className="typography-micro text-status-error-text truncate" title={loadError}>
               {t('planView.error.loadFailed')}
             </div>
           ) : null}
           {saveError ? (
-            <div className="typography-micro text-[color:var(--status-error)] truncate" title={saveError}>
+            <div className="typography-micro text-status-error-text truncate" title={saveError}>
               {t('planView.error.saveFailed')}
             </div>
           ) : null}
@@ -989,7 +989,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
                     }}
                   >
                     {isTTSPlaying ? (
-                      <Icon name="stop" className="h-4 w-4 text-[color:var(--status-success)]" />
+                      <Icon name="stop" className="h-4 w-4 text-status-success-text" />
                     ) : (
                       <Icon name="volume-up" className="h-4 w-4" />
                     )}
@@ -1022,7 +1022,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
               aria-label={t('planView.actions.copyPlanContents')}
             >
               {copiedContent ? (
-                <Icon name="check" className="h-4 w-4 text-[color:var(--status-success)]" />
+                <Icon name="check" className="h-4 w-4 text-status-success-text" />
               ) : (
                 <Icon name="clipboard" className="h-4 w-4" />
               )}
@@ -1057,7 +1057,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
                     <ErrorBoundary
                       fallback={
                         <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                          <div className="mb-1 font-medium text-destructive">{t('planView.error.previewUnavailable')}</div>
+                          <div className="mb-1 font-medium text-status-error-text">{t('planView.error.previewUnavailable')}</div>
                           <div className="text-sm text-muted-foreground">
                             {t('planView.error.switchToEditMode')}
                           </div>

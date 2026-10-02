@@ -45,10 +45,10 @@ export const RegistryBanner: React.FC<RegistryBannerProps> = ({ entryId, spec })
       <div className="rounded-md border border-border bg-card p-3 flex items-start gap-3">
         <Icon
           name="arrow-up"
-          className="h-5 w-5 text-[var(--status-success)] shrink-0 mt-0.5"
+          className="h-5 w-5 text-status-success-text shrink-0 mt-0.5"
         />
         <div className="flex-1 min-w-0">
-          <p className="typography-label text-[var(--status-success)]">
+          <p className="typography-label text-status-success-text">
             {t('settings.plugins.registry.banner.updateAvailable.title')}
           </p>
           <p className="typography-micro text-muted-foreground mt-0.5">
@@ -89,7 +89,7 @@ export const RegistryBanner: React.FC<RegistryBannerProps> = ({ entryId, spec })
   }
 
   const isWarning = info.kind === 'path-unreadable';
-  const colorVar = isWarning ? 'var(--status-warning)' : 'var(--status-error)';
+  const colorVar = isWarning ? 'var(--status-warning-text, var(--status-warning))' : 'var(--status-error-text, var(--status-error))';
   const iconName = isWarning ? 'alert' : 'error-warning';
 
   const description = (() => {

@@ -329,7 +329,7 @@ export const ModelMultiSelect: React.FC<ModelMultiSelectProps> = ({
                         <Icon name="brain-ai-3"
                           className={cn(
                             'h-3.5 w-3.5 flex-shrink-0',
-                            variantValue === DEFAULT_VARIANT_VALUE ? 'text-muted-foreground' : 'text-[color:var(--status-info)]'
+                            variantValue === DEFAULT_VARIANT_VALUE ? 'text-muted-foreground' : 'text-status-info-text'
                           )}
                         />
                         <SelectValue placeholder={t('multirun.modelMultiSelect.variant.placeholder')}>

@@ -485,7 +485,11 @@
       "behaviorSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
       "preHumanAuthCombinedSha256": "9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b",
       "humanAuthSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
-      "combinedSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "combinedSha256": "0f21be9bd70533aaf0246c098be334e2e76759baf7a9adb5d8ae94b3077cef53",
+      "preC1ThemeCombinedSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "c1ThemeSha256": "0f21be9bd70533aaf0246c098be334e2e76759baf7a9adb5d8ae94b3077cef53",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
       "behaviorSource": "3a3200ddae1611a079a76601ceba2b7ca1e43840",
       "reason": "Runtime recovery evidence retained: verified authentication renews shared authority and stale passkeys cannot authenticate a replaced runtime. Human auth successor selects Google sign-in from server mode; exact-head review remains required."
     },
@@ -502,7 +506,11 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "combinedSha256": "6adbaa80a1ff0d5ff674f55681a7e01c56c8560a125250cd6e3ffc517a127a4e",
+      "preC1ThemeCombinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "c1ThemeSha256": "6adbaa80a1ff0d5ff674f55681a7e01c56c8560a125250cd6e3ffc517a127a4e",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
@@ -669,6 +677,84 @@
       "forgeRunnerAdded": true,
       "forgeRunnerBaseSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
       "forgeRunnerSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44"
+    },
+    {
+      "path": "packages/ui/src/components/chat/CommandAutocomplete.tsx",
+      "brandingSha256": "037d9b80c550b9f0be8f60061c0a4f721d211823967671e758552b4cc90b1c17",
+      "behaviorSha256": "037d9b80c550b9f0be8f60061c0a4f721d211823967671e758552b4cc90b1c17",
+      "combinedSha256": "722d0c1b4c33a4b3db4dc315060c1a1b2914c587123d58d8fb02bb1eeab519fe",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "037d9b80c550b9f0be8f60061c0a4f721d211823967671e758552b4cc90b1c17",
+      "c1ThemeSha256": "722d0c1b4c33a4b3db4dc315060c1a1b2914c587123d58d8fb02bb1eeab519fe",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
+    },
+    {
+      "path": "packages/ui/src/components/sections/mcp/McpOAuthCallbackPage.tsx",
+      "brandingSha256": "f4047df1e82f2df1697df89249618b030393920ef200cd54a319fec8e2059266",
+      "behaviorSha256": "f4047df1e82f2df1697df89249618b030393920ef200cd54a319fec8e2059266",
+      "combinedSha256": "d5a0e5e12ead088b4773ab18c078d67f09db977b156388ee7c8d3aed3bf5b389",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "f4047df1e82f2df1697df89249618b030393920ef200cd54a319fec8e2059266",
+      "c1ThemeSha256": "d5a0e5e12ead088b4773ab18c078d67f09db977b156388ee7c8d3aed3bf5b389",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
+    },
+    {
+      "path": "packages/ui/src/components/sections/mcp/McpSidebar.tsx",
+      "brandingSha256": "407ef41fb0218b23db7d6416e61ddd51521a02dbea76785ddce0979bd47b92e2",
+      "behaviorSha256": "407ef41fb0218b23db7d6416e61ddd51521a02dbea76785ddce0979bd47b92e2",
+      "combinedSha256": "b1d77a31d649001427d371c8d59874eb261da557610a91647ddb6146c812ab28",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "407ef41fb0218b23db7d6416e61ddd51521a02dbea76785ddce0979bd47b92e2",
+      "c1ThemeSha256": "b1d77a31d649001427d371c8d59874eb261da557610a91647ddb6146c812ab28",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
+    },
+    {
+      "path": "packages/ui/src/components/sections/openchamber/AboutSettings.tsx",
+      "brandingSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "behaviorSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "combinedSha256": "76eb041fd129ae723e44db14239541a29511c8cfdaf652444499a748a09fc0d0",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "c1ThemeSha256": "76eb041fd129ae723e44db14239541a29511c8cfdaf652444499a748a09fc0d0",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
+    },
+    {
+      "path": "packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx",
+      "brandingSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "behaviorSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "combinedSha256": "ff50d43345a62acb24b1399bc76a289c2dd9fc0e1bf5521c99d307d164c56b44",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "c1ThemeSha256": "ff50d43345a62acb24b1399bc76a289c2dd9fc0e1bf5521c99d307d164c56b44",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
+    },
+    {
+      "path": "packages/ui/src/components/update/OpenCodeUpdateToast.tsx",
+      "brandingSha256": "ffffdfaf41075357bd54344cf7e3719abd3954177fbaaf2fd7a54d90e638182f",
+      "behaviorSha256": "ffffdfaf41075357bd54344cf7e3719abd3954177fbaaf2fd7a54d90e638182f",
+      "combinedSha256": "895ae2ba2e13843c7978c373db005569800f6fe872b7fbda135842f9b691e368",
+      "behaviorSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+      "reason": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance.",
+      "c1ThemeAdded": true,
+      "preC1ThemeCombinedSha256": "ffffdfaf41075357bd54344cf7e3719abd3954177fbaaf2fd7a54d90e638182f",
+      "c1ThemeSha256": "895ae2ba2e13843c7978c373db005569800f6fe872b7fbda135842f9b691e368",
+      "c1ThemeSource": "ac217edc86ba105269a0af4d16070850f0d1d239",
+      "c1ThemeNote": "C1: semantic color and text-role bindings only; existing branding, handlers and runtime behavior retained. Source provenance is not browser/native or release acceptance."
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -715,5 +801,12 @@
     "predecessorLedgerSha256": "67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2",
     "predecessorLedgerBytesSha256": "b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5",
     "coverageSha256": "10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df"
+  },
+  "c1ThemeProvenance": {
+    "originalSource": "301db7c8ab0d2455d41ebaa602913bd14ccc9e1a",
+    "baseSource": "9eb430fc7d2acc51a6786691d5c5ec2005d291df",
+    "source": "ac217edc86ba105269a0af4d16070850f0d1d239",
+    "predecessorLedgerSha256": "6db9d621c04a942e308030a4d7a7cf60d55af973bf8d5064659c1cab342aa2e3",
+    "predecessorLedgerBytesSha256": "ded363c23fa52c512a26726c144ff50e0a8a8d2aecafacfc99a2e48d058ecb56"
   }
 }

@@ -1190,7 +1190,7 @@ export function NewWorktreeDialog({
           title={t('session.newWorktree.actions.startFromGitHubIssuePr')}
           aria-label={t('session.newWorktree.actions.startFromGitHubIssuePr')}
         >
-          <Icon name="github" className="size-4 text-status-success" />
+          <Icon name="github" className="size-4 text-status-success-text" />
         </Button>
       )}
       {isLinearConnected && (
@@ -1212,7 +1212,7 @@ export function NewWorktreeDialog({
   const footerContent = (
     <div className={cn('flex gap-2', isMobile ? 'flex-col w-full' : 'flex-row items-center')}>
       {/* Validation error */}
-      <div className={cn('flex items-center gap-1.5 text-destructive', isMobile ? 'w-full justify-center order-first' : 'mr-auto')}> 
+      <div className={cn('flex items-center gap-1.5 text-status-error-text', isMobile ? 'w-full justify-center order-first' : 'mr-auto')}>
         {validation.touched && (validation.branchError || validation.worktreeError) && (
           <>
             <Icon name="error-warning" className="h-3.5 w-3.5" />
@@ -1466,7 +1466,7 @@ export function NewWorktreeDialog({
                 />
                 {newBranchState.linkedPr && (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Icon name="check" className="h-3.5 w-3.5 text-status-success" />
+                    <Icon name="check" className="h-3.5 w-3.5 text-status-success-text" />
                     <span className="typography-micro">
                       {t('session.newWorktree.usingPrBranch', { branch: newBranchState.linkedPr.head })}
                     </span>
@@ -1474,7 +1474,7 @@ export function NewWorktreeDialog({
                 )}
                 {newBranchState.linkedIssue && !newBranchState.linkedPr && (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Icon name="check" className="h-3.5 w-3.5 text-status-success" />
+                    <Icon name="check" className="h-3.5 w-3.5 text-status-success-text" />
                     <span className="typography-micro">
                       {t('session.newWorktree.fromIssue', { number: newBranchState.linkedIssue.number, title: newBranchState.linkedIssue.title })}
                     </span>
@@ -1697,7 +1697,7 @@ export function NewWorktreeDialog({
                     name={newBranchState.linkedLinearIssue ? 'linear' : 'github'}
                     className={cn(
                       'h-3.5 w-3.5 shrink-0',
-                      newBranchState.linkedLinearIssue ? 'text-foreground' : 'text-status-success',
+                      newBranchState.linkedLinearIssue ? 'text-foreground' : 'text-status-success-text',
                     )}
                   />
                   
@@ -1746,7 +1746,7 @@ export function NewWorktreeDialog({
                       {newBranchState.linkedPr.head} → {newBranchState.linkedPr.base}
                     </span>
                       {newBranchState.includePrDiff && (
-                        <span className="typography-micro px-1 py-0.5 rounded bg-status-success/10 text-status-success">
+                        <span className="typography-micro px-1 py-0.5 rounded bg-status-success/10 text-status-success-text">
                           {t('session.newWorktree.includeDiffBadge')}
                         </span>
                       )}
@@ -1951,7 +1951,7 @@ export function NewWorktreeDialog({
                   />
                   {newBranchState.linkedPr && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Icon name="check" className="h-3.5 w-3.5 text-status-success" />
+                      <Icon name="check" className="h-3.5 w-3.5 text-status-success-text" />
                       <span className="typography-micro">
                         {t('session.newWorktree.usingPrBranch', { branch: newBranchState.linkedPr.head })}
                       </span>
@@ -1959,7 +1959,7 @@ export function NewWorktreeDialog({
                   )}
                   {newBranchState.linkedIssue && !newBranchState.linkedPr && (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Icon name="check" className="h-3.5 w-3.5 text-status-success" />
+                      <Icon name="check" className="h-3.5 w-3.5 text-status-success-text" />
                       <span className="typography-micro">
                         {t('session.newWorktree.fromIssue', { number: newBranchState.linkedIssue.number, title: newBranchState.linkedIssue.title })}
                       </span>
@@ -2155,7 +2155,7 @@ export function NewWorktreeDialog({
                       name={newBranchState.linkedLinearIssue ? 'linear' : 'github'}
                       className={cn(
                         'h-3.5 w-3.5 shrink-0',
-                        newBranchState.linkedLinearIssue ? 'text-foreground' : 'text-status-success',
+                        newBranchState.linkedLinearIssue ? 'text-foreground' : 'text-status-success-text',
                       )}
                     />
                     
@@ -2204,7 +2204,7 @@ export function NewWorktreeDialog({
                         {newBranchState.linkedPr.head} → {newBranchState.linkedPr.base}
                       </span>
                       {newBranchState.includePrDiff && (
-                        <span className="typography-micro px-1 py-0.5 rounded bg-status-success/10 text-status-success">
+                        <span className="typography-micro px-1 py-0.5 rounded bg-status-success/10 text-status-success-text">
                           {t('session.newWorktree.includeDiffBadge')}
                         </span>
                       )}
@@ -2217,7 +2217,7 @@ export function NewWorktreeDialog({
             {/* Footer */}
             <DialogFooter className="mt-1 flex items-center justify-between">
               {/* Validation error - inline with buttons */}
-              <div className="flex items-center gap-1.5 text-destructive">
+              <div className="flex items-center gap-1.5 text-status-error-text">
                 {validation.touched && (validation.branchError || validation.worktreeError) && (
                   <>
                     <Icon name="error-warning" className="h-3.5 w-3.5" />

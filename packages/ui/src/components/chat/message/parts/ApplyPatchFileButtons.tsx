@@ -102,9 +102,9 @@ export const ApplyPatchFileButtons = ({
                         </Text>
                         {hasPerFileDiff ? (
                             <span className="flex-shrink-0 inline-flex items-center gap-0 typography-meta" style={{ fontSize: '0.8rem', lineHeight: '1' }}>
-                                <span style={{ color: 'var(--status-success)' }}>+{entry.added ?? 0}</span>
+                                <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{entry.added ?? 0}</span>
                                 <span style={{ color: 'var(--tools-description)' }}>/</span>
-                                <span style={{ color: 'var(--status-error)' }}>-{entry.removed ?? 0}</span>
+                                <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{entry.removed ?? 0}</span>
                             </span>
                         ) : null}
                     </>

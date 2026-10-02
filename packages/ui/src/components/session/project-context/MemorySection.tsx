@@ -77,7 +77,7 @@ const MemoryRow: React.FC<{
           {entry.flagged ? (
             // Shown rather than hidden: an entry withheld from the agent is
             // exactly the one the user needs to look at.
-            <span className="flex items-center gap-1 text-[var(--status-error)]">
+            <span className="flex items-center gap-1 text-status-error-text">
               <Icon name="error-warning" className="h-3 w-3 flex-shrink-0" />
               {t('rightSidebar.contextNotesTodo.memory.flagged')}
             </span>
@@ -89,8 +89,8 @@ const MemoryRow: React.FC<{
           className={cn(
             'mb-0.5 mr-1.5 inline-block rounded-full px-1.5 py-px typography-micro font-medium',
             badge === 'new'
-              ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
-              : 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]',
+              ? 'bg-[var(--status-success)]/15 text-status-success-text'
+              : 'bg-[var(--status-warning)]/15 text-status-warning-text',
           )}
         >
           {t(badge === 'new'

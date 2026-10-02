@@ -4,7 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { useSessionGoal } from '@/hooks/useSessionGoal';
 import { setSessionGoalStatus } from '@/lib/sessionGoalActions';
-import { sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
+import { sessionGoalStatusTextColor } from '@/lib/sessionGoalPresentation';
 import { SessionGoalDialog } from '@/components/chat/SessionGoalDialog';
 import { WorkStatusRow, WorkStatusRowAction } from './WorkStatusPrimitives';
 
@@ -48,7 +48,7 @@ export const WorkStatusGoalRow: React.FC<Props> = ({ sessionId, directory }) => 
           <Icon
             name={goal?.status ? 'target-fill' : 'target'}
             className="size-4 shrink-0"
-            style={{ color: goal ? sessionGoalStatusColor[goal.status] : undefined }}
+            style={{ color: goal ? sessionGoalStatusTextColor[goal.status] : undefined }}
           />
         )}
         label={objective}

@@ -247,7 +247,7 @@ export function LocalSetupScreen({
         <div className="flex justify-center">
           <div className="bg-background/60 backdrop-blur-sm border border-border rounded-lg px-5 py-3 font-mono text-sm w-fit">
             {copied ? (
-              <div className="flex items-center justify-center gap-2" style={{ color: 'var(--status-success)' }}>
+              <div className="flex items-center justify-center gap-2" style={{ color: 'var(--status-success-text, var(--status-success))' }}>
                 <Icon name="check" className="h-4 w-4" />
                 {t('onboarding.common.status.copiedToClipboard')}
               </div>
@@ -268,7 +268,7 @@ export function LocalSetupScreen({
         </a>
 
         {checkError && (
-          <div className="mx-auto max-w-md rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="mx-auto max-w-md rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-status-error-text">
             {checkError}
           </div>
         )}

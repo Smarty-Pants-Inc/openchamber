@@ -51,7 +51,7 @@ const SwitcherRow: React.FC<{
       style={{ touchAction: 'manipulation' }}
     >
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className={cn('block truncate typography-ui-label', active ? 'text-primary' : 'text-foreground')}>
+        <span className={cn('block truncate typography-ui-label', active ? 'text-primary-text' : 'text-foreground')}>
           {getSessionTitle(session, t('sessions.sidebar.session.untitled'))}
         </span>
         {meta ? (

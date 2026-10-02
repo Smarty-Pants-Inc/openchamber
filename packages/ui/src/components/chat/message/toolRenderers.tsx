@@ -472,7 +472,7 @@ export const renderTodoOutput = (
                         <span style={{ color: 'var(--muted-foreground)' }}>{labels.pending}: {todosByStatus.pending.length}</span>
                     )}
                     {todosByStatus.completed.length > 0 && (
-                        <span style={{ color: 'var(--status-success)' }}>{labels.completed}: {todosByStatus.completed.length}</span>
+                        <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>{labels.completed}: {todosByStatus.completed.length}</span>
                     )}
                     {todosByStatus.cancelled.length > 0 && (
                         <span style={{ color: 'var(--muted-foreground)', opacity: 0.5 }}>{labels.cancelled}: {todosByStatus.cancelled.length}</span>
@@ -516,13 +516,13 @@ export const renderTodoOutput = (
                 {todosByStatus.completed.length > 0 && (
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <Icon name="check" className="w-3 h-3"  style={{ color: 'var(--status-success)' }}/>
-                            <span className="typography-meta font-semibold uppercase tracking-wide" style={{ color: 'var(--status-success)' }}>{labels.completed}</span>
+                            <Icon name="check" className="w-3 h-3"  style={{ color: 'var(--status-success-text, var(--status-success))' }}/>
+                            <span className="typography-meta font-semibold uppercase tracking-wide" style={{ color: 'var(--status-success-text, var(--status-success))' }}>{labels.completed}</span>
                         </div>
                         <div className="space-y-1.5 pl-4">
                             {todosByStatus.completed.map((todo, idx) => (
                                 <div key={todo.id || idx} className="flex items-start gap-2">
-                                    <Icon name="check" className="w-3 h-3 mt-0.5 flex-shrink-0"  style={{ color: 'var(--status-success)', opacity: 0.7 }}/>
+                                    <Icon name="check" className="w-3 h-3 mt-0.5 flex-shrink-0"  style={{ color: 'var(--status-success-text, var(--status-success))', opacity: 0.7 }}/>
                                     <span className="typography-code text-foreground flex-1 leading-relaxed">{coerceToText(todo.content)}</span>
                                 </div>
                             ))}

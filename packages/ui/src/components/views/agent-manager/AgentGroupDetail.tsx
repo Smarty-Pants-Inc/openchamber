@@ -240,7 +240,7 @@ export const AgentGroupDetail: React.FC<AgentGroupDetailProps> = ({
                       )}
                     </div>
                     {selectedSession?.id === session.id && (
-                      <Icon name="check" className="h-4 w-4 text-primary flex-shrink-0" />
+                      <Icon name="check" className="h-4 w-4 text-primary-text flex-shrink-0" />
                     )}
                   </DropdownMenuItem>
                 ))}

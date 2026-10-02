@@ -10,6 +10,7 @@ import type { Theme, ThemeMode } from '@/types/theme';
 import { isDesktopLocalOriginActive, isDesktopShell as detectDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
 import { setDesktopWindowTheme } from '@/lib/desktopNative';
 import { CSSVariableGenerator } from '@/lib/theme/cssGenerator';
+import smartyTokenCSS from '@/styles/vendor/smarty-design-system/tokens.css?raw';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
 import {
   themes,
@@ -391,7 +392,10 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       return;
     }
     const restoreTransitions = suppressTransitionsForThemeSwitch();
-    cssGenerator.apply(currentTheme);
+    // Identity excludes custom same-ID replacements, HMR edits, and embedded copies.
+    const isBundledDefault = currentTheme === getThemeById(DEFAULT_LIGHT_THEME_ID)
+      || currentTheme === getThemeById(DEFAULT_DARK_THEME_ID);
+    cssGenerator.apply(currentTheme, !isVSCode && isBundledDefault ? smartyTokenCSS : '');
     if (!receivesParentThemeSync) {
       publishEmbeddedThemeBootstrap(currentTheme);
     }

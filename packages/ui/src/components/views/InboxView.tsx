@@ -51,7 +51,7 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
           </button>
         ))}
       </div>
-      {error ? <p role="alert" className="px-4 py-3 typography-ui-label text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className="px-4 py-3 typography-ui-label text-status-error-text">{error}</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-label={`${tab} inbox items`}>
         {items?.length === 0 ? <li className="px-4 py-6 typography-ui-label text-muted-foreground">Nothing here.</li> : null}
         {items?.map(item => (
@@ -102,12 +102,12 @@ function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem
         {item.why ? <><h3 className="mt-4 typography-micro font-semibold uppercase text-muted-foreground">Why</h3><p className="mt-1 whitespace-pre-wrap typography-ui-label">{item.why}</p></> : null}
         {item.recommendation ? (
           <div className="mt-4 rounded-md border border-[var(--status-success-border,theme(colors.green.300))] bg-[var(--status-success-background,theme(colors.green.50))] p-3">
-            <h3 className="typography-micro font-semibold uppercase text-[var(--status-success,theme(colors.green.700))]">Recommendation</h3>
+            <h3 className="typography-micro font-semibold uppercase text-[var(--status-success-text,var(--status-success,theme(colors.green.700)))]">Recommendation</h3>
             <p className="mt-1 whitespace-pre-wrap typography-ui-label">{item.recommendation}</p>
           </div>) : null}
         {item.links.length ? <><h3 className="mt-4 typography-micro font-semibold uppercase text-muted-foreground">Links</h3>
           <ul className="mt-1">{item.links.map(link => { const href = safeLink(link.url); const label = link.label ?? link.url.replace(/^https:\/\/github\.com\/[^/]+\//, '').replace(/\/(issues|pull)\//, '#');
-            return <li key={link.url} className="typography-ui-label">{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">↗ {label}</a> : label}</li>; })}</ul></> : null}
+            return <li key={link.url} className="typography-ui-label">{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-text hover:underline">↗ {label}</a> : label}</li>; })}</ul></> : null}
         {item.answer ? <p className="mt-4 typography-micro text-muted-foreground">Answered ({item.answer.action ?? 'respond'}){item.answer.text ? `: ${item.answer.text}` : ''}</p> : null}
         {reply ? (
           <div className="mt-4">
@@ -117,7 +117,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged }: { item: InboxItem
               <Button size="sm" variant="ghost" onClick={() => setReply(null)}>Cancel</Button>
             </div>
           </div>) : null}
-        {error ? <p role="alert" className="mt-3 typography-ui-label text-destructive">{error}</p> : null}
+        {error ? <p role="alert" className="mt-3 typography-ui-label text-status-error-text">{error}</p> : null}
       </div>
       <div className={cn('flex flex-wrap gap-2 px-7 py-3', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
         {state === 'resolved' ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('reopen', {})}>Reopen</Button> : <>

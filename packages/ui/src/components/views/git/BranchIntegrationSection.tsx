@@ -185,13 +185,13 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
             <div key={index} className="flex items-start gap-2">
               <div className="mt-0.5 shrink-0">
                 {log.status === 'running' && (
-                  <Icon name="loader-4" className="size-3.5 animate-spin text-primary" />
+                  <Icon name="loader-4" className="size-3.5 animate-spin text-primary-text" />
                 )}
                 {log.status === 'done' && (
                   <Icon name="check" className="size-3.5 text-success" />
                 )}
                 {log.status === 'error' && (
-                  <Icon name="close" className="size-3.5 text-destructive" />
+                  <Icon name="close" className="size-3.5 text-status-error-text" />
                 )}
                 {log.status === 'pending' && (
                   <div className="size-3.5 rounded-full border border-muted-foreground/30" />
@@ -200,7 +200,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
               <span
                 className={cn(
                   'typography-micro',
-                  log.status === 'error' && 'text-destructive',
+                  log.status === 'error' && 'text-status-error-text',
                   log.status === 'done' && 'text-muted-foreground',
                   log.status === 'running' && 'text-foreground',
                   log.status === 'pending' && 'text-muted-foreground/60'
@@ -249,7 +249,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
           >
             <div className="flex items-center gap-2">
               <Icon name="git-merge"
-                className={cn('size-4', operation === 'merge' ? 'text-primary' : 'text-muted-foreground')}
+                className={cn('size-4', operation === 'merge' ? 'text-primary-text' : 'text-muted-foreground')}
               />
               <span
                 className={cn(
@@ -277,7 +277,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
           >
             <div className="flex items-center gap-2">
               <Icon name="git-branch"
-                className={cn('size-4', operation === 'rebase' ? 'text-primary' : 'text-muted-foreground')}
+                className={cn('size-4', operation === 'rebase' ? 'text-primary-text' : 'text-muted-foreground')}
               />
               <span
                 className={cn(

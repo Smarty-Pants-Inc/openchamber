@@ -271,7 +271,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
             <div className="mb-2">
               <div className="typography-meta text-muted-foreground mb-1">{t('chat.permissionCard.request')}</div>
               <div className="flex items-center gap-2">
-                <span className="typography-meta font-semibold px-1.5 py-0.5 bg-primary/20 text-primary rounded">
+                <span className="typography-meta font-semibold px-1.5 py-0.5 bg-primary/20 text-primary-text rounded">
                   {method}
                 </span>
                 <code className="typography-meta px-2 py-1 bg-muted/30 rounded flex-1 break-all">
@@ -358,7 +358,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
           <div className="px-2 py-1.5 border-b border-border/20 bg-muted/5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Icon name="question" className="h-3.5 w-3.5 text-[var(--status-warning)]" />
+                <Icon name="question" className="h-3.5 w-3.5 text-status-warning-text" />
                 <span className="typography-meta font-medium text-muted-foreground">
                   Permission Required
                 </span>
@@ -400,7 +400,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
               )}
               style={{
                 backgroundColor: 'rgb(var(--status-success) / 0.1)',
-                color: 'var(--status-success)'
+                color: 'var(--status-success-text, var(--status-success))'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgb(var(--status-success) / 0.2)';
@@ -481,7 +481,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
               )}
               style={{
                 backgroundColor: 'rgb(var(--status-error) / 0.1)',
-                color: 'var(--status-error)'
+                color: 'var(--status-error-text, var(--status-error))'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgb(var(--status-error) / 0.2)';

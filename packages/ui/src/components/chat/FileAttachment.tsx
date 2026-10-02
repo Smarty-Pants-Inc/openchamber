@@ -235,7 +235,7 @@ const ImagePreview = memo(({ file, onRemove, onShowPopup, gallery, index = 0 }: 
           onRemove();
         }}
         className={cn(
-          "absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-background/80 text-foreground hover:text-destructive flex items-center justify-center transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          "absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-background/80 text-foreground hover:text-status-error-text flex items-center justify-center transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           alwaysShowActions ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
         title={t('chat.fileAttachment.actions.removeImage')}
@@ -687,7 +687,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
                         onClick={() => {
                           void openExternalUrl(file.url || '');
                         }}
-                        className="inline-flex items-center bg-muted/30 border border-border/30 typography-meta gap-1 px-2 py-0.5 rounded-lg text-foreground hover:text-primary transition-colors"
+                        className="inline-flex items-center bg-muted/30 border border-border/30 typography-meta gap-1 px-2 py-0.5 rounded-lg text-foreground hover:text-primary-text transition-colors"
                       >
                         <Icon name={issueLinkIcon(issueLinkKind)} className="text-muted-foreground h-3.5 w-3.5" />
                         <div className="overflow-hidden max-w-[220px]">
@@ -851,7 +851,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
                   <Icon name="file" className={cn("text-muted-foreground shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{fileName}</p>
-                    <p className="text-xs text-status-info">{t('chat.fileAttachment.openInDiagram')}</p>
+                    <p className="text-xs text-status-info-text">{t('chat.fileAttachment.openInDiagram')}</p>
                   </div>
                   <Icon name="external-link" className={cn("text-muted-foreground shrink-0", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
                 </button>

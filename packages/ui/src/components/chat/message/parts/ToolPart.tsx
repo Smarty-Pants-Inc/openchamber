@@ -911,7 +911,7 @@ const TaskSummaryEntryRow = React.memo(({
                     ) : (
                         status === 'error' ? (
                             <span className={cn(
-                                'typography-meta flex-1 min-w-0 text-[var(--status-error)]',
+                                'typography-meta flex-1 min-w-0 text-status-error-text',
                                 isMobile ? 'whitespace-normal break-words' : 'truncate',
                             )}>
                                 {label}
@@ -1067,12 +1067,12 @@ const TaskToolSummary: React.FC<{
             {sessionId && (
                 <button
                     type="button"
-                    className="flex items-center gap-2 typography-meta text-primary hover:text-primary/80 w-full"
+                    className="flex items-center gap-2 typography-meta text-primary-text hover:text-primary-text/80 w-full"
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={handleOpenSession}
                 >
                     <Icon name="external-link" className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span className="typography-meta text-primary font-medium">{t('chat.toolPart.openSubtask', { type: agentType.charAt(0).toUpperCase() + agentType.slice(1) })}</span>
+                    <span className="typography-meta text-primary-text font-medium">{t('chat.toolPart.openSubtask', { type: agentType.charAt(0).toUpperCase() + agentType.slice(1) })}</span>
                 </button>
             )}
 
@@ -1116,9 +1116,9 @@ const TOOL_COLLAPSED_CUSTOM_STYLE: React.CSSProperties = {
 
 const CODE_TAG_PROPS = { style: { background: 'transparent', backgroundColor: 'transparent' } };
 
-const TOOL_ERROR_ICON_STYLE: React.CSSProperties = { color: 'var(--status-error)' };
+const TOOL_ERROR_ICON_STYLE: React.CSSProperties = { color: 'var(--status-error-text, var(--status-error))' };
 const TOOL_NORMAL_ICON_STYLE: React.CSSProperties = { color: 'var(--tools-icon)' };
-const TOOL_ERROR_TITLE_STYLE: React.CSSProperties = { color: 'var(--status-error)' };
+const TOOL_ERROR_TITLE_STYLE: React.CSSProperties = { color: 'var(--status-error-text, var(--status-error))' };
 const TOOL_NORMAL_TITLE_STYLE: React.CSSProperties = { color: 'var(--tools-title)' };
 
 const renderPathLikeGitChanges = (path: string, grow = true) => {
@@ -1374,7 +1374,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                         backgroundColor: 'var(--status-error-background)',
                     }}
                 >
-                    <div className="typography-meta font-medium" style={{ color: 'var(--status-error)' }}>
+                    <div className="typography-meta font-medium" style={{ color: 'var(--status-error-text, var(--status-error))' }}>
                         {t('chat.toolPart.lspErrors')}
                     </div>
                     <div className="space-y-1">
@@ -1385,7 +1385,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                             {diagnosticSection.diagnostics.map((diagnostic, index) => (
                                 <div key={`${diagnosticSection.displayPath}:${diagnostic.line}:${diagnostic.character}:${index}`} className="rounded-md border px-2 py-1" style={{ borderColor: 'var(--status-error-border)', backgroundColor: 'var(--surface-elevated)' }}>
                                     <div className="flex items-start gap-2 min-w-0">
-                                        <span className="typography-micro shrink-0" style={{ color: 'var(--status-error)' }}>
+                                        <span className="typography-micro shrink-0" style={{ color: 'var(--status-error-text, var(--status-error))' }}>
                                             [{diagnostic.line}:{diagnostic.character}]
                                         </span>
                                         <span className="typography-meta text-foreground whitespace-pre-wrap break-words">
@@ -1430,7 +1430,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                         <div className="typography-meta font-medium text-muted-foreground mb-1">{t('chat.toolPart.error')}</div>
                         <div className="typography-meta p-2 rounded-xl border" style={{
                             backgroundColor: 'var(--status-error-background)',
-                            color: 'var(--status-error)',
+                            color: 'var(--status-error-text, var(--status-error))',
                             borderColor: 'var(--status-error-border)',
                         }}>
                             {coerceToText(state.error)}
@@ -1576,7 +1576,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                     <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t('chat.toolPart.error')}</div>
                     <div className="typography-meta p-2 rounded-xl border" style={{
                         backgroundColor: 'var(--status-error-background)',
-                        color: 'var(--status-error)',
+                        color: 'var(--status-error-text, var(--status-error))',
                         borderColor: 'var(--status-error-border)',
                     }}>
                         {state.error}
@@ -1665,7 +1665,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                             <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t('chat.toolPart.error')}</div>
                             <div className="typography-meta p-2 rounded-xl border" style={{
                                 backgroundColor: 'var(--status-error-background)',
-                                color: 'var(--status-error)',
+                                color: 'var(--status-error-text, var(--status-error))',
                                 borderColor: 'var(--status-error-border)',
                             }}>
                                 {coerceToText(state.error)}
@@ -2224,14 +2224,14 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                             )}
                             {diffStats && (
                                 <span className="flex-shrink-0 inline-flex items-center gap-0 typography-meta" style={{ fontSize: '0.8rem', lineHeight: '1' }}>
-                                    <span style={{ color: 'var(--status-success)' }}>+{diffStats.added}</span>
+                                    <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{diffStats.added}</span>
                                     <span style={{ color: 'var(--tools-description)' }}>/</span>
-                                    <span style={{ color: 'var(--status-error)' }}>-{diffStats.removed}</span>
+                                    <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{diffStats.removed}</span>
                                 </span>
                             )}
                             {writeLineCount && (
                                 <span className="flex-shrink-0 inline-flex items-center gap-0 typography-meta" style={{ fontSize: '0.8rem', lineHeight: '1' }}>
-                                    <span style={{ color: 'var(--status-success)' }}>+{writeLineCount}</span>
+                                    <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{writeLineCount}</span>
                                 </span>
                             )}
                         </div>

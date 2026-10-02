@@ -186,13 +186,20 @@ const TONE_COLOR: Record<Exclude<WorkStatusTone, 'default' | 'muted'>, string> =
   info: 'var(--status-info)',
 };
 
+const TONE_TEXT_COLOR = {
+  success: 'var(--status-success-text, var(--status-success))',
+  error: 'var(--status-error-text, var(--status-error))',
+  warning: 'var(--status-warning-text, var(--status-warning))',
+  info: 'var(--status-info-text, var(--status-info))',
+} satisfies Record<Exclude<WorkStatusTone, 'default' | 'muted'>, string>;
+
 export const WorkStatusValue: React.FC<{
   children: React.ReactNode;
   tone?: WorkStatusTone;
 }> = ({ children, tone = 'default' }) => (
   <span
     className={tone === 'muted' ? 'text-muted-foreground' : undefined}
-    style={tone === 'default' || tone === 'muted' ? undefined : { color: TONE_COLOR[tone] }}
+    style={tone === 'default' || tone === 'muted' ? undefined : { color: TONE_TEXT_COLOR[tone] }}
   >
     {children}
   </span>
@@ -228,7 +235,7 @@ export const WorkStatusRowAction: React.FC<{
         !color && 'bg-[var(--interactive-hover)] text-muted-foreground',
       )}
       style={color
-        ? { color, backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` }
+        ? { color: tone === 'default' ? undefined : TONE_TEXT_COLOR[tone], backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` }
         : undefined}
     >
       {children}
@@ -256,7 +263,7 @@ export const WorkStatusPill: React.FC<{
 export const WorkStatusCallout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div
     className="mx-1 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium"
-    style={{ backgroundColor: 'var(--status-warning-background)', color: 'var(--status-warning)' }}
+    style={{ backgroundColor: 'var(--status-warning-background)', color: 'var(--status-warning-text, var(--status-warning))' }}
   >
     <Icon name="alert" className="size-4 shrink-0" />
     <span className="min-w-0 truncate">{children}</span>

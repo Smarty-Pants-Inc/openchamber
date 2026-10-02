@@ -938,7 +938,7 @@ const MermaidPreviewDialog: React.FC<{
                                         borderColor: 'var(--status-error-border)',
                                     }}
                                 >
-                                    <p className="typography-markdown" style={{ color: 'var(--status-error)' }}>
+                                    <p className="typography-markdown" style={{ color: 'var(--status-error-text, var(--status-error))' }}>
                                         {errorMessage || t('chat.toolOutputDialog.mermaid.renderFailed')}
                                     </p>
                                     <button

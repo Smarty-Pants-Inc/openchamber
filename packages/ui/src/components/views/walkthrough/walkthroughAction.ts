@@ -11,4 +11,4 @@
  * cliché tells the user nothing about the outcome.
  */
 export const WALKTHROUGH_ACTION_CLASS =
-  'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)] hover:bg-[var(--status-info-background)] hover:text-[var(--status-info)]';
+  'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-status-info-text hover:bg-[var(--status-info-background)] hover:text-status-info-text';

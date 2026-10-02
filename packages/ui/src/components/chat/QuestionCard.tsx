@@ -330,7 +330,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
           {/* Header */}
           <div className="px-2 py-1.5 border-b border-border/20">
             <div className="flex items-center gap-2">
-              <Icon name="question" className="h-3.5 w-3.5 text-primary" />
+              <Icon name="question" className="h-3.5 w-3.5 text-primary-text" />
               <span className="typography-meta font-medium text-muted-foreground">{t('chat.questionCard.inputNeeded')}</span>
               {isFromSubagent ? (
                 <span className="typography-micro text-muted-foreground px-1.5 py-0.5 rounded bg-foreground/5">
@@ -478,7 +478,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
                                 {option.label}
                               </span>
                               {recommended ? (
-                                <span className="typography-micro text-primary/80">{t('chat.questionCard.recommended')}</span>
+                                <span className="typography-micro text-primary-text/80">{t('chat.questionCard.recommended')}</span>
                               ) : null}
                             </div>
                             {option.description ? (
@@ -505,7 +505,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
                     <div className="flex items-center gap-2">
                       <Icon name="edit" className={cn(
                         'h-3.5 w-3.5',
-                        isCustomActive ? 'text-primary' : 'text-muted-foreground/50'
+                        isCustomActive ? 'text-primary-text' : 'text-muted-foreground/50'
                       )} />
                       <span className={cn(
                         'typography-meta',
@@ -540,7 +540,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
               disabled={isResponding}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 typography-meta font-medium rounded transition-colors',
-                'bg-[rgb(var(--status-success)/0.1)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]',
+                'bg-[rgb(var(--status-success)/0.1)] text-status-success-text hover:bg-[rgb(var(--status-success)/0.2)]',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
@@ -554,7 +554,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
               disabled={isResponding}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 typography-meta font-medium rounded transition-colors',
-                'bg-[rgb(var(--status-error)/0.1)] text-[var(--status-error)] hover:bg-[rgb(var(--status-error)/0.2)]',
+                'bg-[rgb(var(--status-error)/0.1)] text-status-error-text hover:bg-[rgb(var(--status-error)/0.2)]',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >

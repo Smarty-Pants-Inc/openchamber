@@ -118,7 +118,7 @@ export const SettingsSidebarItem: React.FC<SettingsSidebarItemProps> = ({
                       action.onClick();
                     }}
                     className={cn(
-                      action.destructive && 'text-destructive focus:text-destructive'
+                      action.destructive && 'text-status-error-text focus:text-status-error-text'
                     )}
                   >
                     {iconName && <Icon name={iconName} className="h-4 w-4 mr-px" />}

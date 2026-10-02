@@ -133,7 +133,7 @@ const SettingsSaveStatus: React.FC = () => {
     return (
       <div
         aria-live="assertive"
-        className="flex shrink-0 items-center gap-1.5 typography-meta text-[var(--status-error)]"
+        className="flex shrink-0 items-center gap-1.5 typography-meta text-status-error-text"
       >
         <Icon name="error-warning" className="size-3.5" />
         <span>{t('settings.common.status.saveFailed')}</span>

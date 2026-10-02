@@ -322,7 +322,7 @@ export const GitHubSettings: React.FC<GitHubSettingsProps> = ({ embedded = false
                 {t('settings.github.page.ghCli.actions.disable')}
               </Button>
             ) : (
-              <Button size="sm" variant="outline" onClick={disconnect} disabled={isBusy} className={cn("text-[var(--status-error)] hover:text-[var(--status-error)]", isMobile ? "w-full" : undefined)}>
+              <Button size="sm" variant="outline" onClick={disconnect} disabled={isBusy} className={cn("text-status-error-text hover:text-status-error-text", isMobile ? "w-full" : undefined)}>
                 {t('settings.github.page.actions.disconnect')}
               </Button>
             )}

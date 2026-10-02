@@ -228,7 +228,7 @@ export function RemoteConnectionForm({
             </h1>
             <p className="text-muted-foreground text-sm">{t('settings.remoteInstances.direct.description')}</p>
           </div>
-          {error ? <div className="text-sm text-[var(--status-error)]">{error}</div> : null}
+          {error ? <div className="text-sm text-status-error-text">{error}</div> : null}
           <div className="space-y-2">
             {hosts.length === 0 ? (
               <div className="py-4 text-center text-sm text-muted-foreground">
@@ -278,7 +278,7 @@ export function RemoteConnectionForm({
             disabled={isTesting}
             autoFocus
           />
-          {error ? <div className="text-sm text-[var(--status-error)]">{error}</div> : null}
+          {error ? <div className="text-sm text-status-error-text">{error}</div> : null}
           <Button onClick={() => void handleImport()} disabled={isTesting || !connectLink.trim()}>
             {t('settings.remoteInstances.direct.import.action')}
           </Button>
@@ -345,7 +345,7 @@ export function RemoteConnectionForm({
             className="rounded-lg border p-3 text-sm"
             style={{
               borderColor: 'var(--status-success)',
-              color: 'var(--status-success)',
+              color: 'var(--status-success-text, var(--status-success))',
             }}
           >
             {t('onboarding.remoteConnection.status.connectedSuccessfully', { latencyMs: probeResult.latencyMs })}
@@ -358,7 +358,7 @@ export function RemoteConnectionForm({
             className="rounded-lg border p-3 text-sm"
             style={{
               borderColor: 'var(--status-warning)',
-              color: 'var(--status-warning)',
+              color: 'var(--status-warning-text, var(--status-warning))',
             }}
           >
             {t('onboarding.remoteConnection.status.authWarning')}
@@ -370,7 +370,7 @@ export function RemoteConnectionForm({
             className="rounded-lg border p-3 text-sm"
             style={{
               borderColor: 'var(--status-warning)',
-              color: 'var(--status-warning)',
+              color: 'var(--status-warning-text, var(--status-warning))',
             }}
           >
             {probeMessageKey ? t(probeMessageKey as Parameters<typeof t>[0]) : null}
@@ -383,7 +383,7 @@ export function RemoteConnectionForm({
             className="rounded-lg border p-3 text-sm space-y-3"
             style={{
               borderColor: 'var(--status-error)',
-              color: 'var(--status-error)',
+              color: 'var(--status-error-text, var(--status-error))',
             }}
           >
             <div>
@@ -404,7 +404,7 @@ export function RemoteConnectionForm({
             className="rounded-lg border p-3 text-sm"
             style={{
               borderColor: 'var(--status-error)',
-              color: 'var(--status-error)',
+              color: 'var(--status-error-text, var(--status-error))',
             }}
           >
             {error}

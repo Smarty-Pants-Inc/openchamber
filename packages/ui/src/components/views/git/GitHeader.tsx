@@ -227,10 +227,10 @@ const UpstreamStatusPill: React.FC<UpstreamStatusPillProps> = ({
           ) : (
             <span className="inline-flex items-center gap-1 tabular-nums">
               {comparison.ahead > 0 ? (
-                <span className="text-[var(--status-info)]">↑{comparison.ahead}</span>
+                <span className="text-status-info-text">↑{comparison.ahead}</span>
               ) : null}
               {comparison.behind > 0 ? (
-                <span className="text-[var(--status-warning)]">↓{comparison.behind}</span>
+                <span className="text-status-warning-text">↓{comparison.behind}</span>
               ) : null}
             </span>
           )}

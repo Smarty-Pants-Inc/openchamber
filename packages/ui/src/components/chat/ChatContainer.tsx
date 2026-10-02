@@ -1579,7 +1579,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 return (
                     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
                         <div className="max-w-sm text-center">
-                            <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-[var(--status-error)]">
+                            <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-status-error-text">
                                 <Icon name="error-warning" className="size-4" />
                             </div>
                             <p className="typography-ui-label font-medium text-foreground">{t('chat.container.sessionLoadError.title')}</p>

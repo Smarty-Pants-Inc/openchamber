@@ -10,7 +10,7 @@ export interface EditModeColors {
 export const getEditModeColors = (mode?: EditPermissionMode | null): EditModeColors | null => {
     if (mode === 'full') {
         return {
-            text: 'var(--status-info)',
+            text: 'var(--status-info-text, var(--status-info))',
             border: 'color-mix(in srgb, var(--status-info) 25%, transparent)',
             background: 'color-mix(in srgb, var(--status-info) 4%, transparent)',
             borderWidth: 1.5,
@@ -19,7 +19,7 @@ export const getEditModeColors = (mode?: EditPermissionMode | null): EditModeCol
 
     if (mode === 'allow') {
         return {
-            text: 'var(--status-info)',
+            text: 'var(--status-info-text, var(--status-info))',
             border: 'color-mix(in srgb, var(--status-info) 25%, transparent)',
             background: 'color-mix(in srgb, var(--status-info) 4%, transparent)',
             borderWidth: 1.5,

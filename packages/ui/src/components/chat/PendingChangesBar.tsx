@@ -105,14 +105,14 @@ export const PendingChangesBar: React.FC = React.memo(() => {
                 onClick={() => setIsExpanded((value) => !value)}
                 aria-expanded={isExpanded}
             >
-                <Icon name="file-edit" className="h-3.5 w-3.5 flex-shrink-0 text-[var(--status-warning)]" />
+                <Icon name="file-edit" className="h-3.5 w-3.5 flex-shrink-0 text-status-warning-text" />
                 <span className="min-w-0 typography-ui-label text-foreground flex-shrink-0">{labelHead}</span>
                 <span className="composer-status-bar__changed-label min-w-0 typography-ui-label text-foreground truncate">
                     {t('chat.pendingChanges.changedInWorkspace')}
                 </span>
                 <span className="text-[0.75rem] tabular-nums inline-flex items-baseline gap-1 flex-shrink-0">
-                    {totalAdded > 0 ? <span style={{ color: 'var(--status-success)' }}>+{totalAdded}</span> : null}
-                    {totalRemoved > 0 ? <span style={{ color: 'var(--status-error)' }}>-{totalRemoved}</span> : null}
+                    {totalAdded > 0 ? <span style={{ color: 'var(--status-success-text, var(--status-success))' }}>+{totalAdded}</span> : null}
+                    {totalRemoved > 0 ? <span style={{ color: 'var(--status-error-text, var(--status-error))' }}>-{totalRemoved}</span> : null}
                 </span>
                 {isExpanded ? (
                     <Icon name="arrow-up-s" className="h-3.5 w-3.5 flex-shrink-0" />

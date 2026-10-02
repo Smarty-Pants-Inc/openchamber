@@ -362,11 +362,11 @@ const createParser = (imageMode: MarkdownImageMode) => new Marked().use(
       const target = href ?? '';
       const agentName = parseAgentHref(target);
       if (agentName) {
-        return `<a href="${escapeAttr(buildAgentMentionUrl(agentName))}" data-openchamber-agent-mention="true" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+        return `<a href="${escapeAttr(buildAgentMentionUrl(agentName))}" data-openchamber-agent-mention="true" class="text-primary-text hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
       }
       const skillName = parseSkillHref(target);
       if (skillName) {
-        return `<a href="${escapeAttr(target)}" data-skill-name="${escapeAttr(skillName)}" class="text-primary hover:underline">${text}</a>`;
+        return `<a href="${escapeAttr(target)}" data-skill-name="${escapeAttr(skillName)}" class="text-primary-text hover:underline">${text}</a>`;
       }
       const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
       return `<a href="${escapeAttr(target)}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`;

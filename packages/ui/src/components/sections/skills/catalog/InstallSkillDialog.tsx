@@ -245,7 +245,7 @@ export const InstallSkillDialog: React.FC<InstallSkillDialogProps> = ({ open, on
             )}
 
             {item.warnings?.length ? (
-              <div className="typography-micro text-[var(--status-warning)] bg-[var(--status-warning)]/10 px-2 py-1.5 rounded">
+              <div className="typography-micro text-status-warning-text bg-[var(--status-warning)]/10 px-2 py-1.5 rounded">
                 {item.warnings.join(' · ')}
               </div>
             ) : null}

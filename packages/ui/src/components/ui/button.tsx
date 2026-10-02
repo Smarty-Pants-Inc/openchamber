@@ -10,7 +10,7 @@ import { Slot } from "@/components/ui/slot"
 // sits atop the dark background.
 const TINT_PRIMARY = [
   "bg-[color-mix(in_srgb,var(--primary-base)_10%,var(--background))]",
-  "text-[var(--primary-base)]",
+  "text-primary-text",
   "border border-[color-mix(in_srgb,var(--primary-base)_12%,transparent)]",
   "hover:bg-[color-mix(in_srgb,var(--primary-base)_16%,var(--background))]",
   "active:bg-[color-mix(in_srgb,var(--primary-base)_22%,var(--background))]",
@@ -22,7 +22,7 @@ const TINT_PRIMARY = [
 
 const TINT_DESTRUCTIVE = [
   "bg-[color-mix(in_srgb,var(--status-error)_7%,var(--background))]",
-  "text-[var(--status-error)]",
+  "text-status-error-text",
   "border border-[color-mix(in_srgb,var(--status-error)_9%,transparent)]",
   "hover:bg-[color-mix(in_srgb,var(--status-error)_11%,var(--background))]",
   "active:bg-[color-mix(in_srgb,var(--status-error)_16%,var(--background))]",
@@ -34,7 +34,7 @@ const TINT_DESTRUCTIVE = [
 
 const TINT_INFO = [
   "bg-[color-mix(in_srgb,var(--status-info)_4%,var(--background))]",
-  "text-[var(--status-info)]",
+  "text-status-info-text",
   "border border-[color-mix(in_srgb,var(--status-info)_8%,transparent)]",
   "hover:bg-[color-mix(in_srgb,var(--status-info)_7%,var(--background))]",
   "active:bg-[color-mix(in_srgb,var(--status-info)_10%,var(--background))]",
@@ -72,10 +72,10 @@ const buttonVariants = cva(
         chip: cn(
           "border border-border/60 bg-transparent text-foreground hover:bg-interactive-hover hover:text-foreground",
           "aria-pressed:bg-[color-mix(in_srgb,var(--primary-base)_10%,var(--background))]",
-          "aria-pressed:text-[var(--primary-base)]",
+          "aria-pressed:text-primary-text",
           "aria-pressed:border-[color-mix(in_srgb,var(--primary-base)_12%,transparent)]",
           "aria-pressed:hover:bg-[color-mix(in_srgb,var(--primary-base)_16%,var(--background))]",
-          "aria-pressed:hover:text-[var(--primary-base)]",
+          "aria-pressed:hover:text-primary-text",
           "dark:aria-pressed:bg-[color-mix(in_srgb,var(--primary-base)_16%,transparent)]",
           "dark:aria-pressed:border-[color-mix(in_srgb,var(--primary-base)_20%,transparent)]",
           "dark:aria-pressed:hover:bg-[color-mix(in_srgb,var(--primary-base)_22%,transparent)]",
@@ -84,7 +84,7 @@ const buttonVariants = cva(
           "bg-interactive-hover text-foreground hover:bg-interactive-active",
         ghost:
           "text-foreground hover:bg-interactive-hover hover:text-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-primary-text underline-offset-4 hover:underline",
       },
       size: {
         default: "h-9 px-3.5 has-[>svg]:px-3",

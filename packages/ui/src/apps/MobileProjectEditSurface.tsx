@@ -89,7 +89,7 @@ const SortableWorktreeRow: React.FC<{
       <span className="block min-w-0 flex-1 truncate typography-ui-label text-foreground">{label}</span>
       <button
         type="button"
-        className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+        className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-status-error-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
         aria-label={t('mobile.projectEdit.deleteWorktreeAria', { label })}
         onClick={onDelete}
         style={{ touchAction: 'manipulation' }}

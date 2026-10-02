@@ -59,7 +59,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <Icon name="alert" className="size-5 text-[var(--status-warning)]" />
+            <Icon name="alert" className="size-5 text-status-warning-text" />
             <DialogTitle>{t('gitView.stash.title')}</DialogTitle>
           </div>
           <DialogDescription>
@@ -76,7 +76,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
             <li>
               {operation === 'merge' ? t('gitView.operation.merge') : t('gitView.operation.rebase')}{' '}
               {operation === 'merge' ? t('gitView.stash.mergeWith') : t('gitView.stash.rebaseOnto')}{' '}
-              <span className="font-mono text-primary">{targetBranch}</span>
+              <span className="font-mono text-primary-text">{targetBranch}</span>
             </li>
             {restoreAfter && <li>{t('gitView.stash.stepRestore')}</li>}
           </ol>

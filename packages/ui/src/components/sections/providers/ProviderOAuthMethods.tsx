@@ -276,7 +276,7 @@ export const ProviderOAuthMethods: React.FC<ProviderOAuthMethodsProps> = ({
   const renderAuthorizationDetails = (authorization: OAuthAuthorization) => (
     <>
       {authorization.instructions && (
-        <p className="typography-meta text-[var(--primary-base)] bg-[var(--primary-base)]/10 px-2 py-1.5 rounded">
+        <p className="typography-meta text-primary-text bg-[var(--primary-base)]/10 px-2 py-1.5 rounded">
           {authorization.instructions}
         </p>
       )}
@@ -363,7 +363,7 @@ export const ProviderOAuthMethods: React.FC<ProviderOAuthMethodsProps> = ({
               <div className="space-y-3">
                 {visiblePrompts(flow.prompts, promptValues).map(renderPrompt)}
                 {flow.error && (
-                  <p className="typography-meta text-[var(--status-error)]">{flow.error}</p>
+                  <p className="typography-meta text-status-error-text">{flow.error}</p>
                 )}
                 <div className="flex items-center gap-2">
                   <Button size="xs" className="!font-normal" onClick={submitPrompts}>
@@ -440,7 +440,7 @@ export const ProviderOAuthMethods: React.FC<ProviderOAuthMethodsProps> = ({
 
             {isActive && flow.phase === 'failed' && (
               <div className="space-y-2">
-                <p className="typography-meta text-[var(--status-error)]">{flow.message}</p>
+                <p className="typography-meta text-status-error-text">{flow.message}</p>
                 <Button
                   variant="outline"
                   size="xs"

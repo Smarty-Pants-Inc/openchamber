@@ -6,11 +6,13 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import './branding-managed-catalog.test.mjs';
 import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
+import { unwindC1Theme } from './branding-c1-theme.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFileSync(path.join(root, file));
 const json = (file) => JSON.parse(read(file).toString());
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
-const overlay = json('branding/behavior-overlay.json');
+// Unwind C1 first and pin the whole predecessor before every older assertion below.
+const overlay = unwindC1Theme(json('branding/behavior-overlay.json'));
 const overlays = new Map(overlay.files.map(entry => [entry.path, entry]));
 const attributionPaths = [
   ...['de', 'en', 'es', 'fr', 'ja', 'ko', 'pl', 'pt-BR', 'uk', 'zh-CN', 'zh-TW']
@@ -134,7 +136,7 @@ test('runtime recovery binds only the reviewed auth gate donor overlap', () => {
   assert.equal(entry.behaviorSha256, '9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b');
   assert.equal(entry.preHumanAuthCombinedSha256, entry.behaviorSha256);
   assert.equal(entry.combinedSha256, entry.humanAuthSha256);
-  assert.equal(sha256(read(file)), entry.humanAuthSha256);
+  assert.equal(sha256(read(file)), currentOutput(file, entry.humanAuthSha256));
 });
 
 test('human auth successor retains both earlier overlapping behavior hashes', () => {
@@ -355,7 +357,7 @@ test('the #538 layer binds its exact feature commit over the message row and the
   for (const entry of overlay.files.filter(file => file.design538Sha256)) {
     // The #739 Fabric row (voiceFabric) is the layer above it on the message row.
     assert.equal(entry.design538Sha256, entry.preVoiceFabricCombinedSha256 ?? entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256));
     assert.ok(entry.design538Note);
   }
 });

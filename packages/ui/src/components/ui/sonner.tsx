@@ -99,10 +99,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
           closeButton:
             "!rounded-[var(--radius-md)] !bg-[var(--interactive-hover)] !text-foreground hover:!bg-[var(--interactive-active)]",
           icon: "!text-muted-foreground",
-          success: "[&_[data-icon]]:!text-[var(--status-success)]",
-          error: "[&_[data-icon]]:!text-[var(--status-error)]",
-          warning: "[&_[data-icon]]:!text-[var(--status-warning)]",
-          info: "[&_[data-icon]]:!text-[var(--status-info)]",
+          success: "[&_[data-icon]]:!text-status-success-text",
+          error: "[&_[data-icon]]:!text-status-error-text",
+          warning: "[&_[data-icon]]:!text-status-warning-text",
+          info: "[&_[data-icon]]:!text-status-info-text",
         },
         style: {
           borderRadius: "var(--radius-xl)",

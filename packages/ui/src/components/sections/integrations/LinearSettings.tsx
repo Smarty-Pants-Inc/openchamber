@@ -164,9 +164,9 @@ export const LinearSettings: React.FC = () => {
         ? (organization?.name?.trim() || t('settings.integrations.linear.status.connected'))
         : t('settings.integrations.linear.status.notConnected');
   const statusClassName = isWaiting
-    ? 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]'
+    ? 'bg-[var(--status-warning)]/15 text-status-warning-text'
     : connected
-      ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
+      ? 'bg-[var(--status-success)]/15 text-status-success-text'
       : 'bg-[var(--surface-muted)] text-muted-foreground';
   const expanded = isWaiting || open;
 

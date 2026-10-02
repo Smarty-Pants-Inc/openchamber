@@ -38,9 +38,9 @@ export const WalkthroughStages = ({ progress }: WalkthroughStagesProps) => {
           <li key={entry.labelKey} className="flex items-center gap-2">
             <span className="flex size-4 shrink-0 items-center justify-center">
               {isDone ? (
-                <Icon name="check" className="size-3.5 text-status-success" />
+                <Icon name="check" className="size-3.5 text-status-success-text" />
               ) : isActive ? (
-                <Icon name="loader-4" className="size-3.5 animate-spin text-[var(--status-info)]" />
+                <Icon name="loader-4" className="size-3.5 animate-spin text-status-info-text" />
               ) : (
                 <span className="size-1.5 rounded-full bg-surface-muted" />
               )}

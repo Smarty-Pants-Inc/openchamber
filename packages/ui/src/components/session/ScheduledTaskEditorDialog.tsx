@@ -262,7 +262,7 @@ const FieldLabel: React.FC<{
   <div className="flex items-center gap-1.5">
     <label htmlFor={htmlFor} className="typography-meta font-medium text-foreground">
       {children}
-      {required && <span className="ml-0.5 text-destructive">*</span>}
+      {required && <span className="ml-0.5 text-status-error-text">*</span>}
     </label>
   </div>
 );
@@ -665,7 +665,7 @@ const CronScheduleSection: React.FC<{
           className="w-full max-w-xs font-mono"
         />
         {cronValidation && !cronValidation.valid && cronExpression.trim() ? (
-          <span className="typography-micro text-destructive">
+          <span className="typography-micro text-status-error-text">
             {t('sessions.scheduledTasks.editor.validation.cronInvalid')}
           </span>
         ) : null}
@@ -1692,7 +1692,7 @@ export function ScheduledTaskEditorDialog(props: {
               aria-label={t('sessions.scheduledTasks.editor.permissionAutoAccept.aria')}
             >
               {draft.execution.permissionAutoAccept ? (
-                <Icon name="shield-check" className="h-[18px] w-[18px]" style={{ color: 'var(--status-info)' }} aria-hidden="true" />
+                <Icon name="shield-check" className="h-[18px] w-[18px]" style={{ color: 'var(--status-info-text, var(--status-info))' }} aria-hidden="true" />
               ) : (
                 <Icon name="shield-user" className="h-[18px] w-[18px]" aria-hidden="true" />
               )}
@@ -1704,7 +1704,7 @@ export function ScheduledTaskEditorDialog(props: {
           <TooltipTrigger asChild>
             <button
               type="button"
-              className={cn(EDITOR_TOGGLE_BUTTON_CLASS, draft.execution.goalEnabled && 'text-[var(--status-info)]')}
+              className={cn(EDITOR_TOGGLE_BUTTON_CLASS, draft.execution.goalEnabled && 'text-status-info-text')}
               onClick={() => setDraft((prev) => ({
                 ...prev,
                 execution: { ...prev.execution, goalEnabled: !prev.execution.goalEnabled },

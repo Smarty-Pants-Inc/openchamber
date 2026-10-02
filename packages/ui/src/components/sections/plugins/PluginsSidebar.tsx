@@ -257,7 +257,7 @@ export const PluginsSidebar: React.FC<PluginsSidebarProps> = ({
       <div className="px-2 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
         {updateCount > 0 && (
-          <span className="ml-2 normal-case font-normal text-[var(--status-success)]">
+          <span className="ml-2 normal-case font-normal text-status-success-text">
             {t(
               updateCount === 1
                 ? 'settings.plugins.sidebar.group.updatesAvailable_one'

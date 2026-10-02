@@ -194,7 +194,7 @@ export const AddPluginDialog: React.FC<AddPluginDialogProps> = ({
                   disabled={submitting}
                 />
                 {optionsInvalid && (
-                  <p className="typography-meta text-[var(--status-error)]">
+                  <p className="typography-meta text-status-error-text">
                     {t('settings.plugins.page.field.options.invalidJson')}
                   </p>
                 )}
@@ -217,7 +217,7 @@ export const AddPluginDialog: React.FC<AddPluginDialogProps> = ({
                   disabled={submitting}
                 />
                 {fileNameInvalid && (
-                  <p className="typography-meta text-[var(--status-error)]">
+                  <p className="typography-meta text-status-error-text">
                     {t('settings.plugins.validation.fileName')}
                   </p>
                 )}

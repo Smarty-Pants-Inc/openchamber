@@ -246,7 +246,7 @@ const ProviderOptionLabel: React.FC<{ provider: string }> = ({ provider }) => {
 
   return (
     <span className="flex items-center gap-2">
-      <Icon name="cloud" className={cn('size-4 shrink-0', isCloudflare || isNgrok ? 'text-[var(--status-warning)]' : 'text-muted-foreground')} />
+      <Icon name="cloud" className={cn('size-4 shrink-0', isCloudflare || isNgrok ? 'text-status-warning-text' : 'text-muted-foreground')} />
       <span>{label}</span>
     </span>
   );
@@ -1254,7 +1254,7 @@ export const TunnelSettings: React.FC = () => {
         <section className="space-y-2 px-2 pb-2 pt-0">
           <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)]/30 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <Icon name="information" className="size-4 text-[var(--status-info)]" />
+              <Icon name="information" className="size-4 text-status-info-text" />
               <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{t('settings.openchamber.tunnel.section.redeemedAccessLinks')}</p>
             </div>
             <div className="space-y-1">
@@ -1262,10 +1262,10 @@ export const TunnelSettings: React.FC = () => {
                 const isQuick = record.mode === 'quick';
                 const isManagedRemote = record.mode === 'managed-remote';
                 const modeBadgeClass = isQuick
-                  ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-background)] text-[var(--status-warning)]'
+                  ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-background)] text-status-warning-text'
                   : isManagedRemote
-                    ? 'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)]'
-                    : 'border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]';
+                    ? 'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-status-info-text'
+                    : 'border-[var(--status-success-border)] bg-[var(--status-success-background)] text-status-success-text';
                 const statusDotClass = record.isActive
                   ? (isQuick ? 'text-[var(--status-warning)]' : isManagedRemote ? 'text-[var(--status-info)]' : 'text-[var(--status-success)]')
                   : 'text-muted-foreground/50';
@@ -1305,7 +1305,7 @@ export const TunnelSettings: React.FC = () => {
       {state === 'not-available' && (
         <section className="space-y-2 px-2 pb-2 pt-0">
           <div className="flex items-start gap-2 rounded-lg border border-[var(--status-warning)]/30 bg-[var(--status-warning)]/5 p-3">
-            <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
+            <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-warning-text" />
             <div className="space-y-1">
               <p className={SETTINGS_CALLOUT_TITLE_CLASS}>
                 {t('settings.openchamber.tunnel.notAvailable.dependencyNotFound', { dependency: displayedDependencyInstallInfo.dependency })}
@@ -1430,13 +1430,13 @@ export const TunnelSettings: React.FC = () => {
           {tunnelMode === 'quick' && (
             <div className="rounded-lg border border-[var(--status-warning)]/35 bg-[var(--status-warning)]/10 p-3">
               <div className="flex items-start gap-2">
-                <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
+                <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-warning-text" />
                 <div>
-                  <p className="typography-meta text-[var(--status-warning)]">
+                  <p className="typography-meta text-status-warning-text">
                     {t('settings.openchamber.tunnel.option.mode.quick.tooltip')}
                   </p>
                   {providerSupportsManagedModes && (
-                    <p className="typography-meta mt-1 text-[var(--status-warning)]">
+                    <p className="typography-meta mt-1 text-status-warning-text">
                       {t('settings.openchamber.tunnel.warning.quickModeReliability')}
                     </p>
                   )}
@@ -1449,7 +1449,7 @@ export const TunnelSettings: React.FC = () => {
             <div data-settings-item="tunnel.managed-remote" className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3">
               {typeof suggestedConnectorPort === 'number' && (
                 <div className="rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-background)]/35 px-2 py-1.5">
-                  <p className="typography-meta text-[var(--status-info)]">
+                  <p className="typography-meta text-status-info-text">
                     {t('settings.openchamber.tunnel.note.cloudflareConnectorTarget')} <code>http://localhost:{suggestedConnectorPort}</code>
                   </p>
                 </div>
@@ -1506,7 +1506,7 @@ export const TunnelSettings: React.FC = () => {
                             <Button
                               variant="ghost"
                               size="xs"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-[var(--status-error)]"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-status-error-text"
                               aria-label={t('settings.openchamber.tunnel.actions.removePresetAria', { name: preset.name })}
                               onClick={() => {
                                 void handleRemovePreset(preset.id);
@@ -1640,7 +1640,7 @@ export const TunnelSettings: React.FC = () => {
               </div>
 
               {!selectedPreset && managedRemoteValidationError && (
-                <p className="typography-meta text-[var(--status-error)]">{managedRemoteValidationError}</p>
+                <p className="typography-meta text-status-error-text">{managedRemoteValidationError}</p>
               )}
             </div>
           )}
@@ -1704,7 +1704,7 @@ export const TunnelSettings: React.FC = () => {
                     : t('settings.openchamber.tunnel.note.defaultConfigUsed')}
                 </p>
                 {isManagedLocalConfigPathInvalid && (
-                  <p className="typography-meta text-[var(--status-error)]">{managedLocalConfigExtensionError}</p>
+                  <p className="typography-meta text-status-error-text">{managedLocalConfigExtensionError}</p>
                 )}
               </div>
             </div>
@@ -1714,16 +1714,16 @@ export const TunnelSettings: React.FC = () => {
             <div data-settings-item="tunnel.start" className="space-y-6">
               <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)] p-3">
                 <div className="flex items-start gap-2">
-                  <Icon name="information" className="mt-0.5 size-4 shrink-0 text-[var(--status-info)]" />
+                  <Icon name="information" className="mt-0.5 size-4 shrink-0 text-status-info-text" />
                   <div className="space-y-1">
                     {tunnelMode === 'managed-remote' && (
                       <>
-                        <p className="typography-meta text-[var(--status-info)]">
+                        <p className="typography-meta text-status-info-text">
                           {t('settings.openchamber.tunnel.note.managedRemoteRequiresDomain')}
                         </p>
                         <button
                           type="button"
-                          className="typography-meta inline-flex items-center gap-1 text-[var(--status-info)] underline underline-offset-2 hover:opacity-90"
+                          className="typography-meta inline-flex items-center gap-1 text-status-info-text underline underline-offset-2 hover:opacity-90"
                           onClick={() => {
                             void openExternal(MANAGED_REMOTE_TUNNEL_DOC_URL);
                           }}
@@ -1735,12 +1735,12 @@ export const TunnelSettings: React.FC = () => {
                     )}
                     {tunnelMode === 'managed-local' && (
                       <>
-                        <p className="typography-meta text-[var(--status-info)]">
+                        <p className="typography-meta text-status-info-text">
                           {t('settings.openchamber.tunnel.note.managedLocalUsesConfig')}
                         </p>
                         <button
                           type="button"
-                          className="typography-meta inline-flex items-center gap-1 text-[var(--status-info)] underline underline-offset-2 hover:opacity-90"
+                          className="typography-meta inline-flex items-center gap-1 text-status-info-text underline underline-offset-2 hover:opacity-90"
                           onClick={() => {
                             void openExternal(MANAGED_LOCAL_TUNNEL_DOC_URL);
                           }}
@@ -1750,7 +1750,7 @@ export const TunnelSettings: React.FC = () => {
                         </button>
                       </>
                     )}
-                    <p className="typography-meta text-[var(--status-info)]">
+                    <p className="typography-meta text-status-info-text">
                       {t('settings.openchamber.tunnel.note.startModeAndGenerateLink', {
                         mode: tUnsafe(TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.labelKey ?? 'settings.openchamber.tunnel.option.mode.quick.label'),
                       })}
@@ -1791,8 +1791,8 @@ export const TunnelSettings: React.FC = () => {
               {willReplaceActiveTunnel && (
                 <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
                   <div className="flex items-start gap-2">
-                    <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
-                    <p className="typography-meta text-[var(--status-warning)]">
+                    <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-warning-text" />
+                    <p className="typography-meta text-status-warning-text">
                       {t('settings.openchamber.tunnel.warning.replacesActiveTunnel')}
                     </p>
                   </div>
@@ -1845,7 +1845,7 @@ export const TunnelSettings: React.FC = () => {
                     </code>
                     <Button size="sm" variant="ghost" onClick={handleCopyUrl} className="shrink-0 gap-1.5">
                       {copied
-                        ? <Icon name="check" className="size-3.5 text-[var(--status-success)]" />
+                        ? <Icon name="check" className="size-3.5 text-status-success-text" />
                         : <Icon name="file-copy" className="size-3.5" />}
                       {copied ? t('settings.openchamber.tunnel.actions.copied') : t('settings.common.actions.copyAll')}
                     </Button>
@@ -1881,7 +1881,7 @@ export const TunnelSettings: React.FC = () => {
                 variant="ghost"
                 onClick={handleStop}
                 disabled={state === 'stopping' || isSavingMode}
-                className="gap-2 text-[var(--status-error)]"
+                className="gap-2 text-status-error-text"
               >
                 {state === 'stopping'
                   ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {t('settings.openchamber.tunnel.actions.stopping')}</>
@@ -1894,7 +1894,7 @@ export const TunnelSettings: React.FC = () => {
 
       {state === 'error' && errorMessage && (
         <section className="space-y-3 px-2 pb-2 pt-0">
-          <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
+          <p className="typography-meta text-status-error-text">{errorMessage}</p>
           <Button size="sm" variant="ghost" onClick={handleStart}>{t('settings.openchamber.tunnel.actions.retry')}</Button>
         </section>
       )}

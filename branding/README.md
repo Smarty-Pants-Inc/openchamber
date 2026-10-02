@@ -179,6 +179,34 @@ Unused hosted and Android jobs are disabled only in `Smarty-Pants-Inc/openchambe
 their upstream dispatch inputs and runner selections remain intact. Local checks
 do not replace an exact-head Forge run or native build evidence.
 
+### C1 default-theme successor
+
+`c1ThemeProvenance` binds the actual released source checkpoint
+`ac217edc86ba105269a0af4d16070850f0d1d239`, ported from original C1 source
+`301db7c8ab0d2455d41ebaa602913bd14ccc9e1a` onto corrected base
+`9eb430fc7d2acc51a6786691d5c5ec2005d291df`. It does not name a future combined
+ledger commit as its source. Exactly eight original managed paths overlap:
+SessionAuthGate, CommandAutocomplete, Header, McpOAuthCallbackPage, McpSidebar,
+AboutSettings, RemoteInstancesPage and OpenCodeUpdateToast. Two existing entries
+append predecessor/current/source evidence; six new entries retain their original
+branding hashes and C1 source identity. Only the combined output advances.
+
+`scripts/branding-c1-theme.mjs` pins the literal eight-path boundary and each
+predecessor/current byte hash. The predecessors were verified against Main's
+corrected-base source archive before binding. Both historical ownership suites
+unwind C1 first, check the entire predecessor's parsed and byte hashes, then run
+every older assertion unchanged. Current-output resolution keeps the independent
+HTTP response-policy predecessor checks intact. Focused negatives reject byte
+drift, widened paths, changed authority and rewritten history; reversing only
+the reviewed color substitutions recovers every predecessor source hash.
+
+Original coverage, stock parity, generated manifest, response-policy ledger and
+`docs/CUSTOM_THEMES.md` remain byte-identical. The default CSS, text, syntax,
+monospace, custom fallback and solid-pair contract lives beside the implementation
+in [`packages/ui/src/lib/theme/README.md`](../packages/ui/src/lib/theme/README.md).
+This records source provenance, not browser/native, integrated-head CI or release
+acceptance.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.

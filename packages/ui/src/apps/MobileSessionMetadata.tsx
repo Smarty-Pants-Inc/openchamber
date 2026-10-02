@@ -422,10 +422,10 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
     contextPercentage === null
       ? ''
       : contextPercentage >= 90
-        ? 'text-[var(--status-error)]'
+        ? 'text-status-error-text'
         : contextPercentage >= 75
-          ? 'text-[var(--status-warning)]'
-          : 'text-[var(--status-success)]';
+          ? 'text-status-warning-text'
+          : 'text-status-success-text';
   const contextDisplay: ContextDisplay = contextPercentage !== null && contextTokens
     ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass }
     : null;

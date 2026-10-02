@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSessionGoal } from '@/hooks/useSessionGoal';
 import { useSessionGoalArmStore } from '@/stores/useSessionGoalArmStore';
 import { SESSION_GOAL_OBJECTIVE_CHAR_LIMIT } from '@/lib/sessionGoalMetadata';
-import { sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
+import { sessionGoalStatusTextColor } from '@/lib/sessionGoalPresentation';
 import { SessionGoalDialog } from '@/components/chat/SessionGoalDialog';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
@@ -56,8 +56,8 @@ export const SessionGoalButton: React.FC<SessionGoalButtonProps> = React.memo(({
   // was indistinguishable from a running one — and `blocked` as an error rather
   // than a warning. `armed` is not a goal status, so it keeps its own case.
   const iconColor = goal
-    ? sessionGoalStatusColor[goal.status]
-    : (armed ? 'var(--status-info)' : undefined);
+    ? sessionGoalStatusTextColor[goal.status]
+    : (armed ? 'var(--status-info-text, var(--status-info))' : undefined);
 
   const label = goal
     ? t('chat.goal.button.manageAria')
@@ -144,7 +144,7 @@ export const SessionGoalObjectiveCounter: React.FC<SessionGoalObjectiveCounterPr
     <span
       className={cn(
         'flex-shrink-0 self-center typography-micro tabular-nums',
-        over ? 'text-[var(--status-error)]' : 'text-muted-foreground/70',
+        over ? 'text-status-error-text' : 'text-muted-foreground/70',
       )}
       aria-label={t('chat.goal.counter.aria')}
       title={t('chat.goal.counter.aria')}

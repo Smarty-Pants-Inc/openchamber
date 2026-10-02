@@ -90,7 +90,7 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
                 height: '26px',
                 maxHeight: '26px',
                 minHeight: '26px',
-                color: `var(${agentColor.var})`,
+                color: `var(${agentColor.textVar})`,
             }}
             title={agentLabel}
         >

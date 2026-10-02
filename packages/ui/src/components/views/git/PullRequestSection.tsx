@@ -720,7 +720,7 @@ export const PullRequestSection: React.FC<{
   }, [githubAuthStatus]);
 
   const selfMentionHighlightClass = React.useMemo(() => {
-    return "[&_a[href*='oc-self-mention=1']]:!text-[var(--primary-base)] [&_a[href*='oc-self-mention=1']]:font-semibold [&_a[href*='oc-self-mention=1']]:!no-underline [&_a[href*='oc-self-mention=1']:hover]:!text-[var(--primary-hover)]";
+    return "[&_a[href*='oc-self-mention=1']]:!text-primary-text [&_a[href*='oc-self-mention=1']]:font-semibold [&_a[href*='oc-self-mention=1']]:!no-underline [&_a[href*='oc-self-mention=1']:hover]:!text-[var(--primary-hover)]";
   }, []);
 
   const linkifyMentionsMarkdown = React.useCallback((content: string) => {
@@ -848,7 +848,7 @@ export const PullRequestSection: React.FC<{
             <div className="space-y-1">
               {run.annotations.slice(0, 20).map((annotation, idx) => (
                 <div key={`${annotation.path || 'file'}:${annotation.startLine || idx}:${idx}`} className="rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)]/40 px-2 py-2">
-                  <div className="typography-micro break-words text-[var(--status-error)]">
+                  <div className="typography-micro break-words text-status-error-text">
                     {annotation.title || annotation.level || 'Issue'}
                     {annotation.path ? ` · ${annotation.path}` : ''}
                     {typeof annotation.startLine === 'number' ? `:${annotation.startLine}` : ''}
@@ -905,7 +905,7 @@ export const PullRequestSection: React.FC<{
                       }}
                       className={
                         'typography-micro flex w-full items-center gap-2 rounded px-2 py-1 text-left ' +
-                        (isFail ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground')
+                        (isFail ? 'bg-destructive/10 text-status-error-text' : 'text-muted-foreground')
                       }
                     >
                       {stepExpanded ? <Icon name="arrow-down-s" className="size-4" /> : <Icon name="arrow-right-s" className="size-4" />}
@@ -1454,7 +1454,7 @@ export const PullRequestSection: React.FC<{
   const isConnected = Boolean(status?.connected);
   const shouldShowConnectionNotice = githubAuthChecked && status?.connected === false;
   const prVisualState = getPrVisualState(status);
-  const prColorVar = prVisualState ? `var(--pr-${prVisualState})` : 'var(--status-info)';
+  const prColorVar = prVisualState ? `var(--pr-${prVisualState})` : 'var(--status-info-text, var(--status-info))';
   const prStateIconName = prVisualState === 'draft'
     ? 'git-pr-draft'
     : prVisualState === 'merged'
@@ -1808,7 +1808,7 @@ export const PullRequestSection: React.FC<{
                           {checks.success}/{checks.total} {t('gitView.pr.checks.label')}
                         </span>
                         {(checks.inProgress ?? 0) > 0 ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 typography-micro text-[var(--status-warning)]">
+                          <span className="inline-flex shrink-0 items-center gap-1 typography-micro text-status-warning-text">
                             <Icon name="loader-4" className="size-3.5 animate-spin" />
                             {formatElapsedDuration(checks.startedAt, undefined, nowTick)}
                           </span>
@@ -1820,7 +1820,7 @@ export const PullRequestSection: React.FC<{
                       <Button
                         variant="outline"
                         size="sm"
-                        className="w-fit gap-1.5 border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]"
+                        className="w-fit gap-1.5 border-[var(--status-success-border)] bg-[var(--status-success-background)] text-status-success-text"
                         onClick={sendFailedChecksToChat}
                         disabled={isAttachingChecks}
                         aria-label={t('gitView.pr.actions.resolveFailedChecksAria')}
@@ -1869,13 +1869,13 @@ export const PullRequestSection: React.FC<{
                                 className="flex w-full items-center gap-2 px-2.5 py-2 text-left disabled:cursor-default"
                               >
                                 {isRunning ? (
-                                  <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-[var(--status-warning)]" />
+                                  <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-status-warning-text" />
                                 ) : isQueued ? (
                                   <Icon name="time" className="size-4 shrink-0 text-muted-foreground" />
                                 ) : failed ? (
-                                  <Icon name="close-circle" className="size-4 shrink-0 text-[var(--status-error)]" />
+                                  <Icon name="close-circle" className="size-4 shrink-0 text-status-error-text" />
                                 ) : (
-                                  <Icon name="checkbox-circle" className="size-4 shrink-0 text-[var(--status-success)]" />
+                                  <Icon name="checkbox-circle" className="size-4 shrink-0 text-status-success-text" />
                                 )}
                                 <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
                                   {workflowName && workflowName !== run.name ? `${workflowName} / ${run.name}` : run.name}
@@ -1914,7 +1914,7 @@ export const PullRequestSection: React.FC<{
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 gap-1.5 text-[var(--status-success)] hover:bg-[var(--status-success-background)] hover:text-[var(--status-success)]"
+                          className="h-7 gap-1.5 text-status-success-text hover:bg-[var(--status-success-background)] hover:text-status-success-text"
                           onClick={sendCommentsToChat}
                           disabled={isAttachingComments}
                           aria-label={t('gitView.pr.actions.shareCommentsAria')}
@@ -1955,7 +1955,7 @@ export const PullRequestSection: React.FC<{
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          className="h-6 px-0 has-[>svg]:px-0 sm:px-2 sm:has-[>svg]:px-2.5 text-[var(--status-success)] hover:bg-[var(--status-success-background)] hover:text-[var(--status-success)] justify-start"
+                                          className="h-6 px-0 has-[>svg]:px-0 sm:px-2 sm:has-[>svg]:px-2.5 text-status-success-text hover:bg-[var(--status-success-background)] hover:text-status-success-text justify-start"
                                           onClick={() => {
                                             void sendSingleCommentToChat(comment);
                                           }}
@@ -2139,7 +2139,7 @@ export const PullRequestSection: React.FC<{
                       <span className="typography-micro text-muted-foreground">
                         {t('gitView.pr.additionalContext.optional')}
                       </span>
-                      <span className="typography-micro text-[var(--primary-base)]">
+                      <span className="typography-micro text-primary-text">
                         {isContextOpen ? t('gitView.pr.actions.hide') : additionalContext.trim() ? t('gitView.pr.actions.edit') : t('gitView.pr.actions.add')}
                       </span>
                     </CollapsibleTrigger>
@@ -2195,7 +2195,7 @@ export const PullRequestSection: React.FC<{
                     onClick={generateDescription}
                     disabled={isGenerating || isCreating}
                   >
-                    {isGenerating ? <Icon name="loader-4" className="size-4 animate-spin" /> : <Icon name="ai-generate-2" className="size-4 text-primary" />}
+                    {isGenerating ? <Icon name="loader-4" className="size-4 animate-spin" /> : <Icon name="ai-generate-2" className="size-4 text-primary-text" />}
                     {t('gitView.commit.generate')}
                   </Button>
                   <div className="flex-1" />

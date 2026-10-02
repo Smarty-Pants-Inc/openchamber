@@ -394,7 +394,7 @@ const EnvEditor: React.FC<EnvEditorProps> = ({
             {/* Remove */}
             <Button size="sm"
               variant="ghost"
-              className="h-7 w-7 px-0 shrink-0 text-muted-foreground hover:text-[var(--status-error)]"
+              className="h-7 w-7 px-0 shrink-0 text-muted-foreground hover:text-status-error-text"
               onClick={() => removeRow(idx)}
               aria-label={removeVariableAria}
             >
@@ -437,11 +437,11 @@ const StatusBadge: React.FC<{
   if (!status) return null;
 
   const colorClassMap: Record<string, { text: string; bg: string }> = {
-    connected: { text: 'text-[var(--status-success)]', bg: 'bg-[var(--status-success)]/10' },
-    failed: { text: 'text-[var(--status-error)]', bg: 'bg-[var(--status-error)]/10' },
-    needs_auth: { text: 'text-[var(--status-warning)]', bg: 'bg-[var(--status-warning)]/10' },
-    needs_client_registration: { text: 'text-[var(--status-warning)]', bg: 'bg-[var(--status-warning)]/10' },
-    awaiting_restart: { text: 'text-[var(--status-warning)]', bg: 'bg-[var(--status-warning)]/10' },
+    connected: { text: 'text-status-success-text', bg: 'bg-[var(--status-success)]/10' },
+    failed: { text: 'text-status-error-text', bg: 'bg-[var(--status-error)]/10' },
+    needs_auth: { text: 'text-status-warning-text', bg: 'bg-[var(--status-warning)]/10' },
+    needs_client_registration: { text: 'text-status-warning-text', bg: 'bg-[var(--status-warning)]/10' },
+    awaiting_restart: { text: 'text-status-warning-text', bg: 'bg-[var(--status-warning)]/10' },
   };
 
   const colors = colorClassMap[status] ?? { text: 'text-muted-foreground', bg: '' };
@@ -1905,7 +1905,7 @@ export const McpPage: React.FC = () => {
             />
 
             {importError && (
-              <p className="typography-micro text-[var(--status-error)]">{importError}</p>
+              <p className="typography-micro text-status-error-text">{importError}</p>
             )}
 
             <div className="flex flex-wrap items-center gap-2">

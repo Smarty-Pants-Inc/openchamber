@@ -399,7 +399,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                   variant="ghost"
                   size="icon"
                   onClick={() => handleRemoveCommand(index)}
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-status-error-text"
                   aria-label={t('settings.openchamber.worktrees.setup.removeCommandAria')}
                 >
                   <Icon name="close" className="h-4 w-4" />
@@ -470,7 +470,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                   type="button"
                   onClick={() => handleDeleteWorktree(worktree)}
                   className={cn(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-opacity hover:bg-destructive/10 hover:text-status-error-text focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                     alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                   )}
                   aria-label={t('settings.openchamber.worktrees.list.deleteWorktreeAria', { name: worktree.branch || worktree.label || worktree.path })}

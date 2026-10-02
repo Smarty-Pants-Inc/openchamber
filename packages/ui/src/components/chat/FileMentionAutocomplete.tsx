@@ -406,9 +406,9 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
       case 'tsx':
       case 'js':
       case 'jsx':
-        return <Icon name="code" className="h-3.5 w-3.5 text-[var(--status-info)]" />;
+        return <Icon name="code" className="h-3.5 w-3.5 text-status-info-text" />;
       case 'json':
-        return <Icon name="code" className="h-3.5 w-3.5 text-[var(--status-warning)]" />;
+        return <Icon name="code" className="h-3.5 w-3.5 text-status-warning-text" />;
       case 'md':
       case 'mdx':
         return <Icon name="file" className="h-3.5 w-3.5 text-muted-foreground" />;
@@ -417,7 +417,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
       case 'jpeg':
       case 'gif':
       case 'svg':
-        return <Icon name="file-image" className="h-3.5 w-3.5 text-[var(--status-success)]" />;
+        return <Icon name="file-image" className="h-3.5 w-3.5 text-status-success-text" />;
       default:
         return <Icon name="file-pdf" className="h-3.5 w-3.5 text-muted-foreground" />;
     }
@@ -536,7 +536,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
                   onMouseMove={() => setSelectedIndex(rowIndex)}
                 >
                   {file.kind === 'directory'
-                    ? <Icon name="folder-3-fill" className="h-3.5 w-3.5 text-primary/60" />
+                    ? <Icon name="folder-3-fill" className="h-3.5 w-3.5 text-primary-text/60" />
                     : getFileIcon(file)}
                   <span
                     ref={(el) => { labelRefs.current[rowIndex] = el; }}

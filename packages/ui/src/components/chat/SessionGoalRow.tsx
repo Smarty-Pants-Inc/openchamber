@@ -3,7 +3,7 @@ import { Icon } from '@/components/icon/Icon';
 import { useSessionStatus } from '@/sync/sync-context';
 import { useGoalObjectiveContent, useSessionGoal } from '@/hooks/useSessionGoal';
 import { formatGoalTokens } from '@/lib/sessionGoalMetadata';
-import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
+import { sessionGoalStatusTextColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
 import { setSessionGoalStatus } from '@/lib/sessionGoalActions';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
@@ -68,7 +68,7 @@ export const SessionGoalRow: React.FC<SessionGoalRowProps> = React.memo(({ sessi
       aria-label={t('chat.goal.row.aria')}
       title={objectiveContent ?? undefined}
     >
-      <Icon name="target" className="h-3.5 w-3.5 flex-shrink-0" style={{ color: sessionGoalStatusColor[goal.status] }} aria-hidden="true" />
+      <Icon name="target" className="h-3.5 w-3.5 flex-shrink-0" style={{ color: sessionGoalStatusTextColor[goal.status] }} aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate typography-meta text-foreground">
         {goal.note || objectiveContent || ''}
       </span>

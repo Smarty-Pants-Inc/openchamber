@@ -41,7 +41,7 @@ import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore'
 import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getSessionGoal } from '@/lib/sessionGoalMetadata';
-import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
+import { sessionGoalStatusTextColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { getChatsRootFromDirectory } from '@/lib/chatDirectories';
@@ -246,7 +246,7 @@ const QuickSessionAction = React.memo(function QuickSessionAction({
           className={cn(
             'inline-flex items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
             shiftHeld
-              ? 'text-destructive hover:text-destructive'
+              ? 'text-status-error-text hover:text-status-error-text'
               : 'text-muted-foreground hover:text-foreground',
             buttonSizeClass,
           )}
@@ -485,7 +485,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       title={t(sessionGoalStatusLabelKey[sessionGoal.status] as never)}
       aria-label={t(sessionGoalStatusLabelKey[sessionGoal.status] as never)}
     >
-      <Icon name="target" className="h-3 w-3" style={{ color: sessionGoalStatusColor[sessionGoal.status] }} />
+      <Icon name="target" className="h-3 w-3" style={{ color: sessionGoalStatusTextColor[sessionGoal.status] }} />
     </span>
   ) : null;
   const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
@@ -770,7 +770,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const pinnedMarkerContent = (
     <Icon
       name="pushpin"
-      className="h-3 w-3 flex-shrink-0 text-primary"
+      className="h-3 w-3 flex-shrink-0 text-primary-text"
       aria-label={t('sessions.sidebar.session.status.pinned')}
     />
   );
@@ -785,7 +785,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       {isMovingToWorktree ? (
         <Icon
           name="loader-4"
-          className="h-3 w-3 animate-spin text-primary"
+          className="h-3 w-3 animate-spin text-primary-text"
           aria-label={t('sessions.sidebar.session.status.movingToWorktree')}
         />
       ) : showStatusMarker ? statusMarkerContent : showPinnedMarker ? pinnedMarkerContent : null}
@@ -826,7 +826,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   ) : null;
 
   const streamingIndicator = isZombie
-    ? <Icon name="error-warning" className="h-4 w-4 text-status-warning" />
+    ? <Icon name="error-warning" className="h-4 w-4 text-status-warning-text" />
     : null;
 
   const handleMenuOpenChange = (open: boolean) => {
@@ -1052,7 +1052,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         <>
           <Item onClick={() => { if (resolvedSession.share?.url) handleCopyShareUrl(resolvedSession.share.url, session.id); }} className="[&>svg]:mr-1">
             {copiedSessionId === session.id
-              ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success)' }}/>{t('sessions.sidebar.session.menu.copied')}</>
+              ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success-text, var(--status-success))' }}/>{t('sessions.sidebar.session.menu.copied')}</>
               : <><Icon name="file-copy" className="mr-1 h-4 w-4" />{t('sessions.sidebar.session.menu.copyLink')}</>}
           </Item>
           <Item onClick={() => handleUnshareSession(session.id)} className="[&>svg]:mr-1">
@@ -1230,7 +1230,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                         addSessionToFolder(scope, folder.id, session.id);
                       }}>
                         <span className="flex-1 truncate">{folder.name}</span>
-                        {isCurrent ? <Icon name="check" className="ml-2 h-3.5 w-3.5 text-primary flex-shrink-0" /> : null}
+                        {isCurrent ? <Icon name="check" className="ml-2 h-3.5 w-3.5 text-primary-text flex-shrink-0" /> : null}
                       </Item>
                     );
                   })
@@ -1249,7 +1249,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   {t('sessions.sidebar.folders.newFolderEllipsis')}
                 </Item>
                 {currentEntry ? (
-                  <Item onClick={() => { removeSessionFromFolder(currentEntry.scope, session.id); }} className="text-destructive focus:text-destructive">
+                  <Item onClick={() => { removeSessionFromFolder(currentEntry.scope, session.id); }} className="text-status-error-text focus:text-status-error-text">
                     <Icon name="close" className="mr-1 h-4 w-4" />
                     {t('sessions.sidebar.folders.removeFromFolder')}
                   </Item>
@@ -1276,7 +1276,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         >
           <Icon name="chat-4" className="mr-1 h-4 w-4" />
           <span className="truncate">{t('sessions.sidebar.session.menu.openInSidePanel')}</span>
-          <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">{t('sessions.sidebar.session.menu.betaBadge')}</span>
+          <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-status-warning-text bg-[var(--status-warning)]/10">{t('sessions.sidebar.session.menu.betaBadge')}</span>
         </Item>
       ) : null}
 
@@ -1304,7 +1304,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           {t('sessions.sidebar.bulkActions.restore')}
         </Item>
       ) : null}
-      <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
+      <Item className="text-status-error-text focus:text-status-error-text [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
         <Icon name="delete-bin" className="mr-1 h-4 w-4" />
         {t('sessions.sidebar.bulkActions.delete')}
       </Item>
@@ -1440,7 +1440,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       {/* Unread emphasis is color-only: a font-weight change
                           would reflow the truncated title and cause a micro
                           horizontal shift when the status flips. */}
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : needsAttention ? 'text-foreground' : 'text-foreground/80')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary-text' : needsAttention ? 'text-foreground' : 'text-foreground/80')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
                       {!archivedBucket && sessionDirectory && (renderContext === 'recent'
                         || (sessionGroupingMode === 'flat' && node.worktree
                           && normalizePath(node.worktree.path) !== normalizePath(node.worktree.projectDirectory))) ? (
@@ -1521,13 +1521,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                         </div>
                       ) : null}
                       {pendingPermissionCount > 0 ? (
-                        <span className={cn('inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0', badgeVisibilityClass)} title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
+                        <span className={cn('inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-status-error-text flex-shrink-0', badgeVisibilityClass)} title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
                           <Icon name="shield" className="h-3 w-3" />
                           <span className="leading-none">{pendingPermissionCount}</span>
                         </span>
                       ) : null}
                       {pendingQuestionCount > 0 ? (
-                        <span className={cn('inline-flex items-center gap-1 rounded bg-status-info/10 px-1 py-0.5 text-[0.7rem] text-status-info flex-shrink-0', badgeVisibilityClass)} title={pendingQuestionLabel} aria-label={pendingQuestionLabel}>
+                        <span className={cn('inline-flex items-center gap-1 rounded bg-status-info/10 px-1 py-0.5 text-[0.7rem] text-status-info-text flex-shrink-0', badgeVisibilityClass)} title={pendingQuestionLabel} aria-label={pendingQuestionLabel}>
                           <Icon name="question" className="h-3 w-3" />
                           <span className="leading-none">{pendingQuestionCount}</span>
                         </span>

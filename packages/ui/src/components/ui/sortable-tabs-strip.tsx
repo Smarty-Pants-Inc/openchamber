@@ -598,7 +598,7 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
                         <span
                           className={cn(
                             'relative flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200 ease-out',
-                            isActive ? 'text-[var(--primary-base)]' : 'text-muted-foreground'
+                            isActive ? 'text-primary-text' : 'text-muted-foreground'
                           )}
                         >
                           <span className={cn('flex items-center justify-center transition-opacity', closeReplacesIcon && (alwaysShowCloseControls ? 'opacity-0' : 'group-hover:opacity-0'))}>{item.icon}</span>

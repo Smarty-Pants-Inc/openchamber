@@ -175,7 +175,7 @@ export const McpSidebar: React.FC<McpSidebarProps> = ({ onItemSelect }) => {
         e.stopPropagation();
         setDeleteTarget(server);
       }}
-      className="text-destructive focus:text-destructive"
+      className="text-status-error-text focus:text-status-error-text"
     >
       <Icon name="delete-bin" className="h-4 w-4 mr-px" />
       {t('settings.common.actions.delete')}

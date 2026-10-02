@@ -208,7 +208,7 @@ const LocalModelPicker = ({
                                             {tUnsafe(entry.labelKey)}
                                         </span>
                                         {entry.badgeKey ? (
-                                            <span className="rounded border border-[var(--status-success-border)] bg-[var(--status-success-background)] px-1 text-[9px] font-medium uppercase leading-[14px] tracking-wide text-[var(--status-success)]">
+                                            <span className="rounded border border-[var(--status-success-border)] bg-[var(--status-success-background)] px-1 text-[9px] font-medium uppercase leading-[14px] tracking-wide text-status-success-text">
                                                 {tUnsafe(entry.badgeKey)}
                                             </span>
                                         ) : null}
@@ -219,7 +219,7 @@ const LocalModelPicker = ({
                                         <span className="typography-ui-compact tabular-nums text-muted-foreground">{entry.size}</span>
                                     </div>
                                     {state?.downloadError ? (
-                                        <p className="typography-meta text-[var(--status-error)]">{state.downloadError}</p>
+                                        <p className="typography-meta text-status-error-text">{state.downloadError}</p>
                                     ) : null}
                                 </div>
                             </div>
@@ -229,7 +229,7 @@ const LocalModelPicker = ({
                                         <Button
                                             variant="ghost"
                                             size="xs"
-                                            className="h-6 w-6 p-0 text-muted-foreground hover:text-[var(--status-error)]"
+                                            className="h-6 w-6 p-0 text-muted-foreground hover:text-status-error-text"
                                             disabled={requestingId === entry.id}
                                             onClick={() => { void handleDelete(entry.id); }}
                                             title={t('settings.voice.page.stt.modelDelete')}
@@ -239,7 +239,7 @@ const LocalModelPicker = ({
                                         </Button>
                                         <Icon
                                             name="checkbox-circle"
-                                            className="h-4 w-4 flex-shrink-0 text-[var(--status-success)]"
+                                            className="h-4 w-4 flex-shrink-0 text-status-success-text"
                                             aria-label={t('settings.voice.page.stt.modelInstalled')}
                                         />
                                     </>
@@ -407,13 +407,13 @@ const LocalTtsModelStatus = ({ models, requestingId, request }: ReturnType<typeo
                         <>
                             <Icon
                                 name="checkbox-circle"
-                                className="h-4 w-4 text-[var(--status-success)]"
+                                className="h-4 w-4 text-status-success-text"
                                 aria-label={t('settings.voice.page.stt.modelInstalled')}
                             />
                             <Button
                                 variant="ghost"
                                 size="xs"
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-[var(--status-error)]"
+                                className="h-6 w-6 p-0 text-muted-foreground hover:text-status-error-text"
                                 disabled={requestingId !== null}
                                 onClick={() => { void request(model.id, 'DELETE'); }}
                                 title={t('settings.voice.page.stt.modelDelete')}
@@ -443,7 +443,7 @@ const LocalTtsModelStatus = ({ models, requestingId, request }: ReturnType<typeo
                         </Button>
                     )}
                     {model.downloadError ? (
-                        <span className="typography-meta text-[var(--status-error)]">{model.downloadError}</span>
+                        <span className="typography-meta text-status-error-text">{model.downloadError}</span>
                     ) : null}
                 </div>
             ))}
@@ -903,10 +903,10 @@ export const VoiceSettings: React.FC = () => {
                             {/* OpenAI API Key */}
                             {voiceProvider === 'openai' && (
                                 <div className="space-y-1.5">
-                                    <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !isOpenAIAvailable && "text-[var(--status-error)]")}>
+                                    <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !isOpenAIAvailable && "text-status-error-text")}>
                                         {t('settings.voice.page.field.apiKey')}
                                     </span>
-                                    <span className={cn(SETTINGS_HELPER_CLASS, !isOpenAIAvailable && "text-[var(--status-error)]/80")}>
+                                    <span className={cn(SETTINGS_HELPER_CLASS, !isOpenAIAvailable && "text-status-error-text/80")}>
                                         {isOpenAIAvailable && !openaiApiKey
                                           ? t('settings.voice.page.field.apiKeyHintUsingConfig')
                                           : !isOpenAIAvailable
@@ -939,7 +939,7 @@ export const VoiceSettings: React.FC = () => {
                                 <div className="space-y-3">
                                     <div className="space-y-1.5">
                                         <span className="flex items-center gap-1.5">
-                                            <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !openaiCompatibleUrl.trim() && "text-[var(--status-error)]")}>
+                                            <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !openaiCompatibleUrl.trim() && "text-status-error-text")}>
                                                 {t('settings.voice.page.field.serverUrl')}
                                             </span>
                                             <SettingsInfoHint>{t('settings.voice.page.field.serverUrlHint')}</SettingsInfoHint>
@@ -1063,7 +1063,7 @@ export const VoiceSettings: React.FC = () => {
                                                 {isLocalTtsPlaying ? <Icon name="stop" className="w-3.5 h-3.5" /> : <Icon name="play" className="w-3.5 h-3.5" />}
                                             </Button>
                                             {localTtsError ? (
-                                                <span className="typography-meta text-[var(--status-error)]">{localTtsError}</span>
+                                                <span className="typography-meta text-status-error-text">{localTtsError}</span>
                                             ) : null}
                                         </>
                                     )}
@@ -1215,7 +1215,7 @@ export const VoiceSettings: React.FC = () => {
                             <div className="space-y-3">
                                 <div className="space-y-1.5">
                                     <span className="flex items-center gap-1.5">
-                                        <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !sttServerUrl.trim() && "text-[var(--status-error)]")}>
+                                        <span className={cn(SETTINGS_FIELD_LABEL_CLASS, !sttServerUrl.trim() && "text-status-error-text")}>
                                             {t('settings.voice.page.field.serverUrl')}
                                         </span>
                                         <SettingsInfoHint>{t('settings.voice.page.field.sttServerUrlHint')}</SettingsInfoHint>

@@ -61,7 +61,7 @@ export const WorkStatusSectionsDialog: React.FC<{
         {!allVisible ? (
           <div className="flex items-center justify-between border-t pt-3">
             {noneVisible ? (
-              <span className="text-xs text-destructive">{t('chat.workStatus.sections.noneWarning')}</span>
+              <span className="text-xs text-status-error-text">{t('chat.workStatus.sections.noneWarning')}</span>
             ) : <span />}
             <Button
               variant="link"

@@ -335,7 +335,7 @@ export const AgentPermissionsEditor: React.FC<AgentPermissionsEditorProps> = ({ 
     return (
       <SettingsSection title={t('settings.agents.page.section.toolPermissions')}>
         <div className="flex items-center gap-3">
-          <p className="typography-meta text-[var(--status-error)]">
+          <p className="typography-meta text-status-error-text">
             {t('settings.agents.page.permissionsEditor.state.loadFailed')}
           </p>
           <Button variant="outline" size="xs" onClick={() => setReloadToken((token) => token + 1)}>
@@ -440,7 +440,7 @@ export const AgentPermissionsEditor: React.FC<AgentPermissionsEditorProps> = ({ 
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-status-error-text"
                         onClick={() => removePattern(key, index)}
                         aria-label={t('settings.agents.page.permissionsEditor.actions.removeRuleAria')}
                       >

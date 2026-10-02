@@ -535,7 +535,7 @@ const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           <Item
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
-            className="text-destructive focus:text-destructive"
+            className="text-status-error-text focus:text-status-error-text"
           >
             <Icon name="delete-bin" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.delete')}
           </Item>
@@ -574,8 +574,8 @@ const FileRow: React.FC<FileRowProps> = ({
         {!isDir && status && <FileStatusDot status={status} />}
         {isDir && badge && (
           <span className="text-xs flex items-center gap-1 ml-auto mr-1">
-            {badge.modified > 0 && <span className="text-[var(--status-warning)]">M{badge.modified}</span>}
-            {badge.added > 0 && <span className="text-[var(--status-success)]">+{badge.added}</span>}
+            {badge.modified > 0 && <span className="text-status-warning-text">M{badge.modified}</span>}
+            {badge.added > 0 && <span className="text-status-success-text">+{badge.added}</span>}
           </span>
         )}
       </button>
@@ -2413,7 +2413,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
               {loadErrorsByDir[node.path] ? (
                 <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
-                  <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
+                  <span className="min-w-0 flex-1 truncate text-status-error-text" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
                   <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
                     <Icon name="refresh" className="size-3.5" />
                     {t('filesView.tree.actions.refreshTitle')}
@@ -3315,7 +3315,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 {t('filesView.editor.saving')}
               </span>
             ) : autoSaveEnabled && autoSaveStatus === 'saved' && !isDirty ? (
-              <span className="flex items-center gap-1 px-1 text-[color:var(--status-success)] typography-meta">
+              <span className="flex items-center gap-1 px-1 text-status-success-text typography-meta">
                 <Icon name="check" className="size-3.5" />
                 {t('filesView.editor.saved')}
               </span>
@@ -3521,7 +3521,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 }}
               >
                 {isTTSPlaying ? (
-                  <Icon name="stop" className="size-4 text-[color:var(--status-success)]" />
+                  <Icon name="stop" className="size-4 text-status-success-text" />
                 ) : (
                   <Icon name="volume-up" className="size-4" />
                 )}
@@ -3560,7 +3560,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 title={t('filesView.diagram.saveDiagram')}
               >
                 {diagramSaved ? (
-                  <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
+                  <Icon name="check" className="size-4 text-status-success-text" />
                 ) : (
                   <Icon name="save-3" className="size-4" />
                 )}
@@ -3611,7 +3611,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               aria-label={t('filesView.editor.copyFileContents')}
             >
               {copiedContent ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
+                <Icon name="check" className="size-4 text-status-success-text" />
               ) : (
                 <Icon name="clipboard" className="size-4" />
               )}
@@ -3643,7 +3643,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               aria-label={t('filesView.editor.copyFilePathTitle', { path: displaySelectedPath })}
             >
               {copiedPath ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
+                <Icon name="check" className="size-4 text-status-success-text" />
               ) : (
                 <Icon name="file-copy-2" className="size-4" />
               )}
@@ -3729,7 +3729,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               variant="outline"
               onClick={() => void saveAndContinue()}
               disabled={isSaving}
-              className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]"
+              className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-status-success-text hover:bg-[rgb(var(--status-success)/0.2)]"
             >
               {t('filesView.unsaved.saveChanges')}
             </Button>
@@ -3916,7 +3916,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 </div>
               )
           ) : fileError ? (
-            <div className="p-3 typography-ui text-[color:var(--status-error)]">{fileError}</div>
+            <div className="p-3 typography-ui text-status-error-text">{fileError}</div>
           ) : isSelectedImage ? (
             <div className="flex h-full items-center justify-center p-3">
               <img
@@ -3964,7 +3964,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <ErrorBoundary
               fallback={
                 <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                  <div className="mb-1 font-medium text-destructive">{t('filesView.error.jsonViewerUnavailable')}</div>
+                  <div className="mb-1 font-medium text-status-error-text">{t('filesView.error.jsonViewerUnavailable')}</div>
                   <div className="text-sm text-muted-foreground">
                     {t('filesView.error.switchToTextMode')}
                   </div>
@@ -3999,14 +3999,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   fileContent={fileContent}
                 />
                 {fileContent.length > 500 * 1024 && (
-                  <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
+                  <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning-text">
                     {t('filesView.warning.largeFilePreviewLimited', { sizeKb: Math.round(fileContent.length / 1024) })}
                   </div>
                 )}
                 <ErrorBoundary
                   fallback={
                     <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                      <div className="mb-1 font-medium text-destructive">{t('filesView.error.previewUnavailable')}</div>
+                      <div className="mb-1 font-medium text-status-error-text">{t('filesView.error.previewUnavailable')}</div>
                       <div className="text-sm text-muted-foreground">
                         {t('filesView.error.switchToEditMode')}
                       </div>
@@ -4299,7 +4299,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             })
           ) : rootLoadError ? (
             <li className="flex flex-col gap-2 px-2 py-1 typography-meta text-muted-foreground">
-              <span className="text-[var(--status-error)]">{rootLoadError}</span>
+              <span className="text-status-error-text">{rootLoadError}</span>
               <Button variant="outline" size="xs" className="w-fit gap-1.5" onClick={() => void refreshRoot()}>
                 <Icon name="refresh" className="size-3.5" />
                 {t('filesView.tree.actions.refreshTitle')}
@@ -4334,7 +4334,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 </div>
               )
           ) : fileError ? (
-            <div className="p-4 typography-ui text-[color:var(--status-error)]">{fileError}</div>
+            <div className="p-4 typography-ui text-status-error-text">{fileError}</div>
           ) : isSelectedImage ? (
             <div className="flex h-full items-center justify-center p-4">
               <img
@@ -4391,14 +4391,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 />
               ) : null}
               {fileContent.length > 500 * 1024 && (
-                  <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
+                  <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning-text">
                     {t('filesView.warning.largeFilePreviewLimited', { sizeKb: Math.round(fileContent.length / 1024) })}
                   </div>
                 )}
               <ErrorBoundary
                 fallback={
                   <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                    <div className="mb-1 font-medium text-destructive">{t('filesView.error.previewUnavailable')}</div>
+                    <div className="mb-1 font-medium text-status-error-text">{t('filesView.error.previewUnavailable')}</div>
                     <div className="text-sm text-muted-foreground">
                       {t('filesView.error.switchToEditMode')}
                     </div>

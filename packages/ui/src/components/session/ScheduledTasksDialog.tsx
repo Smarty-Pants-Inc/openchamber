@@ -163,7 +163,7 @@ const toneStyle = (tone: StatusTone): React.CSSProperties => {
     return {};
   }
   return {
-    color: `var(--status-${tone})`,
+    color: `var(--status-${tone}-text, var(--status-${tone}))`,
     backgroundColor: `var(--status-${tone}-background)`,
     borderColor: `var(--status-${tone}-border)`,
   };
@@ -520,7 +520,7 @@ export function ScheduledTasksDialog() {
                     {status === 'running' ? (
                       <span
                         className="inline-flex items-center gap-1"
-                        style={{ color: 'var(--status-warning)' }}
+                        style={{ color: 'var(--status-warning-text, var(--status-warning))' }}
                       >
                         <Icon name="loader-4" className="h-3.5 w-3.5 animate-spin" />
                         {t('sessions.scheduledTasks.dialog.lastRun.runningNow')}
@@ -530,7 +530,7 @@ export function ScheduledTasksDialog() {
                         {meta.tone !== 'muted' ? (
                           <span
                             className="inline-flex items-center gap-1"
-                            style={{ color: `var(--status-${meta.tone})` }}
+                            style={{ color: `var(--status-${meta.tone}-text, var(--status-${meta.tone}))` }}
                           >
                             <Icon name={meta.Icon} className="h-3.5 w-3.5" />
                             {statusLabel}

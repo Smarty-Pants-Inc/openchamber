@@ -41,7 +41,7 @@ export const AuthExpiredBanner: React.FC = () => {
         role={expired ? 'alert' : 'status'}
         className={`oc-glass-popover oc-glass-floating flex items-center gap-3 rounded-lg px-3 py-2 ${expired ? 'pointer-events-auto' : 'pointer-events-none max-w-xl'}`}
       >
-        {expired && <Icon name="lock" className="size-4 flex-shrink-0" style={{ color: 'var(--status-error)' }} />}
+        {expired && <Icon name="lock" className="size-4 flex-shrink-0" style={{ color: 'var(--status-error-text, var(--status-error))' }} />}
         <span className="min-w-0 whitespace-normal typography-ui-label text-foreground">{t(messageKey)}</span>
         {expired && <Button size="xs" variant="outline" onClick={markReauthenticating} className="normal-case">
           {t('sessionAuth.expired.loginAction')}

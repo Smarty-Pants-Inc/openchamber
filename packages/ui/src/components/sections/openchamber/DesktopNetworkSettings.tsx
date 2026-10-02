@@ -452,11 +452,11 @@ export const DesktopNetworkSettings: React.FC = () => {
             info={t('settings.openchamber.desktopNetwork.field.allowLanAccessDescription')}
             description={(
               <>
-                <span className="block text-[var(--status-warning)]/85">
+                <span className="block text-status-warning-text/85">
                   {t('settings.openchamber.desktopNetwork.field.warning')}
                 </span>
                 {lanRequiresPassword || lanBlockedByMissingPassword ? (
-                  <span className="block text-[var(--status-warning)]/85">
+                  <span className="block text-status-warning-text/85">
                     {t('settings.openchamber.desktopNetwork.field.passwordRequiredWarning')}
                   </span>
                 ) : null}
@@ -467,7 +467,7 @@ export const DesktopNetworkSettings: React.FC = () => {
         </div>
 
         {error ? (
-          <div className="typography-micro text-[var(--status-error)]">{error}</div>
+          <div className="typography-micro text-status-error-text">{error}</div>
         ) : null}
 
         {lanUrl ? (

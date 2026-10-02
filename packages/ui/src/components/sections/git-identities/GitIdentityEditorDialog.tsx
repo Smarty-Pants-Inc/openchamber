@@ -303,7 +303,7 @@ export const GitIdentityEditorDialog: React.FC<GitIdentityEditorDialogProps> = (
               <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.gitIdentities.editor.field.userName')}</label>
-                  {!isGlobalProfile && <span className="text-[var(--status-error)] text-xs">*</span>}
+                  {!isGlobalProfile && <span className="text-status-error-text text-xs">*</span>}
                   <SettingsInfoHint contentClassName="max-w-xs">
                     {t('settings.gitIdentities.editor.field.userNameTooltip')}
                   </SettingsInfoHint>
@@ -322,7 +322,7 @@ export const GitIdentityEditorDialog: React.FC<GitIdentityEditorDialogProps> = (
               <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.gitIdentities.editor.field.emailAddress')}</label>
-                  {!isGlobalProfile && <span className="text-[var(--status-error)] text-xs">*</span>}
+                  {!isGlobalProfile && <span className="text-status-error-text text-xs">*</span>}
                   <SettingsInfoHint contentClassName="max-w-xs">
                     {t('settings.gitIdentities.editor.field.emailAddressTooltip')}
                   </SettingsInfoHint>
@@ -413,7 +413,7 @@ export const GitIdentityEditorDialog: React.FC<GitIdentityEditorDialogProps> = (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
                         <label className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.gitIdentities.editor.field.host')}</label>
-                        <span className="text-[var(--status-error)] text-xs">*</span>
+                        <span className="text-status-error-text text-xs">*</span>
                         <SettingsInfoHint contentClassName="max-w-xs">
                           {t('settings.gitIdentities.editor.field.hostTooltip')}
                         </SettingsInfoHint>
@@ -438,7 +438,7 @@ export const GitIdentityEditorDialog: React.FC<GitIdentityEditorDialogProps> = (
                 variant="outline"
                 size="sm"
                 onClick={() => setIsDeleteDialogOpen(true)}
-                className="text-[var(--status-error)] hover:text-[var(--status-error)] border-[var(--status-error)]/30 hover:bg-[var(--status-error)]/10 mr-auto"
+                className="text-status-error-text hover:text-status-error-text border-[var(--status-error)]/30 hover:bg-[var(--status-error)]/10 mr-auto"
               >
                 <Icon name="delete-bin" className="w-3.5 h-3.5 mr-1" /> {t('settings.common.actions.delete')}
               </Button>

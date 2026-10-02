@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
+import { unwindC1Theme } from './branding-c1-theme.mjs';
 
-const overlay = JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8'));
+// C1 unwinds before Forge and all earlier history, with complete parsed and byte pins.
+const overlay = unwindC1Theme(JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8')));
 const digest = value => createHash('sha256').update(value).digest('hex');
 const consumers = [
   'packages/ui/src/components/layout/Header.tsx',

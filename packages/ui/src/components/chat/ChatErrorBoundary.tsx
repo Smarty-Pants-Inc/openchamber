@@ -56,7 +56,7 @@ class ChatErrorBoundaryView extends React.Component<ChatErrorBoundaryViewProps, 
         <div className="flex items-center justify-center min-h-screen p-4">
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
-              <CardTitle className="flex items-center justify-center gap-2 text-destructive">
+              <CardTitle className="flex items-center justify-center gap-2 text-status-error-text">
                 <Icon name="chat-3" className="h-5 w-5" />
                 {this.props.texts.title}
               </CardTitle>

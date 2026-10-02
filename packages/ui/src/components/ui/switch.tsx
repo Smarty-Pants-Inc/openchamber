@@ -25,7 +25,7 @@ const Switch = React.forwardRef<
     <BaseSwitch.Thumb
       className={cn(
         'pointer-events-none flex items-center justify-center rounded-full bg-background shadow-none ring-0 transition-transform data-[checked]:translate-x-4 data-[unchecked]:translate-x-0',
-        loading && 'bg-status-warning text-background',
+        loading && 'bg-status-warning-solid text-status-warning-solid-foreground',
       )}
       style={{ width: '16px', height: '16px', minWidth: '16px', minHeight: '16px' }}
     >

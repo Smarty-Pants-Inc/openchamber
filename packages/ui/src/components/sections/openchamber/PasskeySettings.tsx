@@ -250,7 +250,7 @@ export const PasskeySettings: React.FC = () => {
 
       {errorMessage && (
         <div className="mt-1 py-1.5">
-          <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
+          <p className="typography-meta text-status-error-text">{errorMessage}</p>
         </div>
       )}
     </SettingsSection>

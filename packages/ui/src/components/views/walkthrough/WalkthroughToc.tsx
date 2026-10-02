@@ -62,7 +62,7 @@ const TocStop = ({
               isActive
                 ? 'bg-interactive-selection-foreground/20'
                 : isVisited
-                  ? 'bg-status-success/15 text-status-success'
+                  ? 'bg-status-success/15 text-status-success-text'
                   : 'bg-surface-muted text-muted-foreground'
             )}
           >
@@ -72,7 +72,7 @@ const TocStop = ({
           {stopView.isStale && (
             <Icon
               name="error-warning"
-              className="size-3 shrink-0 text-status-warning"
+              className="size-3 shrink-0 text-status-warning-text"
               aria-label={t('walkthrough.stop.staleShort')}
             />
           )}

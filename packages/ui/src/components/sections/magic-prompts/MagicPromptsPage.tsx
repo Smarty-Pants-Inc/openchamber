@@ -376,7 +376,7 @@ export const MagicPromptsPage: React.FC = () => {
               className="min-h-[220px] font-mono text-sm"
             />
             {isInvalidEmptyVisiblePrompt && (
-              <div className="typography-micro text-[var(--status-error)]">{t('settings.magicPrompts.page.validation.visiblePromptRequired')}</div>
+              <div className="typography-micro text-status-error-text">{t('settings.magicPrompts.page.validation.visiblePromptRequired')}</div>
             )}
 
             <div className="flex items-center justify-between gap-2">

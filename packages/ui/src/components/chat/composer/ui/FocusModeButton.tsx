@@ -38,7 +38,7 @@ export const FocusModeButton = React.memo(function FocusModeButton(props: FocusM
                         footerIconButtonClass,
                         'rounded-md',
                         isExpandedInput
-                            ? 'text-primary'
+                            ? 'text-primary-text'
                             : 'text-foreground hover:bg-[var(--interactive-hover)]/40'
                     )}
                     onMouseDown={(event) => {

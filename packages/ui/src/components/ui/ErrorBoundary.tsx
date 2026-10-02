@@ -80,7 +80,7 @@ class InnerErrorBoundary extends React.Component<InnerErrorBoundaryProps, ErrorB
         <div className="p-4 flex items-center justify-center min-h-screen">
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
-              <CardTitle className="flex items-center justify-center gap-2 text-destructive">
+              <CardTitle className="flex items-center justify-center gap-2 text-status-error-text">
                 <Icon name="error-warning" className="h-5 w-5" />
                 {strings.title}
               </CardTitle>

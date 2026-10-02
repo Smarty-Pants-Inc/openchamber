@@ -288,7 +288,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
               {isExpanded ? <Icon name="arrow-down-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-right-s" className="h-3.5 w-3.5" />}
             </span>
           ) : null}
-          <span className={cn('truncate text-[14px] font-normal leading-tight', isActive ? 'text-primary' : 'text-foreground')}>
+          <span className={cn('truncate text-[14px] font-normal leading-tight', isActive ? 'text-primary-text' : 'text-foreground')}>
             {sessionTitle}
           </span>
         </div>

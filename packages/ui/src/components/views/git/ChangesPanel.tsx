@@ -372,9 +372,9 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
             }
           >
             {isExpanded ? (
-              <Icon name="folder-open-fill" className="h-4 w-4 flex-shrink-0 text-primary/60" />
+              <Icon name="folder-open-fill" className="h-4 w-4 flex-shrink-0 text-primary-text/60" />
             ) : (
-              <Icon name="folder-3-fill" className="h-4 w-4 flex-shrink-0 text-primary/60" />
+              <Icon name="folder-3-fill" className="h-4 w-4 flex-shrink-0 text-primary-text/60" />
             )}
             <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground" title={directory.path}>
               {directory.name}
@@ -428,7 +428,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               size="sm"
               onClick={() => setRevertAllOpen(true)}
               disabled={isRevertingAll}
-              className="gap-1.5 text-[var(--status-error)] hover:bg-[var(--status-error)]/10 hover:text-[var(--status-error)]"
+              className="gap-1.5 text-status-error-text hover:bg-[var(--status-error)]/10 hover:text-status-error-text"
             >
               <Icon name="arrow-go-back" className="size-3.5" />
               {t('gitView.changes.revertAll')}
