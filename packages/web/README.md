@@ -56,6 +56,12 @@ Behavior settings can optionally inject a managed system-prompt optimizer on
 the next OpenCode restart. It is disabled by default and is not available for
 external OpenCode servers.
 
+### Embedded server response policy
+
+Server integrators can supply an optional HTTP response-policy callback through
+`startWebUiServer`. It runs before bootstrap and static responses without changing
+ordinary launches. See the [callback contract and validation commands](server/RESPONSE_POLICY.md).
+
 ### Tunnel behavior notes
 
 - One active tunnel per running Smarty Code instance (port).

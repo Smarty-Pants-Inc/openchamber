@@ -1,5 +1,6 @@
 import { PRODUCT_MARK, PRODUCT_NAME } from '../../../brand.generated.js';
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
+import { responsePolicyCacheControl } from '../http-response-policy.js';
 
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
   '&': '&amp;',
@@ -51,7 +52,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
           root: distPath,
           lastModified: false,
           acceptRanges: false,
-          headers: { 'Cache-Control': 'no-store' },
+          headers: { 'Cache-Control': responsePolicyCacheControl(res, 'no-store') },
         });
       };
       const sendCurrentHtml = sendCurrentFile('index.html');
@@ -59,9 +60,18 @@ export const createStaticRoutesRuntime = (dependencies) => {
       for (const filename of ['mobile.html', 'mini-chat.html', 'sw.js']) {
         staticApp.get(`/${filename}`, sendCurrentFile(filename));
       }
-      staticApp.use(express.static(distPath, { index: false }));
+      staticApp.use(express.static(distPath, {
+        index: false,
+        setHeaders: (res) => {
+          if (responsePolicyCacheControl(res, null) === null) return;
+          // send emits this supported hook before checking conditional freshness.
+          // A policy-bearing asset must include its bytes, not reuse a prior cached response.
+          delete res.req.headers['if-none-match'];
+          delete res.req.headers['if-modified-since'];
+        },
+      }));
       staticApp.get(/^(?!\/api|\/linear)(?:\/assets(?:\/.*)?|.*\.(?:js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map|wasm))$/, (_req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store'));
         res.status(404).type('text/plain').send('Not found');
       });
 

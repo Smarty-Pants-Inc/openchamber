@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +59,46 @@ test('HTML, JSON and YAML documentation preserve technical URLs with the committ
     ['links.yaml', `title: OpenChamber\nurl: ${url}\n`, `title: Smarty Code\nurl: ${url}\n`],
     ['frontmatter.mdx', `---\ntitle: OpenChamber\nurl: ${url}\n---\nOpenChamber\n`, `---\ntitle: Smarty Code\nurl: ${url}\n---\nSmarty Code\n`],
   ]);
+});
+
+test('response-policy ownership successors enumerate only six existing donor paths and retain predecessors', () => {
+  const overlay = JSON.parse(readFileSync(path.join(root, 'branding/http-response-policy-overlay.json'), 'utf8'));
+  assert.equal(overlay.sourceHead, '7a37d3a4b7ec75e64c8848bd7267333096c4eed1');
+  assert.equal(overlay.baseHead, '91f3e0c98dcb29e84d850798ce2380245d479743');
+  assert.deepEqual(overlay.files.map(entry => entry.path), ['branding/generated.json', 'packages/web/README.md',
+    'packages/web/server/index.js', 'packages/web/server/lib/opencode/pwa-manifest-routes.js',
+    'packages/web/server/lib/opencode/static-routes-runtime.js', 'scripts/apply-brand.mjs']);
+  assert.equal(new Set(overlay.files.map(entry => entry.path)).size, 6);
+  for (const entry of overlay.files) {
+    assert.match(entry.predecessorSha256, /^[a-f0-9]{64}$/);
+    assert.notEqual(entry.sha256, entry.predecessorSha256);
+    assert.ok(entry.note);
+  }
+});
+
+test('web response-policy README section is regenerated from the branding source exactly once', () => {
+  const fixture = mkdtempSync(path.join(os.tmpdir(), 'b1190-'));
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(root, 'branding/generated.json'), 'utf8'));
+    for (const file of ['branding/brand.json', 'branding/logo.svg', 'branding/symbol-template.svg',
+      'branding/generated.json', ...Object.keys(manifest.files)]) {
+      mkdirSync(path.dirname(path.join(fixture, file)), { recursive: true });
+      copyFileSync(path.join(root, file), path.join(fixture, file));
+    }
+    const web = path.join(fixture, 'packages/web/README.md');
+    writeFileSync(web, readFileSync(web, 'utf8').replace(/### Embedded server response policy\n[\s\S]*?(?=### Tunnel behavior notes)/, ''));
+    let output;
+    for (const args of [[], ['--check'], []]) {
+      const result = spawnSync(process.execPath, [path.join(root, 'scripts/apply-brand.mjs'), '--root', fixture, ...args],
+        { encoding: 'utf8', timeout: 20000 });
+      assert.equal(result.status, 0, result.stderr);
+      const current = readFileSync(web, 'utf8');
+      assert.equal(current.split('### Embedded server response policy').length, 2);
+      assert.ok(current.includes('(server/RESPONSE_POLICY.md)'));
+      if (output !== undefined) assert.equal(current, output);
+      output = current;
+    }
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
 test('owning README keeps the real integration repository destination', () => {
