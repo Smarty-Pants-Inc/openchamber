@@ -37,7 +37,10 @@ second global polling lifecycle.
 The global sessions cache is the complete source for active and archived
 coverage. Initialized directory stores only supply sessions missing from that
 cache. Live busy and retry state comes from `global-session-status`, never from
-the global cache or persisted history. A failed global or directory fetch keeps
+the global cache or persisted history. A row's ordinary run identity also comes
+from that status leaf. A changed generation/presentation ID renews native
+Working precedence even when busy continues across the idle-settle window.
+Identical busy polls and null targets keep the same completed run's Done stable. A failed global or directory fetch keeps
 existing data; it is never treated as an authoritative empty list.
 
 Web and desktop show managed Chats before optional Recent activity. Chats use
