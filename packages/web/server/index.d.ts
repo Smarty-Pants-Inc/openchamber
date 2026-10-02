@@ -45,8 +45,17 @@ export declare function startWebUiServer(
 export declare function gracefulShutdown(options?: { exitProcess?: boolean }): Promise<void>;
 export declare function setupProxy(app: Express): void;
 export declare function restartOpenCode(): Promise<void>;
-export declare function parseArgs(argv?: string[]): {
-  port: number;
+export interface ServeCliParserOptions {
+  argv?: string[];
+  env?: Record<string, string | undefined>;
+  defaultPort?: number;
+  cloudflareProvider?: string;
+  managedLocalMode?: string;
+}
+
+/** Same options-object contract used by the stock Node CLI. */
+export declare function parseArgs(options: ServeCliParserOptions): {
+  port: number | undefined;
   host?: string;
   uiPassword: string | null;
   tryCfTunnel: boolean;
@@ -55,4 +64,5 @@ export declare function parseArgs(argv?: string[]): {
   tunnelConfigPath?: string | null;
   tunnelToken?: string;
   tunnelHostname?: string;
+  apiOnly: boolean;
 };

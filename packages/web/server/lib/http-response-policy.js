@@ -1,5 +1,6 @@
 import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { z } from 'zod';
+import { validatedPolicyHeaderValue } from './http-policy-header-values.js';
 
 const DEADLINE_MS = 5000;
 const policyCacheControl = new WeakMap();
@@ -36,15 +37,7 @@ const validateHeaders = (result) => {
     validateHeaderName(name); validateHeaderValue(name, value);
     bytes += Buffer.byteLength(name) + Buffer.byteLength(value);
     const normalized = name.toLowerCase();
-    if (normalized === 'vary') for (const field of value.split(',')) validateHeaderName(field.trim());
-    if (normalized === 'cache-control') {
-      const directives = value.toLowerCase().split(',').map(directive => directive.trim());
-      if (!directives.includes('private') || !directives.includes('no-store')
-        || directives.some(directive => /^(public|s-maxage)(?:=|$)/.test(directive))) {
-        throw new Error('Response policy cache control must be private, no-store');
-      }
-    }
-    return Object.freeze([normalized, value]);
+    return Object.freeze([normalized, validatedPolicyHeaderValue(normalized, value)]);
   });
   if (bytes > 16 * 1024) throw new Error('Response policy headers are too large');
   return Object.freeze(headers);
