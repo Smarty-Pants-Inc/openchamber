@@ -11,7 +11,7 @@ export function StepDetail({ step, complete, actions, compact, mobile }: Props) 
   const { t } = useI18n();
   const guardedReopen = useInboxStore(s => s.guardedReopen);
   const { item, ordinal } = step;
-  const done = isStepDone(item), status = actions.statuses.get(item.id);
+  const done = isStepDone(item), status = actions.status(item);
   const snoozed = inboxItemState(item) === 'snoozed';
   const [, expireSnooze] = React.useReducer((revision: number) => revision + 1, 0);
   React.useEffect(() => {

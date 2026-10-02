@@ -93,7 +93,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
   const canReopen = !steps || guardedReopen;
   const [busy, setBusy] = React.useState(false), [error, setError] = React.useState<string | null>(null);
   const [reply, setReply] = React.useState<null | 'respond' | 'edit'>(null), [text, setText] = React.useState('');
-  const status = steps ? stepActions.statuses.get(item.id) : undefined;
+  const status = steps ? stepActions.status(item) : undefined;
   const locked = busy || status?.state === 'pending' || status?.state === 'uncertain';
   const allowed = (action: string) => item.actions.includes(action);
   const writeDisplayed = async (target: InboxItem, action: InboxAction, body: Record<string, string>) => {

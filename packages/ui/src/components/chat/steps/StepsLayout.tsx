@@ -4,8 +4,9 @@ import { isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from '@/lib/ru
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { groupInboxSteps, type InboxStepList } from '@/lib/inboxSteps';
 import { StepsRow } from './StepsRow';
+import type { StepsSheetDismiss } from './useStepsSheetBack';
 
-type Props = { children: React.ReactNode; mobile?: boolean };
+type Props = { children: React.ReactNode; mobile?: boolean; sheet?: StepsSheetDismiss };
 type BoundaryProps = Props & { lists: InboxStepList[]; scope: RuntimeRequestScope | null };
 type Snapshot = { node: HTMLElement; top: number; scroll: number; atEnd: boolean; focused: Element | null } | null;
 
@@ -33,13 +34,13 @@ class StepsAnchorBoundary extends React.Component<BoundaryProps> {
     const scope = this.props.scope;
     const actionKey = scope ? JSON.stringify([scope.runtimeKey, scope.transportGeneration, scope.authGeneration]) : 'retired';
     return <div ref={this.host} className="flex h-full min-h-0 flex-col" data-steps-layout="true">
-      <StepsRow key={actionKey} scope={scope} lists={this.props.lists} mobile={this.props.mobile} />
+      <StepsRow key={actionKey} scope={scope} lists={this.props.lists} mobile={this.props.mobile} sheet={this.props.sheet} />
       <div className="min-h-0 flex-1">{this.props.children}</div>
     </div>;
   }
 }
 
-export function StepsLayout({ children, mobile }: Props) {
+export function StepsLayout({ children, mobile, sheet }: Props) {
   const scope = useInboxStore(s => s.snapshotScope);
   useAuthSessionStore(s => s.recoveryGeneration);
   const current = scope !== null && isRuntimeRequestScopeCurrent(scope);
@@ -47,5 +48,5 @@ export function StepsLayout({ children, mobile }: Props) {
   const poisoned = useInboxStore(s => s.invalidStepGroups);
   // Inbox events only, never transcript/token updates; grouping is bounded to 99 ordinals per list.
   const lists = React.useMemo(() => current ? groupInboxSteps(items, poisoned) : [], [items, poisoned, current]);
-  return <StepsAnchorBoundary lists={lists} scope={scope} mobile={mobile}>{children}</StepsAnchorBoundary>;
+  return <StepsAnchorBoundary lists={lists} scope={scope} mobile={mobile} sheet={sheet}>{children}</StepsAnchorBoundary>;
 }

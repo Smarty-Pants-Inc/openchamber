@@ -423,14 +423,21 @@ export const useNativeMobileLifecycle = (onResume: () => void): void => {
   }, [onResume]);
 };
 
-export const useNativeAndroidBackButton = (onBack: () => boolean): void => {
+type NativeBackApp = {
+  addListener: (event: 'backButton', listener: () => void) => Promise<{ remove: () => Promise<void> }>;
+  minimizeApp: () => Promise<void>;
+};
+const loadNativeBackApp = async (): Promise<NativeBackApp> => (await import('@capacitor/app')).App;
+
+/** onBack closes the top-most open layer and returns true; otherwise the app minimizes like a native root screen. */
+export const useNativeAndroidBackButton = (onBack: () => boolean, loadApp: () => Promise<NativeBackApp> = loadNativeBackApp): void => {
   React.useEffect(() => {
     if (!isCapacitorMobileApp()) return;
 
     let disposed = false;
     let remove: (() => void) | null = null;
 
-    void import('@capacitor/app').then(async ({ App }) => {
+    void loadApp().then(async (App) => {
       if (disposed) return;
       const listener = await App.addListener('backButton', () => {
         if (onBack()) return;
@@ -447,5 +454,5 @@ export const useNativeAndroidBackButton = (onBack: () => boolean): void => {
       disposed = true;
       remove?.();
     };
-  }, [onBack]);
+  }, [loadApp, onBack]);
 };

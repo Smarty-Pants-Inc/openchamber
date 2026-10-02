@@ -19,6 +19,8 @@ const values = { window: win, document: win.document, navigator: win.navigator, 
 const previous = new Map(Object.keys(values).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
 const { StepsLayout } = await import('./StepsLayout');
+const { useStepsSheetBack } = await import('./useStepsSheetBack');
+const { useNativeAndroidBackButton } = await import('@/apps/mobileNativeChrome');
 const originalFetch = globalThis.fetch;
 afterAll(async () => {
   globalThis.fetch = originalFetch;
@@ -360,4 +362,41 @@ test('a write completing after a runtime/identity switch cannot publish into the
   expect(useInboxStore.getState().items).toEqual([other]); expect(gets).toBe(0);
   expect(view.host.textContent).toContain('0 of 1 done');
   await view.cleanup();
+});
+
+test('Android native Back closes the open phone All steps sheet before the shell minimizes the app', async () => {
+  const listeners: (() => void)[] = [];
+  let minimized = 0;
+  // The Capacitor App plugin as the shell's backButton hook sees it: one listener, and minimize as the fallback.
+  const app = {
+    addListener: async (_event: 'backButton', listener: () => void) => { listeners.push(listener); return { remove: async () => {} }; },
+    minimizeApp: async () => { minimized++; },
+  };
+  const loadApp = async () => app;
+  Object.defineProperty(win, 'Capacitor', { configurable: true, value: { isNativePlatform: () => true } });
+  function PhoneShell() {
+    const { sheet, closeSheet } = useStepsSheetBack();
+    useNativeAndroidBackButton(closeSheet, loadApp);
+    return <StepsLayout mobile sheet={sheet}><textarea aria-label="Draft" defaultValue="half-written draft" /></StepsLayout>;
+  }
+  useInboxStore.getState().setItems(true, []);
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<I18nProvider><PhoneShell /></I18nProvider>)); await settle();
+    await publish([item()]);
+    expect(listeners).toHaveLength(1);
+    await act(async () => button(host, 'All steps').click()); await settle();
+    expect(document.querySelector('select[aria-label="List"]') !== null).toBe(true);
+    await act(async () => listeners[0]!()); await settle();
+    expect(document.querySelector('select[aria-label="List"]') === null).toBe(true);
+    expect(minimized).toBe(0);
+    expect(host.querySelector('textarea')?.value).toBe('half-written draft');
+    // With the sheet closed, Back falls through to the shell, which minimizes.
+    await act(async () => listeners[0]!()); await settle();
+    expect(minimized).toBe(1);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    Reflect.deleteProperty(win, 'Capacitor');
+  }
 });

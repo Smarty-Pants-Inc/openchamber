@@ -8,15 +8,24 @@ import { isStepDone, selectStepList, type InboxStepList } from '@/lib/inboxSteps
 import { useInboxStore } from '@/lib/smartyInbox';
 import { isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { StepDetail } from './StepDetail';
+import type { StepsSheetDismiss } from './useStepsSheetBack';
 import { useStepActions } from './useStepActions';
 
-export function StepsRow({ lists, mobile, scope }: { lists: InboxStepList[]; mobile?: boolean; scope: RuntimeRequestScope | null }) {
+type Props = { lists: InboxStepList[]; mobile?: boolean; scope: RuntimeRequestScope | null; sheet?: StepsSheetDismiss };
+export function StepsRow({ lists, mobile, scope, sheet }: Props) {
   const { t } = useI18n();
   const [selected, setSelected] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const actions = useStepActions(scope);
   const snapshotValid = useInboxStore(s => s.snapshotValid);
   const guardedReopen = useInboxStore(s => s.guardedReopen);
+  // The open phone sheet is the top-most layer for the shell's native Back; a remount or close unregisters it.
+  React.useEffect(() => {
+    if (!mobile || !open || !sheet) return;
+    const close = () => setOpen(false);
+    sheet.current = close;
+    return () => { if (sheet.current === close) sheet.current = null; };
+  }, [mobile, open, sheet]);
   const list = scope && isRuntimeRequestScopeCurrent(scope) ? selectStepList(lists, selected) : undefined;
   // Keep the first selection even if the gateway's priority/newest ordering changes.
   React.useEffect(() => { if (list && list.key !== selected) setSelected(list.key); }, [list, selected]);

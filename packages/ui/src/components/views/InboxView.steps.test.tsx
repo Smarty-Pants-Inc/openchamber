@@ -15,6 +15,8 @@ const { createRoot } = await import('react-dom/client');
 const { InboxView } = await import('./InboxView');
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
+const { StepsLayout } = await import('@/components/chat/steps/StepsLayout');
+const { clearStepActionStatuses } = await import('@/lib/inboxStepActions');
 const originalFetch = globalThis.fetch;
 const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
 const open: InboxItem = { id: 'step:a', to: 'paul', title: 'Topic — instruction', source: 'steps:v1:a:01/01', actions: ['respond'],
@@ -34,7 +36,7 @@ afterEach(async () => {
   await unmount(); unmount = async () => {};
   globalThis.fetch = originalFetch;
   if (originalCrypto) Object.defineProperty(globalThis, 'crypto', originalCrypto);
-  toast.dismiss(); posts.length = 0;
+  toast.dismiss(); posts.length = 0; clearStepActionStatuses();
 });
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -239,4 +241,100 @@ test('ordinary Inbox Respond remains unguarded and ordinary resolved items retai
   host = await mount({ ...ordinary, resolved: { at: ordinary.updated } });
   await click(host, 'Reopen');
   expect(posts).toEqual([{ url: '/api/inbox/step%3Aa/reopen', body: {} }]);
+});
+
+// The pinned row stays mounted while the Inbox mounts conditionally (desktop and phone shells).
+const mountShell = async (inbox: boolean) => {
+  displayed = stored = open;
+  useInboxStore.getState().setItems(true, [open], { capabilities: { guardedReopen: true } });
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  const render = async (withInbox: boolean) => {
+    await act(async () => root.render(<I18nProvider><StepsLayout><p>chat</p></StepsLayout>
+      {withInbox && <InboxView onClose={() => {}} />}</I18nProvider>)); await settle();
+  };
+  unmount = async () => { await act(async () => root.unmount()); host.remove(); };
+  await render(inbox);
+  return { host, render };
+};
+const rowButton = (host: HTMLElement, label: string) =>
+  [...host.querySelectorAll<HTMLButtonElement>('[data-steps-row] button')].find(button => (button.getAttribute('aria-label') ?? button.textContent ?? '').startsWith(label));
+const inboxButton = (host: HTMLElement, label: string) =>
+  [...host.querySelectorAll<HTMLButtonElement>('article button')].find(button => button.textContent?.includes(label));
+const lossyGateway = (state: { online: boolean; holdPost?: Promise<void> }) => { globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (url.endsWith('/auth/url-token')) return Response.json({ token: 'fixture-token', expiresAt: Date.now() + 60_000 });
+  if (init?.method === 'POST') {
+    posts.push({ url, body: JSON.parse(String(init.body)) });
+    if (state.holdPost) await state.holdPost;
+    throw new Error('lost acknowledgement');
+  }
+  if (url === '/api/inbox/step%3Aa') {
+    if (!state.online) throw new Error('offline reconciliation');
+    return Response.json({ item: open });
+  }
+  return Response.json({ person: 'paul', items: [open], capabilities: { guardedReopen: true } });
+}; };
+
+test('an uncertain Inbox response keeps the row locked after closing Inbox and again after reopening it', async () => {
+  const state = { online: false };
+  lossyGateway(state);
+  const shell = await mountShell(true);
+  await respond(shell.host);
+  expect(posts).toHaveLength(1);
+  expect(inboxButton(shell.host, 'Check status')).toBeDefined();
+  await shell.render(false);
+  expect(shell.host.querySelector('article')).toBeNull();
+  // Closing Inbox must not hand the row a fresh, unlocked action state for the same item.
+  // Compare a boolean: printing a happy-dom element on failure does not terminate.
+  expect(rowButton(shell.host, 'Mark step') === undefined).toBe(true);
+  expect(rowButton(shell.host, 'Check status')).toBeDefined();
+  await act(async () => rowButton(shell.host, 'Mark step')?.click()); await settle();
+  expect(posts).toHaveLength(1);
+  await shell.render(true);
+  expect(inboxButton(shell.host, 'Check status')).toBeDefined();
+  expect(inboxButton(shell.host, 'Respond')?.disabled).toBe(true);
+  expect(posts).toHaveLength(1);
+  // Only an explicit successful read releases the lock, for both entry points.
+  state.online = true;
+  await act(async () => rowButton(shell.host, 'Check status')!.click()); await settle();
+  expect(inboxButton(shell.host, 'Respond')?.disabled).toBe(false);
+  expect(rowButton(shell.host, 'Mark step')?.disabled).toBe(false);
+  expect(posts).toHaveLength(1);
+});
+
+test('an uncertain row Done keeps the Inbox locked when the Inbox opens afterwards', async () => {
+  const state = { online: false };
+  lossyGateway(state);
+  const shell = await mountShell(false);
+  await act(async () => rowButton(shell.host, 'Mark step')!.click()); await settle();
+  expect(posts).toHaveLength(1);
+  expect(rowButton(shell.host, 'Check status')).toBeDefined();
+  await shell.render(true);
+  expect(shell.host.querySelector('article')?.getAttribute('aria-label')).toBe(open.title);
+  expect(inboxButton(shell.host, 'Check status')).toBeDefined();
+  expect(inboxButton(shell.host, 'Respond')?.disabled).toBe(true);
+  await act(async () => inboxButton(shell.host, 'Respond')!.click()); await settle();
+  expect(shell.host.querySelector('textarea')).toBeNull();
+  expect(posts).toHaveLength(1);
+  state.online = true;
+  await click(shell.host, 'Check status');
+  expect(inboxButton(shell.host, 'Respond')?.disabled).toBe(false);
+  expect(rowButton(shell.host, 'Mark step')?.disabled).toBe(false);
+});
+
+test('closing Inbox while its Steps write is still pending keeps the row from dispatching another write', async () => {
+  let release!: () => void;
+  const state = { online: true, holdPost: new Promise<void>(resolve => { release = resolve; }) };
+  lossyGateway(state);
+  const shell = await mountShell(true);
+  await respond(shell.host);
+  expect(posts).toHaveLength(1);
+  await shell.render(false);
+  expect(shell.host.querySelector('[data-steps-row]')?.textContent).toContain('Saving');
+  expect(rowButton(shell.host, 'Mark step')?.disabled).toBe(true);
+  await act(async () => rowButton(shell.host, 'Mark step')!.click()); await settle();
+  expect(posts).toHaveLength(1);
+  await act(async () => release()); await settle();
+  expect(posts).toHaveLength(1);
 });
