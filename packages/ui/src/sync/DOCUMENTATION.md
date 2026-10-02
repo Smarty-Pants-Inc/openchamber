@@ -371,6 +371,8 @@ Rules:
 4. Components must not read `currentSessionDirectory` to build request or queue keys; use `getDirectoryForSession()` so every consumer resolves identically.
 5. A disagreement between sources is logged once per session, and `__opencodeDebug.diagnoseSessionDirectory()` reports every source in precedence order.
 
+`native-draft-identity.ts` owns the raw selected-ID lookup shared by native assert, prepare, prepared and start, and the composer identity view. It maps only the applied `visibleProjects` catalog, keeps explicit overrides raw and reads project paths eagerly for the project policy. SDK fallback stays at the original prepared/start boundaries, including start's override short-circuit. Root-or-parented-child admission, creation guards and retained outcomes are unchanged.
+
 ## Session action rules
 
 Session actions live in `session-actions.ts` and are the canonical place for SDK-calling session mutations that affect global session lists.
