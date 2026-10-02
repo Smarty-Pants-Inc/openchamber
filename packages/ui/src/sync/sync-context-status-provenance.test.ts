@@ -135,6 +135,34 @@ test("#1116 control: unchanged empty directory response still clears a sibling a
   expect(useGlobalSessionStatusStore.getState().statusById.has(sibling)).toBe(false)
   expect(useGlobalSessionStatusStore.getState().activeSessionIds.has(sibling)).toBe(false)
 })
+test("#1129 empty single-candidate resync settles an old managed sibling's global lifecycle only", async () => {
+  const id = "1129-ordinary", sibling = "1129-old-managed", store = child()
+  seed(store, id, ordinary)
+  store.setState({ session: [session(sibling)] }); event(store, sibling, busy)
+  const ownerBefore = { view: view(store, id), lifecycle: lifecycle(id) }, siblingBefore = lifecycle(sibling)
+  expect(siblingBefore.start).toBeDefined(); expect(siblingBefore.rank).toBeDefined()
+  const pending = pendingRead(store, id); await pending.entered
+  const childBefore = store.getState()
+  pending.release({}); await pending.result
+
+  expect({ view: view(store, id), lifecycle: lifecycle(id) }).toEqual(ownerBefore)
+  expect(useGlobalSessionStatusStore.getState().statusById.has(sibling)).toBe(false)
+  expect(useGlobalSessionStatusStore.getState().activeSessionIds.has(sibling)).toBe(false)
+  const settled = lifecycle(sibling)
+  expect(settled.start).toBeUndefined(); expect(settled.settled).toBeDefined()
+  expect(settled.rank).toBeGreaterThan(siblingBefore.rank ?? 0)
+  expect(store.getState().session_status[sibling]).toEqual(busy)
+  expect(store.getState().session_status).toBe(childBefore.session_status)
+  expect(store.getState().message).toBe(childBefore.message); expect(store.getState().part).toBe(childBefore.part)
+
+  const globalAfter = useGlobalSessionStatusStore.getState(), orderingAfter = useSessionOrderingStore.getState()
+  const timingAfter = useSessionActivityTimingStore.getState()
+  await resyncDirectorySessionStatuses(A, store, [id], "authoritative")
+  expect(lifecycle(sibling)).toEqual(settled)
+  expect(useGlobalSessionStatusStore.getState()).toBe(globalAfter)
+  expect(useSessionOrderingStore.getState()).toBe(orderingAfter)
+  expect(useSessionActivityTimingStore.getState()).toBe(timingAfter)
+})
 test("#1116 control: current explicit active snapshots publish candidates and raw siblings", async () => {
   const id = "1116-current", sibling = "1116-current-sibling", store = child()
   const pending = pendingRead(store, id); await pending.entered
