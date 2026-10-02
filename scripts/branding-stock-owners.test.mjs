@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import './branding-managed-catalog.test.mjs';
+import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFileSync(path.join(root, file));
 const json = (file) => JSON.parse(read(file).toString());
@@ -47,7 +48,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     assert.ok(entry.reason, entry.path);
     assert.equal(entry.brandingSha256, original.get(entry.path)?.outputSha256, entry.path);
     assert.match(entry.behaviorSha256, /^[a-f0-9]{64}$/, entry.path);
-    assert.equal(sha256(read(entry.path)), entry.combinedSha256, entry.path);
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256), entry.path);
   }
 });
 
@@ -146,7 +147,7 @@ test('human auth successor retains both earlier overlapping behavior hashes', ()
   assert.equal(index.preHumanAuthCombinedSha256, '28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c');
   for (const entry of overlay.files.filter(entry => entry.humanAuthSha256)) {
     assert.equal(entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256, entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.humanHostBoundarySha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256);
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.humanHostBoundarySha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256));
   }
 });
 
@@ -238,7 +239,7 @@ test('every donor file/hunk has a disposition and the reviewed output has not dr
     }
     const exists = existsSync(path.join(root, entry.path));
     assert.equal(exists ? sha256(read(entry.path)) : null,
-      overlays.get(entry.path)?.combinedSha256 ?? entry.outputSha256, entry.path);
+      currentOutput(entry.path, overlays.get(entry.path)?.combinedSha256 ?? entry.outputSha256), entry.path);
   }
 });
 
@@ -429,7 +430,7 @@ test('the notification lookup\'s session directory binds its exact fix commit ov
   assert.deepEqual(overlay.files.filter(file => file.notificationAuthSha256).map(file => file.path), ['packages/web/server/index.js']);
   const entry = overlays.get('packages/web/server/index.js');
   assert.equal(entry.notificationAuthSha256, entry.preHumanHostBoundaryCombinedSha256);
-  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256));
   assert.equal(entry.preNotificationAuthCombinedSha256, '3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2');
 });
 
@@ -554,7 +555,7 @@ test('human Host boundary binds exactly two successors and preserves every histo
     assert.equal(entry.preHumanHostBoundaryCombinedSha256, predecessor, file);
     assert.equal(entry.humanHostBoundarySha256, successor, file);
     assert.equal(entry.combinedSha256, entry.humanSessionLifetimeSha256 ?? successor, file);
-    assert.equal(sha256(read(file)), entry.humanSessionLifetimeSha256 ?? successor, file);
+    assert.equal(sha256(read(file)), currentOutput(file, entry.humanSessionLifetimeSha256 ?? successor), file);
     assert.ok(entry.humanHostBoundaryNote, file);
     const original = historical.files.find(candidate => candidate.path === file);
     original.combinedSha256 = predecessor;

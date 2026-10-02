@@ -3,6 +3,7 @@ import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-c
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 import { FILE_MIME_MAP, MAX_SERVE_BYTES, mintPreviewCapability, PREVIEW_CSP } from './preview-capability.js';
+import { appendContentSecurityPolicy, responsePolicyCacheControl } from '../http-response-policy.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -1147,11 +1148,11 @@ export const registerFsRoutes = (app, dependencies) => {
       }
 
       const content = await fsPromises.readFile(canonicalPath);
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store'));
       // Opened as a document (the Files view's PDF iframe loads this URL), a raw file never runs scripts: the type comes
       // from the canonical target, so a .pdf link to an SVG or HTML file is inert. Chrome shows no PDF inside a sandboxed
       // document, so a real PDF is the one exception; its scripts run in the PDF viewer, not in the app (smarty-code#382).
-      if (mimeType !== 'application/pdf') res.setHeader('Content-Security-Policy', 'sandbox');
+      if (mimeType !== 'application/pdf') appendContentSecurityPolicy(res, 'sandbox');
       if (resolved.granted) {
         res.setHeader('Referrer-Policy', 'no-referrer');
       }
@@ -1194,7 +1195,7 @@ export const registerFsRoutes = (app, dependencies) => {
       const folder = path.dirname(canonicalPath);
       if (path.parse(folder).root === folder) return res.status(403).json({ error: 'A file at a filesystem root cannot be previewed' });
       const capability = mintPreviewCapability(folder);
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store'));
       return res.json({ url: `/api/fs/preview/${capability}/${encodeURIComponent(path.basename(canonicalPath))}` });
     } catch (error) {
       if (error && typeof error === 'object' && error.code === 'ENOENT') return res.status(404).json({ error: 'File not found' });
@@ -1241,10 +1242,10 @@ export const registerFsRoutes = (app, dependencies) => {
       const ext = path.extname(canonicalPath).toLowerCase();
       const mimeType = FILE_MIME_MAP[ext] || 'application/octet-stream';
       const content = await fsPromises.readFile(canonicalPath);
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store'));
       res.setHeader('X-Content-Type-Options', 'nosniff');
       // Opened as a document, a served file runs sandboxed with an opaque origin, never as the app (smarty-code#382).
-      res.setHeader('Content-Security-Policy', PREVIEW_CSP);
+      appendContentSecurityPolicy(res, PREVIEW_CSP);
       return res.type(mimeType).send(content);
     } catch (error) {
       const err = error;
