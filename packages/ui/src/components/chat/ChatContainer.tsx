@@ -54,7 +54,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { SessionPositions } from '@/sync/session-message-loader';
 import { ScrollToStartButton } from './components/ScrollToStartButton';
 import { WINDOW_RECORDS } from './lib/gapWindow';
-import { createWindowQueue, type Window } from './lib/windowQueue';
+import { createWindowQueue, type WindowRequest } from './lib/windowQueue';
 import { useStreamingStore } from '@/sync/streaming';
 import {
     useSessionMessageCount,
@@ -230,7 +230,7 @@ type ChatViewportProps = {
     /** smarty-code#583: the whole session as positions, and the window loader. */
     positions?: SessionPositions;
     positionOf?: (messageId: string) => number | undefined;
-    onLoadWindow?: (windows: Window[]) => void;
+    onLoadWindow?: WindowRequest;
 };
 
 const ChatViewport = React.memo(({
@@ -865,7 +865,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     currentWindowTarget.current = windowTarget;
     // One window read at a time per session, latest wins; another session's requests never enter this one's loop.
     const loadWindow = React.useMemo(() => (windowTarget
-        ? createWindowQueue((start, limit) => messageLoader.loadAt(windowTarget, start, limit), () => currentWindowTarget.current === windowTarget)
+        ? createWindowQueue((start, limit) => messageLoader.loadAt(windowTarget, start, limit), () => currentWindowTarget.current === windowTarget,
+            (trigger) => !messageLoader.getSnapshot(windowTarget).positions?.ranges.some(range => range.start <= trigger.start && range.end >= trigger.end))
         : () => undefined), [messageLoader, windowTarget]);
     const goToBeginning = React.useCallback(() => {
         if (!windowTarget) return;

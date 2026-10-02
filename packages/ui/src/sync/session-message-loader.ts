@@ -1277,6 +1277,23 @@ export class SessionMessageLoader {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
     const entry = this.getEntry(normalized)
+    // Only committed ranges of the current index epoch are authority. A loaded start does not cover a missing suffix.
+    const missing = gapsOf(entry.snapshot.positions?.ranges ?? [], at + limit)
+      .map(range => ({ start: Math.max(at, range.start), end: range.end }))
+      .filter(range => range.end > range.start)
+    if (!missing.length) return Promise.resolve()
+    if (missing.length !== 1 || missing[0]!.start !== at || missing[0]!.end !== at + limit) {
+      const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch
+      const store = this.childStores.getChild(normalized.directory)
+      return (async () => {
+        for (const range of missing) {
+          if (this.disposed || this.sdkEpoch !== sdkEpoch || entry.windowGeneration !== generation
+            || this.childStores.getChild(normalized.directory) !== store) return
+          // Recheck coverage before each dispatch in case another read committed while the previous part loaded.
+          await this.loadAt(normalized, range.start, range.end - range.start)
+        }
+      })()
+    }
     const key = `${at}:${limit}`
     const pending = entry.windowLoads.get(key)
     if (pending) return pending

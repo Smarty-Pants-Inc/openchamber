@@ -6,7 +6,8 @@ import { fakeMessagesClient, record, target } from "./session-message-loader-rep
 // smarty-code#583: the gateway's range read (?at=, x-smarty-at / x-smarty-total / x-smarty-index-epoch) gives every
 // loaded record its position in the whole session, so the page can size the list to the session and load any window.
 function gateway(size: number, cursors = true) {
-  const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[],
+  const windows: { start: number; end: number }[] = []
+  const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[], windows,
     /** The next reads answer without positions (the index is still building). */
     unindexed: 0,
     /** Holds the next window read's answer (computed now, delivered on release). */
@@ -21,6 +22,7 @@ function gateway(size: number, cursors = true) {
     const end = at !== undefined ? Math.min(g.branch.length, at + limit)
       : input.before ? g.branch.indexOf(JSON.parse(atob(input.before)).before) : g.branch.length
     const start = at !== undefined ? at : Math.max(0, end - limit)
+    if (input.$query_at !== undefined && input.$query_at >= 0) g.windows.push({ start, end })
     g.reads.push(input.$query_at !== undefined && input.$query_at >= 0 ? `at=${start}` : input.before ? "older" : "tail")
     const headers = new Headers(g.unindexed > 0 ? {} : { "x-smarty-at": String(start), "x-smarty-total": String(g.branch.length), "x-smarty-index-epoch": g.epoch })
     if (g.unindexed > 0) g.unindexed--
@@ -39,6 +41,33 @@ function gateway(size: number, cursors = true) {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+test("a demand overlapping committed coverage reads only its missing suffix; fully covered repeats make no GET", async () => {
+  const s = gateway(4_000)
+  try {
+    await s.loader.loadAt(target, 1942, 500)
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 1942, end: 2442 }])
+    s.g.windows.length = 0
+    await s.loader.loadAt(target, 2200, 500)
+    expect(s.g.windows).toEqual([{ start: 2442, end: 2700 }])
+    await s.loader.loadAt(target, 2200, 500)
+    await s.loader.loadAt(target, 1942, 758)
+    expect(s.g.windows).toEqual([{ start: 2442, end: 2700 }])
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 1942, end: 2700 }])
+  } finally { s.done() }
+})
+
+test("a demand spanning committed islands reads every uncovered part and none of the islands", async () => {
+  const s = gateway(4_000)
+  try {
+    await s.loader.loadAt(target, 2100, 100)
+    await s.loader.loadAt(target, 2300, 100)
+    s.g.windows.length = 0
+    await s.loader.loadAt(target, 2000, 500)
+    expect(s.g.windows).toEqual([{ start: 2000, end: 2100 }, { start: 2200, end: 2300 }, { start: 2400, end: 2500 }])
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 2000, end: 2500 }])
+  } finally { s.done() }
+})
 
 test("the first page tells the session's size and where the page sits in it", async () => {
   const s = gateway(10_000)
