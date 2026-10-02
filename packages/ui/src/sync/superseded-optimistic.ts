@@ -10,6 +10,11 @@ type MessageRecord = { info: Message; parts: Part[] }
 const echoSchema = z.object({
   metadata: z.object({ smartyCodeEchoOf: z.string().min(1).max(256) }),
 })
+const nativeAliasSchema = z.object({ metadata: z.object({
+  pi: z.object({ entryID: z.string().min(1).max(256) }),
+  smartyCodeEchoOf: z.string().min(1).max(256).optional(),
+  smartyVoice: z.object({ start: z.boolean().optional() }).optional(),
+}) })
 
 // Immutable part buckets are replaced on arrival/update. Cache only content readiness,
 // not linkage, so metadata updates still take effect with an unchanged parts reference.
@@ -32,15 +37,28 @@ function hasDisplayableUserContent(parts: Part[]): boolean {
 
 /**
  * Hide a pending bubble only while its explicitly linked native user entry has displayable content in the same session.
- * Linkage can arrive on any normal record update; text, timestamps and ID prefixes are not ownership evidence.
- * This is only a view projection: records, save metadata and optimistic confirmation remain untouched.
+ * The following durable alias may then replace its raw native-ID representation once its content is displayable.
+ * Exact same-session native-entry metadata proves representation identity, not receipt or author ownership.
+ * Text, timestamps and ID prefixes prove nothing. This view leaves records, save metadata and confirmation untouched.
  */
 export function withoutSupersededOptimistic<T extends MessageRecord>(records: T[]): T[] {
-  if (!records.some((record) => record.info.role === "user" && optimisticMessageRecords.has(record.info))) return records
-
+  const native = new Map<Message, z.infer<typeof nativeAliasSchema>["metadata"]>()
+  const aliasesBySession = new Map<string, Map<string, { id: string; ready: boolean } | null>>()
   const echoesBySession = new Map<string, Set<string>>()
   for (const { info, parts } of records) {
     if (info.role !== "user" || optimisticMessageRecords.has(info)) continue
+    const metadata = nativeAliasSchema.safeParse(info).data?.metadata
+    if (metadata && !metadata.smartyVoice?.start) {
+      native.set(info, metadata)
+      if (info.id !== metadata.pi.entryID && metadata.smartyCodeEchoOf === undefined) {
+        let aliases = aliasesBySession.get(info.sessionID)
+        if (!aliases) aliasesBySession.set(info.sessionID, aliases = new Map())
+        const entry = metadata.pi.entryID
+        const previous = aliases.get(entry)
+        aliases.set(entry, aliases.has(entry) && previous?.id !== info.id ? null
+          : { id: info.id, ready: hasDisplayableUserContent(parts) })
+      }
+    }
     const echoOf = echoSchema.safeParse(info).data?.metadata.smartyCodeEchoOf
     if (echoOf === undefined || echoOf === info.id || !hasDisplayableUserContent(parts)) continue
     let echoes = echoesBySession.get(info.sessionID)
@@ -50,9 +68,16 @@ export function withoutSupersededOptimistic<T extends MessageRecord>(records: T[
     }
     echoes.add(echoOf)
   }
-  if (echoesBySession.size === 0) return records
+  if (echoesBySession.size === 0 && aliasesBySession.size === 0) return records
 
-  const shown = records.filter(({ info }) => info.role !== "user" || !optimisticMessageRecords.has(info)
-    || !echoesBySession.get(info.sessionID)?.has(info.id))
+  const shown = records.filter(({ info }) => {
+    if (info.role !== "user") return true
+    if (optimisticMessageRecords.has(info)) return !echoesBySession.get(info.sessionID)?.has(info.id)
+    const metadata = native.get(info), alias = aliasesBySession.get(info.sessionID)?.get(info.id)
+    // Only two representations of the SAME native user entry; this does not bind input or infer an author.
+    // A revoked marker may be absent. An explicit conflicting marker or competing aliases prove nothing.
+    return !metadata || metadata.pi.entryID !== info.id || !alias?.ready
+      || (metadata.smartyCodeEchoOf !== undefined && metadata.smartyCodeEchoOf !== alias.id)
+  })
   return shown.length === records.length ? records : shown
 }

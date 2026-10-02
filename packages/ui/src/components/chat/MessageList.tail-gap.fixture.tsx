@@ -30,10 +30,11 @@ const registry = globalThis as typeof globalThis & {
 };
 const RuntimeContext = registry.__openchamber_sync_runtime_context__;
 const SystemContext = registry.__openchamber_sync_context__;
-const summary = (items: FullRecord[]) => items.map(({ info, parts }) => ({ id: info.id,
-  parts: parts.map((part) => ({ id: part.id, type: part.type, displayable: part.type === 'text' && part.text === glyph })) }));
+const summarize = (items: FullRecord[], text: string) => items.map(({ info, parts }) => ({ id: info.id,
+  parts: parts.map((part) => ({ id: part.id, type: part.type, displayable: part.type === 'text' && part.text === text })) }));
 
-export async function mount(initial = [record('A')], at = 0, total = at + initial.length) {
+export async function mount(initial = [record('A')], at = 0, total = at + initial.length, observedGlyph = glyph) {
+  const summary = (items: FullRecord[]) => summarize(items, observedGlyph);
   const children = new ChildStoreManager();
   let page = initial, epoch = 'P', history = 'H', start = at, count = total, held = false;
   const releases: Array<() => void> = [], requests: Array<{ method: string; path: string; query: string; epoch: string; history: string; at: number; total: number; records: ReturnType<typeof summary> }> = [];
@@ -42,7 +43,7 @@ export async function mount(initial = [record('A')], at = 0, total = at + initia
     const response = Response.json(page, { headers: { 'x-smarty-at': String(start), 'x-smarty-total': String(count),
       'x-smarty-index-epoch': epoch, 'x-smarty-history-epoch': history,
       'x-smarty-ordinary-view': `ov2_${'a'.repeat(64)}` } });
-    if (page.some((item) => !item.parts.some((part) => part.type === 'text' && part.text === glyph))) throw new Error('NOT RED: HTTP record lacks full glyph parts');
+    if (page.some((item) => !item.parts.some((part) => part.type === 'text' && part.text === observedGlyph))) throw new Error('NOT RED: HTTP record lacks full glyph parts');
     requests.push({ method: request.method, path: url.pathname, query: url.search, epoch, history, at: start, total: count, records: summary(page) });
     if (held) await new Promise<void>((resolve) => releases.push(resolve));
     return response;
@@ -99,14 +100,14 @@ export async function mount(initial = [record('A')], at = 0, total = at + initia
         for (const row of rows) {
           const walker = document.createTreeWalker(row, 4);
           let text = walker.nextNode();
-          while (text && !text.textContent?.includes(glyph)) text = walker.nextNode();
+          while (text && !text.textContent?.includes(observedGlyph)) text = walker.nextNode();
           for (let node = text?.parentElement; node; node = node.parentElement) {
             const style = getComputedStyle(node);
             if (style.opacity === '0' || node.classList.contains('opacity-0') || style.display === 'none' || style.visibility === 'hidden') hidden.push(`${node.tagName}:${node.getAttribute('style')}:${node.className}`);
             if (node === host) break;
           }
         }
-        return { id: info.id, position: loader.positionOf(target, info.id), glyphs: rows.filter((row) => row.textContent?.includes(glyph)).length, hidden };
+        return { id: info.id, position: loader.positionOf(target, info.id), glyphs: rows.filter((row) => row.textContent?.includes(observedGlyph)).length, hidden };
       }), requests: [...requests] };
   };
   const emit = (event: Event) => handleEvent(target.directory, event, children, routing, runtimeKey);
@@ -131,6 +132,8 @@ export async function mount(initial = [record('A')], at = 0, total = at + initia
     throw new Error(`NOT RED: real glyph never settled ${id}: ${JSON.stringify(observe())}`);
   };
   return { observe, frame, settle, stream, index, configure, close,
+    info: (item: FullRecord) => act(async () => emit({ id: `info-${item.info.id}`, type: 'message.updated', properties: { sessionID: target.sessionID, info: item.info } })),
+    part: (part: Part) => act(async () => emit({ id: `part-${part.id}`, type: 'message.part.updated', properties: { part, sessionID: target.sessionID, time: Date.now() } })),
     hold: () => { held = true; },
     remove: (id: string) => act(async () => emit({ id: `remove-${id}`, type: 'message.removed', properties: { sessionID: target.sessionID, messageID: id } })),
     release: () => act(async () => { release(); await loader.refreshTail(target, 50); }),

@@ -105,3 +105,47 @@ test('full-parts omitted live-tail gap must not remount an already painted canon
     expect(interval.map(identity)).toEqual(interval.map(() => identity(grown)));
   } finally { await s.close(); }
 }, 15000);
+
+// Share the owning per-file environment hooks; do not re-import their cached registration in other test files.
+// Real public loader/reducer/hooks/list/Legend glyph checks; synthetic frame boundaries, not served paint.
+for (const marked of [true, false]) test(`body-ready native alias handoff remains one glyph (${marked ? 'marked' : 'revoked marker'})`, async () => {
+  const e = record('E', 1, marked ? 'C' : undefined), c = record('C', 1);
+  const metadata = marked ? { pi: { entryID: 'E' }, smartyCodeEchoOf: 'C' } : { pi: { entryID: 'E' } };
+  Object.assign(e.info, { metadata });
+  Object.assign(c.info, { metadata: { pi: { entryID: 'E' } } });
+  const s = await mount([e]);
+  const frames: ReturnType<typeof s.observe>[] = [];
+  try {
+    await s.settle('E'); frames.push(await s.frame('RAW body-ready'));
+    s.configure([c]); s.hold();
+    await s.info(c); frames.push(await s.frame('CANONICAL INFO without parts'));
+    for (const part of c.parts) { await s.part(part); frames.push(await s.frame('CANONICAL full PART before raw removal')); }
+    await s.remove('E'); frames.push(await s.frame('RAW removal after canonical body'));
+    await s.release(); await s.settle('C'); frames.push(await s.frame('CANONICAL full HTTP acceptance'));
+    console.log('ALIAS_GLYPH_FACTS', JSON.stringify({ marked, frames, nativeAndPaintNotQualified: true }));
+  } finally { await s.close(); }
+  expect(frames.length).toBe(5);
+  expect(frames.map(f => f.rows.filter(r => r.glyphs === 1 && r.hidden.length === 0).map(r => r.id)))
+    .toEqual([['E'], ['E'], ['C'], ['C'], ['C']]);
+}, 15000);
+
+// Distinct native entries are two Sends, regardless of equal text; synthetic frames, not served paint.
+test('equal-text distinct entries keep two glyph rows while only one canonicalizes', async () => {
+  const a = record('E1', 1), b = record('E2', 2), c = record('C1', 1);
+  Object.assign(a.info, { metadata: { pi: { entryID: 'E1' }, smartyCodeEchoOf: 'C1' } });
+  Object.assign(b.info, { metadata: { pi: { entryID: 'E2' } } });
+  Object.assign(c.info, { metadata: { pi: { entryID: 'E1' } } });
+  const s = await mount([a, b]);
+  const frames: ReturnType<typeof s.observe>[] = [];
+  try {
+    await s.settle('E1'); await s.settle('E2'); frames.push(await s.frame('TWO distinct native entries'));
+    s.configure([c, b]); s.hold();
+    await s.info(c); frames.push(await s.frame('ONLY E1 has canonical INFO'));
+    for (const part of c.parts) { await s.part(part); frames.push(await s.frame('ONLY E1 canonical body ready')); }
+    await s.remove('E1'); frames.push(await s.frame('ONLY E1 raw removed'));
+    await s.release(); await s.settle('C1'); await s.settle('E2'); frames.push(await s.frame('TWO full HTTP records'));
+    console.log('DISTINCT_ALIAS_GLYPH_FACTS', JSON.stringify(frames));
+  } finally { await s.close(); }
+  expect(frames.map(f => f.rows.filter(r => r.glyphs === 1 && r.hidden.length === 0).map(r => r.id)))
+    .toEqual([['E1', 'E2'], ['E1', 'E2'], ['C1', 'E2'], ['C1', 'E2'], ['C1', 'E2']]);
+}, 15000);
