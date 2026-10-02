@@ -1,13 +1,12 @@
 name: bot-help
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
 
 jobs:
   help:
     if: github.event.comment.user.login != 'openchamber-bot[bot]' && (github.event.comment.body == '@openchamber-bot help' || startsWith(github.event.comment.body, '@openchamber-bot help '))
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     permissions:
       issues: write
     steps:

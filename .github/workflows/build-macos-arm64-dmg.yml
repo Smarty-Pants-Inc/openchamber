@@ -18,6 +18,7 @@ on:
 
 jobs:
   build-macos-dmg-arm64-electron:
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     name: Build Electron DMG (arm64, ${{ inputs.macos_version }})
     runs-on: ${{ inputs.macos_version }}
     steps:

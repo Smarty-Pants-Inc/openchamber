@@ -1,8 +1,7 @@
 name: bot-summarize
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
 
 concurrency:
   group: bot-summarize-${{ github.event_name }}-${{ github.event.issue.number }}
@@ -11,7 +10,7 @@ concurrency:
 jobs:
   summarize:
     if: github.event.comment.user.login != 'openchamber-bot[bot]' && (github.event.comment.body == '@openchamber-bot summarize' || startsWith(github.event.comment.body, '@openchamber-bot summarize '))
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     permissions:
       contents: read
       issues: write

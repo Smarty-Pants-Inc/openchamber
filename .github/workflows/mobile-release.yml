@@ -16,36 +16,7 @@ on:
         required: false
         type: string
       upload_github_release:
-        description: Upload Android artifacts to GitHub Release. Requires release_tag when called by the release workflow.
-        required: false
-        default: false
-        type: boolean
-      build_android:
-        description: Build Android signed APK/AAB artifacts.
-        required: false
-        default: true
-        type: boolean
-      build_ios:
-        description: Build iOS IPA and upload it to TestFlight.
-        required: false
-        default: true
-        type: boolean
-  workflow_call:
-    inputs:
-      version_name:
-        description: Version name / marketing version. Leave empty to use package.json version.
-        required: false
-        type: string
-      build_number:
-        description: Build number. Leave empty to use GitHub run number.
-        required: false
-        type: string
-      release_tag:
-        description: Existing GitHub Release tag to attach Android artifacts to.
-        required: false
-        type: string
-      upload_github_release:
-        description: Upload Android artifacts to the matching GitHub Release.
+        description: Upload Android artifacts to GitHub Release. Requires release_tag.
         required: false
         default: false
         type: boolean
@@ -72,7 +43,7 @@ env:
 jobs:
   resolve-version:
     name: Resolve mobile version
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
       build_number: ${{ steps.version.outputs.build_number }}
@@ -110,8 +81,8 @@ jobs:
 
   android-release:
     name: Android signed release
-    if: inputs.build_android
-    runs-on: ubuntu-latest
+    if: github.repository != 'Smarty-Pants-Inc/openchamber' && inputs.build_android
+    runs-on: smarty-linux-x64
     needs: resolve-version
     permissions:
       contents: write
@@ -186,7 +157,7 @@ jobs:
 
   ios-testflight:
     name: iOS TestFlight upload
-    if: inputs.build_ios
+    if: github.repository != 'Smarty-Pants-Inc/openchamber' && inputs.build_ios
     runs-on: macos-26
     needs: resolve-version
     steps:

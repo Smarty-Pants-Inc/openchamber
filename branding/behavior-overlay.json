@@ -30,7 +30,10 @@
       "behaviorSha256": "1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f",
       "humanAuthUiProofSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
       "humanAuthUiProofSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
-      "combinedSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
+      "combinedSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
+      "preForgeRunnerCombinedSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
+      "forgeRunnerBaseSha256": "b1a9b7c0c4743c1af912dd1ca505b4c4e9c73bcc1ef41e985512f4a436c4c71a",
+      "forgeRunnerSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
       "behaviorSource": "94dd8952fb23d3e2aac8a2533cccef5dde443960",
       "reason": "Full-PR Knip/Oxlint reporting with independent exact-head disposition; reuse unchanged-head checks on Ready, retaining opened/synchronize/reopened and genuine speculative checks. Jobs, runner and protected queue unchanged."
     },
@@ -605,6 +608,67 @@
       "reason": "OPENCHAMBER_WORKTREE_ROOT (smarty-code#629) places managed worktrees at <root>/<repository folder>/; in that shared root, removal deletes only git-registered worktrees, never an unregistered folder (#354 review). Branded strings are unchanged.",
       "worktreeRootAdded": true,
       "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154"
+    },
+    {
+      "path": ".github/workflows/docs-source.yml",
+      "brandingSha256": "c1b0e3beec920ef2d0e043112d020e04b3831717074623310fe533d88bab5f86",
+      "behaviorSha256": "238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc",
+      "combinedSha256": "238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501: bind the dispatch-only Forge docs workflow without changing donor coverage.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc",
+      "forgeRunnerSha256": "238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc"
+    },
+    {
+      "path": ".github/workflows/build-macos-arm64-dmg.yml",
+      "behaviorSha256": "282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357",
+      "combinedSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357",
+      "forgeRunnerSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4"
+    },
+    {
+      "path": ".github/workflows/mobile-ci.yml",
+      "behaviorSha256": "915c779672e7d1208049f607edd7a6272798b31b4390a2cffba1b876753763b5",
+      "combinedSha256": "ba7b58fbd604d6b23c1ad0474e802e42dd6772c937f9bef3eebbf6fc9a074131",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "915c779672e7d1208049f607edd7a6272798b31b4390a2cffba1b876753763b5",
+      "forgeRunnerSha256": "ba7b58fbd604d6b23c1ad0474e802e42dd6772c937f9bef3eebbf6fc9a074131"
+    },
+    {
+      "path": ".github/workflows/mobile-release.yml",
+      "behaviorSha256": "ff1ba81f5588f0f4e7aed3448be052c73843f432e16bd97124594b03a5a93e8b",
+      "combinedSha256": "684191a77a185b1c773450dae25e0230343fb4af7f5977cb4d170b475eaa45f5",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "ff1ba81f5588f0f4e7aed3448be052c73843f432e16bd97124594b03a5a93e8b",
+      "forgeRunnerSha256": "684191a77a185b1c773450dae25e0230343fb4af7f5977cb4d170b475eaa45f5"
+    },
+    {
+      "path": ".github/workflows/release-desktop-smoke.yml",
+      "behaviorSha256": "cf01032cba6a3c98ad164aba2aebfc593703bf084fd411f61691458cf654284f",
+      "combinedSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "cf01032cba6a3c98ad164aba2aebfc593703bf084fd411f61691458cf654284f",
+      "forgeRunnerSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "behaviorSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
+      "combinedSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+      "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
+      "forgeRunnerAdded": true,
+      "forgeRunnerBaseSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
+      "forgeRunnerSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -644,5 +708,12 @@
     "predecessorLedgerSha256": "05d8f3cad425c23bb31213a20db92b20e082474c6b7c312bf13a69d40b9b40e7",
     "predecessorLedgerBytesSha256": "98dd971ce744a0dfa0570c41a644f4b8a92d2ed4718b2357a47d5f06f4ad9c7d"
   },
-  "proxyConnectionSource": "e9f6fdc38ffbadf43113d1b8202489332f6fe95f"
+  "proxyConnectionSource": "e9f6fdc38ffbadf43113d1b8202489332f6fe95f",
+  "forgeRunnerProvenance": {
+    "reviewedHead": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
+    "finding": "openchamber#501 Astra round 2: own-source PR guard, workflow ownership, hosted jobs and Android jobs",
+    "predecessorLedgerSha256": "67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2",
+    "predecessorLedgerBytesSha256": "b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5",
+    "coverageSha256": "10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df"
+  }
 }

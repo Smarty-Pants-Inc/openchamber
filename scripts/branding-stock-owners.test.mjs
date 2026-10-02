@@ -23,6 +23,9 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   assert.equal(overlays.size, overlay.files.length);
   assert.deepEqual([...overlays.keys()].sort(), [
     '.github/workflows/oc-review.yml', 'package.json',
+    '.github/workflows/docs-source.yml', '.github/workflows/build-macos-arm64-dmg.yml',
+    '.github/workflows/mobile-ci.yml', '.github/workflows/mobile-release.yml',
+    '.github/workflows/release-desktop-smoke.yml', '.github/workflows/release.yml',
     'packages/ui/src/components/auth/SessionAuthGate.tsx',
     'packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx',
     'packages/ui/src/components/chat/ChatMessage.tsx',
@@ -152,7 +155,44 @@ test('hosted UI proof preserves the preceding workflow evidence', () => {
   assert.equal(entry.behaviorSource, '94dd8952fb23d3e2aac8a2533cccef5dde443960');
   assert.equal(entry.behaviorSha256, '1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f');
   assert.equal(entry.humanAuthUiProofSource, '0d0f988aa98c345bf2bfc79d0c9b4e753347d744');
-  assert.equal(entry.humanAuthUiProofSha256, entry.combinedSha256);
+  assert.equal(entry.humanAuthUiProofSha256, entry.preForgeRunnerCombinedSha256);
+  assert.equal(entry.forgeRunnerSha256, entry.combinedSha256);
+});
+
+test('Forge workflows bind exact successor bytes without replacing coverage or prior workflow evidence', () => {
+  assert.deepEqual(overlay.forgeRunnerProvenance, {
+    reviewedHead: '7f2d8f550b160e7e74026a58dcd693d4befb3072',
+    finding: 'openchamber#501 Astra round 2: own-source PR guard, workflow ownership, hosted jobs and Android jobs',
+    predecessorLedgerSha256: '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2',
+    predecessorLedgerBytesSha256: 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5',
+    coverageSha256: '10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df',
+  });
+  assert.equal(sha256(read('branding/coverage.json')), overlay.forgeRunnerProvenance.coverageSha256);
+  const expected = [
+    ['.github/workflows/oc-review.yml', 'b1a9b7c0c4743c1af912dd1ca505b4c4e9c73bcc1ef41e985512f4a436c4c71a', '674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297'],
+    ['.github/workflows/docs-source.yml', '238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc', '238ae5b0f975f50b3993734d1c618dd4138d7eb5a58e729eb50d9788155be7bc'],
+    ['.github/workflows/build-macos-arm64-dmg.yml', '282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357', '973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4'],
+    ['.github/workflows/mobile-ci.yml', '915c779672e7d1208049f607edd7a6272798b31b4390a2cffba1b876753763b5', 'ba7b58fbd604d6b23c1ad0474e802e42dd6772c937f9bef3eebbf6fc9a074131'],
+    ['.github/workflows/mobile-release.yml', 'ff1ba81f5588f0f4e7aed3448be052c73843f432e16bd97124594b03a5a93e8b', '684191a77a185b1c773450dae25e0230343fb4af7f5977cb4d170b475eaa45f5'],
+    ['.github/workflows/release-desktop-smoke.yml', 'cf01032cba6a3c98ad164aba2aebfc593703bf084fd411f61691458cf654284f', '716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41'],
+    ['.github/workflows/release.yml', '01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5', 'a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44'],
+  ];
+  assert.deepEqual(overlay.files.filter(entry => entry.forgeRunnerSha256).map(entry => entry.path), expected.map(([file]) => file));
+  assert.deepEqual(overlay.files.filter(entry => entry.forgeRunnerAdded).map(entry => entry.path), expected.slice(1).map(([file]) => file));
+  for (const [file, baseHash, outputHash] of expected) {
+    const entry = overlays.get(file);
+    assert.equal(entry.forgeRunnerBaseSha256, baseHash, file);
+    assert.equal(entry.forgeRunnerSha256, outputHash, file);
+    assert.equal(entry.combinedSha256, outputHash, file);
+    assert.equal(sha256(read(file)), outputHash, file);
+    if (entry.forgeRunnerAdded) {
+      assert.equal(entry.behaviorSource, overlay.forgeRunnerProvenance.reviewedHead, file);
+      assert.equal(entry.behaviorSha256, baseHash, file);
+    }
+  }
+  const review = overlays.get('.github/workflows/oc-review.yml');
+  assert.equal(review.preForgeRunnerCombinedSha256, '14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb');
+  assert.equal(overlays.get('.github/workflows/docs-source.yml').brandingSha256, 'c1b0e3beec920ef2d0e043112d020e04b3831717074623310fe533d88bab5f86');
 });
 
 test('static cache overlay binds the exact owning repair without replacing branding evidence', () => {
@@ -415,6 +455,19 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  // Unwind Forge placement first; every older ledger assertion still runs below.
+  assert.equal(historical.forgeRunnerProvenance.reviewedHead, '7f2d8f550b160e7e74026a58dcd693d4befb3072');
+  delete historical.forgeRunnerProvenance;
+  historical.files = historical.files.filter(entry => !entry.forgeRunnerAdded);
+  const forgeWorkflow = historical.files.find(entry => entry.path === '.github/workflows/oc-review.yml');
+  assert.equal(forgeWorkflow.preForgeRunnerCombinedSha256, forgeWorkflow.humanAuthUiProofSha256);
+  assert.equal(forgeWorkflow.forgeRunnerSha256, forgeWorkflow.combinedSha256);
+  forgeWorkflow.combinedSha256 = forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.forgeRunnerBaseSha256;
+  delete forgeWorkflow.forgeRunnerSha256;
+  assert.equal(sha256(JSON.stringify(historical)), '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2');
+  assert.equal(sha256(`${JSON.stringify(historical, null, 2)}\n`), 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5');
   // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
   assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   delete historical.proxyConnectionSource;
