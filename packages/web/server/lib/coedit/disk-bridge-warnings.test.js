@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createDiskBridge, TEXT, UNWATCHED_NOTICE } from './disk-bridge.js';
 import { helperPath } from './safe-file.js';
+import { ensureHelper } from './fs-helper/ensure-built.js';
 
-// Stage beside disk-bridge.test.js. Never build, substitute a helper, or skip these tests.
+// Build the real helper as disk-bridge.test.js does; never substitute one or skip these tests.
 if (process.platform !== 'linux') throw new Error('#43 requires the real Linux coedit-fs helper');
-fs.accessSync(helperPath(), fs.constants.X_OK);
 if (process.env.OPENCHAMBER_COEDIT_SOCKET) throw new Error('#43 requires an isolated same-account helper, not a service');
+ensureHelper();
+fs.accessSync(helperPath(), fs.constants.X_OK);
 const cleanups = [];
 afterEach(async () => {
   const errors = [];
@@ -43,7 +45,8 @@ const setup = async () => {
     made.push(watcher);
     return watcher;
   };
-  const bridge = createDiskBridge({ root, file, doc, hooks, watch, recoveryDir: path.join(home, 'recovery'),
+  const recoveryDir = path.join(home, 'recovery');
+  const bridge = createDiskBridge({ root, file, doc, hooks, watch, recoveryDir,
     enabled: true, settleMs: 37, retryMs: 100, retryLimit: 600, closeMs: 5000,
     onConflict: (found) => conflicts.push(found) });
   cleanups.push(async () => {
@@ -51,7 +54,7 @@ const setup = async () => {
     finally { for (const watcher of made) watcher.close(); doc.destroy(); }
   });
   await bridge.load();
-  return { file, text, hooks, made, bridge, conflicts, resume: () => { restart = true; }, block: () => { restart = false; },
+  return { root, file, recoveryDir, text, hooks, made, bridge, conflicts, resume: () => { restart = true; }, block: () => { restart = false; },
     stop: () => made.at(-1).emit('error', new Error('EMFILE: test stops observation')),
     disk: () => fs.readFileSync(file, 'utf8') };
 };
@@ -99,6 +102,57 @@ const raced = async (t) => {
 };
 
 describe('smartyfs#43 explicit refusal and independent warnings, real helper', () => {
+  for (const reason of ['gone', 'changed']) it(`#523 post-read helper ${reason} refusal retains its own recovery through repeated no-change refusals`, async () => {
+    const t = await setup();
+    const copies = () => fs.readdirSync(t.recoveryDir, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => path.join(t.recoveryDir, entry.name));
+    expect(copies()).toEqual([]); // No recovery from an earlier, unrelated save can satisfy this case.
+    t.text.insert(0, 'P');
+    t.hooks.helper = { pause: 'beforeOpen', pauseMs: 3000 };
+    const saving = t.bridge.save();
+    let recovery;
+    let result;
+    try {
+      await poll(() => copies().filter((copy) => !path.basename(copy).includes('-ours-') && fs.readFileSync(copy, 'utf8') === 'a')).toHaveLength(1);
+      [recovery] = copies().filter((copy) => !path.basename(copy).includes('-ours-'));
+      await poll(() => copies().some((copy) => path.basename(copy).includes('-ours-') && fs.readFileSync(copy, 'utf8') === 'Pa')).toBe(true);
+      // Real copies prove the JS read completed; the helper's sleep proves publish reached beforeOpen.
+      await poll(() => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(pid)).some((pid) => {
+        try {
+          return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').includes(t.root)
+            && fs.readFileSync(`/proc/${pid}/wchan`, 'utf8').includes('nanosleep');
+        } catch { return false; }
+      })).toBe(true);
+      expect(t.disk()).toBe('a');
+      if (reason === 'gone') fs.unlinkSync(t.file); else fs.writeFileSync(t.file, 'b');
+    } finally { delete t.hooks.helper; result = await saving; }
+    expect(result).toEqual({ ok: false, conflict: reason, recovery });
+    stateIs(t.bridge.state(), reason, []);
+    expect(t.bridge.state().refusal.recovery).toBe(recovery);
+    expect(t.conflicts.at(-1)).toBe(t.bridge.state().refusal);
+    expect(copies()).toEqual([recovery]); // The refused publish discarded its Pa copy, not the base copy.
+    t.text.delete(0, 1); // Undo Pa to the loaded base a, without sync.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason, recovery });
+      stateIs(t.bridge.state(), reason, []);
+      expect(t.bridge.state().refusal.recovery).toBe(recovery);
+      expect(t.conflicts.at(-1)).toBe(t.bridge.state().refusal);
+      expect(fs.readFileSync(recovery, 'utf8')).toBe('a');
+      if (reason === 'gone') expect(fs.existsSync(t.file)).toBe(false); else expect(t.disk()).toBe('b');
+    }
+    fs.writeFileSync(t.file, 'a');
+    const before = fs.statSync(t.file);
+    expect(await t.bridge.save()).toEqual({ ok: true });
+    expect(fs.statSync(t.file)).toMatchObject({ ino: before.ino, mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs }); // No publish or rewrite.
+    stateIs(t.bridge.state(), null, []);
+    expect(t.disk()).toBe('a');
+    expect(t.text.toString()).toBe('a');
+    expect(fs.readFileSync(recovery, 'utf8')).toBe('a');
+    expect(copies()).toEqual([recovery]);
+    expect(t.conflicts).toHaveLength(3); // Only the three real refusals, no fabricated warning or success callback.
+    if (reason === 'gone') fs.unlinkSync(t.file); else fs.writeFileSync(t.file, 'b');
+    expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason }); expect(t.bridge.state().refusal).not.toHaveProperty('recovery');
+  });
+
   it('only save sets or clears refusal; authoritative watcher recovery leaves it until a later save', async () => {
     const t = await setup();
     const loaded = snapshot(t.bridge);

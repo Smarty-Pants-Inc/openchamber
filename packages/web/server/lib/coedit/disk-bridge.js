@@ -469,6 +469,7 @@ export function createDiskBridge({
     sync,
     /** { ok: true } | { ok: false, conflict: 'gone' | 'changed' | 'removed' | 'truncated' | 'unverified' | 'raced', published?, recovery?, notice? }. */
     save: () => serial(async () => {
+      const previousRefusal = refusal;
       refusal = null; // Even a rejected or throwing attempt supersedes the previous save's refusal.
       if (closed || base === null) throw new Error('Co-edited file is not loaded');
       if (!(await settleUncertain())) return refuse({ conflict: 'unverified', published: 'uncertain' });
@@ -482,9 +483,10 @@ export function createDiskBridge({
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
-        // Keep the existing no-change result's display fields without coupling the warning's lifetime to refusal.
+        // Preserve recovery for repeated no-change refusals; notices belong only to current warnings.
         const warning = latestWarning();
-        const display = { ...(warning?.recovery && { recovery: warning.recovery }), ...(warning?.notice && { notice: warning.notice }) };
+        const recovery = warning?.recovery ?? previousRefusal?.recovery;
+        const display = { ...(recovery && { recovery }), ...(warning?.notice && { notice: warning.notice }) };
         if (disk === null) {
           gone = true; // Observed absent here, as a sync would.
           return refuse({ conflict: 'gone', ...display });
