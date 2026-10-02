@@ -483,9 +483,9 @@ export function createDiskBridge({
         // Nothing new to write: saved only if the disk holds the base now. A known mismatch (a raced save not yet
         // synced) or a deleted file is reported, never acknowledged; nothing is written over it (#445 security r1).
         const disk = await readFile(helper, rel);
-        // Preserve recovery for repeated no-change refusals; notices belong only to current warnings.
+        // The refused save's own recovery takes precedence; notices belong only to current warnings.
         const warning = latestWarning();
-        const recovery = warning?.recovery ?? previousRefusal?.recovery;
+        const recovery = previousRefusal?.recovery ?? warning?.recovery;
         const display = { ...(recovery && { recovery }), ...(warning?.notice && { notice: warning.notice }) };
         if (disk === null) {
           gone = true; // Observed absent here, as a sync would.

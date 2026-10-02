@@ -153,6 +153,122 @@ describe('smartyfs#43 explicit refusal and independent warnings, real helper', (
     expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason }); expect(t.bridge.state().refusal).not.toHaveProperty('recovery');
   });
 
+  for (const reason of ['gone', 'changed']) it(`#523 prior raced warning cannot replace the real helper ${reason} refusal's distinct recovery`, async () => {
+    const t = await setup();
+    const first = await raced(t);
+    const warning = t.bridge.state().warnings[0];
+    const originalWarning = structuredClone(warning);
+    const copies = () => fs.readdirSync(t.recoveryDir, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => path.join(t.recoveryDir, entry.name)).sort();
+    const priorCopies = copies();
+    expect(warning).toMatchObject({ conflict: 'raced', published: true, recovery: first.recovery });
+    expect(t.conflicts).toEqual([warning]);
+    expect(t.conflicts[0]).toBe(warning);
+    expect(fs.readFileSync(first.recovery, 'utf8')).toBe('a');
+    expect(t.disk()).toBe('Pa');
+    expect(t.text.toString()).toBe('Pa');
+    stateIs(t.bridge.state(), null, ['raced']);
+
+    t.text.insert(0, 'Q');
+    t.hooks.helper = { pause: 'beforeOpen', pauseMs: 3000 };
+    const saving = t.bridge.save();
+    let recovery;
+    let result;
+    try {
+      const newBaseCopies = () => copies().filter((copy) => !priorCopies.includes(copy) && !path.basename(copy).includes('-ours-') && fs.readFileSync(copy, 'utf8') === 'Pa');
+      await poll(newBaseCopies).toHaveLength(1);
+      [recovery] = newBaseCopies();
+      await poll(() => copies().some((copy) => !priorCopies.includes(copy) && path.basename(copy).includes('-ours-') && fs.readFileSync(copy, 'utf8') === 'QPa')).toBe(true);
+      // New Pa/QPa copies prove this read completed; observe the real helper inside beforeOpen.
+      await poll(() => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(pid)).some((pid) => {
+        try {
+          const args = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+          return args.includes(t.root) && args.includes(helperPath())
+            && fs.readFileSync(`/proc/${pid}/wchan`, 'utf8').includes('nanosleep');
+        } catch { return false; }
+      })).toBe(true);
+      expect(recovery).not.toBe(first.recovery);
+      expect(fs.readFileSync(recovery, 'utf8')).toBe('Pa');
+      expect(fs.readFileSync(recovery)).not.toEqual(fs.readFileSync(first.recovery));
+      expect(t.disk()).toBe('Pa');
+      if (reason === 'gone') fs.unlinkSync(t.file); else fs.writeFileSync(t.file, 'b');
+    } finally { delete t.hooks.helper; result = await saving; }
+    expect(result).toEqual({ ok: false, conflict: reason, recovery });
+    stateIs(t.bridge.state(), reason, ['raced']);
+    expect(t.bridge.state().refusal.recovery).toBe(recovery);
+    expect(t.conflicts.at(-1)).toBe(t.bridge.state().refusal);
+    expect(t.conflicts.at(-1).recovery).toBe(recovery);
+    expect(t.bridge.state().warnings).toEqual([originalWarning]);
+    expect(t.bridge.state().warnings[0]).toBe(warning);
+    expect(fs.readFileSync(first.recovery, 'utf8')).toBe('a');
+    expect(fs.readFileSync(recovery, 'utf8')).toBe('Pa');
+    expect(copies()).toEqual([...priorCopies, recovery].sort()); // Only this refused save's QPa copy was discarded.
+    expect(t.conflicts).toHaveLength(2);
+    if (reason === 'gone') expect(fs.existsSync(t.file)).toBe(false); else expect(t.disk()).toBe('b');
+    const refusedDisk = reason === 'changed' ? fs.statSync(t.file) : null;
+    const firstCopy = fs.statSync(first.recovery);
+    const secondCopy = fs.statSync(recovery);
+
+    t.text.delete(0, 1); // Undo QPa to the published base Pa, without sync.
+    expect(t.text.toString()).toBe('Pa');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // On bf17 this first assertion selects the warning's a copy instead of the refusal's Pa copy.
+      expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason, recovery, notice: warning.notice });
+      stateIs(t.bridge.state(), reason, ['raced']);
+      expect(t.bridge.state().refusal.recovery).toBe(recovery);
+      expect(t.conflicts.at(-1)).toBe(t.bridge.state().refusal);
+      expect(t.conflicts.at(-1).recovery).toBe(recovery);
+      expect(t.bridge.state().warnings).toEqual([originalWarning]);
+      expect(t.bridge.state().warnings[0]).toBe(warning);
+      expect(fs.readFileSync(first.recovery, 'utf8')).toBe('a');
+      expect(fs.readFileSync(recovery, 'utf8')).toBe('Pa');
+      expect(copies()).toEqual([...priorCopies, recovery].sort());
+      if (reason === 'gone') expect(fs.existsSync(t.file)).toBe(false);
+      else {
+        expect(t.disk()).toBe('b');
+        expect(fs.statSync(t.file)).toMatchObject({ ino: refusedDisk.ino, mtimeMs: refusedDisk.mtimeMs, ctimeMs: refusedDisk.ctimeMs });
+      }
+    }
+    expect(t.conflicts).toHaveLength(4); // One raced warning and three actual refusals.
+    fs.writeFileSync(t.file, 'Pa');
+    const before = fs.statSync(t.file);
+    expect(await t.bridge.save()).toEqual({ ok: true });
+    expect(fs.statSync(t.file)).toMatchObject({ ino: before.ino, mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs });
+    stateIs(t.bridge.state(), null, ['raced']);
+    expect(t.bridge.state().conflict).toBe(warning);
+    expect(t.bridge.state().warnings).toEqual([originalWarning]);
+    expect(t.bridge.state().warnings[0]).toBe(warning);
+    expect(t.disk()).toBe('Pa');
+    expect(t.text.toString()).toBe('Pa');
+    expect(t.conflicts).toHaveLength(4); // A verified no-change success has no conflict callback.
+    expect(fs.readFileSync(first.recovery, 'utf8')).toBe('a');
+    expect(fs.readFileSync(recovery, 'utf8')).toBe('Pa');
+    expect(fs.statSync(first.recovery)).toMatchObject({ ino: firstCopy.ino, mtimeMs: firstCopy.mtimeMs, ctimeMs: firstCopy.ctimeMs });
+    expect(fs.statSync(recovery)).toMatchObject({ ino: secondCopy.ino, mtimeMs: secondCopy.mtimeMs, ctimeMs: secondCopy.ctimeMs });
+    expect(copies()).toEqual([...priorCopies, recovery].sort());
+
+    if (reason === 'gone') fs.unlinkSync(t.file); else fs.writeFileSync(t.file, 'b');
+    const freshDisk = reason === 'changed' ? fs.statSync(t.file) : null;
+    expect(await t.bridge.save()).toEqual({ ok: false, conflict: reason, recovery: first.recovery, notice: warning.notice });
+    stateIs(t.bridge.state(), reason, ['raced']);
+    expect(t.bridge.state().refusal.recovery).toBe(first.recovery); // Success retired the refusal's recovery authority, not its bytes.
+    expect(t.bridge.state().refusal.recovery).not.toBe(recovery);
+    expect(t.conflicts.at(-1)).toBe(t.bridge.state().refusal);
+    expect(t.conflicts.at(-1).recovery).toBe(first.recovery);
+    expect(t.conflicts.map((found) => found.recovery)).toEqual([first.recovery, recovery, recovery, recovery, first.recovery]);
+    expect(t.bridge.state().warnings).toEqual([originalWarning]);
+    expect(t.bridge.state().warnings[0]).toBe(warning);
+    expect(fs.readFileSync(first.recovery, 'utf8')).toBe('a');
+    expect(fs.readFileSync(recovery, 'utf8')).toBe('Pa');
+    expect(fs.statSync(first.recovery)).toMatchObject({ ino: firstCopy.ino, mtimeMs: firstCopy.mtimeMs, ctimeMs: firstCopy.ctimeMs });
+    expect(fs.statSync(recovery)).toMatchObject({ ino: secondCopy.ino, mtimeMs: secondCopy.mtimeMs, ctimeMs: secondCopy.ctimeMs });
+    expect(copies()).toEqual([...priorCopies, recovery].sort());
+    if (reason === 'gone') expect(fs.existsSync(t.file)).toBe(false);
+    else {
+      expect(t.disk()).toBe('b');
+      expect(fs.statSync(t.file)).toMatchObject({ ino: freshDisk.ino, mtimeMs: freshDisk.mtimeMs, ctimeMs: freshDisk.ctimeMs });
+    }
+  });
+
   it('only save sets or clears refusal; authoritative watcher recovery leaves it until a later save', async () => {
     const t = await setup();
     const loaded = snapshot(t.bridge);

@@ -183,7 +183,9 @@ round 4); until then no conflict could be seen.
   cannot clear it. `warnings` is an array snapshot of lasting conditions,
   keyed internally by kind, so independent conditions coexist. Entries retain their `conflict` discriminator;
   neither refusals nor warnings use `transient` or `kept`. The compatibility `conflict` is the refusal, else the
-  latest warning, else null. `onConflict` reports detected refusals and warnings.
+  latest warning, else null. `onConflict` reports detected refusals and warnings. Repeated no-change refusals
+  preserve the previous save refusal's recovery path ahead of any warning's recovery path. Without one, the result
+  may use the current warning's recovery. Verified success clears refusal metadata, not unresolved warning metadata.
   Uncertain publication and unconfirmed durability are distinct warning conditions even though both have the
   public label `unverified`. Settlement resolves only its uncertainty warning, and a confirmed flush resolves only
   its durability warning. Each resolution checks its own warning identity or owner, so an older completion cannot
