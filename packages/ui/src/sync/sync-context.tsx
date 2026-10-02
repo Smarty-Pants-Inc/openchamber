@@ -108,6 +108,7 @@ import { areRequestArraysReferentiallyEqual, collectScopedBlockingRequests } fro
 import { EMPTY_USER_MESSAGE_HISTORY_SNAPSHOT, buildUserMessageHistorySnapshot, type TranscriptPrompt, type UserMessageHistorySnapshot } from "./user-message-history"
 import { reportClientError } from "@/lib/clientErrorReport"
 import { isStatusUnavailable, noteStatusUnavailablePoll } from "./status-unavailable"
+import { forgetRowNativeStatus } from "@/lib/herdrSession"
 import {
   EMPTY_SESSION_MESSAGE_LOAD_STATE,
   SessionMessageLoader,
@@ -2938,8 +2939,11 @@ export function SyncProvider(props: {
         // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
         if (fleet && isStatusUnavailable(directory)) {
           if (noteStatusUnavailablePoll(directory)) {
-            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
-            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+            // Clearing unavailable native entries is not idle, even for rows that never rendered the outage.
+            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds, undefined, (clearedIds) => {
+              forgetRowNativeStatus(clearedIds)
+              applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
+            })
           }
           return
         }

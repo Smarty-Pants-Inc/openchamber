@@ -223,6 +223,8 @@ export const applyGlobalSessionStatusSnapshot = (
   knownSessionIds?: Iterable<string>,
   /** Sessions this snapshot must not touch (foreign ownership or a newer event). */
   held?: ReadonlySet<string>,
+  /** Runs before any publication for missing covered IDs, including known IDs absent from the index. */
+  beforeMissingStatusesCleared?: (sessionIds: readonly string[]) => void,
 ): void => {
   const directory = normalizeDirectory(rawDirectory);
   const indexed = useGlobalSessionStatusStore.getState().statusById;
@@ -234,6 +236,12 @@ export const applyGlobalSessionStatusSnapshot = (
   // Foreign active entries cannot erase ordinary ownership any more than foreign idle can.
   // Use the same coverage for status, ordering and timing, including raw noncandidate IDs.
   const known = new Set(Array.from(knownSessionIds ?? []).filter((sessionId) => !isHeld(sessionId)));
+  const covers = (sessionId: string): boolean => !isHeld(sessionId)
+    && (indexed.get(sessionId)?.directory === directory || known.has(sessionId));
+  if (beforeMissingStatusesCleared) {
+    beforeMissingStatusesCleared([...new Set([...known, ...indexed.keys()])]
+      .filter((sessionId) => covers(sessionId) && !(sessionId in raw)));
+  }
   // Built once as a set and shared by both consumers below; only non-idle
   // sessions land here, so it stays small however long the directory's list is.
   const activeSessionIds = new Set<string>();
@@ -267,9 +275,8 @@ export const applyGlobalSessionStatusSnapshot = (
       nextActiveSessionIds.add(sessionId);
     };
 
-    for (const [sessionId, entry] of state.statusById) {
-      if (isHeld(sessionId)) continue;
-      if ((entry.directory === directory || known.has(sessionId)) && !(sessionId in raw)) {
+    for (const sessionId of state.statusById.keys()) {
+      if (covers(sessionId) && !(sessionId in raw)) {
         next.delete(sessionId);
         removeActiveSession(sessionId);
         changed = true;
@@ -281,7 +288,7 @@ export const applyGlobalSessionStatusSnapshot = (
       const type = normalizeStatusType(status?.type);
       const current = next.get(sessionId);
       if (type === 'idle') {
-        if (current && (current.directory === directory || known.has(sessionId))) {
+        if (current && covers(sessionId)) {
           next.delete(sessionId);
           removeActiveSession(sessionId);
           changed = true;

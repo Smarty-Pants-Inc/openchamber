@@ -83,6 +83,32 @@ describe('#1140: liveHerdrState', () => {
 // #1140 (code-lead 02:32Z): done takes whichever comes first, Herdr's done or native idle; Working follows native busy;
 // the marker never bounces back. Native input is the status store's entry: native idle is NO entry (the store deletes a
 // settled session), so the steps say undefined where native is idle, as the row receives it (openchamber#484 round 2).
+describe('#1162: unavailable native status', () => {
+  test('outage forgets native idle across remount and recovery without an entry; a new busy/idle still settles', () => {
+    const id = 'outage-recovery-1162';
+    const row = (entry: string | undefined, unavailable = false, remounted = false) => {
+      const r = rowNativeStatus(id, 'working', entry, remounted, unavailable);
+      return liveHerdrState('working', r.native, r.herdrIsNewer);
+    };
+    expect(row('busy')).toBe('working');
+    expect(row(undefined)).toBe('done');
+    expect(row(undefined, true)).toBe('working');
+    expect(row(undefined, true, true)).toBe('working');
+    expect(row(undefined)).toBe('working'); // Recovery cannot resurrect the pre-outage inferred idle.
+    expect(row('busy')).toBe('working');
+    expect(row(undefined)).toBe('done');
+  });
+  test('even a first-seen or retained busy/retry is not authority during an outage: Herdr is unchanged', () => {
+    for (const entry of ['busy', 'retry']) {
+      for (const herdr of ['working', 'done', 'idle', 'blocked', 'ended', 'unknown'] as const) {
+        const r = rowNativeStatus(`outage-${entry}-${herdr}`, herdr, entry, true, true);
+        expect(r.native).toBeUndefined();
+        expect(liveHerdrState(herdr, r.native, r.herdrIsNewer)).toBe(herdr);
+      }
+    }
+  });
+});
+
 describe('#1140: change order', () => {
   const row = (id: string, h: ReturnType<typeof readHerdrState>, n: string | undefined) => {
     const r = rowNativeStatus(id, h, n); return liveHerdrState(h, r.native, r.herdrIsNewer);
