@@ -31,10 +31,10 @@ export type NativeCreationReply = { generation: string; revision: number } & (
   | { action: 'ready'; native: { id: string; generation: string } }
 );
 export type NativeCreationResult = NativeCreatedSession | z.infer<typeof nativeCreationResponseSchema>;
-/** GET /api/session/:id/voice (smarty-code#126): whether this session takes voice calls, and why not, in plain words. */
+/** GET /api/session/:id/voice: availability, a plain reason and an optional hint to retry a temporary negative. */
 export const sessionVoiceSchema = z.union([
   z.object({ available: z.literal(true) }).strict(),
-  z.object({ available: z.literal(false), reason: z.string().min(1).max(300) }).strict(),
+  z.object({ available: z.literal(false), reason: z.string().min(1).max(300), retry: z.boolean().optional() }).strict(),
 ]);
 export const NATIVE_CREATION_INVALIDATED = 'openchamber:native-creation-invalidated';
 

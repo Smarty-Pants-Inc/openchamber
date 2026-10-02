@@ -196,7 +196,9 @@ test('a definitive no has no automatic retries; a failed interaction preserves i
   expect(asked).toEqual(['s1@/known-no']);
   expect(container.querySelector('button')?.disabled).toBe(true);
   expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toBe(reason);
-});
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 2100)); });
+  expect(asked).toEqual(['s1@/known-no']);
+}, 10000);
 
 test('a session change cancels the old retry', async () => {
   advertised.set('/old', { available: false, reason: unknownReason });
@@ -230,17 +232,17 @@ test('overlapping interactions share one probe, and a stale result cannot affect
 });
 
 // smarty-code#126: the call control is labelled as a call. A session without voice says why (the gateway's per-session
-// reason, verbatim; a generic one when the status read failed) instead of hiding it. Unknown (health unreachable): hidden.
+// reason, verbatim; a generic one for a gateway without voice support) instead of hiding it. Failed initial reads: hidden.
 test('a labelled Voice call control, disabled with the session\'s own plain reason where it has no voice', async () => {
   const herdr = 'Voice calls work in sessions started from Code. This session was started in Herdr.';
   advertised.set('/with-voice', { available: true });
   advertised.set('/herdr', { available: false, reason: herdr });
-  advertised.set('/status-failed', { available: false });
+  advertised.set('/unsupported', { available: false });
   expect(await render('/with-voice')).toBe('Voice call');
   expect(await render('/herdr')).toBe(`disabled: Voice call. ${herdr}`);
-  expect(await render('/status-failed')).toBe('disabled: Voice call. Voice calls are not available in this session.');
+  expect(await render('/unsupported')).toBe('disabled: Voice call. Voice calls are not available in this session.');
   expect(await render('/unreachable')).toBe('hidden'); // unknown stays hidden
-  expect(asked).toEqual(['s1@/with-voice', 's1@/herdr', 's1@/status-failed', 's1@/unreachable']);
+  expect(asked).toEqual(['s1@/with-voice', 's1@/herdr', 's1@/unsupported', 's1@/unreachable']);
 });
 
 test('hidden in VS Code without asking the gateway', async () => {

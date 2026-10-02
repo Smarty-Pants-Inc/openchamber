@@ -35,7 +35,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   React.useEffect(() => {
     setReasonOpen(false);
     if (unsupportedRuntime || !supportsPiVoice()) return;
-    let cancelled = false, inFlight = false, retries = 0;
+    let cancelled = false, inFlight = false, retries = 0, retryable = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const runtimeKey = getRuntimeKey(), key = JSON.stringify([runtimeKey, sessionId, directory]);
     const backoff = [2000, 5000, 10000];
@@ -51,12 +51,12 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
         const result = await opencodeClient.sessionVoiceAvailability(sessionId, directory);
         if (cancelled || getRuntimeKey() !== runtimeKey) return;
         setVoice({ key, ...result });
-        // The gateway's current contract has only available/reason, not a separate unknown status.
-        // Retry its explicit temporary answer, never a definitive "no" such as a Herdr session.
-        if (!result.available && /\bunknown\b|\btry again\b/i.test(result.reason ?? '')) retryUnknown();
+        // Explicit hints take precedence; older gateways signal temporary answers only in their reason.
+        retryable = !result.available && (result.retry ?? /\bunknown\b|\btry again\b/i.test(result.reason ?? ''));
+        if (retryable) retryUnknown();
       } catch {
-        // Keep any previously displayed reason. A failed probe is not authoritative unavailability.
-        if (!cancelled && getRuntimeKey() === runtimeKey) retryUnknown();
+        // Keep the reason and remaining budget. A failed read cannot turn a definitive "no" into polling.
+        if (!cancelled && getRuntimeKey() === runtimeKey && retryable) retryUnknown();
       } finally { inFlight = false; }
     };
     recheckVoice.current = () => { void recheck(); };

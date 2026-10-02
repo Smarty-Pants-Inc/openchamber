@@ -723,26 +723,22 @@ class OpencodeService {
 
   /**
    * Whether this session takes voice calls. A gateway with `sessionVoiceStatus` answers per session, with one plain
-   * reason when not (smarty-code#126); a failed status read has no reason (the caller shows a generic one). An older
-   * gateway answers per directory with `sessionVoice`.
+   * reason and optional retry hint when not. Failed health/status reads reject so callers can preserve prior state.
+   * An older gateway answers per directory with `sessionVoice`.
    */
-  async sessionVoiceAvailability(sessionId: string, directory: string): Promise<{ available: boolean; reason?: string }> {
+  async sessionVoiceAvailability(sessionId: string, directory: string): Promise<{ available: boolean; reason?: string; retry?: boolean }> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
     const capabilities = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities;
     if (capabilities?.sessionVoiceStatus !== 1) return capabilities?.sessionVoice === 1 ? { available: true } : { available: false };
-    try {
-      const scope = captureRuntimeRequestScope();
-      const status = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/voice`, { query: { directory } });
-      const body: unknown = await status.json();
-      assertRuntimeRequestScope(scope);
-      if (!status.ok) return { available: false };
-      return sessionVoiceSchema.parse(body);
-    } catch {
-      this.assertRuntimeUnchanged(runtimeKey);
-      return { available: false };
-    }
+    const scope = captureRuntimeRequestScope();
+    const status = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/voice`, { query: { directory } });
+    assertRuntimeRequestScope(scope);
+    if (!status.ok) throw new Error(`Session voice status read failed (${status.status})`);
+    const body: unknown = await status.json();
+    assertRuntimeRequestScope(scope);
+    return sessionVoiceSchema.parse(body);
   }
 
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
