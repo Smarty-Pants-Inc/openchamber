@@ -27,9 +27,6 @@ queue_rules:
     merge_conditions:
       - check-success = smarty-ci
       - -check-failure = smarty-ci
-      - or:
-          - -label = needs-security-pass
-          - check-success = review/security
 
   - name: smarty-code
     batch_size: 1
@@ -47,9 +44,6 @@ queue_rules:
           - check-success = review/security
     merge_conditions:
       - check-success = checks
-      - or:
-          - -label = needs-security-pass
-          - check-success = review/security
 
 # GitHub suspended smarty-agents (2026-09-25); the review agent queues as the write App's bot,
 # which has no collaborator permission (smarty-dev#735). Humans with write access still can.
