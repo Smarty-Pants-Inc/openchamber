@@ -1,4 +1,5 @@
 import type { Session } from '@opencode-ai/sdk/v2';
+import type { SessionStatus } from '../sync/session-status';
 /**
  * Herdr's own view of a Smarty Code session row (smarty-code#126 (c)). The managed gateway adds these fields to the
  * stock session object; a stock server never sends them, so stock rows keep their usual markers.
@@ -32,25 +33,28 @@ export const liveHerdrState = (herdr: HerdrState | undefined, native: string | u
  * The row's native status and which of its two inputs changed last, per session, kept across row remounts (scroll,
  * collapse). The status store DELETES a settled session's entry (native idle reads as no entry), so an entry that goes
  * from busy/retry to absent is known native idle, and stays idle until the next busy. A session never seen with a native
- * status stays undefined: Herdr is the fallback there. The same values twice are no change, so a re-render cannot
- * reorder them. A row first seen, or its first render after a remount (`remounted`), has no order: native wins. Changes
+ * status stays undefined: Herdr is the fallback there. The same native type and turn target twice are no change, so a
+ * re-render or same-turn poll cannot reorder them. A new turn target renews native busy even before idle settles.
+ * A row first seen, or its first render after a remount (`remounted`), has no order: native wins. Changes
  * while a row is unmounted (a collapsed group) are not seen here, so their order is unknown (openchamber#484 round 3).
  */
-const changeOrder = new Map<string, { herdr?: HerdrState; native?: string; herdrAt: number; nativeAt: number }>();
+const changeOrder = new Map<string, { herdr?: HerdrState; native?: string; target?: SessionStatus['ordinaryTarget']; herdrAt: number; nativeAt: number }>();
 let changeTick = 0;
 const MAX_ORDERED_SESSIONS = 2048;
-export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined, remounted = false):
+export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined, remounted = false, target?: SessionStatus['ordinaryTarget']):
   { native: string | undefined; herdrIsNewer: boolean } => {
   const o = changeOrder.get(sessionId);
   if (!o) {
     if (changeOrder.size >= MAX_ORDERED_SESSIONS) changeOrder.delete(changeOrder.keys().next().value!);
-    changeOrder.set(sessionId, { herdr, native: entry, herdrAt: 0, nativeAt: 0 });
+    changeOrder.set(sessionId, { herdr, native: entry, target, herdrAt: 0, nativeAt: 0 });
     return { native: entry, herdrIsNewer: false };
   }
   const native = entry ?? (o.native === undefined ? undefined : 'idle');
-  if (remounted) { o.herdr = herdr; o.native = native; o.herdrAt = 0; o.nativeAt = 0; return { native, herdrIsNewer: false }; }
+  if (remounted) { o.herdr = herdr; o.native = native; o.target = target; o.herdrAt = 0; o.nativeAt = 0; return { native, herdrIsNewer: false }; }
   if (o.herdr !== herdr) { o.herdr = herdr; o.herdrAt = ++changeTick; }
-  if (o.native !== native) { o.native = native; o.nativeAt = ++changeTick; }
+  const newTurn = target && (target.generation !== o.target?.generation || target.presentationId !== o.target?.presentationId);
+  if (o.native !== native || ((native === 'busy' || native === 'retry') && newTurn)) { o.native = native; o.nativeAt = ++changeTick; }
+  o.target = target;
   return { native, herdrIsNewer: o.herdrAt > o.nativeAt };
 };
 

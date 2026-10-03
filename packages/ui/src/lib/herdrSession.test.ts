@@ -121,6 +121,41 @@ describe('#1140: change order', () => {
     status('idle'); expect(entry()).toBeUndefined(); expect(row(id, 'working', entry())).toBe('done');
     expect(row(id, 'working', entry())).toBe('done'); // a re-render with the same stale sample stays done
   });
+  // A rapid successor arrives before native idle settles, while Herdr still has the previous turn's sample.
+  for (const stale of ['done', 'idle'] as const) for (const changed of ['presentationId', 'generation'] as const) {
+    test(`busy successor with changed ${changed} overrides stale Herdr ${stale} without an idle entry`, () => {
+      const id = `successor-${stale}-${changed}`;
+      let herdr: 'working' | 'done' | 'idle' = 'working';
+      let marker: ReturnType<typeof liveHerdrState>;
+      const render = () => {
+        const entry = useGlobalSessionStatusStore.getState().statusById.get(id)?.status;
+        const r = rowNativeStatus(id, herdr, entry?.type, false, entry?.ordinaryTarget);
+        marker = liveHerdrState(herdr, r.native, r.herdrIsNewer);
+      };
+      const publish = (presentationId: string, generation = 'g1', dialog = false) => {
+        const status = { type: 'busy' as const, ordinary: true, ordinaryTarget: { generation, presentationId },
+          ordinaryDialog: dialog ? { kind: 'confirm' as const } : null };
+        const event: Event = { id: `${id}-${presentationId}-${generation}-${dialog}`, type: 'session.status', properties: { sessionID: id, status } };
+        applyGlobalSessionStatusEvents('/repo', [event]);
+      };
+      // The row's leaf subscription: a changed status object renders even when its type is still busy.
+      const unsubscribe = useGlobalSessionStatusStore.subscribe((state, previous) => {
+        if (state.statusById.get(id)?.status !== previous.statusById.get(id)?.status) render();
+      });
+      try {
+        publish('run-a'); expect(marker).toBe('working');
+        herdr = stale; render(); expect(marker).toBe(stale);
+        publish('run-a', 'g1', true); expect(marker).toBe(stale); // same turn, new status object: no bounce
+        publish('run-a', 'g1', true); render(); expect(marker).toBe(stale); // identical poll and re-render
+        publish(changed === 'presentationId' ? 'run-b' : 'run-a', changed === 'generation' ? 'g2' : 'g1');
+        expect(useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type).toBe('busy');
+        expect(marker).toBe('working');
+        render(); expect(marker).toBe('working');
+        herdr = 'working'; render(); expect(marker).toBe('working');
+        herdr = 'done'; render(); expect(marker).toBe('done'); // the successor's own Done still wins
+      } finally { unsubscribe(); }
+    });
+  }
   // Round 3: a collapsed group unmounts its rows, so the row sees none of the changes made meanwhile.
   test('unmounted while native goes idle -> busy and Herdr samples done: the remount shows Working (native wins)', () => {
     const id = 'remount-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;

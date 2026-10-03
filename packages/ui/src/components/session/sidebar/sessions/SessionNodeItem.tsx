@@ -737,7 +737,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   // smarty-code#1140: Working follows native busy; done takes the first of Herdr's done and native idle.
   // The store deletes a settled entry: rowNativeStatus reads busy -> absent as known native idle.
   // A remount's first render has no order (status changes while the row was unmounted were not seen): native wins.
-  const rowNative = rowNativeStatus(session.id, sampledHerdrState, sessionStatus?.type, !renderedRef.current);
+  const rowNative = rowNativeStatus(session.id, sampledHerdrState, sessionStatus?.type, !renderedRef.current, sessionStatus?.ordinaryTarget);
   renderedRef.current = true;
   const herdrState = liveHerdrState(sampledHerdrState, rowNative.native, rowNative.herdrIsNewer);
   const { showStatusMarker, showActivityDuration, showStatusUnavailable } = rowActivity({
