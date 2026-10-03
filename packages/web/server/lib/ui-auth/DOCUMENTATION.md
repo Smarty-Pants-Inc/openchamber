@@ -9,8 +9,10 @@ Pairing v2 is implemented by `packages/web/server/lib/client-auth/pairing.js`. I
 
 ## Optional Google human authentication
 
-`createConfiguredHumanAuth(env)` is the explicit startup adapter. Unset, empty or
-`off` `OPENCHAMBER_HUMAN_AUTH` returns `null` and leaves legacy mode unchanged.
+`createConfiguredHumanAuth(env)` is the explicit startup adapter. Without a Node
+pin, unset, empty or `off` `OPENCHAMBER_HUMAN_AUTH` returns `null` and leaves legacy
+mode unchanged. A present `SMARTY_CODE_NODE_ID` requires exact `google` mode before
+any database or server effects; it cannot fall back to legacy credentials.
 Any other mode except `google` fails. Google mode requires all of
 `OPENCHAMBER_HUMAN_AUTH_DB` (absolute private SQLite path), exact `BETTER_AUTH_URL`,
 `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a nonempty
@@ -22,13 +24,15 @@ The synchronous `setupBaseRoutes` caller receives the prebuilt `humanAuth` optio
 startup assembles it with `await createConfiguredHumanAuth(process.env)` before
 calling setup. Human mode is never inferred from a cookie, audience default or
 partially populated configuration. Google setup uses Better Auth's official
-`hd` provider option and its verified ID-token claim checks, then validates the
-raw OAuth profile `hd` claim again in `validateUserInfo`; a request `hd` hint or
-email suffix alone never grants access. The current authorized deployment has
+`hd` provider option. Its code-exchange callback trusts Google's authenticated token
+endpoint and decodes the returned ID token; direct ID-token sign-in verifies the
+signature. Both paths validate the raw OAuth profile `hd` in `validateUserInfo`;
+a request `hd` hint or email suffix alone never grants access. The current authorized deployment has
 exact hosted domain `smartypants.ai`.
 
 `createHumanAuth({database, baseURL, secret, googleClientId, googleClientSecret,
-allowedDomains})` uses official Better Auth 1.7.5. The caller supplies a private
+allowedDomains, env})` uses official Better Auth 1.7.5. `env` defaults to the existing
+process environment; the configured factory passes its injected environment. The caller supplies a private
 SQLite connection and complete configuration. It runs the library's supported
 `better-auth/db/migration` migration API; no parallel account schema is maintained.
 Pass the returned controller as `humanAuth` to `createUiAuth` to enable human mode.
@@ -39,12 +43,44 @@ Express JSON body parsing, apply existing origin/tunnel restrictions, and protec
 all downstream HTTP, SSE and upgrade paths. Better Auth owns OAuth state, cookies,
 CSRF, account bindings and sessions. Do not parse Google tokens in product code.
 `resolve(req)` returns the current admitted Better Auth session or null;
-`actor(session)` returns `{version:1,issuer,subject,name,image?}`. Profile fields are
-presentation only. `protect` attaches this actor to `req.humanIdentity` and closes
+`actor(session)` returns `{version:1,issuer,subject,name,email,image?}`. Profile fields are
+presentation only. Default actors, public status, profiles and sidebar ownership do
+not expose Node membership or Google's subject. `protect` attaches this actor to `req.humanIdentity` and closes
 registered responses on expiry or session deletion. It registers each response
 before an authoritative session recheck to close the revocation/admission race.
 `status` is the existing
 `/auth/session` seam. `dispose` closes registered responses, not the caller's DB.
+
+### Explicit Node member admission
+
+`SMARTY_NODE_RECORD` alone still enables only billing-role lookup. A present
+`SMARTY_CODE_NODE_ID` explicitly requires member admission and pins Record B's
+`node.id`. Empty or invalid Node IDs, missing records and relative record paths
+refuse admission. Without `SMARTY_CODE_NODE_ID`, existing human admission is unchanged.
+The configured factory consumes these ordinary environment values without loading
+credentials. Integration owns delivery of the read-only, absolute Record B path.
+
+Each `resolve`, `protect` and `status` recovers exactly one Google account using
+Better Auth's `findMany` adapter, never an email or Better Auth user ID. Record B
+must trust `https://accounts.google.com` and contain exactly one matching login,
+one selected org and one active `kind: person` member. Org selection uses explicit
+`SMARTY_NODE_ORG_ID` or exactly one primary org. Node, org and member IDs use the
+registry's lower-case 63-character limit. Google subjects use
+`/^[A-Za-z0-9_-]{1,256}$/`. No subject or ID is normalized into a match.
+Unknown, ambiguous, removed, suspended or other-org people are refused. Lookup
+errors return an authentication refusal; they never become successful empty state.
+`authorizeUiSession` repeats the member lookup before ongoing group admission and
+retains its final authoritative session/expiry recheck.
+
+The binding stays in a WeakMap keyed by the admitted library session, not in its
+public user fields. Only `actor(session, {forwarded:true})` adds
+`member: {nodeId,orgId,smartyId,googleSubject}`. `protect` uses that private actor for
+`req.humanIdentity` and the authenticated gateway header. Arbitrary session copies
+cannot supply a binding, and returned member objects cannot mutate stored authority.
+Issuer and subject remain the original Code origin and Better Auth user ID for
+authorship and preferences. Billing-role lookup shares the same pure person resolver.
+Session revocation and response-expiry tracking remain unchanged. Record freshness
+is the registry publisher's cadence; no membership watcher is added here.
 
 Google is the only configured provider. Its default scopes are `openid email
 profile`; no Gmail, Workspace administration or offline scope is requested.

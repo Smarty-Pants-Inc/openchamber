@@ -5,10 +5,13 @@ import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
 import { createHumanSidebarView } from './human-sidebar-view.js';
+import { createHumanMemberBinding } from './human-member.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
-export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
+export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
+  env = process.env }) {
   const admits = createHumanAudience(allowedDomains);
+  const members = createHumanMemberBinding(env);
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
@@ -93,11 +96,14 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   const resolve = async (req) => {
     // Device bearer credentials do not become people through an ambient cookie.
     if (req.headers.authorization) return null;
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
-    if (!session || !admits(session.user)) return null;
-    return session;
+    try {
+      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
+      if (!session || !admits(session.user) || !await members.admit(adapter, session)
+        || new Date(session.session.expiresAt).getTime() <= Date.now()) return null;
+      return session;
+    } catch { return null; } // Lookup failure is a refusal, never an admitted or guessed member.
   };
-  const actor = (session) => {
+  const actor = (session, { forwarded = false } = {}) => {
     const identity = {
       version: 1, issuer: baseURL, subject: session.user.id,
       name: validName(session.user.name) ? session.user.name : 'User',
@@ -106,6 +112,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     // smarty-code#701: the admitted (verified, allowed-domain) email names the person's inbox. The gateway must accept
     // it (installed first) and never copy it into message metadata.
     identity.email = session.user.email;
+    const member = forwarded ? members.forwardedMember(session) : null;
+    if (member) identity.member = member;
     return identity;
   };
   const authorizeUiSession = async (groupKey) => {
@@ -117,7 +125,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return false;
       const user = await adapter.findOne({ model: 'user', where: [{ field: 'id', value: session.userId }],
         select: ['email', 'emailVerified'] });
-      if (!admits(user)) return false;
+      if (!admits(user) || (members.required && !await members.lookup(adapter, session.userId))) return false;
       const current = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: session.id }],
         select: ['userId', 'expiresAt'] });
       return current?.userId === session.userId && new Date(current.expiresAt).getTime() > Date.now();
@@ -150,7 +158,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       cleanup(); res.destroy(); return;
     }
     checked();
-    req.humanIdentity = actor(current);
+    req.humanIdentity = actor(current, { forwarded: true });
     return next();
   };
   return {
