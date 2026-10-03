@@ -1067,6 +1067,7 @@ export class SessionMessageLoader {
       // A tail can discover the rewrite before session.index. Existing windows are then stale even when their
       // positional epoch stayed the same (a rewrite of non-renderable native ancestors).
       entry.windowGeneration++
+      entry.windowLoads.clear()
       entry.resetHistory = true
       entry.positionOf.clear()
     }
@@ -1228,7 +1229,7 @@ export class SessionMessageLoader {
         }
         throw error
       })
-      .finally(() => { entry.windowLoads.delete(key) })
+      .finally(() => { if (entry.windowLoads.get(key) === load) entry.windowLoads.delete(key) })
     entry.windowLoads.set(key, load)
     return load
   }

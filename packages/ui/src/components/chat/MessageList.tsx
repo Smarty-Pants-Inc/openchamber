@@ -9,6 +9,7 @@ import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContexts
 import TurnItem from './components/TurnItem';
 import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
 import { useTurnRecords } from './hooks/useTurnRecords';
+import { snapshotNativeLayout, withNativeLayoutPositions, type NativeLayoutCoordinate } from './lib/nativeLayoutPositions';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { buildLiveStreamingEntry } from './lib/turns/streamingTailEntry';
 import { getNormalizedMessageForDisplay, hasCompactionPart } from './lib/messageDisplayNormalization';
@@ -1370,10 +1371,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // Keep only committed layout coordinates, never message records. An index event fences reads immediately but
     // its empty coverage is not a replacement page and must not insert a session-sized gap into visible content.
     const committedLayoutRef = React.useRef<{
-        sessionKey: string; positions?: SessionPositions; positionOf: Map<string, number>; gaps: string; revision: number;
-    }>({ sessionKey, positionOf: new Map(), gaps: '[]', revision: 0 });
+        sessionKey: string; positions?: SessionPositions; positionOf: Map<string, number>;
+        nativeCoordinates: NativeLayoutCoordinate[]; gaps: string; revision: number;
+    }>({ sessionKey, positionOf: new Map(), nativeCoordinates: [], gaps: '[]', revision: 0 });
     if (committedLayoutRef.current.sessionKey !== sessionKey) {
-        committedLayoutRef.current = { sessionKey, positionOf: new Map(), gaps: '[]', revision: 0 };
+        committedLayoutRef.current = { sessionKey, positionOf: new Map(), nativeCoordinates: [], gaps: '[]', revision: 0 };
     }
     const layout = committedLayoutRef.current;
     const nativePositions = positions?.historyEpoch !== undefined;
@@ -1383,6 +1385,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     if (committingLayout && positions) {
         layout.positions = positions;
         layout.positionOf = new Map();
+        layout.nativeCoordinates = snapshotNativeLayout(displayMessages, positionOf);
         for (const message of displayMessages) {
             const at = positionOf?.(message.info.id);
             if (at !== undefined) layout.positionOf.set(message.info.id, at);
@@ -1391,9 +1394,11 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const awaitingPositions = nativePositions && !coherentPositions;
     const layoutPositions = awaitingPositions ? layout.positions : positions;
     const committedPositionOf = layout.positionOf;
+    const nativeCoordinates = layout.nativeCoordinates;
     const layoutPositionOf = React.useMemo(
-        () => awaitingPositions ? (id: string) => committedPositionOf.get(id) : positionOf,
-        [awaitingPositions, committedPositionOf, positionOf],
+        () => withNativeLayoutPositions(displayMessages,
+            awaitingPositions ? (id: string) => committedPositionOf.get(id) : positionOf, nativeCoordinates),
+        [awaitingPositions, committedPositionOf, displayMessages, nativeCoordinates, positionOf],
     );
     // smarty-code#583: the first loaded message of each window after a gap, so its opening replies show.
     const windowStartIds = React.useMemo(() => {
