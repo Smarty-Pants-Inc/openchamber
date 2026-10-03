@@ -107,6 +107,7 @@ const notifyWithServiceWorker = async (payload?: NotificationPayload): Promise<b
     await registration.showNotification(payload?.title ?? PRODUCT_NAME, {
       body: payload?.body,
       tag: payload?.tag,
+      requireInteraction: true,
     });
     return true;
   } catch (error) {
