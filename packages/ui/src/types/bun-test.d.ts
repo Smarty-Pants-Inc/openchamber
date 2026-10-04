@@ -42,6 +42,7 @@ declare module "bun:test" {
   export function afterEach(fn: () => void | Promise<void>): void;
   export function afterAll(fn: () => void | Promise<void>): void;
   export function setSystemTime(now?: Date | number): void;
+  export function setDefaultTimeout(timeoutMs: number): void;
   // Mock<T> matches the bun:test runtime mock: T (callable) plus spy methods.
   // Tests that need to swap implementations at runtime cast through `Mock<T>`.
   export interface Mock<T extends (...args: never[]) => unknown> {
@@ -67,4 +68,16 @@ declare module "bun:test" {
     function module(moduleName: string, factory: () => Record<string, unknown>): void;
     function restore(): void;
   }
+}
+
+// Vite asset-query imports need a URL loader when real UI modules run in Bun.
+declare module "bun" {
+  export function plugin(options: {
+    name: string;
+    setup(build: {
+      onLoad(options: { filter: RegExp }, callback: (args: { path: string }) =>
+        { contents: string; loader: "js" | "ts" } |
+        Promise<{ contents: string; loader: "js" | "ts" }>): void;
+    }): void;
+  }): void;
 }

@@ -13,40 +13,28 @@
  * global read to race with.
  */
 
-import { contextTokensFromBreakdown } from '@/stores/utils/tokenUtils';
+import { findLatestContextFill, type ContextFillMessage } from '@/stores/utils/tokenUtils';
 
-type MessageTokens = {
-  /** Server-reported window of the turn's final round-trip; absent on older servers. */
-  total?: number;
-  input?: number;
-  output?: number;
-  reasoning?: number;
-  cache?: { read?: number; write?: number };
-};
-
-type MessageLike = {
-  id?: string;
-  role?: string;
-  tokens?: MessageTokens;
-  providerID?: string;
-  modelID?: string;
-};
-
+type MessageLike = ContextFillMessage & { providerID?: string; modelID?: string };
 type ModelRef = { providerID: string; modelID: string };
-type ProviderLike = { id: string; models: ReadonlyArray<{ id: string; limit?: unknown }> };
+type ProviderLike = { id: string; models: ReadonlyArray<{ id: string; limit?: { context?: number; output?: number } }> };
 
-type WorkStatusContextUsage = {
-  totalTokens: number;
-  /** The session model's context window; 0 when it reports none. */
-  limit: number;
-  /** Unrounded, so the panel and the header cannot disagree by a rounding step; null without a known window. */
-  percent: number | null;
-};
+type WorkStatusContextUsage =
+  | {
+    state: 'measured';
+    totalTokens: number;
+    /** The session model's context window; 0 when it reports none. */
+    limit: number;
+    /** Unrounded, so the panel and the header cannot disagree; null without a known window. */
+    percent: number | null;
+  }
+  /** Compacted since the last response that reported tokens: the fill is unknown, not zero. */
+  | { state: 'compacted'; limit: number };
 
 const windowOf = (providers: readonly ProviderLike[], ref: ModelRef | null): { context: number; output: number } => {
   const model = ref ? providers.find((provider) => provider.id === ref.providerID)?.models.find((candidate) => candidate.id === ref.modelID) : undefined;
-  const limit = model?.limit as { context?: unknown; output?: unknown } | undefined;
-  const positive = (value: unknown) => (typeof value === 'number' && value > 0 ? value : 0);
+  const limit = model?.limit;
+  const positive = (value: number | undefined) => (value !== undefined && value > 0 ? value : 0);
   return { context: positive(limit?.context), output: positive(limit?.output) };
 };
 
@@ -79,31 +67,24 @@ export const sessionContextWindow = (
 ): { context: number; output: number } => windowOf(providers, sessionModelRef(sessionModel, messages, selectedModel));
 
 /**
- * Usage from the newest assistant message that reported a non-zero token count.
- * The latest turn describes the current fill — not a sum across turns. Within
- * a turn, the server-reported `total` is the final round-trip's window;
- * summing the breakdown fields instead overstates multi-step turns, whose
- * input/cache fields accumulate across round-trips.
+ * Usage from the newest assistant message that reported a non-zero token count,
+ * or `compacted` when a finished compaction is newer than any such message
+ * (see `findLatestContextFill`). The latest turn describes the current fill —
+ * not a sum across turns. Within a turn, the server-reported `total` is the
+ * final round-trip's window; summing the breakdown fields instead overstates
+ * multi-step turns, whose input/cache fields accumulate across round-trips.
  */
 export const computeContextUsage = (
-  messages: readonly MessageLike[],
+  messages: readonly ContextFillMessage[],
   contextLimit: number,
 ): WorkStatusContextUsage | null => {
-  if (messages.length === 0) return null;
+  const fill = findLatestContextFill(messages);
+  if (!fill) return null;
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'assistant' || !message.tokens) continue;
-
-    const totalTokens = contextTokensFromBreakdown(message.tokens);
-    if (totalTokens <= 0) continue;
-
-    // No known window means no percentage: dividing by a guessed window showed a 1M-token session at "186.1%" (G14).
-    const limit = contextLimit > 0 ? contextLimit : 0;
-    return { totalTokens, limit, percent: limit ? (totalTokens / limit) * 100 : null };
-  }
-
-  return null;
+  // No known window means no percentage: a guessed window misreported native sessions (G14).
+  const limit = contextLimit > 0 ? contextLimit : 0;
+  if (fill.state === 'compacted') return { state: 'compacted', limit };
+  return { state: 'measured', totalTokens: fill.totalTokens, limit, percent: limit ? (fill.totalTokens / limit) * 100 : null };
 };
 
 /**

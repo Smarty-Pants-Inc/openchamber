@@ -15,6 +15,7 @@ import {
   useSyncRuntime,
   resyncBlockingRequestsForDirectory,
   buildSessionMessageRecordsSnapshot,
+  recoverInterruptedTurnAfterMessageLoad,
 } from "./sync-context"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { isVSCodeRuntime } from "@/lib/desktop"
@@ -241,11 +242,13 @@ export function useSync() {
       // knows it is stale and should not write to the store.
       const generation = (syncSessionGenerationByKey.get(key) ?? 0) + 1
       syncSessionGenerationByKey.set(key, generation)
-      const isStale = () => syncSessionGenerationByKey.get(key) !== generation
 
       const targetStore = targetDirectory === directory
         ? store
         : childStores.ensureChild(targetDirectory, { bootstrap: false })
+      const isStale = () => getRuntimeKey() !== runtimeKey
+        || syncSessionGenerationByKey.get(key) !== generation
+        || childStores.children.get(targetDirectory) !== targetStore
       const current = targetStore.getState()
       const eventRevision = current.sessionEventRevision?.[sessionID] ?? 0
       const materialization = getSessionMaterializationStatus(current, sessionID)
@@ -255,7 +258,9 @@ export function useSync() {
       const summary = hasSession ? current.session[selected.index] : undefined
       const needsOrdinaryDetail = Boolean(summary && readOrdinaryModel(summary) && !Object.hasOwn(summary, 'ordinary'))
       if (cachedReady && hasSession && !force && !needsOrdinaryDetail) {
-        return messageLoader.ensure({ directory: targetDirectory, sessionID }, { reason: "reactive" })
+        await messageLoader.ensure({ directory: targetDirectory, sessionID }, { reason: "reactive" })
+        if (!isStale()) await recoverInterruptedTurnAfterMessageLoad(targetDirectory, targetStore, sessionID, isStale)
+        return
       }
       const shouldLoadMessages = Boolean(!cachedReady || force)
       const shouldFetchSession = needsOrdinaryDetail
@@ -285,10 +290,15 @@ export function useSync() {
                 }
               })()
             : Promise.resolve(),
-          messageLoader.ensure(
-            { directory: targetDirectory, sessionID },
-            { force, reason: "reactive" },
-          ),
+          (async () => {
+            await messageLoader.ensure(
+              { directory: targetDirectory, sessionID },
+              { force, reason: "reactive" },
+            )
+            if (!isStale()) {
+              await recoverInterruptedTurnAfterMessageLoad(targetDirectory, targetStore, sessionID, isStale)
+            }
+          })(),
         ])
       })()
 

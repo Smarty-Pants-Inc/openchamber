@@ -1,5 +1,5 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/v2";
-import { runBackgroundNetworkTask } from '@/lib/background-network';
+import { runSessionListNetworkTask } from '@/lib/background-network';
 import { retry } from "@/sync/retry";
 import { stripSessionListDetails } from "@/sync/sanitize";
 import { startSessionLoadPerformanceEvent } from "@/sync/session-load-performance";
@@ -146,18 +146,17 @@ export async function listGlobalSessionPages(
     } else {
         operation = "bootstrap.sessions.all";
     }
-    // ponytail: the sidebar bootstrap's authoritative list passes `ungated`; its scheduler already bounds it. Behind the
-    // shared 3-slot background gate it queued after 5-19 s git status polls, leaving groups on "Loading sessions…" for
-    // minutes (R3.6 gate). Assumes an HTTP/2 origin (Smarty's is); on HTTP/1.1, six ungated lists can fill the pool.
-    const gate = options.ungated ? <T,>(task: () => Promise<T>) => task() : runBackgroundNetworkTask;
+    // Bounded catalog/bootstrap callers may bypass the gate. Other pages use
+    // the list lane, whose reserved capacity keeps slow background reads out.
+    const gate = options.ungated ? <T,>(task: () => Promise<T>) => task() : runSessionListNetworkTask;
     while (true) {
         let attempts = 0;
         const finishPerformanceEvent = startSessionLoadPerformanceEvent({
             operation,
             caller: cursor === undefined ? "initial-page" : "pagination",
         });
-        const { response, payload } = await gate(() => retry(
-            async () => {
+        const { response, payload } = await retry(
+            () => gate(async () => {
                 if (options.isCurrent && !options.isCurrent()) throw new Error('Superseded session list read');
                 attempts += 1;
                 const response = await apiClient.experimental.session.list({
@@ -169,10 +168,10 @@ export async function listGlobalSessionPages(
                 });
                 const payload = unwrapSessionList(response, "experimental.session.list")
                     .map((session) => stripSessionListDetails(session) as GlobalSessionRecord);
-                return { response, payload };
-            },
+                return { response: response.response, payload };
+            }),
             { attempts: 3, delay: 500, retryIf: () => !options.isCurrent || options.isCurrent() },
-        )).catch((error) => {
+        ).catch((error) => {
             finishPerformanceEvent("error", { retryCount: Math.max(0, attempts - 1) });
             throw error;
         });

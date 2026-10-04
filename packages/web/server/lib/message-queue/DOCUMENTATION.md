@@ -55,6 +55,12 @@ Each item stores its ID, creation time, raw `content`, delivery `text`, optional
 Attachments include their `dataUrl`, filename, MIME type, size and source.
 The captured model is `{ providerID, modelID, agent?, variant? }`.
 
+Snapshots retain `contextPreview`, capped at 100 characters plus an ellipsis.
+It carries the attached comment or context label when `content` is empty and
+never replaces editable text or delivered parts. Older items without a summary
+derive one from the attached comment metadata or the first non-instruction
+context text. This optional field needs no queue-file migration.
+
 Context preserves order and includes one of:
 
 - `{ kind: 'context', text, metadata, instructions? }` for attached draft or linked context.
@@ -97,6 +103,12 @@ state using session status and the trailing message. Failed reads mean unknown
 readiness, not idle. Read/preparation failures may retry; an upstream POST failure
 never automatically retries.
 
+A busy/retry status always blocks. Stock OpenCode's unfinished assistant tail
+from before this runtime started is treated as an interrupted old run; a missing
+creation timestamp or a newer unfinished tail still blocks. This fallback is
+historical, not a backend receipt or native session readiness grant. Code queue
+admission still requires its explicit qualified capability.
+
 The runtime captures backend URL and auth headers and checks they are unchanged
 before dispatch. It persists `attempting` before issuing the POST. Successful
 upstream completion removes the item in another persisted transaction. A lost
@@ -107,6 +119,11 @@ Commands with context use the prompt route, with their template expanded or a
 skill invocation instruction attached. Prompt part order is text, files, captured
 context, skill instruction, pending project knowledge, then agent mention.
 Project knowledge is marked delivered only after upstream acceptance.
+
+`resolvePromptBody` from the routing runtime runs on the assembled body before
+the persisted attempt marker and prompt or command send. It turns a captured
+`openchamber/auto` sentinel into a real model. Ordinary captured models stay fixed.
+Routing failure is preparation failure, not permission to replay an attempted POST.
 
 Auto-review holds use `PUT .../hold`, defaulting to five minutes and capped at ten.
 The UI refreshes active holds. Holds, live send reservations and timers are
@@ -177,8 +194,10 @@ projections, despite including all item IDs and states.
 | `PUT /sessions/:id/hold` | `{ held, ttlMs? }` |
 
 Mutations broadcast `openchamber:message-queue.updated` with `{ revision, session }`.
-The session retains its directory even when its last item is removed. Full recovery
-payloads are returned only to the authenticated requester, never broadcast.
+SSE uses `/api/openchamber/events`; `/api/global/event` carries no OpenChamber events.
+The UI subscribes independently of its OpenCode transport and refreshes on either
+stream's reconnect. The session retains its directory even when its last item is
+removed. Full recovery payloads go only to the authenticated requester, never broadcast.
 
 ## UI and foreground recovery
 

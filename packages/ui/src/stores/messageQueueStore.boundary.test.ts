@@ -18,6 +18,8 @@ let requests: Request[] = [];
 let respond: (request: Request) => Promise<Response>;
 
 beforeEach(() => {
+    // Each fixture starts a new server lifecycle, including its snapshot revision.
+    useMessageQueueStore.getState().resetForRuntimeSwitch(getRuntimeKey());
     sessionId = `session-boundary-${crypto.randomUUID()}`;
     initializeRuntimeEndpoint({ apiBaseUrl: 'http://queue.test', runtimeKey: 'queue-test' });
     configureRuntimeUrlResolver({ apiBaseUrl: 'http://queue.test' });
@@ -141,6 +143,50 @@ test('a lost admission response reconciles by request ID without a second POST',
     expect(requests.map(request => request.method)).toEqual(['POST', 'GET']);
     expect(useMessageQueueStore.getState().getQueueForTarget(owner)[0].id).toBe(acceptedId);
     expect(useMessageQueueStore.getState().recoveryMessages[getMessageQueueKey(owner)]).toEqual([]);
+});
+
+test('a lower-revision admission reconciliation cannot resurrect a settled queue', async () => {
+    const owner = target();
+    const store = useMessageQueueStore.getState();
+    respond = async () => Response.json({ revision: 3, sessions: [] });
+    await store.hydrate();
+    let acceptedId = '';
+    respond = async request => {
+        if (request.method === 'POST') {
+            acceptedId = (await request.json()).requestId;
+            throw new Error('accepted response lost');
+        }
+        return Response.json({ revision: 1, sessions: [{ sessionId: owner.sessionId, directory: owner.directory, sendingId: null,
+            items: [{ ...item, id: acceptedId, createdAt: 1, attachments: [], state: 'pending' }],
+        }] });
+    };
+    await store.addToQueue(owner, item);
+    expect(requests.map(request => request.method)).toEqual(['GET', 'POST', 'GET']);
+    expect(store.getQueueForTarget(owner)).toEqual([]);
+    expect(useMessageQueueStore.getState().recoveryMessages[getMessageQueueKey(owner)][0]).toMatchObject({
+        id: acceptedId, state: 'unconfirmed', content: item.content,
+    });
+});
+
+test('identical text with a different request ID never confirms uncertain admission', async () => {
+    const owner = target();
+    const store = useMessageQueueStore.getState();
+    let requestId = '';
+    respond = async request => {
+        if (request.method === 'POST') {
+            requestId = (await request.json()).requestId;
+            throw new Error('admission response lost');
+        }
+        return Response.json({ revision: 1, sessions: [{ sessionId: owner.sessionId, directory: owner.directory, sendingId: null,
+            items: [{ ...item, id: 'another-request-id', createdAt: 1, attachments: [], state: 'pending' }],
+        }] });
+    };
+    await expect(store.addToQueue(owner, item)).rejects.toThrow('admission response lost');
+    expect(requests.map(request => request.method)).toEqual(['POST', 'GET']);
+    expect(store.getQueueForTarget(owner).map(message => message.id)).toEqual(['another-request-id']);
+    expect(useMessageQueueStore.getState().recoveryMessages[getMessageQueueKey(owner)][0]).toMatchObject({
+        id: requestId, state: 'unconfirmed', content: item.content,
+    });
 });
 
 for (const present of [true, false]) test(`older full snapshot preserves newer session recovery; present=${present}`, async () => {

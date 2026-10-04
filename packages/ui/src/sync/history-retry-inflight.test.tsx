@@ -9,13 +9,14 @@ const state = { session: [], message: {}, part: {}, sessionEventRevision: {} };
 const store = { getState: () => state, setState: () => undefined };
 mock.module('./sync-context', () => ({
   dropCachedSessionMessageRecordsSnapshots: () => undefined,
-  useChildStoreManager: () => ({ ensureChild: () => store }),
+  useChildStoreManager: () => ({ ensureChild: () => store, children: new Map([['/project', store]]) }),
   useDirectoryStore: () => store,
   useSessionMessageLoader: () => ({ ensure: async (_target: { directory: string; sessionID: string }, options: { force?: boolean }) => { ensures.push(options); } }),
   useSyncDirectory: () => '/project',
   useSyncSDK: () => ({ session: { get: () => new Promise(() => {}) } }), // The detail read never answers.
   useSyncRuntime: () => ({}),
   resyncBlockingRequestsForDirectory: async () => undefined,
+  recoverInterruptedTurnAfterMessageLoad: async () => undefined,
   buildSessionMessageRecordsSnapshot: () => [],
 }));
 

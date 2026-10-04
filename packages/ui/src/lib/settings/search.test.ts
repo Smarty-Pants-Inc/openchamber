@@ -14,9 +14,21 @@ const runtimeCtx = {
   isWindows: false,
   isLinux: false,
   isWindowsArm64: false,
+  routingAvailable: false,
 };
 
 describe('settings search', () => {
+  test('finds the scrollbar preference on every surface', () => {
+    for (const context of [runtimeCtx, { ...runtimeCtx, isDesktop: true }, { ...runtimeCtx, isVSCode: true }, { ...runtimeCtx, isMobile: true }]) {
+      const results = buildSettingsSearchResults({
+        query: 'scrollbar',
+        runtimeCtx: context,
+        t,
+        getPageTitle: (page) => page,
+      });
+      expect(results.find((result) => result.id === 'appearance.scrollbars')?.page).toBe('appearance');
+    }
+  });
   test('finds Linear connect on the integrations page', () => {
     const results = buildSettingsSearchResults({
       query: 'linear',
@@ -72,5 +84,27 @@ describe('settings search', () => {
     expect(ids()).toContain('chat.session-recap'); expect(ids()).toContain('chat.session-suggestion'); // Stock: offered.
     expect(ids(true)).toContain('chat.session-suggestion');
     expect(ids(false)).not.toContain('chat.session-recap'); expect(ids(false)).not.toContain('chat.session-suggestion');
+  })
+
+  test('finds guest extension panels on the integrations page', () => {
+    const results = buildSettingsSearchResults({
+      query: 'gitlab',
+      runtimeCtx,
+      t,
+      getPageTitle: (page) => page,
+    });
+
+    expect(results.some((result) => result.id === 'integrations.guests')).toBe(true);
+  });
+
+  test('hides guest extension panels in VS Code', () => {
+    const results = buildSettingsSearchResults({
+      query: 'clickup',
+      runtimeCtx: { ...runtimeCtx, isVSCode: true },
+      t,
+      getPageTitle: (page) => page,
+    });
+
+    expect(results.some((result) => result.id === 'integrations.guests')).toBe(false);
   });
 });

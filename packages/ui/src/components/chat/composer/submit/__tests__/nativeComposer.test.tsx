@@ -10,6 +10,7 @@ import { nativeCreationForDraft } from '@/sync/native-draft-creation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { readChatDraft } from '@/lib/chatDraftPersistence';
 import { browserDisplayName } from '@/lib/messages/displayName';
+import { invalidateSettingsCache } from '@/lib/persistence';
 
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 afterEach(async () => { await mounted?.dispose(); mounted = undefined; });
@@ -107,6 +108,25 @@ test('accepted A completion cannot consume a newer same-path draft with equal te
   expect(c.prompts()).toHaveLength(1); expect(c.creates()).toHaveLength(1);
 });
 
+test('accepted native Send after a same-target remount preserves files added while its reply was held', async () => {
+  const c = mounted = await mountedNativeComposer(true);
+  const response = deferred<Response>(); c.handlers.prompt = async () => response.promise;
+  await c.replace('submitted'); await c.submit();
+  expect(c.prompts()).toHaveLength(1);
+  const newerFile = { ...useInputStore.getState().attachedFiles[0], id: 'new-remount-file', filename: 'new.md' };
+  await act(async () => {
+    useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, newerFile]);
+    c.remount();
+    await settle();
+  });
+  await act(async () => { response.resolve(new Response(null, { status: 204 })); await settle(); });
+  expect(c.text()).toBe('');
+  expect(useInputStore.getState().attachedFiles).toEqual([newerFile]);
+  expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
+  expect(c.creates()).toHaveLength(1);
+  expect(c.prompts()).toHaveLength(1);
+});
+
 test('mounted named whitespace command refuses before native history or composer consumption', async () => {
   const c = mounted = await mountedNativeComposer(false);
   browserDisplayName.apply('Test label');
@@ -123,6 +143,7 @@ for (const preparation of ['settings', 'snippet', 'magic'] as const) test(`real 
   const pending = deferred<Response>(); let entered = false;
   c.handlers[preparation] = async () => { entered = true; return pending.promise; };
   await c.replace(preparation === 'magic' ? '/plan-feature X' : preparation === 'snippet' ? 'X #snippet' : 'X');
+  if (preparation === 'settings') invalidateSettingsCache();
   await c.submit(); expect(entered).toBe(true); expect(c.prompts()).toHaveLength(0);
   await act(async () => {
     c.switchRuntime('legacy-b');

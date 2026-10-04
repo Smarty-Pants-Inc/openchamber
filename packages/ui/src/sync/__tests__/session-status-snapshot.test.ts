@@ -111,6 +111,13 @@ describe("applySessionStatusSnapshot", () => {
       expect(changed).toBe(true)
       expect(store.getState().session_status.ses_a).toEqual({ type: "idle" })
     })
+
+    test("seeds idle for a candidate with no previous status entry", () => {
+      const store = createDirectoryStore({ session_status: {} })
+      const changed = applySessionStatusSnapshot(store, {}, ["ses_a"], "authoritative")
+      expect(changed).toBe(true)
+      expect(store.getState().session_status.ses_a).toEqual({ type: "idle" })
+    })
   })
 })
 

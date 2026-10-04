@@ -9,6 +9,7 @@ import { getClaudeCliAuthStatus } from './claude-cli-auth.js';
 import { OPENCODE_CONFIG_DIR } from './shared.js';
 import { createSettingsRevision, parseIfMatch, SettingsPreconditionError } from './settings-revision.js';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
+import { settingsSurfaceOf } from './settings-files.js';
 
 export const registerOpenCodeRoutes = (app, dependencies) => {
   const {
@@ -233,9 +234,10 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
     }
   };
 
-  app.get('/api/config/settings', async (_req, res) => {
+  app.get('/api/config/settings', async (req, res) => {
     try {
-      const settings = await readSettingsFromDiskMigrated();
+      // The surface kind resolves the per-surface profile keys; absent means base.
+      const settings = await readSettingsFromDiskMigrated({ surface: settingsSurfaceOf(req) });
       return sendSettingsResponse(res, formatSettingsResponse(settings));
     } catch (error) {
       console.error('Failed to read settings:', error);
@@ -448,7 +450,7 @@ ${desktopReturn ? `<a class="return" href="openchamber://focus/mcp-auth">Return 
   app.put('/api/config/settings', async (req, res) => {
     try {
       const precondition = parseIfMatch(req.get('If-Match'));
-      const updated = await persistSettings(req.body ?? {}, precondition);
+      const updated = await persistSettings(req.body ?? {}, precondition, { surface: settingsSurfaceOf(req) });
       return sendSettingsResponse(res, updated);
     } catch (error) {
       if (error instanceof SettingsPreconditionError) {

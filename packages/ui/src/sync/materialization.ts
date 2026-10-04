@@ -99,6 +99,31 @@ function filterMaterializedParts(parts: Part[], skipPartTypes: ReadonlySet<strin
     .filter((part) => !!part?.id && !skipPartTypes.has(part.type))
 }
 
+function finalizeActiveToolsInCompletedMessage(message: Message, parts: Part[]): Part[] {
+  if (message.role !== "assistant" || message.time.completed === undefined) return parts
+
+  const completedAt = message.time.completed
+  let reconciledParts = parts
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]
+    if (part.type !== "tool" || !ACTIVE_TOOL_STATUSES.has(part.state.status)) continue
+
+    const start = getPartStateTime(part)?.start ?? completedAt
+    if (reconciledParts === parts) reconciledParts = [...parts]
+    reconciledParts[index] = {
+      ...part,
+      state: {
+        ...part.state,
+        status: "error" as const,
+        error: "Interrupted",
+        time: { start, end: completedAt },
+      },
+    }
+  }
+
+  return reconciledParts
+}
+
 function haveEquivalentPartSnapshots(left: Part[] | undefined, right: Part[]): boolean {
   // `undefined` means "parts never fetched", which is NOT equivalent to a
   // fetched-empty snapshot — the empty array must be committed so
@@ -301,7 +326,10 @@ export function materializeSessionSnapshots(
     if (isPrepend && nextPartState[messageID]) {
       const existing = nextPartState[messageID]!
       const byID = new Map(existing.map((part) => [part.id, part] as const))
-      const fetched = filterMaterializedParts(record.parts ?? [], skipPartTypes)
+      const fetched = finalizeActiveToolsInCompletedMessage(
+        record.info,
+        filterMaterializedParts(record.parts ?? [], skipPartTypes),
+      )
       if (fetched.every((part) => byID.has(part.id))) continue
       const fetchedIDs = new Set(fetched.map((part) => part.id))
       if (nextPartState === state.part) nextPartState = { ...state.part }
@@ -312,12 +340,13 @@ export function materializeSessionSnapshots(
 
     const isAssistant = record.info.role === "assistant"
     const existing = nextPartState[messageID]
-    const nextParts = mergeMaterializedParts(
+    const mergedParts = mergeMaterializedParts(
       existing,
       filterMaterializedParts(record.parts ?? [], skipPartTypes),
       skipPartTypes,
       isAssistant,
     )
+    const nextParts = finalizeActiveToolsInCompletedMessage(record.info, mergedParts)
     // For non-assistant messages an empty snapshot keeps the old "absent"
     // representation; only assistant messages need the explicit [] marker
     // (getSessionMaterializationStatus checks only assistant messages).

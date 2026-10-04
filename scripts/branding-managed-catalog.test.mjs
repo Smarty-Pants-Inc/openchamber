@@ -34,7 +34,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   for (const entry of fixtures) {
     assert.equal(entry.catalogFixtureSource, '24e8cf43def2efe83448542efa7be51ee1726271');
     assert.equal(entry.catalogFixtureSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.catalogFixtureSha256));
   }
   const historical = structuredClone(overlay);
   // Unwind Steps to the exact upstream ledger, retaining Forge placement and provenance.
@@ -402,7 +402,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     // (the newer layer then checks the disk and names this hash as its predecessor).
     assert.equal(entry.stopWordingSha256, 'dfc540f2a7799fe707065b44ef9eabf8bf6668f34988499c08615bc4cb884ab8');
     if (overlay.files.find(current => current.path === entry.path)?.combinedSha256 === entry.stopWordingSha256) {
-      assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.stopWordingSha256);
+      assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.stopWordingSha256));
     }
     assert.equal(entry.stopWordingSource, '1bb8b45e6b73d501337c17bf74db875ec9496178');
     assert.ok(entry.stopWordingNote);

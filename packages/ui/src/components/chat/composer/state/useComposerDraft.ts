@@ -12,6 +12,7 @@
  */
 
 import React from 'react';
+import { useInputStore } from '@/sync/input-store';
 
 import {
     getChatDraftIdentityKey,
@@ -25,6 +26,7 @@ import {
     subscribeChatDraftDeletion,
     writeChatDraft,
     type ChatDraftIdentity,
+    type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -52,7 +54,7 @@ export interface ComposerDraftOptions {
     confirmedMentionsRef: React.RefObject<Set<string>>;
     /** The draft this composer currently belongs to. */
     identity: ChatDraftIdentity | null;
-    /** User setting: when off, drafts are discarded rather than stored. */
+    /** User setting: when off, drafts stay in memory without durable writes. */
     persistEnabled: boolean;
     /** A successful native first Send transfers the live draft to this session. */
     materializedSessionId?: string | null;
@@ -62,10 +64,10 @@ export interface ComposerDraftOptions {
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
     onIdentityChange?: () => void;
-    /** Called after a non-empty draft is restored, to select its text. */
-    onDraftRestored?: () => void;
+    /** Called after restoring a saved draft or fork replay, to select its text. */
+    onDraftRestored?: (source: 'saved' | 'fork') => void;
     readMessage?: () => string;
-    onDraftConsumed?: () => void;
+    onDraftConsumed?: (submitted: string, before?: number) => void;
 }
 
 export interface ComposerDraftControls {
@@ -76,6 +78,12 @@ export interface ComposerDraftControls {
      * cleared composer must be stored before the send resolves.
      */
     persistNow: (identity: ChatDraftIdentity | null, draft: string) => void;
+    /** Consume a command in the current draft while opening another draft. */
+    handoffDraft: (identity: ChatDraftIdentity | null, draft: string | null) => void;
+    /** Restore a draft after a failed send without using persistence as state. */
+    restoreDraft: (identity: ChatDraftIdentity | null, draft: string, confirmedMentions: Set<string>) => void;
+    /** Move an in-memory draft to an identity materialized during an async flow. */
+    migrateDraft: (from: ChatDraftIdentity | null, to: ChatDraftIdentity | null) => void;
 }
 
 export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftControls {
@@ -113,11 +121,56 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         liveTextRef.current = message;
         liveSinceRef.current = message ? Date.now() : null;
     }, [message]);
+    const draftMemoryRef = React.useRef(new Map<string, ChatDraftSnapshot & { since?: number | 'unknown' | null }>());
+    const skipOutgoingDraftRef = React.useRef(false);
+    const initialKey = initialDraft.identity ? getChatDraftIdentityKey(initialDraft.identity) : null;
+    if (persistEnabled && initialKey && !draftMemoryRef.current.has(initialKey) && initialDraft.text) {
+        draftMemoryRef.current.set(initialKey, {
+            text: initialDraft.text,
+            confirmedMentions: new Set(confirmedMentionsRef.current),
+            since: liveSinceRef.current,
+        });
+    }
+    const pendingComposerRestore = useInputStore((state) => state.pendingComposerRestore);
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
     const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer });
     callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer };
+    const catalogTransferRef = React.useRef<{
+        previousKey: string | null;
+        currentKey: string | null;
+        result: false | 'restore' | 'retain';
+    } | null>(null);
+
+    // Follow the rendered composer, not the sidebar's deferred selection.
+    // Layout timing prevents the incoming composer painting outgoing files.
+    const attachmentIdentityRef = React.useRef(initialDraft.identity);
+    React.useLayoutEffect(() => {
+        const previous = attachmentIdentityRef.current;
+        const previousKey = previous ? getChatDraftIdentityKey(previous) : null;
+        const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
+        const input = useInputStore.getState();
+        let catalogTransfer: false | 'restore' | 'retain' = false;
+        if (previousKey !== currentKey) {
+            catalogTransfer = callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity) ?? false;
+            catalogTransferRef.current = { previousKey, currentKey, result: catalogTransfer };
+        }
+        const isNativeMaterialization = Boolean(previous && identity && !previous.sessionId
+            && identity.sessionId === materializedSessionId && previous.runtimeKey === identity.runtimeKey
+            && previous.directory === identity.directory);
+        // An authoritative empty catalog removes the directory, not the live
+        // cold draft. Keep its attachment owner until it has a target again.
+        if (!identity && catalogTransfer && previous && input.attachmentDraftKey === previousKey) return;
+        if ((isNativeMaterialization || catalogTransfer)
+            && previous && identity && input.attachmentDraftKey === previousKey) {
+            const files = input.attachedFiles;
+            input.clearAttachedFiles(previous);
+            input.setAttachedFiles(files, identity);
+        }
+        input.selectAttachmentDraft(identity);
+        attachmentIdentityRef.current = identity;
+    }, [identity, materializedSessionId]);
 
     React.useLayoutEffect(() => { claimChatDraftOwnership(identity); }, [identity]);
 
@@ -126,7 +179,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     }, [identity]);
 
     const persistNow = React.useCallback((target: ChatDraftIdentity | null, draft: string) => {
-        if (!target) return;
+        if (!target || (!persistEnabled && draft)) return;
         const key = getChatDraftIdentityKey(target);
 
         // Only keep confirmed mentions the draft still contains: a mention the
@@ -147,7 +200,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         if (stored === undefined) return;
         if (stored) lastPersistedRef.current.set(key, signature);
         else lastPersistedRef.current.delete(key);
-    }, [confirmedMentionsRef]);
+    }, [confirmedMentionsRef, persistEnabled]);
 
     const clearPending = React.useCallback(() => {
         if (!persistTimerRef.current) return;
@@ -164,11 +217,12 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         if (!initialDraft.text) return;
 
         if (!persistEnabled) {
+            messageRef.current = '';
+            confirmedMentionsRef.current = new Set();
             setMessage('');
-            writeChatDraft(initialDraft.identity, '', []);
             return;
         }
-        requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.());
+        requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.('saved'));
         // Runs once; the initial draft is captured at mount by design.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [persistEnabled]);
@@ -181,7 +235,11 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
         previousIdentityRef.current = identity;
         if (previousKey === currentKey) return;
-        const catalogTransfer = callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity);
+        const cachedTransfer = catalogTransferRef.current;
+        const catalogTransfer = cachedTransfer?.previousKey === previousKey && cachedTransfer.currentKey === currentKey
+            ? cachedTransfer.result
+            : callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity) ?? false;
+        catalogTransferRef.current = null;
         if (catalogTransfer) {
             clearPending();
             skipNextPersistRef.current = true;
@@ -192,7 +250,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
                 messageRef.current = restored.text;
                 confirmedMentionsRef.current = restored.confirmedMentions;
                 setMessage(restored.text);
-                callbacksRef.current.onDraftRestored?.();
+                callbacksRef.current.onDraftRestored?.('saved');
             } else {
                 messageRef.current = live;
                 if (persistEnabled) persistNow(identity, live);
@@ -212,31 +270,38 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             const slot = readChatDraft(previous).text;
             if (!slot || slot === messageRef.current) writeChatDraft(previous, '', []);
             lastPersistedRef.current.set(getChatDraftIdentityKey(previous), draftSignature('', []));
+            if (previousKey) draftMemoryRef.current.set(previousKey, { text: '', confirmedMentions: new Set(), since: null });
+            if (currentKey) draftMemoryRef.current.set(currentKey, { text: messageRef.current, confirmedMentions: new Set(confirmedMentionsRef.current), since: liveSinceRef.current });
             if (persistEnabled) persistNow(identity, messageRef.current);
             return;
         }
-        if (!persistEnabled) {
-            messageRef.current = '';
-            setMessage('');
-            confirmedMentionsRef.current = new Set();
-            return;
+        if (!skipOutgoingDraftRef.current && previousKey) {
+            const outgoing = { text: messageRef.current, confirmedMentions: new Set(confirmedMentionsRef.current), since: liveSinceRef.current };
+            draftMemoryRef.current.set(previousKey, outgoing);
+            if (persistEnabled) persistNow(previous, outgoing.text);
         }
+        skipOutgoingDraftRef.current = false;
 
-        persistNow(previous, messageRef.current);
-        const restored = readChatDraft(identity);
-        // The composer's own restore, not typing: the editor's controlled rewrite compares against messageRef, so it
-        // must hold the restored text first. Otherwise the rewrite marks a cold draft edited, and the catalog transfer
-        // then saves the empty composer over the remembered project's draft (smarty-code#113, new-project reload).
-        restoreProvenance(restored.text, restored.text ? readChatDraftSince(identity) ?? 'unknown' : null);
+        const remembered = currentKey ? draftMemoryRef.current.get(currentKey) : undefined;
+        // Durable state may have been reconciled by an off-screen native Send
+        // recovery. Memory owns navigation only when persistence is disabled.
+        const restored = persistEnabled ? readChatDraft(identity) : remembered || { text: '', confirmedMentions: new Set<string>() };
+        // A controlled restore keeps the copy's original admission provenance, including in-memory drafts.
+        restoreProvenance(restored.text, restored.text ? (persistEnabled ? readChatDraftSince(identity) : remembered?.since) ?? 'unknown' : null);
         messageRef.current = restored.text;
         setMessage(restored.text);
-        confirmedMentionsRef.current = restored.confirmedMentions;
+        confirmedMentionsRef.current = new Set(restored.confirmedMentions);
         if (restored.text) {
-            requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.());
+            requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.('saved'));
         }
     }, [clearPending, confirmedMentionsRef, identity, materializedSessionId, messageRef, persistEnabled, persistNow, setMessage]);
 
     React.useEffect(() => subscribeChatDraftConsumption((target, submitted, before) => {
+        const key = getChatDraftIdentityKey(target);
+        const remembered = draftMemoryRef.current.get(key);
+        if (remembered?.text === submitted && (before === undefined || remembered.since == null || remembered.since === 'unknown' || remembered.since <= before)) {
+            draftMemoryRef.current.set(key, { text: '', confirmedMentions: new Set(), since: null });
+        }
         const current = currentIdentityRef.current;
         if (!current || current.draftId !== target.draftId
             || getChatDraftIdentityKey(current) !== getChatDraftIdentityKey(target)) return;
@@ -264,9 +329,36 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
                 persistNow(current, '');
             }
             else lastPersistedRef.current.set(getChatDraftIdentityKey(current), draftSignature('', []));
-            callbacksRef.current.onDraftConsumed?.();
+            callbacksRef.current.onDraftConsumed?.(submitted, before);
         } else if (persistEnabled) persistNow(current, live);
     }), [clearPending, confirmedMentionsRef, messageRef, persistEnabled, persistNow, setMessage]);
+
+    // The chat column can still show the source after navigation selects a fork.
+    // Apply its replay only after the destination's draft has been loaded above.
+    React.useEffect(() => {
+        if (!pendingComposerRestore) return;
+        const input = useInputStore.getState();
+        const pending = input.consumePendingComposerRestore(identity);
+        if (!pending) return;
+
+        clearPending();
+        skipNextPersistRef.current = true;
+        restoreProvenance(pending.text, pending.text ? Date.now() : null);
+        draftMemoryRef.current.set(getChatDraftIdentityKey(pending.target), { text: pending.text, confirmedMentions: new Set(), since: liveSinceRef.current });
+        messageRef.current = pending.text;
+        confirmedMentionsRef.current = new Set();
+        setMessage(pending.text);
+        // Equal source/replay text need not trigger another render to persist.
+        if (persistEnabled) persistNow(pending.target, pending.text);
+        input.clearAttachedFiles();
+        for (const file of pending.files) input.addRestoredAttachment(file);
+        requestAnimationFrame(() => {
+            const current = currentIdentityRef.current;
+            if (current && getChatDraftIdentityKey(current) === getChatDraftIdentityKey(pending.target)) {
+                callbacksRef.current.onDraftRestored?.('fork');
+            }
+        });
+    }, [clearPending, confirmedMentionsRef, identity, messageRef, pendingComposerRestore, persistEnabled, persistNow, setMessage]);
 
     // A draft deleted elsewhere (session deleted, drafts cleared) clears the
     // composer if it is the one on screen.
@@ -274,6 +366,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const deletedKey = getChatDraftIdentityKey(deleted);
         // Record the empty signature so a queued write does not resurrect it.
         lastPersistedRef.current.set(deletedKey, draftSignature('', []));
+        draftMemoryRef.current.set(deletedKey, { text: '', confirmedMentions: new Set() });
 
         const current = currentIdentityRef.current;
         if (!current || getChatDraftIdentityKey(current) !== deletedKey) return;
@@ -303,7 +396,9 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         }
 
         clearPending();
-        const draftSnapshot = message;
+        // Identity/fork effects may restore the same text as the previous
+        // render. The live ref already holds that replay, even without a new render.
+        const draftSnapshot = messageRef.current;
         const identitySnapshot = identity;
         persistTimerRef.current = setTimeout(() => {
             persistTimerRef.current = null;
@@ -311,7 +406,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         }, PERSIST_DEBOUNCE_MS);
 
         return clearPending;
-    }, [clearPending, identity, message, persistEnabled, persistNow]);
+    }, [clearPending, identity, message, messageRef, persistEnabled, persistNow]);
 
     // Force a write wherever the page may stop running before the timer fires.
     React.useEffect(() => {
@@ -334,5 +429,70 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         };
     }, [clearPending, messageRef, persistEnabled, persistNow]);
 
-    return { persistNow, ephemeralOnly: persistEnabled && ephemeralOnly };
+    const restoreDraft = React.useCallback((target: ChatDraftIdentity | null, draft: string, confirmedMentions: Set<string>) => {
+        const targetKey = target ? getChatDraftIdentityKey(target) : null;
+        const current = currentIdentityRef.current;
+        const isCurrent = target && current && getChatDraftIdentityKey(target) === getChatDraftIdentityKey(current);
+        const existing = isCurrent
+            ? { text: messageRef.current, confirmedMentions: confirmedMentionsRef.current }
+            : (targetKey && draftMemoryRef.current.get(targetKey)) || (persistEnabled ? readChatDraft(target) : null);
+        const text = existing?.text && existing.text !== draft ? `${existing.text}\n\n${draft}` : draft;
+        const mentions = new Set([...(existing?.confirmedMentions ?? []), ...confirmedMentions]);
+        const since = text ? Date.now() : null;
+        if (targetKey) draftMemoryRef.current.set(targetKey, { text, confirmedMentions: mentions, since });
+        if (isCurrent) {
+            restoreProvenance(text, since);
+            messageRef.current = text;
+            confirmedMentionsRef.current = new Set(mentions);
+            setMessage(text);
+        }
+        if (persistEnabled && target) {
+            const stored = writeChatDraft(target, text, mentions, since ?? undefined);
+            if (stored) lastPersistedRef.current.set(getChatDraftIdentityKey(target), `${draftSignature(text, mentions)}${since === null ? '' : `\u0000${since}`}`);
+            else if (stored === false) lastPersistedRef.current.delete(getChatDraftIdentityKey(target));
+        }
+    }, [confirmedMentionsRef, messageRef, persistEnabled, setMessage]);
+
+    const handoffDraft = React.useCallback((target: ChatDraftIdentity | null, draft: string | null) => {
+        const targetKey = target ? getChatDraftIdentityKey(target) : null;
+        if (targetKey && draft !== null) draftMemoryRef.current.set(targetKey, { text: draft, confirmedMentions: new Set(), since: draft ? Date.now() : null });
+        const currentKey = currentIdentityRef.current ? getChatDraftIdentityKey(currentIdentityRef.current) : null;
+        if (targetKey === currentKey) {
+            if (draft !== null) {
+                restoreProvenance(draft, draft ? Date.now() : null);
+                messageRef.current = draft;
+                confirmedMentionsRef.current = new Set();
+                setMessage(draft);
+                persistNow(target, draft);
+            }
+            return;
+        }
+        if (currentKey) draftMemoryRef.current.set(currentKey, { text: '', confirmedMentions: new Set() });
+        persistNow(currentIdentityRef.current, '');
+        skipOutgoingDraftRef.current = true;
+        messageRef.current = '';
+        confirmedMentionsRef.current = new Set();
+        setMessage('');
+    }, [confirmedMentionsRef, messageRef, persistNow, setMessage]);
+
+    const migrateDraft = React.useCallback((from: ChatDraftIdentity | null, to: ChatDraftIdentity | null) => {
+        if (!to) return;
+        const current = currentIdentityRef.current;
+        const draft = from && current && getChatDraftIdentityKey(from) === getChatDraftIdentityKey(current)
+            ? { text: messageRef.current, confirmedMentions: new Set(confirmedMentionsRef.current) }
+            : (from && draftMemoryRef.current.get(getChatDraftIdentityKey(from)))
+            || (persistEnabled ? readChatDraft(from) : null);
+        if (!draft) return;
+        const since = from && current && getChatDraftIdentityKey(from) === getChatDraftIdentityKey(current)
+            ? liveSinceRef.current : from ? draftMemoryRef.current.get(getChatDraftIdentityKey(from))?.since ?? readChatDraftSince(from) : null;
+        draftMemoryRef.current.set(getChatDraftIdentityKey(to), { text: draft.text, confirmedMentions: new Set(draft.confirmedMentions), since });
+        if (persistEnabled) {
+            const knownSince = since == null || since === 'unknown' ? undefined : since;
+            const stored = writeChatDraft(to, draft.text, draft.confirmedMentions, knownSince);
+            if (stored) lastPersistedRef.current.set(getChatDraftIdentityKey(to), `${draftSignature(draft.text, draft.confirmedMentions)}${knownSince === undefined ? '' : `\u0000${knownSince}`}`);
+            else if (stored === false) lastPersistedRef.current.delete(getChatDraftIdentityKey(to));
+        }
+    }, [confirmedMentionsRef, messageRef, persistEnabled]);
+
+    return { persistNow, handoffDraft, restoreDraft, migrateDraft, ephemeralOnly: persistEnabled && ephemeralOnly };
 }

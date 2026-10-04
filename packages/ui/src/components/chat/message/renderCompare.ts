@@ -171,6 +171,7 @@ const areTurnChangedFilesEqual = (left?: TurnChangedFile[], right?: TurnChangedF
       leftFile.file !== rightFile.file
       || leftFile.additions !== rightFile.additions
       || leftFile.deletions !== rightFile.deletions
+      || leftFile.inTurnDiff !== rightFile.inTurnDiff
     ) {
       return false;
     }
@@ -293,6 +294,7 @@ export const areRelevantTurnGroupingContextsEqual = (
 
   if (left.turnId !== right.turnId) return false;
   if (left.isFirstAssistantInTurn !== right.isFirstAssistantInTurn) return false;
+  if (left.hasEarlierAssistantText !== right.hasEarlierAssistantText) return false;
   if (left.isLastAssistantInTurn !== right.isLastAssistantInTurn) return false;
   if (left.isLatestTurn !== right.isLatestTurn) return false;
   if (left.isWorking !== right.isWorking) return false;

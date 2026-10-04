@@ -113,10 +113,13 @@ test('dictation UI-password keeps its existing session and Origin gates', async 
     Object.assign(f.controller, password); delete f.controller.humanMode;
     const response = await f.login(); assert.equal(response.status, 200);
     const cookie = response.headers.get('set-cookie').split(';')[0];
+    // Password cookies are port-scoped, so exercise Origin gates on the login authority.
+    const { host, origin } = new URL(response.url);
     for (const [headers, code] of [
-      [{ Host: 'code.smartypants.ai', Origin: issuer }, 401],
-      [{ Host: 'code.smartypants.ai', Origin: 'https://attacker.test', Cookie: cookie }, 403],
-      [{ Host: 'code.smartypants.ai', Origin: issuer, Cookie: cookie }, 101],
+      [{ Host: host, Origin: origin }, 401],
+      [{ Host: 'code.smartypants.ai', Origin: issuer, Cookie: cookie }, 401],
+      [{ Host: host, Origin: 'https://attacker.test', Cookie: cookie }, 403],
+      [{ Host: host, Origin: origin, Cookie: cookie }, 101],
     ]) {
       const peer = f.open(headers); await waitFor(() => peer.outcome !== null); assert.equal(peer.outcome, code);
     }

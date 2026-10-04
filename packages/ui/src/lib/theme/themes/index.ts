@@ -1,16 +1,17 @@
 import type { Theme } from '@/types/theme';
-import { brandProductText } from '@/lib/brand.generated';
+import { brandProductText } from '../../brand.generated';
 import { presetThemes } from './presets';
 import { withPrColors } from './prColors';
+import { requireTheme } from '../definition';
 import flexokiLightRaw from './flexoki-light.json';
 import flexokiDarkRaw from './flexoki-dark.json';
 import openchamberLightRaw from './openchamber-light.json';
 import openchamberDarkRaw from './openchamber-dark.json';
 
-const flexokiLightTheme = withPrColors(flexokiLightRaw as Theme);
-const flexokiDarkTheme = withPrColors(flexokiDarkRaw as Theme);
-const openchamberLightTheme = withPrColors(openchamberLightRaw as Theme);
-const openchamberDarkTheme = withPrColors(openchamberDarkRaw as Theme);
+const flexokiLightTheme = withPrColors(requireTheme(flexokiLightRaw));
+const flexokiDarkTheme = withPrColors(requireTheme(flexokiDarkRaw));
+const openchamberLightTheme = withPrColors(requireTheme(openchamberLightRaw));
+const openchamberDarkTheme = withPrColors(requireTheme(openchamberDarkRaw));
 
 const brandTheme = (theme: Theme): Theme => ({
   ...theme,

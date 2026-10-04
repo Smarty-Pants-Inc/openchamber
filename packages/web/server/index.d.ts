@@ -29,6 +29,20 @@ export type HttpResponsePolicy = (
   context: ResponsePolicyContext
 ) => readonly (readonly [string, string])[] | Promise<readonly (readonly [string, string])[]>;
 
+export interface DesktopUpdateInfo {
+  available: boolean;
+  currentVersion?: string;
+  version?: string | null;
+  body?: string | null;
+  date?: string | null;
+}
+
+export interface DesktopUpdater {
+  check: () => Promise<DesktopUpdateInfo>;
+  install: () => Promise<DesktopUpdateInfo>;
+  restart: () => Promise<void> | void;
+}
+
 export interface StartWebUiServerOptions {
   port?: number;
   host?: string;
@@ -36,6 +50,9 @@ export interface StartWebUiServerOptions {
   exitOnShutdown?: boolean;
   uiPassword?: string | null;
   responsePolicy?: HttpResponsePolicy;
+  desktopUpdater?: DesktopUpdater;
+  /** App-owned built-in resources outside Electron's ASAR archive. */
+  builtInExtensionsDir?: string;
 }
 
 export declare function startWebUiServer(

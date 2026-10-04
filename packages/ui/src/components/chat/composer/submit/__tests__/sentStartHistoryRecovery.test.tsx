@@ -12,6 +12,7 @@ const { mountedNativeComposer } = await import('./nativeComposer.fixture');
 const { session, directory, deferred } = await import('@/sync/native-draft-fixture');
 const { useSessionUIStore } = await import('@/sync/session-ui-store');
 const { useProjectsStore } = await import('@/stores/useProjectsStore');
+const { useInputStore } = await import('@/sync/input-store');
 const { resetNativeDraftPage } = await import('@/sync/native-draft-start');
 const { resetSentStartsForPage } = await import('@/sync/native-draft-sent');
 afterAll(async () => { await dom.restore(); });
@@ -134,6 +135,37 @@ test('#461 repro 1: recovery history held across New session, both reads release
   expect(c.creates()).toHaveLength(1);
   expect(c.prompts()).toHaveLength(1);
   expect(c.text()).toBe(''); // Found delivered: consumed, never offered again.
+});
+
+test('recovery consumes old files but preserves a newly attached file for an explicit attachment-only Send', async () => {
+  const c = await sendHelloReplyLost();
+  const reads = holdHistory(c);
+  await reload(c);
+  for (let i = 0; i < 20 && reads.length < 1; i++) await settle();
+  expect(reads.length).toBeGreaterThanOrEqual(1);
+  await newSession();
+  for (let i = 0; i < 20 && reads.length < 2; i++) await settle();
+  const freshFile = { id: 'fresh-file', filename: 'fresh.txt', mimeType: 'text/plain',
+    dataUrl: 'data:text/plain;base64,ZnJlc2g=', source: 'local' as const,
+    file: new File(['fresh'], 'fresh.txt', { type: 'text/plain' }), size: 5 };
+  await act(async () => {
+    useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, freshFile]);
+    c.remount(); // The epoch boundary must not reclassify the newer file as submitted.
+  });
+  for (const read of reads) { await act(async () => { read.resolve(); }); await settle(); }
+  expect(c.text()).toBe('');
+  expect(useInputStore.getState().attachedFiles).toEqual([freshFile]);
+  expect(c.creates()).toHaveLength(1);
+  expect(c.prompts()).toHaveLength(1);
+  // A different attachment is new input, not a duplicate of the recovered Send.
+  c.handlers.history = async () => Response.json(deliveredHello);
+  c.handlers.prompt = async () => new Response(null, { status: 204 });
+  await c.submit();
+  for (let i = 0; i < 20 && c.prompts().length < 2; i++) await settle();
+  expect(c.creates()).toHaveLength(2);
+  expect(c.prompts()).toHaveLength(2);
+  const body = await c.prompts()[1].json();
+  expect(body.parts.some((part: { type: string; filename?: string }) => part.type === 'file' && part.filename === 'fresh.txt')).toBe(true);
 });
 
 test('#461 repro 2: reply lost, edited away and back to the same words, saved, reloaded: recovery keeps the newer draft', async () => {

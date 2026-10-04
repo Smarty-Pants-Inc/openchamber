@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'bun:test';
+import type { DesktopSettings } from '@/lib/desktop';
 
 const DIRECTORY = '/workspace/project';
 const OTHER_DIRECTORY = '/workspace/other';
@@ -192,8 +193,9 @@ mock.module('@/contexts/runtimeAPIRegistry', () => ({
 }));
 
 // The shared settings this load reads (GET /api/config/settings), and every shared-settings write it makes.
-let sharedSettings: Record<string, unknown> = {};
-const settingsWrites: unknown[] = [];
+// Older server documents can carry removed Git-selection fields; the public loader parses them out.
+let sharedSettings: DesktopSettings & { gitProviderId?: string; gitModelId?: string } = {};
+const settingsWrites: Partial<DesktopSettings>[] = [];
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: mock(async () => new Response(JSON.stringify(sharedSettings), {
     headers: { 'Content-Type': 'application/json' },
@@ -201,7 +203,11 @@ mock.module('@/lib/runtime-fetch', () => ({
 }));
 
 mock.module('@/lib/persistence', () => ({
-  updateDesktopSettings: mock(async (changes: unknown) => { settingsWrites.push(changes); }),
+  loadDesktopSettings: mock(async (): Promise<DesktopSettings | null> => parseSettingsDocument(sharedSettings)),
+  updateDesktopSettings: mock(async (changes: Partial<DesktopSettings>) => {
+    settingsWrites.push(changes);
+    return { ok: true };
+  }),
 }));
 
 mock.module('@/lib/startupTrace', () => ({
@@ -222,6 +228,7 @@ mock.module('@/lib/configSync', () => ({
   }),
 }));
 
+const { parseSettingsDocument } = await import('@/lib/settings/registry');
 const { useConfigStore } = await import('./useConfigStore');
 const { setSyncRefs } = await import('@/sync/sync-refs');
 
@@ -229,7 +236,8 @@ const { setSyncRefs } = await import('@/sync/sync-refs');
 // smarty-code#117 (code-demo's pre-check): loadAgents wrote shared settings with no user action. The Zen fallback wrote
 // the model it picked for git generation (a random zen model when the stored one was missing) and cleared the git model
 // selection; the invalid-defaults cleanup erased a stored default model, variant or agent this load could not use.
-// Both now apply in memory only: a first load in a fresh profile, and in a reopened browser, writes nothing.
+// Git fallback is memory-only. Configured defaults survive catalog gaps instead of being erased.
+// A first load in a fresh profile, and in a reopened browser, writes nothing.
 for (const reopened of [false, true]) test(`${reopened ? 'a reopened browser' : 'a fresh profile'}: loading agents writes no shared settings`, async () => {
   storage = new Map<string, string>();
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: makeStorage() });
@@ -250,11 +258,16 @@ for (const reopened of [false, true]) test(`${reopened ? 'a reopened browser' : 
   }
   useConfigStore.setState({ activeDirectoryKey: DIRECTORY, isConnected: true });
   await useConfigStore.getState().loadProviders({ directory: DIRECTORY });
-  await useConfigStore.getState().loadAgents({ directory: DIRECTORY });
+  expect(useConfigStore.getState().providersLoaded).toBe(true);
+  expect(await useConfigStore.getState().loadAgents({ directory: DIRECTORY })).toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(settingsWrites).toEqual([]);
   const state = useConfigStore.getState();
   expect(state.settingsZenModel).toBe('zen-model'); // The fallback still applies, in memory.
-  expect(state.settingsDefaultModel).toBeUndefined(); // The unusable defaults are ignored, in memory.
-  expect(state.settingsDefaultAgent).toBeUndefined();
+  expect(state.settingsDefaultModel).toBe('gone/model'); // Discovery gaps do not erase configured intent.
+  expect(state.settingsDefaultVariant).toBe('max');
+  expect(state.settingsDefaultAgent).toBe('ghost');
+  expect(state.currentAgentName).toBe('build'); // An absent agent still falls back to an available primary.
+  expect(state.currentProviderId).toBe('gone');
+  expect(state.currentModelId).toBe('model');
 });

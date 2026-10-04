@@ -8,6 +8,7 @@ interface OpenChamberLogoProps {
   width?: number;
   height?: number;
   isAnimated?: boolean;
+  variant?: 'default' | 'splash';
 }
 
 export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
@@ -15,6 +16,7 @@ export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
   width = 70,
   height = 70,
   isAnimated = false,
+  variant = 'default',
 }) => {
   const { t } = useI18n();
 
@@ -23,7 +25,8 @@ export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
       role="img"
       aria-label={t('openChamberLogo.aria.logo')}
       className={cn('inline-flex shrink-0 items-center justify-center', isAnimated && 'motion-safe:animate-pulse', className)}
-      style={{ width, height, fontSize: Math.min(width, height) * 0.88, lineHeight: 1 }}
+      style={{ width, height, fontSize: Math.min(width, height) * 0.88, lineHeight: 1,
+        color: variant === 'splash' ? 'var(--splash-stroke, var(--surface-foreground))' : undefined }}
     >
       {PRODUCT_MARK}
     </span>

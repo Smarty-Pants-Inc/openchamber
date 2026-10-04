@@ -46,6 +46,8 @@ import { getAllSyncSessionMap } from "@/sync/sync-refs";
 import { hasPendingSteer, registerPendingSteer, takePendingSteer } from "@/sync/pending-steers";
 import { summarizeOpenCodeError } from "@/sync/session-error-log";
 import { gatewayErrorSchema, ordinarySwitchResponseSchema, readOrdinaryModel, type OrdinaryModelChange, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
+import { normalizePath } from "@/lib/pathNormalization";
+import { hostSessionStatusSnapshotSchema, sessionStatusSnapshotSchema, type HostSessionStatusSnapshot } from "./session-status";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { markStartupTrace } from "@/lib/startupTrace";
 import { isClientIdConflict } from "@/lib/sendRecovery";
@@ -90,7 +92,7 @@ type SdkResult<T> = {
 };
 
 type DirectoryAvailability = "available" | "missing" | "unknown";
-const directoryProbeErrorSchema = z.object({ reason: z.string().optional() });
+const directoryProbeErrorSchema = z.object({ reason: z.string().optional(), isDirectory: z.boolean().optional() });
 
 
 function unwrapSdkData<T>(result: SdkResult<T>, operation: string): T {
@@ -280,7 +282,9 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       }
       const requestTimeoutMs = isDiscoveryReadUrl(input) ? discoveryTimeoutMs : readTimeoutMs;
       const timeout = createTimeoutSignal(requestTimeoutMs);
-      const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      const callerSignal = init?.signal !== undefined
+        ? init.signal
+        : input instanceof Request ? input.signal : undefined;
       const supportsAny = typeof AbortSignal !== 'undefined'
         && typeof (AbortSignal as { any?: unknown }).any === 'function';
       let signal: AbortSignal;
@@ -311,6 +315,11 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       } else {
         signal = timeout.signal;
       }
+      const cleanup = () => {
+        detachFallback?.();
+        timeout.cleanup();
+      };
+      let responseHasBody = false;
       try {
         const response = await runtimeFetch(input, { ...init, signal });
         // #811: a failed read of a session (5xx/404) may mean its Pi ended; the open one's row is refreshed now.
@@ -318,6 +327,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
           const session = /\/session\/([^/?]+)(?:\/message)?(?:\?|$)/.exec(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)?.[1];
           if (session) noteSessionReadFailed(decodeURIComponent(session));
         }
+        responseHasBody = response.body !== null;
         return response;
       } catch (error) {
         if (timeout.signal.aborted && !callerSignal?.aborted) {
@@ -325,8 +335,12 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
         }
         throw error;
       } finally {
-        detachFallback?.();
-        timeout.cleanup();
+        // The SDK consumes JSON after fetch resolves. Keep cancellation and the
+        // deadline alive through body delivery, including on older WebViews
+        // using the manual signal composition. Retention is bounded by the
+        // request deadline, just like native AbortSignal.timeout.
+        if (!responseHasBody || signal.aborted) cleanup();
+        else signal.addEventListener('abort', cleanup, { once: true });
       }
     },
   });
@@ -393,7 +407,12 @@ const getDesktopFilesApi = (): FilesAPI | null => {
 // /api/fs/home parsing boundary. Older servers answer without chatsRoot;
 // only a valid home response may use the legacy chats-root fallback.
 const fsAbsolutePathSchema = z.string().trim().regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/);
-const fsHomeResponseSchema = z.object({ home: fsAbsolutePathSchema, chatsRoot: fsAbsolutePathSchema.optional() });
+const fsHomeResponseSchema = z.object({
+  home: fsAbsolutePathSchema,
+  chatsRoot: fsAbsolutePathSchema.optional(),
+  canonicalChatsRoot: fsAbsolutePathSchema.optional(),
+  canonicalLegacyChatsRoot: fsAbsolutePathSchema.optional(),
+});
 
 
 /** The plain-words reason in a refused send's body (`{ name, data: { message } }`), if it has one. */
@@ -412,7 +431,7 @@ class OpencodeService {
   private runtimeClient: OpencodeClient;
   private runtimeScope = captureRuntimeRequestScope();
   private get client(): OpencodeClient {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     return this.runtimeClient;
   }
   private baseUrl: string;
@@ -441,14 +460,15 @@ class OpencodeService {
   }
 
   getBaseUrl(): string {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     return this.baseUrl;
   }
 
-  reconnectToRuntimeBaseUrl(): void {
+  reconnectToRuntimeBaseUrl(force = true): void {
     const runtimeBase = resolveRuntimeBaseUrl();
     const nextBaseUrl = ensureAbsoluteBaseUrl(runtimeBase || DEFAULT_BASE_URL);
-    if (nextBaseUrl === this.baseUrl && isRuntimeRequestScopeCurrent(this.runtimeScope)) return;
+    // Explicit reconnect retires same-URL clients; ordinary access retains deduplication.
+    if (!force && nextBaseUrl === this.baseUrl && isRuntimeRequestScopeCurrent(this.runtimeScope)) return;
     this.runtimeScope = captureRuntimeRequestScope();
     this.directoryContextQueue = Promise.resolve();
     this.baseUrl = nextBaseUrl;
@@ -476,7 +496,7 @@ class OpencodeService {
    * Needed for worktree APIs where backend ignores per-call directory.
    */
   getScopedApiClient(directory: string): OpencodeClient {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     const normalized = this.normalizeCandidatePath(directory) ?? directory;
     const key = normalized || '';
     const existing = this.scopedClients.get(key);
@@ -489,23 +509,7 @@ class OpencodeService {
   }
 
   private normalizeCandidatePath(path?: string | null): string | null {
-    if (typeof path !== 'string') {
-      return null;
-    }
-
-    const trimmed = path.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    // Normalize backslashes and uppercase the Windows drive letter so that
-    // d:\MyProject and D:\MyProject resolve to the same canonical form.
-    const normalized = trimmed
-      .replace(/\\/g, '/')
-      .replace(/^([a-z]):/, (_, letter: string) => letter.toUpperCase() + ':');
-    const withoutTrailingSlash = normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
-
-    return withoutTrailingSlash || null;
+    return normalizePath(path);
   }
 
   private deriveHomeDirectory(path: string): { homeDirectory: string; username?: string } {
@@ -525,7 +529,7 @@ class OpencodeService {
         return { homeDirectory, username: segments[0] };
       }
 
-      return { homeDirectory: drive, username: undefined };
+      return { homeDirectory: `${drive}/`, username: undefined };
     }
 
     const absolute = path.startsWith('/');
@@ -670,25 +674,26 @@ class OpencodeService {
   }
 
   /**
-   * Distinguishes a confirmed-missing directory from an unavailable probe.
-   * Offline, permission, and other transport failures stay `unknown` so callers
-   * do not treat a temporary outage as proof the path was deleted.
-   *
-   * The probe is OpenChamber's own `/api/fs/list`, which stats the path on the
-   * server's disk. OpenCode's `/path` cannot answer this question: it echoes
-   * the requested directory and resolves its project through Git discovery
-   * that swallows errors, so a deleted worktree still comes back as a valid
-   * location. A runtime without that route (VS Code) answers `unknown`.
-   */
+    * Distinguishes a confirmed-missing directory from an unavailable probe.
+    * Offline, permission, and other transport failures stay `unknown` so callers
+    * do not treat a temporary outage as proof the path was deleted.
+    *
+    * The probe is OpenChamber's own `/api/fs/directory-stat`, which asks the
+    * server to stat the path without listing its contents. OpenCode's `/path`
+    * cannot answer this question: it echoes the requested directory and resolves
+    * its project through Git discovery that swallows errors, so a deleted worktree
+    * still comes back as a valid location. A runtime without that route (VS Code)
+    * answers `unknown`.
+    */
   async getDirectoryAvailability(directory: string): Promise<DirectoryAvailability> {
     const normalized = this.normalizeCandidatePath(directory);
     if (!normalized) {
       return "unknown";
     }
     try {
-      const response = await runtimeFetch("/api/fs/list", { query: { path: normalized } });
-      if (response.ok) return "available";
+      const response = await runtimeFetch("/api/fs/directory-stat", { query: { path: normalized } });
       const body = directoryProbeErrorSchema.safeParse(await response.json().catch(() => null)).data;
+      if (response.ok && body?.isDirectory === true) return "available";
       const reason = parseFilesystemErrorReason(body?.reason);
       return reason === "not-found" || reason === "not-directory" ? "missing" : "unknown";
     } catch {
@@ -1491,12 +1496,14 @@ class OpencodeService {
     directory: string | null | undefined
   ): Promise<Record<string, SessionStatus> | null> {
     try {
-      const trimmedDirectory = typeof directory === "string" ? directory.trim() : "";
+      const trimmedDirectory = this.normalizeCandidatePath(directory);
       if (!trimmedDirectory) return await readFleetSessionStatus();
       const result = await this.client.session.status(trimmedDirectory ? { directory: trimmedDirectory } : undefined);
-      if (result.error || !result.data || typeof result.data !== "object") {
+      if (result.error) {
         return null;
       }
+      // Validate stock fields and nonempty IDs, then retain the gateway's Stop authority.
+      if (!sessionStatusSnapshotSchema.safeParse(result.data).success) return null;
       return parseSessionStatusMap(result.data);
     } catch {
       return null;
@@ -1505,6 +1512,28 @@ class OpencodeService {
 
   async getGlobalSessionStatus(): Promise<Record<string, SessionStatus>> {
     return (await this.getSessionStatusForDirectory(null)) ?? {};
+  }
+
+  /**
+   * Cross-project busy/retry/idle map kept by the OpenChamber host from the
+   * single upstream event stream. One request that creates no OpenCode
+   * instance, unlike `/session/status?directory=`. `null` means the fetch
+   * failed; callers must preserve their current state.
+   */
+  async getHostSessionStatusSnapshot(): Promise<HostSessionStatusSnapshot | null> {
+    try {
+      const response = await runtimeFetch('/api/sessions/status', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const parsed = hostSessionStatusSnapshotSchema.safeParse(await response.json().catch(() => null));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1806,7 +1835,7 @@ class OpencodeService {
   }
 
   async getConfig(directory?: string | null): Promise<Config> {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
     const key = effectiveDirectory ?? '';
@@ -1891,7 +1920,7 @@ class OpencodeService {
     providers: Provider[];
     default: { [key: string]: string };
   }> {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
     const key = effectiveDirectory ?? '';
@@ -1943,7 +1972,7 @@ class OpencodeService {
    * empty list would defeat retries and clear the cached agent list.
    */
   async listAgents(directory?: string | null): Promise<Agent[]> {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     const scope = this.runtimeScope;
     // Pass the directory explicitly so we don't depend on (and serialize behind)
     // withDirectory's shared context queue. Concurrent callers for the same
@@ -1996,10 +2025,11 @@ class OpencodeService {
   // all SSE event ingestion via the SDK's global.event() async iterator.
 
   // Command Management
-  async listCommandsWithDetails(directory?: string | null): Promise<Array<{ name: string; description?: string; agent?: string; model?: string; source?: string; template?: string }>> {
+  async listCommandsWithDetails(directory?: string | null, signal?: AbortSignal): Promise<Array<{ name: string; description?: string; agent?: string; model?: string; source?: string; template?: string }>> {
     const requestDirectory = this.normalizeCandidatePath(directory ?? null) ?? this.currentDirectory;
     const response = await this.client.command.list(
-      requestDirectory ? { directory: requestDirectory } : undefined
+      requestDirectory ? { directory: requestDirectory } : undefined,
+      { signal },
     );
     const commands = unwrapSdkData(response, 'command.list');
     // Return full command details including template
@@ -2123,7 +2153,7 @@ class OpencodeService {
   }
 
   async listLocalDirectory(directoryPath: string | null | undefined, options?: { respectGitignore?: boolean }): Promise<FilesystemEntry[]> {
-    this.reconnectToRuntimeBaseUrl();
+    this.reconnectToRuntimeBaseUrl(false);
     const scope = this.runtimeScope;
     const normalizedDirectoryPath = typeof directoryPath === 'string' ? normalizeFsPath(directoryPath.trim()) : '';
     const cacheKey = `${normalizedDirectoryPath}|${options?.respectGitignore ? '1' : '0'}`;

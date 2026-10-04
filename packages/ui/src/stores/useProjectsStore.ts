@@ -6,11 +6,13 @@ import {
 } from '@/lib/managed-project-catalog';
 import { devtools } from 'zustand/middleware';
 import { opencodeClient } from '@/lib/opencode/client';
+import { normalizePath } from '@/lib/pathNormalization';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { ProjectEntry } from '@/lib/api/types';
 import type { DesktopSettings } from '@/lib/desktop';
 import { type SettingsSyncedDetail, updateDesktopSettings } from '@/lib/persistence';
 import { createProjectIdFromPath } from '@/lib/projectId';
+import { parseNonEmptyTrimmedString } from '@/lib/settings/parsers';
 import { getDeferredSafeStorage } from './utils/safeStorage';
 import { useDirectoryStore } from './useDirectoryStore';
 import { BROWSER_LAST_DIRECTORY_KEY, getExplicitDirectoryChoices } from './browserDirectoryChoice';
@@ -53,6 +55,8 @@ interface VSCodeWorkspaceFolderConfig {
 
 interface ProjectsStore {
   // Saved bookmarks remain the settings/CAS authority. Live membership never writes them.
+  hasServerSnapshot: boolean;
+  serverSnapshotFailed: boolean;
   projects: ProjectEntry[];
   managedCatalogAdmitted: boolean;
   managedCatalogStatus: ManagedCatalogStatus;
@@ -85,6 +89,7 @@ interface ProjectsStore {
     icon?: string | null;
     color?: string | null;
     iconBackground?: string | null;
+    defaultAgent?: string | null;
     defaultModel?: string | null;
     defaultVariant?: string | null;
   }) => void;
@@ -238,19 +243,8 @@ const normalizeProjectPath = (value: string): string => {
   const homeDirectory = safeStorage.getItem('homeDirectory') || useDirectoryStore.getState().homeDirectory || '';
   const expanded = resolveTildePath(trimmed, homeDirectory);
 
-  const normalized = expanded.replace(/\\/g, '/');
-  if (normalized === '/') {
-    return '/';
-  }
-  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+  return normalizePath(expanded) ?? '';
 };
-
-// VS Code workspace folder paths come from the extension host with uppercase
-// drive letters (see resolveWorkspaceFolders in packages/vscode), while paths
-// typed or browsed in the webview keep the lowercase drive of fsPath. Normalize
-// to the workspace form so dedupe and active-path matching agree on Windows.
-const normalizeVSCodeWorkspacePath = (value: string): string =>
-  value.replace(/^([a-z]):/, (_, letter: string) => letter.toUpperCase() + ':');
 
 // Folder names are shown verbatim: title-casing them turned `.ssh` into `.Ssh`
 // and made every project look like a name the user never chose.
@@ -373,6 +367,10 @@ const sanitizeProjects = (value: unknown): ProjectEntry[] => {
     }
     if (typeof candidate.color === 'string' && candidate.color.trim().length > 0) {
       project.color = candidate.color.trim();
+    }
+    const defaultAgent = parseNonEmptyTrimmedString(candidate.defaultAgent, {});
+    if (defaultAgent) {
+      project.defaultAgent = defaultAgent;
     }
     const defaultModel = normalizeDefaultModel(candidate.defaultModel);
     if (defaultModel) {
@@ -633,6 +631,7 @@ const vscodeWorkspaceProjectsEqual = (left: ProjectEntry[], right: ProjectEntry[
       && leftProject.icon === rightProject.icon
       && leftProject.color === rightProject.color
       && leftProject.iconBackground === rightProject.iconBackground
+      && leftProject.defaultAgent === rightProject.defaultAgent
       && leftProject.defaultModel === rightProject.defaultModel
       && leftProject.defaultVariant === rightProject.defaultVariant
       && leftProject.addedAt === rightProject.addedAt
@@ -753,6 +752,8 @@ export const useProjectsStore = create<ProjectsStore>()(
       // Saved settings stay untouched; the live view falls back visibly instead of 403ing (#126 item 8).
       noteSavedManagedSelection(readPersistedActiveProjectId(), safeStorage.getItem('lastDirectory'));
     },
+    hasServerSnapshot: false,
+    serverSnapshotFailed: false,
     activeProjectId: initialActiveProjectId,
     manualProjectOrder: readPersistedManualOrder(),
 
@@ -780,7 +781,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (!validation.ok || !validation.normalizedPath) {
           return null;
         }
-        const normalizedPath = normalizeVSCodeWorkspacePath(validation.normalizedPath);
+        const normalizedPath = validation.normalizedPath;
         const existing = get().projects.find((project) => project.path === normalizedPath);
         if (existing) {
           return existing;
@@ -1025,6 +1026,7 @@ export const useProjectsStore = create<ProjectsStore>()(
       icon?: string | null;
       color?: string | null;
       iconBackground?: string | null;
+      defaultAgent?: string | null;
       defaultModel?: string | null;
       defaultVariant?: string | null;
     }) => {
@@ -1043,6 +1045,14 @@ export const useProjectsStore = create<ProjectsStore>()(
         if (meta.color !== undefined) updated.color = meta.color;
         if (meta.iconBackground !== undefined) {
           updated.iconBackground = normalizeIconBackground(meta.iconBackground);
+        }
+        if (meta.defaultAgent !== undefined) {
+          const normalized = parseNonEmptyTrimmedString(meta.defaultAgent, {});
+          if (normalized) {
+            updated.defaultAgent = normalized;
+          } else {
+            delete updated.defaultAgent;
+          }
         }
         if (meta.defaultModel !== undefined) {
           const normalized = normalizeDefaultModel(meta.defaultModel);
@@ -1215,6 +1225,7 @@ export const useProjectsStore = create<ProjectsStore>()(
 
     resetForRuntimeSwitch: () => {
       discardHeldBootstrapPointer();
+      set({ hasServerSnapshot: false, serverSnapshotFailed: false });
       if (isVSCodeProjectsRuntime) {
         return;
       }
@@ -1266,6 +1277,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         return;
       }
       const incomingIds = new Set(incomingProjects.map((p) => p.id));
+      if (!current.hasServerSnapshot || current.serverSnapshotFailed) set({ hasServerSnapshot: true, serverSnapshotFailed: false });
 
       // While discovery has not answered, the runtime may be managed: its shared active pointer is not saved there
       // and can be stale (3.13: a fresh browser opened on smarty-code, not the remembered smarty-dev). Keep it for a
@@ -1390,6 +1402,9 @@ useProjectsStore.subscribe((state) => {
 });
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('openchamber:settings-sync-failed', () => {
+    useProjectsStore.setState({ serverSnapshotFailed: true });
+  });
   window.addEventListener('openchamber:settings-synced', (event: Event) => {
     const detail = (event as CustomEvent<SettingsSyncedDetail>).detail;
     if (detail && typeof detail === 'object' && detail.settings) {

@@ -1,23 +1,63 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
+import { buildKnownSessionDirectories } from './sessionListDirectories';
+import { buildSidebarSessionProjection } from './sessionCollection';
+import type { Session } from '@opencode-ai/sdk/v2';
+import { buildSessionSidebarRowModel } from '../sessionSidebarRowModel';
+import type { SessionGroup } from '../types';
 import { showsActivitySections, showsChatGroup } from './chatGroupVisibility';
 import { nextStockConfirmed } from '@/lib/stock-confirmation';
 
 describe('SessionProjectCollection', () => {
-  test('preserves authoritative background demand when its visible rows are absent', () => {
-    const demands = buildSessionBootstrapDemands({
-      knownDirectories: ['/project', '/project/worktree'],
-      activeProjectDirectory: '/project',
-      activeProjectId: 'project',
-      collapsedProjects: new Set(),
-      collapsedGroups: new Set(),
-      currentDirectory: null,
-      currentSessionDirectory: null,
+  test('86 available stock directories keep every known session visible while only working directories bootstrap', () => {
+    const projects = Array.from({ length: 43 }, (_, index) => ({ id: `project-${index}`, path: `/fleet/p${index}` }));
+    const worktrees = new Map(projects.map((project) => [project.path, [{
+      path: `${project.path}/worktree`, projectDirectory: project.path, branch: 'feature', label: 'feature',
+    }]]));
+    const knownDirectories = buildKnownSessionDirectories(projects, worktrees);
+    expect(knownDirectories.size).toBe(86);
+    const globalActiveSessions: Session[] = [...knownDirectories].map((directory, index) => ({
+      id: `ses_${index}`, slug: `session-${index}`, title: `Session ${index}`, version: '1',
+      projectID: projects[Math.floor(index / 2)]!.id, directory, time: { created: index, updated: index },
+    }));
+    const input = {
+      knownDirectories,
+      activeProjectDirectory: projects[0]!.path,
+      activeProjectId: projects[0]!.id,
+      collapsedProjects: new Set<string>(),
+      collapsedGroups: new Set<string>(),
+      currentDirectory: projects[0]!.path,
+      currentSessionDirectory: `${projects[7]!.path}/worktree`,
+    };
+    expect(buildSessionBootstrapDemands(input).map((demand) => [demand.directory, demand.priority]))
+      .toEqual([['/fleet/p0', 'selected'], ['/fleet/p7/worktree', 'selected']]);
+    const projection = buildSidebarSessionProjection({
+      globalActiveSessions, liveSessions: [], knownDirectories, isVSCode: false,
+      pinnedSessionIds: new Set(), sessionOrderRanks: new Map(),
     });
-
-    expect(demands.map((demand) => demand.directory)).toEqual(['/project', '/project/worktree']);
-    expect(demands[0]?.priority).toBe('active-project');
-    expect(demands[1]?.priority).toBe('background');
+    expect(projection.projectSessions).toEqual(globalActiveSessions);
+    expect(projection.sessionById.size).toBe(86);
+    const sections = projects.map((project) => ({
+      project: { ...project, normalizedPath: project.path },
+      groups: [project.path, `${project.path}/worktree`].map((directory, index): SessionGroup => ({
+        id: directory, label: directory, branch: index ? 'feature' : null, description: null,
+        isMain: index === 0, worktree: null, directory,
+        sessions: projection.projectSessions.filter((session) => session.directory === directory)
+          .map((session) => ({ session, children: [], worktree: null })),
+      })),
+    }));
+    const rows = buildSessionSidebarRowModel({
+      mode: 'normal', sections, authoritativeSections: sections, chatGroup: null, recentSections: [], showRecentSection: false,
+      foldersMap: {}, groupSearchDataByGroup: new WeakMap(), normalizedQuery: '', collapsedProjects: new Set(), collapsedGroups: new Set(),
+      collapsedFolders: new Set(), collapsedActivities: new Set(), expandedParents: new Set(), visibleCountByContainer: new Map(),
+      pinnedSessionIds: new Set(), sessionOrderIndex: new Map(), groupStatusByKey: new Map(), folderAuthorityByOwner: new Map(),
+      activeProjectId: projects[0]!.id, singleProjectMode: false, singleProjectId: null, showOnlyMainWorkspace: false, hideDirectoryControls: false,
+    });
+    expect(rows.rows.flatMap((row) => row.kind === 'session' ? [row.node.session.id] : []).sort())
+      .toEqual(globalActiveSessions.map((session) => session.id).sort());
+    expect(rows.rows.filter((row) => row.kind === 'status' || row.kind === 'empty')).toEqual([]);
+    expect(rows.sessionById.size).toBe(86);
+    expect(buildSessionBootstrapDemands({ ...input, currentDirectory: null, currentSessionDirectory: null })).toEqual([]);
   });
 
   // Sidebar audit 2026-09-23: the managed catalog admits no Chat target; its empty "chats" block

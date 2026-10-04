@@ -11,6 +11,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { opencodeClient } from '@/lib/opencode/client';
 import { useInputStore } from '@/sync/input-store';
+import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 
 // Same Bun URL-import seam as markdown-worker.hang.test; no message renderer is mounted.
 mock.module('@/components/chat/markdown/markdown-shiki.worker.ts?worker&url', () => ({ default: 'blob:test-shiki-worker' }));
@@ -77,8 +78,14 @@ for (const homeReady of [false, true]) for (const persist of [false, true]) for 
   await act(async () => {
     useInputStore.getState().setAttachedFiles([{ id: 'cold-attachment', file: new File(['kept'], 'kept.txt'),
       dataUrl: 'data:text/plain;base64,a2VwdA==', mimeType: 'text/plain', filename: 'kept.txt', size: 4, source: 'local' }]);
+    useInputStore.getState().setPendingSyntheticParts([{ text: 'cold synthetic context', synthetic: true }]);
+    useInlineCommentDraftStore.getState().addDraft({ directory, sessionKey: 'draft' }, {
+      source: 'file', fileLabel: 'cold.ts', startLine: 1, endLine: 1, code: 'cold', language: 'ts', text: 'cold inline context',
+    });
     c.editor().dispatch({ selection: { anchor: 5 } });
   });
+  const syntheticParts = useInputStore.getState().pendingSyntheticParts;
+  const inlineContext = useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: 'draft' });
   const attachments = useInputStore.getState().attachedFiles;
   expect(attachments).toHaveLength(1);
   const before = useSessionUIStore.getState().newSessionDraft;
@@ -104,6 +111,8 @@ for (const homeReady of [false, true]) for (const persist of [false, true]) for 
   expect(c.prompts()).toHaveLength(0);
   expect(directoriesCreated).toBe(0);
   expect(useInputStore.getState().attachedFiles).toEqual(attachments);
+  expect(useInputStore.getState().pendingSyntheticParts).toBe(syntheticParts);
+  expect(useInlineCommentDraftStore.getState().getDrafts({ directory, sessionKey: 'draft' })).toBe(inlineContext);
   if (present) {
     // smarty-code#126: no separate create step; Send starts the session.
     expect([...c.dom.container.querySelectorAll('button')].some(b => /Create native/.test(b.textContent ?? ''))).toBe(false);

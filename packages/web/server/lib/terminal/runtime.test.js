@@ -139,6 +139,7 @@ function createRuntime(server, overrides = {}) {
     isExecutable: () => false,
     isRequestOriginAllowed: async () => true,
     rejectWebSocketUpgrade() {},
+    shutdownProcesses: async terminals => { for (const terminal of terminals) terminal.process.kill('SIGKILL'); },
     TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000,
     TERMINAL_INPUT_WS_REBIND_WINDOW_MS: 1_000,
     TERMINAL_INPUT_WS_MAX_REBINDS_PER_WINDOW: 3,
@@ -198,14 +199,50 @@ describe('terminal runtime', () => {
     return { routes, processes, signalCalls, runtime };
   };
 
-  it('uses the maintained signal seam and never reaches OS signaling during fixture cleanup', async () => {
-    const harness = createHarness();
+  it('uses the injected signal seam for explicit force-kill, not graceful shutdown', async () => {
+    const shutdownProcesses = vi.fn(async terminals => { for (const terminal of terminals) terminal.process.kill('SIGKILL'); });
+    const harness = createHarness({ shutdownProcesses });
     try {
       await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'owned', cwd: '/repo' } }, createResponse());
-      await harness.runtime.shutdown();
+      const response = createResponse();
+      harness.routes.post.get('/api/terminal/force-kill')({ body: { sessionId: 'owned' } }, response);
+      expect(response.body).toEqual({ success: true, killedCount: 1, killedSessionIds: ['owned'] });
       expect(harness.signalCalls).toEqual(process.platform === 'win32' ? [] : [[-123, 'SIGKILL']]);
       expect(harness.processes[0].kills).toEqual(['SIGKILL']);
+      await harness.runtime.shutdown();
+      expect(shutdownProcesses).toHaveBeenCalledExactlyOnceWith([]);
+      expect(harness.processes[0].kills).toEqual(['SIGKILL']);
     } finally { await harness.runtime.shutdown(); }
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it('delegates live terminals once and awaits graceful ownership without force signaling', async () => {
+    const completion = deferred();
+    const shutdownProcesses = vi.fn(() => completion.promise);
+    const harness = createHarness({ shutdownProcesses });
+    try {
+      await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'owned', cwd: '/repo' } }, createResponse());
+      const stopping = harness.runtime.shutdown();
+      expect(harness.runtime.shutdown()).toBe(stopping);
+      await vi.waitFor(() => expect(shutdownProcesses).toHaveBeenCalledTimes(1));
+      expect(shutdownProcesses.mock.calls[0][0]).toEqual([{ process: harness.processes[0], shellExecutable: expect.any(String) }]);
+      expect(harness.signalCalls).toEqual([]);
+      expect(harness.processes[0].kills).toEqual([]);
+      let stopped = false;
+      void stopping.then(() => { stopped = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      expect(stopped).toBe(false);
+      const killed = createResponse();
+      harness.routes.post.get('/api/terminal/force-kill')({ body: { sessionId: 'owned' } }, killed);
+      expect(killed.body).toEqual({ success: true, killedCount: 0, killedSessionIds: [] });
+      expect(harness.processes[0].kills).toEqual([]);
+      completion.resolve();
+      await stopping;
+      expect(stopped).toBe(true);
+    } finally {
+      completion.resolve();
+      await harness.runtime.shutdown();
+    }
     expect(process.kill).not.toHaveBeenCalled();
   });
 
@@ -254,6 +291,72 @@ describe('terminal runtime', () => {
       }
     } finally { await harness.runtime.shutdown(); }
   });
+
+  it('reaps a pending create during shutdown and rejects later creates', async () => {
+    const gate = deferred();
+    const harness = createHarness({ spawnDeferred: gate });
+    const create = harness.routes.post.get('/api/terminal/create');
+    const response = createResponse();
+    const creation = create({ body: { sessionId: 'pending', cwd: '/repo' } }, response);
+    const closing = harness.runtime.shutdown();
+    gate.resolve();
+    await Promise.all([creation, closing]);
+    expect(harness.processes).toHaveLength(1);
+    expect(harness.processes[0].killed).toBe(true);
+    expect(response.statusCode).toBe(400);
+    const later = createResponse();
+    await create({ body: { sessionId: 'later', cwd: '/repo' } }, later);
+    expect(later.statusCode).toBe(400);
+    expect(harness.processes).toHaveLength(1);
+    await harness.runtime.shutdown();
+  });
+
+  it('joins terminal cleanup and retires sessions before waiting for shutdown', async () => {
+    const gate = deferred();
+    let terminals;
+    const harness = createHarness({ shutdownProcesses: async current => { terminals = current; await gate.promise; } });
+    await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'running', cwd: '/repo' } }, createResponse());
+    let done = false;
+    const closing = harness.runtime.shutdown();
+    expect(harness.runtime.shutdown()).toBe(closing);
+    closing.then(() => { done = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0].process).toBe(harness.processes[0]);
+    expect(done).toBe(false);
+    const later = createResponse();
+    await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'later', cwd: '/repo' } }, later);
+    expect(later.statusCode).toBe(400);
+    gate.resolve();
+    await closing;
+    expect(done).toBe(true);
+  });
+
+  for (const removal of ['close', 'force-kill']) {
+    it(`reaps a replacement PTY when ${removal} wins a pending restart`, async () => {
+      const gate = { promise: Promise.resolve() };
+      const harness = createHarness({ spawnDeferred: gate });
+      try {
+        await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'terminal', cwd: '/repo' } }, createResponse());
+        const replacement = deferred();
+        gate.promise = replacement.promise;
+        const response = createResponse();
+        const restarting = harness.routes.post.get('/api/terminal/:sessionId/restart')({ params: { sessionId: 'terminal' }, body: {} }, response);
+        await new Promise((resolve) => setImmediate(resolve));
+        const removed = createResponse();
+        if (removal === 'close') {
+          await harness.routes.delete.get('/api/terminal/:sessionId')({ params: { sessionId: 'terminal' } }, removed);
+        } else {
+          harness.routes.post.get('/api/terminal/force-kill')({ body: { sessionId: 'terminal' } }, removed);
+        }
+        replacement.resolve();
+        await restarting;
+        expect(harness.processes).toHaveLength(2);
+        expect(harness.processes.every((child) => child.killed)).toBe(true);
+        expect(response.statusCode).toBe(400);
+      } finally { await harness.runtime.shutdown(); }
+    });
+  }
 
   it('retains completed output when the replacement command fails to start', async () => {
     let available = true;
@@ -364,12 +467,12 @@ describe('terminal runtime', () => {
       expect(response.body).toEqual({ sessionId: 'term-1', cols: 120, rows: 40, status: 'running', mode: 'interactive', purpose: { type: 'terminal' } });
       expect(harness.processes[0].options.cwd).toBe('/repo');
       expect(harness.processes[0].options.env.COLORFGBG).toBe('0;15');
-      expect(harness.processes[0].options.env.NODE_CHANNEL_FD).toBe('');
+      expect(harness.processes[0].options.env).not.toHaveProperty('NODE_CHANNEL_FD');
       expect(harness.processes[0].options.env).not.toHaveProperty('ARGV0');
       expect(harness.processes[0].options.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         expect(harness.processes[0].shell).toMatch(/\/env$/);
-        expect(harness.processes[0].args.slice(0, 3)).toEqual(['-u', 'ARGV0', expect.any(String)]);
+        expect(harness.processes[0].args.slice(0, 5)).toEqual(['-u', 'ARGV0', '-u', 'NODE_CHANNEL_FD', expect.any(String)]);
       }
       harness.processes[0].emitData('\u001b[?2031h\u001b]10;?\u0007\u001b]11;?\u0007\u001b[0c');
       expect(harness.processes[0].writes).toEqual(['\u001b]10;rgb:1b1b/1b1b/1b1b\u001b\\', '\u001b]11;rgb:fafa/f8f8/f0f0\u001b\\', '\u001b[?1;2c']);
@@ -425,7 +528,7 @@ describe('terminal runtime', () => {
       await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'term-argv0', cwd: '/repo', cols: 80, rows: 24 } }, response);
       expect(response.statusCode).toBe(200);
       expect(harness.processes[0].options.env).not.toHaveProperty('ARGV0');
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         expect(harness.processes[0].shell).toMatch(/\/env$/);
         expect(harness.processes[0].args[0]).toBe('-u');
         expect(harness.processes[0].args[1]).toBe('ARGV0');
@@ -462,9 +565,9 @@ describe('terminal runtime', () => {
       const created = createResponse();
       await harness.routes.post.get('/api/terminal/create')({ body: { sessionId: 'term-shell', cwd: '/repo', shell: 'zsh', loginShell: true } }, created);
       expect(created.statusCode).toBe(200);
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         expect(harness.processes[0].shell).toMatch(/\/env$/);
-        expect(harness.processes[0].args).toEqual(['-u', 'ARGV0', '/bin/zsh', '-l']);
+        expect(harness.processes[0].args).toEqual(['-u', 'ARGV0', '-u', 'NODE_CHANNEL_FD', '/bin/zsh', '-l']);
       } else {
         expect(harness.processes[0].shell).toBe('/bin/zsh');
         expect(harness.processes[0].args).toEqual(['-l']);
@@ -473,9 +576,9 @@ describe('terminal runtime', () => {
       const restarted = createResponse();
       await harness.routes.post.get('/api/terminal/:sessionId/restart')({ params: { sessionId: 'term-shell' }, body: { shell: 'bash', loginShell: true } }, restarted);
       expect(restarted.statusCode).toBe(200);
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         expect(harness.processes[1].shell).toMatch(/\/env$/);
-        expect(harness.processes[1].args).toEqual(['-u', 'ARGV0', '/bin/bash', '-l']);
+        expect(harness.processes[1].args).toEqual(['-u', 'ARGV0', '-u', 'NODE_CHANNEL_FD', '/bin/bash', '-l']);
       } else {
         expect(harness.processes[1].shell).toBe('/bin/bash');
         expect(harness.processes[1].args).toEqual(['-l']);
@@ -727,8 +830,8 @@ describe('terminal runtime', () => {
       sockets.push(first.socket);
       first.socket.send(createTerminalWsControlFrame({ t: 'attach', v: 3, s: 'term-live' }));
       first.socket.send(createTerminalWsControlFrame({ t: 'attach', v: 3, s: 'term-second' }));
-      expect(await first.next('snapshot', 'term-live')).toMatchObject({ s: 'term-live', q: 0, history: '', status: 'running' });
-      expect(await first.next('snapshot', 'term-second')).toMatchObject({ s: 'term-second', q: 0, history: '', status: 'running' });
+      expect(await first.next('snapshot', 'term-live')).toMatchObject({ s: 'term-live', q: 0, history: '', status: 'running', cols: 80, rows: 24 });
+      expect(await first.next('snapshot', 'term-second')).toMatchObject({ s: 'term-second', q: 0, history: '', status: 'running', cols: 80, rows: 24 });
       first.socket.send(createTerminalWsControlFrame({ t: 'write', v: 3, s: 'term-live', d: 'echo ok\r' }));
       first.socket.send(createTerminalWsControlFrame({ t: 'write', v: 3, s: 'term-second', d: 'pwd\r' }));
       first.socket.send(createTerminalWsControlFrame({ t: 'write', v: 3, s: 'term-live', d: 'echo next\r' }));
@@ -752,10 +855,17 @@ describe('terminal runtime', () => {
       expect(secondClosed.status).toBe(200);
       first.socket.close();
 
+      // A reconnecting client replays history at the size the PTY currently has.
+      const resized = await fetch(`${base}/api/terminal/term-live/resize`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cols: 120, rows: 40 }),
+      });
+      expect(resized.status).toBe(200);
+
       const second = await openTerminalSocket(socketUrl);
       sockets.push(second.socket);
       second.socket.send(createTerminalWsControlFrame({ t: 'attach', v: 3, s: 'term-live' }));
-      expect(await second.next('snapshot')).toMatchObject({ s: 'term-live', q: 2, history: 'ok\r\n', status: 'running' });
+      expect(await second.next('snapshot')).toMatchObject({ s: 'term-live', q: 2, history: 'ok\r\n', status: 'running', cols: 120, rows: 40 });
       processes[0].emitExit(7);
       expect(await second.next('exit')).toMatchObject({ s: 'term-live', q: 3, exitCode: 7 });
 
@@ -795,9 +905,9 @@ describe('terminal runtime', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.body).toEqual({ sessionId: 'term-command', cols: 80, rows: 24, status: 'running', mode: 'command', purpose: { type: 'terminal' } });
-      if (process.platform === 'linux') {
+      if (process.platform !== 'win32') {
         expect(harness.processes[0].shell).toMatch(/\/env$/);
-        expect(harness.processes[0].args).toEqual(['-u', 'ARGV0', '/bin/bash', '-l', '-i', '-c', 'printf ready']);
+        expect(harness.processes[0].args).toEqual(['-u', 'ARGV0', '-u', 'NODE_CHANNEL_FD', '/bin/bash', '-l', '-i', '-c', 'printf ready']);
       } else {
         expect(harness.processes[0].args).toEqual(['-l', '-i', '-c', 'printf ready']);
       }

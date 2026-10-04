@@ -9,7 +9,7 @@ Object.defineProperty(globalThis, 'window', { configurable: true, value: Object.
   location: { origin: 'http://synthetic.invalid', href: 'http://synthetic.invalid/', search: '' },
 }) });
 const settings = await import('@/lib/persistence');
-const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue(undefined);
+const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue({ ok: true });
 const { opencodeClient } = await import('@/lib/opencode/client');
 const home = spyOn(opencodeClient, 'getFilesystemHome').mockResolvedValue('/home/tester');
 const { switchRuntimeEndpoint } = await import('@/lib/runtime-switch');
