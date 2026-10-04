@@ -1128,6 +1128,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         handoffDraft,
         restoreDraft,
         migrateDraft,
+        hasReloadBlockingText,
     } = useComposerDraft({
         message,
         messageRef,
@@ -1177,6 +1178,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     });
     // Any text in the composer holds a new-build reload (openchamber#333 reviews): read live, the editor's own text.
     React.useEffect(() => holdReload(() => (composerRef.current?.getValue() ?? messageRef.current) !== ''), []);
+    React.useEffect(() => holdReload(hasReloadBlockingText), [hasReloadBlockingText]);
 
     const handleExitBtw = React.useCallback(() => {
         if (!currentSessionId) return;

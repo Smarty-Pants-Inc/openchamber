@@ -42,13 +42,34 @@ const createRepositoryWithRemote = () => {
   return { repository };
 };
 
-const canRunGit = () => {
+// Include refs, config, FETCH_HEAD, index, objects and tracked files, not read timestamps.
+const snapshotRepository = (repository) =>
+  fs.readdirSync(repository, { recursive: true }).sort().map((entry) => {
+    const file = path.join(repository, entry);
+    const stat = fs.lstatSync(file);
+    return {
+      path: entry,
+      mode: stat.mode,
+      sha256: stat.isFile() ? new Bun.CryptoHasher('sha256').update(fs.readFileSync(file)).digest('hex') : null,
+    };
+  });
+
+const expectUnavailableCreation = async (repository, input, dataHome) => {
+  const before = snapshotRepository(repository);
+  const previousGitTrace = process.env.GIT_TRACE;
+  process.env.GIT_TRACE = path.join(dataHome, 'raw-git.trace');
   try {
-    execFileSync('git', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
+    await expect(createWorktree(repository, input)).rejects.toThrow(/GIT_PROCESS_UNSUPPORTED.*unavailable/i);
+  } finally {
+    if (previousGitTrace === undefined) {
+      delete process.env.GIT_TRACE;
+    } else {
+      process.env.GIT_TRACE = previousGitTrace;
+    }
   }
+  expect(snapshotRepository(repository)).toEqual(before);
+  // Any native Git launch would write the trace; any destination would populate this root.
+  expect(fs.readdirSync(dataHome)).toEqual([]);
 };
 
 afterEach(() => {
@@ -58,8 +79,8 @@ afterEach(() => {
 });
 
 describe('VS Code worktree create from a remote start ref', () => {
-  it('falls back to the tracked local branch when the source fetch fails', async () => {
-    if (!canRunGit()) return;
+  it('rejects unavailable creation without fetching or changing the tracked local fallback', async () => {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
 
     const previousXdgDataHome = process.env.XDG_DATA_HOME;
     process.env.XDG_DATA_HOME = createTempDir();
@@ -69,17 +90,18 @@ describe('VS Code worktree create from a remote start ref', () => {
       runGit(repository, ['branch', '--set-upstream-to=origin/main', 'next']);
       runGit(repository, ['remote', 'set-url', 'origin', '/nonexistent/openchamber-unreachable.git']);
 
-      const created = await createWorktree(repository, {
+      expect(runGit(repository, ['rev-parse', 'refs/remotes/origin/main']).trim())
+        .toBe(runGit(repository, ['rev-parse', 'next']).trim());
+      expect(runGit(repository, ['rev-parse', '--abbrev-ref', 'next@{upstream}']).trim()).toBe('origin/main');
+      expect(runGit(repository, ['remote', 'get-url', 'origin']).trim()).toBe('/nonexistent/openchamber-unreachable.git');
+      expect(fs.readFileSync(path.join(repository, 'README.md'), 'utf8')).toBe('# Test\n');
+
+      await expectUnavailableCreation(repository, {
         mode: 'new',
         branchName: 'openchamber/stale-ref-wt',
         worktreeName: 'stale-ref-wt',
         startRef: 'remotes/origin/main',
-      });
-
-      expect(created.branch).toBe('openchamber/stale-ref-wt');
-      expect(created.sourceFetchFailed).toBe(true);
-      const expectedHead = runGit(repository, ['rev-parse', 'next']).trim();
-      expect(runGit(created.path, ['rev-parse', 'HEAD']).trim()).toBe(expectedHead);
+      }, process.env.XDG_DATA_HOME);
     } finally {
       if (previousXdgDataHome === undefined) {
         delete process.env.XDG_DATA_HOME;
@@ -89,8 +111,8 @@ describe('VS Code worktree create from a remote start ref', () => {
     }
   }, 30_000);
 
-  it('rejects creation when the remote start ref was never fetched and cannot be fetched', async () => {
-    if (!canRunGit()) return;
+  it('rejects unavailable creation without fetching or restoring the missing remote start ref', async () => {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
 
     const previousXdgDataHome = process.env.XDG_DATA_HOME;
     process.env.XDG_DATA_HOME = createTempDir();
@@ -100,12 +122,19 @@ describe('VS Code worktree create from a remote start ref', () => {
       runGit(repository, ['update-ref', '-d', 'refs/remotes/origin/main']);
       runGit(repository, ['remote', 'set-url', 'origin', '/nonexistent/openchamber-unreachable.git']);
 
-      await expect(createWorktree(repository, {
+      expect(() => runGit(repository, ['show-ref', '--verify', 'refs/remotes/origin/main'])).toThrow();
+      expect(runGit(repository, ['symbolic-ref', '--short', 'HEAD']).trim()).toBe('next');
+      expect(runGit(repository, ['config', '--get', 'user.email']).trim()).toBe('test@example.com');
+      expect(runGit(repository, ['config', '--get', 'user.name']).trim()).toBe('Test');
+      expect(runGit(repository, ['remote', 'get-url', 'origin']).trim()).toBe('/nonexistent/openchamber-unreachable.git');
+      expect(fs.readFileSync(path.join(repository, 'README.md'), 'utf8')).toBe('# Test\n');
+
+      await expectUnavailableCreation(repository, {
         mode: 'new',
         branchName: 'openchamber/never-fetched-wt',
         worktreeName: 'never-fetched-wt',
         startRef: 'remotes/origin/main',
-      })).rejects.toThrow(/does not appear to be a git repository|Could not read from remote repository/i);
+      }, process.env.XDG_DATA_HOME);
     } finally {
       if (previousXdgDataHome === undefined) {
         delete process.env.XDG_DATA_HOME;

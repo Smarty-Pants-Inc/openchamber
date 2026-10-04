@@ -45,6 +45,7 @@ import { createWorktreeWithDefaults } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
 import { resolveWorktreeSetupCommands } from '@/lib/sharedTrustConfirmation';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope } from '@/lib/runtime-switch';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
 import { generateBranchSlug } from '@/lib/git/branchNameGenerator';
 import { handleWorktreeCreateKeyDown } from './worktreeCreateKeyboard';
@@ -1026,7 +1027,9 @@ export function NewWorktreeDialog({
       const includePrDiff = mode === 'new-branch' ? newBranchState.includePrDiff : false;
       const shouldCreateSession = Boolean(linkedIssue || linkedPrState || linkedLinearIssue || linkedGuest);
 
+      const scope = captureRuntimeRequestScope();
       const setupCommands = await resolveWorktreeSetupCommands(projectRef);
+      assertRuntimeRequestScope(scope);
       const sourceBranch = newBranchState.sourceBranch;
 
       let sourceLabel = '';
@@ -1066,13 +1069,16 @@ export function NewWorktreeDialog({
       })();
 
       const metadata = await createWorktreeWithDefaults(projectRef, args);
+      assertRuntimeRequestScope(scope);
 
       let createdSessionId: string | null = null;
 
       if (shouldCreateSession) {
         if (await getWorktreeSetupWaitEnabled(projectRef)) {
+          assertRuntimeRequestScope(scope);
           await waitForWorktreeBootstrap(metadata.path);
         }
+        assertRuntimeRequestScope(scope);
 
         const sessionTitle = linkedGuest
           ? guestSessionTitle(linkedGuest)
@@ -1085,6 +1091,7 @@ export function NewWorktreeDialog({
             : t('session.newWorktree.newSessionTitle');
 
         const session = await sessionActions.createSession(sessionTitle, metadata.path, null);
+        assertRuntimeRequestScope(scope);
         if (!session?.id) {
           throw new Error('Failed to create session');
         }

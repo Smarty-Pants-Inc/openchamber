@@ -143,6 +143,9 @@ test('every upstream raw successor binds exact finalized current bytes', () => {
   for (const entry of overlay.round2Successors.files) {
     rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
   }
+  for (const entry of overlay.round4Successors.files) {
+    rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
+  }
   for (const entry of rawOutputs.values()) {
     const predecessor = response.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256;
     assert.equal(currentOutput(entry.path, predecessor), entry.sha256, entry.path);
@@ -272,6 +275,42 @@ test('F13 namespace successors bind the complete all-method guards from original
         } finally { rmSync(fixture, { recursive: true, force: true }); }
       });
     }
+  }
+});
+
+test('A9 round4 successor binds frozen current bytes from the original caller and rejects alternate authority', async t => {
+  const file = 'packages/ui/src/lib/worktreeSessionCreator.ts';
+  const entry = overlay.round4Successors.files[0];
+  const merged = overlay.files.find(candidate => candidate.path === file);
+  const caller = historical.get(file);
+  assert.equal(entry.predecessorSha256, merged.sha256);
+  assert.equal(caller, merged.predecessorSha256);
+  assert.equal(currentOutput(file, caller), entry.sha256);
+  assert.equal(entry.sha256, digest(read(file)));
+  for (const alternate of [entry.predecessorSha256, entry.sha256, '0'.repeat(64)]) {
+    assert.throws(() => currentOutput(file, alternate), /upstream predecessor changed/);
+  }
+  assert.throws(() => currentOutput(file, caller, 'normalized'), /no normalized stock proof/);
+  for (const [name, mutate, pattern] of [
+    ['wrong parent', value => { value.round4Successors.parentHead = '0'.repeat(40); }, /f8405a820bf9b2fae63fdffe37e0e3d2e6b163df/],
+    ['wrong predecessor', value => { value.round4Successors.files[0].predecessorSha256 = '0'.repeat(64); }, /round4 predecessor changed/],
+    ['original predecessor', value => { value.round4Successors.files[0].predecessorSha256 = caller; }, /round4 predecessor changed/],
+    ['normalized output', value => { value.round4Successors.files[0].normalizedSha256 = 'a'.repeat(64); }, /round4 successor is raw only/],
+    ['duplicate row', value => { value.round4Successors.files.push(value.round4Successors.files[0]); }, /deep-equal/],
+    ['other path', value => { value.round4Successors.files[0].path = 'unreviewed.txt'; }, /deep-equal/],
+    ['missing disposition', value => { value.round4Successors.files[0].note = ' '; }, /missing round4 disposition/],
+    ['null output', value => { value.round4Successors.files[0].sha256 = null; }, /round4 output hash|must be of type string/],
+    ['malformed output', value => { value.round4Successors.files[0].sha256 = 'invalid'; }, /round4 output hash/],
+  ]) {
+    await t.test(name, async () => {
+      const fixture = copyProof();
+      try {
+        const value = structuredClone(overlay);
+        mutate(value);
+        writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+        await assert.rejects(import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href), pattern);
+      } finally { rmSync(fixture, { recursive: true, force: true }); }
+    });
   }
 });
 

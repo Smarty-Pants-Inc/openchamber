@@ -21,6 +21,143 @@ const setup = async () => {
 };
 
 describe('migrateLegacyUserDirs', () => {
+  it.skipIf(process.platform === 'win32').each([false, true])('keeps destinations private before every child copy with an existing data root: %s', async (existingRoot) => {
+    const { root, legacyRoot, dataDir, cleanup } = await setup();
+    const warnings = [];
+    const beforeCopies = [];
+    try {
+      expect(process.umask()).toBe(0o022);
+      // A traversable custom parent must not hide a permissive destination.
+      await fsPromises.chmod(root, 0o755);
+      for (const entry of ['projects', 'themes', 'speech-models']) {
+        await fsPromises.chmod(path.join(legacyRoot, entry), 0o700);
+      }
+      await fsPromises.chmod(path.join(legacyRoot, 'projects', 'p.json'), 0o644);
+      if (existingRoot) await fsPromises.mkdir(dataDir, { mode: 0o755 });
+      const inspectingFs = {
+        ...fsPromises,
+        cp: async (from, to, options) => {
+          beforeCopies.push({
+            rootMode: (await fsPromises.stat(dataDir)).mode & 0o777,
+            destinationMode: (await fsPromises.stat(path.dirname(to))).mode & 0o777,
+          });
+          return fsPromises.cp(from, to, options);
+        },
+      };
+      expect(await migrateLegacyUserDirs({ fsPromises: inspectingFs, path, dataDir, legacyRoot, warn: (message) => warnings.push(message) })).toEqual(['projects', 'themes', 'speech-models']);
+      expect(warnings).toEqual([]);
+      expect(beforeCopies).toEqual(Array.from({ length: 3 }, () => ({ rootMode: existingRoot ? 0o755 : 0o700, destinationMode: 0o700 })));
+      expect((await fsPromises.stat(dataDir)).mode & 0o777).toBe(existingRoot ? 0o755 : 0o700);
+      for (const entry of ['projects', 'themes', 'speech-models']) {
+        expect((await fsPromises.stat(path.join(dataDir, entry))).mode & 0o777).toBe(0o700);
+        expect((await fsPromises.stat(path.join(legacyRoot, entry))).mode & 0o777).toBe(0o700);
+      }
+      expect((await fsPromises.stat(path.join(dataDir, 'projects', 'p.json'))).mode & 0o777).toBe(0o644);
+      expect((await fsPromises.stat(path.join(legacyRoot, 'projects', 'p.json'))).mode & 0o777).toBe(0o644);
+      expect(await fsPromises.readFile(path.join(dataDir, 'projects', 'p.json'), 'utf8')).toBe('{"a":1}');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32').each([0o500, 0o300])('retains stricter source owner bits on success or unreadable-source failure: %s', async (sourceMode) => {
+    const { legacyRoot, dataDir, cleanup } = await setup();
+    const sourceDir = path.join(legacyRoot, 'projects');
+    const destinationDir = path.join(dataDir, 'projects');
+    const warnings = [];
+    const beforeCopies = [];
+    try {
+      await fsPromises.chmod(sourceDir, sourceMode);
+      const inspectingFs = {
+        ...fsPromises,
+        cp: async (from, to, options) => {
+          if (path.dirname(to) === destinationDir) beforeCopies.push((await fsPromises.stat(destinationDir)).mode & 0o777);
+          return fsPromises.cp(from, to, options);
+        },
+      };
+      const moved = await migrateLegacyUserDirs({ fsPromises: inspectingFs, path, dataDir, legacyRoot, warn: (message) => warnings.push(message) });
+      // Root can enumerate 0300; an ordinary POSIX owner cannot.
+      const readable = sourceMode === 0o500 || process.getuid() === 0;
+      expect(moved).toEqual(readable ? ['projects', 'themes', 'speech-models'] : ['themes', 'speech-models']);
+      expect(beforeCopies).toEqual(readable ? [0o700] : []);
+      expect(warnings).toHaveLength(readable ? 0 : 1);
+      if (!readable) expect(warnings[0]).toContain('EACCES');
+      expect((await fsPromises.stat(sourceDir)).mode & 0o777).toBe(sourceMode);
+      expect((await fsPromises.stat(destinationDir)).mode & 0o777).toBe(sourceMode);
+      expect(await fsPromises.readFile(path.join(dataDir, 'themes', 'custom.json'), 'utf8')).toBe('{"theme":1}');
+      expect(await fsPromises.readFile(path.join(dataDir, 'speech-models', 'model.bin'), 'utf8')).toBe('model');
+      expect(await migrateLegacyUserDirs({ fsPromises, path, dataDir, legacyRoot })).toEqual([]);
+    } finally {
+      // Only these fixture directories need write/read access for cleanup.
+      await fsPromises.chmod(sourceDir, 0o700);
+      await fsPromises.chmod(destinationDir, 0o700).catch(() => {});
+      await cleanup();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('retains private partial data and source owner restrictions after a copy fails', async () => {
+    const { legacyRoot, dataDir, cleanup } = await setup();
+    const sourceDir = path.join(legacyRoot, 'projects');
+    const destinationDir = path.join(dataDir, 'projects');
+    const warnings = [];
+    const beforeCopies = [];
+    try {
+      await fsPromises.chmod(sourceDir, 0o500);
+      const failingFs = {
+        ...fsPromises,
+        cp: async (from, to, options) => {
+          if (path.dirname(to) === destinationDir) {
+            beforeCopies.push((await fsPromises.stat(destinationDir)).mode & 0o777);
+            await fsPromises.cp(from, to, options);
+            await fsPromises.writeFile(path.join(destinationDir, 'new.json'), 'new destination data');
+            throw new Error('copy failed after partial data');
+          }
+          return fsPromises.cp(from, to, options);
+        },
+      };
+      expect(await migrateLegacyUserDirs({ fsPromises: failingFs, path, dataDir, legacyRoot, warn: (message) => warnings.push(message) })).toEqual(['themes', 'speech-models']);
+      expect(beforeCopies).toEqual([0o700]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('copy failed after partial data');
+      expect((await fsPromises.stat(destinationDir)).mode & 0o777).toBe(0o500);
+      expect(await fsPromises.readFile(path.join(destinationDir, 'p.json'), 'utf8')).toBe('{"a":1}');
+      expect(await fsPromises.readFile(path.join(destinationDir, 'new.json'), 'utf8')).toBe('new destination data');
+      expect((await fsPromises.stat(sourceDir)).mode & 0o777).toBe(0o500);
+      expect(await migrateLegacyUserDirs({ fsPromises, path, dataDir, legacyRoot })).toEqual([]);
+    } finally {
+      await fsPromises.chmod(sourceDir, 0o700);
+      await fsPromises.chmod(destinationDir, 0o700).catch(() => {});
+      await cleanup();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('does not mutate existing destination permissions or contents', async () => {
+    const { legacyRoot, dataDir, cleanup } = await setup();
+    const destinationDir = path.join(dataDir, 'projects');
+    try {
+      await fsPromises.mkdir(destinationDir, { recursive: true });
+      await fsPromises.chmod(dataDir, 0o755);
+      await fsPromises.chmod(destinationDir, 0o755);
+      await fsPromises.writeFile(path.join(destinationDir, 'new.json'), 'existing destination data');
+      const mutations = [];
+      const existingFs = {
+        ...fsPromises,
+        mkdir: async () => { mutations.push('mkdir'); throw new Error('must not create'); },
+        cp: async () => { mutations.push('cp'); throw new Error('must not copy'); },
+        chmod: async () => { mutations.push('chmod'); throw new Error('must not chmod'); },
+        rm: async () => { mutations.push('rm'); throw new Error('must not delete'); },
+      };
+      expect(await migrateLegacyUserDirs({ fsPromises: existingFs, path, dataDir, legacyRoot, entries: ['projects'] })).toEqual([]);
+      expect(mutations).toEqual([]);
+      expect((await fsPromises.stat(dataDir)).mode & 0o777).toBe(0o755);
+      expect((await fsPromises.stat(destinationDir)).mode & 0o777).toBe(0o755);
+      expect(await fsPromises.readdir(destinationDir)).toEqual(['new.json']);
+      expect(await fsPromises.readFile(path.join(destinationDir, 'new.json'), 'utf8')).toBe('existing destination data');
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('copies the user folders once into a custom data dir and leaves the originals', async () => {
     const { legacyRoot, dataDir, cleanup } = await setup();
     try {
@@ -64,6 +201,7 @@ describe('migrateLegacyUserDirs', () => {
     const warnings = [];
     let checks = 0;
     let losingCopies = 0;
+    const losingMutations = [];
     // Both calls really observe ENOENT before either can publish a destination.
     const access = async (target) => {
       try {
@@ -88,6 +226,14 @@ describe('migrateLegacyUserDirs', () => {
         losingCopies += 1;
         return fsPromises.cp(...args);
       },
+      chmod: async (...args) => {
+        losingMutations.push('chmod');
+        return fsPromises.chmod(...args);
+      },
+      rm: async (...args) => {
+        losingMutations.push('rm');
+        return fsPromises.rm(...args);
+      },
     };
     const losing = migrateLegacyUserDirs({ fsPromises: losingFs, path, dataDir, legacyRoot, warn: (message) => warnings.push(message) });
     try {
@@ -103,6 +249,8 @@ describe('migrateLegacyUserDirs', () => {
       expect(await fsPromises.readFile(path.join(dataDir, 'themes', 'custom.json'), 'utf8')).toBe('{"theme":1}');
       expect(await fsPromises.readFile(path.join(dataDir, 'speech-models', 'model.bin'), 'utf8')).toBe('model');
       expect(losingCopies).toBe(0);
+      expect(losingMutations).toEqual([]);
+      if (process.platform !== 'win32') expect((await fsPromises.stat(projectsDir)).mode & 0o777).toBe(0o700);
       expect(warnings).toEqual([]);
     } finally {
       winnerFinished.resolve();
@@ -117,13 +265,14 @@ describe('migrateLegacyUserDirs', () => {
     const copied = [];
     const projectsDir = path.join(dataDir, 'projects');
     let foreignCreated = false;
+    const forbiddenMutations = [];
     const racedFs = {
       ...fsPromises,
       mkdir: async (target, options) => {
         const result = await fsPromises.mkdir(target, options);
         if (target === dataDir && !foreignCreated) {
           foreignCreated = true;
-          await fsPromises.mkdir(projectsDir);
+          await fsPromises.mkdir(projectsDir, { mode: 0o755 });
           await fsPromises.writeFile(path.join(projectsDir, 'p.json'), 'foreign project data');
           await fsPromises.writeFile(path.join(projectsDir, 'new.json'), 'foreign new file');
         }
@@ -133,6 +282,14 @@ describe('migrateLegacyUserDirs', () => {
         copied.push(path.basename(path.dirname(from)));
         return fsPromises.cp(from, to, options);
       },
+      chmod: async (...args) => {
+        forbiddenMutations.push('chmod');
+        return fsPromises.chmod(...args);
+      },
+      rm: async (...args) => {
+        forbiddenMutations.push('rm');
+        return fsPromises.rm(...args);
+      },
     };
     try {
       expect(await migrateLegacyUserDirs({ fsPromises: racedFs, path, dataDir, legacyRoot, warn: (message) => warnings.push(message) })).toEqual(['themes', 'speech-models']);
@@ -140,6 +297,8 @@ describe('migrateLegacyUserDirs', () => {
       expect(await fsPromises.readFile(path.join(projectsDir, 'new.json'), 'utf8')).toBe('foreign new file');
       expect(await fsPromises.readFile(path.join(legacyRoot, 'projects', 'p.json'), 'utf8')).toBe('{"a":1}');
       expect(copied).toEqual(['themes', 'speech-models']);
+      expect(forbiddenMutations).toEqual([]);
+      if (process.platform !== 'win32') expect((await fsPromises.stat(projectsDir)).mode & 0o777).toBe(0o755);
       expect(warnings).toEqual([]);
     } finally {
       await cleanup();

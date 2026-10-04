@@ -13,7 +13,7 @@
  */
 
 import { getProjectSetup, updateProjectSetup, type ProjectRef, type ProjectSetup } from './openchamberConfig';
-import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
 export type SharedTrustChoice = 'trust' | 'skip';
 
@@ -102,14 +102,15 @@ export const ensureSharedSetupTrusted = async (
  * leaves only the user's own commands.
  */
 export const resolveWorktreeSetupCommands = async (project: ProjectRef): Promise<string[]> => {
+  const scope = captureRuntimeRequestScope();
   const setup = await getProjectSetup(project);
+  assertRuntimeRequestScope(scope);
   if (setup.shared.setupWorktree.length === 0 || setup.personal.setupWorktreeMode === 'replace') {
     return setup.setupWorktree;
   }
-  if (await ensureSharedSetupTrusted(project, setup)) {
-    return setup.setupWorktree;
-  }
-  return setup.personal.setupWorktree;
+  const trusted = await ensureSharedSetupTrusted(project, setup, () => isRuntimeRequestScopeCurrent(scope));
+  assertRuntimeRequestScope(scope);
+  return trusted ? setup.setupWorktree : setup.personal.setupWorktree;
 };
 
 /** Forget the recorded trust answer, so the next shared command asks again. */

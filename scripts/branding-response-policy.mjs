@@ -71,7 +71,17 @@ for (const entry of round2Outputs.values()) {
     assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${entry.path}: round2 output hash must be finalized after writer release`);
   }
 }
-const rawSuccessors = [['response-policy', outputs], ['upstream', upstreamOutputs], ['reviewed', reviewOutputs], ['round2', round2Outputs]];
+const round4 = upstream.round4Successors;
+assert.equal(round4.parentHead, 'f8405a820bf9b2fae63fdffe37e0e3d2e6b163df');
+assert.deepEqual(round4.files.map(entry => entry.path), ['packages/ui/src/lib/worktreeSessionCreator.ts']);
+const round4Outputs = new Map(round4.files.map(entry => [entry.path, entry]));
+for (const entry of round4Outputs.values()) {
+  assert.equal(entry.predecessorSha256, round2Outputs.get(entry.path)?.sha256 ?? reviewOutputs.get(entry.path)?.sha256 ?? upstreamOutputs.get(entry.path)?.sha256 ?? predecessors.get(entry.path), `${entry.path}: round4 predecessor changed`);
+  assert.equal('normalizedPredecessorSha256' in entry || 'normalizedSha256' in entry, false, `${entry.path}: round4 successor is raw only`);
+  assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${entry.path}: round4 output hash must bind frozen current bytes`);
+  assert.match(entry.note, /\S/, `${entry.path}: missing round4 disposition`);
+}
+const rawSuccessors = [['response-policy', outputs], ['upstream', upstreamOutputs], ['reviewed', reviewOutputs], ['round2', round2Outputs], ['round4', round4Outputs]];
 export function responsePolicyOutputSha256(file, historicalSha256, context = 'raw') {
   assert.ok(context === 'raw' || context === 'normalized', `${file}: unsupported output context`);
   if (context === 'normalized') {

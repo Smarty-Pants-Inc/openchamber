@@ -20,6 +20,12 @@ const exists = async (fsPromises, target) => fsPromises.access(target).then(() =
  * copy fails is reported through `warn`; the server keeps starting. Partial
  * copies are retained and skipped on later starts: another instance may have
  * already written new data there, so removing the final directory is unsafe.
+ * On POSIX, newly created roots and destinations are private from creation;
+ * existing roots and destinations keep their permissions. Child file modes
+ * are preserved, with privacy supplied by the destination directory. Copying
+ * needs owner write access temporarily, then intersects destination owner bits
+ * with the source's, even on failure. Windows mode bits do not qualify privacy
+ * or ACL preservation. Arbitrary external directory replacement is not guarded.
  */
 export const migrateLegacyUserDirs = async ({ fsPromises, path, dataDir, legacyRoot, warn = () => {}, entries = USER_DIR_ENTRIES }) => {
   if (path.resolve(dataDir) === path.resolve(legacyRoot)) return [];
@@ -29,17 +35,26 @@ export const migrateLegacyUserDirs = async ({ fsPromises, path, dataDir, legacyR
     const to = path.join(dataDir, entry);
     if (await exists(fsPromises, to) || !(await exists(fsPromises, from))) continue;
     try {
-      await fsPromises.mkdir(dataDir, { recursive: true });
+      await fsPromises.mkdir(dataDir, { recursive: true, mode: 0o700 });
       try {
         // Only the instance that creates the destination may migrate into it.
-        await fsPromises.mkdir(to, { recursive: false });
+        await fsPromises.mkdir(to, { recursive: false, mode: 0o700 });
       } catch (error) {
         if (error?.code === 'EEXIST') continue;
         throw error;
       }
-      // Copy children because errorOnExist also rejects our owned root directory.
-      for (const child of await fsPromises.readdir(from)) {
-        await fsPromises.cp(path.join(from, child), path.join(to, child), { recursive: true, errorOnExist: true, force: false });
+      const sourceMode = process.platform === 'win32' ? 0o700 : (await fsPromises.stat(from)).mode & 0o700;
+      try {
+        // Copy children because errorOnExist also rejects our owned root directory.
+        for (const child of await fsPromises.readdir(from)) {
+          await fsPromises.cp(path.join(from, child), path.join(to, child), { recursive: true, errorOnExist: true, force: false });
+        }
+      } finally {
+        if (sourceMode !== 0o700) {
+          const destinationMode = (await fsPromises.stat(to)).mode & 0o700;
+          const restrictedMode = destinationMode & sourceMode;
+          if (restrictedMode !== destinationMode) await fsPromises.chmod(to, restrictedMode);
+        }
       }
       moved.push(entry);
     } catch (error) {

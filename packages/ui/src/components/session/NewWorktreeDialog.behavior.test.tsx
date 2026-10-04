@@ -1,5 +1,10 @@
 import React, { act } from 'react';
-import { describe, expect, mock, test } from 'bun:test';
+import { createServer } from 'node:http';
+import { z } from 'zod';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { invalidateResolvedProjectRootCache } from '@/lib/worktrees/worktreeStatus';
+import type { ProjectSetup } from '@/lib/openchamberConfig';
 import { Window } from 'happy-dom';
 
 // React detects input-event support when its DOM renderer is first imported.
@@ -103,7 +108,7 @@ mock.module('@/components/ui/command', () => ({
 
 mock.module('@/components/ui/sortable-tabs-strip', () => ({ SortableTabsStrip: () => null }));
 mock.module('@/components/ui/MobileOverlayPanel', () => ({
-  MobileOverlayPanel: ({ children, open }: React.PropsWithChildren<{ open: boolean }>) => open ? <div>{children}</div> : null,
+  MobileOverlayPanel: ({ children, footer, open }: React.PropsWithChildren<{ open: boolean; footer?: React.ReactNode }>) => open ? <div>{children}{footer}</div> : null,
 }));
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
 mock.module('@/components/ui/dropdown-trigger', () => ({ dropdownTriggerVariants: () => '' }));
@@ -155,19 +160,7 @@ mock.module('@/lib/worktrees/worktreeManager', () => ({
   ...actualWorktreeManager,
   validateWorktreeCreate: async () => ({ ok: true, errors: [] }),
 }));
-mock.module('@/lib/worktrees/worktreeCreate', () => ({ createWorktreeWithDefaults: async () => {
-  worktreeCreations += 1;
-  return null;
-} }));
-mock.module('@/lib/worktrees/worktreeBootstrap', () => ({ waitForWorktreeBootstrap: async () => undefined }));
-mock.module('@/lib/openchamberConfig', () => ({
-  getWorktreeSetupCommands: async () => [],
-  getWorktreeSetupWaitEnabled: async () => false,
-}))
-mock.module('@/lib/sharedTrustConfirmation', () => ({
-  resolveWorktreeSetupCommands: async () => [],
-}));
-mock.module('@/lib/worktrees/worktreeStatus', () => ({ getRootBranch: async () => 'main' }));
+
 mock.module('@/lib/git/branchNameGenerator', () => ({
   ...actualBranchNameGenerator,
   generateBranchSlug: () => 'draft-name',
@@ -182,7 +175,110 @@ mock.module('./GitHubIntegrationDialog', () => ({
 mock.module('./LinearIssuePickerDialog', () => ({ LinearIssuePickerDialog: () => null }));
 
 const { NewWorktreeDialog } = await import('./NewWorktreeDialog');
+const { createQuickWorktree } = await import('@/lib/worktreeSessionCreator');
 const { I18nProvider } = await import('@/lib/i18n');
+
+const personalSetup: ProjectSetup = {
+  trust: { hash: null, trusted: true },
+  setupWorktree: ['echo personal-$ROOT_PROJECT_PATH'],
+  setupWorktreeWait: false,
+  projectActions: [],
+  projectActionsPrimaryId: null,
+  draftStarters: [],
+  shared: {
+    status: 'missing', path: '.openchamber/project.json', setupWorktree: [],
+    setupWorktreeWait: null, projectActions: [], draftStarters: [], plansDir: null,
+  },
+  personal: {
+    setupWorktree: ['echo personal-$ROOT_PROJECT_PATH'], setupWorktreeWait: null,
+    setupWorktreeMode: 'append', projectActions: [], projectActionsPrimaryId: null,
+    draftStarters: [], hiddenSharedActionIds: [], sharedTrust: null,
+  },
+};
+
+let configRead: () => Promise<Response> = async () => Response.json(personalSetup);
+let gitCheckRead: () => Promise<Response> = async () => Response.json({ isGitRepository: true });
+const createRequests: Array<{ runtime: string; body: string }> = [];
+const unexpectedRequests: string[] = [];
+let serverA: Awaited<ReturnType<typeof serveRuntime>>;
+let serverB: Awaited<ReturnType<typeof serveRuntime>>;
+
+const serveRuntime = async (runtime: string) => {
+  const server = createServer(async (request, reply) => {
+    const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    let response: Response;
+    if (path === '/auth/url-token') response = Response.json({ error: 'No fixture authentication' }, { status: 401 });
+    else if (/^\/api\/projects\/[^/]+\/config$/.test(path) && request.method === 'GET') response = await configRead();
+    else if (path === '/api/git/check') response = await gitCheckRead();
+    else if (path === '/api/git/primary-root') response = Response.json({ root: project.path });
+    else if (path === '/api/git/status') response = Response.json({ current: 'main', tracking: null, ahead: 0, behind: 0, isClean: true });
+    else if (path === '/api/git/branches') response = Response.json({ all: ['main'], current: 'main', branches: {} });
+    else if (path === '/api/git/worktrees' && request.method === 'POST') {
+      let body = '';
+      request.setEncoding('utf8');
+      for await (const chunk of request) body += chunk;
+      worktreeCreations += 1;
+      createRequests.push({ runtime, body });
+      response = Response.json({ name: 'created', branch: 'created', path: `${project.path}/created`, bootstrapStatus: { status: 'ready' } });
+    } else {
+      unexpectedRequests.push(`${runtime} ${request.method} ${path}`);
+      response = Response.json({ error: 'Unexpected fixture request' }, { status: 500 });
+    }
+    reply.writeHead(response.status, { 'Content-Type': 'application/json' });
+    reply.end(await response.text());
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = z.object({ port: z.number().int().positive() }).parse(server.address());
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    stop: () => new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+      server.closeAllConnections();
+    }),
+  };
+};
+
+beforeEach(async () => {
+  createRequests.length = 0;
+  unexpectedRequests.length = 0;
+  worktreeCreations = 0;
+  configRead = async () => Response.json(personalSetup);
+  gitCheckRead = async () => Response.json({ isGitRepository: true });
+  invalidateResolvedProjectRootCache();
+  serverA = await serveRuntime('A');
+  serverB = await serveRuntime('B');
+  switchRuntimeEndpoint({ apiBaseUrl: serverA.origin, runtimeKey: serverA.origin });
+});
+
+afterEach(async () => {
+  await Promise.all([serverA.stop(), serverB.stop()]);
+  actualSessionUIStore.useSessionUIStore.setState({ availableWorktrees: [], availableWorktreesByProject: new Map() });
+});
+
+const holdConfigRead = () => {
+  let release = () => {};
+  let markStarted = () => {};
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const response = new Promise<Response>((resolve) => { release = () => resolve(Response.json(personalSetup)); });
+  configRead = () => { markStarted(); return response; };
+  return { started, release };
+};
+
+const settleDialogCreation = async (container: HTMLElement) => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    if (![...container.querySelectorAll('button')].some((button) => button.textContent === 'Creating...')) return;
+  }
+  throw new Error('Dialog creation did not settle within one second');
+};
+
+const settleSourceBranch = async (container: HTMLElement) => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    if ([...container.querySelectorAll('button')].some((button) => button.textContent === 'main')) return;
+  }
+  throw new Error('Source branch did not settle within one second');
+};
 
 const DOM_GLOBAL_NAMES = [
   'window',
@@ -240,6 +336,105 @@ const installDom = () => {
   };
 };
 
+describe('worktree receiver origin custody over real Git HTTP', () => {
+  for (const receiver of ['quick', 'dialog'] as const) {
+    for (const returnToA of [false, true]) {
+      test(`${receiver}: pending personal config A to B${returnToA ? ' to A' : ''} makes zero create POSTs`, async () => {
+        const dom = installDom();
+        const root = createRoot(dom.container);
+        const held = holdConfigRead();
+        let quickResult: Promise<string> | null = null;
+        try {
+          if (receiver === 'quick') {
+            quickResult = createQuickWorktree(project, { preferredName: 'origin-custody' }).then(() => 'created', () => 'retired');
+          } else {
+            await act(async () => root.render(<I18nProvider><NewWorktreeDialog open onOpenChange={() => undefined} /></I18nProvider>));
+            const input = dom.container.querySelector<HTMLInputElement>('input[placeholder="feature/my-awesome-feature"]');
+            if (!input) throw new Error('Missing branch input');
+            await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+          }
+          await act(async () => {
+            await held.started;
+            switchRuntimeEndpoint({ apiBaseUrl: serverB.origin, runtimeKey: serverB.origin });
+            if (returnToA) switchRuntimeEndpoint({ apiBaseUrl: serverA.origin, runtimeKey: serverA.origin });
+          });
+          await act(async () => { held.release(); await quickResult; });
+          if (receiver === 'dialog') await settleDialogCreation(dom.container);
+          expect(createRequests).toEqual([]);
+          expect(unexpectedRequests).toEqual([]);
+          if (quickResult) expect(await quickResult).toBe('retired');
+        } finally {
+          held.release();
+          await act(async () => root.unmount());
+          dom.restore();
+        }
+      });
+    }
+    for (const returnToA of [false, true]) {
+      test(`${receiver}: retirement during late Git preparation${returnToA ? ' and return to A' : ''} makes zero create POSTs`, async () => {
+        const dom = installDom();
+        const root = createRoot(dom.container);
+        let release = () => {};
+        let markStarted = () => {};
+        const started = new Promise<void>((resolve) => { markStarted = resolve; });
+        const response = new Promise<Response>((resolve) => { release = () => resolve(Response.json({ isGitRepository: true })); });
+        gitCheckRead = () => { markStarted(); return response; };
+        let quickResult: Promise<string> | null = null;
+        try {
+          if (receiver === 'quick') {
+            quickResult = createQuickWorktree(project, { preferredName: 'late-git-custody' }).then(() => 'created', () => 'retired');
+          } else {
+            await act(async () => root.render(<I18nProvider><NewWorktreeDialog open onOpenChange={() => undefined} /></I18nProvider>));
+            const input = dom.container.querySelector<HTMLInputElement>('input[placeholder="feature/my-awesome-feature"]');
+            if (!input) throw new Error('Missing branch input');
+            await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+          }
+          await act(async () => {
+            await started;
+            switchRuntimeEndpoint({ apiBaseUrl: serverB.origin, runtimeKey: serverB.origin });
+            if (returnToA) switchRuntimeEndpoint({ apiBaseUrl: serverA.origin, runtimeKey: serverA.origin });
+            release();
+            await quickResult;
+          });
+          if (receiver === 'dialog') await settleDialogCreation(dom.container);
+          expect(createRequests).toEqual([]);
+          expect(unexpectedRequests).toEqual([]);
+          if (quickResult) expect(await quickResult).toBe('retired');
+        } finally {
+          release();
+          await act(async () => root.unmount());
+          dom.restore();
+        }
+      });
+    }
+    for (const offline of [false, true]) {
+      test(`${receiver}: current ${offline ? 'offline optional config' : 'personal setup'} creates once on A`, async () => {
+        const dom = installDom();
+        const root = createRoot(dom.container);
+        if (offline) configRead = async () => Response.json({ error: 'Config offline' }, { status: 503 });
+        try {
+          if (receiver === 'quick') {
+            await createQuickWorktree(project, { preferredName: 'personal-control' });
+          } else {
+            await act(async () => root.render(<I18nProvider><NewWorktreeDialog open onOpenChange={() => undefined} /></I18nProvider>));
+            const input = dom.container.querySelector<HTMLInputElement>('input[placeholder="feature/my-awesome-feature"]');
+            if (!input) throw new Error('Missing branch input');
+            await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+            await settleDialogCreation(dom.container);
+          }
+          expect(createRequests).toHaveLength(1);
+          expect(createRequests[0].runtime).toBe('A');
+          expect(JSON.parse(createRequests[0].body).startCommand).toBe(offline ? undefined : `echo personal-${project.path}`);
+          expect(unexpectedRequests).toEqual([]);
+        } finally {
+          await act(async () => root.unmount());
+          dom.restore();
+        }
+      });
+    }
+  }
+});
+
 describe('NewWorktreeDialog behavior', () => {
   for (const isMobile of [false, true]) {
     test(`${isMobile ? 'mobile' : 'desktop'} Enter in branch search does not create a worktree`, async () => {
@@ -250,6 +445,7 @@ describe('NewWorktreeDialog behavior', () => {
       try {
         await act(async () => root.render(<I18nProvider><NewWorktreeDialog open onOpenChange={() => undefined} /></I18nProvider>));
         if (isMobile) {
+          await settleSourceBranch(dom.container);
           const sourcePicker = [...dom.container.querySelectorAll('button')].find((button) => button.textContent === 'main');
           if (!sourcePicker) throw new Error('Missing source branch picker');
           await act(async () => sourcePicker.click());
@@ -299,6 +495,7 @@ describe('NewWorktreeDialog behavior', () => {
           const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
           await act(async () => { input.dispatchEvent(enter); });
           expect(enter.defaultPrevented).toBe(true);
+          await settleDialogCreation(dom.container);
           expect(worktreeCreations).toBe(1);
           expect(globalEnters).toBe(0);
           await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); });

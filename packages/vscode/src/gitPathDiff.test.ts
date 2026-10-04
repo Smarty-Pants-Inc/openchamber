@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execGit } from './bridge-git-process-runtime';
 import { readSubmoduleState, resolveGitPathTarget } from './gitPathDiff';
 
 const tempDirs: string[] = [];
@@ -13,6 +12,12 @@ afterEach(() => {
 });
 
 const git = (cwd: string, args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+const execGit = async (args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (result.error) throw result.error;
+  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status ?? 1 };
+};
 
 const createRepository = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-vscode-path-diff-'));

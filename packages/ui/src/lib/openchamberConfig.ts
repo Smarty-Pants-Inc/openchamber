@@ -15,7 +15,8 @@
  * Reads keep the contract callers were written against: a failed read logs
  * and resolves to the empty setup, because worktree creation and the new
  * session screen must keep working when the config cannot be fetched.
- * Execution callers opt into strict reads so failure cannot grant trust.
+ * Runtime retirement always throws; only a still-current optional read may
+ * use that fallback. Execution callers opt into strict reads for other failures.
  * Writes resolve `false` on failure.
  */
 
@@ -24,6 +25,7 @@ import { z } from 'zod';
 import { sanitizeStarterRefs, type DraftStarterRef } from './draftStarters';
 import { createProjectIdFromPath } from './projectId';
 import { runtimeFetch } from './runtime-fetch';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope } from './runtime-switch';
 
 type ProjectRef = { id: string; path: string };
 
@@ -175,6 +177,7 @@ const parseSetupResponse = async (response: Response): Promise<ProjectSetup> => 
 
 /** Strict execution reads throw; ordinary reads retain the empty continuity fallback. */
 export async function getProjectSetup(project: ProjectRef, options: { strict?: boolean } = {}): Promise<ProjectSetup> {
+  const scope = captureRuntimeRequestScope();
   const projectId = resolveProjectSetupId(project);
   if (!projectId) {
     if (options.strict) throw new Error('Project config requires a project path');
@@ -191,6 +194,7 @@ export async function getProjectSetup(project: ProjectRef, options: { strict?: b
     }
     return await parseSetupResponse(response);
   } catch (error) {
+    assertRuntimeRequestScope(scope);
     if (options.strict) throw error;
     console.warn('Failed to read project config:', error);
     return EMPTY_PROJECT_SETUP;
