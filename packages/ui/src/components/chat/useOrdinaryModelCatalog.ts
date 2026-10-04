@@ -40,6 +40,8 @@ export function useOrdinaryModelCatalog(
     setSnapshot({ key, status: 'loading' });
     opencodeClient.getProvidersForConfig(directory, sessionId).then(result => {
       if (cancelled || !isRuntimeRequestScopeCurrent(scope)) return;
+      // A reply without a provider list is no catalog: say Unavailable, never throw out of the read (#498 CI).
+      if (!Array.isArray(result?.providers)) { setSnapshot({ key, status: 'unavailable' }); return; }
       const choices = buildOrdinaryModelOptions(result.providers.map(provider => ({
         id: provider.id, models: Object.values(provider.models),
       })));
