@@ -42,6 +42,19 @@ for (const entry of upstreamOutputs.values()) {
     assert.equal('normalizedPredecessorSha256' in entry || 'normalizedSha256' in entry, false, `${entry.path}: no normalized stock proof to extend`);
   }
 }
+const review = upstream.reviewSuccessors;
+assert.equal(review.predecessorHead, '74503e43955b13a5b49731417f0efeae8748a702');
+assert.equal(review.reviewedHead, '4f86403ec77539242efd27c8a87884fcd5b5184e');
+const reviewOutputs = new Map(review.files.map(entry => [entry.path, entry]));
+assert.ok(reviewOutputs.size, 'missing reviewed raw outputs');
+assert.equal(reviewOutputs.size, review.files.length, 'duplicate reviewed raw output');
+for (const entry of reviewOutputs.values()) {
+  assert.ok(predecessors.has(entry.path), `${entry.path}: no historical proof to extend`);
+  assert.equal(entry.predecessorSha256, upstreamOutputs.get(entry.path)?.sha256 ?? predecessors.get(entry.path), `${entry.path}: reviewed predecessor changed`);
+  assert.match(entry.note, /\S/, `${entry.path}: missing reviewed disposition`);
+  assert.equal('normalizedPredecessorSha256' in entry || 'normalizedSha256' in entry, false, `${entry.path}: reviewed successor is raw only`);
+}
+const rawSuccessors = [['response-policy', outputs], ['upstream', upstreamOutputs], ['reviewed', reviewOutputs]];
 export function responsePolicyOutputSha256(file, historicalSha256, context = 'raw') {
   assert.ok(context === 'raw' || context === 'normalized', `${file}: unsupported output context`);
   if (context === 'normalized') {
@@ -53,16 +66,13 @@ export function responsePolicyOutputSha256(file, historicalSha256, context = 'ra
     assert.match(entry.normalizedSha256, /^[a-f0-9]{64}$/, `${file}: normalized upstream output hash must be finalized after writer release`);
     return entry.normalizedSha256;
   }
-  const response = outputs.get(file);
-  if (response) {
-    assert.equal(response.predecessorSha256, historicalSha256, `${file}: response-policy predecessor changed`);
-    assert.match(response.sha256, /^[a-f0-9]{64}$/);
-    assert.match(response.note, /\S/, `${file}: missing successor disposition`);
-    historicalSha256 = response.sha256;
+  for (const [layer, entries] of rawSuccessors) {
+    const entry = entries.get(file);
+    if (!entry) continue;
+    assert.equal(entry.predecessorSha256, historicalSha256, `${file}: ${layer} predecessor changed`);
+    assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${file}: ${layer} output hash must be finalized after writer release`);
+    assert.match(entry.note, /\S/, `${file}: missing successor disposition`);
+    historicalSha256 = entry.sha256;
   }
-  const entry = upstreamOutputs.get(file);
-  if (!entry) return historicalSha256;
-  assert.equal(entry.predecessorSha256, historicalSha256, `${file}: upstream predecessor changed`);
-  assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${file}: upstream output hash must be finalized after writer release`);
-  return entry.sha256;
+  return historicalSha256;
 }

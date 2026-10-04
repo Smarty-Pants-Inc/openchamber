@@ -868,7 +868,7 @@ export const ExtensionsPage: React.FC = () => {
           </p>
         ) : null}
         {unsupported ? (
-          <p className="typography-meta text-muted-foreground">{t('settings.extensions.unsupported')}</p>
+          <p className="typography-meta text-muted-foreground">{t('settings.view.unavailable.description')}</p>
         ) : null}
         {status === 'ready' && guests.length === 0 ? (
           <p className="typography-meta text-muted-foreground">{t('settings.extensions.empty')}</p>

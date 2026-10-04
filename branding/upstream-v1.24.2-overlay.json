@@ -9,6 +9,30 @@
     "branding/http-response-policy-overlay.json": "0d07d352bad0275e0afd4e98b28bf338478736a962feac35cfaaf137129c454a"
   },
   "note": "Upstream v1.24.2 merge successors over immutable donor, behavior and response-policy proof. Null output hashes are deliberately unfinalized while writers are active and must fail current-byte checks. Bind only reviewed released outputs after brand generation; this is source provenance, not runtime/security acceptance.",
+  "reviewSuccessors": {
+    "predecessorHead": "74503e43955b13a5b49731417f0efeae8748a702",
+    "reviewedHead": "4f86403ec77539242efd27c8a87884fcd5b5184e",
+    "files": [
+      {
+        "path": ".github/workflows/oc-review.yml",
+        "predecessorSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
+        "sha256": "2ac1b0bc25a1f3e0886077b6716c556b67b96078b4a07b0816fadeda86ea9ff3",
+        "note": "Reviewed CI heap policy from ci-heap-fix.md: add NODE_OPTIONS --max-old-space-size=4096 only to the existing Build step, retaining bun run build, every later phase and all source/runner/admission guards. This is a behavioral resource-policy successor, not brand-only normalization or a CI pass. The predecessor is the unchanged first-parent workflow blob 48cb5f9083e81c8de7239a24ca4f7aa0a7284626."
+      },
+      {
+        "path": "packages/web/server/lib/opencode/openchamber-routes.js",
+        "predecessorSha256": "91275f4649f710e2f41a30ab67673bce00a30da7aa77fee38c9b3f05cee36098",
+        "sha256": "ed95e227c1c08e3adc2a88ca3dfbf14c21a623d79ddb04ae99a0a4d26f7103df",
+        "note": "Reviewed A4 repair from astra-windows-percent.md: remove argument-quoter percent doubling so the upstream batch serializer escapes each percent once. Retain quote doubling, generated Smarty messages, POSIX behavior, flags, fallback restart and process lifecycle. The exact merge-output predecessor and earlier donor predecessor remain in the upstream row. This is behavior provenance, not Windows execution or installed-update proof."
+      },
+      {
+        "path": "packages/web/server/lib/opencode/openchamber-routes.test.js",
+        "predecessorSha256": "a4d7abc0e4e8d41302de6c79f1eccae0f396b5435051c915c94307860442d9ae",
+        "sha256": "b2080c1d4f5dacc0ef2cb3e20f6d6db53b112dafa8bbb2bb289fc865ad3f347d",
+        "note": "Reviewed A4 registered-route regression from astra-windows-percent.md: allow injected server directory and path.win32, then add ordinary-path and three percent-path cases checking the executable batch line, diagnostics, flags and lifecycle. All ten original tests and their assertions remain. Retain the exact earlier merge-output binding in the upstream row; Linux fixture execution is not cmd.exe proof."
+      }
+    ]
+  },
   "files": [
     {
       "path": ".github/workflows/mobile-ci.yml",

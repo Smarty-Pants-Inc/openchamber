@@ -39,6 +39,15 @@ test('upstream resolver rejects changed historical proof, source pins and dispos
     ['unproved path', value => { value.files[0].path = 'unproved.txt'; }, /no historical proof/],
     ['empty disposition', value => { value.files[0].note = ' \n\t'; }, /missing upstream disposition/],
     ['empty outputs', value => { value.files = []; }, /missing upstream merge outputs/],
+    ['review predecessor head', value => { value.reviewSuccessors.predecessorHead = value.reviewSuccessors.predecessorHead.slice(0, 8); }, /74503e43/],
+    ['review source head', value => { value.reviewSuccessors.reviewedHead = value.reviewSuccessors.reviewedHead.slice(0, 8); }, /4f86403e/],
+    ['review raw predecessor', value => { value.reviewSuccessors.files[0].predecessorSha256 = '0'.repeat(64); }, /reviewed predecessor changed/],
+    ['review merge predecessor', value => { value.reviewSuccessors.files[1].predecessorSha256 = '0'.repeat(64); }, /reviewed predecessor changed/],
+    ['review invented normalized proof', value => { value.reviewSuccessors.files[0].normalizedSha256 = '0'.repeat(64); }, /reviewed successor is raw only/],
+    ['review duplicate path', value => { value.reviewSuccessors.files.push(value.reviewSuccessors.files[0]); }, /duplicate reviewed raw output/],
+    ['review unproved path', value => { value.reviewSuccessors.files[0].path = 'unproved.txt'; }, /no historical proof/],
+    ['review empty disposition', value => { value.reviewSuccessors.files[0].note = ' \n\t'; }, /missing reviewed disposition/],
+    ['review empty outputs', value => { value.reviewSuccessors.files = []; }, /missing reviewed raw outputs/],
   ];
   for (const [name, mutate, pattern] of cases) {
     await t.test(name, async () => {
@@ -93,8 +102,40 @@ test('upstream resolver keeps raw, normalized and response-policy predecessor co
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
+test('reviewed raw successors compose with merge outputs without changing normalized contexts', async () => {
+  assert.deepEqual(overlay.reviewSuccessors.files.map(entry => entry.path), [
+    '.github/workflows/oc-review.yml',
+    'packages/web/server/lib/opencode/openchamber-routes.js',
+    'packages/web/server/lib/opencode/openchamber-routes.test.js',
+  ]);
+  for (const entry of overlay.reviewSuccessors.files) {
+    const merged = overlay.files.find(candidate => candidate.path === entry.path);
+    const predecessor = merged?.predecessorSha256 ?? entry.predecessorSha256;
+    if (merged) {
+      assert.equal(entry.predecessorSha256, merged.sha256, entry.path);
+      assert.throws(() => currentOutput(entry.path, merged.sha256), /upstream predecessor changed/);
+    }
+    assert.equal(currentOutput(entry.path, predecessor), entry.sha256, entry.path);
+    assert.throws(() => currentOutput(entry.path, predecessor, 'normalized'), /no normalized stock proof/);
+  }
+  const fixture = copyProof();
+  try {
+    const value = structuredClone(overlay);
+    value.reviewSuccessors.files[0].sha256 = null;
+    writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+    const { responsePolicyOutputSha256: pending } = await import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href);
+    const entry = value.reviewSuccessors.files[0];
+    assert.throws(() => pending(entry.path, entry.predecessorSha256), /must be finalized after writer release/);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
 test('every upstream raw successor binds exact finalized current bytes', () => {
-  for (const entry of overlay.files) {
+  const rawOutputs = new Map(overlay.files.map(entry => [entry.path, entry]));
+  for (const entry of overlay.reviewSuccessors.files) {
+    // Keep the historical resolver input while checking the newest raw output.
+    rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
+  }
+  for (const entry of rawOutputs.values()) {
     const predecessor = response.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256;
     assert.equal(currentOutput(entry.path, predecessor), entry.sha256, entry.path);
     assert.equal(digest(read(entry.path)), entry.sha256, entry.path);
