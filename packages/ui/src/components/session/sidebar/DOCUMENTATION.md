@@ -132,9 +132,10 @@ folder reveal belong to [#1066](https://github.com/Smarty-Pants-Inc/smarty-code/
 Parent and folder expansion remain manual, as agreed in the
 [scope decision](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1061#issuecomment-5909719193).
 A root hidden inside a manually collapsed folder is not a #1061 visibility claim.
-Mobile drawer page counts survive close/reopen so a selected root past the first
-page stays visible without replaying personal expansion writes. Manual project
-and group toggles still reset their pages; counts remain local to the mounted sheet.
+Mobile drawer page counts survive close/reopen, and opening the sheet raises the
+selected root's bucket page as needed, so a root chosen from search, pins, or the
+list stays visible without replaying personal expansion writes. Manual project and
+group toggles still reset their pages; counts remain local to the mounted sheet.
 A supported waiting-open caller/proof, cached
 read-only person-change maps/receipts and test-fixture placement are tracked in
 [#1132](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1132). That follow-up

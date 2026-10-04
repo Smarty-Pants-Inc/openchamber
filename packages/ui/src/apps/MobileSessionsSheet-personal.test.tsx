@@ -8,6 +8,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useHumanAuth } from '@/lib/human-auth';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { useMobileSessionTreeStore } from '@/stores/useMobileSessionTreeStore';
+import { getPinnedSessionKey, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import * as globalSessions from '@/stores/useGlobalSessionsStore';
 
 for (const [path, name] of [
@@ -42,7 +43,7 @@ function Consumer() {
 }
 afterEach(async () => {
   await mounted?.dispose(); mounted = undefined;
-  useHumanAuth.setState({ enabled: false }); requests.length = 0;
+  useHumanAuth.setState({ enabled: false }); useSessionPinnedStore.getState().setIds(new Set()); requests.length = 0;
   sheetOpen = true; sheetVariant = 'sidebar'; changeSheetOpen = undefined;
 });
 
@@ -116,6 +117,73 @@ for (const human of [false, true]) {
       } finally { refresh.mockRestore(); globalThis.fetch = originalFetch; }
     });
   }
+}
+
+for (const human of [false, true]) {
+  test(
+    `mobile drawer search selection reopens on its page and stays active (${human ? 'signed-in with pins' : 'anonymous'})`,
+    async () => {
+      const refresh = spyOn(globalSessions, 'refreshGlobalSessions').mockImplementation(async () => ({
+        activeSessions: globalSessions.useGlobalSessionsStore.getState().activeSessions,
+        archivedSessions: [],
+      }));
+      const originalFetch = globalThis.fetch;
+      try {
+        sheetVariant = 'drawer';
+        mounted = await mountedNativeComposer(false, undefined, <Consumer />);
+        globalThis.fetch = async (input, init) => {
+          if (String(input).includes('/api/config/sidebar-view')) {
+            if (init?.method === 'PATCH') { requests.push(String(init.body)); return Response.json({}); }
+            return Response.json({ owner: { issuer: 'test', subject: 'search-reopen' }, projects: {}, groups: {} });
+          }
+          return originalFetch(input, init);
+        };
+        const runtimeKey = mounted?.runtimeA;
+        if (!runtimeKey) throw new Error('Runtime key missing');
+        await act(async () => {
+          useProjectsStore.setState({ projects: [{ id: 'p', path: directory, label: 'Project P', sidebarCollapsed: false }],
+            activeProjectId: 'p', managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+          useMobileSessionTreeStore.getState().setProjectExpanded('p', true);
+          const rows = Array.from({ length: 12 }, (_, i) => ({ id: `search${i}`, directory, projectID: 'p',
+            title: `Search row ${i}`, version: '1', slug: `search${i}`, time: { created: 12 - i, updated: 12 - i } }));
+          globalSessions.useGlobalSessionsStore.setState({ activeSessions: rows });
+          useHumanAuth.setState({ enabled: human });
+          if (human) {
+            useAuthSessionStore.getState().markAuthenticated();
+            const pinned = [getPinnedSessionKey(runtimeKey, directory, 'search0')];
+            useSessionPinnedStore.getState().setIds(new Set(pinned.filter((key): key is string => key !== null)));
+          }
+          mounted?.remount(); await sleep(0); await sleep(0);
+        });
+        const surface = () => {
+          const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+          if (!dialog) throw new Error('Actual mobile drawer missing');
+          return dialog;
+        };
+        const input = surface().querySelector<HTMLInputElement>('input');
+        if (!input || !mounted) throw new Error('Mobile search input missing');
+        const setValue = Object.getOwnPropertyDescriptor(mounted.dom.window.HTMLInputElement.prototype, 'value')?.set;
+        if (!setValue) throw new Error('Native input setter missing');
+        await act(async () => {
+          setValue.call(input, 'Search row 9');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(0);
+        });
+        const button = Array.from(surface().querySelectorAll('button'))
+          .find(candidate => candidate.textContent?.includes('Search row 9'));
+        if (!button) throw new Error('Search result missing before click');
+        await act(async () => { button.click(); await sleep(0); await sleep(0); });
+        expect(sheetOpen).toBe(false);
+        expect(useSessionUIStore.getState().currentSessionId).toBe('search9');
+        await act(async () => { changeSheetOpen?.(true); await sleep(0); await sleep(0); });
+        const active = Array.from(surface().querySelectorAll<HTMLElement>('[data-active-session]'))
+          .find(node => node.textContent?.includes('Search row 9'));
+        expect(surface().textContent).toContain('Search row 9');
+        expect(active?.getAttribute('data-active-session')).toBe('true');
+      } finally { refresh.mockRestore(); globalThis.fetch = originalFetch; }
+    },
+  );
 }
 
 test('human mobile follows shared defaults, ignores anonymous expansion and reveals only A after explicit open', async () => {
