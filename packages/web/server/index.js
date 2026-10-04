@@ -802,7 +802,9 @@ const notificationTriggerRuntime = createNotificationTriggerRuntime({
 });
 
 const maybeSendPushForTrigger = (...args) => notificationTriggerRuntime.maybeSendPushForTrigger(...args);
-const setAutoAcceptSession = (sessionId, enabled) => permissionAutoAcceptRuntime.setSessionPolicy(sessionId, enabled);
+const setAutoAcceptSession = () => {
+  throw Object.assign(new Error('Permission auto-accept is unsupported in this fork'), { status: 501 });
+};
 clearPendingPushBadge = () => notificationTriggerRuntime.clearPendingPushBadge();
 
 const sessionAssistRuntime = createSessionAssistRuntime({
@@ -914,17 +916,9 @@ const routingRuntime = createRoutingRuntime({
   broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
 });
 
-const permissionAutoAcceptRuntime = createPermissionAutoAcceptRuntime({
-  globalEventHub: globalMessageStreamHub,
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  readSettingsFromDiskMigrated,
-  persistSettings,
-  broadcastGlobalUiEvent,
-  evaluatePermission: (permission, directory) => routingRuntime.evaluatePermission(permission, directory),
-  onPermissionReplied: (permissionId) => routingRuntime.forgetPermission(permissionId),
-});
-permissionAutoAcceptRuntime.start();
+// The fork hard-disables this responder on every backend, including OpenCode.
+// Old stored policies and scheduled-task enrollment cannot restore it.
+const permissionAutoAcceptRuntime = createPermissionAutoAcceptRuntime();
 notificationTriggerRuntime.setGetIsSessionAutoAccepting(
   (sessionId, directory) => permissionAutoAcceptRuntime.isSessionAutoAccepting(sessionId, directory),
 );
@@ -1108,7 +1102,13 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerCommonRequestMiddleware,
   registerAuthAndAccessRoutes,
   registerTtsRoutes,
-  registerNotificationRoutes,
+  registerNotificationRoutes: (app, dependencies) => {
+    // This legacy toggle is registered during bootstrap, before feature routes.
+    app.post('/api/notifications/auto-accept', (_req, res) => {
+      res.status(501).json({ supported: false, error: 'Permission auto-accept is unsupported in this fork' });
+    });
+    registerNotificationRoutes(app, dependencies);
+  },
   registerOpenChamberRoutes,
   registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,

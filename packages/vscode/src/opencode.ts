@@ -10,7 +10,7 @@ import { resolveWorkingDirectoryChange } from './workingDirectoryChange';
 import { reapOrphanedProcesses } from './opencodeProcessRegistry';
 import { applyProviderEnvAliases } from './provider-env-aliases';
 import { brandText, PRODUCT_NAME } from './brand.generated';
-import { spawnManagedOpenCodeProcess } from './managed-opencode-process';
+import { MANAGED_OPENCODE_UNSUPPORTED, spawnManagedOpenCodeProcess } from './managed-opencode-process';
 
 const t = (message: string, ...args: Array<string | number | boolean>) => vscode.l10n.t(brandText(message), ...args);
 
@@ -850,6 +850,13 @@ export function createOpenCodeManager(context: vscode.ExtensionContext): OpenCod
     if (useConfiguredUrl && configuredApiUrl) {
       setStatus('connecting');
       setStatus('connected');
+      return;
+    }
+
+    // F12: configured servers return above. Every nonconfigured start refuses
+    // before registry reaping, CLI/env preparation, cwd, or port allocation.
+    if (!useConfiguredUrl) {
+      setStatus('error', t('Failed to start {0}: {1}', PRODUCT_NAME, MANAGED_OPENCODE_UNSUPPORTED));
       return;
     }
 

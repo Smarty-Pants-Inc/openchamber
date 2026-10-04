@@ -455,28 +455,6 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
     });
   }
 
-  if (normalizedPathname === '/api/permission-auto-accept' && method === 'GET') {
-    const snapshot = await sendBridgeMessage('api:permission-auto-accept:get');
-    return new Response(JSON.stringify(snapshot), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const permissionPolicyMatch = normalizedPathname.match(/^\/api\/permission-auto-accept\/sessions\/([^/]+)$/);
-  if (permissionPolicyMatch && method === 'PUT') {
-    const bodyText = await extractBodyText(url, init, method);
-    const body = bodyText ? JSON.parse(bodyText) as { enabled?: unknown } : {};
-    const snapshot = await sendBridgeMessage('api:permission-auto-accept:set', {
-      sessionId: decodeURIComponent(permissionPolicyMatch[1]),
-      enabled: body.enabled,
-    });
-    return new Response(JSON.stringify(snapshot), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   if (/^\/api\/sessions\/[^/]+\/message-sent$/.test(normalizedPathname) && method === 'POST') {
     const sessionId = normalizedPathname.split('/')[3] || '';
     return new Response(
@@ -1212,6 +1190,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
   const pathname = targetUrl?.pathname || '';
   const normalizedPathname = pathname.replace(/\/{2,}/g, '/');
+  // Cut off the complete policy namespace before local handlers or any proxy.
+  // The host repeats this boundary for direct bridge callers.
+  const decodedPathname = pathname.replace(/%([0-9a-f]{2})/gi, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+  const policyPathname = new URL(decodedPathname.replace(/\\/g, '/').replace(/\/{2,}/g, '/'), 'https://openchamber.invalid/').pathname;
+  if (/^\/(?:api\/)?(?:permission-auto-accept|notifications\/auto-accept)(?:\/|$)/i.test(policyPathname)) {
+    return jsonResponse({ error: 'Permission auto-accept is unsupported in this fork', supported: false }, 501);
+  }
+
   if (targetUrl && normalizedPathname === '/health') {
     const connectionStatus = window.__OPENCHAMBER_CONNECTION__?.status;
     const isReady = connectionStatus === 'connected';

@@ -14,57 +14,52 @@ that writes it:
 
 Notes, todos, and plans moved out of this file to `packages/web/server/lib/project-context`.
 
-A second, optional source is the team's shared file, `<repo>/.openchamber/project.json`
-(`version: 1`; `setupWorktree`, `setupWorktreeWait`, `projectActions`, `draftStarters`,
-`plansDir`). The server reads it from the checkout the project id names
-(`projectPathFromId`). `GET /api/projects/:projectId/config`
-returns one merged view: what runs at the top level, plus `shared` and `personal`
-blocks so a page can edit the personal file without copying a teammate's entry into it.
+### Repository shared config is disabled
 
-| Field | Merge rule |
-|---|---|
-| `setupWorktree` | shared first, then personal; personal `setupWorktreeMode: "replace"` uses the personal list only |
-| `setupWorktreeWait` | personal when the personal file sets it, else shared, else `false` |
-| `projectActions` | union by `id`; a personal action replaces the shared one with the same id; ids in personal `hiddenSharedActionIds` are dropped; every entry carries `source` |
-| `projectActionsPrimaryId` | personal only |
-| `draftStarters` | union by `type:name`, shared first, every entry carries `source` |
-| `plansDir` | retained shared metadata only; repository shared-plan access is hard-disabled in this fork |
+Repository shared config, including shared command/action and draft-starter
+discovery, is hard-disabled under
+[smarty-code#1325, item 3](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1325).
+Upstream commit `82a0ee7572e59dbc965d593268a41ef0395860fa` introduced the shared
+reader/writers. Their pathname IO followed repository-controlled links. Node
+cannot portably bind directory creation, rename and removal to checkout custody.
+The fork disables this unused feature instead of adding a check-then-write guard.
 
-A shared file that exists but cannot be parsed (or names a `plansDir` outside the
-repo) is `shared.status: "invalid"` with a `reason`; the personal setup is still
-served. It is never treated as "no shared setup".
+`GET /api/projects/:projectId/config` reads only personal storage. Its `shared`
+block is explicitly `status: "invalid", reason: "shared-project-config-disabled"`,
+with empty shared lists and `plansDir: null`. This is an unavailable feature,
+not an authoritative claim that a repository file is missing or empty. The
+existing `shared.path` is the relative contract name `.openchamber/project.json`,
+never a decoded or canonical checkout path. Top-level commands, actions and
+starters come only from the personal file; actions/starters carry `source: "personal"`.
 
-### Writing the shared file
+`updateSharedProjectSetup` and the VS Code store's `updateShared` reject with
+`shared-project-config-writes-disabled` before locks, write chains, personal
+reads or checkout IO. The existing web route returns 500 JSON with that error;
+the native bridge returns `success: false` with the same error, and its webview
+maps the failure to 500. The shared UI write client returns `null` on failure.
+Metadata, command/starter sharing, no-op patches and empty-config removal all
+refuse, even for an ordinary checkout or an absent target parent.
 
-`PUT /api/projects/:projectId/config/shared` (`updateSharedProjectSetup`) is
-the only writer. The patch replaces the keys it names over the current file
-(a broken file counts as empty, so a write repairs it); the result is written
-pretty-printed with `version` first and only the keys that carry something
-(`serializeSharedProjectConfig`), because the file is committed and reviewed.
-A result with nothing in it removes the file and the `.openchamber` folder
-when that leaves it empty, so unsharing the last item leaves no trace. The
-write refuses a checkout that does not exist and a `plansDir` outside the
-repo. A shared patch never grants command approval, including a patch that
-shares commands. It preserves the existing personal trust record and its
-original timestamp only when its hash matches the complete resulting executable
-set. Otherwise it clears the record. The shared UI composes
-"share" and "make personal" as a shared write followed by a personal write.
+No platform, preference, environment variable or repository value may opt in.
+Shared files, directories and personal trust records are not deleted, migrated,
+repaired or reset. Personal config, actions, tasks and unknown keys still use
+ordinary locked read-modify-write storage. Dormant shared parsers/merge utilities
+remain for format tests; they are not an enabled discovery or mutation path.
 
 ### Trust
 
-Shared setup commands and shared actions run on the machine of whoever pulls
-the repo, so they run only after the user has seen them. The view carries
-`trust: { hash, trusted }`: `hash` is `sharedTrustHashOf(shared)`, a SHA-256
-over the executable parts (`setupWorktree` and each action's `id`, `command`,
-`runIn`, actions sorted by id; names and icons do not count), or `null` when
-nothing executes. `trusted` is true when nothing executes or the personal
-file's `sharedTrust.hash` equals the current hash, so a pull that changes a
-command brings the prompt back. The client records an answer with a PUT of
-`sharedTrustHash` (`null` forgets it). The prompt itself lives in the shared
-UI (`packages/ui/src/lib/sharedTrustConfirmation.ts`). Only that explicit
-`sharedTrustHash` approval path records a new answer. Existing records cannot
-distinguish explicit approvals from approvals minted by older shared writers;
-this repair does not reset or migrate them.
+Shared config is undiscovered, so production views have
+`trust: { hash: null, trusted: true }` because no shared executable set is
+available. This does not mint or change an approval. Existing personal
+`sharedTrust` records and their timestamps survive reads and refused shared
+writes unchanged. The explicit personal `sharedTrustHash` write remains
+supported; `null` forgets that record. Personal actions and setup remain usable.
+
+The dormant format hash/merge contract still hashes the complete executable set,
+including action `runIn`. Existing stored records cannot distinguish explicit
+approvals from approvals minted by older shared writers. This repair does not
+reset or migrate them, and re-enabling repository discovery would require a new
+security review and an approval-provenance decision.
 
 ### Repository shared plans are disabled
 
@@ -81,7 +76,7 @@ deleted. Personal plans, notes and todos remain owned by project-context.
 
 - `project-id.js` — `createProjectIdFromPath` / `projectPathFromId`: the path-derived id (`path_<base64url>`) that names the file, and the checkout path back from it. The shared UI derives the same id (`packages/ui/src/lib/projectId.ts`); both sides must agree. `projectConfigFileStemOf`: the stem that names the file and the sibling folder for an id, see the file name invariant below.
 - `project-config.js` — `createProjectConfigRuntime`: raw read, atomic write, the cross-process file lock (Electron and a CLI `serve` can share one projects dir), scheduled-task normalization, and the project-setup read/update.
-- `project-setup.js` — sanitizers, the shared-file parser (`parseSharedProjectConfig`, `normalizePlansDir`), the merge (`mergeProjectSetup`), and the personal view for the setup keys. Mirrored in the VS Code extension host (`packages/vscode/src/project-setup.ts`), which owns the same file when the webview has no OpenChamber server; keep the two in sync.
+- `project-setup.js` — sanitizers, the dormant shared-file parser (`parseSharedProjectConfig`, `normalizePlansDir`), the merge (`mergeProjectSetup`, supplied only a disabled shared result in production), and the personal view for the setup keys. Mirrored in the VS Code extension host (`packages/vscode/src/project-setup.ts`), which owns the same file when the webview has no OpenChamber server; keep the two in sync.
 - `routes.js` — the setup routes. `/api/projects` is on the JSON-body allowlist in `opencode/core-routes.js`.
 
 ## Invariants

@@ -34,6 +34,7 @@ export type StartBtwInput = {
   modelID: string;
   agent?: string;
   variant?: string | null;
+  /** Legacy input only: automatic permission enrollment is unsupported. */
   permissionAutoAccept?: boolean;
   attachments?: AttachedFile[];
   additionalParts?: Array<{
@@ -215,12 +216,6 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
         selections.saveSessionAgentSelection(forked.id, input.agent);
         selections.saveAgentModelForSession(forked.id, input.agent, input.providerID, input.modelID);
         selections.saveAgentModelVariantForSession(forked.id, input.agent, input.providerID, input.modelID, input.variant);
-      }
-      if (input.permissionAutoAccept !== undefined) {
-        const { usePermissionStore } = await import('@/stores/permissionStore');
-        if (getRuntimeKey() !== expectedRuntimeKey) throw new Error('runtime changed');
-        await usePermissionStore.getState().setSessionAutoAccept(forked.id, input.permissionAutoAccept);
-        if (getRuntimeKey() !== expectedRuntimeKey) throw new Error('runtime changed');
       }
       // Locate the inherited-history boundary by identity, not by ID ordering.
       const newestCloned = await opencodeClient.getSessionMessages(forked.id, 1, sessionDirectory);

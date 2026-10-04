@@ -15,6 +15,8 @@ const overlayPath = 'branding/upstream-v1.24.2-overlay.json';
 const overlay = json(overlayPath);
 const response = new Map(json('branding/http-response-policy-overlay.json').files.map(entry => [entry.path, entry]));
 const stock = new Map(json('branding/stock-owner-parity.json').files.map(entry => [entry.path, entry]));
+const historical = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry.outputSha256]));
+for (const entry of json('branding/behavior-overlay.json').files) historical.set(entry.path, entry.combinedSha256);
 
 // Exercise the actual resolver with copies of its actual proof inputs, never module mocks.
 const copyProof = () => {
@@ -80,6 +82,9 @@ test('upstream resolver keeps raw, normalized and response-policy predecessor co
     entry.sha256 = 'a'.repeat(64);
     entry.normalizedSha256 = 'b'.repeat(64);
     server.sha256 = 'c'.repeat(64);
+    const serverRound2 = value.round2Successors.files.find(candidate => candidate.path === server.path);
+    serverRound2.predecessorSha256 = server.sha256;
+    serverRound2.sha256 = server.sha256;
     writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
     const { responsePolicyOutputSha256: resolve } = await import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href);
     assert.equal(resolve(file, entry.predecessorSha256), entry.sha256);
@@ -135,6 +140,9 @@ test('every upstream raw successor binds exact finalized current bytes', () => {
     // Keep the historical resolver input while checking the newest raw output.
     rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
   }
+  for (const entry of overlay.round2Successors.files) {
+    rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
+  }
   for (const entry of rawOutputs.values()) {
     const predecessor = response.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256;
     assert.equal(currentOutput(entry.path, predecessor), entry.sha256, entry.path);
@@ -152,5 +160,125 @@ test('normalized stock successors retain their exact label occurrence and finali
     assert.equal(currentOutput(entry.path, entry.normalizedPredecessorSha256, 'normalized'), entry.normalizedSha256, entry.path);
     assert.equal(digest(source.replace(before, after)), entry.normalizedSha256, entry.path);
     assert.notEqual(entry.normalizedSha256, entry.sha256, entry.path);
+  }
+});
+
+test('round2 resolver rejects invalid parent, raw chain, paths, dispositions and hashes', async t => {
+  const cases = [
+    ['short parent', value => { value.round2Successors.parentHead = value.round2Successors.parentHead.slice(0, 8); }, /16eda5b18ba2cd764d0da0827a2e8741b12d3834/],
+    ['wrong parent', value => { value.round2Successors.parentHead = '0'.repeat(40); }, /16eda5b18ba2cd764d0da0827a2e8741b12d3834/],
+    ['duplicate path', value => { value.round2Successors.files.push(value.round2Successors.files[0]); }, /duplicate round2 raw output/],
+    ['wrong predecessor', value => { value.round2Successors.files[0].predecessorSha256 = '0'.repeat(64); }, /round2 predecessor changed/],
+    ['earlier predecessor', value => { const entry = value.round2Successors.files[0]; entry.predecessorSha256 = historical.get(entry.path); }, /round2 predecessor changed/],
+    ['malformed predecessor', value => { value.round2Successors.files[0].predecessorSha256 = 'invalid'; }, /invalid round2 predecessor hash/],
+    ['uppercase predecessor', value => { value.round2Successors.files[0].predecessorSha256 = 'A'.repeat(64); }, /invalid round2 predecessor hash/],
+    ['null predecessor', value => { value.round2Successors.files[0].predecessorSha256 = null; }, /round2 predecessor hash|must be of type string/],
+    ['normalized predecessor field', value => { value.round2Successors.files[0].normalizedPredecessorSha256 = 'a'.repeat(64); }, /round2 successor is raw only/],
+    ['normalized output field', value => { value.round2Successors.files[0].normalizedSha256 = 'b'.repeat(64); }, /round2 successor is raw only/],
+    ['normalized predecessor value', value => { value.round2Successors.files[0].predecessorSha256 = value.files.find(entry => entry.normalizedPredecessorSha256).normalizedPredecessorSha256; }, /round2 predecessor changed/],
+    ['normalized path', value => { const normalized = value.files.find(entry => entry.normalizedPredecessorSha256); value.round2Successors.files[0].path = normalized.path; value.round2Successors.files[0].predecessorSha256 = normalized.sha256; }, /round2 cannot extend a normalized stock path/],
+    ['unproved path', value => { value.round2Successors.files[0].path = 'unproved-round2.txt'; }, /no historical proof/],
+    ['blank path', value => { value.round2Successors.files[0].path = ' \n\t'; }, /no historical proof/],
+    ['empty outputs', value => { value.round2Successors.files = []; }, /missing round2 raw outputs/],
+    ['blank note', value => { value.round2Successors.files[0].note = ' \n\t'; }, /missing round2 disposition/],
+    ['missing note', value => { delete value.round2Successors.files[0].note; }, /missing round2 disposition|must be of type string/],
+    ['malformed output', value => { value.round2Successors.files[0].sha256 = 'invalid'; }, /must be finalized after writer release/],
+    ['uppercase output', value => { value.round2Successors.files[0].sha256 = 'A'.repeat(64); }, /must be finalized after writer release/],
+    ['blank output', value => { value.round2Successors.files[0].sha256 = ' \n\t'; }, /must be finalized after writer release/],
+    ['missing output', value => { delete value.round2Successors.files[0].sha256; }, /must be finalized after writer release|must be of type string/],
+  ];
+  for (const [name, mutate, pattern] of cases) {
+    await t.test(name, async () => {
+      const fixture = copyProof();
+      try {
+        const value = structuredClone(overlay);
+        for (const entry of value.round2Successors.files) entry.sha256 = 'e'.repeat(64);
+        mutate(value);
+        writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+        await assert.rejects(import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href), pattern);
+      } finally { rmSync(fixture, { recursive: true, force: true }); }
+    });
+  }
+  await t.test('null prepared outputs forbid current-byte claims', async () => {
+    const fixture = copyProof();
+    try {
+      const value = structuredClone(overlay);
+      for (const entry of value.round2Successors.files) entry.sha256 = null;
+      writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+      const { responsePolicyOutputSha256: resolve } = await import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href);
+      for (const entry of value.round2Successors.files) {
+        assert.throws(() => resolve(entry.path, historical.get(entry.path)), /round2 output hash must be finalized after writer release/);
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+});
+
+test('round2 raw fixtures compose every earlier layer from the original historical input', async () => {
+  const fixture = copyProof();
+  try {
+    const value = structuredClone(overlay);
+    for (const entry of value.round2Successors.files) entry.sha256 = 'e'.repeat(64);
+    // Exercise review-only, upstream-plus-review and response-only parents as well as actual candidates.
+    for (const prior of [...value.reviewSuccessors.files, response.get('packages/web/server/lib/opencode/static-routes-runtime.js')]) {
+      value.round2Successors.files.push({ path: prior.path, predecessorSha256: prior.sha256, sha256: 'f'.repeat(64), note: 'Raw composition fixture only.' });
+    }
+    writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+    const { responsePolicyOutputSha256: resolve } = await import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href);
+    for (const entry of value.round2Successors.files) {
+      const reviewed = value.reviewSuccessors.files.find(candidate => candidate.path === entry.path);
+      const merged = value.files.find(candidate => candidate.path === entry.path);
+      const immediate = reviewed?.sha256 ?? merged?.sha256 ?? response.get(entry.path)?.sha256 ?? historical.get(entry.path);
+      assert.equal(entry.predecessorSha256, immediate, entry.path);
+      assert.equal(resolve(entry.path, historical.get(entry.path)), entry.sha256, entry.path);
+      // A coverage-only path has no earlier hop: its immediate predecessor is the original caller.
+      if (entry.predecessorSha256 !== historical.get(entry.path)) {
+        assert.throws(() => resolve(entry.path, entry.predecessorSha256), /predecessor changed/, entry.path);
+      }
+      assert.throws(() => resolve(entry.path, '0'.repeat(64)), /predecessor changed/, entry.path);
+      assert.throws(() => resolve(entry.path, historical.get(entry.path), 'normalized'), /no normalized stock proof/, entry.path);
+    }
+    const untouched = value.files.find(entry => entry.path === 'Dockerfile');
+    assert.equal(resolve(untouched.path, historical.get(untouched.path)), untouched.sha256);
+    for (const entry of value.files.filter(candidate => candidate.normalizedPredecessorSha256)) {
+      assert.equal(resolve(entry.path, entry.normalizedPredecessorSha256, 'normalized'), entry.normalizedSha256, entry.path);
+      assert.throws(() => resolve(entry.path, historical.get(entry.path), 'normalized'), /normalized predecessor changed/, entry.path);
+    }
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test('F13 namespace successors bind the complete all-method guards from original historical callers', async t => {
+  assert.equal(overlay.round2Successors.files.length, 9);
+  for (const file of ['packages/vscode/webview/main.tsx', 'packages/vscode/src/bridge-proxy-runtime.ts']) {
+    const entry = overlay.round2Successors.files.find(candidate => candidate.path === file);
+    const merged = overlay.files.find(candidate => candidate.path === file);
+    const caller = historical.get(file);
+    assert.equal(entry.predecessorSha256, merged?.sha256 ?? caller, file);
+    assert.equal(currentOutput(file, caller), digest(read(file)), file);
+    assert.equal(entry.sha256, digest(read(file)), file);
+    assert.throws(() => currentOutput(file, entry.sha256), /predecessor changed/, file);
+    assert.throws(() => currentOutput(file, caller, 'normalized'), /no normalized stock proof/, file);
+    for (const [name, mutate, pattern] of [
+      ['wrong predecessor', row => { row.predecessorSha256 = '0'.repeat(64); }, /round2 predecessor changed/],
+      ['normalized output', row => { row.normalizedSha256 = 'a'.repeat(64); }, /round2 successor is raw only/],
+      ['blank disposition', row => { row.note = ' '; }, /missing round2 disposition/],
+    ]) {
+      await t.test(`${file}: ${name}`, async () => {
+        const fixture = copyProof();
+        try {
+          const value = structuredClone(overlay);
+          mutate(value.round2Successors.files.find(candidate => candidate.path === file));
+          writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+          await assert.rejects(import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href), pattern);
+        } finally { rmSync(fixture, { recursive: true, force: true }); }
+      });
+    }
+  }
+});
+
+test('every round2 raw successor binds exact finalized current bytes through the full chain', () => {
+  assert.equal(overlay.round2Successors.parentHead, '16eda5b18ba2cd764d0da0827a2e8741b12d3834');
+  for (const entry of overlay.round2Successors.files) {
+    assert.equal(currentOutput(entry.path, historical.get(entry.path)), entry.sha256, entry.path);
+    assert.equal(digest(read(entry.path)), entry.sha256, entry.path);
   }
 });

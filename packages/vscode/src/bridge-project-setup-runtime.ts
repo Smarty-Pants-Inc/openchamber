@@ -12,17 +12,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  EMPTY_SHARED_PROJECT_CONFIG,
   ProjectSetupValidationError,
-  SHARED_CONFIG_RELATIVE_PATH,
-  applySharedProjectSetupPatch,
-  isSharedProjectConfigEmpty,
   mergeProjectSetup,
-  parseSharedProjectConfig,
   personalProjectSetupOf,
   projectSetupPatchToStored,
-  serializeSharedProjectConfig,
-  sharedTrustHashOf,
   type ProjectSetupView,
   type SharedProjectConfigRead,
 } from './project-setup';
@@ -126,32 +119,13 @@ export const createProjectSetupStore = (
   // interleave their read-modify-write.
   const writeChains = new Map<string, Promise<unknown>>();
 
-  // The shared file lives in the checkout the id names (the personal file's
-  // `projectPath` is the fallback). A missing file is the normal case; an
-  // unreadable or unparsable one is reported, never treated as empty.
-  const projectPathOf = (projectId: string, personalRaw: Record<string, unknown>): string => {
-    const storedPath = personalRaw.projectPath;
-    return projectPathFromId(projectId) || (typeof storedPath === 'string' ? storedPath.trim() : '');
-  };
-  const sharedConfigPathOf = (projectPath: string): string => path.join(projectPath, ...SHARED_CONFIG_RELATIVE_PATH.split('/'));
+  // Final fork policy (smarty-code#1325, item 3): shared repository config,
+  // including command/starter discovery, is disabled before any checkout IO.
+  // Report unavailable explicitly, never as an authoritative missing file.
+  const disabledSharedConfig: SharedProjectConfigRead = { status: 'invalid', reason: 'shared-project-config-disabled' };
 
-  const readShared = async (projectId: string, personalRaw: Record<string, unknown>): Promise<SharedProjectConfigRead> => {
-    const projectPath = projectPathOf(projectId, personalRaw);
-    if (!projectPath) return { status: 'missing' };
-    let raw: string;
-    try {
-      raw = await fs.promises.readFile(sharedConfigPathOf(projectPath), 'utf8');
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return { status: 'missing' };
-      return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
-    }
-    return parseSharedProjectConfig(raw);
-  };
-
-  const mergedViewOf = async (projectId: string, personalRaw: Record<string, unknown>): Promise<ProjectSetupView> =>
-    mergeProjectSetup(personalProjectSetupOf(personalRaw), await readShared(projectId, personalRaw));
-
-  const read = async (projectId: string): Promise<ProjectSetupView> => mergedViewOf(projectId, await readPersonalDocument(projectId));
+  const read = async (projectId: string): Promise<ProjectSetupView> =>
+    mergeProjectSetup(personalProjectSetupOf(await readPersonalDocument(projectId)), disabledSharedConfig);
 
   const update = async (projectId: string, patch: unknown): Promise<ProjectSetupView> => {
     const filePath = filePathFor(projectId);
@@ -164,43 +138,16 @@ export const createProjectSetupStore = (
         if (value === undefined) delete merged[key];
       }
       await writePersonalDocument(projectId, merged);
-      return mergedViewOf(projectId, merged);
+      return mergeProjectSetup(personalProjectSetupOf(merged), disabledSharedConfig);
     });
     writeChains.set(filePath, next.catch(() => undefined));
     return next;
   };
 
-  // The team's shared file in the checkout; same rules as the server: a
-  // broken file counts as empty and an empty result removes the file. A
-  // shared patch never approves commands; only a matching prior approval
-  // survives, with its original timestamp.
-  const updateShared = async (projectId: string, patch: unknown): Promise<ProjectSetupView> => {
-    const filePath = filePathFor(projectId);
-    const previous = writeChains.get(filePath) ?? Promise.resolve();
-    const next = previous.then(async () => {
-      const personalRaw = await readPersonalDocument(projectId);
-      const projectPath = projectPathOf(projectId, personalRaw);
-      if (!projectPath) throw new ProjectSetupValidationError('project checkout not found');
-      const isDirectory = await fs.promises.stat(projectPath).then((stat) => stat.isDirectory()).catch(() => false);
-      if (!isDirectory) throw new ProjectSetupValidationError('project checkout not found');
-      const currentRead = await readShared(projectId, personalRaw);
-      const current = currentRead.status === 'ok' ? currentRead.config : EMPTY_SHARED_PROJECT_CONFIG;
-      const nextShared = applySharedProjectSetupPatch(current, patch);
-      const sharedPath = sharedConfigPathOf(projectPath);
-      if (isSharedProjectConfigEmpty(nextShared)) {
-        await fs.promises.rm(sharedPath, { force: true });
-        await fs.promises.rmdir(path.dirname(sharedPath)).catch(() => {});
-      } else {
-        await writeJsonAtomic(sharedPath, serializeSharedProjectConfig(nextShared));
-      }
-      const hash = sharedTrustHashOf(nextShared);
-      const personalNext: Record<string, unknown> = { ...personalRaw };
-      if (!hash || personalProjectSetupOf(personalRaw).sharedTrust?.hash !== hash) delete personalNext.sharedTrust;
-      await writePersonalDocument(projectId, personalNext);
-      return mergedViewOf(projectId, personalNext);
-    });
-    writeChains.set(filePath, next.catch(() => undefined));
-    return next;
+  // Refuse before write chains or personal/checkout IO. No preference,
+  // repository metadata or platform may re-enable shared editing.
+  const updateShared = async (): Promise<ProjectSetupView> => {
+    throw new Error('shared-project-config-writes-disabled');
   };
 
   return { read, update, updateShared };

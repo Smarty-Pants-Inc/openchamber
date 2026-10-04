@@ -1706,27 +1706,18 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => (
   '"': '&quot;',
   "'": '&#39;',
 }[character] ?? character));
-const readSplashColor = (settings, key, fallback) => {
-  // The renderer hands the colours over IPC (desktop_set_window_theme) and
-  // main stores them under `desktopSplashColors`; the flat `splash*` keys are
-  // what builds before the settings split wrote and are read as a fallback.
-  const owned = settings.desktopSplashColors && typeof settings.desktopSplashColors === 'object'
-    ? settings.desktopSplashColors[key]
-    : undefined;
-  const legacy = settings[`splash${key.charAt(0).toUpperCase()}${key.slice(1)}`];
-  const value = typeof owned === 'string' ? owned : legacy;
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
-};
+const SAFE_SPLASH_BACKGROUND_LIGHT = '#f5f5f4';
+const SAFE_SPLASH_BACKGROUND_DARK = '#0c0a09';
 
 const buildStartupSplashHtml = () => {
-  const settings = readSettingsRoot();
-  const splashBgLight = readSplashColor(settings, 'bgLight', '#f5f5f4');
-  const splashBgDark = readSplashColor(settings, 'bgDark', '#0c0a09');
+  const splashBgLight = SAFE_SPLASH_BACKGROUND_LIGHT;
+  const splashBgDark = SAFE_SPLASH_BACKGROUND_DARK;
 
   return `<!doctype html>
   <html>
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       :root { color-scheme: light dark; }
@@ -2311,13 +2302,6 @@ const getWindowIconPath = () => {
     : path.join(process.resourcesPath, 'icons', iconFileName);
   return fs.existsSync(iconPath) ? iconPath : undefined;
 };
-
-const canUseTitleBarOverlay = (browserWindow) => (
-  process.platform === 'win32' &&
-  Boolean(browserWindow?.__ocTitleBarOverlayEnabled) &&
-  typeof browserWindow.setTitleBarOverlay === 'function' &&
-  !browserWindow.isDestroyed()
-);
 
 const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }) => {
   const saved = restoreGeometry ? readWindowState() : null;
@@ -4377,53 +4361,6 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         requestHeaders: args.requestHeaders || {},
       });
 
-    case 'desktop_set_window_theme': {
-      const mode = typeof args.themeMode === 'string' ? args.themeMode : '';
-      const variant = typeof args.themeVariant === 'string' ? args.themeVariant : '';
-      const splash = args.splash && typeof args.splash === 'object' ? args.splash : null;
-      if (splash) {
-        const colors = {};
-        for (const key of ['bgLight', 'fgLight', 'bgDark', 'fgDark']) {
-          if (typeof splash[key] === 'string' && splash[key].trim()) colors[key] = splash[key].trim();
-        }
-        if (Object.keys(colors).length === 4) {
-          const current = readSettingsRoot().desktopSplashColors;
-          const unchanged = current && typeof current === 'object'
-            && ['bgLight', 'fgLight', 'bgDark', 'fgDark'].every((key) => current[key] === colors[key]);
-          if (!unchanged) {
-            void mutateSettingsRoot((root) => ({ ...root, desktopSplashColors: colors }));
-          }
-        }
-      }
-      // Priority order: themeMode expresses the user's intent (including
-      // "follow OS"). Variant is just the resolved variant at send time;
-      // when mode === 'system' with variant === 'dark' (because OS is
-      // currently dark), we must still pin themeSource to 'system' so
-      // Chromium keeps reacting to OS theme changes.
-      if (mode === 'system') {
-        nativeTheme.themeSource = 'system';
-      } else if (mode === 'light') {
-        nativeTheme.themeSource = 'light';
-      } else if (mode === 'dark') {
-        nativeTheme.themeSource = 'dark';
-      } else if (variant === 'light') {
-        nativeTheme.themeSource = 'light';
-      } else if (variant === 'dark') {
-        nativeTheme.themeSource = 'dark';
-      } else {
-        nativeTheme.themeSource = 'system';
-      }
-      if (canUseTitleBarOverlay(browserWindow)) {
-        const useDark = nativeTheme.shouldUseDarkColors;
-        browserWindow.setTitleBarOverlay({
-          color: useDark ? '#151313' : '#f5f5f4',
-          symbolColor: useDark ? '#fafaf9' : '#1c1917',
-          height: 48,
-        });
-      }
-      return null;
-    }
-
     case 'desktop_check_for_updates': {
       assertUpdaterCapability({ packaged: app.isPackaged });
       const currentVersion = APP_VERSION;
@@ -5052,7 +4989,6 @@ const COMMANDS_SAFE_FOR_REMOTE = new Set([
   'desktop_new_window_at_url',
   'desktop_new_window_for_host',
   'desktop_set_window_title',
-  'desktop_set_window_theme',
   'desktop_is_window_fullscreen',
   'desktop_start_window_drag',
   'desktop_minimize_current_window',
@@ -5066,6 +5002,10 @@ const COMMANDS_SAFE_FOR_REMOTE = new Set([
 ]);
 
 ipcMain.handle('openchamber:invoke', async (event, command, args) => {
+  if (command === 'desktop_set_window_theme') {
+    log.warn('[ipc] rejected disabled desktop_set_window_theme');
+    throw new Error('desktop_set_window_theme is disabled');
+  }
   if (!isLocalSender(event.sender) && !COMMANDS_SAFE_FOR_REMOTE.has(command)) {
     log.warn(`[ipc] rejected ${command} from non-local origin: ${event.sender?.getURL?.() || '(unknown)'}`);
     throw new Error('IPC not available for this origin');

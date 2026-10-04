@@ -8,8 +8,9 @@
 //
 // `GET /provider` is where that state becomes visible. It reports, per
 // provider, the resolved `options.baseURL` and `options.apiKey`, and per model
-// the wire adapter (`api.npm`) and endpoint (`api.url`). The provider-level
-// endpoint remains only as a fallback when the selected model has no endpoint.
+// the wire adapter (`api.npm`) and endpoint (`api.url`). An explicit provider
+// endpoint wins over model metadata; only the first-model fallback can be
+// replaced by the selected model's endpoint.
 //
 // What it does NOT report is `options.fetch`. OpenCode strips functions from
 // the response, and a plugin is free to put its whole protocol in there:
@@ -93,11 +94,13 @@ function parseProviderListing(payload) {
     }
     const firstModel = models.values().next().value;
     const declaredKey = text(options.apiKey);
+    const explicitBaseURL = endpoint(options.baseURL);
     providers.set(id, {
       id,
       source: text(record(raw).source),
       apiKey: declaredKey === ZEN_ANONYMOUS_API_KEY ? null : (declaredKey ?? text(record(raw).key)),
-      baseURL: endpoint(options.baseURL) ?? firstModel?.api?.url ?? null,
+      explicitBaseURL,
+      baseURL: explicitBaseURL ?? firstModel?.api?.url ?? null,
       models,
       // True only for the zen-without-login case: a provider that is present
       // and usable through OpenCode, but that we must not call ourselves.

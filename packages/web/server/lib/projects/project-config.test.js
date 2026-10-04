@@ -23,6 +23,22 @@ const createRuntime = async () => {
 };
 
 describe('project-config runtime', () => {
+  it('refuses shared editing before locks, personal reads, or any checkout filesystem operation', async () => {
+    const realFs = await import('fs/promises');
+    let calls = 0;
+    const refuse = async () => { calls += 1; throw new Error('unexpected filesystem operation'); };
+    const runtime = createProjectConfigRuntime({
+      fsPromises: { ...realFs, readFile: refuse, mkdir: refuse, stat: refuse, open: refuse, writeFile: refuse, rename: refuse, rm: refuse, rmdir: refuse, realpath: refuse, readlink: refuse },
+      path,
+      projectsDirPath: '/unused/personal',
+    });
+    for (const projectId of [createProjectIdFromPath('/unused/repo'), 'project-a', '../invalid']) {
+      await expect(runtime.updateSharedProjectSetup(projectId, { plansDir: 'new/plans' })).rejects.toThrow('shared-project-config-writes-disabled');
+      await expect(runtime.updateSharedProjectSetup(projectId, { plansDir: null, draftStarters: [] })).rejects.toThrow('shared-project-config-writes-disabled');
+    }
+    expect(calls).toBe(0);
+  });
+
   it('creates and persists a scheduled task', async () => {
     const { runtime, cleanup } = await createRuntime();
     try {

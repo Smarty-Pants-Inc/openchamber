@@ -1,109 +1,17 @@
-import { describe, expect, test } from "bun:test"
-import type { Session } from "@opencode-ai/sdk/v2/client"
-import { autoRespondsPermission, type PermissionAutoAcceptMap } from "./permissionAutoAccept"
+import { expect, test } from 'bun:test';
+import type { Session } from '@opencode-ai/sdk/v2/client';
+import { autoRespondsPermission, type PermissionAutoAcceptMap } from './permissionAutoAccept';
 
-function makeSession(id: string, parentID?: string): Session {
-  return { id, parentID } as Session
+const root: Session = { id: 'root', slug: 'root', projectID: 'project', directory: '/project', title: 'Root', version: '1', time: { created: 1, updated: 1 } };
+const child: Session = { ...root, id: 'child', parentID: 'root' };
+const policies: PermissionAutoAcceptMap[] = [{}, { root: true }, { root: false }, { root: true, child: true }, { root: true, child: false }];
+for (const autoAccept of policies) {
+  test(`no stored or inherited policy grants automatic reply authority: ${JSON.stringify(autoAccept)}`, () => {
+    const snapshot = JSON.stringify(autoAccept);
+    for (const sessionID of ['root', 'child', 'unknown']) {
+      expect(autoRespondsPermission({ autoAccept, sessions: [root, child], sessionID })).toBe(false);
+      expect(autoRespondsPermission({ autoAccept, sessions: [], sessionById: new Map([[root.id, root], [child.id, child]]), sessionID })).toBe(false);
+    }
+    expect(JSON.stringify(autoAccept)).toBe(snapshot);
+  });
 }
-
-describe("autoRespondsPermission", () => {
-  test("returns false when autoAccept is empty", () => {
-    expect(autoRespondsPermission({
-      autoAccept: {},
-      sessions: [makeSession("s1")],
-      sessionID: "s1",
-    })).toBe(false)
-  })
-
-  test("returns true when session has autoAccept enabled", () => {
-    const autoAccept: PermissionAutoAcceptMap = { s1: true }
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions: [makeSession("s1")],
-      sessionID: "s1",
-    })).toBe(true)
-  })
-
-  test("returns false when session has autoAccept disabled", () => {
-    const autoAccept: PermissionAutoAcceptMap = { s1: false }
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions: [makeSession("s1")],
-      sessionID: "s1",
-    })).toBe(false)
-  })
-
-  test("returns true when parent has autoAccept enabled", () => {
-    const autoAccept: PermissionAutoAcceptMap = { parent: true }
-    const sessions = [
-      makeSession("parent"),
-      makeSession("child", "parent"),
-    ]
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions,
-      sessionID: "child",
-    })).toBe(true)
-  })
-
-  test("returns true when grandparent has autoAccept enabled", () => {
-    const autoAccept: PermissionAutoAcceptMap = { grandparent: true }
-    const sessions = [
-      makeSession("grandparent"),
-      makeSession("parent", "grandparent"),
-      makeSession("child", "parent"),
-    ]
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions,
-      sessionID: "child",
-    })).toBe(true)
-  })
-
-  test("uses a prebuilt session index for lineage lookup", () => {
-    const parent = makeSession("parent")
-    const child = makeSession("child", "parent")
-    expect(autoRespondsPermission({
-      autoAccept: { parent: true },
-      sessions: [],
-      sessionById: new Map([[parent.id, parent], [child.id, child]]),
-      sessionID: "child",
-    })).toBe(true)
-  })
-
-  test("returns false when only sibling has autoAccept enabled", () => {
-    const autoAccept: PermissionAutoAcceptMap = { sibling: true }
-    const sessions = [
-      makeSession("parent"),
-      makeSession("sibling", "parent"),
-      makeSession("child", "parent"),
-    ]
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions,
-      sessionID: "child",
-    })).toBe(false)
-  })
-
-  test("child autoAccept overrides parent", () => {
-    const autoAccept: PermissionAutoAcceptMap = { parent: true, child: false }
-    const sessions = [
-      makeSession("parent"),
-      makeSession("child", "parent"),
-    ]
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions,
-      sessionID: "child",
-    })).toBe(false)
-  })
-
-  test("returns false for unknown session", () => {
-    const autoAccept: PermissionAutoAcceptMap = { s1: true }
-    expect(autoRespondsPermission({
-      autoAccept,
-      sessions: [],
-      sessionID: "unknown",
-    })).toBe(false)
-  })
-})

@@ -1,11 +1,16 @@
 import { spawnOwnedProcess } from './owned-process';
 import { registerManagedProcess, unregisterManagedProcess } from './opencodeProcessRegistry';
 
+export const MANAGED_OPENCODE_UNSUPPORTED = 'OPENCODE_MANAGED_UNSUPPORTED: Managed OpenCode processes are unsupported in this fork. Configure openchamber.apiUrl for an external server.';
+
 export function spawnManagedOpenCodeProcess(
   binary: string,
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; port: number; timeoutMs: number; signal: AbortSignal; sourceBinary: string; appBundleHint: string },
 ) {
+  // F12: no setting, environment override, or direct caller may launch this
+  // unused lifecycle. Keep the refusal before spawn and registry mutation.
+  throw new Error(MANAGED_OPENCODE_UNSUPPORTED);
   options.signal.throwIfAborted();
   const owned = spawnOwnedProcess(binary, args, { cwd: options.cwd, env: options.env });
   const registration = registerManagedProcess({

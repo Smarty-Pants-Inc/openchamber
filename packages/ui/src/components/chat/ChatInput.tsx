@@ -110,8 +110,6 @@ import { selectSkillsForDirectory, useSkillsStore } from '@/stores/useSkillsStor
 import { selectCommandsForDirectory, useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { usePermissionStore } from '@/stores/permissionStore';
-import { togglePermissionAutoAccept } from './permissionAutoAccept';
 import { useKeybind } from '@/hooks/useKeybind';
 import { hasOpenDropdown } from '@/hooks/keyboard-shortcut-dom';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
@@ -542,11 +540,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const nativeModelControls = (newSessionDraftOpen && (nativeCreation.creation?.status === 'pending' || nativeCreation.mode === 'ordinary'))
         || Boolean(nativeModel);
     const newSessionDraftAnnouncesDirtyState = newSessionDraftOpen && newSessionDraft?.openedAutomatically !== true;
-    const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
-        s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
-    ));
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
-    const setDraftPermissionAutoAcceptEnabled = useSessionUIStore((s) => s.setDraftPermissionAutoAcceptEnabled);
     const prepareChatDraftDirectory = useSessionUIStore((s) => s.prepareChatDraftDirectory);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -658,11 +652,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const ensureGitStatus = useGitStore((state) => state.ensureStatus);
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const clearGitDiffCache = useGitStore((state) => state.clearDiffCache);
-    const setSessionAutoAccept = usePermissionStore((state) => state.setSessionAutoAccept);
-    const pendingBtwAutoAccept = useBtwStore(React.useCallback(
-        (state) => currentSessionId ? state.byParent[currentSessionId]?.pendingAutoAccept === true : false,
-        [currentSessionId],
-    ));
     const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
     const [attachmentPreview, setAttachmentPreview] = React.useState<ToolPopupContent>({
         open: false,
@@ -2373,7 +2362,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     variant: variantToSend,
                     attachments: primaryAttachments,
                     additionalParts,
-                    permissionAutoAccept: pendingBtwAutoAccept,
                 });
                 if (!ownsPendingBtwSend()) return;
                 if (getRuntimeKey() !== submitRuntimeKey) {
@@ -3996,43 +3984,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const iconButtonBaseClass = 'flex cursor-pointer items-center justify-center text-foreground transition-none outline-none focus:outline-none flex-shrink-0 disabled:cursor-not-allowed';
     const footerIconButtonClass = cn(iconButtonBaseClass, buttonSizeClass);
     const permissionScopeSessionId = isBtwActive ? btwSessionId : currentSessionId ?? currentManagementSessionId;
-    const permissionAutoAcceptEnabled = usePermissionStore((state) => {
-        if (isBtwActive && !btwSessionId) return pendingBtwAutoAccept;
-        if (!permissionScopeSessionId) {
-            return draftPermissionAutoAcceptEnabled;
-        }
-        return state.isSessionAutoAccepting(permissionScopeSessionId);
-    });
-    const isPermissionAutoAcceptInteractive = Boolean(permissionScopeSessionId || newSessionDraftOpen);
+    const permissionAutoAcceptEnabled = false;
+    const isPermissionAutoAcceptInteractive = Boolean(permissionScopeSessionId || newSessionDraftOpen || isBtwActive);
 
+    // The button and shortcut share this refusal, including unsent BTW/drafts.
+    // Do not turn a local pending flag into an opt-in for the disabled feature.
     const handlePermissionAutoAcceptToggle = React.useCallback(() => {
-        if (isBtwActive && !btwSessionId && currentSessionId) {
-            useBtwStore.getState().setPanelState(currentSessionId, { pendingAutoAccept: !pendingBtwAutoAccept });
-            return;
-        }
-        togglePermissionAutoAccept({
-            permissionScopeSessionId,
-            newSessionDraftOpen,
-            draftPermissionAutoAcceptEnabled,
-            permissionAutoAcceptEnabled,
-            setDraftPermissionAutoAcceptEnabled,
-            setSessionAutoAccept,
-            onOpenSessionFirst: () => toast.error(t('chat.chatInput.toast.openSessionFirst')),
-            onToggleFailed: () => toast.error(t('chat.chatInput.toast.togglePermissionAutoAcceptFailed')),
-        });
-    }, [
-        draftPermissionAutoAcceptEnabled,
-        newSessionDraftOpen,
-        permissionAutoAcceptEnabled,
-        permissionScopeSessionId,
-        isBtwActive,
-        btwSessionId,
-        currentSessionId,
-        pendingBtwAutoAccept,
-        setDraftPermissionAutoAcceptEnabled,
-        setSessionAutoAccept,
-        t,
-    ]);
+        toast.error(t('common.unavailable'));
+    }, [t]);
 
     useKeybind('toggle_permission_auto_accept', () => {
         if (!isPermissionAutoAcceptInteractive) return false;

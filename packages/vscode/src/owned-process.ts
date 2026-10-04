@@ -12,9 +12,14 @@ export function spawnOwnedProcess(binary: string, args: string[], options: Pick<
     detached: process.platform !== 'win32',
   });
   let spawnError: Error | null = null;
+  let terminal = false;
+  child.once('exit', () => { terminal = true; });
   const closed = new Promise<ProcessExit>((resolve) => {
     child.once('error', (error) => { spawnError = error; });
-    child.once('close', (code, signal) => resolve({ code, signal, error: spawnError }));
+    child.once('close', (code, signal) => {
+      terminal = true;
+      resolve({ code, signal, error: spawnError });
+    });
   });
   const waitForClose = async (timeoutMs: number) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -28,7 +33,9 @@ export function spawnOwnedProcess(binary: string, args: string[], options: Pick<
     }
   };
   const signalGroup = (signal: NodeJS.Signals) => {
-    if (!child.pid) return;
+    // Root exit retires numeric custody, even if descendants still hold pipes.
+    // An old PID/PGID must never become authority over a replacement group.
+    if (terminal || child.exitCode !== null || child.signalCode !== null || !child.pid) return;
     try { process.kill(-child.pid, signal); }
     catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
@@ -40,7 +47,7 @@ export function spawnOwnedProcess(binary: string, args: string[], options: Pick<
     termination = (async () => {
       if (!child.pid) { await closed; return; }
       if (process.platform === 'win32') {
-        if (child.exitCode === null && child.signalCode === null) {
+        if (!terminal && child.exitCode === null && child.signalCode === null) {
           // Keep the parent alive until Windows has enumerated its descendants.
           await new Promise<void>((resolve, reject) => {
             execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
@@ -54,7 +61,8 @@ export function spawnOwnedProcess(binary: string, args: string[], options: Pick<
       } else {
         signalGroup('SIGTERM');
         await waitForClose(1000);
-        // A parent can exit while a tool ignores SIGTERM or holds its pipes.
+        // Escalate only while the root still owns this numeric group. If it has
+        // exited with open pipes, report incomplete cleanup below instead.
         signalGroup('SIGKILL');
       }
       if (!await waitForClose(1000)) throw new Error('Owned process did not close after termination');

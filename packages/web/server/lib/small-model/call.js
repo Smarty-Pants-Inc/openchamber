@@ -780,9 +780,10 @@ export async function callSmallModel({ auth, catalog, workingDirectory, sessionI
   // Everything else: OpenAI-compatible chat completions against the catalog's
   // base URL for that provider (openai itself included). When a custom provider
   // is not in the catalog (e.g. a user-configured OpenAI-compatible proxy),
-  // fall back to its baseURL from the OpenCode provider config, then to the
-  // selected model's endpoint OpenCode resolved at runtime, then to the
-  // provider-level runtime endpoint. For a plugin provider, the runtime listing
+  // fall back to its baseURL from the OpenCode provider config, then to an
+  // explicit runtime options.baseURL, then to the selected model's endpoint,
+  // then to the first-model runtime fallback. Model metadata must not move a
+  // credential away from an explicitly configured gateway. For a plugin provider, the runtime listing
   // is the only place those endpoints exist, and several are local proxies the
   // plugin itself runs. Last comes SDK_DEFAULT_BASE_URLS, for providers whose
   // endpoint only their SDK package knows. The openai provider also respects
@@ -795,7 +796,8 @@ export async function callSmallModel({ auth, catalog, workingDirectory, sessionI
     ? providerConfigUrl
     : providerID === 'openai'
       ? defaultOpenaiUrl
-      : runtimeModel?.api?.url
+      : runtimeProvider?.explicitBaseURL
+        ?? runtimeModel?.api?.url
         ?? runtimeProvider?.baseURL
         ?? (typeof provider?.api === 'string' && provider.api
           ? provider.api

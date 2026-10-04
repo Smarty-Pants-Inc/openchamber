@@ -140,7 +140,6 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       getOpenChamberEventClients,
       writeSseEvent,
       emitSessionCreatedEvent,
-      permissionAutoAcceptRuntime,
       messageQueueRuntime,
       routingRuntime,
     } = routeDependencies;
@@ -157,7 +156,8 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       clientReloadDelayMs,
     });
 
-    registerPermissionAutoAcceptRoutes(app, permissionAutoAcceptRuntime);
+    // Explicit unsupported receiver must win before the generic OpenCode proxy.
+    registerPermissionAutoAcceptRoutes(app);
     registerMessageQueueRoutes(app, messageQueueRuntime);
     registerRoutingRoutes(app, routingRuntime);
     // Before the generic OpenCode proxy: turns `openchamber/auto` into a real model.

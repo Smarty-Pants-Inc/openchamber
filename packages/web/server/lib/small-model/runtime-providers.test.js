@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ZEN_ANONYMOUS_API_KEY,
@@ -61,7 +64,11 @@ describe('OpenCode runtime provider snapshot', () => {
   it('reports the credential and endpoint a plugin registered at runtime', async () => {
     const provider = await getRuntimeProvider('llmapi');
 
-    expect(provider).toMatchObject({ apiKey: 'plugin-key', baseURL: 'https://api.llmapi.ai/v1' });
+    expect(provider).toMatchObject({
+      apiKey: 'plugin-key',
+      baseURL: 'https://api.llmapi.ai/v1',
+      explicitBaseURL: 'https://api.llmapi.ai/v1',
+    });
     expect(provider.models.get('gpt-5.6-luna')).toEqual({
       api: { url: 'https://api.llmapi.ai/v1', npm: '@ai-sdk/openai' },
     });
@@ -79,7 +86,10 @@ describe('OpenCode runtime provider snapshot', () => {
   });
 
   it('falls back to the model endpoint when the provider carries no baseURL', async () => {
-    expect((await getRuntimeProvider('zai-coding-plan')).baseURL).toBe('https://api.z.ai/api/coding/paas/v4');
+    expect(await getRuntimeProvider('zai-coding-plan')).toMatchObject({
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      explicitBaseURL: null,
+    });
   });
 
   it('serves one snapshot to concurrent callers instead of refetching', async () => {
@@ -114,5 +124,131 @@ describe('OpenCode runtime provider snapshot', () => {
 
     expect(await getRuntimeProvider('llmapi')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// Exercise the real receiver, generation service, file readers and runtime
+// parser together. Only the remote HTTP responses are fixtures; no production
+// module is mocked, and HOME is isolated before importing the file readers.
+describe('small-model receiver endpoint provenance', () => {
+  const destinations = {
+    runtime: 'http://127.0.0.1:46101/v1',
+    selected: 'http://127.0.0.2:46102/v1',
+    first: 'http://127.0.0.3:46103/v1',
+    file: 'http://127.0.0.4:46104/v1',
+  };
+  const listingURL = 'http://127.0.0.5:46105/provider';
+  const credentials = ['fixture-runtime-key', 'fixture-file-key', 'fixture-auth-key', 'Basic fixture-engine-auth'];
+  let fixtureDir;
+  let request;
+  let app;
+  let fetchMock;
+  let payload;
+  let logSpy;
+
+  beforeAll(async () => {
+    fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'small-model-provenance-'));
+    vi.stubEnv('HOME', fixtureDir);
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(fixtureDir, 'config'));
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', path.join(fixtureDir, 'openchamber'));
+    vi.stubEnv('OPENCODE_CONFIG', undefined);
+    const authDir = path.join(fixtureDir, '.local', 'share', 'opencode');
+    fs.mkdirSync(authDir, { recursive: true });
+    fs.writeFileSync(path.join(authDir, 'auth.json'), JSON.stringify({
+      custom: { type: 'api', key: 'fixture-auth-key' },
+    }));
+    const { default: express } = await import('express');
+    ({ default: request } = await import('supertest'));
+    const { registerSmallModelRoutes } = await import('./routes.js');
+    const service = await import('./index.js');
+    app = express();
+    app.use(express.json());
+    registerSmallModelRoutes(app, { getSmallModelService: async () => service });
+  });
+
+  beforeEach(() => {
+    fs.writeFileSync(path.join(fixtureDir, 'opencode.json'), '{}');
+    payload = {
+      all: [{
+        id: 'custom',
+        options: { apiKey: 'fixture-runtime-key', baseURL: destinations.runtime },
+        models: {
+          first: { api: { url: destinations.first, npm: '@ai-sdk/openai-compatible' } },
+          selected: { api: { url: destinations.selected, npm: '@ai-sdk/openai-compatible' } },
+        },
+      }],
+      connected: ['custom'],
+    };
+    fetchMock = vi.fn(async (url) => {
+      if (url === listingURL) return Response.json(payload);
+      if (url === 'https://models.dev/api.json') return Response.json({});
+      if (Object.values(destinations).some((baseURL) => url === `${baseURL}/chat/completions`)) {
+        return Response.json({ choices: [{ message: { content: 'fixture answer' }, finish_reason: 'stop' }] });
+      }
+      throw new Error('Unexpected outbound request');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    configureOpenCodeRuntimeProviders({
+      buildOpenCodeUrl: () => listingURL,
+      getOpenCodeAuthHeaders: () => ({ Authorization: 'Basic fixture-engine-auth' }),
+    });
+  });
+
+  afterEach(() => {
+    configureOpenCodeRuntimeProviders(null);
+    vi.unstubAllGlobals();
+    logSpy.mockRestore();
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['explicit runtime gateway wins over selected metadata', destinations.runtime, 'fixture-runtime-key'],
+    ['file configuration wins over runtime and selected metadata', destinations.file, 'fixture-file-key'],
+    ['selected metadata replaces only the first-model fallback', destinations.selected, 'fixture-runtime-key'],
+    ['blank runtime gateway permits selected metadata', destinations.selected, 'fixture-runtime-key'],
+    ['missing selected endpoint uses the first-model fallback', destinations.first, 'fixture-runtime-key'],
+    ['file configuration works without a runtime connection', destinations.file, 'fixture-file-key'],
+  ])('%s', async (scenario, destination, key) => {
+    if (scenario.startsWith('file configuration')) {
+      fs.writeFileSync(path.join(fixtureDir, 'opencode.json'), JSON.stringify({
+        provider: { custom: { options: { baseURL: destinations.file, apiKey: 'fixture-file-key' } } },
+      }));
+    }
+    if (scenario === 'file configuration works without a runtime connection') configureOpenCodeRuntimeProviders(null);
+    if (scenario === 'selected metadata replaces only the first-model fallback') delete payload.all[0].options.baseURL;
+    if (scenario === 'blank runtime gateway permits selected metadata') payload.all[0].options.baseURL = '   ';
+    if (scenario === 'missing selected endpoint uses the first-model fallback') {
+      delete payload.all[0].options.baseURL;
+      payload.all[0].models.selected.api.url = '';
+    }
+
+    const response = await request(app).post('/api/small-model/generate').send({
+      model: 'custom/selected', directory: fixtureDir, prompt: 'fixture prompt', system: 'fixture system', maxOutputTokens: 32,
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ text: 'fixture answer', providerID: 'custom', modelID: 'selected', source: 'request' });
+    const generations = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
+    expect(generations).toHaveLength(1);
+    const [url, init] = generations[0];
+    expect(url).toBe(`${destination}/chat/completions`);
+    expect(init.headers.Authorization).toBe(`Bearer ${key}`);
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: 'selected', messages: [{ role: 'system', content: 'fixture system' }, { role: 'user', content: 'fixture prompt' }],
+      max_tokens: 32, stream: false,
+    });
+    for (const credential of credentials) {
+      expect(url).not.toContain(credential);
+      expect(init.body).not.toContain(credential);
+      expect(JSON.stringify(response.body)).not.toContain(credential);
+      expect(JSON.stringify(logSpy.mock.calls)).not.toContain(credential);
+    }
+    for (const [otherURL, otherInit] of fetchMock.mock.calls.filter(([, init]) => init?.method !== 'POST')) {
+      expect(otherInit?.headers?.Authorization).toBe(otherURL === listingURL ? 'Basic fixture-engine-auth' : undefined);
+    }
   });
 });

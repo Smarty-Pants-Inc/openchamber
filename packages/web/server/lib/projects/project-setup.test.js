@@ -334,14 +334,14 @@ describe('project id', () => {
   });
 });
 
-describe('shared writes preserve only existing complete-set approval', () => {
-  it('metadata saves ask at the real worktree prompt; Skip preserves personal setup and Trust records the complete set', async () => {
+describe('disabled shared writes preserve explicit complete-set approval', () => {
+  it('shared discovery is disabled at the real client/worktree path while personal setup and stored approval survive', async () => {
     const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
     const { configureRuntimeUrlResolver } = await import('@openchamber/ui/lib/runtime-url');
     const { updateSharedProjectSetup } = await import('@openchamber/ui/lib/openchamberConfig');
     const {
       resolveWorktreeSetupCommands, settleSharedTrustConfirmation,
-      subscribeSharedTrustConfirmation, getSharedTrustConfirmationSnapshot,
+      getSharedTrustConfirmationSnapshot,
     } = await import('@openchamber/ui/lib/sharedTrustConfirmation');
     const app = express();
     app.use(express.json());
@@ -362,48 +362,41 @@ describe('shared writes preserve only existing complete-set approval', () => {
       const projectId = createProjectIdFromPath(repo);
       const project = { id: projectId, path: repo };
       await runtime.updateProjectSetup(projectId, { setupWorktree: ['echo personal-setup'] });
-      const originalHash = (await runtime.readProjectSetup(projectId)).trust.hash;
-      const choose = async (choice, expectedActions = ['echo repository-action']) => {
-        const asked = new Promise((resolve) => {
-          const unsubscribe = subscribeSharedTrustConfirmation(() => {
-            const prompt = getSharedTrustConfirmationSnapshot();
-            if (prompt) { unsubscribe(); resolve(prompt); }
-          });
-        });
-        const pending = resolveWorktreeSetupCommands(project);
-        const prompt = await asked;
-        expect(prompt.setupCommands).toEqual(['echo repository-setup']);
-        expect(prompt.actions.map((action) => action.command)).toEqual(expectedActions);
-        settleSharedTrustConfirmation(choice);
-        return pending;
-      };
+      const approval = { hash: 'sha256:previous-explicit-approval', trustedAt: 17 };
+      const personalPath = path.join(tempRoot, 'projects', `${projectId}.json`);
+      const personalRaw = await readRaw(projectId);
+      await writeFile(personalPath, JSON.stringify({ ...personalRaw, sharedTrust: approval }));
+      const sharedBefore = await readFile(sharedPath, 'utf8');
+      const personalBefore = await readFile(personalPath, 'utf8');
       for (const patch of [
         { plansDir: 'docs/plans' },
         { draftStarters: [{ type: 'skill', name: 'triage' }] },
-        { draftStarters: [] }, {}, { futureKey: true, sharedTrustHash: originalHash },
+        { draftStarters: [] }, {}, { futureKey: true, sharedTrustHash: approval.hash },
       ]) {
-        const saved = await updateSharedProjectSetup(project, patch);
-        expect(saved.trust).toEqual({ hash: originalHash, trusted: false });
-        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-        expect(saved.shared.setupWorktree).toEqual(sharedRaw.setupWorktree);
-        expect(saved.shared.projectActions[0].command).toBe('echo repository-action');
-        expect(await choose('skip')).toEqual(['echo personal-setup']);
-        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+        expect(await updateSharedProjectSetup(project, patch)).toBeNull();
+        const saved = await runtime.readProjectSetup(projectId);
+        expect(saved.shared.status).toBe('invalid');
+        expect(saved.shared.reason).toBe('shared-project-config-disabled');
+        expect(saved.shared.setupWorktree).toEqual([]);
+        expect(saved.shared.projectActions).toEqual([]);
+        expect(saved.shared.draftStarters).toEqual([]);
+        expect(saved.trust).toEqual({ hash: null, trusted: true });
+        expect(saved.personal.sharedTrust).toEqual(approval);
+        expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo personal-setup']);
+        expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+        expect(await readFile(personalPath, 'utf8')).toBe(personalBefore);
+        expect(await readFile(sharedPath, 'utf8')).toBe(sharedBefore);
       }
-      expect(await choose('trust')).toEqual(['echo repository-setup', 'echo personal-setup']);
-      const personalRaw = await readRaw(projectId);
-      personalRaw.sharedTrust.trustedAt = 17;
-      await writeFile(path.join(tempRoot, 'projects', `${projectId}.json`), JSON.stringify(personalRaw));
-      const approval = personalRaw.sharedTrust;
-      expect(approval.hash).toBe(originalHash);
+      expect((await readRaw(projectId)).sharedTrust).toEqual(approval);
       for (const patch of [
         { plansDir: 'other/plans' }, { draftStarters: [{ type: 'command', name: 'explore' }] },
         { draftStarters: [] }, { setupWorktreeWait: true },
         { projectActions: [{ id: 'dev', name: 'Renamed', icon: 'rocket', command: 'echo repository-action' }] }, {},
       ]) {
-        expect((await updateSharedProjectSetup(project, patch)).trust.trusted).toBe(true);
+        expect(await updateSharedProjectSetup(project, patch)).toBeNull();
+        expect((await runtime.readProjectSetup(projectId)).trust.trusted).toBe(true);
         expect((await readRaw(projectId)).sharedTrust).toEqual(approval);
-        expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo repository-setup', 'echo personal-setup']);
+        expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo personal-setup']);
         expect(getSharedTrustConfirmationSnapshot()).toBeNull();
       }
       for (const action of [
@@ -413,24 +406,21 @@ describe('shared writes preserve only existing complete-set approval', () => {
         // A repository pull, followed by an unrelated metadata save, cannot approve the changed tuple.
         const currentRaw = JSON.parse(await readFile(sharedPath, 'utf8'));
         await writeFile(sharedPath, JSON.stringify({ ...currentRaw, projectActions: [action] }));
-        const saved = await updateSharedProjectSetup(project, { plansDir: 'docs/plans' });
-        expect(saved.trust.trusted).toBe(false);
-        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-        expect(await choose('skip', ['echo new-command'])).toEqual(['echo personal-setup']);
-        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-        expect(await choose('trust', ['echo new-command'])).toEqual(['echo repository-setup', 'echo personal-setup']);
-        expect((await readRaw(projectId)).sharedTrust.hash).toBe(saved.trust.hash);
+        const personalBefore = await readRaw(projectId);
+        expect(await updateSharedProjectSetup(project, { plansDir: 'docs/plans' })).toBeNull();
+        const saved = await runtime.readProjectSetup(projectId);
+        expect(saved.shared.status).toBe('invalid');
+        expect(saved.shared.projectActions).toEqual([]);
+        expect(await readRaw(projectId)).toEqual(personalBefore);
+        expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo personal-setup']);
+        expect(getSharedTrustConfirmationSnapshot()).toBeNull();
       }
       await runtime.updateProjectSetup(projectId, { sharedTrustHash: null });
-      const shared = await updateSharedProjectSetup(project, {
-        projectActions: [
-          { id: 'dev', name: 'Unseen', command: 'echo new-command', runIn: 'parent' },
-          { id: 'mine', name: 'Mine', command: 'echo known-personal' },
-        ],
-      });
-      expect(shared.trust.trusted).toBe(false);
-      expect(await choose('skip', ['echo new-command', 'echo known-personal'])).toEqual(['echo personal-setup']);
-      expect(await choose('trust', ['echo new-command', 'echo known-personal'])).toEqual(['echo repository-setup', 'echo personal-setup']);
+      expect(await updateSharedProjectSetup(project, {
+        projectActions: [{ id: 'mine', name: 'Mine', command: 'echo known-personal' }],
+      })).toBeNull();
+      expect((await runtime.readProjectSetup(projectId)).personal.sharedTrust).toBeNull();
+      expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo personal-setup']);
     } finally {
       settleSharedTrustConfirmation('skip');
       configureRuntimeUrlResolver({});
@@ -439,7 +429,7 @@ describe('shared writes preserve only existing complete-set approval', () => {
     }
   });
 
-  it('clears stale command/runIn approval, never trusts command sharing, and serializes shared and personal writes', async () => {
+  it('refuses shared saves without changing stale approval and serializes personal writes', async () => {
     const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
@@ -455,37 +445,40 @@ describe('shared writes preserve only existing complete-set approval', () => {
       }));
       await runtime.updateProjectSetup('other-project', { sharedTrustHash: 'sha256:other' });
       const other = await readRaw('other-project');
-      expect((await runtime.updateSharedProjectSetup(projectId, {})).trust.trusted).toBe(false);
-      expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+      await expect(runtime.updateSharedProjectSetup(projectId, {})).rejects.toThrow('shared-project-config-writes-disabled');
+      expect((await runtime.readProjectSetup(projectId)).shared.status).toBe('invalid');
+      expect((await readRaw(projectId)).sharedTrust).toEqual({ hash: 'sha256:stale', trustedAt: 7 });
       for (const change of [
         { ...initial, setupWorktree: ['echo changed'] },
         { ...initial, projectActions: [{ ...initial.projectActions[0], runIn: 'parent' }] },
       ]) {
         await writeFile(sharedPath, JSON.stringify(initial));
-        const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: (await runtime.readProjectSetup(projectId)).trust.hash });
-        expect(approved.trust.trusted).toBe(true);
+        const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: 'sha256:explicit-personal-write' });
+        expect(approved.personal.sharedTrust.hash).toBe('sha256:explicit-personal-write');
         await writeFile(sharedPath, JSON.stringify(change));
-        expect((await runtime.readProjectSetup(projectId)).trust.trusted).toBe(false);
-        const patched = await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
-        expect(patched.trust.trusted).toBe(false);
-        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-        const fresh = await runtime.updateProjectSetup(projectId, { sharedTrustHash: patched.trust.hash });
-        expect(fresh.trust.trusted).toBe(true);
+        expect((await runtime.readProjectSetup(projectId)).shared.status).toBe('invalid');
+        const personalBefore = await readRaw(projectId);
+        await expect(runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' })).rejects.toThrow('shared-project-config-writes-disabled');
+        const patched = await runtime.readProjectSetup(projectId);
+        expect(patched.shared.status).toBe('invalid');
+        expect(await readRaw(projectId)).toEqual(personalBefore);
+        expect(patched.shared.projectActions).toEqual([]);
       }
       await runtime.updateProjectSetup(projectId, { sharedTrustHash: null });
-      const shared = await runtime.updateSharedProjectSetup(projectId, {
+      await expect(runtime.updateSharedProjectSetup(projectId, {
         projectActions: [...initial.projectActions, { id: 'mine', name: 'Mine', command: 'echo known-personal' }],
-      });
-      expect(shared.shared.setupWorktree).toEqual(['echo unseen']);
-      expect(shared.trust.trusted).toBe(false);
+      })).rejects.toThrow('shared-project-config-writes-disabled');
+      const shared = await runtime.readProjectSetup(projectId);
+      expect(shared.shared.setupWorktree).toEqual([]);
+      expect(shared.shared.status).toBe('invalid');
       expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-      const hash = shared.trust.hash;
-      await runtime.updateProjectSetup(projectId, { sharedTrustHash: hash });
+      await runtime.updateProjectSetup(projectId, { sharedTrustHash: 'sha256:explicit-personal-write' });
       const approval = (await readRaw(projectId)).sharedTrust;
       await Promise.all([
-        runtime.updateSharedProjectSetup(projectId, { plansDir: 'new/plans' }),
-        runtime.updateSharedProjectSetup(projectId, { draftStarters: [{ type: 'skill', name: 's' }] }),
+        expect(runtime.updateSharedProjectSetup(projectId, { plansDir: 'new/plans' })).rejects.toThrow('shared-project-config-writes-disabled'),
+        expect(runtime.updateSharedProjectSetup(projectId, { draftStarters: [{ type: 'skill', name: 's' }] })).rejects.toThrow('shared-project-config-writes-disabled'),
         runtime.updateProjectSetup(projectId, { setupWorktree: ['echo personal-updated'] }),
+        runtime.updateProjectSetup(projectId, { draftStarters: [{ type: 'skill', name: 'personal' }] }),
       ]);
       const raw = await readRaw(projectId);
       expect(raw.sharedTrust).toEqual(approval);
@@ -493,10 +486,11 @@ describe('shared writes preserve only existing complete-set approval', () => {
       expect(raw.futureKey).toEqual({ keep: true });
       expect(raw['setup-worktree']).toEqual(['echo personal-updated']);
       const current = await runtime.readProjectSetup(projectId);
-      expect(current.shared.plansDir).toBe('new/plans');
-      expect(current.shared.draftStarters).toEqual([{ type: 'skill', name: 's' }]);
+      expect(current.shared.plansDir).toBeNull();
+      expect(current.shared.draftStarters).toEqual([]);
+      expect(current.personal.draftStarters).toEqual([{ type: 'skill', name: 'personal' }]);
       expect(await readRaw('other-project')).toEqual(other);
-      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: 'bad' })).rejects.toThrow('setupWorktree must be');
+      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: 'bad' })).rejects.toThrow('shared-project-config-writes-disabled');
       expect(await readRaw(projectId)).toEqual(raw);
       await rm(path.dirname(sharedPath), { recursive: true });
       await writeFile(path.dirname(sharedPath), 'not a directory');
@@ -504,6 +498,148 @@ describe('shared writes preserve only existing complete-set approval', () => {
       const personalBefore = await readFile(personalPath, 'utf8');
       await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: ['echo never-approved'] })).rejects.toThrow();
       expect(await readFile(personalPath, 'utf8')).toBe(personalBefore);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('shared config confinement at the production routes', () => {
+  it.each(['directory-link', 'dangling-directory-link', 'file-link', 'inside-directory-link'])(
+    'refuses shared reads and metadata/removal writes through %s without outside effects', async (layout) => {
+      const { runtime, tempRoot, cleanup } = await createRuntime();
+      try {
+        const repo = path.join(tempRoot, 'repo');
+        const outside = path.join(tempRoot, 'outside');
+        const outsidePath = path.join(outside, 'project.json');
+        const sentinel = JSON.stringify({ version: 1, plansDir: 'old/plans', draftStarters: [{ type: 'skill', name: 'outside-only' }] });
+        await mkdir(repo);
+        await mkdir(outside);
+        await writeFile(outsidePath, sentinel);
+        const configDir = path.join(repo, '.openchamber');
+        if (layout === 'file-link') {
+          await mkdir(configDir);
+          await symlink(outsidePath, path.join(configDir, 'project.json'));
+        } else if (layout === 'inside-directory-link') {
+          const child = path.join(repo, 'child');
+          await mkdir(child);
+          await writeFile(path.join(child, 'project.json'), sentinel);
+          await symlink(child, configDir);
+        } else {
+          await symlink(layout === 'directory-link' ? outside : path.join(outside, 'absent'), configDir);
+        }
+        const projectId = createProjectIdFromPath(repo);
+        const app = express();
+        app.use(express.json());
+        registerProjectSetupRoutes(app, { projectConfigRuntime: runtime });
+        const endpoint = `/api/projects/${projectId}/config`;
+        for (const patch of [{ plansDir: 'new/plans' }, { plansDir: null, draftStarters: [] }]) {
+          const saved = await request(app).put(`${endpoint}/shared`).send(patch);
+          expect(saved.status).toBe(500);
+          expect(saved.body.error).toBe('shared-project-config-writes-disabled');
+          expect(await readFile(outsidePath, 'utf8')).toBe(sentinel);
+          expect(await readdir(outside)).toEqual(['project.json']);
+          if (layout !== 'dangling-directory-link') expect(await readFile(path.join(configDir, 'project.json'), 'utf8')).toBe(sentinel);
+        }
+        const read = await request(app).get(endpoint);
+        expect(read.status).toBe(200);
+        expect(read.body.shared.status).toBe('invalid');
+        expect(read.body.shared.reason).toBe('shared-project-config-disabled');
+        expect(read.body.shared.path).toBe('.openchamber/project.json');
+        expect(read.body.shared.draftStarters).toEqual([]);
+        expect(JSON.stringify(read.body)).not.toContain(repo);
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+});
+
+describe('shared config zero-IO cut', () => {
+  it('refuses the real parent-swap sequence before mkdir and reads no checkout data', async () => {
+    const { tempRoot, cleanup } = await createRuntime();
+    const realFs = await import('fs/promises');
+    try {
+      const repo = path.join(tempRoot, 'repo');
+      const directory = path.join(repo, '.openchamber');
+      const sharedPath = path.join(directory, 'project.json');
+      const outside = path.join(tempRoot, 'outside');
+      await mkdir(directory, { recursive: true });
+      await mkdir(outside);
+      const bytes = JSON.stringify({ version: 1, plansDir: 'inside/plans' });
+      await writeFile(sharedPath, bytes);
+      await writeFile(path.join(outside, 'project.json'), 'outside sentinel');
+      let swaps = 0;
+      let checkoutReads = 0;
+      const refuseCheckout = async () => { checkoutReads += 1; throw new Error('checkout IO forbidden'); };
+      const runtime = createProjectConfigRuntime({
+        path, projectsDirPath: path.join(tempRoot, 'projects'),
+        fsPromises: {
+          ...realFs,
+          stat: refuseCheckout, realpath: refuseCheckout, open: refuseCheckout, readlink: refuseCheckout,
+          mkdir: async (target, options) => {
+            if (target === directory) {
+              swaps += 1;
+              await realFs.rename(directory, path.join(repo, 'moved'));
+              await realFs.symlink(outside, directory);
+            }
+            return realFs.mkdir(target, options);
+          },
+          readFile: async (target, ...options) => {
+            if (String(target).startsWith(repo)) { checkoutReads += 1; throw new Error('checkout read forbidden'); }
+            return realFs.readFile(target, ...options);
+          },
+        },
+      });
+      const app = express();
+      app.use(express.json());
+      registerProjectSetupRoutes(app, { projectConfigRuntime: runtime });
+      const endpoint = `/api/projects/${createProjectIdFromPath(repo)}/config`;
+      const saved = await request(app).put(`${endpoint}/shared`).send({ plansDir: 'new/plans' });
+      expect(saved.status).toBe(500);
+      expect(saved.body.error).toBe('shared-project-config-writes-disabled');
+      expect(swaps).toBe(0);
+      const read = await request(app).get(endpoint);
+      expect(read.body.shared.status).toBe('invalid');
+      expect(read.body.shared.reason).toBe('shared-project-config-disabled');
+      expect(checkoutReads).toBe(0);
+      expect(JSON.stringify(read.body)).not.toContain(repo);
+      expect(await readFile(sharedPath, 'utf8')).toBe(bytes);
+      expect(await readFile(path.join(outside, 'project.json'), 'utf8')).toBe('outside sentinel');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('refuses shared reads and edits even for canonical checkout aliases and absent or ordinary config', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      const repo = path.join(tempRoot, 'repo');
+      await mkdir(repo);
+      const alias = path.join(tempRoot, 'alias');
+      await symlink(repo, alias);
+      const projectId = createProjectIdFromPath(alias);
+      expect((await runtime.readProjectSetup(projectId)).shared.status).toBe('invalid');
+      await expect(runtime.updateSharedProjectSetup(projectId, {})).rejects.toThrow('shared-project-config-writes-disabled');
+      expect(await readdir(repo)).toEqual([]);
+      const directory = path.join(repo, '.openchamber');
+      await mkdir(directory);
+      expect((await runtime.readProjectSetup(projectId)).shared.status).toBe('invalid');
+      const sharedPath = path.join(directory, 'project.json');
+      await mkdir(sharedPath);
+      expect((await runtime.readProjectSetup(projectId)).shared.status).toBe('invalid');
+      await rm(sharedPath, { recursive: true });
+      const bytes = '{ "version": 1, "setupWorktree": ["echo safe"] }\n';
+      await writeFile(sharedPath, bytes);
+      const view = await runtime.readProjectSetup(projectId);
+      expect(view.shared.status).toBe('invalid');
+      expect(view.shared.reason).toBe('shared-project-config-disabled');
+      expect(view.setupWorktree).toEqual([]);
+      const personal = await runtime.updateProjectSetup(projectId, { setupWorktree: ['echo personal'], sharedTrustHash: 'sha256:explicit-personal-write' });
+      expect(personal.setupWorktree).toEqual(['echo personal']);
+      expect(personal.personal.sharedTrust.hash).toBe('sha256:explicit-personal-write');
+      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: [] })).rejects.toThrow('shared-project-config-writes-disabled');
+      expect(await readFile(sharedPath, 'utf8')).toBe(bytes);
     } finally {
       await cleanup();
     }
@@ -651,7 +787,8 @@ describe('project setup runtime', () => {
       expect(view.setupWorktreeWait).toBe(false);
       expect(view.projectActions).toEqual([]);
       expect(view.draftStarters).toEqual([]);
-      expect(view.shared.status).toBe('missing');
+      expect(view.shared.status).toBe('invalid');
+      expect(view.shared.reason).toBe('shared-project-config-disabled');
       expect(view.personal).toEqual(emptyPersonal);
     } finally {
       await cleanup();
@@ -740,7 +877,7 @@ describe('project setup runtime', () => {
     }
   });
 
-  it('reads the shared file from the checkout the id names and merges it', async () => {
+  it('ignores repository config while personal commands, actions and explicit trust storage still work', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
@@ -755,28 +892,28 @@ describe('project setup runtime', () => {
       const projectId = createProjectIdFromPath(repo);
 
       const fresh = await runtime.readProjectSetup(projectId);
-      expect(fresh.shared.status).toBe('ok');
-      expect(fresh.shared.plansDir).toBe('docs/plans');
-      expect(fresh.setupWorktree).toEqual(['bun install']);
-      expect(fresh.projectActions.map((action) => `${action.id}:${action.source}`)).toEqual(['dev:shared', 'lint:shared']);
+      expect(fresh.shared.status).toBe('invalid');
+      expect(fresh.shared.reason).toBe('shared-project-config-disabled');
+      expect(fresh.shared.plansDir).toBeNull();
+      expect(fresh.setupWorktree).toEqual([]);
+      expect(fresh.projectActions).toEqual([]);
 
       const view = await runtime.updateProjectSetup(projectId, {
         setupWorktree: ['cp .env.example .env'],
         hiddenSharedActionIds: ['lint'],
         projectActions: [{ id: 'mine', name: 'Mine', command: 'x' }],
       });
-      expect(view.setupWorktree).toEqual(['bun install', 'cp .env.example .env']);
-      expect(view.projectActions.map((action) => `${action.id}:${action.source}`)).toEqual(['dev:shared', 'mine:personal']);
-      expect(view.draftStarters).toEqual([{ type: 'skill', name: 'triage', source: 'shared' }]);
+      expect(view.setupWorktree).toEqual(['cp .env.example .env']);
+      expect(view.projectActions.map((action) => `${action.id}:${action.source}`)).toEqual(['mine:personal']);
+      expect(view.draftStarters).toEqual([]);
       expect(view.personal.hiddenSharedActionIds).toEqual(['lint']);
 
-      expect(view.trust.trusted).toBe(false);
-      const trusted = await runtime.updateProjectSetup(projectId, { sharedTrustHash: view.trust.hash });
-      expect(trusted.trust.trusted).toBe(true);
-      expect(trusted.personal.sharedTrust?.hash).toBe(view.trust.hash);
-      // A pull that changes a shared command invalidates the answer.
+      expect(view.trust).toEqual({ hash: null, trusted: true });
+      const trusted = await runtime.updateProjectSetup(projectId, { sharedTrustHash: 'sha256:explicit-personal-write' });
+      expect(trusted.personal.sharedTrust?.hash).toBe('sha256:explicit-personal-write');
+      // Repository changes cannot enable discovery or mutate stored approval.
       await writeFile(path.join(repo, '.openchamber', 'project.json'), JSON.stringify({ version: 1, setupWorktree: ['bun install && rm -rf /'] }));
-      expect((await runtime.readProjectSetup(projectId)).trust.trusted).toBe(false);
+      expect((await runtime.readProjectSetup(projectId)).personal.sharedTrust).toEqual(trusted.personal.sharedTrust);
       const reset = await runtime.updateProjectSetup(projectId, { sharedTrustHash: null });
       expect(reset.personal.sharedTrust).toBeNull();
     } finally {
@@ -784,40 +921,28 @@ describe('project setup runtime', () => {
     }
   });
 
-  it('writes the shared file without approval and removes it when emptied', async () => {
+  it('refuses normal shared metadata and empty removal while preserving shared files and personal approval', async () => {
     const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
-      await mkdir(repo, { recursive: true });
-      const projectId = createProjectIdFromPath(repo);
       const sharedPath = path.join(repo, '.openchamber', 'project.json');
-
-      const shared = await runtime.updateSharedProjectSetup(projectId, {
-        setupWorktree: ['bun install'],
-        projectActions: [{ id: 'dev', name: 'Dev', command: 'bun run dev' }],
-      });
-      expect(JSON.parse(await readFile(sharedPath, 'utf8'))).toEqual({
-        version: 1,
-        setupWorktree: ['bun install'],
-        projectActions: [{ id: 'dev', name: 'Dev', command: 'bun run dev' }],
-      });
-      expect(shared.shared.status).toBe('ok');
-      expect(shared.projectActions.map((action) => `${action.id}:${action.source}`)).toEqual(['dev:shared']);
-      expect(shared.trust.trusted).toBe(false);
-      expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
-      const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: shared.trust.hash });
+      await mkdir(path.dirname(sharedPath), { recursive: true });
+      const bytes = '{ "version": 1, "setupWorktree": ["bun install"], "plansDir": "docs/plans" }\n';
+      await writeFile(sharedPath, bytes);
+      const projectId = createProjectIdFromPath(repo);
+      const shared = await runtime.readProjectSetup(projectId);
+      expect(shared.shared.status).toBe('invalid');
+      expect(shared.shared.reason).toBe('shared-project-config-disabled');
+      const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: 'sha256:explicit-personal-write' });
       expect(approved.trust.trusted).toBe(true);
-
-      // A second patch replaces only the keys it names.
-      const withPlans = await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
-      expect(withPlans.shared.plansDir).toBe('docs/plans');
-      expect(withPlans.shared.setupWorktree).toEqual(['bun install']);
-
-      const emptied = await runtime.updateSharedProjectSetup(projectId, { setupWorktree: [], projectActions: [], plansDir: null });
-      expect(emptied.shared.status).toBe('missing');
-      await expect(readFile(sharedPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      await expect(readFile(path.join(repo, '.openchamber'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-      expect((await readRaw(projectId)).sharedTrust).toBeUndefined();
+      const personalBefore = await readRaw(projectId);
+      for (const patch of [{ plansDir: 'new/plans' }, { setupWorktree: [], projectActions: [], plansDir: null }, {}]) {
+        await expect(runtime.updateSharedProjectSetup(projectId, patch)).rejects.toThrow('shared-project-config-writes-disabled');
+        expect(await readFile(sharedPath, 'utf8')).toBe(bytes);
+        expect(await readdir(path.dirname(sharedPath))).toEqual(['project.json']);
+        expect(await readRaw(projectId)).toEqual(personalBefore);
+        expect((await runtime.readProjectSetup(projectId)).trust.trusted).toBe(true);
+      }
     } finally {
       await cleanup();
     }
@@ -827,11 +952,11 @@ describe('project setup runtime', () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {
       const projectId = createProjectIdFromPath(path.join(tempRoot, 'missing-repo'));
-      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: ['x'] })).rejects.toThrow('project checkout not found');
-      await expect(runtime.updateSharedProjectSetup('project-test', { setupWorktree: ['x'] })).rejects.toThrow('project checkout not found');
+      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: ['x'] })).rejects.toThrow('shared-project-config-writes-disabled');
+      await expect(runtime.updateSharedProjectSetup('project-test', { setupWorktree: ['x'] })).rejects.toThrow('shared-project-config-writes-disabled');
       const repo = path.join(tempRoot, 'repo');
       await mkdir(repo, { recursive: true });
-      await expect(runtime.updateSharedProjectSetup(createProjectIdFromPath(repo), { plansDir: '../x' })).rejects.toThrow('plansDir must be');
+      await expect(runtime.updateSharedProjectSetup(createProjectIdFromPath(repo), { plansDir: '../x' })).rejects.toThrow('shared-project-config-writes-disabled');
       await expect(readFile(path.join(repo, '.openchamber', 'project.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await cleanup();
@@ -845,7 +970,8 @@ describe('project setup runtime', () => {
       await mkdir(repo, { recursive: true });
       const projectId = createProjectIdFromPath(repo);
       expect(await runtime.resolveSharedPlansDir(projectId)).toBeNull();
-      await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
+      await mkdir(path.join(repo, '.openchamber'));
+      await writeFile(path.join(repo, '.openchamber', 'project.json'), JSON.stringify({ version: 1, plansDir: 'docs/plans' }));
       expect(await runtime.resolveSharedPlansDir(projectId)).toBeNull();
       expect(await runtime.resolveSharedPlansDir('project-test')).toBeNull();
     } finally {
@@ -873,7 +999,7 @@ describe('project setup runtime', () => {
     }
   });
 
-  it('reports a broken shared file as invalid and still serves the personal setup', async () => {
+  it('reports shared config disabled even for malformed files and still serves the personal setup', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
@@ -884,7 +1010,7 @@ describe('project setup runtime', () => {
 
       const view = await runtime.readProjectSetup(projectId);
       expect(view.shared.status).toBe('invalid');
-      expect(view.shared.reason).toMatch(/invalid JSON/);
+      expect(view.shared.reason).toBe('shared-project-config-disabled');
       expect(view.setupWorktree).toEqual(['mine']);
     } finally {
       await cleanup();

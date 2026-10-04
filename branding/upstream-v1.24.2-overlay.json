@@ -33,6 +33,66 @@
       }
     ]
   },
+  "round2Successors": {
+    "parentHead": "16eda5b18ba2cd764d0da0827a2e8741b12d3834",
+    "note": "Security round 2 raw successors over PARENT16, bound after Main finalization, writer quiescence and branding generation. Source and security acceptance remain separate.",
+    "files": [
+      {
+        "path": "branding/generated.json",
+        "predecessorSha256": "a9a2f757f51943e7c373d571c7da557a32db739a0c9822fce582785b5f2c641c",
+        "sha256": "56db446fba0c40e1c86f3ef4069aacb9e1a991a1a2eaf70c53190f20292a3009",
+        "note": "Refresh the existing generated-output manifest after all writers are quiescent and Main completes branding generation; preserve the controlled output membership."
+      },
+      {
+        "path": "packages/electron/README.md",
+        "predecessorSha256": "e5e07824575275979b212ab2c00310d7edca1844b1777c1dd29ad7c02cbd760e",
+        "sha256": "e84bab9e91e86a8f8a99f099854bacb2633a97387100acd32ac1de04f4654439",
+        "note": "F11 documentation records the disabled splash theme IPC; bind released bytes after branding generation."
+      },
+      {
+        "path": "packages/electron/main.mjs",
+        "predecessorSha256": "e51b64996139c1bc172e8146ba1706139869325f28c9033613b4cfd9d91f30fc",
+        "sha256": "bcdc9aab44ae6b61d185ee0b582b0465949e07d57c6f350e51bac702e683dc27",
+        "note": "F11 handler refuses the disabled desktop_set_window_theme switch and persisted splash colors are ignored; the renderer send was not removed, and the refusal is covered by the policy test. Bind released source bytes."
+      },
+      {
+        "path": "packages/vscode/src/opencode.ts",
+        "predecessorSha256": "a5faffffcf4e2e10a7186a1aeac6324baf67aac2fb69dc8a4b9538ae2736adf6",
+        "sha256": "508b5745a63f7ad8e48c2e05e96572dc02fceedd0b971a70692636d7d7a4ed3e",
+        "note": "F12 disables managed VS Code lifecycle while retaining external connections; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/index.js",
+        "predecessorSha256": "bd7a2b0cf2c8613e8d52b86a8259eaa8909fd05ee6c60d03f1a9085091eac7be",
+        "sha256": "4511ca6ea8d4e0b734c182270efc7efb9ba419938dd27fdd41c8c064cd5e207b",
+        "note": "F13 disables permission auto-accept wiring at the server boundary; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/lib/small-model/call.js",
+        "predecessorSha256": "17f1aaa3bfc6234cc5f3501800bd423eb9cd1a021b755fa8ef2a48694342db83",
+        "sha256": "528314c7e1b8d7e1c4d5d17c9a7b47377de5ee0a1e726050c0e66314a35de126",
+        "note": "F15 confines provider credentials to approved runtime endpoints; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/lib/small-model/runtime-providers.js",
+        "predecessorSha256": "e4755399336af319ce9ea348ebce3ec6414e082ef7442720868b38bef4081eb6",
+        "sha256": "ce82363307ef363d35839845a020306232c5f5ac4c4093db45ff784ef6ea8d24",
+        "note": "F15 validates runtime provider endpoint provenance; bind released source bytes."
+      },
+      {
+        "path": "packages/vscode/webview/main.tsx",
+        "predecessorSha256": "508962c076ff50e76831bf0be9015da265ef06ba4e946f6eb244c1c303075608",
+        "sha256": "ff40a151d43e5ce2dc6056fbcd46b4b4010e76898776f2fd7dc41fd4ac95a22a",
+        "note": "F13 follow-up refuses every method, root and descendant of permission-auto-accept and legacy notifications/auto-accept with 501 and supported: false in the complete window.fetch wrapper before local-route dispatch or fallback. Matching handles mixed case, encoded path bytes, dot segments and slash normalization without matching query contents; manual once/always/reject replies remain supported. Raw bytes bound after writer quiescence, not runtime or security acceptance."
+      },
+      {
+        "path": "packages/vscode/src/bridge-proxy-runtime.ts",
+        "predecessorSha256": "239bc3371553fe4911b0ec96f11763059775784748322dccb37860ae8d41c6a3",
+        "sha256": "cd5e9d85a63a394b91b25a6c635020d8835da2274b18267da82e31951d7faa14",
+        "note": "F13 follow-up independently refuses every method, root and descendant of permission-auto-accept and legacy notifications/auto-accept with 501 and supported: false at api:proxy and raw api:session:message before manager readiness, auth, local filesystem dispatch or fetch. Matching handles mixed case, encoded path bytes, dot segments and slash normalization without matching query contents; manual once/always/reject replies remain supported. Raw bytes bound after writer quiescence, not runtime or security acceptance."
+      }
+    ]
+  },
   "files": [
     {
       "path": ".github/workflows/mobile-ci.yml",

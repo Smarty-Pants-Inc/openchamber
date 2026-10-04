@@ -17,8 +17,9 @@ const exists = async (fsPromises, target) => fsPromises.access(target).then(() =
 /**
  * Copy the user folders from `legacyRoot` into `dataDir`. Returns the entries
  * copied. A no-op when the two roots are the same directory. A folder whose
- * copy fails is reported through `warn` and its partial copy removed; the
- * server keeps starting, reading the (empty) new location.
+ * copy fails is reported through `warn`; the server keeps starting. Partial
+ * copies are retained and skipped on later starts: another instance may have
+ * already written new data there, so removing the final directory is unsafe.
  */
 export const migrateLegacyUserDirs = async ({ fsPromises, path, dataDir, legacyRoot, warn = () => {}, entries = USER_DIR_ENTRIES }) => {
   if (path.resolve(dataDir) === path.resolve(legacyRoot)) return [];
@@ -29,11 +30,20 @@ export const migrateLegacyUserDirs = async ({ fsPromises, path, dataDir, legacyR
     if (await exists(fsPromises, to) || !(await exists(fsPromises, from))) continue;
     try {
       await fsPromises.mkdir(dataDir, { recursive: true });
-      await fsPromises.cp(from, to, { recursive: true, errorOnExist: true, force: false });
+      try {
+        // Only the instance that creates the destination may migrate into it.
+        await fsPromises.mkdir(to, { recursive: false });
+      } catch (error) {
+        if (error?.code === 'EEXIST') continue;
+        throw error;
+      }
+      // Copy children because errorOnExist also rejects our owned root directory.
+      for (const child of await fsPromises.readdir(from)) {
+        await fsPromises.cp(path.join(from, child), path.join(to, child), { recursive: true, errorOnExist: true, force: false });
+      }
       moved.push(entry);
     } catch (error) {
-      await fsPromises.rm(to, { recursive: true, force: true }).catch(() => {});
-      warn(`Failed to copy ${from} to ${to}: ${error instanceof Error ? error.message : String(error)}`);
+      warn(`Failed to copy ${from} to ${to}: ${error instanceof Error ? error.message : String(error)}; any partial destination is retained and will be skipped on later starts.`);
     }
   }
   return moved;

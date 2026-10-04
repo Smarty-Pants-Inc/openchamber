@@ -238,6 +238,10 @@ Add new native capabilities in this order:
 3. Gate privileged commands in main process logic so remote pages cannot access local filesystem or shell capabilities.
 4. Keep shared UI runtime contracts in `packages/ui` and server/runtime APIs in `packages/web` when the behavior is not inherently native.
 
+### Splash theme IPC
+
+`desktop_set_window_theme` is disabled for local and remote pages, with no opt-in. The registered main-process handler rejects it before native changes or settings writes. It is also absent from the remote command allow-list. The startup splash uses fixed light and dark colors and a script-denying CSP. Old nested and legacy splash colors in `settings.json` are ignored, not deleted. Normal renderer themes, stored startup theme mode, launch behavior, branding, and unrelated desktop IPC remain unchanged.
+
 ## Logs And Data
 
 Electron uses `electron-log`. In development, console logs are also visible in the terminal. In packaged apps, logs are written through the platform log path for the `OpenChamber` app name.

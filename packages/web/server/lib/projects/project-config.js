@@ -1,18 +1,11 @@
 import { DateTime, IANAZone } from 'luxon';
 import { CronExpressionParser } from 'cron-parser';
 
-import { projectConfigFileStemOf, projectPathFromId } from './project-id.js';
+import { projectConfigFileStemOf } from './project-id.js';
 import {
-  EMPTY_SHARED_PROJECT_CONFIG,
-  SHARED_CONFIG_RELATIVE_PATH,
-  applySharedProjectSetupPatch,
-  isSharedProjectConfigEmpty,
   mergeProjectSetup,
-  parseSharedProjectConfig,
   projectSetupPatchToStored,
   projectSetupViewOf,
-  serializeSharedProjectConfig,
-  sharedTrustHashOf,
 } from './project-setup.js';
 
 const PROJECT_CONFIG_VERSION = 1;
@@ -956,34 +949,14 @@ export const createProjectConfigRuntime = (deps) => {
   // starters); see `project-setup.js`. Reads are lock-free like task lists;
   // an update merges the sanitized patch over the raw document under the same
   // cross-process lock the task writers use, so neither side clobbers the other.
-  // The shared file lives in the project's checkout. The checkout path comes
-  // from the id itself (`path_<base64url>`), with the personal file's
-  // `projectPath` as the fallback for ids of another form. A missing file is
-  // the normal case; an unreadable or unparsable one is reported as invalid,
-  // never as "no shared setup".
-  const projectPathOf = (projectID, personalRaw) => (
-    projectPathFromId(projectID) || (typeof personalRaw.projectPath === 'string' ? personalRaw.projectPath.trim() : '')
-  );
-  const sharedConfigPathOf = (projectPath) => path.join(projectPath, ...SHARED_CONFIG_RELATIVE_PATH.split('/'));
+  // Final fork policy (smarty-code#1325, item 3): shared repository config,
+  // including command/starter discovery, is disabled before any checkout IO.
+  // Report unavailable explicitly, never as an authoritative missing file.
+  const mergedProjectSetupOf = (personalRaw) => mergeProjectSetup(projectSetupViewOf(personalRaw), {
+    status: 'invalid', reason: 'shared-project-config-disabled',
+  });
 
-  const readSharedProjectConfig = async (projectID, personalRaw) => {
-    const projectPath = projectPathOf(projectID, personalRaw);
-    if (!projectPath) return { status: 'missing' };
-    let raw;
-    try {
-      raw = await fsPromises.readFile(sharedConfigPathOf(projectPath), 'utf8');
-    } catch (error) {
-      if (error && typeof error === 'object' && error.code === 'ENOENT') return { status: 'missing' };
-      return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
-    }
-    return parseSharedProjectConfig(raw);
-  };
-
-  const mergedProjectSetupOf = async (projectID, personalRaw) => (
-    mergeProjectSetup(projectSetupViewOf(personalRaw), await readSharedProjectConfig(projectID, personalRaw))
-  );
-
-  const readProjectSetup = async (projectID) => mergedProjectSetupOf(projectID, await readRawProjectConfigFromDisk(projectID));
+  const readProjectSetup = async (projectID) => mergedProjectSetupOf(await readRawProjectConfigFromDisk(projectID));
 
   const updateProjectSetup = async (projectID, patch) => {
     const stored = projectSetupPatchToStored(patch);
@@ -994,56 +967,16 @@ export const createProjectConfigRuntime = (deps) => {
         if (value === undefined) delete merged[key];
       }
       await writeRawProjectConfigToDisk(projectID, merged);
-      return mergedProjectSetupOf(projectID, merged);
+      return mergedProjectSetupOf(merged);
     });
   };
 
-  /**
-   * Change the team's shared file in the checkout: the patch replaces the
-   * keys it names over the current file (a broken file counts as empty, so
-   * a write repairs it). A result with nothing in it removes the file (and
-   * the `.openchamber` folder when that leaves it empty), so unsharing the
-   * last item leaves no trace. A shared patch never approves commands:
-   * retain a previous approval only while the complete executable hash
-   * still matches, including its original approval timestamp.
-   */
-  const updateSharedProjectSetup = async (projectID, patch) => (
-    withProjectWriteLock(projectID, async () => {
-      const personalRaw = await readRawProjectConfigFromDisk(projectID);
-      const projectPath = projectPathOf(projectID, personalRaw);
-      if (!projectPath) throw new Error('project checkout not found');
-      try {
-        if (!(await fsPromises.stat(projectPath)).isDirectory()) throw new Error('project checkout not found');
-      } catch {
-        throw new Error('project checkout not found');
-      }
-      const currentRead = await readSharedProjectConfig(projectID, personalRaw);
-      const current = currentRead.status === 'ok' ? currentRead.config : EMPTY_SHARED_PROJECT_CONFIG;
-      const next = applySharedProjectSetupPatch(current, patch);
-
-      const filePath = sharedConfigPathOf(projectPath);
-      if (isSharedProjectConfigEmpty(next)) {
-        await fsPromises.rm(filePath, { force: true });
-        await fsPromises.rmdir(path.dirname(filePath)).catch(() => {});
-      } else {
-        await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
-        const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-        try {
-          await fsPromises.writeFile(temporaryPath, serializeSharedProjectConfig(next), 'utf8');
-          await fsPromises.rename(temporaryPath, filePath);
-        } catch (error) {
-          await fsPromises.rm(temporaryPath, { force: true }).catch(() => {});
-          throw error;
-        }
-      }
-
-      const hash = sharedTrustHashOf(next);
-      const personalNext = { ...personalRaw };
-      if (!hash || projectSetupViewOf(personalRaw).sharedTrust?.hash !== hash) delete personalNext.sharedTrust;
-      await writeRawProjectConfigToDisk(projectID, personalNext);
-      return mergedProjectSetupOf(projectID, personalNext);
-    })
-  );
+  // Refuse shared edits before locks or personal/checkout IO. Node cannot
+  // portably confine mkdir/rename/removal against hostile ancestor swaps.
+  // No preference, repository metadata or platform may re-enable this path.
+  const updateSharedProjectSetup = async () => {
+    throw new Error('shared-project-config-writes-disabled');
+  };
 
   // Smarty fork policy: repository shared plans are unused and hard-disabled
   // before any checkout/config read. Upstream 82a0ee7572e59dbc965d593268a41ef0395860fa

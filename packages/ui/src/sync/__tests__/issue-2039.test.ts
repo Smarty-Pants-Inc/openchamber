@@ -396,52 +396,77 @@ mock.module("@/lib/worktrees/worktreeCreate", () => ({
 
 const { materializeOpenDraftSession, useSessionUIStore } = await import("../session-ui-store")
 
-describe("issue 2039 draft auto-accept", () => {
-  test("toggles draft state before a session exists", () => {
-    const setDraftPermissionAutoAcceptEnabled = mock(() => undefined)
-    const setSessionAutoAccept = mock(async () => undefined)
-    const onOpenSessionFirst = mock(() => undefined)
-    const onToggleFailed = mock(() => undefined)
+describe("issue 2039 draft compatibility and materialization", () => {
+  test("reports unavailable without changing draft or session policy when a draft is open", () => {
+    for (const initiallyEnabled of [false, true]) {
+      const state = {
+        draftPermissionAutoAcceptEnabled: initiallyEnabled,
+        permissionAutoAcceptEnabled: initiallyEnabled,
+      }
+      const setDraftPermissionAutoAcceptEnabled = mock((enabled: boolean) => {
+        state.draftPermissionAutoAcceptEnabled = enabled
+      })
+      const setSessionAutoAccept = mock(async (_sessionId: string, enabled: boolean) => {
+        state.permissionAutoAcceptEnabled = enabled
+      })
+      const onOpenSessionFirst = mock(() => undefined)
+      const onToggleFailed = mock(() => undefined)
 
-    togglePermissionAutoAccept({
-      permissionScopeSessionId: null,
-      newSessionDraftOpen: true,
-      draftPermissionAutoAcceptEnabled: false,
-      permissionAutoAcceptEnabled: false,
-      setDraftPermissionAutoAcceptEnabled,
-      setSessionAutoAccept,
-      onOpenSessionFirst,
-      onToggleFailed,
-    })
+      togglePermissionAutoAccept({
+        permissionScopeSessionId: null,
+        newSessionDraftOpen: true,
+        ...state,
+        setDraftPermissionAutoAcceptEnabled,
+        setSessionAutoAccept,
+        onOpenSessionFirst,
+        onToggleFailed,
+      })
 
-    expect(getMockCalls(setDraftPermissionAutoAcceptEnabled).length).toBe(1)
-    expect(getMockCalls(setDraftPermissionAutoAcceptEnabled)[0]).toEqual([true])
-    expect(getMockCalls(setSessionAutoAccept).length).toBe(0)
-    expect(getMockCalls(onOpenSessionFirst).length).toBe(0)
-    expect(getMockCalls(onToggleFailed).length).toBe(0)
+      expect(state).toEqual({
+        draftPermissionAutoAcceptEnabled: initiallyEnabled,
+        permissionAutoAcceptEnabled: initiallyEnabled,
+      })
+      expect(getMockCalls(setDraftPermissionAutoAcceptEnabled)).toEqual([])
+      expect(getMockCalls(setSessionAutoAccept)).toEqual([])
+      expect(getMockCalls(onOpenSessionFirst)).toEqual([])
+      expect(getMockCalls(onToggleFailed)).toEqual([[]])
+    }
   })
 
-  test("guards the toggle when no draft is open", () => {
-    const setDraftPermissionAutoAcceptEnabled = mock(() => undefined)
-    const setSessionAutoAccept = mock(async () => undefined)
-    const onOpenSessionFirst = mock(() => undefined)
-    const onToggleFailed = mock(() => undefined)
+  test("reports unavailable without opening a session or changing policy when no draft is open", () => {
+    for (const initiallyEnabled of [false, true]) {
+      const state = {
+        draftPermissionAutoAcceptEnabled: initiallyEnabled,
+        permissionAutoAcceptEnabled: initiallyEnabled,
+      }
+      const setDraftPermissionAutoAcceptEnabled = mock((enabled: boolean) => {
+        state.draftPermissionAutoAcceptEnabled = enabled
+      })
+      const setSessionAutoAccept = mock(async (_sessionId: string, enabled: boolean) => {
+        state.permissionAutoAcceptEnabled = enabled
+      })
+      const onOpenSessionFirst = mock(() => undefined)
+      const onToggleFailed = mock(() => undefined)
 
-    togglePermissionAutoAccept({
-      permissionScopeSessionId: null,
-      newSessionDraftOpen: false,
-      draftPermissionAutoAcceptEnabled: false,
-      permissionAutoAcceptEnabled: false,
-      setDraftPermissionAutoAcceptEnabled,
-      setSessionAutoAccept,
-      onOpenSessionFirst,
-      onToggleFailed,
-    })
+      togglePermissionAutoAccept({
+        permissionScopeSessionId: null,
+        newSessionDraftOpen: false,
+        ...state,
+        setDraftPermissionAutoAcceptEnabled,
+        setSessionAutoAccept,
+        onOpenSessionFirst,
+        onToggleFailed,
+      })
 
-    expect(getMockCalls(setDraftPermissionAutoAcceptEnabled).length).toBe(0)
-    expect(getMockCalls(setSessionAutoAccept).length).toBe(0)
-    expect(getMockCalls(onOpenSessionFirst).length).toBe(1)
-    expect(getMockCalls(onToggleFailed).length).toBe(0)
+      expect(state).toEqual({
+        draftPermissionAutoAcceptEnabled: initiallyEnabled,
+        permissionAutoAcceptEnabled: initiallyEnabled,
+      })
+      expect(getMockCalls(setDraftPermissionAutoAcceptEnabled)).toEqual([])
+      expect(getMockCalls(setSessionAutoAccept)).toEqual([])
+      expect(getMockCalls(onOpenSessionFirst)).toEqual([])
+      expect(getMockCalls(onToggleFailed)).toEqual([[]])
+    }
   })
 
   beforeEach(() => {

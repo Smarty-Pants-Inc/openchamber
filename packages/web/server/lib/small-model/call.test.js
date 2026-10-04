@@ -565,12 +565,41 @@ describe('callSmallModel — custom provider config', () => {
       expect(init.headers.Authorization).toBe('Bearer plugin-key');
     });
 
+    it('keeps an explicit runtime gateway as the credential destination', async () => {
+      readConfig.mockReturnValue({});
+      getRuntimeProvider.mockResolvedValue({
+        id: 'runtime-provider',
+        apiKey: 'fixture-runtime-key',
+        baseURL: 'http://127.0.0.1:46101/v1',
+        explicitBaseURL: 'http://127.0.0.1:46101/v1',
+        models: new Map([
+          ['selected-model', { api: { url: 'http://127.0.0.2:46102/v1', npm: '@ai-sdk/openai-compatible' } }],
+        ]),
+        anonymousZen: false,
+      });
+      fetchMock.mockResolvedValue(ok('done'));
+
+      const text = await callSmallModel({
+        auth: {}, catalog: {}, workingDirectory: '/proj', providerID: 'runtime-provider',
+        modelID: 'selected-model', prompt: 'fixture prompt',
+      });
+
+      expect(text).toBe('done');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const { url, init } = lastCall(fetchMock);
+      expect(url).toBe('http://127.0.0.1:46101/v1/chat/completions');
+      expect(init.headers.Authorization).toBe('Bearer fixture-runtime-key');
+      expect(url).not.toContain('fixture-runtime-key');
+      expect(init.body).not.toContain('fixture-runtime-key');
+    });
+
     it('uses the selected runtime model endpoint', async () => {
       readConfig.mockReturnValue({});
       getRuntimeProvider.mockResolvedValue({
         id: 'runtime-provider',
         apiKey: 'plugin-key',
         baseURL: 'https://runtime-provider/v1beta',
+        explicitBaseURL: null,
         models: new Map([
           ['first-model', { api: { url: 'https://runtime-provider/v1beta', npm: '@ai-sdk/google' } }],
           ['selected-model', { api: { url: 'https://runtime-provider/v1', npm: '@ai-sdk/openai' } }],

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import type { Message, Part, Session } from '@opencode-ai/sdk/v2';
 import type { StartBtwInput } from './btw';
 
@@ -162,6 +162,39 @@ describe('findLastCompletedAssistantMessageID', () => {
 });
 
 describe('startBtwSession', () => {
+  for (const enabled of [undefined, false, true]) test(`manual BTW still forks and sends without policy enrollment for legacy flag ${String(enabled)}`, async () => {
+    const { usePermissionStore } = await import('@/stores/permissionStore');
+    const initial = usePermissionStore.getState();
+    const stored = { 'fork-1': true };
+    usePermissionStore.setState({ autoAccept: stored, legacyCandidate: stored, lastAppliedRevision: 17 });
+    const enrollment = spyOn(usePermissionStore.getState(), 'setSessionAutoAccept');
+    forkSessionImpl = () => Promise.resolve(makeSession('fork-1', '/project'));
+    let sends = 0;
+    sendMessageImpl = (...args) => {
+      sends++;
+      expect(args[0]).toBe(startInput.question);
+      expect(args[9]).toEqual({ sessionId: 'fork-1', directory: '/project' });
+      return Promise.resolve();
+    };
+    const input: StartBtwInput = { ...startInput };
+    if (enabled !== undefined) input.permissionAutoAccept = enabled;
+    try {
+      expect((await startBtwSession(input)).id).toBe('fork-1');
+      expect(sends).toBe(1);
+      expect(metadataPatches).toEqual([
+        { sessionId: 'fork-1', result: { openchamber: { kind: 'btw', originalSessionID: 'parent-1', btwBoundaryMessageID: 'msg-boundary' } } },
+        { sessionId: 'parent-1', result: { openchamber: { btwSessionID: 'fork-1' } } },
+      ]);
+      expect(enrollment).not.toHaveBeenCalled();
+      expect(usePermissionStore.getState().isSessionAutoAccepting('fork-1')).toBe(false);
+      expect(usePermissionStore.getState().legacyCandidate).toBe(stored);
+      expect(usePermissionStore.getState().lastAppliedRevision).toBe(17);
+    } finally {
+      enrollment.mockRestore();
+      usePermissionStore.setState(initial, true);
+    }
+  });
+
   test('forks, marks the fork, links the parent, and routes the question to the fork', async () => {
     forkSessionImpl = (sessionId, messageId, directory) => {
       expect(sessionId).toBe('parent-1');

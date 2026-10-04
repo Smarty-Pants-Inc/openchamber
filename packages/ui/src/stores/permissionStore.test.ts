@@ -1,118 +1,60 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import '@/sync/native-test-network';
+import { afterAll, afterEach, expect, test } from 'bun:test';
+import { usePermissionStore } from './permissionStore';
+import { togglePermissionAutoAccept } from '@/components/chat/permissionAutoAccept';
 
-let fetchImpl: (input: string, init?: RequestInit) => Promise<Response>;
-mock.module('@/lib/runtime-fetch', () => ({
-  runtimeFetch: (input: string, init?: RequestInit) => fetchImpl(input, init),
-}));
-mock.module('@/sync/sync-refs', () => ({ getAllSyncSessionMap: () => new Map() }));
-mock.module('@/sync/session-ui-store', () => ({
-  useSessionUIStore: { getState: () => ({ getDirectoryForSession: () => '/project' }) },
-}));
-mock.module('@/lib/opencode/client', () => ({
-  opencodeClient: { getDirectory: () => '/fallback' },
-}));
+const previousFetch = globalThis.fetch;
+let requests = 0;
+globalThis.fetch = async () => {
+  requests++;
+  throw new Error('Disabled permission store must not reach transport');
+};
+afterEach(() => {
+  usePermissionStore.getState().reset();
+  requests = 0;
+});
+afterAll(() => { globalThis.fetch = previousFetch; });
 
-const { usePermissionStore } = await import('./permissionStore');
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
+test('hydration and stored/broadcast policies cannot enable automatic permissions or migrate stored data', async () => {
+  const legacy = { root: true, child: false };
+  const policy = { root: true };
+  usePermissionStore.setState({ autoAccept: policy, legacyCandidate: legacy, legacyRuntimeKey: 'old-runtime' });
+  await usePermissionStore.getState().hydrate();
+  usePermissionStore.getState().applySnapshot({ sessions: { remote: true }, revision: 99 });
+  expect(usePermissionStore.getState().isSessionAutoAccepting('root')).toBe(false);
+  expect(usePermissionStore.getState().isSessionAutoAccepting('remote')).toBe(false);
+  expect(usePermissionStore.getState().autoAccept).toBe(policy);
+  expect(usePermissionStore.getState().legacyCandidate).toBe(legacy);
+  expect(usePermissionStore.getState().legacyRuntimeKey).toBe('old-runtime');
+  expect(requests).toBe(0);
+});
 
-describe('permission store server policy', () => {
-  beforeEach(() => {
-    usePermissionStore.getState().reset();
-    usePermissionStore.setState({ legacyCandidate: null, legacyRuntimeKey: null });
-    fetchImpl = async () => json({ sessions: {} });
+test('enabled enrollment refuses; Off and reset never trigger replies or clear legacy storage', async () => {
+  const legacy = { root: true };
+  usePermissionStore.setState({ legacyCandidate: legacy });
+  await expect(usePermissionStore.getState().setSessionAutoAccept('root', true)).rejects.toThrow(/unsupported/i);
+  await usePermissionStore.getState().setSessionAutoAccept('root', false);
+  usePermissionStore.getState().reset();
+  expect(usePermissionStore.getState().isSessionAutoAccepting('root')).toBe(false);
+  expect(usePermissionStore.getState().legacyCandidate).toBe(legacy);
+  expect(usePermissionStore.getState().saving).toBe(false);
+  expect(requests).toBe(0);
+});
+
+for (const mode of ['draft', 'session', 'btw', 'empty'] as const) test(`old ${mode} toggle helper refuses without a local fallback or mutation`, () => {
+  let mutations = 0;
+  let failures = 0;
+  togglePermissionAutoAccept({
+    permissionScopeSessionId: mode === 'session' ? 'root' : null,
+    newSessionDraftOpen: mode === 'draft',
+    draftPermissionAutoAcceptEnabled: true,
+    permissionAutoAcceptEnabled: true,
+    setDraftPermissionAutoAcceptEnabled: () => { mutations++; },
+    setSessionAutoAccept: async () => { mutations++; },
+    onOpenSessionFirst: () => { mutations++; },
+    onToggleFailed: () => { failures++; },
   });
-
-  test('hydrates the authoritative server snapshot', async () => {
-    fetchImpl = async () => json({ sessions: { root: true } });
-    await usePermissionStore.getState().hydrate();
-    expect(usePermissionStore.getState().autoAccept).toEqual({ root: true });
-  });
-
-  test('preserves previous state when hydration fails', async () => {
-    usePermissionStore.setState({ autoAccept: { root: true }, loaded: true });
-    fetchImpl = async () => json({}, 503);
-    await expect(usePermissionStore.getState().hydrate()).rejects.toThrow();
-    expect(usePermissionStore.getState().autoAccept).toEqual({ root: true });
-  });
-
-  test('updates local state only after server persistence succeeds', async () => {
-    fetchImpl = async () => json({}, 500);
-    await expect(usePermissionStore.getState().setSessionAutoAccept('root', true)).rejects.toThrow();
-    expect(usePermissionStore.getState().autoAccept).toEqual({});
-  });
-
-  test('sends the session directory for immediate pending reconciliation', async () => {
-    let body: unknown;
-    fetchImpl = async (_input, init) => {
-      body = JSON.parse(String(init?.body));
-      return json({ sessions: { root: true } });
-    };
-    await usePermissionStore.getState().setSessionAutoAccept('root', true);
-    expect(body).toEqual({ enabled: true, directory: '/project' });
-  });
-
-  test('migrates a legacy local policy when the server has no policy yet', async () => {
-    usePermissionStore.setState({ legacyCandidate: { root: true }, legacyRuntimeKey: null });
-    const requests: string[] = [];
-    fetchImpl = async (input) => {
-      requests.push(input);
-      return input.includes('/sessions/')
-        ? json({ sessions: { root: true } })
-        : json({ sessions: {} });
-    };
-    await usePermissionStore.getState().hydrate();
-    expect(requests).toEqual(['/api/permission-auto-accept', '/api/permission-auto-accept/sessions/root']);
-    expect(usePermissionStore.getState().autoAccept).toEqual({ root: true });
-    expect(usePermissionStore.getState().legacyCandidate).toBe(null);
-  });
-
-  test('rejects a hydration response from before reset', async () => {
-    let resolveOld!: (response: Response) => void;
-    const oldResponse = new Promise<Response>((resolve) => { resolveOld = resolve; });
-    fetchImpl = async () => oldResponse;
-    const oldHydration = usePermissionStore.getState().hydrate();
-
-    usePermissionStore.getState().reset();
-    fetchImpl = async () => json({ sessions: { current: true }, revision: 2 });
-    await usePermissionStore.getState().hydrate();
-    resolveOld(json({ sessions: { stale: true }, revision: 1 }));
-    await oldHydration;
-
-    expect(usePermissionStore.getState().autoAccept).toEqual({ current: true });
-  });
-
-  test('rejects a mutation response from before reset', async () => {
-    let resolveOld!: (response: Response) => void;
-    fetchImpl = async () => new Promise<Response>((resolve) => { resolveOld = resolve; });
-    const mutation = usePermissionStore.getState().setSessionAutoAccept('stale', true);
-
-    usePermissionStore.getState().reset();
-    resolveOld(json({ sessions: { stale: true }, revision: 1 }));
-    await mutation;
-
-    expect(usePermissionStore.getState().autoAccept).toEqual({});
-    expect(usePermissionStore.getState().saving).toBe(false);
-  });
-
-  test('keeps the highest authoritative revision when mutations resolve out of order', async () => {
-    const resolvers: Array<(response: Response) => void> = [];
-    fetchImpl = async () => new Promise<Response>((resolve) => { resolvers.push(resolve); });
-    const first = usePermissionStore.getState().setSessionAutoAccept('first', true);
-    const second = usePermissionStore.getState().setSessionAutoAccept('second', true);
-
-    resolvers[1](json({ sessions: { first: true, second: true }, revision: 2 }));
-    await second;
-    resolvers[0](json({ sessions: { first: true }, revision: 1 }));
-    await first;
-
-    expect(usePermissionStore.getState().autoAccept).toEqual({ first: true, second: true });
-    expect(usePermissionStore.getState().saving).toBe(false);
-  });
-
-  test('ignores an older broadcast revision', () => {
-    usePermissionStore.getState().applySnapshot({ sessions: { current: true }, revision: 4 });
-    usePermissionStore.getState().applySnapshot({ sessions: { stale: true }, revision: 3 });
-
-    expect(usePermissionStore.getState().autoAccept).toEqual({ current: true });
-  });
+  expect(mutations).toBe(0);
+  expect(failures).toBe(1);
+  expect(requests).toBe(0);
 });
