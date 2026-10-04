@@ -14,7 +14,7 @@ import { ModelControls } from '@/components/chat/ModelControls';
 import { OrdinaryModelControls } from '@/components/chat/OrdinaryModelControls';
 import { ChatColumnSessionContext } from '@/components/chat/chatColumnSession';
 import { I18nProvider } from '@/lib/i18n';
-import { cohort, expectedRows, nativeState, retained, routes, upstreamRows } from './opencode-session-ownership.fixtures.js';
+import { cohort, expectedRows, listQuery, nativeState, retained, routes, upstreamRows, windowsSettings, withPlatform } from './opencode-session-ownership.fixtures.js';
 
 const listen = app => new Promise((resolve, reject) => {
   const server = app.listen(0, '127.0.0.1', () => resolve(server));
@@ -25,7 +25,6 @@ const close = server => new Promise((resolve, reject) => {
   server.close(error => error ? reject(error) : resolve());
   server.closeAllConnections();
 });
-
 // Call the real hook-owning component under React's renderer and retain its returned
 // element. No hook replacement, module mock, ownership override, or copied branch.
 const consume = (rows, id, sdk) => {
@@ -59,9 +58,11 @@ const consume = (rows, id, sdk) => {
 };
 
 describe('sanitized lists retain native ownership through the real UI consumer', () => {
-  let upstream, proxy, sdk;
+  let upstream, proxy, windowsUpstream, windowsProxy, sdk;
   const payloads = new Map();
+  const windowsPayloads = new Map();
   const seen = [];
+  const windowsSeen = [];
   beforeAll(async () => {
     const donor = express();
     for (const route of routes) donor.get(route.slice(4), (req, res) => {
@@ -71,9 +72,11 @@ describe('sanitized lists retain native ownership through the real UI consumer',
     });
     upstream = await listen(donor);
     const base = `http://127.0.0.1:${upstream.address().port}`;
+    const isolatedFs = { ...fs, readFileSync: () => JSON.stringify(windowsSettings) };
+    const isolatedOs = { ...os, homedir: () => '/fixture/home' };
     const app = express();
     registerOpenCodeProxy(app, {
-      fs, os, path, OPEN_CODE_READY_GRACE_MS: 0, LONG_REQUEST_TIMEOUT_MS: 1000,
+      fs: isolatedFs, os: isolatedOs, path, OPEN_CODE_READY_GRACE_MS: 0, LONG_REQUEST_TIMEOUT_MS: 1000,
       getRuntime: () => ({ openCodePort: upstream.address().port, openCodeBaseUrl: base,
         isOpenCodeReady: true, openCodeNotReadySince: 0, isRestartingOpenCode: false }),
       getOpenCodeAuthHeaders: () => ({}), buildOpenCodeUrl: requestPath => `${base}${requestPath}`,
@@ -82,23 +85,61 @@ describe('sanitized lists retain native ownership through the real UI consumer',
     proxy = await listen(app);
     const proxyBase = `http://127.0.0.1:${proxy.address().port}`;
     sdk = createOpencodeClient({ baseUrl: `${proxyBase}/api` });
+    const query = new URLSearchParams(listQuery);
     for (const route of routes) {
-      const response = await fetch(`${proxyBase}${route}?limit=500&cursor=1154`, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(`${proxyBase}${route}?${query}`, { signal: AbortSignal.timeout(3000) });
       expect(response.status).toBe(200);
       expect(response.headers.get('x-next-cursor')).toBe('1154');
       const rows = await response.json();
       payloads.set(route, rows);
       console.log('LIST_PAYLOAD', route, JSON.stringify(rows));
     }
+
+    const windowsDonor = express();
+    for (const route of routes) windowsDonor.get(route.slice(4), (req, res) => {
+      windowsSeen.push({ path: req.path, query: req.query });
+      res.setHeader('X-Next-Cursor', '1154');
+      res.json(upstreamRows);
+    });
+    windowsUpstream = await listen(windowsDonor);
+    const windowsBase = `http://127.0.0.1:${windowsUpstream.address().port}`;
+    withPlatform('win32', () => {
+      const windowsApp = express();
+      registerOpenCodeProxy(windowsApp, {
+        fs: isolatedFs, os: isolatedOs, path, OPEN_CODE_READY_GRACE_MS: 0, LONG_REQUEST_TIMEOUT_MS: 1000,
+        getRuntime: () => ({ openCodePort: windowsUpstream.address().port, openCodeBaseUrl: windowsBase,
+          isOpenCodeReady: true, openCodeNotReadySince: 0, isRestartingOpenCode: false }),
+        getOpenCodeAuthHeaders: () => ({}), buildOpenCodeUrl: requestPath => `${windowsBase}${requestPath}`,
+        ensureOpenCodeApiPrefix: () => {},
+      });
+      windowsProxy = windowsApp.listen(0, '127.0.0.1');
+    });
+    await new Promise((resolve, reject) => {
+      windowsProxy.once('listening', resolve);
+      windowsProxy.once('error', reject);
+    });
+    const windowsProxyBase = `http://127.0.0.1:${windowsProxy.address().port}`;
+    for (const route of routes) {
+      const response = await fetch(`${windowsProxyBase}${route}?${query}`, { signal: AbortSignal.timeout(3000) });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-next-cursor')).toBe('1154');
+      windowsPayloads.set(route, await response.json());
+    }
   });
   afterAll(async () => {
     await close(proxy);
     await close(upstream);
-    console.log('CLOSURE', JSON.stringify({ proxyListening: proxy?.listening ?? false, upstreamListening: upstream?.listening ?? false }));
+    await close(windowsProxy);
+    await close(windowsUpstream);
+    console.log('CLOSURE', JSON.stringify({ proxyListening: proxy?.listening ?? false, upstreamListening: upstream?.listening ?? false, windowsProxyListening: windowsProxy?.listening ?? false, windowsUpstreamListening: windowsUpstream?.listening ?? false }));
   });
 
   it('forwards both real list-route queries', () => {
-    expect(seen).toEqual(routes.map(route => ({ path: route.slice(4), query: { limit: '500', cursor: '1154' } })));
+    expect(seen).toEqual(routes.map(route => ({ path: route.slice(4), query: listQuery })));
+  });
+  it('keeps both directory-scoped list routes on the generic path in simulated Windows mode', () => {
+    expect(windowsSeen).toEqual(routes.map(route => ({ path: route.slice(4), query: listQuery })));
+    for (const route of routes) expect(windowsPayloads.get(route)).toEqual(expectedRows);
   });
   for (const route of routes) {
     it(`${route} preserves exactly the public fields and strips diffs, snapshots and extras`, () => {

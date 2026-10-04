@@ -33,4 +33,15 @@ export const upstreamRows = cohort.map(({ id, fields }) => ({
   unlistedExtra: { mustNotPass: true },
 }));
 export const expectedRows = cohort.map(({ id, fields }) => ({ ...retained, id, ...fields, summary, revert }));
+export const listQuery = { limit: '500', cursor: '1154', directory: retained.directory };
+export const windowsSettings = { projects: [{ path: retained.directory }] };
 export const routes = ['/api/session', '/api/experimental/session'];
+export const withPlatform = (platform, callback) => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { configurable: true, value: platform });
+  try {
+    return callback();
+  } finally {
+    if (descriptor) Object.defineProperty(process, 'platform', descriptor);
+  }
+};
