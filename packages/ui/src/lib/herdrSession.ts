@@ -35,19 +35,26 @@ export const liveHerdrState = (herdr: HerdrState | undefined, native: string | u
  * status stays undefined: Herdr is the fallback there. The same values twice are no change, so a re-render cannot
  * reorder them. A row first seen, or its first render after a remount (`remounted`), has no order: native wins. Changes
  * while a row is unmounted (a collapsed group) are not seen here, so their order is unknown (openchamber#484 round 3).
+ * An unavailable directory has no native authority: forget its retained/cleared status and use Herdr until recovery.
+ * The watchdog also forgets cleared candidates here, including rows hidden throughout the outage and recovery.
  */
 const changeOrder = new Map<string, { herdr?: HerdrState; native?: string; herdrAt: number; nativeAt: number }>();
 let changeTick = 0;
 const MAX_ORDERED_SESSIONS = 2048;
-export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined, remounted = false):
+/** Forget native authority when the watchdog clears unavailable statuses; absence must not infer a completed turn. */
+export const forgetRowNativeStatus = (sessionIds: readonly string[]): void => {
+  for (const sessionId of sessionIds) changeOrder.delete(sessionId);
+};
+export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined, remounted = false, statusUnavailable = false):
   { native: string | undefined; herdrIsNewer: boolean } => {
+  if (statusUnavailable) entry = undefined;
   const o = changeOrder.get(sessionId);
   if (!o) {
     if (changeOrder.size >= MAX_ORDERED_SESSIONS) changeOrder.delete(changeOrder.keys().next().value!);
     changeOrder.set(sessionId, { herdr, native: entry, herdrAt: 0, nativeAt: 0 });
     return { native: entry, herdrIsNewer: false };
   }
-  const native = entry ?? (o.native === undefined ? undefined : 'idle');
+  const native = statusUnavailable ? undefined : entry ?? (o.native === undefined ? undefined : 'idle');
   if (remounted) { o.herdr = herdr; o.native = native; o.herdrAt = 0; o.nativeAt = 0; return { native, herdrIsNewer: false }; }
   if (o.herdr !== herdr) { o.herdr = herdr; o.herdrAt = ++changeTick; }
   if (o.native !== native) { o.native = native; o.nativeAt = ++changeTick; }
