@@ -345,7 +345,7 @@ export const RETENTION = { days: 7, newest: 20 };
 /**
  * Retention (smartyfs#37, org's decision 2026-09-29): a recovery copy of the file `key` is deleted only when it is
  * older than 7 days AND not among that file's newest 20. Only regular files whose names keepForRecovery wrote for this
- * key, owned by this account, are considered; anything else in the directory is never touched. Returns the count.
+ * key are considered, including helper-owned deliveries; anything else in the directory is never touched. Returns the count.
  */
 export async function pruneRecovery(recoveryDir, key, { now = Date.now(), days = RETENTION.days, newest = RETENTION.newest } = {}) {
   const copies = [];

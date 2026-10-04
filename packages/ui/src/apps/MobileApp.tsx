@@ -74,6 +74,8 @@ import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
+import { StepsLayout } from '@/components/chat/steps/StepsLayout';
+import { useStepsSheetBack } from '@/components/chat/steps/useStepsSheetBack';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
@@ -306,7 +308,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // Top-most layer first: a plan or fullscreen surface can sit ABOVE a drawer
   // (opened from the drawer footer / workspace tabs), so they close before the
   // drawers underneath.
+  const stepsSheet = useStepsSheetBack();
+  const closeStepsSheet = stepsSheet.closeSheet;
   const handleNativeBack = React.useCallback(() => {
+    // The All steps sheet is a modal over the chat: nothing else is reachable while it is open.
+    if (closeStepsSheet()) return true;
     if (openPlan) {
       setOpenPlan(null);
       return true;
@@ -324,7 +330,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, openPlan, sessionsSheetOpen, workspaceOpen]);
+  }, [activeSurface, closeStepsSheet, closeSurface, closeWorkspace, openPlan, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -462,9 +468,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
-              <ErrorBoundary>
-                <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
-              </ErrorBoundary>
+              <StepsLayout mobile sheet={stepsSheet.sheet}>
+                <ErrorBoundary>
+                  <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
+                </ErrorBoundary>
+              </StepsLayout>
             </div>
           </main>
         </div>

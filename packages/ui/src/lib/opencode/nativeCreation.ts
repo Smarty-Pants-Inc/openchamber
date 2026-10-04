@@ -5,7 +5,7 @@ export const nativeCreationHealthSchema = z.object({
   healthy: z.literal(true),
   capabilities: z.object({ ordinaryCreateOnly: z.literal(1).optional(), ordinaryInteractiveCreate: z.literal(1).optional(),
     sessionVoice: z.literal(1).optional(), sessionVoiceStatus: z.literal(1).optional(), creationClientRequestId: z.literal(1).optional(),
-    creationAbandon: z.literal(1).optional() }).optional(),
+    creationAbandon: z.literal(1).optional(), ordinaryResume: z.literal(1).optional() }).optional(),
 });
 // Public creation-contract.ts; endpoint and native generations are distinct.
 const creationUUID = z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
@@ -31,10 +31,10 @@ export type NativeCreationReply = { generation: string; revision: number } & (
   | { action: 'ready'; native: { id: string; generation: string } }
 );
 export type NativeCreationResult = NativeCreatedSession | z.infer<typeof nativeCreationResponseSchema>;
-/** GET /api/session/:id/voice (smarty-code#126): whether this session takes voice calls, and why not, in plain words. */
+/** GET /api/session/:id/voice: availability, a plain reason and an optional hint to retry a temporary negative. */
 export const sessionVoiceSchema = z.union([
   z.object({ available: z.literal(true) }).strict(),
-  z.object({ available: z.literal(false), reason: z.string().min(1).max(300) }).strict(),
+  z.object({ available: z.literal(false), reason: z.string().min(1).max(300), retry: z.boolean().optional() }).strict(),
 ]);
 export const NATIVE_CREATION_INVALIDATED = 'openchamber:native-creation-invalidated';
 

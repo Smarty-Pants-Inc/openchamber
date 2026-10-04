@@ -1,16 +1,6 @@
 name: Docs Source
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/docs/**"
-      - "scripts/docs/**"
-      - "package.json"
-      - "branding/**"
-      - "scripts/apply-brand.mjs"
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -23,7 +13,7 @@ permissions:
 
 jobs:
   validate-and-package:
-    runs-on: ubuntu-latest
+    runs-on: smarty-linux-x64
     outputs:
       archive_name: ${{ steps.archive.outputs.archive_name }}
     steps:

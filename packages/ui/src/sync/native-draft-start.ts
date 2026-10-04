@@ -2,6 +2,7 @@ import React from 'react';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, nativeCreationFailure, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { resolveDraftProjectDirectory } from './native-draft-identity';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { isNativeDraftTarget, nativeCreationForDraft, prepareNativeDraft, publishNativeCreation, ownSettledStarts, STOPPED_PHASES, startsElsewhere } from './native-draft-creation';
 import { abandonedNativeCreations, abandonNativeCreation, refreshNativeCreation, replyNativeCreation, resumeNativeCreation } from './native-draft-control';
@@ -195,8 +196,8 @@ async function drive(operations: readonly NativeCreationState[], wait: (ms: numb
     recovered(first.directory, requestId, first.status === 'pending' ? first.operation.operationId : undefined);
     return await finish(key, record, wait, () => clearSentStart(runtimeKey, first.directory, requestId));
   }
-  const directory = draft.directoryOverride ?? visibleProjects(useProjectsStore.getState())
-    .find(project => project.id === draft.selectedProjectId)?.path ?? opencodeClient.getDirectory();
+  const directory = draft.directoryOverride ?? resolveDraftProjectDirectory(draft, visibleProjects(useProjectsStore.getState()), 'project')
+    .directory ?? opencodeClient.getDirectory();
   const supported = directory ? await opencodeClient.supportsNativeCreation(directory)
     .catch(cause => { throw new NativeCreationError('unavailable', cause); }) : false;
   if (!supported) return;

@@ -373,6 +373,8 @@ Rules:
 4. Components must not read `currentSessionDirectory` to build request or queue keys; use `getDirectoryForSession()` so every consumer resolves identically.
 5. A disagreement between sources is logged once per session, and `__opencodeDebug.diagnoseSessionDirectory()` reports every source in precedence order.
 
+`native-draft-identity.ts` owns the raw selected-ID lookup shared by native assert, prepare, prepared and start, and the composer identity view. It maps only the applied `visibleProjects` catalog, keeps explicit overrides raw and reads project paths eagerly for the project policy. SDK fallback stays at the original prepared/start boundaries, including start's override short-circuit. Root-or-parented-child admission, creation guards and retained outcomes are unchanged.
+
 ## Session action rules
 
 Session actions live in `session-actions.ts` and are the canonical place for SDK-calling session mutations that affect global session lists.
@@ -414,6 +416,8 @@ transfer and old delayed writes from a replacement generation. New unsent text/c
 through the composer identity boundary. Pre-dispatch and input refusals retain
 prepared context for a later explicit Send, without another create or replay. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#native-create-only-drafts)
 for capability, recovery and original-TUI readiness rules.
+
+`native-session-resume.ts` owns Continue on ended Code-created sessions. Records are scoped to runtime, directory, and session. One click posts one request id, then follows that start by reads. Duplicate clicks while starting or unchecked-unknown do not post again. Transport changes stop the follow loop. Deferred operation reads recheck the same record and its original runtime request scope inside the deadline callback, immediately before resolving transport. A check before scheduling that callback cannot authorize a later runtime. A lost or malformed reply, an uncertain server error, or a failed Check again read stays unknown. Only a successful list read can report that no matching start was listed, which is still not proof that nothing started. A ready operation clears its pending action only after `SessionMessageLoader` accepts a resolved, writable history view. The existing view-only enrollment watch can independently refresh that same view.
 
 Examples of global-store updates performed in `session-actions.ts`:
 

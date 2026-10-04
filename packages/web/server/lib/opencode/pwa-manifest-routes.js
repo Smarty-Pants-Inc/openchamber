@@ -1,4 +1,5 @@
 import { PRODUCT_NAME } from '../../../brand.generated.js';
+import { responsePolicyCacheControl } from '../http-response-policy.js';
 
 const DEFAULT_PWA_APP_NAME = `${PRODUCT_NAME} - AI Coding Assistant`;
 const mapPwaOrientationToManifest = (value) => {
@@ -252,7 +253,7 @@ export const registerPwaManifestRoute = (app, dependencies) => {
       lang: 'en',
     };
 
-    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store, must-revalidate'));
     res.type('application/manifest+json');
     res.send(JSON.stringify(manifest));
   });

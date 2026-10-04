@@ -1,4 +1,5 @@
 import { SidebarTerminalActivity } from './SidebarTerminalActivity';
+import { SessionRevealEffect } from './sessionReveal';
 import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -177,7 +178,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const { expandedParents, toggleParent } = useExpandedParents();
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const selectSessionForProject = React.useCallback((sessionId: string, sessionDirectory: string | null, transition?: 'restore') => {
-    if (sessionId === useSessionUIStore.getState().currentSessionId) return;
+    if (transition === 'restore' && sessionId === useSessionUIStore.getState().currentSessionId) return;
     setCurrentSession(sessionId, sessionDirectory, transition);
   }, [setCurrentSession]);
   const prefetchSession = usePrefetchSessionMessages();
@@ -634,6 +635,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   ]);
   return <>
     <SidebarTerminalActivity />
+    {!topology.isVSCode && <SessionRevealEffect sections={view.useGroupedSections ? projectSections : flatSectionsForRender} />}
     <ProjectSessionSelectionEffect
       projectSections={projectSections}
       activeProjectId={view.activeProjectId}

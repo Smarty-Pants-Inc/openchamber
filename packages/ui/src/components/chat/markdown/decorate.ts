@@ -1,5 +1,5 @@
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { getExternalFaviconUrl, isExternalHttpUrl, isLoopbackHttpUrl } from '@/lib/url';
+import { isExternalHttpUrl, isLoopbackHttpUrl } from '@/lib/url';
 import { dropdownMenuItemClass, dropdownMenuPopupClass } from '@/components/ui/dropdown-menu.styles';
 import type { IconName } from '@/components/icon/icons';
 import { getMermaidViewerController } from './mermaidViewer';
@@ -52,6 +52,7 @@ const ICONS = {
   fit: 'refresh',
   textWrap: 'text-wrap',
   image: 'file-image',
+  link: 'external-link',
 } as const satisfies Record<string, IconName>;
 
 const ICON_BTN_CLASS =
@@ -566,7 +567,7 @@ const decorateMermaid = (root: HTMLElement, ctx: DecorateContext): void => {
 };
 
 // ---------------------------------------------------------------------------
-// External links: favicon + loopback preview button
+// External links: local icon + loopback preview button
 // ---------------------------------------------------------------------------
 
 const decorateLinks = (root: HTMLElement, ctx: DecorateContext): void => {
@@ -578,22 +579,11 @@ const decorateLinks = (root: HTMLElement, ctx: DecorateContext): void => {
     if (!isExternalHttpUrl(href)) continue;
     anchor.setAttribute('data-md-link-decorated', 'true');
 
-    const faviconUrl = getExternalFaviconUrl(href);
-    if (faviconUrl) {
-      const favWrap = document.createElement('span');
-      favWrap.className =
-        'mr-1 inline-flex size-[18px] items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)] align-middle';
-      const img = document.createElement('img');
-      img.src = faviconUrl;
-      img.alt = '';
-      img.setAttribute('aria-hidden', 'true');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.className = 'size-3.5 rounded-sm';
-      img.addEventListener('error', () => favWrap.remove(), { once: true });
-      favWrap.appendChild(img);
-      anchor.parentNode?.insertBefore(favWrap, anchor);
-    }
+    const iconWrap = document.createElement('span');
+    iconWrap.className =
+      'mr-1 inline-flex size-[18px] items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)] align-middle';
+    setIcon(iconWrap, 'link');
+    anchor.parentNode?.insertBefore(iconWrap, anchor);
 
     if (ctx.onPreviewLoopback && isLoopbackHttpUrl(href)) {
       const preview = document.createElement('button');

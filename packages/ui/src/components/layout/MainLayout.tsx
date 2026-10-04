@@ -35,6 +35,7 @@ import { useSessionListSync } from '@/components/session/sidebar/list/useSession
 import { ChatView } from '@/components/views/ChatView';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
+import { StepsLayout } from '@/components/chat/steps/StepsLayout';
 
 const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/SettingsWindow').then(m => ({ default: m.SettingsWindow })));
 
@@ -150,7 +151,7 @@ export const MainLayout: React.FC = () => {
                                     <div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden" data-page-scroll-lock="true" data-chat-area="true">
                                         <main className="flex-1 overflow-hidden bg-background relative" data-page-scroll-lock="true">
                                             <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
-                                                <ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
+                                                <StepsLayout><ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary></StepsLayout>
                                             </div>
                                             {isMultiRunLauncherOpen && (
                                                 <div className="absolute inset-0 z-10 bg-background">
