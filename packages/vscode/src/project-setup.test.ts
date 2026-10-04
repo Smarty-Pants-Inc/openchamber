@@ -251,7 +251,7 @@ describe('project setup bridge', () => {
     });
   });
 
-  test('writes and removes the shared file through the bridge, trusting the writer', async () => {
+  test('writes and removes the shared file through the bridge without approving commands', async () => {
     await withStore(async (store, dir) => {
       const repo = path.join(dir, 'repo');
       await fs.promises.mkdir(repo, { recursive: true });
@@ -261,10 +261,17 @@ describe('project setup bridge', () => {
         store,
       );
       assert.equal(shared?.success, true);
-      const view = shared?.data as { trust: { trusted: boolean }; shared: { status: string; plansDir: string | null } };
+      const view = await store.read(projectId);
+      assert.deepEqual(shared?.data, view);
       assert.equal(view.shared.status, 'ok');
       assert.equal(view.shared.plansDir, 'docs/plans');
-      assert.equal(view.trust.trusted, true);
+      assert.equal(view.trust.trusted, false);
+      assert.equal(view.personal.sharedTrust, null);
+      const approved = await handleProjectSetupBridgeMessage(
+        { id: 'approve', type: 'api:project-setup:update', payload: { projectId, patch: { sharedTrustHash: view.trust.hash } } }, store,
+      );
+      assert.equal(approved?.success, true);
+      assert.equal((await store.read(projectId)).trust.trusted, true);
       const raw = JSON.parse(await fs.promises.readFile(path.join(repo, '.openchamber', 'project.json'), 'utf8'));
       assert.deepEqual(raw, { version: 1, setupWorktree: ['bun install'], plansDir: 'docs/plans' });
 
@@ -278,6 +285,119 @@ describe('project setup bridge', () => {
       );
       assert.equal(missing?.success, false);
       assert.match(missing?.error ?? '', /checkout not found/);
+    });
+  });
+
+  test('metadata, no-op, unknown keys and command sharing never mint approval; unchanged complete-set approval retains its timestamp', async () => {
+    await withStore(async (store, dir) => {
+      const repo = path.join(dir, 'repo');
+      const sharedPath = path.join(repo, '.openchamber', 'project.json');
+      await fs.promises.mkdir(path.dirname(sharedPath), { recursive: true });
+      const initial = {
+        version: 1, setupWorktree: ['echo unseen'],
+        projectActions: [{ id: 'dev', name: 'Dev', command: 'echo dev' }],
+      };
+      await fs.promises.writeFile(sharedPath, JSON.stringify(initial));
+      const projectId = projectIdFor(repo);
+      const personalPath = path.join(dir, `${projectConfigFileStemOf(projectId)}.json`);
+      await fs.promises.writeFile(personalPath, JSON.stringify({
+        version: 1, scheduledTasks: [{ id: 'keep' }], futureKey: { keep: true },
+        'setup-worktree': ['echo personal'], sharedTrust: { hash: 'sha256:stale', trustedAt: 7 },
+      }));
+      const originalHash = (await store.read(projectId)).trust.hash;
+      for (const patch of [
+        { plansDir: 'docs/plans' }, { draftStarters: [{ type: 'skill', name: 's' }] },
+        { draftStarters: [] }, {}, { futureKey: true, sharedTrustHash: originalHash },
+        { projectActions: [...initial.projectActions, { id: 'mine', name: 'Mine', command: 'echo known-personal' }] },
+      ]) {
+        const response = await handleProjectSetupBridgeMessage(
+          { id: 'save', type: 'api:project-setup:update-shared', payload: { projectId, patch } }, store,
+        );
+        assert.equal(response?.success, true);
+        const view = await store.read(projectId);
+        assert.deepEqual(response?.data, view);
+        assert.equal(view.trust.trusted, false);
+        assert.equal(view.personal.sharedTrust, null);
+        assert.equal(Object.hasOwn(JSON.parse(await fs.promises.readFile(personalPath, 'utf8')), 'sharedTrust'), false);
+        assert.deepEqual(view.shared.setupWorktree, ['echo unseen']);
+        assert.equal(view.shared.projectActions[0]?.command, 'echo dev');
+      }
+      const approvedHash = (await store.read(projectId)).trust.hash;
+      const approvalResponse = await handleProjectSetupBridgeMessage(
+        { id: 'approve', type: 'api:project-setup:update', payload: { projectId, patch: { sharedTrustHash: approvedHash } } }, store,
+      );
+      assert.equal(approvalResponse?.success, true);
+      const approvedRaw = JSON.parse(await fs.promises.readFile(personalPath, 'utf8'));
+      approvedRaw.sharedTrust.trustedAt = 17;
+      await fs.promises.writeFile(personalPath, JSON.stringify(approvedRaw));
+      const approval = (await store.read(projectId)).personal.sharedTrust;
+      assert.ok(approval);
+      assert.equal(approval.hash, approvedHash);
+      for (const patch of [
+        { plansDir: 'other/plans' }, { draftStarters: [{ type: 'command', name: 'explore' }] },
+        { draftStarters: [] }, { setupWorktreeWait: true }, {},
+        { projectActions: [
+          { id: 'dev', name: 'Renamed', icon: 'rocket', command: 'echo dev' },
+          { id: 'mine', name: 'Mine', command: 'echo known-personal' },
+        ] },
+      ]) {
+        const view = await store.updateShared(projectId, patch);
+        assert.equal(view.trust.trusted, true);
+        assert.deepEqual(view.personal.sharedTrust, approval);
+        assert.deepEqual(JSON.parse(await fs.promises.readFile(personalPath, 'utf8')).sharedTrust, approval);
+      }
+      const personalRaw = JSON.parse(await fs.promises.readFile(personalPath, 'utf8'));
+      assert.deepEqual(personalRaw.scheduledTasks, [{ id: 'keep' }]);
+      assert.deepEqual(personalRaw.futureKey, { keep: true });
+      assert.deepEqual(personalRaw['setup-worktree'], ['echo personal']);
+    });
+  });
+
+  test('repository command/runIn changes need fresh explicit approval; failed and serialized writes preserve unrelated state', async () => {
+    await withStore(async (store, dir) => {
+      const repo = path.join(dir, 'repo');
+      const sharedPath = path.join(repo, '.openchamber', 'project.json');
+      await fs.promises.mkdir(path.dirname(sharedPath), { recursive: true });
+      const initial = { version: 1, setupWorktree: ['echo setup'], projectActions: [{ id: 'dev', name: 'Dev', command: 'echo dev' }] };
+      const projectId = projectIdFor(repo);
+      await store.update('other-project', { sharedTrustHash: 'sha256:other' });
+      const other = await store.read('other-project');
+      for (const changed of [
+        { ...initial, setupWorktree: ['echo changed'] },
+        { ...initial, projectActions: [{ ...initial.projectActions[0], runIn: 'parent' }] },
+      ]) {
+        await fs.promises.writeFile(sharedPath, JSON.stringify(initial));
+        const before = await store.read(projectId);
+        assert.equal((await store.update(projectId, { sharedTrustHash: before.trust.hash })).trust.trusted, true);
+        await fs.promises.writeFile(sharedPath, JSON.stringify(changed));
+        assert.equal((await store.read(projectId)).trust.trusted, false);
+        const unapproved = await store.updateShared(projectId, { plansDir: 'docs/plans' });
+        assert.equal(unapproved.trust.trusted, false);
+        assert.equal(unapproved.personal.sharedTrust, null);
+        assert.notEqual(unapproved.trust.hash, before.trust.hash);
+        assert.equal((await store.update(projectId, { sharedTrustHash: unapproved.trust.hash })).trust.trusted, true);
+      }
+      const approved = await store.read(projectId);
+      await Promise.all([
+        store.updateShared(projectId, { plansDir: 'new/plans' }),
+        store.updateShared(projectId, { draftStarters: [{ type: 'skill', name: 's' }] }),
+        store.update(projectId, { setupWorktree: ['echo personal'] }),
+      ]);
+      const current = await store.read(projectId);
+      assert.deepEqual(current.personal.sharedTrust, approved.personal.sharedTrust);
+      assert.deepEqual(current.personal.setupWorktree, ['echo personal']);
+      assert.equal(current.shared.plansDir, 'new/plans');
+      assert.deepEqual(current.shared.draftStarters, [{ type: 'skill', name: 's' }]);
+      assert.deepEqual(await store.read('other-project'), other);
+      await assert.rejects(store.updateShared(projectId, { setupWorktree: 'bad' }), /setupWorktree must be/);
+      assert.deepEqual(await store.read(projectId), current);
+      // A file at the directory path makes the atomic shared write fail before any trust update.
+      await fs.promises.rm(path.dirname(sharedPath), { recursive: true });
+      await fs.promises.writeFile(path.dirname(sharedPath), 'not a directory');
+      const personalPath = path.join(dir, `${projectConfigFileStemOf(projectId)}.json`);
+      const personalBefore = await fs.promises.readFile(personalPath, 'utf8');
+      await assert.rejects(store.updateShared(projectId, { setupWorktree: ['echo never-approved'] }));
+      assert.equal(await fs.promises.readFile(personalPath, 'utf8'), personalBefore);
     });
   });
 

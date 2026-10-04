@@ -1,6 +1,18 @@
 # Guest panels
 
-## Purpose
+## Fork policy
+
+Guest SDK extensions are unused and hard-disabled in this fork. Tracking: [smarty-code#1325](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1325). Upstream introduced this feature in `5181bcd338dafe8f8ff31ca10d0f3aca72e614f9`; its modules were absent from the Smarty base and common ancestor.
+
+`../opencode/feature-routes-runtime.js` skips both built-in catalog binding and guest handler registration. Its terminal `/api/guests` middleware returns HTTP 501 with `{ error: 'guests-disabled' }` for every method and descendant, after existing bootstrap auth/Host/Origin guards and before generic proxy fallback. `/api/guests-other` is unrelated and still passes. There is no environment, settings, package or request opt-in.
+
+The shared UI's `packages/ui/src/lib/guests/load-catalog.ts` captures the runtime, marks its catalog `unsupported`, and clears existing rows without a request. This applies to web, Electron, VS Code, hosted mobile and Capacitor, even when connected to an enabled external legacy or relay server. Refreshed UI cannot obtain guest frames, actions or command resolvers from its catalog. This does not establish safety for old guest frames retained in an already-open old document; returning-browser candidate qualification belongs to the release owner.
+
+Guest package files, stored grants, storage and credentials remain untouched. Existing shutdown service cleanup remains in place. First-party GitHub/Linear, the OpenCode plugin manager and native session Create/Send/read/stream are separate and unchanged.
+
+## Retained upstream implementation
+
+The rest of this document describes unreachable upstream feature code, not enabled fork behavior or repaired guest security. Low-level units remain for that code. Re-enabling it requires a separate product decision and security repair of the findings tracked by #1325.
 
 OpenChamber-owned install and static serve for iframe guests. This is not the OpenCode plugin manager (`plugin-routes.js` / Settings → Plugins).
 

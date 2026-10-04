@@ -127,9 +127,8 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
     scrollContainerRef.current = element;
     setScrollElement(element);
   }, []);
-  // Keep Herdr's checkout head and child indentation in the shared virtual row
-  // renderer. Filtering only redundant head headers preserves every session,
-  // selection occurrence, folder target, and logical sticky-header boundary.
+  // The row model owns checkout-head header and body projection. The renderer
+  // keeps Herdr's project label and child indentation without filtering rows.
   const workspaceItems = React.useMemo(() => nestSharedCheckout(model.sectionsForRender), [model.sectionsForRender]);
   const workspaceLabelByProject = React.useMemo(() => new Map(workspaceItems.map((item) => [item.key, item.label])), [workspaceItems]);
   const hiddenHeadKeys = React.useMemo(() => {
@@ -142,15 +141,7 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
     }
     return keys;
   }, [view.showOnlyMainWorkspace, workspaceItems]);
-  const rowModel = React.useMemo(() => {
-    if (hiddenHeadKeys.size === 0) return model.rowModel;
-    const rows = model.rowModel.rows.filter((row) => row.kind !== 'group-header' || !hiddenHeadKeys.has(row.groupKey));
-    const rowIndexByKey = new Map(rows.map((row, index) => [row.key, index]));
-    const stickyHeaders = model.rowModel.stickyHeaders.map((header) => ({
-      ...header, rowIndex: rowIndexByKey.get(model.rowModel.rows[header.rowIndex]!.key)!,
-    }));
-    return { ...model.rowModel, rows, rowIndexByKey, stickyHeaders };
-  }, [hiddenHeadKeys, model.rowModel]);
+  const rowModel = model.rowModel;
   const indentedRowKeys = React.useMemo(() => {
     const prefixes: string[] = [];
     if (herdrSidebar && !view.showOnlyMainWorkspace) {

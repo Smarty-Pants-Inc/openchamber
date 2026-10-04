@@ -13,7 +13,7 @@ The managed Chats root (`~/.config/openchamber/chats`) is also one context owner
 | `<projectsDir>/<projectId>/context.json` | **this module, exclusively** | notes, todos, plan manifest |
 | `<projectsDir>/<projectId>/plans/*.md` | **this module, exclusively** | plan bodies |
 | `<projectsDir>/<projectId>/memory.json` | `packages/web/server/lib/agent-memory` | what the agent chose to remember about the project |
-| `<repo>/<plansDir>/*.md` | this module (read, edit, delete, move) when the team config names a `plansDir`; the folder is the team's, any tool may write there | shared plan bodies |
+| `<repo>/<plansDir>/*.md` | repository-owned files; production shared-plan access is hard-disabled in this fork | retained shared plan bodies |
 
 `<projectId>` in these paths is the bounded stem `projectConfigFileStemOf`
 (`packages/web/server/lib/projects/project-id.js`) gives the id: the id itself
@@ -71,24 +71,21 @@ the two ever disagree.
 
 ## Shared plans
 
-Every `.md` file in the repository plans folder is a plan too: `.openchamber/plans`
-by default, or the `plansDir` the team config (`<repo>/.openchamber/project.json`,
-see `packages/web/server/lib/projects`) names instead of it (the custom folder
-replaces the default outright; moving files between the two is the user's job). `readContext` appends them after the personal ones,
-each marked `source: "shared"` (personal ones get `source: "personal"`), and
-reports the folder as `sharedPlansDir`. A shared plan is addressed as
-`shared:<file>` when no manifest entry claims it; its title is parsed from the
-file on every list, and `readPlan` / `updatePlan` / `deletePlan` work on the
-file directly (an update writes the raw document verbatim, so a plan another
-tool wrote keeps its shape). `setPlanPinned` is `404` for such a plan.
+Production repository shared plans are unavailable. The project config runtime
+returns no shared folder, even for valid default or configured directories.
+See [the fork policy and smarty-code#1325](../projects/DOCUMENTATION.md#repository-shared-plans-are-disabled)
+for the upstream introduction and security cause.
 
-A plan the user moves there keeps its id: `sharePlan` moves the markdown into
-the folder and keeps the manifest entry with `shared: true` (the flag says
-which folder holds the file), so a session that attached the plan still finds
-it, and the file is listed under that id instead of `shared:<file>`.
-`unsharePlan` moves it back and clears the flag; a plan that only ever lived
-in the team's folder gets a manifest entry (and an id) on the way in. A name
-collision gets a numeric suffix. Sharing is refused only when the checkout cannot be located.
+`readContext` lists only personal plans and returns `sharedPlansDir: null`.
+Direct `shared:<file>` IDs and existing manifest entries marked `shared: true`
+cannot be read, edited, pinned, deleted or unshared. These operations return
+not found before filesystem or manifest mutation. Sharing returns the existing
+required-folder error. Stored shared files and manifest entries remain untouched;
+personal CRUD, notes and todos remain supported.
+
+The low-level runtime still accepts an explicitly injected non-null resolver for
+upstream shared-feature unit tests. Production composition must use
+`projectConfigRuntime.resolveSharedPlansDir`, never a repository-derived resolver.
 
 ## Routes
 
@@ -104,8 +101,8 @@ collision gets a numeric suffix. Sharing is refused only when the checkout canno
 | POST | `/api/project-context/:projectId/plans` | `201`; takes `{title, body}`, never a path |
 | PUT | `/api/project-context/:projectId/plans/:planId` | takes the whole `{raw}` document; `404` when the link or its markdown is gone |
 | DELETE | `/api/project-context/:projectId/plans/:planId` | `404` when unknown |
-| POST | `/api/project-context/:projectId/plans/:planId/share` | moves the plan into the shared folder; `400` without one, `404` when unknown |
-| POST | `/api/project-context/:projectId/plans/:planId/unshare` | moves a `shared:` plan back; `404` when unknown |
+| POST | `/api/project-context/:projectId/plans/:planId/share` | `400` in production because repository shared plans are disabled |
+| POST | `/api/project-context/:projectId/plans/:planId/unshare` | `404` in production; stored shared files and links remain untouched |
 
 **Body parsing is attached per route.** This server has no global JSON parser:
 `core-routes` parses only an allowlist of `/api` path prefixes so the generic

@@ -83,6 +83,101 @@ describe("input-store composer restore", () => {
   })
 })
 
+describe("input-store automatic reload custody", () => {
+  const source = { runtimeKey: "runtime", directory: "/repo", sessionId: "A" }
+  const other = { ...source, sessionId: "B" }
+  const file = { url: "data:text/plain;base64,aGVsbG8=", mimeType: "text/plain", filename: "hello.txt" }
+  const reconnect = async (sleep: () => Promise<void> = async () => undefined) => {
+    let reloaded = 0
+    const result = await reloadIfNewBuild({
+      running: () => "/assets/main-OLD.js",
+      fetchIndex: async () => '<script type="module" src="/assets/main-NEW.js"></script>',
+      busy: () => reloadHeld() || useInputStore.getState().hasReloadBlockingInput(),
+      reload: () => { reloaded += 1 },
+      jitterMs: () => 30_000,
+      sleep,
+    })
+    return { result, reloaded }
+  }
+
+  beforeEach(() => {
+    useInputStore.setState({ pendingComposerRestore: null, attachmentDraftKey: null, attachmentDrafts: new Map() })
+    useInputStore.getState().setAttachedFiles([])
+  })
+
+  test("A's file still holds a newer-build reconnect after selecting empty B; clearing the last owner releases it", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    input.addRestoredAttachment(file)
+    const files = useInputStore.getState().attachedFiles
+    input.selectAttachmentDraft(other)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(reloadHeld()).toBe(false) // No text, send or file-read hold can hide this regression.
+    expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+    input.selectAttachmentDraft(source)
+    expect(useInputStore.getState().attachedFiles).toBe(files)
+    input.selectAttachmentDraft(other)
+    input.clearAttachedFiles(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("clearing one owner cannot release another runtime or directory's retained files", async () => {
+    const input = useInputStore.getState()
+    const owners = [source, { ...source, directory: "/other" }, { ...source, runtimeKey: "other-runtime" }]
+    for (const owner of owners) {
+      input.selectAttachmentDraft(owner)
+      input.addRestoredAttachment(file)
+    }
+    input.selectAttachmentDraft(other)
+    for (const owner of owners) {
+      expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+      input.clearAttachedFiles(owner)
+    }
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("pending file-only or text-only replay holds reload before its destination renders", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    for (const replay of [{ text: "", files: [file] }, { text: "replay words", files: [] }]) {
+      const pending = { target: other, ...replay }
+      useInputStore.setState({ pendingComposerRestore: pending })
+      expect(input.consumePendingComposerRestore(source)).toBeNull()
+      expect(useInputStore.getState().attachedFiles).toEqual([])
+      expect(reloadHeld()).toBe(false)
+      expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+      expect(input.consumePendingComposerRestore(other)).toBe(pending)
+      expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+    }
+  })
+
+  test("counterexample: an emptied same owner and an empty replay allow reload", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    input.addRestoredAttachment(file)
+    expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+    input.clearAttachedFiles(source)
+    input.selectAttachmentDraft(source)
+    useInputStore.setState({ pendingComposerRestore: { target: source, text: "", files: [] } })
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+    input.selectAttachmentDraft(other)
+    input.selectAttachmentDraft(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("the scheduler rechecks retained owners after its delay, not just visible files", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    expect(await reconnect(async () => {
+      input.addRestoredAttachment(file)
+      input.selectAttachmentDraft(other)
+    })).toEqual({ result: false, reloaded: 0 })
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    input.clearAttachedFiles(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+})
+
 describe("input-store attachments", () => {
   beforeEach(() => {
     pendingReaders.length = 0
@@ -110,7 +205,7 @@ describe("input-store attachments", () => {
     let reloaded = 0
     const index = '<script type="module" src="/assets/main-NEW.js"></script>'
     expect(await reloadIfNewBuild({ running: () => "/assets/main-OLD.js", fetchIndex: async () => index,
-      busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0, reload: () => { reloaded += 1 },
+      busy: () => reloadHeld() || useInputStore.getState().hasReloadBlockingInput(), reload: () => { reloaded += 1 },
       jitterMs: () => 30_000, sleep: async () => undefined })).toBe(false)
     expect(reloaded).toBe(0)
     resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")

@@ -15,6 +15,7 @@
  * Reads keep the contract callers were written against: a failed read logs
  * and resolves to the empty setup, because worktree creation and the new
  * session screen must keep working when the config cannot be fetched.
+ * Execution callers opt into strict reads so failure cannot grant trust.
  * Writes resolve `false` on failure.
  */
 
@@ -172,10 +173,13 @@ const parseSetupResponse = async (response: Response): Promise<ProjectSetup> => 
   return parsed.data;
 };
 
-/** The project's merged setup, or the empty setup when it cannot be read. */
-export async function getProjectSetup(project: ProjectRef): Promise<ProjectSetup> {
+/** Strict execution reads throw; ordinary reads retain the empty continuity fallback. */
+export async function getProjectSetup(project: ProjectRef, options: { strict?: boolean } = {}): Promise<ProjectSetup> {
   const projectId = resolveProjectSetupId(project);
-  if (!projectId) return EMPTY_PROJECT_SETUP;
+  if (!projectId) {
+    if (options.strict) throw new Error('Project config requires a project path');
+    return EMPTY_PROJECT_SETUP;
+  }
   try {
     const response = await runtimeFetch(endpointFor(projectId), {
       method: 'GET',
@@ -187,6 +191,7 @@ export async function getProjectSetup(project: ProjectRef): Promise<ProjectSetup
     }
     return await parseSetupResponse(response);
   } catch (error) {
+    if (options.strict) throw error;
     console.warn('Failed to read project config:', error);
     return EMPTY_PROJECT_SETUP;
   }

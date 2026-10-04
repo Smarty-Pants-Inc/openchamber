@@ -14,6 +14,8 @@ import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { summarizeSelectionForNotes } from '@/lib/smallModel';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { getRuntimeKey } from '@/lib/runtime-switch';
+import { useChatColumnSession } from '../chatColumnSession';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
 import { isIMECompositionEvent } from '@/lib/ime';
@@ -46,6 +48,7 @@ interface SelectionPayload {
   rect: DOMRect;
   messageId: string | null;
   range: Range;
+  parent: { sessionId: string; directory: string; runtimeKey: string } | null;
 }
 
 const normalizeDistilledInsight = (insight: string): string => (
@@ -127,6 +130,12 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
   const effectiveDirectory = useEffectiveDirectory();
   const sessions = useSessions();
+  const chatColumnSession = useChatColumnSession();
+  const displayedSessionId = chatColumnSession ? chatColumnSession.sessionId : currentSessionId;
+  const displayedSessionDirectory = useSessionUIStore(React.useCallback(
+    (state) => displayedSessionId ? state.getDirectoryForSession(displayedSessionId) : null,
+    [displayedSessionId],
+  )) ?? (chatColumnSession ? chatColumnSession.directory : effectiveDirectory);
 
   // Mobile: the comment bar is rendered inside the composer form (its
   // positioning context), so it inherits the runtime's own keyboard handling
@@ -367,13 +376,18 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
       rect,
       messageId: anchorElement?.closest('[data-message-id]')?.getAttribute('data-message-id') ?? null,
       range: range.cloneRange(),
+      // Capture the conversation owning the selected text, not the sidebar's
+      // next selection while the outgoing timeline is still displayed.
+      parent: displayedSessionId && displayedSessionDirectory
+        ? { sessionId: displayedSessionId, directory: displayedSessionDirectory, runtimeKey: getRuntimeKey() }
+        : null,
     };
 
     // Only show menu if we're not currently dragging
     if (!isDraggingRef.current) {
       showMenu();
     }
-  }, [containerRef, hideMenu, showMenu]);
+  }, [containerRef, displayedSessionDirectory, displayedSessionId, hideMenu, showMenu]);
 
   React.useEffect(() => {
     const container = containerRef.current;
@@ -453,9 +467,17 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   }, [addMarkdownToChat, selectedTextMarkdown]);
 
   const handleAskOpenChamber = React.useCallback(() => {
-    if (!currentSessionId || !selectedTextMarkdown) return;
+    const parent = pendingSelectionRef.current?.parent;
+    if (!parent || !selectedTextMarkdown) return;
+    if (parent.runtimeKey !== getRuntimeKey()
+      || parent.sessionId !== displayedSessionId
+      || parent.directory !== displayedSessionDirectory) {
+      toast.error(t('chat.btw.toast.createFailed'));
+      hideMenu();
+      return;
+    }
     requestBtwComposer({
-      parentSessionId: currentSessionId,
+      parentSessionId: parent.sessionId,
       text: wrapMarkdownSelectionForChat(selectedTextMarkdown),
     });
     hideMenu();
@@ -463,7 +485,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
     queueMicrotask(() => {
       focusChatInput();
     });
-  }, [currentSessionId, hideMenu, requestBtwComposer, selectedTextMarkdown]);
+  }, [displayedSessionDirectory, displayedSessionId, hideMenu, requestBtwComposer, selectedTextMarkdown, t]);
 
   const handleOpenComment = React.useCallback(() => {
     if (!selectedTextMarkdown) return;
@@ -701,7 +723,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             <span className="min-w-0 whitespace-normal">{t('chat.textSelection.actions.addToInput')}</span>
           </button>
 
-          {currentSessionId ? (
+          {displayedSessionId ? (
             <button
               onClick={handleAskOpenChamber}
               className={cn(
@@ -780,7 +802,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             {t('chat.textSelection.actions.comment')}
           </button>
 
-          {currentSessionId ? (
+          {displayedSessionId ? (
             <>
               <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--interactive-border)]" />
               <button

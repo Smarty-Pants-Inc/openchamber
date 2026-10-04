@@ -19,7 +19,7 @@ const childProcess = await import('child_process');
 const packageManager = await import('../package-manager.js');
 const { registerOpenChamberRoutes } = await import('./openchamber-routes.js');
 
-const createApp = ({ environment = {}, storedOptions = {}, desktopUpdater, platform = 'linux', execPath = '/usr/bin/node' } = {}) => {
+const createApp = ({ environment = {}, storedOptions = {}, desktopUpdater, platform = 'linux', execPath = '/usr/bin/node', serverDir = '/opt/openchamber/server', pathModule = path } = {}) => {
   const app = express();
   const dependencies = {
     fs: {
@@ -36,7 +36,7 @@ const createApp = ({ environment = {}, storedOptions = {}, desktopUpdater, platf
         })),
       },
     },
-    path,
+    path: pathModule,
     process: {
       env: environment,
       platform,
@@ -47,7 +47,7 @@ const createApp = ({ environment = {}, storedOptions = {}, desktopUpdater, platf
       address: () => ({ port: 7897 }),
       close: vi.fn(),
     },
-    __dirname: '/opt/openchamber/server',
+    __dirname: serverDir,
     openchamberDataDir: '/tmp/openchamber',
     modelsDevApiUrl: 'https://models.example.test',
     modelsMetadataCacheTtl: 0,
@@ -313,6 +313,65 @@ describe('OpenChamber web update route on Windows', () => {
     );
     // The listener is closed before the batch is spawned, so the detached
     // child cannot inherit the socket and hold the port against the restart.
+    expect(dependencies.server.close).toHaveBeenCalledOnce();
+    expect(dependencies.server.close.mock.invocationCallOrder[0]).toBeLessThan(childProcess.spawn.mock.invocationCallOrder[0]);
+    expect(dependencies.process.exit).toHaveBeenCalledWith(0);
+  });
+
+  it.each([
+    {
+      label: 'ordinary paths',
+      execPath: 'C:\\Program Files\\nodejs\\node.exe',
+      serverDir: 'C:\\Program Files\\OpenChamber\\server',
+      expectedPaths: '"C:\\Program Files\\nodejs\\node.exe" "C:\\Program Files\\OpenChamber\\bin\\cli.js"',
+    },
+    {
+      label: 'a percent-bearing executable path',
+      execPath: 'C:\\Program %Files\\nodejs\\node.exe',
+      serverDir: 'C:\\Program Files\\OpenChamber\\server',
+      expectedPaths: '"C:\\Program %%Files\\nodejs\\node.exe" "C:\\Program Files\\OpenChamber\\bin\\cli.js"',
+    },
+    {
+      label: 'a percent-bearing CLI install path',
+      execPath: 'C:\\Program Files\\nodejs\\node.exe',
+      serverDir: 'C:\\Program %Files\\OpenChamber\\server',
+      expectedPaths: '"C:\\Program Files\\nodejs\\node.exe" "C:\\Program %%Files\\OpenChamber\\bin\\cli.js"',
+    },
+    {
+      label: 'percent-bearing executable and CLI install paths',
+      execPath: 'C:\\Program %Files\\nodejs\\node.exe',
+      serverDir: 'C:\\Program %Files\\OpenChamber\\server',
+      expectedPaths: '"C:\\Program %%Files\\nodejs\\node.exe" "C:\\Program %%Files\\OpenChamber\\bin\\cli.js"',
+    },
+  ])('escapes percent signs once for $label and preserves restart argument quoting', async ({ execPath, serverDir, expectedPaths }) => {
+    const { app, dependencies } = createApp({
+      platform: 'win32',
+      pathModule: path.win32,
+      execPath,
+      serverDir,
+      storedOptions: { launchMode: 'daemon', port: 7897, host: 'host%name', uiPassword: 'pa%ss"&|<>()^', apiOnly: true },
+    });
+    childProcess.spawn.mockReturnValue({ unref: vi.fn() });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const response = await request(app).post('/api/openchamber/update-install').expect(200);
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+
+    expect(response.body.autoRestart).toBe(true);
+    expect(response.body.restartManager).toBe('cli');
+    const scriptPath = path.win32.join('/tmp/openchamber', 'update-install.cmd');
+    expect(dependencies.fs.writeFileSync).toHaveBeenCalledWith(scriptPath, expect.any(String), 'utf8');
+    const script = dependencies.fs.writeFileSync.mock.calls[0][1];
+    const lines = script.split('\r\n');
+    const expectedFlags = 'serve --port 7897 --host "host%%name" --ui-password "pa%%ss""&|<>()^" --api-only';
+    const expectedRestart = `(${expectedPaths} ${expectedFlags}) || (openchamber ${expectedFlags})`;
+    // Inspect the executable line, not just the diagnostic echo. Both restart
+    // attempts keep the flags; only batch serialization doubles literal `%`.
+    expect(lines).toContain(`  ${expectedRestart}`);
+    expect(lines).toContain(`echo restartCommand=${expectedRestart.replace(/[&|<>()^]/g, '^$&')}`);
+    expect(script).not.toContain('%%%%');
+    expect(lines).toContain(`  echo Update successful, restarting ${PRODUCT_NAME}...`);
+    expect(childProcess.spawn).toHaveBeenCalledWith('cmd.exe', ['/c', scriptPath], expect.objectContaining({ detached: true, windowsHide: true }));
     expect(dependencies.server.close).toHaveBeenCalledOnce();
     expect(dependencies.server.close.mock.invocationCallOrder[0]).toBeLessThan(childProcess.spawn.mock.invocationCallOrder[0]);
     expect(dependencies.process.exit).toHaveBeenCalledWith(0);

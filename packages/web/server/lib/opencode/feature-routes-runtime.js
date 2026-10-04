@@ -5,9 +5,6 @@ import { registerWalkthroughRoutes } from '../walkthrough/routes.js';
 import { registerSessionGoalRoutes } from '../session-goal/routes.js';
 import { registerGitHubRoutes } from '../github/routes.js';
 import { registerLinearRoutes } from '../linear/routes.js';
-import { registerGuestRoutes } from '../guests/routes.js';
-import { registerBuiltInGuests } from '../guests/catalog.js';
-import { extensionsPersistPath } from '../guests/persist.js';
 import { registerGitRoutes } from '../git/routes.js';
 import { registerDevServerRoutes } from '../dev-servers/routes.js';
 import { registerMagicPromptRoutes } from '../magic-prompts/routes.js';
@@ -146,7 +143,6 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       permissionAutoAcceptRuntime,
       messageQueueRuntime,
       routingRuntime,
-      openchamberVersion,
     } = routeDependencies;
 
     // First, so managed refusals precede the project, settings and filesystem routes below.
@@ -327,8 +323,9 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     registerSessionGoalRoutes(app);
     registerGitHubRoutes(app, { writeSettingsToDisk });
     registerLinearRoutes(app, { writeSettingsToDisk });
-    await registerBuiltInGuests({ persistPath: extensionsPersistPath(openchamberDataDir), root: routeDependencies.builtInExtensionsDir });
-    registerGuestRoutes(app, { openchamberDataDir, openchamberVersion, resolveGitBinaryForSpawn, resolveOptionalProjectDirectory, getSmallModelService });
+    // Fork policy: guests are unused, with no opt-in. Keep this terminal boundary
+    // behind bootstrap auth/Origin and ahead of the generic OpenCode proxy (#1325).
+    app.use('/api/guests', (_req, res) => res.status(501).json({ error: 'guests-disabled' }));
     registerGitRoutes(app, {
       emitWorktreeChanged: ({ directories, at }) => {
         const clients = getOpenChamberEventClients();

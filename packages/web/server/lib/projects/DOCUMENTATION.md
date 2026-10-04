@@ -28,7 +28,7 @@ blocks so a page can edit the personal file without copying a teammate's entry i
 | `projectActions` | union by `id`; a personal action replaces the shared one with the same id; ids in personal `hiddenSharedActionIds` are dropped; every entry carries `source` |
 | `projectActionsPrimaryId` | personal only |
 | `draftStarters` | union by `type:name`, shared first, every entry carries `source` |
-| `plansDir` | shared only |
+| `plansDir` | retained shared metadata only; repository shared-plan access is hard-disabled in this fork |
 
 A shared file that exists but cannot be parsed (or names a `plansDir` outside the
 repo) is `shared.status: "invalid"` with a `reason`; the personal setup is still
@@ -44,8 +44,10 @@ pretty-printed with `version` first and only the keys that carry something
 A result with nothing in it removes the file and the `.openchamber` folder
 when that leaves it empty, so unsharing the last item leaves no trace. The
 write refuses a checkout that does not exist and a `plansDir` outside the
-repo. The writer has seen what it shared, so its personal trust record is set
-to the new hash; teammates still get the prompt. The shared UI composes
+repo. A shared patch never grants command approval, including a patch that
+shares commands. It preserves the existing personal trust record and its
+original timestamp only when its hash matches the complete resulting executable
+set. Otherwise it clears the record. The shared UI composes
 "share" and "make personal" as a shared write followed by a personal write.
 
 ### Trust
@@ -59,7 +61,21 @@ nothing executes. `trusted` is true when nothing executes or the personal
 file's `sharedTrust.hash` equals the current hash, so a pull that changes a
 command brings the prompt back. The client records an answer with a PUT of
 `sharedTrustHash` (`null` forgets it). The prompt itself lives in the shared
-UI (`packages/ui/src/lib/sharedTrustConfirmation.ts`).
+UI (`packages/ui/src/lib/sharedTrustConfirmation.ts`). Only that explicit
+`sharedTrustHash` approval path records a new answer. Existing records cannot
+distinguish explicit approvals from approvals minted by older shared writers;
+this repair does not reset or migrate them.
+
+### Repository shared plans are disabled
+
+`resolveSharedPlansDir` always returns `null`, before reading personal config or
+checkout metadata. There is no opt-in through preferences, environment variables,
+or `plansDir`. Repository shared plans are unused in Smarty Code, and upstream
+commit `82a0ee7572e59dbc965d593268a41ef0395860fa` introduced shared-plan filesystem
+operations that follow escaping symlinks. The fork decision and follow-up are
+tracked in [smarty-code#1325](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1325).
+Stored repository files and shared manifest entries are retained, not migrated or
+deleted. Personal plans, notes and todos remain owned by project-context.
 
 ## Modules
 

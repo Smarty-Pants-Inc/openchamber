@@ -4,6 +4,7 @@ import { compareSessionsByLifecycleOrder, EMPTY_SESSION_ORDER_RANKS } from '@/sy
 import type { GroupSearchData, SessionGroup, SessionNode } from './types';
 import type { ProjectSection } from './projects/sessionProjectRender';
 import { buildGroupRenderDescriptors } from './projects/sessionProjectRender';
+import { nestSharedCheckout } from './projects/workspaceSections';
 import { normalizeFolderRoots, selectFolderIdsForProjection, selectFolderRootNodes } from './sessions/sessionNodeItemUtils';
 import { getSessionFolderIdentityKey, getSessionFolderOwnerKey, getSessionFolderScopes, isArchivedFolderScope } from './sessions/sessionFolderIdentity';
 import type { SessionRowOrderEntry } from './sessions/sessionRowOrder';
@@ -265,7 +266,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     }
   };
 
-  const appendGroup = (group: SessionGroup, groupKey: string, projectId: string | null, hideHeader: boolean): void => {
+  const appendGroup = (group: SessionGroup, groupKey: string, projectId: string | null, hideHeader: boolean, headerlessCheckoutHead = false): void => {
     const searchData = args.groupSearchDataByGroup.get(group);
     if (search && searchData?.hasMatch !== true) return;
     if (search && searchData) {
@@ -278,7 +279,9 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     selectionDescendantIds.push(...indexed.preorderIds);
     for (const [id, session] of indexed.sessionsById) sessionById.set(id, session);
     const ownerKey = getSessionFolderOwnerKey(projectId, group.directory);
-    const collapsed = !search && args.collapsedGroups.has(groupKey);
+    // A shared checkout head without its own header has no group expansion control.
+    // Ignore its collapse only in that presentation; keep the stored headed-view preference.
+    const collapsed = !search && !headerlessCheckoutHead && args.collapsedGroups.has(groupKey);
     if (!hideHeader) {
       const allSessions = indexed.preorderIds.flatMap((id) => indexed.sessionsById.get(id) ?? []);
       push({ kind: 'group-header', key: `${groupKey}:header`, estimateSize: HEADER_ESTIMATE, group, groupKey, projectId, collapsed, forceExpanded: search, allSessions: Object.freeze(allSessions) });
@@ -450,8 +453,13 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
       stickyHeaders.push(Object.freeze({ rowIndex, kind: 'project', id: section.project.id }));
     }
     if (projectCollapsed) continue;
+    const checkout = !args.showOnlyMainWorkspace ? nestSharedCheckout([section])[0] : null;
+    const headerlessHead = checkout?.label ? section.groups.find((group) => group.isWorkspaceHead) : undefined;
     const descriptors = buildGroupRenderDescriptors(section, { mainWorkspaceOnly: args.showOnlyMainWorkspace });
-    for (const descriptor of descriptors) appendGroup(descriptor.group, descriptor.groupKey, descriptor.projectId, descriptor.hideGroupLabel);
+    for (const descriptor of descriptors) {
+      const headerlessCheckoutHead = descriptor.group === headerlessHead;
+      appendGroup(descriptor.group, descriptor.groupKey, descriptor.projectId, descriptor.hideGroupLabel || headerlessCheckoutHead, headerlessCheckoutHead);
+    }
   }
 
   if (rows.length === 0) {

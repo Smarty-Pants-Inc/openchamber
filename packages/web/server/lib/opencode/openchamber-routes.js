@@ -283,7 +283,8 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
       const quotePosix = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
       const quoteCmd = (value) => {
         const stringValue = String(value);
-        return `"${stringValue.replace(/%/g, '%%').replace(/"/g, '""')}"`;
+        // Percent signs are escaped once when serializing the batch file.
+        return `"${stringValue.replace(/"/g, '""')}"`;
       };
 
       const cliPath = path.resolve(__dirname, '..', 'bin', 'cli.js');

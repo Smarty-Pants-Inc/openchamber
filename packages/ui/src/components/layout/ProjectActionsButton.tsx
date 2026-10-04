@@ -25,13 +25,13 @@ import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
 import { openExternalUrl } from '@/lib/url';
 import { useI18n } from '@/lib/i18n';
 import {
-  getProjectActionsState,
   getProjectSetup,
   type OpenChamberProjectAction,
   type ProjectSetup,
   type ProjectRef,
 } from '@/lib/openchamberConfig';
 import { ensureSharedSetupTrusted } from '@/lib/sharedTrustConfirmation';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import {
   normalizeProjectActionDirectory,
   PROJECT_ACTION_ICONS,
@@ -149,8 +149,10 @@ export const ProjectActionsButton = ({
   const captureStartedActionMutationRevisions = useTerminalStore((state) => state.captureStartedActionMutationRevisions);
 
   const [actions, setActions] = React.useState<OpenChamberProjectAction[]>([]);
-  // The last merged setup, for the trust check before a shared action runs.
-  const setupRef = React.useRef<ProjectSetup | null>(null);
+  const actionsAuthorityRef = React.useRef<{
+    project: ProjectRef;
+    scope: ReturnType<typeof captureRuntimeRequestScope>;
+  } | null>(null);
   const [selectedActionId, setSelectedActionId] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const urlWatchByRunKeyRef = React.useRef<Record<string, UrlWatchEntry>>({});
@@ -189,13 +191,14 @@ export const ProjectActionsButton = ({
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
 
+    const scope = captureRuntimeRequestScope();
     setIsLoading(true);
     try {
       const setup = await getProjectSetup(stableProjectRef);
-      if (loadRequestIdRef.current !== requestId) {
+      if (loadRequestIdRef.current !== requestId || !isRuntimeRequestScopeCurrent(scope)) {
         return;
       }
-      setupRef.current = setup;
+      actionsAuthorityRef.current = { project: stableProjectRef, scope };
       const filtered = setup.projectActions;
       setActions(filtered);
       setSelectedActionId((current) => {
@@ -272,6 +275,16 @@ export const ProjectActionsButton = ({
     }
     return normalizedDirectory;
   }, [normalizedDirectory, normalizedProjectDirectory]);
+
+  const launchOwner = React.useMemo(() => ({
+    project: stableProjectRef, directory: normalizedDirectory, terminal,
+  }), [stableProjectRef, normalizedDirectory, terminal]);
+  const launchOwnerRef = React.useRef<typeof launchOwner | null>(launchOwner);
+  launchOwnerRef.current = launchOwner;
+  React.useEffect(() => {
+    launchOwnerRef.current = launchOwner;
+    return () => { launchOwnerRef.current = null; };
+  }, [launchOwner]);
 
   const executionKey = React.useCallback((executionDirectory: string, actionId: string, executionId: string) => (
     `${executionDirectory}::${actionId}::${executionId}`
@@ -748,7 +761,17 @@ export const ProjectActionsButton = ({
       return;
     }
 
-    const runKey = toProjectActionRunKey(executionDirectoryFor(action), action.id);
+    const scope = captureRuntimeRequestScope();
+    const owner = launchOwner;
+    const isOwnerCurrent = () => launchOwnerRef.current === owner && isRuntimeRequestScopeCurrent(scope);
+    const catalogAuthority = actionsAuthorityRef.current;
+    if (!stableProjectRef || (action.id !== AUTO_DISCOVER_ACTION_ID && (
+      catalogAuthority?.project !== stableProjectRef || !isRuntimeRequestScopeCurrent(catalogAuthority.scope)
+    ))) return;
+    // Capture executable bytes, target and owner before discovery or confirmation yields.
+    action = { ...action };
+    const launchDirectory = executionDirectoryFor(action);
+    const runKey = toProjectActionRunKey(launchDirectory, action.id);
     const existingRun = projectActionRuns[runKey];
     if (existingRun && existingRun.status === 'running') {
       return;
@@ -758,26 +781,52 @@ export const ProjectActionsButton = ({
     let requestedExecution: { directory: string; tabId: string; id: string } | null = null;
 
     try {
-      const discovered = action.id === AUTO_DISCOVER_ACTION_ID
-        ? await (async (): Promise<OpenChamberProjectAction> => {
-          const [actionsState, scripts] = await Promise.all([
-            getProjectActionsState({ id: stableProjectRef?.id ?? '', path: normalizedDirectory }),
-            readPackageJsonScripts(normalizedDirectory),
-          ]);
-          const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
-          if (!devServer) {
-            throw new Error(t('contextPanel.preview.noDevServer'));
-          }
-          return {
-            id: AUTO_DISCOVER_ACTION_ID,
-            name: t('projectActions.actions.autoDiscover'),
-            command: devServer.command,
-            icon: 'scan-2',
-            autoOpenUrl: true,
-            openUrl: devServer.previewUrlHint || '',
-          };
-        })()
-        : action;
+      const trustProject = action.id === AUTO_DISCOVER_ACTION_ID
+        ? { id: stableProjectRef.id, path: normalizedDirectory }
+        : stableProjectRef;
+      let setup: ProjectSetup | null = null;
+      let candidate = action;
+      let discovered = action;
+      if (action.id === AUTO_DISCOVER_ACTION_ID) {
+        const [discoverySetup, scripts] = await Promise.all([
+          getProjectSetup(trustProject, { strict: true }),
+          readPackageJsonScripts(normalizedDirectory),
+        ]);
+        setup = discoverySetup;
+        if (!isOwnerCurrent()) return;
+        const devServer = await detectDevServerCommand(normalizedDirectory, setup.projectActions, scripts);
+        if (!devServer) throw new Error(t('contextPanel.preview.noDevServer'));
+        const detectedAction = devServer.actionId
+          ? setup.projectActions.find((entry) => entry.id === devServer.actionId)
+          : null;
+        if (devServer.actionId && (!detectedAction || detectedAction.command !== devServer.command)) return;
+        candidate = detectedAction ? { ...detectedAction } : { ...action, command: devServer.command };
+        discovered = {
+          ...candidate,
+          id: AUTO_DISCOVER_ACTION_ID,
+          name: t('projectActions.actions.autoDiscover'),
+          command: devServer.command,
+          icon: 'scan-2',
+          autoOpenUrl: true,
+          openUrl: devServer.previewUrlHint || '',
+        };
+      }
+      const matchesCandidate = (view: ProjectSetup) => view.projectActions.some((entry) => (
+        entry.id === candidate.id && entry.source === candidate.source
+        && entry.command === candidate.command && entry.runIn === candidate.runIn
+      )) && view.shared.projectActions.some((entry) => (
+        entry.id === candidate.id && entry.command === candidate.command && entry.runIn === candidate.runIn
+      ));
+      if (candidate.source === 'shared') {
+        setup ??= await getProjectSetup(trustProject, { strict: true });
+        if (!isOwnerCurrent() || !matchesCandidate(setup)) {
+          if (isOwnerCurrent()) void loadActions();
+          return;
+        }
+        const approvedSetup = setup;
+        if (!(await ensureSharedSetupTrusted(trustProject, approvedSetup, isOwnerCurrent))) return;
+      }
+      if (!isOwnerCurrent()) return;
 
       const hasCustomOpenUrl = discovered.autoOpenUrl === true && (discovered.openUrl || '').trim().length > 0;
       const revealTerminal = !hasCustomOpenUrl && action.id !== AUTO_DISCOVER_ACTION_ID;
@@ -810,6 +859,16 @@ export const ProjectActionsButton = ({
         }
       }
 
+      if (!isOwnerCurrent() || executionDirectory !== launchDirectory) return;
+      if (candidate.source === 'shared' && setup) {
+        const currentSetup = await getProjectSetup(trustProject, { strict: true });
+        if (!isOwnerCurrent() || !matchesCandidate(currentSetup) || currentSetup.trust.hash !== setup.trust.hash
+          || (setup.trust.trusted && !currentSetup.trust.trusted)) {
+          if (isOwnerCurrent()) void loadActions();
+          return;
+        }
+      }
+      if (!isOwnerCurrent()) return;
       const priorTab = getActionTab(executionDirectory, discovered.id);
       let activeSessionId: string;
       let adoptedExecutionId: string;
@@ -1009,7 +1068,9 @@ export const ProjectActionsButton = ({
     setTabPurpose,
     setTabPreviewUrl,
     setTabSessionId,
-    stableProjectRef?.id,
+    stableProjectRef,
+    launchOwner,
+    loadActions,
     t,
     terminal,
   ]);
@@ -1059,25 +1120,11 @@ export const ProjectActionsButton = ({
     void runAction(action);
   }, [displayActions, executionDirectoryFor, runAction, projectActionRuns, selectedAction, stopAction]);
 
-  // A shared action comes from the repo: the first time one would run, the
-  // trust prompt shows the team's commands; "not this time" runs nothing.
-  const runActionWithTrust = React.useCallback(async (action: OpenChamberProjectAction) => {
-    if (action.source === 'shared' && stableProjectRef) {
-      const setup = setupRef.current?.trust.trusted ? setupRef.current : await getProjectSetup(stableProjectRef);
-      setupRef.current = setup;
-      if (!(await ensureSharedSetupTrusted(stableProjectRef, setup))) {
-        return;
-      }
-      setupRef.current = { ...setup, trust: { ...setup.trust, trusted: true } };
-    }
-    await runAction(action);
-  }, [runAction, stableProjectRef]);
-
   const handleSelectAction = React.useCallback((action: OpenChamberProjectAction, toggleStopIfRunning = false) => {
     setSelectedActionId(action.id);
 
     if (!toggleStopIfRunning) {
-      void runActionWithTrust(action);
+      void runAction(action);
       return;
     }
 
@@ -1090,8 +1137,8 @@ export const ProjectActionsButton = ({
       void stopAction(action);
       return;
     }
-    void runActionWithTrust(action);
-  }, [executionDirectoryFor, runActionWithTrust, projectActionRuns, stopAction]);
+    void runAction(action);
+  }, [executionDirectoryFor, runAction, projectActionRuns, stopAction]);
 
   const openProjectActionsSettings = React.useCallback(() => {
     if (!stableProjectRef?.id) {

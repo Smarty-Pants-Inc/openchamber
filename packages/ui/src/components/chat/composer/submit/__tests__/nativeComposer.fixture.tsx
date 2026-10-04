@@ -38,7 +38,6 @@ mock.module('@/contexts/useThemeSystem', () => ({ useThemeSystem: () => ({ curre
 /** The current session's shown activity; a test may set 'busy' (a mounted composer re-renders to read it). */
 export const shownActivity: { phase: 'idle' | 'busy' } = { phase: 'idle' };
 mock.module('@/hooks/useSessionActivity', () => ({ useSessionActivity: () => ({ phase: 'idle' }), useCurrentSessionActivity: () => ({ phase: shownActivity.phase }) }));
-mock.module('@/components/chat/btw/useBtwPanelState', () => ({ useBtwPanelState: () => ({ collapsed: true, btwSessionId: null, btwDirectory: null, parentSession: null }) }));
 export const errors: string[] = [];
 const bootstrap = nativeComposerDom();
 const bootstrapFetch = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 404 }));
@@ -48,6 +47,14 @@ spyOn(toast, 'success').mockImplementation(() => 'test-toast');
 const { createRoot } = await import('react-dom/client');
 const { EditorView } = await import('@codemirror/view');
 const sync = await import('@/sync/sync-context');
+const btwPanel = await import('@/components/chat/btw/useBtwPanelState');
+// A receiver integration test can restore the actual hook; ordinary fixture
+// consumers keep their existing inactive-BTW baseline.
+export const btwPanelSpy = spyOn(btwPanel, 'useBtwPanelState');
+btwPanelSpy.mockReturnValue({
+  collapsed: true, btwSessionId: null, btwDirectory: null, parentSession: null,
+  btwSession: null, boundaryMessageID: null, creating: false, pending: false,
+});
 spyOn(sync, 'useUserMessageHistory').mockReturnValue([]);
 spyOn(sync, 'useSessions').mockReturnValue([]);
 // This fixture deliberately mounts ChatInput without SyncProvider. Keep the

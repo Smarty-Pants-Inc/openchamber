@@ -230,6 +230,70 @@ describe('buildSessionSidebarRowModel', () => {
     expect(resolveSessionSidebarStickyHeader(model.stickyHeaders, secondHeader?.rowIndex ?? 0)?.id).toBe('project-b');
   });
 
+  test('retains collapsed checkout-head preference across headed, headerless, and headed presentations', () => {
+    const head = group([node('head-session')], { id: 'head', label: 'CasePreservedHead', workspaceId: 'pi', isWorkspaceHead: true });
+    const child = group([node('child-session')], { id: 'child', workspaceId: 'code' });
+    const worktree = group([node('worktree-session')], { id: 'linked', isMain: false, directory: '/repo-linked' });
+    const input = args([project([head, child, worktree])]);
+    const collapsedGroups = new Set(['project-a:head', 'project-a:child', 'project-a:linked']);
+    input.collapsedGroups = collapsedGroups;
+    input.foldersMap = { '/repo': [{ id: 'head-folder', name: 'Head folder', sessionIds: ['head-session'], createdAt: 1 }] };
+    child.folderScopeKey = '/repo#workspace:code';
+
+    for (const headed of [true, false, true]) {
+      input.showOnlyMainWorkspace = headed;
+      const model = buildSessionSidebarRowModel(input);
+      expect(model.rows.filter((row) => row.kind === 'session').map((row) => row.node.session.id)).toEqual(headed ? [] : ['head-session']);
+      const header = model.rows.find((row) => row.kind === 'group-header' && row.groupKey === 'project-a:head');
+      if (headed) expect(header).toMatchObject({ collapsed: true, group: { label: 'CasePreservedHead' } });
+      else expect(header).toBeUndefined();
+      expect(model.rows.some((row) => row.kind === 'folder-header')).toBe(!headed);
+      expect(model.selectionEntries.map((entry) => entry.id)).toEqual(headed ? [] : ['head-session']);
+      expect(model.rows.find((row) => row.kind === 'group-header' && row.groupKey === 'project-a:child')).toMatchObject({ collapsed: true });
+      if (!headed) {
+        expect(model.rows.find((row) => row.kind === 'group-header' && row.groupKey === 'project-a:linked')).toMatchObject({ collapsed: true });
+        expect(model.folderDropTargets[0]?.enabled).toBe(true);
+        expect(model.stickyHeaders.map((header) => model.rows[header.rowIndex]?.key)).toEqual(['project:project-a:header']);
+      }
+      expect([...collapsedGroups]).toEqual(['project-a:head', 'project-a:child', 'project-a:linked']);
+      expect(input.collapsedGroups).toBe(collapsedGroups);
+      expect(model.rows.every((row, index) => model.rowIndexByKey.get(row.key) === index)).toBe(true);
+    }
+
+    input.showOnlyMainWorkspace = false;
+    input.collapsedProjects = new Set(['project-a']);
+    expect(buildSessionSidebarRowModel(input).rows.map((row) => row.kind)).toEqual(['project-header']);
+    input.collapsedProjects = new Set();
+    expect(buildSessionSidebarRowModel(input).selectionEntries.map((entry) => entry.id)).toEqual(['head-session']);
+    input.showOnlyMainWorkspace = true;
+    expect(buildSessionSidebarRowModel(input).selectionEntries).toEqual([]);
+    expect(input.collapsedGroups).toBe(collapsedGroups);
+  });
+
+  test('honors collapse when a checkout head still has a header and when only a child matches search', () => {
+    const head = group([node('head-session')], { id: 'head', label: 'Head', workspaceId: 'pi', isWorkspaceHead: true });
+    const child = group([node('child-session')], { id: 'child', workspaceId: 'code' });
+    for (const groups of [[head], [{ ...head, label: '' }, child], [{ ...head, isWorkspaceHead: false }, child]]) {
+      const input = args([project(groups)]);
+      input.collapsedGroups = new Set(['project-a:head']);
+      const model = buildSessionSidebarRowModel(input);
+      expect(model.rows.find((row) => row.kind === 'group-header' && row.groupKey === 'project-a:head')).toMatchObject({ collapsed: true });
+      expect(model.selectionEntries.some((entry) => entry.id === 'head-session')).toBe(false);
+    }
+
+    const input = args([project([child])]);
+    input.authoritativeSections = [project([head, child])];
+    input.mode = 'search';
+    input.normalizedQuery = 'child-session';
+    input.collapsedGroups = new Set(['project-a:head', 'project-a:child']);
+    input.groupSearchDataByGroup.set(child, { filteredNodes: child.sessions, matchedSessionCount: 1, folderNameMatchCount: 0, groupMatches: false, hasMatch: true });
+    const model = buildSessionSidebarRowModel(input);
+    expect(model.rows.find((row) => row.kind === 'group-header')).toMatchObject({ groupKey: 'project-a:child', collapsed: false, forceExpanded: true });
+    expect(model.selectionEntries.map((entry) => entry.id)).toEqual(['child-session']);
+    expect(model.sessionById.has('head-session')).toBe(true);
+    expect([...input.collapsedGroups]).toEqual(['project-a:head', 'project-a:child']);
+  });
+
   test('retains current session authority when presentation filters the row out', () => {
     const authoritative = project([group([node('hidden')])]);
     const input = args([]);

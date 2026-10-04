@@ -190,6 +190,17 @@ describe('project config client', () => {
     expect(await getWorktreeSetupCommands(project)).toEqual([]);
   });
 
+  test('strict execution reads distinguish valid empty from HTTP, malformed and missing-path failures', async () => {
+    expect((await getProjectSetup(project, { strict: true })).trust).toEqual({ hash: null, trusted: true });
+    failWith = 500;
+    await expect(getProjectSetup(project, { strict: true })).rejects.toThrow('HTTP 500');
+    failWith = null;
+    viewOverride = { setupWorktree: 'not a setup' };
+    await expect(getProjectSetup(project, { strict: true })).rejects.toThrow('unexpected shape');
+    await expect(getProjectSetup({ id: 'x', path: '' }, { strict: true })).rejects.toThrow('requires a project path');
+    expect(await getProjectActionsState(project)).toEqual({ actions: [], primaryActionId: null });
+  });
+
   test('a project without a path never hits the network', async () => {
     expect(await getWorktreeSetupCommands({ id: 'x', path: '' })).toEqual([]);
     expect(await saveWorktreeSetupCommands({ id: 'x', path: '' }, ['x'])).toBe(false);

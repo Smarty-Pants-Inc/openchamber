@@ -749,6 +749,7 @@ export const createProjectContextRuntime = (deps) => {
       if (!existing) {
         return null;
       }
+      if (existing.shared && !(await folderOfLink(projectId, existing))) return null;
       const plan = { ...existing, pinned: pinned === true };
       const next = { ...current, plans: current.plans.map((entry) => (entry.id === id ? plan : entry)) };
       await writeContext(projectId, next);
@@ -782,9 +783,10 @@ export const createProjectContextRuntime = (deps) => {
         return { deleted: false, context: await readContext(projectId) };
       }
 
+      const folder = await folderOfLink(projectId, link);
+      if (!folder) return { deleted: false, context: await readContext(projectId) };
       const next = { ...current, plans: current.plans.filter((entry) => entry.id !== id) };
       await writeContext(projectId, next);
-      const folder = await folderOfLink(projectId, link);
       if (folder) await fsPromises.rm(path.join(folder, link.file), { force: true });
       return { deleted: true, context: await readContext(projectId) };
     });

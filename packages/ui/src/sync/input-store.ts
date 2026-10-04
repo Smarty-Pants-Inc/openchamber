@@ -157,6 +157,8 @@ export type InputState = {
   attachedFiles: AttachedFile[]
   attachmentDraftKey: string | null
   attachmentDrafts: Map<string, AttachedFile[]>
+  /** Retained attachments or pending replay that an automatic reload must not discard. */
+  hasReloadBlockingInput: () => boolean
   selectAttachmentDraft: (target: ChatDraftIdentity | null) => void
   restoreAttachedFiles: (files: AttachedFile[], target: ChatDraftIdentity | null) => void
   activeEditorFile: VSCodeActiveEditorFile | null
@@ -199,6 +201,13 @@ export const useInputStore = create<InputState>()((set, get) => ({
   attachedFiles: [],
   attachmentDraftKey: null,
   attachmentDrafts: new Map(),
+  hasReloadBlockingInput: () => {
+    const state = get()
+    // Retained draft entries contain files; the visible owner is held separately.
+    const pending = state.pendingComposerRestore
+    return state.attachedFiles.length > 0 || state.attachmentDrafts.size > 0
+      || (pending !== null && (pending.text !== "" || pending.files.length > 0))
+  },
   selectAttachmentDraft: (target) => {
     const key = target ? getChatDraftIdentityKey(target) : null
     const state = get()

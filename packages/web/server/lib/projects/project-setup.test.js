@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { once } from 'node:events';
 import os from 'os';
 import path from 'path';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'fs/promises';
+
+import { createProjectContextRuntime } from '../project-context/runtime.js';
+import { registerProjectContextRoutes } from '../project-context/routes.js';
+import { registerProjectSetupRoutes } from './routes.js';
 
 import { createProjectConfigRuntime } from './project-config.js';
 import { createProjectIdFromPath, projectPathFromId } from './project-id.js';
@@ -327,6 +334,314 @@ describe('project id', () => {
   });
 });
 
+describe('shared writes preserve only existing complete-set approval', () => {
+  it('metadata saves ask at the real worktree prompt; Skip preserves personal setup and Trust records the complete set', async () => {
+    const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
+    const { configureRuntimeUrlResolver } = await import('@openchamber/ui/lib/runtime-url');
+    const { updateSharedProjectSetup } = await import('@openchamber/ui/lib/openchamberConfig');
+    const {
+      resolveWorktreeSetupCommands, settleSharedTrustConfirmation,
+      subscribeSharedTrustConfirmation, getSharedTrustConfirmationSnapshot,
+    } = await import('@openchamber/ui/lib/sharedTrustConfirmation');
+    const app = express();
+    app.use(express.json());
+    registerProjectSetupRoutes(app, { projectConfigRuntime: runtime });
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    configureRuntimeUrlResolver({ apiBaseUrl: `http://127.0.0.1:${address.port}` });
+    try {
+      const repo = path.join(tempRoot, 'repo');
+      await mkdir(path.join(repo, '.openchamber'), { recursive: true });
+      const sharedPath = path.join(repo, '.openchamber', 'project.json');
+      const sharedRaw = {
+        version: 1, setupWorktree: ['echo repository-setup'],
+        projectActions: [{ id: 'dev', name: 'Dev', command: 'echo repository-action' }],
+      };
+      await writeFile(sharedPath, JSON.stringify(sharedRaw));
+      const projectId = createProjectIdFromPath(repo);
+      const project = { id: projectId, path: repo };
+      await runtime.updateProjectSetup(projectId, { setupWorktree: ['echo personal-setup'] });
+      const originalHash = (await runtime.readProjectSetup(projectId)).trust.hash;
+      const choose = async (choice, expectedActions = ['echo repository-action']) => {
+        const asked = new Promise((resolve) => {
+          const unsubscribe = subscribeSharedTrustConfirmation(() => {
+            const prompt = getSharedTrustConfirmationSnapshot();
+            if (prompt) { unsubscribe(); resolve(prompt); }
+          });
+        });
+        const pending = resolveWorktreeSetupCommands(project);
+        const prompt = await asked;
+        expect(prompt.setupCommands).toEqual(['echo repository-setup']);
+        expect(prompt.actions.map((action) => action.command)).toEqual(expectedActions);
+        settleSharedTrustConfirmation(choice);
+        return pending;
+      };
+      for (const patch of [
+        { plansDir: 'docs/plans' },
+        { draftStarters: [{ type: 'skill', name: 'triage' }] },
+        { draftStarters: [] }, {}, { futureKey: true, sharedTrustHash: originalHash },
+      ]) {
+        const saved = await updateSharedProjectSetup(project, patch);
+        expect(saved.trust).toEqual({ hash: originalHash, trusted: false });
+        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+        expect(saved.shared.setupWorktree).toEqual(sharedRaw.setupWorktree);
+        expect(saved.shared.projectActions[0].command).toBe('echo repository-action');
+        expect(await choose('skip')).toEqual(['echo personal-setup']);
+        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+      }
+      expect(await choose('trust')).toEqual(['echo repository-setup', 'echo personal-setup']);
+      const personalRaw = await readRaw(projectId);
+      personalRaw.sharedTrust.trustedAt = 17;
+      await writeFile(path.join(tempRoot, 'projects', `${projectId}.json`), JSON.stringify(personalRaw));
+      const approval = personalRaw.sharedTrust;
+      expect(approval.hash).toBe(originalHash);
+      for (const patch of [
+        { plansDir: 'other/plans' }, { draftStarters: [{ type: 'command', name: 'explore' }] },
+        { draftStarters: [] }, { setupWorktreeWait: true },
+        { projectActions: [{ id: 'dev', name: 'Renamed', icon: 'rocket', command: 'echo repository-action' }] }, {},
+      ]) {
+        expect((await updateSharedProjectSetup(project, patch)).trust.trusted).toBe(true);
+        expect((await readRaw(projectId)).sharedTrust).toEqual(approval);
+        expect(await resolveWorktreeSetupCommands(project)).toEqual(['echo repository-setup', 'echo personal-setup']);
+        expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      }
+      for (const action of [
+        { id: 'dev', name: 'Changed command', command: 'echo new-command' },
+        { id: 'dev', name: 'Changed runIn', command: 'echo new-command', runIn: 'parent' },
+      ]) {
+        // A repository pull, followed by an unrelated metadata save, cannot approve the changed tuple.
+        const currentRaw = JSON.parse(await readFile(sharedPath, 'utf8'));
+        await writeFile(sharedPath, JSON.stringify({ ...currentRaw, projectActions: [action] }));
+        const saved = await updateSharedProjectSetup(project, { plansDir: 'docs/plans' });
+        expect(saved.trust.trusted).toBe(false);
+        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+        expect(await choose('skip', ['echo new-command'])).toEqual(['echo personal-setup']);
+        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+        expect(await choose('trust', ['echo new-command'])).toEqual(['echo repository-setup', 'echo personal-setup']);
+        expect((await readRaw(projectId)).sharedTrust.hash).toBe(saved.trust.hash);
+      }
+      await runtime.updateProjectSetup(projectId, { sharedTrustHash: null });
+      const shared = await updateSharedProjectSetup(project, {
+        projectActions: [
+          { id: 'dev', name: 'Unseen', command: 'echo new-command', runIn: 'parent' },
+          { id: 'mine', name: 'Mine', command: 'echo known-personal' },
+        ],
+      });
+      expect(shared.trust.trusted).toBe(false);
+      expect(await choose('skip', ['echo new-command', 'echo known-personal'])).toEqual(['echo personal-setup']);
+      expect(await choose('trust', ['echo new-command', 'echo known-personal'])).toEqual(['echo repository-setup', 'echo personal-setup']);
+    } finally {
+      settleSharedTrustConfirmation('skip');
+      configureRuntimeUrlResolver({});
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await cleanup();
+    }
+  });
+
+  it('clears stale command/runIn approval, never trusts command sharing, and serializes shared and personal writes', async () => {
+    const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
+    try {
+      const repo = path.join(tempRoot, 'repo');
+      await mkdir(path.join(repo, '.openchamber'), { recursive: true });
+      const projectId = createProjectIdFromPath(repo);
+      const sharedPath = path.join(repo, '.openchamber', 'project.json');
+      const initial = { version: 1, setupWorktree: ['echo unseen'], projectActions: [{ id: 'dev', name: 'Dev', command: 'echo dev' }] };
+      await writeFile(sharedPath, JSON.stringify(initial));
+      await mkdir(path.join(tempRoot, 'projects'), { recursive: true });
+      await writeFile(path.join(tempRoot, 'projects', `${projectId}.json`), JSON.stringify({
+        version: 1, scheduledTasks: [{ id: 'keep' }], futureKey: { keep: true },
+        'setup-worktree': ['echo personal'], sharedTrust: { hash: 'sha256:stale', trustedAt: 7 },
+      }));
+      await runtime.updateProjectSetup('other-project', { sharedTrustHash: 'sha256:other' });
+      const other = await readRaw('other-project');
+      expect((await runtime.updateSharedProjectSetup(projectId, {})).trust.trusted).toBe(false);
+      expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+      for (const change of [
+        { ...initial, setupWorktree: ['echo changed'] },
+        { ...initial, projectActions: [{ ...initial.projectActions[0], runIn: 'parent' }] },
+      ]) {
+        await writeFile(sharedPath, JSON.stringify(initial));
+        const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: (await runtime.readProjectSetup(projectId)).trust.hash });
+        expect(approved.trust.trusted).toBe(true);
+        await writeFile(sharedPath, JSON.stringify(change));
+        expect((await runtime.readProjectSetup(projectId)).trust.trusted).toBe(false);
+        const patched = await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
+        expect(patched.trust.trusted).toBe(false);
+        expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+        const fresh = await runtime.updateProjectSetup(projectId, { sharedTrustHash: patched.trust.hash });
+        expect(fresh.trust.trusted).toBe(true);
+      }
+      await runtime.updateProjectSetup(projectId, { sharedTrustHash: null });
+      const shared = await runtime.updateSharedProjectSetup(projectId, {
+        projectActions: [...initial.projectActions, { id: 'mine', name: 'Mine', command: 'echo known-personal' }],
+      });
+      expect(shared.shared.setupWorktree).toEqual(['echo unseen']);
+      expect(shared.trust.trusted).toBe(false);
+      expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+      const hash = shared.trust.hash;
+      await runtime.updateProjectSetup(projectId, { sharedTrustHash: hash });
+      const approval = (await readRaw(projectId)).sharedTrust;
+      await Promise.all([
+        runtime.updateSharedProjectSetup(projectId, { plansDir: 'new/plans' }),
+        runtime.updateSharedProjectSetup(projectId, { draftStarters: [{ type: 'skill', name: 's' }] }),
+        runtime.updateProjectSetup(projectId, { setupWorktree: ['echo personal-updated'] }),
+      ]);
+      const raw = await readRaw(projectId);
+      expect(raw.sharedTrust).toEqual(approval);
+      expect(raw.scheduledTasks).toEqual([{ id: 'keep' }]);
+      expect(raw.futureKey).toEqual({ keep: true });
+      expect(raw['setup-worktree']).toEqual(['echo personal-updated']);
+      const current = await runtime.readProjectSetup(projectId);
+      expect(current.shared.plansDir).toBe('new/plans');
+      expect(current.shared.draftStarters).toEqual([{ type: 'skill', name: 's' }]);
+      expect(await readRaw('other-project')).toEqual(other);
+      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: 'bad' })).rejects.toThrow('setupWorktree must be');
+      expect(await readRaw(projectId)).toEqual(raw);
+      await rm(path.dirname(sharedPath), { recursive: true });
+      await writeFile(path.dirname(sharedPath), 'not a directory');
+      const personalPath = path.join(tempRoot, 'projects', `${projectId}.json`);
+      const personalBefore = await readFile(personalPath, 'utf8');
+      await expect(runtime.updateSharedProjectSetup(projectId, { setupWorktree: ['echo never-approved'] })).rejects.toThrow();
+      expect(await readFile(personalPath, 'utf8')).toBe(personalBefore);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('production shared-plan disable', () => {
+  it('direct shared access cannot create a personal manifest or move an outside sentinel', async () => {
+    const { runtime: config, tempRoot, cleanup } = await createRuntime();
+    try {
+      const repo = path.join(tempRoot, 'repo');
+      const outside = path.join(tempRoot, 'outside');
+      await mkdir(path.join(repo, '.openchamber'), { recursive: true });
+      await mkdir(outside);
+      await writeFile(path.join(outside, 'sentinel.md'), '# Outside\n\nUntouched');
+      await symlink(outside, path.join(repo, '.openchamber', 'plans'));
+      const projectId = createProjectIdFromPath(repo);
+      const context = createProjectContextRuntime({
+        fsPromises: await import('fs/promises'), path,
+        projectsDirPath: path.join(tempRoot, 'projects'),
+        resolveSharedPlansDir: (id) => config.resolveSharedPlansDir(id),
+      });
+      expect((await context.readContext(projectId)).plans).toEqual([]);
+      expect(await context.readPlan(projectId, 'shared:sentinel.md')).toBeNull();
+      expect(await context.updatePlan(projectId, 'shared:sentinel.md', { raw: '# Overwritten' })).toBeNull();
+      expect((await context.deletePlan(projectId, 'shared:sentinel.md')).deleted).toBe(false);
+      expect(await context.setPlanPinned(projectId, 'shared:sentinel.md', true)).toBeNull();
+      expect(await context.unsharePlan(projectId, 'shared:sentinel.md')).toBeNull();
+      await expect(context.sharePlan(projectId, 'shared:sentinel.md')).rejects.toThrow('shared plans folder is required');
+      await expect(readFile(context.contextPathFor(projectId), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readdir(outside)).toEqual(['sentinel.md']);
+      expect(await readFile(path.join(outside, 'sentinel.md'), 'utf8')).toBe('# Outside\n\nUntouched');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it.each(['default', 'configured', 'default-ancestor-link', 'configured-ancestor-link', 'leaf-link', 'dangling-link'])(
+    'refuses shared operations without data effects for %s, while personal CRUD works',
+    async (layout) => {
+      const { runtime: config, tempRoot, cleanup } = await createRuntime();
+      try {
+        const repo = path.join(tempRoot, 'repo');
+        const outside = path.join(tempRoot, 'outside');
+        const outsideRaw = '# Outside sentinel\n\nDo not disclose, overwrite or move.\n';
+        const outsideFile = path.join(outside, 'sentinel.md');
+        await mkdir(outside, { recursive: true });
+        await writeFile(outsideFile, outsideRaw);
+        await mkdir(path.join(repo, '.openchamber'), { recursive: true });
+        const configured = layout.startsWith('configured');
+        const relative = configured ? 'docs/plans' : '.openchamber/plans';
+        const sharedDir = path.join(repo, relative);
+        const sharedConfigPath = path.join(repo, '.openchamber', 'project.json');
+        const sharedConfig = JSON.stringify(configured ? { version: 1, plansDir: relative } : { version: 1 });
+        await writeFile(sharedConfigPath, sharedConfig);
+        if (layout === 'configured-ancestor-link') {
+          await mkdir(path.join(outside, 'plans'));
+          await writeFile(path.join(outside, 'plans', 'sentinel.md'), outsideRaw);
+          await symlink(outside, path.join(repo, 'docs'));
+        } else if (layout === 'default-ancestor-link') {
+          await symlink(outside, sharedDir);
+        } else if (layout === 'dangling-link') {
+          await symlink(path.join(outside, 'absent'), sharedDir);
+        } else {
+          await mkdir(sharedDir, { recursive: true });
+          if (layout === 'leaf-link') await symlink(outsideFile, path.join(sharedDir, 'sentinel.md'));
+          else await writeFile(path.join(sharedDir, 'sentinel.md'), '# Repository plan\n\nUntouched.\n');
+        }
+        const projectId = createProjectIdFromPath(repo);
+        const projectsDirPath = path.join(tempRoot, 'projects');
+        const context = createProjectContextRuntime({
+          fsPromises: await import('fs/promises'), path, projectsDirPath,
+          resolveSharedPlansDir: (id) => config.resolveSharedPlansDir(id),
+        });
+        const contextPath = context.contextPathFor(projectId);
+        await mkdir(path.dirname(contextPath), { recursive: true });
+        const sharedLink = { id: 'moved-plan', file: 'sentinel.md', title: 'Moved', createdAt: 1, shared: true };
+        await writeFile(contextPath, JSON.stringify({ version: 2, notes: [], todos: [], plans: [sharedLink] }));
+        const personal = await context.createPlan(projectId, { title: 'Personal', body: 'Own content' });
+        const personalId = personal.plan.id;
+        const before = await readFile(contextPath, 'utf8');
+        const sharedFile = path.join(sharedDir, 'sentinel.md');
+        const sharedBefore = layout === 'dangling-link' ? null : await readFile(sharedFile, 'utf8');
+        const outsideEntries = await readdir(outside);
+
+        expect(await config.resolveSharedPlansDir(projectId)).toBeNull();
+        const listed = await context.readContext(projectId);
+        expect(listed.sharedPlansDir).toBeNull();
+        expect(listed.plans.map((plan) => plan.id)).toEqual([personalId]);
+        expect(JSON.stringify(listed)).not.toContain('Outside sentinel');
+        for (const planId of ['shared:sentinel.md', 'moved-plan']) {
+          expect(await context.readPlan(projectId, planId)).toBeNull();
+          expect(await context.updatePlan(projectId, planId, { raw: '# Overwritten' })).toBeNull();
+          expect(await context.setPlanPinned(projectId, planId, true)).toBeNull();
+          expect((await context.deletePlan(projectId, planId)).deleted).toBe(false);
+          expect(await context.unsharePlan(projectId, planId)).toBeNull();
+          await expect(context.sharePlan(projectId, planId)).rejects.toThrow('shared plans folder is required');
+          expect(await readFile(contextPath, 'utf8')).toBe(before);
+        }
+        const app = express();
+        registerProjectContextRoutes(app, { projectContextRuntime: context });
+        for (const planId of ['shared:sentinel.md', 'moved-plan']) {
+          const endpoint = `/api/project-context/${projectId}/plans/${encodeURIComponent(planId)}`;
+          expect((await request(app).get(endpoint)).status).toBe(404);
+          expect((await request(app).put(endpoint).send({ raw: '# Overwritten' })).status).toBe(404);
+          expect((await request(app).patch(endpoint).send({ pinned: true })).status).toBe(404);
+          expect((await request(app).delete(endpoint)).status).toBe(404);
+          expect((await request(app).post(`${endpoint}/unshare`)).status).toBe(404);
+          expect((await request(app).post(`${endpoint}/share`)).status).toBe(400);
+        }
+        await expect(context.sharePlan(projectId, personalId)).rejects.toThrow('shared plans folder is required');
+        expect(await readFile(contextPath, 'utf8')).toBe(before);
+        expect(await readFile(outsideFile, 'utf8')).toBe(outsideRaw);
+        expect(await readdir(outside)).toEqual(outsideEntries);
+        expect(await readFile(sharedConfigPath, 'utf8')).toBe(sharedConfig);
+        if (sharedBefore !== null) expect(await readFile(sharedFile, 'utf8')).toBe(sharedBefore);
+        else await expect(readFile(sharedFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(await readdir(context.plansDirFor(projectId))).toEqual([personal.plan.file]);
+
+        expect((await context.readPlan(projectId, personalId)).body).toBe('Own content');
+        expect((await context.updatePlan(projectId, personalId, { raw: '# Edited\n\nStill personal.\n' })).raw).toBe('# Edited\n\nStill personal.\n');
+        expect((await context.setPlanPinned(projectId, personalId, true)).plan.pinned).toBe(true);
+        const note = await context.createNote(projectId, { body: 'Keep notes' });
+        await context.saveTodos(projectId, [{ id: 'todo', text: 'Keep todos', completed: false, createdAt: 1 }]);
+        expect((await context.deletePlan(projectId, personalId)).deleted).toBe(true);
+        expect(await context.readPlan(projectId, personalId)).toBeNull();
+        const retained = JSON.parse(await readFile(contextPath, 'utf8'));
+        expect(retained.plans).toEqual([{ ...sharedLink, pinned: false }]);
+        expect(retained.notes[0].id).toBe(note.note.id);
+        expect(retained.todos[0].text).toBe('Keep todos');
+        expect(await readFile(outsideFile, 'utf8')).toBe(outsideRaw);
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+});
+
 describe('project setup runtime', () => {
   it('reads an empty merged view for a project without files', async () => {
     const { runtime, cleanup } = await createRuntime();
@@ -469,7 +784,7 @@ describe('project setup runtime', () => {
     }
   });
 
-  it('writes the shared file into the checkout, trusts it for the writer, and removes it when emptied', async () => {
+  it('writes the shared file without approval and removes it when emptied', async () => {
     const { runtime, tempRoot, readRaw, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
@@ -488,9 +803,10 @@ describe('project setup runtime', () => {
       });
       expect(shared.shared.status).toBe('ok');
       expect(shared.projectActions.map((action) => `${action.id}:${action.source}`)).toEqual(['dev:shared']);
-      // The writer has seen what it shared: trusted here, prompt stays for teammates.
-      expect(shared.trust.trusted).toBe(true);
-      expect((await readRaw(projectId)).sharedTrust.hash).toBe(shared.trust.hash);
+      expect(shared.trust.trusted).toBe(false);
+      expect(await readRaw(projectId)).not.toHaveProperty('sharedTrust');
+      const approved = await runtime.updateProjectSetup(projectId, { sharedTrustHash: shared.trust.hash });
+      expect(approved.trust.trusted).toBe(true);
 
       // A second patch replaces only the keys it names.
       const withPlans = await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
@@ -522,16 +838,36 @@ describe('project setup runtime', () => {
     }
   });
 
-  it('resolves the repository plans folder: the default without plansDir, the configured one instead of it', async () => {
+  it('hard-disables repository plans even for valid default and configured folders', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {
       const repo = path.join(tempRoot, 'repo');
       await mkdir(repo, { recursive: true });
       const projectId = createProjectIdFromPath(repo);
-      expect(await runtime.resolveSharedPlansDir(projectId)).toBe(path.join(repo, '.openchamber', 'plans'));
+      expect(await runtime.resolveSharedPlansDir(projectId)).toBeNull();
       await runtime.updateSharedProjectSetup(projectId, { plansDir: 'docs/plans' });
-      expect(await runtime.resolveSharedPlansDir(projectId)).toBe(path.join(repo, 'docs', 'plans'));
+      expect(await runtime.resolveSharedPlansDir(projectId)).toBeNull();
       expect(await runtime.resolveSharedPlansDir('project-test')).toBeNull();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('resolves no shared folder before reading even malformed personal or repository metadata', async () => {
+    const { tempRoot, cleanup } = await createRuntime();
+    try {
+      let reads = 0;
+      const runtime = createProjectConfigRuntime({
+        fsPromises: {
+          ...(await import('fs/promises')),
+          readFile: async () => { reads += 1; throw new Error('metadata must not be read'); },
+        },
+        path,
+        projectsDirPath: path.join(tempRoot, 'projects'),
+      });
+      expect(await runtime.resolveSharedPlansDir(createProjectIdFromPath(path.join(tempRoot, 'repo')))).toBeNull();
+      expect(await runtime.resolveSharedPlansDir('project-test')).toBeNull();
+      expect(reads).toBe(0);
     } finally {
       await cleanup();
     }

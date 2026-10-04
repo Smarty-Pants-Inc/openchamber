@@ -2,6 +2,14 @@
 
 Public author pages live in `packages/docs/content/docs/sdk.mdx`, `sdk/host.mdx`, `sdk/ui.mdx`, and `sdk/example.mdx`; the user page is `extensions.mdx`. Each has a copy under every locale folder.
 
+## Fork availability
+
+Guest SDK extensions are hard-disabled in this fork, with no opt-in. [Guest server policy](../web/server/lib/guests/DOCUMENTATION.md#fork-policy) owns the admission contract and preservation rules. Tracking: [smarty-code#1325](https://github.com/Smarty-Pants-Inc/smarty-code/issues/1325). This is the unused upstream feature introduced by `5181bcd338dafe8f8ff31ca10d0f3aca72e614f9`, absent from the Smarty base and common ancestor.
+
+All shared UI runtimes publish an empty `unsupported` guest catalog without fetching, including external legacy and relay connections. The fork server terminates `/api/guests` requests with 501 after existing guards. Built-in guests are not bound. First-party integrations and OpenCode plugins are not SDK guests and remain supported. Stored guest data remains on disk.
+
+The SDK contract, protocol, bundles and low-level implementations below remain upstream code, unreachable through the refreshed fork application catalog. This cut does not repair a guest-enabled host or prove safety for retained old guest frames. The release owner must qualify the refreshed candidate, including returning browsers, before claiming that UI proof.
+
 ## Purpose
 
 `packages/sdk` owns the guest contract. `@openchamber/sdk` is the guest-facing entry: types, limits, `connectHost`, and pure helpers, with no schema library, so a bundled panel stays a few kilobytes. `@openchamber/sdk/schemas` is the host-facing entry: the zod parse of an untrusted guest's manifest (`parseManifest`, `parseManifestJson`) and messages (`guestMessageSchema`, `hostMessageSchema`). Guest-only drawing lives under `@openchamber/sdk/ui`. Host and guest import from here. Do not copy these types into `packages/ui`.

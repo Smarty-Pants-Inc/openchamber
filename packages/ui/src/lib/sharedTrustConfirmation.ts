@@ -13,6 +13,7 @@
  */
 
 import { getProjectSetup, updateProjectSetup, type ProjectRef, type ProjectSetup } from './openchamberConfig';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
 export type SharedTrustChoice = 'trust' | 'skip';
 
@@ -55,7 +56,7 @@ const askForTrust = (project: ProjectRef, setup: ProjectSetup): Promise<SharedTr
     pendingRequest = {
       project,
       sharedPath: setup.shared.path,
-      setupCommands: setup.shared.setupWorktree,
+      setupCommands: [...setup.shared.setupWorktree],
       actions: setup.shared.projectActions.map(({ id, name, command }) => ({ id, name, command })),
       resolve,
     };
@@ -68,21 +69,31 @@ const askForTrust = (project: ProjectRef, setup: ProjectSetup): Promise<SharedTr
  * when there is nothing to trust or the current commands were trusted before;
  * otherwise asks, records a "trust" answer on the instance, and resolves
  * `false` when the user chose to run without the shared commands this time.
+ * Retired runtime or caller ownership refuses before recording an answer.
  */
-export const ensureSharedSetupTrusted = async (project: ProjectRef, setup: ProjectSetup): Promise<boolean> => {
+export const ensureSharedSetupTrusted = async (
+  project: ProjectRef,
+  setup: ProjectSetup,
+  isOwnerCurrent: () => boolean = () => true,
+): Promise<boolean> => {
+  const scope = captureRuntimeRequestScope();
+  const isCurrent = () => isRuntimeRequestScopeCurrent(scope) && isOwnerCurrent();
+  if (!isCurrent()) return false;
   if (setup.trust.trusted || setup.trust.hash === null) {
     return true;
   }
-  const choice = await askForTrust(project, setup);
-  if (choice !== 'trust') {
+  const approvedProject = { ...project };
+  const approvedHash = setup.trust.hash;
+  const choice = await askForTrust(approvedProject, setup);
+  if (choice !== 'trust' || !isCurrent()) {
     return false;
   }
-  const recorded = await updateProjectSetup(project, { sharedTrustHash: setup.trust.hash });
+  const recorded = await updateProjectSetup(approvedProject, { sharedTrustHash: approvedHash });
   if (!recorded) {
     // The commands still run this once: the user said yes to exactly these.
     console.warn('Failed to record the trust answer; the prompt will return next time.');
   }
-  return true;
+  return isCurrent();
 };
 
 /**

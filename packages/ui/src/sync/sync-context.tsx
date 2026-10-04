@@ -2972,7 +2972,7 @@ export function SyncProvider(props: {
         void reloadIfNewBuild({
           running: runningEntry,
           fetchIndex: async () => (await fetch(`${window.location.origin}/`, { cache: "no-store", credentials: "same-origin" })).text(),
-          busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0,
+          busy: () => reloadHeld() || useInputStore.getState().hasReloadBlockingInput(),
           reload: () => window.location.reload(),
           jitterMs: defaultReloadJitterMs,
         }).catch(() => undefined)

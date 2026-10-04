@@ -6,7 +6,10 @@ import { Window } from 'happy-dom';
 import { I18nProvider } from '@/lib/i18n';
 import type { CreateTerminalOptions, TerminalHandlers, TerminalStreamEvent } from '@/lib/api/types';
 import { useTerminalStore } from '@/stores/useTerminalStore';
-import type { OpenChamberProjectAction } from '@/lib/openchamberConfig';
+import type { OpenChamberProjectAction, ProjectRef, ProjectSetupPatch } from '@/lib/openchamberConfig';
+import { ensureSharedSetupTrusted, getSharedTrustConfirmationSnapshot, settleSharedTrustConfirmation } from '@/lib/sharedTrustConfirmation';
+import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
+import { PROJECT_ACTIONS_UPDATED_EVENT } from '@/lib/projectActions';
 
 const toastCalls = {
   error: new Array<string>(),
@@ -20,6 +23,12 @@ const openExternalCalls: string[] = [];
 const detectedDevServer: MockedDetectedDevServer = { command: null, previewUrlHint: null };
 const mockedDeviceInfo = { isMobile: false, isTablet: false, hasTouchOnlyPointer: false };
 let effectiveDirectory = '/repo';
+let sharedHash: string | null = null;
+let trustedHash: string | null = null;
+let configReadFails = false;
+let useRealDetection = false;
+let packageScripts: { dev: string } | null = null;
+const trustPatches: ProjectSetupPatch[] = [];
 
 const uiState = {
   terminalShell: 'zsh',
@@ -57,6 +66,7 @@ interface MockedActionsState {
 interface MockedDetectedDevServer {
   command: string | null;
   previewUrlHint: string | null;
+  actionId?: string;
 }
 
 const createCalls: CreateTerminalOptions[] = [];
@@ -153,31 +163,41 @@ mock.module('@/stores/useDesktopSshStore', () => ({ useDesktopSshStore: useDeskt
 mock.module('@/lib/url', () => ({ openExternalUrl: async (url: string) => { openExternalCalls.push(url); } }));
 mock.module('@/lib/openchamberConfig', () => ({
   getProjectActionsState: async () => mockedActionsState,
-  // The button loads the merged setup; the test's actions are personal, so nothing asks for trust.
-  getProjectSetup: async () => ({
-    trust: { hash: null, trusted: true },
+  getProjectSetup: async (_project: ProjectRef, options?: { strict?: boolean }) => {
+    if (configReadFails && options?.strict) throw new Error('config unavailable');
+    return {
+    trust: { hash: sharedHash, trusted: sharedHash === null || trustedHash === sharedHash },
     setupWorktree: [],
     setupWorktreeWait: false,
-    projectActions: mockedActionsState.actions.map((action) => ({ ...action, source: 'personal' })),
+    projectActions: mockedActionsState.actions.map((action) => ({ ...action, source: action.source ?? 'personal' })),
     projectActionsPrimaryId: null,
     draftStarters: [],
-    shared: { status: 'missing', path: '.openchamber/project.json', setupWorktree: [], setupWorktreeWait: null, projectActions: [], draftStarters: [], plansDir: null },
+    shared: { status: sharedHash ? 'ok' : 'missing', path: '.openchamber/project.json', setupWorktree: [], setupWorktreeWait: null, projectActions: mockedActionsState.actions.filter((action) => action.source === 'shared'), draftStarters: [], plansDir: null },
     personal: { setupWorktree: [], setupWorktreeWait: null, setupWorktreeMode: 'append', projectActions: mockedActionsState.actions, projectActionsPrimaryId: null, draftStarters: [], hiddenSharedActionIds: [], sharedTrust: null },
-  }),
-  updateProjectSetup: async () => true,
+    };
+  },
+  updateProjectSetup: async (_project: ProjectRef, patch: ProjectSetupPatch) => {
+    trustPatches.push(patch);
+    trustedHash = patch.sharedTrustHash ?? null;
+    return true;
+  },
 }));
 mock.module('@/lib/browser/announcedServers', () => ({ setAnnouncedDevServers: () => undefined }));
 mock.module('@/hooks/useEffectiveDirectory', () => ({ useEffectiveDirectory: () => effectiveDirectory }));
+const { detectDevServerCommand: realDetectDevServerCommand } = await import('@/lib/detectDevServer');
 mock.module('@/lib/detectDevServer', () => ({
-  detectDevServerCommand: async () => (
-    detectedDevServer.command
-      ? { command: detectedDevServer.command, previewUrlHint: detectedDevServer.previewUrlHint ?? undefined }
-      : null
+  detectDevServerCommand: async (directory: string, actions: OpenChamberProjectAction[], scripts: Record<string, string> | null) => (
+    useRealDetection
+      ? realDetectDevServerCommand(directory, actions, scripts)
+      : detectedDevServer.command
+        ? { command: detectedDevServer.command, actionId: detectedDevServer.actionId, previewUrlHint: detectedDevServer.previewUrlHint ?? undefined }
+        : null
   ),
-  readPackageJsonScripts: async () => ({}),
+  readPackageJsonScripts: async () => packageScripts,
 }));
 
 const { ProjectActionsButton } = await import('./ProjectActionsButton');
+const { getProjectSetup } = await import('@/lib/openchamberConfig');
 
 describe('ProjectActionsButton lifecycle', () => {
   let windowInstance: Window;
@@ -236,6 +256,15 @@ describe('ProjectActionsButton lifecycle', () => {
     openExternalCalls.length = 0;
     detectedDevServer.command = null;
     detectedDevServer.previewUrlHint = null;
+    detectedDevServer.actionId = undefined;
+    sharedHash = null;
+    trustedHash = null;
+    configReadFails = false;
+    useRealDetection = false;
+    packageScripts = null;
+    trustPatches.length = 0;
+    settleSharedTrustConfirmation('skip');
+    configureRuntimeUrlResolver({ apiBaseUrl: '' });
     mockedDeviceInfo.isMobile = true;
     effectiveDirectory = '/repo';
     sessionCounter = 0;
@@ -243,19 +272,24 @@ describe('ProjectActionsButton lifecycle', () => {
   });
 
   afterEach(async () => {
-    await act(async () => root.unmount());
+    await act(async () => {
+      settleSharedTrustConfirmation('skip');
+      root.unmount();
+    });
   });
 
   const renderButton = async ({
     projectPath = '/repo',
     directory = '/repo',
-  }: { projectPath?: string; directory?: string } = {}) => {
+    compact = false,
+  }: { projectPath?: string; directory?: string; compact?: boolean } = {}) => {
     await act(async () => {
       root.render(
         React.createElement(I18nProvider, null,
           React.createElement(ProjectActionsButton, {
             projectRef: { id: 'project-1', path: projectPath },
             directory,
+            compact,
             allowMobile: true,
           }),
         ),
@@ -265,7 +299,307 @@ describe('ProjectActionsButton lifecycle', () => {
   };
 
 
+  const click = async (button: HTMLButtonElement | null) => {
+    if (!button) throw new Error('missing action button');
+    await act(async () => { button.click(); });
+  };
+  const primary = () => host.querySelector('button');
+  const createdCommand = () => {
+    const options = createCalls[0];
+    if (options?.mode !== 'command') throw new Error('missing command-mode creation');
+    return options.command;
+  };
+  const actionMenuItem = (name: string) => [...host.querySelectorAll('button')].find((button) => (
+    !button.hasAttribute('aria-label') && button.textContent?.startsWith(name)
+  )) ?? null;
+  const answer = async (choice: 'trust' | 'skip') => {
+    await act(async () => { settleSharedTrustConfirmation(choice); });
+  };
+  const sharedAction = (patch: Partial<OpenChamberProjectAction> = {}) => {
+    sharedHash = 'hash-A';
+    mockedActionsState.actions = [{ id: 'build', name: 'Build', command: 'echo A', source: 'shared', ...patch }];
+  };
+  const refreshActions = async () => {
+    await act(async () => { window.dispatchEvent(new Event(PROJECT_ACTIONS_UPDATED_EVENT)); });
+  };
 
+  for (const compact of [false, true]) {
+    test(`shared dropdown Skip then primary asks again, compact=${compact}`, async () => {
+      mockedDeviceInfo.isMobile = false;
+      sharedAction();
+      await renderButton({ compact });
+      await click(actionMenuItem('Build'));
+      expect(getSharedTrustConfirmationSnapshot()?.actions).toEqual([{ id: 'build', name: 'Build', command: 'echo A' }]);
+      expect(createCalls).toHaveLength(0);
+      expect(useTerminalStore.getState().getDirectoryState('/repo')?.tabs.length ?? 0).toBe(0);
+      await answer('skip');
+      expect(trustPatches).toEqual([]);
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo A');
+      expect(createCalls).toHaveLength(0);
+      await answer('trust');
+      expect(trustPatches).toEqual([{ sharedTrustHash: 'hash-A' }]);
+      expect(createCalls).toHaveLength(1);
+      expect(createdCommand()).toBe('echo A');
+      expect(createCalls[0]?.cwd).toBe('/repo');
+      // Command changes and trust withdrawal must not gate either Stop entrance.
+      sharedHash = 'hash-B';
+      mockedActionsState.actions[0].command = 'echo B';
+      await refreshActions();
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      expect(sendCalls).toEqual([`${firstSessionId()}:\x03`]);
+      expect(createCalls).toHaveLength(1);
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo B');
+      await answer('trust');
+      expect(createCalls).toHaveLength(2);
+      sharedHash = 'hash-C';
+      await click(actionMenuItem('Build'));
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      expect(sendCalls).toEqual([`${firstSessionId()}:\x03`, `${secondSessionId()}:\x03`]);
+    });
+
+    test(`mobile first shared primary cannot bypass approval, compact=${compact}`, async () => {
+      sharedAction();
+      await renderButton({ compact });
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo A');
+      expect(createCalls).toHaveLength(0);
+      await answer('skip');
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()).not.toBeNull();
+      await answer('trust');
+      expect(createCalls).toHaveLength(1);
+    });
+
+    test(`Auto-discovery retains shared action approval, compact=${compact}`, async () => {
+      mockedDeviceInfo.isMobile = false;
+      sharedAction({ name: 'Dev', runIn: 'parent' });
+      useRealDetection = true;
+      detectedDevServer.command = 'echo A';
+      detectedDevServer.actionId = 'build';
+      await renderButton({ compact, directory: '/repo-worktree' });
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()?.project.path).toBe('/repo-worktree');
+      expect(getSharedTrustConfirmationSnapshot()?.actions).toEqual([{ id: 'build', name: 'Dev', command: 'echo A' }]);
+      await answer('skip');
+      expect(createCalls).toHaveLength(0);
+      await click(actionMenuItem('Auto-discover'));
+      expect(getSharedTrustConfirmationSnapshot()).not.toBeNull();
+      await answer('trust');
+      expect(createCalls).toHaveLength(1);
+      expect(createdCommand()).toBe('echo A');
+      expect(createCalls[0]?.cwd).toBe('/repo-worktree');
+      expect(createCalls[0]?.purpose?.type === 'project-action' && createCalls[0].purpose.actionId).toBe('__openchamber_auto_discover_preview__');
+    });
+  }
+
+  for (const change of ['command', 'runIn'] as const) {
+    test(`stale ${change} refuses before approving B; explicitly selected current B may run`, async () => {
+      sharedAction({ runIn: 'parent' });
+      await renderButton({ directory: '/repo-worktree' });
+      mockedActionsState.actions = [{ ...mockedActionsState.actions[0], command: change === 'command' ? 'echo B' : 'echo A', runIn: change === 'runIn' ? undefined : 'parent' }];
+      sharedHash = 'hash-B';
+      await click(primary());
+      expect(createCalls).toHaveLength(0);
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      expect(trustPatches).toEqual([]);
+      await click(actionMenuItem('Build'));
+      expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe(change === 'command' ? 'echo B' : 'echo A');
+      await answer('trust');
+      expect(createCalls).toHaveLength(1);
+      expect(createdCommand()).toBe(change === 'command' ? 'echo B' : 'echo A');
+      expect(createCalls[0]?.cwd).toBe(change === 'runIn' ? '/repo-worktree' : '/repo');
+      expect(trustPatches).toEqual([{ sharedTrustHash: 'hash-B' }]);
+    });
+
+    test(`a ${change} change during the dialog cannot dispatch the captured A`, async () => {
+      sharedAction({ runIn: 'parent' });
+      await renderButton({ directory: '/repo-worktree' });
+      await click(primary());
+      mockedActionsState.actions = [{ ...mockedActionsState.actions[0], command: change === 'command' ? 'echo B' : 'echo A', runIn: change === 'runIn' ? undefined : 'parent' }];
+      sharedHash = 'hash-B';
+      await refreshActions();
+      expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo A');
+      await answer('trust');
+      expect(createCalls).toHaveLength(0);
+      expect(trustPatches).toEqual([{ sharedTrustHash: 'hash-A' }]);
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()).not.toBeNull();
+      await answer('trust');
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0]?.cwd).toBe(change === 'runIn' ? '/repo-worktree' : '/repo');
+    });
+  }
+
+  test('approval of a newer B dialog with the same ID never launches the button\'s pending A', async () => {
+    sharedAction();
+    await renderButton();
+    await click(primary());
+    mockedActionsState.actions = [{ ...mockedActionsState.actions[0], command: 'echo B' }];
+    sharedHash = 'hash-B';
+    const newerSetup = await getProjectSetup({ id: 'project-1', path: '/repo' });
+    const newerApproval = ensureSharedSetupTrusted({ id: 'project-1', path: '/repo' }, newerSetup);
+    expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo B');
+    await answer('trust');
+    expect(await newerApproval).toBe(true);
+    expect(createCalls).toHaveLength(0);
+    expect(trustPatches).toEqual([{ sharedTrustHash: 'hash-B' }]);
+    await refreshActions();
+    await click(actionMenuItem('Build'));
+    expect(createCalls).toHaveLength(1);
+    expect(createdCommand()).toBe('echo B');
+    expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+  });
+
+  test('a failed post-dialog strict read cannot launch an approved retained action', async () => {
+    sharedAction();
+    await renderButton();
+    await click(primary());
+    configReadFails = true;
+    await answer('trust');
+    expect(createCalls).toHaveLength(0);
+    expect(trustPatches).toEqual([{ sharedTrustHash: 'hash-A' }]);
+  });
+
+  test('matching executable label/icon changes during confirmation keep the captured launch valid', async () => {
+    sharedAction();
+    await renderButton();
+    await click(primary());
+    mockedActionsState.actions = [{ ...mockedActionsState.actions[0], name: 'Renamed', icon: 'rocket' }];
+    await refreshActions();
+    await answer('trust');
+    expect(createCalls).toHaveLength(1);
+    expect(createdCommand()).toBe('echo A');
+  });
+
+  test('shared Stop is prompt-free while stopping and remains retryable after termination failure', async () => {
+    sharedAction();
+    await renderButton();
+    await click(primary());
+    await answer('trust');
+    sharedHash = 'withdrawn';
+    const originalSend = terminal.sendInput;
+    const originalForceKill = terminal.forceKill;
+    terminal.sendInput = async (id, input) => { sendCalls.push(`${id}:${input}`); };
+    terminal.forceKill = async ({ sessionId }) => {
+      forceKillCalls.push(sessionId ?? '');
+      throw new Error('termination failed');
+    };
+    try {
+      await click(primary());
+      await click(primary());
+      await click(actionMenuItem('Build'));
+      expect(sendCalls).toHaveLength(1);
+      expect(createCalls).toHaveLength(1);
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1050)); });
+      const tab = useTerminalStore.getState().getDirectoryState('/repo')?.tabs.find((entry) => entry.purpose.type === 'project-action');
+      expect(tab?.lifecycle).toBe('running');
+      terminal.sendInput = originalSend;
+      await click(actionMenuItem('Build'));
+      expect(sendCalls).toHaveLength(2);
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      expect(createCalls).toHaveLength(1);
+    } finally {
+      terminal.sendInput = originalSend;
+      terminal.forceKill = originalForceKill;
+    }
+  });
+
+  test('matching approved executable tuple survives a label and icon refresh', async () => {
+    sharedAction();
+    trustedHash = sharedHash;
+    await renderButton();
+    mockedActionsState.actions = [{ ...mockedActionsState.actions[0], name: 'Renamed', icon: 'rocket' }];
+    await refreshActions();
+    await click(primary());
+    expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+    expect(createCalls).toHaveLength(1);
+    expect(createdCommand()).toBe('echo A');
+    const tab = useTerminalStore.getState().getDirectoryState('/repo')?.tabs.find((tab) => tab.purpose.type === 'project-action');
+    expect(tab?.label).toBe('Renamed');
+    expect(tab?.iconKey).toBe('rocket');
+    expect(trustPatches).toEqual([]);
+  });
+
+  test('strict config failure and trust reset cannot reuse loaded approval', async () => {
+    sharedAction();
+    trustedHash = sharedHash;
+    await renderButton();
+    configReadFails = true;
+    await click(primary());
+    expect(createCalls).toHaveLength(0);
+    expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+    configReadFails = false;
+    trustedHash = null;
+    await click(primary());
+    expect(getSharedTrustConfirmationSnapshot()).not.toBeNull();
+    await answer('skip');
+    expect(createCalls).toHaveLength(0);
+  });
+
+  for (const retired of ['runtime', 'project', 'directory', 'unmount'] as const) {
+    test(`retired ${retired} dialog refuses before trust persistence and terminal dispatch`, async () => {
+      sharedAction();
+      await renderButton();
+      await click(primary());
+      expect(getSharedTrustConfirmationSnapshot()).not.toBeNull();
+      if (retired === 'runtime') {
+        configureRuntimeUrlResolver({ apiBaseUrl: 'http://new-runtime' });
+        configureRuntimeUrlResolver({ apiBaseUrl: '' }); // Returning to A cannot revive its scope.
+      } else if (retired === 'project') {
+        await renderButton({ projectPath: '/new-project' });
+      } else if (retired === 'directory') {
+        await renderButton({ directory: '/other-worktree' });
+      } else {
+        await act(async () => root.unmount());
+      }
+      await answer('trust');
+      expect(trustPatches).toEqual([]);
+      expect(createCalls).toHaveLength(0);
+    });
+  }
+
+  test('personal Auto-discovery preserves its action ID without asking', async () => {
+    mockedDeviceInfo.isMobile = false;
+    mockedActionsState.actions = [{ id: 'dev', name: 'Dev', command: 'bun run dev', source: 'personal' }];
+    useRealDetection = true;
+    detectedDevServer.command = 'bun run dev';
+    detectedDevServer.actionId = 'dev';
+    await renderButton();
+    await click(primary());
+    expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+    expect(createCalls).toHaveLength(1);
+    expect(trustPatches).toEqual([]);
+  });
+
+  test('ordinary package-script discovery still launches without shared approval', async () => {
+    mockedDeviceInfo.isMobile = false;
+    mockedActionsState.actions = [];
+    useRealDetection = true;
+    packageScripts = { dev: 'vite' };
+    const originalFetch = globalThis.fetch;
+    const reads: string[] = [];
+    // Real detector filesystem reads use the existing HTTP boundary, not a module mock.
+    globalThis.fetch = async (input) => {
+      reads.push(String(input));
+      return new Response(JSON.stringify({ packageManager: 'bun@1.4.2' }));
+    };
+    try {
+      await renderButton();
+      await click(primary());
+      expect(reads).toHaveLength(1);
+      expect(reads[0]).toContain('/api/fs/read?');
+      expect(getSharedTrustConfirmationSnapshot()).toBeNull();
+      expect(createCalls).toHaveLength(1);
+      expect(createdCommand()).toBe('bun run --shell=bun dev');
+      expect(trustPatches).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 
   // smarty-dev#777 G13: with nothing running, the header lists terminal sessions once and stays quiet; the 5 s loop
   // runs only while an action here is running (a run another client started counts once listed).

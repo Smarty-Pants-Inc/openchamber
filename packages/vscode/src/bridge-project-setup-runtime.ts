@@ -171,8 +171,9 @@ export const createProjectSetupStore = (
   };
 
   // The team's shared file in the checkout; same rules as the server: a
-  // broken file counts as empty, an empty result removes the file, and the
-  // writer's own trust record is set to the new hash.
+  // broken file counts as empty and an empty result removes the file. A
+  // shared patch never approves commands; only a matching prior approval
+  // survives, with its original timestamp.
   const updateShared = async (projectId: string, patch: unknown): Promise<ProjectSetupView> => {
     const filePath = filePathFor(projectId);
     const previous = writeChains.get(filePath) ?? Promise.resolve();
@@ -194,8 +195,7 @@ export const createProjectSetupStore = (
       }
       const hash = sharedTrustHashOf(nextShared);
       const personalNext: Record<string, unknown> = { ...personalRaw };
-      if (hash) personalNext.sharedTrust = { hash, trustedAt: Date.now() };
-      else delete personalNext.sharedTrust;
+      if (!hash || personalProjectSetupOf(personalRaw).sharedTrust?.hash !== hash) delete personalNext.sharedTrust;
       await writePersonalDocument(projectId, personalNext);
       return mergedViewOf(projectId, personalNext);
     });

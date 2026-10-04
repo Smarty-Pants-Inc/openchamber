@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import type { ProjectSetup } from './openchamberConfig';
+import { configureRuntimeUrlResolver } from './runtime-url';
 
 const project = { id: 'p', path: '/repo' };
 
@@ -131,6 +132,61 @@ describe('shared trust confirmation', () => {
     const pending = ensureSharedSetupTrusted(project, setup);
     settleSharedTrustConfirmation('trust');
     expect(await pending).toBe(true);
+  });
+
+  test('runtime retirement during a dialog refuses before persisting to the new runtime', async () => {
+    const pending = ensureSharedSetupTrusted(project, setup);
+    configureRuntimeUrlResolver({ apiBaseUrl: 'http://new-runtime' });
+    settleSharedTrustConfirmation('trust');
+    expect(await pending).toBe(false);
+    expect(patches).toEqual([]);
+  });
+
+  test('returning to the same runtime URL does not revive dialog authority', async () => {
+    configureRuntimeUrlResolver({ apiBaseUrl: 'http://A' });
+    const pending = ensureSharedSetupTrusted(project, setup);
+    configureRuntimeUrlResolver({ apiBaseUrl: 'http://B' });
+    configureRuntimeUrlResolver({ apiBaseUrl: 'http://A' });
+    settleSharedTrustConfirmation('trust');
+    expect(await pending).toBe(false);
+    expect(patches).toEqual([]);
+  });
+
+  test('a retired project owner refuses before persisting approval', async () => {
+    let current = true;
+    const pending = ensureSharedSetupTrusted(project, setup, () => current);
+    current = false;
+    settleSharedTrustConfirmation('trust');
+    expect(await pending).toBe(false);
+    expect(patches).toEqual([]);
+    setup.trust.trusted = true;
+    expect(await ensureSharedSetupTrusted(project, setup, () => false)).toBe(false);
+  });
+
+  test('an older A cannot claim approval for a newer B dialog with the same action ID', async () => {
+    const first = ensureSharedSetupTrusted(project, setup);
+    const newer = baseSetup();
+    newer.trust.hash = 'sha256:B';
+    newer.shared.projectActions[0].command = 'echo B';
+    const second = ensureSharedSetupTrusted(project, newer);
+    expect(getSharedTrustConfirmationSnapshot()?.actions[0]?.command).toBe('echo B');
+    settleSharedTrustConfirmation('trust');
+    expect(await first).toBe(false);
+    expect(await second).toBe(true);
+    expect(patches).toEqual([{ sharedTrustHash: 'sha256:B' }]);
+  });
+
+  test('the persisted hash and project are captured from the displayed request', async () => {
+    const mutableProject = { ...project };
+    const pending = ensureSharedSetupTrusted(mutableProject, setup);
+    setup.trust.hash = 'sha256:B';
+    mutableProject.path = '/other';
+    setup.shared.setupWorktree.push('echo later');
+    expect(getSharedTrustConfirmationSnapshot()?.project.path).toBe('/repo');
+    expect(getSharedTrustConfirmationSnapshot()?.setupCommands).toEqual(['bun install']);
+    settleSharedTrustConfirmation('trust');
+    expect(await pending).toBe(true);
+    expect(patches).toEqual([{ sharedTrustHash: 'sha256:abc' }]);
   });
 
   test('reset forgets the recorded answer', async () => {

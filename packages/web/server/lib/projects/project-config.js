@@ -3,7 +3,6 @@ import { CronExpressionParser } from 'cron-parser';
 
 import { projectConfigFileStemOf, projectPathFromId } from './project-id.js';
 import {
-  DEFAULT_PLANS_DIR,
   EMPTY_SHARED_PROJECT_CONFIG,
   SHARED_CONFIG_RELATIVE_PATH,
   applySharedProjectSetupPatch,
@@ -1004,9 +1003,9 @@ export const createProjectConfigRuntime = (deps) => {
    * keys it names over the current file (a broken file counts as empty, so
    * a write repairs it). A result with nothing in it removes the file (and
    * the `.openchamber` folder when that leaves it empty), so unsharing the
-   * last item leaves no trace. The writer has seen the commands it just
-   * shared, so the personal trust record is set to the new hash on this
-   * instance; teammates still get the prompt.
+   * last item leaves no trace. A shared patch never approves commands:
+   * retain a previous approval only while the complete executable hash
+   * still matches, including its original approval timestamp.
    */
   const updateSharedProjectSetup = async (projectID, patch) => (
     withProjectWriteLock(projectID, async () => {
@@ -1040,28 +1039,17 @@ export const createProjectConfigRuntime = (deps) => {
 
       const hash = sharedTrustHashOf(next);
       const personalNext = { ...personalRaw };
-      if (hash) personalNext.sharedTrust = { hash, trustedAt: Date.now() };
-      else delete personalNext.sharedTrust;
+      if (!hash || projectSetupViewOf(personalRaw).sharedTrust?.hash !== hash) delete personalNext.sharedTrust;
       await writeRawProjectConfigToDisk(projectID, personalNext);
       return mergedProjectSetupOf(projectID, personalNext);
     })
   );
 
-  /**
-   * The absolute repository plans folder of a project: `plansDir` from the
-   * shared file when set, else the default `.openchamber/plans`. Setting
-   * `plansDir` replaces the default outright (nothing is read from it any
-   * more); moving files between the two is the user's job. Null only when the
-   * checkout cannot be located.
-   */
-  const resolveSharedPlansDir = async (projectID) => {
-    const personalRaw = await readRawProjectConfigFromDisk(projectID);
-    const projectPath = projectPathOf(projectID, personalRaw);
-    if (!projectPath) return null;
-    const shared = await readSharedProjectConfig(projectID, personalRaw);
-    const relative = shared.status === 'ok' && shared.config.plansDir ? shared.config.plansDir : DEFAULT_PLANS_DIR;
-    return path.join(projectPath, ...relative.split('/'));
-  };
+  // Smarty fork policy: repository shared plans are unused and hard-disabled
+  // before any checkout/config read. Upstream 82a0ee7572e59dbc965d593268a41ef0395860fa
+  // added unconstrained symlink-following IO; smarty-code#1325 tracks the disable.
+  // No preference or repository metadata may re-enable this feature.
+  const resolveSharedPlansDir = async () => null;
 
   return {
     readProjectSetup,
