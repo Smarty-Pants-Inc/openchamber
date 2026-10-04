@@ -238,6 +238,8 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   'ordinaryReloading',
   // An unavailable Code-made session (smarty-code#957): the page keeps its composer, not the fleet View-only banner.
   'ordinaryCodeMade',
+  'nativeRuntime',
+  'ordinary',
 ];
 
 const sanitizeSessionListItem = (session) => {
