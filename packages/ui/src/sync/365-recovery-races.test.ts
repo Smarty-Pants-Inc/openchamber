@@ -1,10 +1,17 @@
 import { expect, test } from 'bun:test';
 import { act } from 'react';
+import { NATIVE_CREATION_DEADLINE_MS } from '@/lib/opencode/nativeCreationDeadline';
 import { recoveryFixture, resume, target } from './365-recovery-client.fixture';
 import { operation, pageReply, stateReply } from './365-recovery-http.fixture';
 
 for (const failedFresh of [false, true]) test(`ready queues one fresh loader read behind old readonly work, fresh failure=${failedFresh}`, async () => {
   const f = await recoveryFixture();
+  const previousNow = resume.resumeTiming.now;
+  let now = Date.now();
+  if (failedFresh) {
+    resume.resumeTiming.now = () => now;
+    resume.resumeTiming.poll = async () => { now += NATIVE_CREATION_DEADLINE_MS + 1; };
+  }
   try {
     const old = f.loader.ensure(target, { reason: 'navigation' });
     const oldPage = await f.page.take();
@@ -38,7 +45,7 @@ for (const failedFresh of [false, true]) test(`ready queues one fresh loader rea
       expect(f.loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true, readOnly: false });
       expect(f.dom.container.textContent).toBe('clear');
     }
-  } finally { await f.close(); }
+  } finally { resume.resumeTiming.now = previousNow; await f.close(); }
 }, 5000);
 
 test('older no-match CHECK2 cannot replace newer CONTINUE2 or allow CONTINUE3 POST', async () => {

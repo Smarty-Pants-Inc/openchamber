@@ -20,10 +20,9 @@ export async function recover(f: Fixture, requestId: string, late: () => void = 
   await act(async () => late());
   expect(f.banner()).not.toBeNull(); expect(f.composer()).toBeNull();
   fresh.reply(pageReply(true));
-  await f.settle(() => f.status()?.status === 'unknown');
-  expect(f.buttons()).toContain(CHECK);
-  await f.click(CHECK);
-  (await f.list.take()).reply(Response.json({ nativeCreations: [operation('ready', requestId)] }));
+  await f.settle(() => f.loader.getSnapshot(target).status === 'ready' && f.status()?.status === 'starting');
+  expect(f.buttons()).not.toContain(CHECK);
+  expect(f.banner()).not.toBeNull(); expect(f.composer()).toBeNull();
   (await f.page.take()).reply(pageReply());
   await f.settle(() => f.status() === undefined);
   expect(f.loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true, readOnly: false });
