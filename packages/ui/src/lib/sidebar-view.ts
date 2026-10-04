@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useHumanAuth } from './human-auth';
 import { useAuthSessionStore } from './runtime-auth-expiry';
-import { resetRuntimeAuthGeneration } from './runtime-auth';
 import { runtimeFetch } from './runtime-fetch';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from './runtime-switch';
 import { formatMessage, useI18nStore } from './i18n/store';
@@ -43,6 +42,7 @@ export function subscribePersonalSidebarViewMutations(listener: (patch: Patch) =
 let entry = newEntry();
 let consumers = 0;
 let idleAdmissionCaptured = false;
+let publishingOwnerRecovery = false;
 const unlocked = () => useHumanAuth.getState().enabled && useAuthSessionStore.getState().state === 'ok';
 const current = (captured: typeof entry) => captured === entry && unlocked() && isRuntimeRequestScopeCurrent(captured.scope);
 const notifyFailure = () => toast.error(formatMessage(useI18nStore.getState().dictionary, 'desktopHostSwitcher.error.failedToSave'));
@@ -61,6 +61,8 @@ export function isPersonalSidebarAdmissionCurrent(admission: symbol): boolean {
 const sameOwner = (left: Owner, right: Owner): boolean => left.issuer === right.issuer && left.subject === right.subject;
 
 async function hydrate(captured: typeof entry, force = false): Promise<void> {
+  // First admission owns queued choices until it resolves; focus must join it.
+  if (!captured.owner) force = false;
   // Forced revalidation must be a new read. It may supersede an older read
   // whose cookie/owner was captured before a person change.
   if (!force && captured.hydrating) return captured.hydrating;
@@ -76,7 +78,9 @@ async function hydrate(captured: typeof entry, force = false): Promise<void> {
     const target = captured.owner && !sameOwner(captured.owner, data.owner) ? (() => {
       // This authenticated GET admits a new person. Revoke A-scoped requests
       // and tab receipts before publishing B's maps.
-      resetRuntimeAuthGeneration();
+      publishingOwnerRecovery = true;
+      try { useAuthSessionStore.getState().markAuthenticated(); }
+      finally { publishingOwnerRecovery = false; }
       retire();
       return entry;
     })() : captured;
@@ -206,7 +210,9 @@ function acquire() {
     document.addEventListener('visibilitychange', revalidate);
     const releases = [subscribeRuntimeEndpointChanged(refresh), useHumanAuth.subscribe(refresh),
       useAuthSessionStore.subscribe((state, before) => {
-        if (state.state !== before.state || state.recoveryGeneration !== before.recoveryGeneration) refresh();
+        // The authenticated owner-changing GET itself supplies the new maps.
+        // Only its synchronous recovery publication skips a redundant admission GET.
+        if (!publishingOwnerRecovery && (state.state !== before.state || state.recoveryGeneration !== before.recoveryGeneration)) refresh();
       }),
       () => window.removeEventListener('focus', revalidate),
       () => document.removeEventListener('visibilitychange', revalidate)];

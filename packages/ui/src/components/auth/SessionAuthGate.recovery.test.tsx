@@ -19,6 +19,8 @@ install('IS_REACT_ACT_ENVIRONMENT', true);
 // Disable native socket IO before importing any runtime consumer. The mounted
 // pipeline exercises its real fetch/SSE fallback against fakeFetch below.
 install('WebSocket', undefined);
+let sidebarOwner = 'A';
+const sessionReaders: string[] = [];
 let cookieValid = true;
 let mintCount = 0;
 let heldRead: Response | null = null;
@@ -34,6 +36,8 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   const path = url.pathname;
   if (path.endsWith('/session/held') && heldRead) return heldRead;
+  if (path === '/api/config/sidebar-view') return json({ owner: { issuer: 'fixture', subject: sidebarOwner }, projects: { [sidebarOwner]: true }, groups: {} });
+  if (path.endsWith('/session') || path.endsWith('/message')) sessionReaders.push(sidebarOwner);
   if (path === '/auth/session') return json({}, cookieValid ? 200 : 401);
   if (path === '/auth/url-token') {
     mintCount += 1;
@@ -70,6 +74,8 @@ const { RuntimeSyncProvider, useSyncRuntime } = await import('@/sync/sync-contex
 const { refreshRuntimeUrlAuthToken, clearRuntimeUrlAuthToken } = await import('@/lib/runtime-auth');
 const { captureRuntimeRequestScope, switchRuntimeEndpoint } = await import('@/lib/runtime-switch');
 const { subscribeNativeAuthExpiry, completeNativeAuthRecovery } = await import('@/apps/nativeAuthRecovery');
+const { useHumanAuth } = await import('@/lib/human-auth');
+const { readPersonalSidebarOwner, usePersonalSidebarView } = await import('@/lib/sidebar-view');
 
 afterAll(async () => {
   await browser.happyDOM.abort();
@@ -140,6 +146,54 @@ test('mounted cookie recovery releases mint rejection and rebinds the retained l
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+test('sidebar A-to-B admission rebinds the composed runtime SDK and retained loader without remount', async () => {
+  resetRuntimeAuthSession(); cookieValid = true; sidebarOwner = 'A';
+  useAuthSessionStore.getState().markAuthenticated();
+  useHumanAuth.setState({ enabled: true });
+  const root = createRoot(document.createElement('div'));
+  let active: ReturnType<typeof useSyncRuntime> | undefined;
+  let view: ReturnType<typeof usePersonalSidebarView> | undefined;
+  let mounts = 0;
+  const Consumer = () => {
+    active = useSyncRuntime(); view = usePersonalSidebarView();
+    React.useEffect(() => { mounts += 1; }, []);
+    return null;
+  };
+  try {
+    await act(async () => { root.render(<RuntimeSyncProvider directory=""><Consumer /></RuntimeSyncProvider>); });
+    const scope = captureRuntimeRequestScope();
+    await act(async () => { expect((await readPersonalSidebarOwner(scope))?.subject).toBe('A'); });
+    const before = active;
+    if (!before) throw new Error('Sync consumer did not mount');
+    const generation = useAuthSessionStore.getState().recoveryGeneration;
+    const opens = streamOpens;
+    sidebarOwner = 'B'; // Cookie-only person change, no explicit auth-store event.
+    await act(async () => { expect(await readPersonalSidebarOwner(scope)).toBeNull(); });
+    expect(view?.projects).toEqual({ B: true });
+    expect(active?.sdk).not.toBe(before.sdk);
+    expect(useAuthSessionStore.getState().recoveryGeneration).toBe(generation + 1);
+    expect(active?.messageLoader).toBe(before.messageLoader);
+    expect(active?.childStores).toBe(before.childStores);
+    expect(mounts).toBe(1);
+    expect(streamOpens).toBe(opens + 1);
+    expect(streams.size).toBe(1);
+    await expect(before.sdk.session.list({}, { throwOnError: true })).rejects.toThrow('Runtime request is stale');
+    const after = active;
+    if (!after) throw new Error('Sync consumer was lost');
+    sessionReaders.length = 0;
+    await after.sdk.session.list({}, { throwOnError: true });
+    const target = { directory: '/workspace', sessionID: 'B-session' };
+    await after.messageLoader.ensure(target);
+    expect(after.messageLoader.getSnapshot(target).status).toBe('ready');
+    expect(sessionReaders.length).toBeGreaterThan(0);
+    expect(sessionReaders.every(owner => owner === 'B')).toBe(true);
+    expect(unexpected).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    useHumanAuth.setState({ enabled: false });
   }
 });
 

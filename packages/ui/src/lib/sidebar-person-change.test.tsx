@@ -7,7 +7,7 @@ import { useHumanAuth } from './human-auth';
 import { useAuthSessionStore } from './runtime-auth-expiry';
 import { configureRuntimeUrlResolver } from './runtime-url';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
-import { readPersonalSidebarOwner, usePersonalSidebarView } from './sidebar-view';
+import { readPersonalSidebarOwner, setPersonalSidebarView, usePersonalSidebarView } from './sidebar-view';
 import { recordTabShownSession, tabSessionNamespace } from './router/tab-session-route';
 import { runtimeFetch } from './runtime-fetch';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -119,6 +119,34 @@ for (const trigger of ['owner', 'focus'] as const) test(`forced ${trigger} reval
     } finally {
       fixture.heldRead = undefined;
       await act(async () => { aGate.resolve(); await Promise.all([aRead, bRead]); });
+    }
+  });
+});
+
+test('focus during held first admission preserves the queued choice and initiating read', async () => {
+  fixture.person(0); useAuthSessionStore.getState().markAuthenticated(); fixture.requests = [];
+  const held = fixture.gate(); fixture.heldRead = held;
+  await mounted(async () => {
+    expect(seen.ready).toBe(false);
+    const reads = fixture.gets;
+    const admission = seen.admission;
+    let choice = Promise.resolve('not queued');
+    try {
+      await act(async () => {
+        choice = setPersonalSidebarView({ projects: { initialChoice: false } }, admission).then(() => 'accepted', () => 'refused');
+      });
+      await act(async () => { win.dispatchEvent(new win.Event('focus')); });
+      await settle();
+      await act(async () => { held.resolve(); expect(await choice).toBe('accepted'); });
+      expect(fixture.gets).toBe(reads);
+      expect(seen.admission).toBe(admission);
+      expect(seen.projects.initialChoice).toBe(false);
+      expect(fixture.requests).toHaveLength(1);
+      expect(fixture.requests[0]).toMatchObject({ owner: { subject: fixture.subjects[0] }, projects: { initialChoice: false } });
+      expect((await fixture.stored(0)).projects.initialChoice).toBe(false);
+    } finally {
+      fixture.heldRead = undefined;
+      await act(async () => { held.resolve(); await choice; });
     }
   });
 });
