@@ -889,8 +889,17 @@ const MobileSessionReveal: React.FC<{
     const match = resolveBucket(id);
     return match ? { projectId: match.node.project.id, groupKey: personalBucketKey(match.node.project.id, match.bucket) } : null;
   }, (_target, id) => revealRoot(id));
+  // Discovery can rebuild the bucket projection while the drawer remains open.
+  // Only an explicit open or selection may reveal its root; otherwise a manual
+  // page reset would be replayed by the refreshed projection.
+  const previousOpenRef = React.useRef(false);
+  const previousSelectedSessionIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (open && selectedSessionId) revealRoot(selectedSessionId);
+    const opened = open && !previousOpenRef.current;
+    const selected = selectedSessionId !== previousSelectedSessionIdRef.current;
+    previousOpenRef.current = open;
+    previousSelectedSessionIdRef.current = selectedSessionId;
+    if (open && selectedSessionId && (opened || selected)) revealRoot(selectedSessionId);
   }, [open, revealRoot, selectedSessionId]);
   return null;
 };

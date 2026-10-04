@@ -119,6 +119,55 @@ for (const human of [false, true]) {
   }
 }
 
+test('mobile drawer manual page reset wins over an in-flight discovery refresh', async () => {
+  const refresh = spyOn(globalSessions, 'refreshGlobalSessions').mockImplementation(async () => ({
+    activeSessions: globalSessions.useGlobalSessionsStore.getState().activeSessions,
+    archivedSessions: [],
+  }));
+  const originalCheckIsGitRepository = git.checkIsGitRepository;
+  let resolveDiscovery: ((isGitRepository: boolean) => void) | undefined;
+  git.checkIsGitRepository = async () => new Promise<boolean>((resolve) => { resolveDiscovery = resolve; });
+  const originalFetch = globalThis.fetch;
+  try {
+    sheetVariant = 'drawer';
+    mounted = await mountedNativeComposer(false, undefined, <Consumer />);
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes('/api/config/sidebar-view')) {
+        if (init?.method === 'PATCH') { requests.push(String(init.body)); return Response.json({}); }
+        return Response.json({ owner: { issuer: 'test', subject: 'refresh-reset' }, projects: {}, groups: {} });
+      }
+      return originalFetch(input, init);
+    };
+    await act(async () => {
+      useProjectsStore.setState({ projects: [{ id: 'p', path: directory, label: 'Project P', sidebarCollapsed: false }],
+        activeProjectId: 'p', managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+      useMobileSessionTreeStore.getState().setProjectExpanded('p', true);
+      const rows = Array.from({ length: 12 }, (_, i) => ({ id: `refresh-reset${i}`, directory, projectID: 'p',
+        title: `Refresh reset row ${i}`, version: '1', slug: `refresh-reset${i}`, time: { created: 12 - i, updated: 12 - i } }));
+      globalSessions.useGlobalSessionsStore.setState({ activeSessions: rows });
+      useSessionUIStore.getState().setCurrentSession('refresh-reset9', directory);
+      mounted?.remount(); await sleep(0); await sleep(0);
+    });
+    if (!resolveDiscovery) throw new Error('Discovery did not start');
+    const surface = () => {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+      if (!dialog) throw new Error('Actual mobile drawer missing');
+      return dialog;
+    };
+    const button = (label: string) => Array.from(surface().querySelectorAll('button'))
+      .find(candidate => candidate.textContent?.trim() === label);
+    await act(async () => { button('Show more sessions')?.click(); await sleep(0); });
+    expect(surface().textContent).toContain('Refresh reset row 9');
+    await act(async () => { button('Show fewer sessions')?.click(); await sleep(0); });
+    expect(surface().textContent).not.toContain('Refresh reset row 9');
+    await act(async () => { resolveDiscovery?.(false); await sleep(0); await sleep(0); });
+    expect(surface().textContent).not.toContain('Refresh reset row 9');
+  } finally {
+    git.checkIsGitRepository = originalCheckIsGitRepository;
+    refresh.mockRestore(); globalThis.fetch = originalFetch;
+  }
+});
+
 for (const human of [false, true]) {
   test(
     `mobile drawer search selection reopens on its page and stays active (${human ? 'signed-in with pins' : 'anonymous'})`,
