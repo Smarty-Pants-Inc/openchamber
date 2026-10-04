@@ -3,7 +3,10 @@ import { Window } from 'happy-dom';
 import { expect, test } from 'bun:test';
 import { createRoot } from 'react-dom/client';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { SyncProvider } from '@/sync/sync-context';
+import type { AssistantMessage, Session, UserMessage } from '@opencode-ai/sdk/v2';
+import { SyncProvider, useDirectoryStore, useSessionMessageLoader, useSessionMessageRecords } from '@/sync/sync-context';
+import type { ChatMessageEntry } from './lib/turns/types';
+import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import { I18nProvider } from '@/lib/i18n';
 import { useNotificationStore } from '@/sync/notification-store';
 import { SessionErrorNotice } from './SessionErrorNotice';
@@ -18,18 +21,46 @@ import { takePendingSteer } from '@/sync/pending-steers';
 
 // smarty-code#1108: a send the server refused before taking it is titled "not sent"; a reply the session stopped keeps
 // "stopped this reply". The body is the server's own words in both.
-const render = async (sessionId: string) => {
+const render = async (sessionId: string, history?: ChatMessageEntry[], ownerGone = true) => {
   const win = new Window({ url: 'http://localhost' });
   const values = { window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
   const container = document.createElement('div');
   const root = createRoot(container);
+  let loadHistory: (() => Promise<void>) | undefined;
+  const ReloadedReply = () => {
+    const loader = useSessionMessageLoader();
+    const store = useDirectoryStore('/fixture', { bootstrap: false });
+    const records = useSessionMessageRecords(sessionId, '/fixture');
+    loadHistory = async () => {
+      await loader.ensure({ sessionID: sessionId, directory: '/fixture' });
+      const session: Session & { ordinaryCodeMade?: boolean } = { id: sessionId, slug: sessionId, projectID: 'fixture', directory: '/fixture',
+        title: 'Reloaded session', version: '1', time: { created: 1, updated: 2 } };
+      if (ownerGone) session.ordinaryCodeMade = true;
+      store.setState({ session: [session], session_status: { [sessionId]: { type: ownerGone ? 'idle' : 'busy' } } });
+    };
+    // Exercise the chat's loaded record/text projection without the Vite-only Markdown worker.
+    return records.filter(record => record.info.role === 'assistant').map(record => (
+      <p key={record.info.id}>{flattenAssistantTextParts(record.parts)}</p>
+    ));
+  };
   try {
     await act(async () => root.render(
-      <SyncProvider directory="/fixture" sdk={createOpencodeClient({ baseUrl: 'http://opencode.test', fetch: async () => new Response('[]', { headers: { 'content-type': 'application/json' } }) })}>
-        <I18nProvider><SessionErrorNotice sessionId={sessionId} directory="/fixture" /></I18nProvider>
+      <SyncProvider directory="/fixture" sdk={createOpencodeClient({ baseUrl: 'http://opencode.test', fetch: async input => {
+        const request = input instanceof Request ? input : new Request(input);
+        return Response.json(new URL(request.url).pathname.endsWith('/message') ? history ?? [] : [],
+          { headers: history && ownerGone ? { 'x-smarty-read-only': '1' } : {} });
+      } })}>
+        <I18nProvider>
+          {history ? <ReloadedReply /> : null}
+          <SessionErrorNotice sessionId={sessionId} directory="/fixture" />
+        </I18nProvider>
       </SyncProvider>));
+    if (history) {
+      expect(loadHistory).toBeDefined();
+      await act(async () => { await loadHistory?.(); });
+    }
     return container.textContent ?? '';
   } finally {
     await act(async () => root.unmount());
@@ -39,6 +70,58 @@ const render = async (sessionId: string) => {
     await win.happyDOM.close();
   }
 };
+
+// smarty-code#1331: a fresh page has loaded history, but no in-flight prompt or session.error event.
+const loadedTurn = (sessionID: string, replyCreated?: number, completed?: number): ChatMessageEntry[] => {
+  const created = Date.now() - 20_000;
+  const user: UserMessage = { id: 'z-ask', sessionID, role: 'user', time: { created }, agent: 'build', model: { providerID: 'p', modelID: 'm' } };
+  if (replyCreated === undefined) return [{ info: user, parts: [] }];
+  const assistant: AssistantMessage = { id: 'a-reply', sessionID, role: 'assistant', parentID: user.id,
+    time: { created: created + replyCreated },
+    modelID: 'm', providerID: 'p', mode: 'build', agent: 'build', path: { cwd: '/fixture', root: '/fixture' }, cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
+  if (completed !== undefined) assistant.time.completed = created + completed;
+  return [{ info: user, parts: [] }, { info: assistant, parts: [{ id: 'partial', sessionID, messageID: assistant.id, type: 'text', text: 'I started checking the files.' }] }];
+};
+
+for (const replyCreated of [1_000, 0]) {
+  test(`reload after the owner is gone keeps partial text and says the reply stopped (reply offset ${replyCreated})`, async () => {
+    const sessionID = `s-partial-${replyCreated}`;
+    const text = await render(sessionID, loadedTurn(sessionID, replyCreated));
+    expect(text).toContain('I started checking the files.');
+    expect(text).toContain('stopped this reply');
+    expect(text).not.toContain('did not start a reply');
+  });
+}
+
+test('reload after the owner is gone with no reply keeps did-not-start wording', async () => {
+  const text = await render('s-no-reply', loadedTurn('s-no-reply'));
+  expect(text).toContain('did not start a reply');
+  expect(text).not.toContain('stopped this reply');
+});
+
+test('an older answer does not count as a reply to the newest unanswered user message', async () => {
+  const history = loadedTurn('s-new-ask', 1_000, 2_000);
+  const user: UserMessage = { id: 'next-ask', sessionID: 's-new-ask', role: 'user', time: { created: Date.now() - 10_000 },
+    agent: 'build', model: { providerID: 'p', modelID: 'm' } };
+  const text = await render('s-new-ask', [...history, { info: user, parts: [] }]);
+  expect(text).toContain('did not start a reply');
+  expect(text).not.toContain('stopped this reply');
+});
+
+test('an owner gone after a completed reply does not make that reply stopped', async () => {
+  const text = await render('s-finished', loadedTurn('s-finished', 1_000, 2_000));
+  expect(text).toContain('I started checking the files.');
+  expect(text).not.toContain('stopped this reply');
+  expect(text).not.toContain('did not start a reply');
+});
+
+test('a busy session with an unfinished reply is not reported as stopped', async () => {
+  const text = await render('s-busy', loadedTurn('s-busy', 1_000), false);
+  expect(text).toContain('I started checking the files.');
+  expect(text).not.toContain('stopped this reply');
+  expect(text).not.toContain('did not start a reply');
+});
 
 const BLOCKED = "The session's terminal is busy (a dialog, typed text or another message is waiting there). Nothing was sent; finish in the terminal, then send it again.";
 

@@ -296,8 +296,8 @@ acceptance or permission to send ordinary input.
 
 ## Failed-turn diagnostics
 
-A `session.error` event is the only account of a turn OpenCode stopped, and
-it can arrive with no assistant message to attach to. `session-error-log.ts`
+A `session.error` event records a turn OpenCode stopped, and it can arrive
+with no assistant message to attach to. `session-error-log.ts`
 keeps the last 20 of them in memory (`recordSessionError`, fed from the
 event pipeline next to the error notification) and `summarizeOpenCodeError`
 reads the `{ name, data: { message } }` payload. The chat shows the newest
@@ -305,7 +305,12 @@ error for the open session under its last message while that turn is the
 latest one (`SessionErrorNotice`), and also names a user message that an idle
 session has left unanswered for five seconds, since an accepted send that
 produced neither a message nor an error would otherwise look like nothing
-happened. That verdict waits for this page's own prompt call
+happened. After reload, an unfinished assistant reply whose Pi has ended or
+disconnected uses the existing stopped-reply title, even without an in-memory
+error event. Assistant `parentID` identifies a reply to the latest user message
+when equal timestamps sort it before that message; older replies and system
+notes do not answer a newer prompt. The loaded partial text stays intact.
+The unanswered verdict waits for this page's own prompt call
 (`prompts-in-flight.ts`, smarty-code#902): while the call is pending it says
 "Sending…"; once the gateway has taken it (an `x-smarty-prompt-receipt` of
 `accepted` or `queued`) it says the session has the message; only an answer
