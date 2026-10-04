@@ -21,6 +21,8 @@ concurrency:
 
 jobs:
   publish:
+    # Smarty fork: never a paid GitHub-hosted runner (smarty-dev#1246); upstream-only publish job.
+    if: github.repository != 'Smarty-Pants-Inc/openchamber'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
