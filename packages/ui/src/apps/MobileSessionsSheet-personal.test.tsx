@@ -24,15 +24,99 @@ const runtime = (globalThis as { __openchamber_sync_runtime_context__?: React.Co
 if (!runtime) throw new Error('Sync runtime context missing');
 const RuntimeProvider = runtime.Provider;
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
+let sheetOpen = true;
+let changeSheetOpen: ((open: boolean) => void) | undefined;
+let sheetVariant: 'drawer' | 'sidebar' = 'sidebar';
 const requests: string[] = [];
 function Consumer() {
+  const [open, setOpen] = React.useState(true);
+  changeSheetOpen = setOpen;
   if (!mounted) return null;
   return <RuntimeProvider value={{ childStores: mounted.children, messageLoader: mounted.loader, runtimeKey: mounted.runtimeA,
     currentDirectory: { get: () => directory, subscribe: () => () => undefined } }}>
-    <section data-personal-mobile><MobileSessionsSheet open variant="sidebar" onOpenChange={() => undefined} /></section>
+    <section data-personal-mobile><MobileSessionsSheet open={open} variant={sheetVariant} onOpenChange={open => {
+      sheetOpen = open;
+      setOpen(open);
+    }} /></section>
   </RuntimeProvider>;
 }
-afterEach(async () => { await mounted?.dispose(); mounted = undefined; useHumanAuth.setState({ enabled: false }); requests.length = 0; });
+afterEach(async () => {
+  await mounted?.dispose(); mounted = undefined;
+  useHumanAuth.setState({ enabled: false }); requests.length = 0;
+  sheetOpen = true; sheetVariant = 'sidebar'; changeSheetOpen = undefined;
+});
+
+for (const human of [false, true]) {
+  for (const selectedIndex of [2, 9]) {
+    test(`mobile drawer reopen keeps root ${selectedIndex + 1} visible and active (${human ? 'human' : 'anonymous'})`, async () => {
+      const refresh = spyOn(globalSessions, 'refreshGlobalSessions').mockImplementation(async () => ({
+        activeSessions: globalSessions.useGlobalSessionsStore.getState().activeSessions, archivedSessions: [],
+      }));
+      const originalFetch = globalThis.fetch;
+      try {
+        sheetVariant = 'drawer';
+        mounted = await mountedNativeComposer(false, undefined, <Consumer />);
+        globalThis.fetch = async (input, init) => {
+          if (String(input).includes('/api/config/sidebar-view')) {
+            if (init?.method === 'PATCH') { requests.push(String(init.body)); return Response.json({}); }
+            return Response.json({ owner: { issuer: 'test', subject: 'reopen' }, projects: {}, groups: {} });
+          }
+          return originalFetch(input, init);
+        };
+        await act(async () => {
+          useProjectsStore.setState({ projects: [{ id: 'p', path: directory, label: 'Project P', sidebarCollapsed: false }],
+            activeProjectId: 'p', managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+          useMobileSessionTreeStore.getState().setProjectExpanded('p', true);
+          const rows = Array.from({ length: 12 }, (_, i) => ({ id: `reopen${i}`, directory, projectID: 'p',
+            title: `Reopen row ${i}`, version: '1', slug: `reopen${i}`, time: { created: 12 - i, updated: 12 - i } }));
+          globalSessions.useGlobalSessionsStore.setState({ activeSessions: rows });
+          useHumanAuth.setState({ enabled: human });
+          if (human) useAuthSessionStore.getState().markAuthenticated();
+          mounted?.remount(); await sleep(0); await sleep(0);
+        });
+        const surface = () => {
+          const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+          if (!dialog) throw new Error('Actual mobile drawer missing');
+          return dialog;
+        };
+        const row = () => Array.from(surface().querySelectorAll<HTMLElement>('[data-active-session]'))
+          .find(node => node.textContent?.includes(`Reopen row ${selectedIndex}`));
+        const choose = () => Array.from(surface().querySelectorAll('button'))
+          .find(button => button.textContent?.includes(`Reopen row ${selectedIndex}`));
+        expect(surface().textContent).not.toContain('Reopen row 9');
+        if (selectedIndex >= 7) {
+          const more = Array.from(surface().querySelectorAll('button')).find(button => button.textContent?.trim() === 'Show more sessions');
+          if (!more) throw new Error('Initial Show more missing');
+          await act(async () => { more.click(); await sleep(0); });
+        }
+        const button = choose();
+        if (!button) throw new Error('Selected root missing before click');
+        await act(async () => { button.click(); await sleep(0); await sleep(0); });
+        expect(sheetOpen).toBe(false);
+        expect(useSessionUIStore.getState().currentSessionId).toBe(`reopen${selectedIndex}`);
+        expect(surface().getAttribute('aria-hidden')).toBe('true');
+        if (human) expect(useSessionUIStore.getState().sessionRevealIntent).toBeNull();
+        const writesBeforeReopen = requests.length;
+        await act(async () => { changeSheetOpen?.(true); await sleep(0); await sleep(0); });
+        expect(surface().getAttribute('aria-hidden')).toBe('false');
+        expect(surface().textContent).toContain(`Reopen row ${selectedIndex}`);
+        expect(row()?.getAttribute('data-active-session')).toBe('true');
+        expect(requests).toHaveLength(writesBeforeReopen);
+        if (selectedIndex < 7) expect(surface().textContent).not.toContain('Reopen row 9');
+        else {
+          expect(surface().textContent).not.toContain('Show more sessions');
+          const collapse = surface().querySelector<HTMLButtonElement>('button[aria-label="Collapse Project P"]');
+          if (!collapse) throw new Error('Expanded project toggle missing');
+          await act(async () => { collapse.click(); await sleep(0); });
+          const expand = surface().querySelector<HTMLButtonElement>('button[aria-label="Expand Project P"]');
+          if (!expand) throw new Error('Collapsed project toggle missing');
+          await act(async () => { expand.click(); await sleep(0); });
+          expect(surface().textContent).not.toContain('Reopen row 9');
+        }
+      } finally { refresh.mockRestore(); globalThis.fetch = originalFetch; }
+    });
+  }
+}
 
 test('human mobile follows shared defaults, ignores anonymous expansion and reveals only A after explicit open', async () => {
   const refresh = spyOn(globalSessions, 'refreshGlobalSessions').mockImplementation(async () => ({ activeSessions: [], archivedSessions: [] }));

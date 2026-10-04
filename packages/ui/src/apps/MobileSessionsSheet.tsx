@@ -960,9 +960,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Reorder mode collapses projects by default (dragging past 40 worktrees is
   // painful); tap outside the drag handle to expand one.
   const [reorderExpandedProjects, setReorderExpandedProjects] = React.useState<Set<string>>(new Set());
-  // Per-bucket count of sessions revealed past the default page. Ephemeral —
-  // resets when the sheet closes or when a group/project is toggled. Expand
-  // state itself lives in useMobileSessionTreeStore (persisted).
+  // Per-bucket page counts survive drawer close so the selected root stays
+  // visible on reopen, even after its reveal intent was consumed. Toggling a
+  // group/project still resets its page. Expansion state is persisted separately.
   // Key: `${projectId}::${bucketKey}`.
   const [visibleCountByBucket, setVisibleCountByBucket] = React.useState<Map<string, number>>(new Map());
 
@@ -971,7 +971,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       setQuery('');
       setEditingOrder(false);
       setReorderExpandedProjects(new Set());
-      setVisibleCountByBucket(new Map());
       setEditingProjectId(null);
       setRevealedSessionId(null);
       setConfirmingDeleteSessionId(null);
