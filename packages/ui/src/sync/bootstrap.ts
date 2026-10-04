@@ -1,6 +1,7 @@
 import type { OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
 import { z } from "zod"
 import { retry } from "./retry"
+import { captureSessionStatusRead, isSessionStatusReadCurrent, type SessionStatusRead } from "./session-status-read"
 import { parseSessionStatusMap } from './session-status'
 import type { GlobalState, State } from "./types"
 import { runtimeFetch } from "../lib/runtime-fetch"
@@ -110,7 +111,7 @@ type DirectoryBootstrapInput = {
   directory: string
   sdk: OpencodeClient
   store: DirectoryRecoverySource
-  set: (patch: Partial<State>) => void
+  set: (patch: Partial<State>, read?: SessionStatusRead) => void
   isStale?: () => boolean
   global: {
     config: State["config"]
@@ -145,9 +146,9 @@ async function initializeDirectory(input: DirectoryBootstrapInput): Promise<Boot
     if (input.isStale?.()) throw new Error("Directory initialization superseded")
     return request()
   }))
-  const commit = (patch: Partial<State>): boolean => {
-    if (input.isStale?.()) return false
-    set(patch)
+  const commit = (patch: Partial<State>, read?: SessionStatusRead): boolean => {
+    if (input.isStale?.() || (read && !isSessionStatusReadCurrent(read))) return false
+    set(patch, read)
     return true
   }
   const state = store.getState()
@@ -166,6 +167,7 @@ async function initializeDirectory(input: DirectoryBootstrapInput): Promise<Boot
   // config/MCP cannot suppress pending questions or permission recovery.
   const critical = Promise.allSettled([
     read(async () => {
+      const statusRead = captureSessionStatusRead(store.getState().session_status)
       const session_status = await readDirectoryStatusSnapshot(store, async () => {
         const statuses = unwrap(await sdk.session.status({ directory }), "session.status")
         // Validate map authority without stripping the gateway's native Stop fields.
@@ -177,7 +179,7 @@ async function initializeDirectory(input: DirectoryBootstrapInput): Promise<Boot
           session_status[id] = { type: "idle", ordinary: true, ordinaryTarget: null }
         }
       }
-      commit({ session_status, sessionStatusReady: true })
+      commit({ session_status, sessionStatusReady: true }, statusRead)
     }),
     read(async () => {
       const question = await readDirectoryQuestionSnapshot(store, async () => (

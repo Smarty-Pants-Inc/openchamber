@@ -803,5 +803,43 @@
       "sha256": "eda6e9e23e9c7a52f04fe7326d263ab22b7deba36aca3a5010f08bca73804aa7",
       "note": "Update only the two current Electron dev command expectations to retain upstream extensions:build; all Smarty generation, escaping and compatibility assertions remain."
     }
-  ]
+  ],
+  "mergeSuccessors": {
+    "sourceHead": "32ec1d2975b5e9dc8ab899da3a2e6e898afef602",
+    "parents": [
+      "0abf901ea521eaf47d54f9641c1ed7740a5e2f8c",
+      "36ccd44b4069a1ca283854ae7613f673ded3f80a"
+    ],
+    "baseBehaviorLedgerSha256": "e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f",
+    "files": [
+      {
+        "path": "packages/ui/src/hooks/useTraySync.ts",
+        "predecessorSha256": "1a44d7bd5be549295913b74cf340c14dad7f962951d405b068dc55f97e5ac7e0",
+        "basePredecessorSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+        "sha256": "e5b78c8ea260180bcdf8b5b137561cb80177dfb0ae23eb20ca1b3d217ec2c1c0",
+        "note": "Merge PR486 scoped status reads with the upstream tray API and retained Smarty managed-catalog presentation. Both parent outputs remain historical evidence."
+      },
+      {
+        "path": "packages/ui/src/sync/bootstrap.ts",
+        "predecessorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+        "basePredecessorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+        "sha256": "3e6662fcc87b7cb82ca57faa6f85e1385da98846cf87c08688a06d1fb6bbabe7",
+        "note": "Merge PR486 read provenance with upstream bootstrap APIs; retain the exact base source record without inventing a donor predecessor."
+      },
+      {
+        "path": "packages/ui/src/sync/global-session-status.ts",
+        "predecessorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+        "basePredecessorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+        "sha256": "97ec637a03cd2c24b1d41dea7344b294d8c2c9a4ea12991decaa43d3d3305687",
+        "note": "Merge PR486 held-ID and omitted-sibling lifecycle coverage with upstream global status APIs; preserve the exact base source record."
+      },
+      {
+        "path": "packages/ui/src/sync/sync-context.tsx",
+        "predecessorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+        "basePredecessorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+        "sha256": "68f82c6894c3aa7ddfd9396fd3e4362dd230dc196c460bc5c0b5e8b21964bd17",
+        "note": "Merge PR486 scoped ingress and ownership fences with upstream sync APIs; preserve the exact base source record."
+      }
+    ]
+  }
 }

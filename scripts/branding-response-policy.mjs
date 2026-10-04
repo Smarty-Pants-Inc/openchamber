@@ -7,6 +7,28 @@ const read = file => readFileSync(new URL(`../${file}`, import.meta.url));
 const json = file => JSON.parse(read(file));
 const provenance = json('branding/http-response-policy-overlay.json');
 const upstream = json('branding/upstream-v1.24.2-overlay.json');
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const merge = upstream.mergeSuccessors;
+assert.equal(merge.sourceHead, '32ec1d2975b5e9dc8ab899da3a2e6e898afef602');
+assert.deepEqual(merge.parents, [
+  '0abf901ea521eaf47d54f9641c1ed7740a5e2f8c',
+  '36ccd44b4069a1ca283854ae7613f673ded3f80a',
+]);
+assert.equal(merge.baseBehaviorLedgerSha256, 'e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f');
+// Four exact merge rows, including both tray branches. Never restamp an older layer.
+assert.equal(digest(JSON.stringify(merge)), '2b11d05eb10c63dec2dcdf855992585eaa293decf198f5a9cd5b21a8d1feb59a', 'merge proof changed');
+const behavior = json('branding/behavior-overlay.json');
+assert.equal(digest(read('branding/behavior-overlay.json')), merge.baseBehaviorLedgerSha256, 'base behavior ledger changed');
+const baseOutputs = new Map(behavior.files.filter(entry => entry.sessionStatusReadSha256).map(entry => [entry.path, entry]));
+const historicalBehavior = structuredClone(behavior);
+historicalBehavior.files = historicalBehavior.files.filter(entry => !entry.sessionStatusReadAdded);
+for (const entry of historicalBehavior.files.filter(entry => entry.preSessionStatusReadCombinedSha256)) {
+  entry.combinedSha256 = entry.preSessionStatusReadCombinedSha256;
+  delete entry.preSessionStatusReadCombinedSha256;
+  delete entry.sessionStatusReadSha256;
+  delete entry.sessionStatusReadNote;
+}
+delete historicalBehavior.sessionStatusReadProvenance;
 const ledgerPins = {
   'branding/coverage.json': '10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df',
   'branding/behavior-overlay.json': '42cb0bcc611bd57ca55b84ac94f08906385546ab7f8f39ccadc27dcb6bc4c8e5',
@@ -17,10 +39,12 @@ assert.equal(upstream.baseHead, 'd41518e48463b6231653def3585a3a59ad2ef870');
 assert.equal(upstream.upstreamHead, '614d7f76e581a132a86575c03d3fa9aad5e624b6');
 assert.deepEqual(upstream.predecessorLedgers, ledgerPins);
 for (const [file, digest] of Object.entries(ledgerPins)) {
-  assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, `${file}: historical ledger changed`);
+  const bytes = file === 'branding/behavior-overlay.json' ? `${JSON.stringify(historicalBehavior, null, 2)}\n` : read(file);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), digest, `${file}: historical ledger changed`);
 }
 const predecessors = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry.outputSha256]));
-for (const entry of json('branding/behavior-overlay.json').files) predecessors.set(entry.path, entry.combinedSha256);
+for (const entry of historicalBehavior.files) predecessors.set(entry.path, entry.combinedSha256);
+const originalInputs = new Map(predecessors);
 const outputs = new Map(provenance.files.map(entry => [entry.path, entry]));
 assert.equal(outputs.size, provenance.files.length);
 for (const entry of outputs.values()) {
@@ -81,7 +105,14 @@ for (const entry of round4Outputs.values()) {
   assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${entry.path}: round4 output hash must bind frozen current bytes`);
   assert.match(entry.note, /\S/, `${entry.path}: missing round4 disposition`);
 }
-const rawSuccessors = [['response-policy', outputs], ['upstream', upstreamOutputs], ['reviewed', reviewOutputs], ['round2', round2Outputs], ['round4', round4Outputs]];
+const mergeOutputs = new Map(merge.files.map(entry => [entry.path, entry]));
+for (const entry of mergeOutputs.values()) {
+  const base = baseOutputs.get(entry.path);
+  assert.equal(entry.basePredecessorSha256, base?.combinedSha256, `${entry.path}: merge base predecessor changed`);
+  assert.equal(entry.predecessorSha256, round4Outputs.get(entry.path)?.sha256 ?? round2Outputs.get(entry.path)?.sha256 ?? reviewOutputs.get(entry.path)?.sha256 ?? upstreamOutputs.get(entry.path)?.sha256 ?? predecessors.get(entry.path) ?? base?.combinedSha256, `${entry.path}: merge predecessor changed`);
+  assert.ok(!stockOutputs.get(entry.path)?.normalize.length, `${entry.path}: merge successor is raw only`);
+}
+const rawSuccessors = [['response-policy', outputs], ['upstream', upstreamOutputs], ['reviewed', reviewOutputs], ['round2', round2Outputs], ['round4', round4Outputs], ['merge', mergeOutputs]];
 export function responsePolicyOutputSha256(file, historicalSha256, context = 'raw') {
   assert.ok(context === 'raw' || context === 'normalized', `${file}: unsupported output context`);
   if (context === 'normalized') {
@@ -93,13 +124,27 @@ export function responsePolicyOutputSha256(file, historicalSha256, context = 'ra
     assert.match(entry.normalizedSha256, /^[a-f0-9]{64}$/, `${file}: normalized upstream output hash must be finalized after writer release`);
     return entry.normalizedSha256;
   }
+  const base = baseOutputs.get(file);
+  if (base && historicalSha256 === base.combinedSha256) {
+    return mergeOutputs.get(file)?.sha256 ?? base.combinedSha256;
+  }
+  if (base && !originalInputs.has(file)) {
+    assert.equal(historicalSha256, base.combinedSha256, `${file}: base predecessor changed`);
+  }
+  const originalSha256 = historicalSha256;
+  let extended = false;
   for (const [layer, entries] of rawSuccessors) {
     const entry = entries.get(file);
     if (!entry) continue;
+    extended = true;
     assert.equal(entry.predecessorSha256, historicalSha256, `${file}: ${layer} predecessor changed`);
     assert.match(entry.sha256, /^[a-f0-9]{64}$/, `${file}: ${layer} output hash must be finalized after writer release`);
     assert.match(entry.note, /\S/, `${file}: missing successor disposition`);
     historicalSha256 = entry.sha256;
+  }
+  if (!extended) {
+    assert.ok(originalInputs.has(file), `${file}: no historical proof`);
+    assert.equal(originalSha256, originalInputs.get(file), `${file}: original predecessor changed`);
   }
   return historicalSha256;
 }

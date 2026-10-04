@@ -94,6 +94,12 @@ export const getDirectoryOwnedSessionIds = (directory: string, sessions: readonl
   return ids;
 };
 
+// Containment in a directory child is not ownership. Share the index owner's
+// ordinary guard with child snapshot commits so neither can erase its target.
+export const isForeignOrdinarySessionStatus = (
+  entry: GlobalSessionStatusEntry | undefined, directory: string,
+): boolean => Boolean(entry?.status.ordinary && entry.directory !== normalizeDirectory(directory));
+
 // Event-driven path: called by the sync dispatcher for status-bearing events
 // whose directory has no child store. Mirrors the child reducer's semantics
 // (`session.idle` / `session.error` both resolve to idle).
@@ -264,13 +270,16 @@ export const applyGlobalSessionStatusSnapshot = (
   const directory = normalizeDirectory(rawDirectory);
   const indexed = useGlobalSessionStatusStore.getState().statusById;
   const isHeld = (sessionId: string): boolean => {
-    const current = indexed.get(sessionId);
     return Boolean(held?.has(sessionId)
-      || (current?.status.ordinary && current.directory !== directory));
+      || isForeignOrdinarySessionStatus(indexed.get(sessionId), directory));
   };
   // Foreign active entries cannot erase ordinary ownership any more than foreign idle can.
   // Use the same coverage for status, ordering and timing, including raw noncandidate IDs.
   const known = new Set(Array.from(knownSessionIds ?? []).filter((sessionId) => !isHeld(sessionId)));
+  // Capture omitted directory siblings before the status sweep removes their lifecycle coverage.
+  for (const [sessionId, entry] of indexed) {
+    if (entry.directory === directory && !isHeld(sessionId)) known.add(sessionId);
+  }
   // Built once as a set and shared by both consumers below; only non-idle
   // sessions land here, so it stays small however long the directory's list is.
   const activeSessionIds = new Set<string>();

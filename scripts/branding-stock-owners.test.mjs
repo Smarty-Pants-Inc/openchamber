@@ -18,6 +18,44 @@ const attributionPaths = [
   'packages/ui/src/sync/session-ui-store.ts',
 ];
 
+test('PR486 status-read provenance binds exactly six source records and retains the tray baseline', () => {
+  assert.deepEqual(overlay.sessionStatusReadProvenance, {
+    pullRequest: 486,
+    sourceHead: 'f1a339a16dd4199c38cb033a607491a55cb1c6c7',
+    sourceEvidence: 'Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim.',
+  });
+  const expected = [
+    ['packages/ui/src/hooks/useTraySync.ts', '0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d'],
+    ['packages/ui/src/sync/bootstrap.ts', '90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49'],
+    ['packages/ui/src/sync/global-session-status.ts', '44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df'],
+    ['packages/ui/src/sync/sync-context.tsx', '54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6'],
+    ['packages/ui/src/sync/session-status-read.ts', '638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1'],
+    ['packages/ui/src/sync/sync-context-status-provenance.test.ts', 'ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36'],
+  ];
+  assert.deepEqual(overlay.files.filter(entry => entry.sessionStatusReadSha256).map(entry => entry.path),
+    expected.map(([file]) => file));
+  assert.deepEqual(overlay.files.filter(entry => entry.sessionStatusReadAdded).map(entry => entry.path),
+    expected.slice(1).map(([file]) => file));
+  const coverage = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
+  for (const [file, hash] of expected) {
+    const entry = overlays.get(file);
+    assert.equal(entry.sessionStatusReadSha256, hash, file);
+    assert.equal(entry.combinedSha256, hash, file);
+    assert.equal(sha256(read(file)), currentOutput(file, hash), file);
+    if (entry.sessionStatusReadAdded) {
+      assert.equal(coverage.has(file), false, file);
+      assert.equal(entry.brandingSha256, undefined, file);
+      assert.equal(entry.preSessionStatusReadCombinedSha256, undefined, file);
+      assert.equal(entry.behaviorSha256, hash, file);
+    }
+  }
+  const tray = overlays.get(expected[0][0]);
+  assert.equal(tray.preSessionStatusReadCombinedSha256,
+    '08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26');
+  assert.equal(tray.preSessionStatusReadCombinedSha256, tray.managedCatalogSha256);
+  assert.ok(tray.sessionStatusReadNote);
+});
+
 test('behavior overlay is explicit and preserves the original branding ledger', () => {
   assert.equal(overlay.brandingSource, '961cabb1e08b7c20ae7cd17cd8788ce8af0d469a');
   assert.equal(overlay.behaviorSource, '1ab7ae3799ee4e633785451ef28cf52f49e53797');
@@ -42,6 +80,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     ...overlay.files.filter(entry => entry.originGuardAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.systemNoteAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.worktreeRootAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.sessionStatusReadAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -472,6 +511,20 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  // Unwind PR486 first: it is the newest layer, above inbox Steps; the result is the exact smarty-code ledger.
+  historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
+  for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
+    assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);
+    assert.equal(entry.preSessionStatusReadCombinedSha256, entry.managedCatalogSha256);
+    entry.combinedSha256 = entry.preSessionStatusReadCombinedSha256;
+    delete entry.preSessionStatusReadCombinedSha256;
+    delete entry.sessionStatusReadSha256;
+    delete entry.sessionStatusReadNote;
+  }
+  delete historical.sessionStatusReadProvenance;
+  assert.equal(sha256(JSON.stringify(historical)),
+    '6a636b11808d1e2b28ad0afc311e6592ebc838ab8194adaa809c0d693a04af10');
+  assert.equal(sha256(`${JSON.stringify(historical, null, 2)}\n`), '42cb0bcc611bd57ca55b84ac94f08906385546ab7f8f39ccadc27dcb6bc4c8e5');
   // Unwind Steps to the exact upstream ledger, retaining Forge placement and provenance.
   assert.equal(historical.inboxStepsSource, 'f2a293d2eb5f4570fcad5088ce39065ae1e59271');
   delete historical.inboxStepsSource;

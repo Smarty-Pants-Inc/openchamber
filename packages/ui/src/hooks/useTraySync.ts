@@ -4,7 +4,8 @@ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive } f
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { getSyncChildStores } from '@/sync/sync-refs';
-import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
+import { opencodeClient } from '@/lib/opencode/client';
+import { useGlobalSessionStatusStore, applyGlobalSessionStatusSnapshot } from '@/sync/global-session-status';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { compareSessionsByLifecycleOrder, useSessionOrderingStore } from '@/sync/session-ordering';
 import { useNotificationStore } from '@/sync/notification-store';
@@ -27,6 +28,7 @@ import { toast } from '@/components/ui';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
+import { captureSessionStatusRead, heldSessionStatusIds, isSessionStatusReadCurrent } from '@/sync/session-status-read';
 
 // Native tray/menu bar bridge. The Electron main process owns the Tray UI; this hook
 // streams a compact snapshot of live session/approval state to it via the
@@ -409,6 +411,20 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
 
   return { sessions, approvals, instanceName, usage: buildUsage(), dockBadgeCount };
 };
+
+export async function refreshTraySessionStatuses(targets: ReadonlyMap<string, string[]>, disposed: () => boolean): Promise<void> {
+  await Promise.all([...targets.entries()].map(async ([directory, sessionIds]) => {
+    // The tray may mount before sync is registered; global events still fence that cold read.
+    let store;
+    try { store = getSyncChildStores().getChild(directory); } catch { /* No directory owner yet. */ }
+    const read = captureSessionStatusRead(store?.getState().session_status);
+    // null means failure; a successful empty map is authoritative idle.
+    const raw = await opencodeClient.getSessionStatusForDirectory(directory).catch(() => null);
+    if (disposed() || raw === null || !isSessionStatusReadCurrent(read)) return;
+    const held = heldSessionStatusIds(read, directory, raw, sessionIds, store?.getState().session_status);
+    applyGlobalSessionStatusSnapshot(directory, raw, sessionIds, held);
+  }));
+}
 
 export const useTraySync = (): void => {
   React.useEffect(() => {

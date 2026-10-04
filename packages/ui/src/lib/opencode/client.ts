@@ -1916,16 +1916,19 @@ class OpencodeService {
     return this.getProvidersForConfig(this.currentDirectory);
   }
 
-  async getProvidersForConfig(directory?: string | null): Promise<{
+  // Smarty gateway extension: a session query asks only that native session, never the project catalog.
+  async getProvidersForConfig(directory?: string | null, sessionId?: string): Promise<{
     providers: Provider[];
     default: { [key: string]: string };
   }> {
     this.reconnectToRuntimeBaseUrl(false);
     const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
-    const key = effectiveDirectory ?? '';
+    const key = JSON.stringify([effectiveDirectory ?? '', sessionId ?? null]);
 
-    const existing = this.configProvidersInFlight.get(key);
+    // Native recovery/relaunch must not reuse a catalog read dispatched for an older generation.
+    // Only project catalog reads share an in-flight request.
+    const existing = sessionId ? undefined : this.configProvidersInFlight.get(key);
     if (existing) {
       return existing;
     }
@@ -1933,11 +1936,18 @@ class OpencodeService {
     const request = (async () => {
       const response = await this.client.config.providers(
         effectiveDirectory ? { directory: effectiveDirectory } : undefined,
+        // The SDK does not yet expose the gateway's session parameter. Keep its generated request and transport.
+        sessionId ? { querySerializer: () => {
+          const query = new URLSearchParams({ session: sessionId });
+          if (effectiveDirectory) query.set('directory', effectiveDirectory);
+          return query.toString();
+        } } : undefined,
       );
       assertRuntimeRequestScope(scope);
       return unwrapSdkData(response, 'config.providers');
     })();
 
+    if (sessionId) return request;
     this.configProvidersInFlight.set(key, request);
     try {
       return await request;

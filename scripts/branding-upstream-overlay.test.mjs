@@ -16,7 +16,7 @@ const overlay = json(overlayPath);
 const response = new Map(json('branding/http-response-policy-overlay.json').files.map(entry => [entry.path, entry]));
 const stock = new Map(json('branding/stock-owner-parity.json').files.map(entry => [entry.path, entry]));
 const historical = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry.outputSha256]));
-for (const entry of json('branding/behavior-overlay.json').files) historical.set(entry.path, entry.combinedSha256);
+for (const entry of json('branding/behavior-overlay.json').files) historical.set(entry.path, entry.preSessionStatusReadCombinedSha256 ?? entry.combinedSha256);
 
 // Exercise the actual resolver with copies of its actual proof inputs, never module mocks.
 const copyProof = () => {
@@ -97,7 +97,7 @@ test('upstream resolver keeps raw, normalized and response-policy predecessor co
     assert.throws(() => resolve(server.path, earlier.sha256), /response-policy predecessor changed/);
     const staticRoutes = response.get('packages/web/server/lib/opencode/static-routes-runtime.js');
     assert.equal(resolve(staticRoutes.path, staticRoutes.predecessorSha256), staticRoutes.sha256);
-    assert.equal(resolve('LICENSE', 'd'.repeat(64)), 'd'.repeat(64));
+    assert.throws(() => resolve('LICENSE', 'd'.repeat(64)), /no historical proof/);
     entry.sha256 = null;
     entry.normalizedSha256 = null;
     writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
@@ -144,6 +144,9 @@ test('every upstream raw successor binds exact finalized current bytes', () => {
     rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
   }
   for (const entry of overlay.round4Successors.files) {
+    rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
+  }
+  for (const entry of overlay.mergeSuccessors.files) {
     rawOutputs.set(entry.path, { ...entry, predecessorSha256: rawOutputs.get(entry.path)?.predecessorSha256 ?? entry.predecessorSha256 });
   }
   for (const entry of rawOutputs.values()) {
@@ -320,4 +323,92 @@ test('every round2 raw successor binds exact finalized current bytes through the
     assert.equal(currentOutput(entry.path, historical.get(entry.path)), entry.sha256, entry.path);
     assert.equal(digest(read(entry.path)), entry.sha256, entry.path);
   }
+});
+
+// This byte pin preserves all 115 raw, four normalized, three review, nine round2
+// and one round4 records, including their original source heads and dispositions.
+test('PR486 merge leaves the complete upstream parent ledger and base behavior bytes intact', () => {
+  const parent = structuredClone(overlay);
+  delete parent.mergeSuccessors;
+  assert.equal(digest(`${JSON.stringify(parent, null, 2)}\n`), 'b327318133546f85d77dda7b10360310aeddb490547e284ff4c2588d1046f2e9');
+  assert.equal(digest(read('branding/behavior-overlay.json')), 'e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f');
+});
+
+test('PR486 merge accepts only exact original or base callers and binds all six current source rows', () => {
+  const baseRows = json('branding/behavior-overlay.json').files.filter(entry => entry.sessionStatusReadSha256);
+  assert.equal(baseRows.length, 6);
+  assert.equal(overlay.mergeSuccessors.files.length, 4);
+  for (const base of baseRows) {
+    const successor = overlay.mergeSuccessors.files.find(entry => entry.path === base.path);
+    const output = successor?.sha256 ?? base.combinedSha256;
+    assert.equal(currentOutput(base.path, base.combinedSha256), output, base.path);
+    assert.equal(digest(read(base.path)), output, base.path);
+    assert.throws(() => currentOutput(base.path, '0'.repeat(64)), /predecessor changed/, base.path);
+    assert.throws(() => currentOutput(base.path, base.combinedSha256, 'normalized'), /no normalized stock proof/, base.path);
+    if (successor) {
+      assert.equal(successor.basePredecessorSha256, base.combinedSha256, base.path);
+      assert.throws(() => currentOutput(base.path, successor.sha256), /predecessor changed/, base.path);
+    }
+  }
+  const tray = baseRows[0];
+  const upstreamTray = overlay.files.find(entry => entry.path === tray.path);
+  assert.equal(currentOutput(tray.path, tray.preSessionStatusReadCombinedSha256), digest(read(tray.path)));
+  assert.throws(() => currentOutput(tray.path, upstreamTray.sha256), /upstream predecessor changed/);
+  // Coverage-only callers still require their actual pin, not an arbitrary passthrough hash.
+  const covered = json('branding/coverage.json').files.find(entry =>
+    !response.has(entry.path) && !overlay.files.some(row => row.path === entry.path)
+    && !overlay.reviewSuccessors.files.some(row => row.path === entry.path)
+    && !overlay.round2Successors.files.some(row => row.path === entry.path)
+    && !overlay.round4Successors.files.some(row => row.path === entry.path)
+    && !json('branding/behavior-overlay.json').files.some(row => row.path === entry.path));
+  assert.ok(covered);
+  assert.equal(currentOutput(covered.path, covered.outputSha256), covered.outputSha256);
+  assert.throws(() => currentOutput(covered.path, '0'.repeat(64)), /original predecessor changed/);
+});
+
+test('PR486 merge rejects altered source, ordered parents, rows, branch pins, outputs and dispositions', async t => {
+  const cases = [
+    ['source head', value => { value.mergeSuccessors.sourceHead = '0'.repeat(40); }],
+    ['short source head', value => { value.mergeSuccessors.sourceHead = value.mergeSuccessors.sourceHead.slice(0, 8); }],
+    ['first parent', value => { value.mergeSuccessors.parents[0] = '0'.repeat(40); }],
+    ['base parent', value => { value.mergeSuccessors.parents[1] = '0'.repeat(40); }],
+    ['parent order', value => { value.mergeSuccessors.parents.reverse(); }],
+    ['missing parent', value => { value.mergeSuccessors.parents.pop(); }],
+    ['base ledger pin', value => { value.mergeSuccessors.baseBehaviorLedgerSha256 = '0'.repeat(64); }],
+    ['missing rows', value => { value.mergeSuccessors.files = []; }],
+    ['omitted row', value => { value.mergeSuccessors.files.pop(); }],
+    ['duplicate row', value => { value.mergeSuccessors.files.push(value.mergeSuccessors.files[0]); }],
+    ['unproved row', value => { value.mergeSuccessors.files[0].path = 'unproved.txt'; }],
+    ['row order', value => { value.mergeSuccessors.files.reverse(); }],
+    ['upstream tray predecessor', value => { value.mergeSuccessors.files[0].predecessorSha256 = '0'.repeat(64); }],
+    ['base tray predecessor', value => { value.mergeSuccessors.files[0].basePredecessorSha256 = '0'.repeat(64); }],
+    ['base bootstrap predecessor', value => { value.mergeSuccessors.files[1].predecessorSha256 = '0'.repeat(64); }],
+    ['wrong output', value => { value.mergeSuccessors.files[0].sha256 = '0'.repeat(64); }],
+    ['pending output', value => { value.mergeSuccessors.files[0].sha256 = null; }],
+    ['missing output', value => { delete value.mergeSuccessors.files[0].sha256; }],
+    ['normalized output', value => { value.mergeSuccessors.files[0].normalizedSha256 = '0'.repeat(64); }],
+    ['blank disposition', value => { value.mergeSuccessors.files[0].note = ' '; }],
+    ['changed disposition', value => { value.mergeSuccessors.files[0].note = 'Invented disposition.'; }],
+    ['missing disposition', value => { delete value.mergeSuccessors.files[0].note; }],
+  ];
+  for (const [name, mutate] of cases) {
+    await t.test(name, async () => {
+      const fixture = copyProof();
+      try {
+        const value = structuredClone(overlay);
+        mutate(value);
+        writeFileSync(path.join(fixture, overlayPath), JSON.stringify(value));
+        await assert.rejects(import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href), /merge proof changed|AssertionError/);
+      } finally { rmSync(fixture, { recursive: true, force: true }); }
+    });
+  }
+  await t.test('base bytes cannot be restamped to current outputs', async () => {
+    const fixture = copyProof();
+    try {
+      const value = json('branding/behavior-overlay.json');
+      value.files.find(entry => entry.sessionStatusReadAdded).behaviorSha256 = '0'.repeat(64);
+      writeFileSync(path.join(fixture, 'branding/behavior-overlay.json'), JSON.stringify(value));
+      await assert.rejects(import(pathToFileURL(path.join(fixture, 'scripts/branding-response-policy.mjs')).href), /base behavior ledger changed/);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
 });

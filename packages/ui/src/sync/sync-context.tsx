@@ -89,6 +89,7 @@ import {
   useGlobalSessionStatusStore,
 } from "./global-session-status"
 import { applyGlobalBlockingRequestEvents } from "./global-blocking-requests"
+import { captureSessionStatusRead, heldSessionStatusIds, isSessionStatusReadCurrent, type SessionStatusRead } from "./session-status-read"
 import { INITIAL_STATE, type State } from "./types"
 import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { PermissionRequest } from "@/types/permission"
@@ -2754,24 +2755,37 @@ export function SyncProvider(props: {
         let initializationAttempt = 0
 
         const runBootstrap = async (attempt: number): Promise<"complete" | "failed" | "stale"> => {
-          if (!isCurrent()) return "stale"
+          if (!context.isCurrent()) return "stale"
           const currentAttempt = ++initializationAttempt
+          const scope = captureRuntimeRequestScope()
+          const isCurrent = () => context.isCurrent() && currentAttempt === initializationAttempt && isRuntimeRequestScopeCurrent(scope)
           const globalState = useGlobalSyncStore.getState()
           const bootstrap = bootstrapDirectory({
             directory,
             sdk: props.sdk,
             store,
-            set: (patch) => {
-              if (!isCurrent()) return
-              store.setState(patch)
+            set: (patch, read) => {
+              if (!isCurrent() || (read && !isSessionStatusReadCurrent(read))) return
               if (patch.session_status) {
-                applyGlobalSessionStatusSnapshot(directory, patch.session_status, getDirectoryOwnedSessionIds(directory, store.getState().session))
+                const current = store.getState()
+                // Containment is not ownership: a project list may include worktree sessions.
+                const known = getDirectoryOwnedSessionIds(directory, current.session)
+                const held = read ? heldSessionStatusIds(read, directory, patch.session_status, known, current.session_status) : new Set<string>()
+                const merged = { ...patch.session_status }
+                for (const id of held) {
+                  if (current.session_status[id] !== undefined) merged[id] = current.session_status[id]
+                  else delete merged[id]
+                }
+                store.setState({ ...patch, session_status: merged })
+                applyGlobalSessionStatusSnapshot(directory, patch.session_status, known, held)
+              } else {
+                store.setState(patch)
               }
               if (patch.session || patch.message) {
                 ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
               }
             },
-            isStale: () => !isCurrent() || currentAttempt !== initializationAttempt,
+            isStale: () => !isCurrent(),
             global: {
               config: globalState.config,
               projects: globalState.projects,
@@ -3086,7 +3100,7 @@ export function SyncProvider(props: {
       directory: string,
       store: StoreApi<DirectoryStore>,
       candidateSessionIds: string[],
-      fleet?: Promise<DirectorySessionStatusSnapshot | null>,
+      fleet?: { promise: Promise<DirectorySessionStatusSnapshot | null>; read: SessionStatusRead; local: Map<string, State["session_status"]> },
     ) => {
       const polling = statusPollingDirectories
       if (polling.has(directory)) return
@@ -3095,21 +3109,30 @@ export function SyncProvider(props: {
         const before = store.getState()
         // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
         // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
-        const shared = fleet ? await fleet : null
+        const read = fleet ? { ...fleet.read, local: fleet.local.get(directory) } : captureSessionStatusRead(before.session_status)
+        const shared = fleet ? await fleet.promise : null
+        if (stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const held = read ? heldSessionStatusIds(read, directory, shared ?? {}, candidateSessionIds, store.getState().session_status) : new Set<string>()
+        const freshCandidates = candidateSessionIds.filter((id) => !held.has(id))
         // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
         // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
         if (fleet && isStatusUnavailable(directory)) {
           if (noteStatusUnavailablePoll(directory)) {
-            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
-            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+            applySessionStatusSnapshot(store, {}, freshCandidates, "authoritative")
+            applyGlobalSessionStatusSnapshot(directory, {}, freshCandidates, held)
           }
           return
         }
         const statuses = shared
-          ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
-          : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"), "active-session")
-        if (!statuses) return
-        const needsSnapshot = candidateSessionIds.some((sessionId) => (
+          ? (applySessionStatusSnapshot(store, shared, freshCandidates, "monotonic"), shared)
+          : await runBackgroundNetworkTask(async () => {
+            // The directory read may wait behind other work. Reject its original scope before resync
+            // captures the live scope and can publish into this provider's captured child store.
+            if (stopped || (read && !isSessionStatusReadCurrent(read))) return null
+            return resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic")
+          }, "active-session")
+        if (!statuses || stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const needsSnapshot = (read ? freshCandidates : candidateSessionIds).some((sessionId) => (
           needsSnapshotAfterStatusPoll(before, sessionId, statuses[sessionId])
         ))
         if (needsSnapshot) {
@@ -3128,8 +3151,15 @@ export function SyncProvider(props: {
           if (stopped) return
           const now = Date.now()
           // One fleet-wide status read per tick for a managed catalog, made only if some directory is due.
-          let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
-          const fleetStatus = () => fleet ??= runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null))
+          let fleet: Parameters<typeof pollDirectoryStatuses>[3]
+          const fleetStatus = () => {
+            if (!fleet) {
+              const read = captureSessionStatusRead()
+              const local = new Map([...childStores.children].map(([directory, store]) => [directory, store.getState().session_status]))
+              fleet = { read, local, promise: runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null)) }
+            }
+            return fleet
+          }
           const managed = useProjectsStore.getState().managedCatalogAdmitted
           for (const [directory, store] of childStores.children.entries()) {
             const state = store.getState()
