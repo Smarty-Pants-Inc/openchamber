@@ -1,13 +1,15 @@
 import React from 'react';
+import { AppStartupOverlay } from '@/components/ui/AppStartupOverlay';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ChatView } from '@/components/views/ChatView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
+import { SharedTrustConfirmDialog } from '@/components/projects/SharedTrustConfirmDialog';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 import { Toaster } from '@/components/ui/sonner';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { Button } from '@/components/ui/button';
 import { MemoryDebugPanel } from '@/components/ui/MemoryDebugPanel';
-import { setStreamPerfEnabled } from '@/stores/utils/streamDebug';
+import { setStreamPerfMemoryDebugEnabled } from '@/stores/utils/streamDebug';
 import { setRequestsInFlightTrackingEnabled } from '@/stores/utils/requestsInFlight';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 // useEventStream removed — replaced by SyncProvider + SyncBridge
@@ -19,6 +21,7 @@ import { useRouter } from '@/hooks/useRouter';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useWebNotificationStream } from '@/hooks/useWebNotificationStream';
 import { useAgentMemorySync } from '@/hooks/useAgentMemorySync';
+import { useRoutingSync } from '@/hooks/useRoutingSync';
 import { usePwaInstallPrompt } from '@/hooks/usePwaInstallPrompt';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { useRootScrollLock } from '@/hooks/useRootScrollLock';
@@ -279,15 +282,10 @@ function App({ apis }: AppProps) {
   const isMcpOAuthCallback = React.useMemo(() => isMcpOAuthCallbackPath(), []);
 
   React.useEffect(() => {
-    setStreamPerfEnabled(showMemoryDebug);
-    return () => {
-      setStreamPerfEnabled(false);
-    };
-  }, [showMemoryDebug]);
-
-  React.useEffect(() => {
+    setStreamPerfMemoryDebugEnabled(showMemoryDebug);
     setRequestsInFlightTrackingEnabled(showMemoryDebug);
     return () => {
+      setStreamPerfMemoryDebugEnabled(false);
       setRequestsInFlightTrackingEnabled(false);
     };
   }, [showMemoryDebug]);
@@ -724,6 +722,7 @@ function App({ apis }: AppProps) {
   // this snapshot, so leaving it to the panel meant a user who never opened
   // Project notes sent every message with no memory index at all.
   useAgentMemorySync(currentDirectory || null);
+  useRoutingSync();
   usePwaInstallPrompt();
 
   useWindowTitle();
@@ -915,6 +914,7 @@ function App({ apis }: AppProps) {
                   embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled}
                 />
                 <AppLinkConfirmDialog />
+                <SharedTrustConfirmDialog />
               </div>
             </TooltipProvider>
           </RuntimeAPIProvider>
@@ -957,9 +957,11 @@ function App({ apis }: AppProps) {
                   <SyncAppEffects embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled} />
                   <OpenCodeUpdateToast />
                   <MainLayout />
+                  <AppStartupOverlay ready={isInitialized && (!isDesktopRuntime || (bootOutcomeKnown && bootViewIsMain))} />
                   <Toaster />
                   <PiVoiceCallBar />
                   <AppLinkConfirmDialog />
+                  <SharedTrustConfirmDialog />
                   {!isBootShell && (
                     <>
                       <ConfigUpdateOverlay />

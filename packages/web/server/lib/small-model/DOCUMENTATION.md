@@ -117,14 +117,31 @@ other runtime API.
   - Everything else: OpenAI-compatible `/chat/completions` against the
     provider's base URL, resolved from (1) `provider.<id>.options.baseURL`
     in the OpenCode config, (2) the hardcoded `https://api.openai.com/v1`
-     endpoint, (3) the endpoint OpenCode resolved at runtime, or (4) the
-    provider's `api` field from the models.dev catalog. The credential follows
+     endpoint for `openai`, (3) explicit runtime `options.baseURL`, (4) the
+     selected model's runtime `api.url`, (5) the first-model runtime fallback,
+     (6) the provider's `api` field from the models.dev catalog, or
+     (7) `SDK_DEFAULT_BASE_URLS` — providers
+     such as Groq, xAI, and Mistral keep their endpoint inside a dedicated AI
+     SDK package, so neither the catalog nor OpenCode reports one. The
+     credential follows
     the same shape: config `options.apiKey`, then the runtime credential, then
-    the auth.json entry. `provider.<id>.options.headers` is sent with the
+    the auth.json entry. The runtime parser retains `explicitBaseURL` separately
+    from `baseURL`, which may be a first-model fallback. Selected-model metadata
+    can replace that fallback, but cannot redirect credentials or prompts away
+    from an explicit runtime gateway. `provider.<id>.options.headers` is sent with the
     request and overrides the bearer default, so gateways that authenticate on
     their own header work here exactly as they do in a chat turn. Configured API
     keys and header values honor OpenCode's `{env:NAME}` and `{file:path}`
     substitutions; file contents and resolved credentials remain server-side.
+  - `thinking: { type: 'disabled' }` is sent in two cases, mirroring OpenCode's
+    `transform.ts`. The GLM switch belongs to the endpoint, not the model
+    family: it goes to a provider whose id contains `zai`/`zhipu` or whose
+    base URL is on `api.z.ai`/`bigmodel.cn`, because the same GLM model served
+    by another provider (OpenCode Go) rejects the unknown field with a 400.
+    The MiniMax M3 switch goes only behind the `@ai-sdk/openai-compatible` and
+    `@ai-sdk/anthropic` adapters (runtime model, then catalog model, then
+    catalog provider `npm`); a provider that reports no adapter counts as
+    OpenAI-compatible.
   - The runtime credential is refused for providers listed in
     `OWN_CREDENTIAL_HANDLING`. Their branches need the stored entry rather than
     a bearer token: the clearest case is the ChatGPT-plan `openai` login, whose

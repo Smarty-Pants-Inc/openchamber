@@ -15,9 +15,14 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
     event(id, busy)
     const store = runtime.childStores.getChild(A)!, before = lifecycle(id)
     const original = globalThis.fetch
-    const releases: Array<() => void> = []
-    const blockers = Array.from({ length: 3 }, () => runBackgroundNetworkTask(() =>
-      new Promise<void>(done => releases.push(done))))
+    const releases: Array<() => void> = [], blockers: Promise<void>[] = []
+    for (let index = 0; index < 2; index++) {
+      void runBackgroundNetworkTask(() => {
+        const blocker = new Promise<void>(done => releases.push(done))
+        blockers.push(blocker)
+        return blocker
+      })
+    }
     const answer: SessionStatus = kind === 'unchanged missed idle' ? idle
       : { type: 'retry', attempt: 1, message: 'fixture retry', next: 1 }
     let directoryReads = 0, fleetReads = 0
@@ -40,9 +45,10 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
         }
       })
       const queued = getBackgroundNetworkState()
-      expect(releases).toHaveLength(3)
-      // Stock runtimes also queue child discovery on this tick; neither task has dispatched.
-      expect(queued).toEqual({ active: 3, waiting: 2, limit: 3 })
+      expect(releases).toHaveLength(2)
+      // Child discovery uses the reserved list capacity; the background status read stays queued.
+      expect(queued).toEqual({ active: 2, waiting: 1, limit: 2,
+        sessionLists: { active: 0, waiting: 0, limit: 2 } })
       expect(directoryReads).toBe(0)
       if (kind === 'auth') setRuntimeBearerToken('replacement-fixture')
       if (kind === 'runtime') switchRuntimeEndpoint({
@@ -62,7 +68,8 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
       expect(directoryReads).toBe(changed ? 0 : kind === 'unchanged missed idle' ? 2 : 1)
       expect(fleetReads).toBe(0)
       if (changed) expect(lifecycle(id)).toEqual(before)
-      expect(getBackgroundNetworkState()).toEqual({ active: 0, waiting: 0, limit: 3 })
+      expect(getBackgroundNetworkState()).toEqual({ active: 0, waiting: 0, limit: 2,
+        sessionLists: { active: 0, waiting: 0, limit: 2 } })
     } finally {
       releases.splice(0).forEach(done => done())
       await Promise.all(blockers); await drain()
@@ -92,10 +99,15 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
       const url = new URL(new Request(input, init).url)
       if (url.pathname.endsWith('/session/status') && !url.searchParams.has('directory')) {
         fleetReads += 1
-        // The fleet occupies one slot. Two blockers start now; the third takes its released slot,
-        // leaving the production directory fallback waiting behind three active tasks.
-        blockers.push(...Array.from({ length: 3 }, () => runBackgroundNetworkTask(() =>
-          new Promise<void>(done => releases.push(done)))))
+        // The fleet occupies one background slot. One blocker starts now; the second takes
+        // its released slot, leaving the directory fallback behind two active background tasks.
+        for (let index = 0; index < 2; index++) {
+          void runBackgroundNetworkTask(() => {
+            const blocker = new Promise<void>(done => releases.push(done))
+            blockers.push(blocker)
+            return blocker
+          })
+        }
         fleetEntered.resolve(undefined)
         return new Response('unavailable', { status: 503 })
       }
@@ -113,12 +125,13 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
         })])
       })
       clearTimeout(timeout)
-      for (let turn = 0; turn < 50 && (releases.length !== 3 || getBackgroundNetworkState().waiting === 0); turn++) {
+      for (let turn = 0; turn < 50 && (releases.length !== 2 || getBackgroundNetworkState().waiting === 0); turn++) {
         await new Promise(done => setTimeout(done, 10))
       }
       const queued = getBackgroundNetworkState()
-      expect(releases).toHaveLength(3)
-      expect(queued).toEqual({ active: 3, waiting: 1, limit: 3 })
+      expect(releases).toHaveLength(2)
+      expect(queued).toEqual({ active: 2, waiting: 1, limit: 2,
+        sessionLists: { active: 0, waiting: 0, limit: 2 } })
       if (kind === 'auth') setRuntimeBearerToken('replacement-fixture')
       if (kind === 'runtime') switchRuntimeEndpoint({
         apiBaseUrl: 'https://replacement.invalid', runtimeKey: 'replacement', clientToken: 'fixture',
@@ -133,7 +146,8 @@ for (const kind of ['auth', 'runtime', 'unchanged busy', 'unchanged missed idle'
       expect(fallbackReads).toBe(changed ? 0 : kind === 'unchanged missed idle' ? 2 : 1)
       expect(fleetReads).toBe(1)
       if (changed) expect(lifecycle(id)).toEqual(before)
-      expect(getBackgroundNetworkState()).toEqual({ active: 0, waiting: 0, limit: 3 })
+      expect(getBackgroundNetworkState()).toEqual({ active: 0, waiting: 0, limit: 2,
+        sessionLists: { active: 0, waiting: 0, limit: 2 } })
     } finally {
       clearTimeout(timeout)
       releases.splice(0).forEach(done => done())

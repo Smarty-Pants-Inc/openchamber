@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 afterEach(() => { for (const spy of restore.splice(0)) spy.mockRestore(); useProjectsStore.getState().resetManagedCatalog(); });
 const spies = () => {
-  const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue(undefined);
+  const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue({ ok: true });
   const mkdir = spyOn(opencodeClient, 'createDirectory');
   const note = spyOn(toast, 'info');
   restore = [save, mkdir, note];
@@ -39,7 +39,7 @@ const spies = () => {
 const saveActive = (id: string, save: ReturnType<typeof spies>['save']) => {
   useProjectsStore.getState().setActiveProjectIdOnly(id);
   save.mockReset();
-  save.mockResolvedValue(undefined);
+  save.mockResolvedValue({ ok: true });
 };
 const noteText = (note: ReturnType<typeof spies>['note']) => note.mock.calls.map(call => String(call[0]));
 

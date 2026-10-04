@@ -10,11 +10,13 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextStore } from '@/stores/contextStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
+import { checkIsGitRepository } from '@/lib/gitApi';
 import { generateBranchName } from '@/lib/git/branchNameGenerator';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
-import { getWorktreeSetupCommands, getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
+import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
+import { resolveWorktreeSetupCommands } from '@/lib/sharedTrustConfirmation';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import {
   removeProjectWorktree,
   type ProjectRef,
@@ -31,7 +33,10 @@ import { resolveProjectForDirectory } from '@/lib/projectResolution';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
 
 const waitForWorktreeBootstrapIfEnabled = async (project: ProjectRef, directory: string): Promise<void> => {
-  if (await getWorktreeSetupWaitEnabled(project)) {
+  const scope = captureRuntimeRequestScope();
+  const waitEnabled = await getWorktreeSetupWaitEnabled(project);
+  assertRuntimeRequestScope(scope);
+  if (waitEnabled) {
     await waitForWorktreeBootstrap(directory);
   }
 };
@@ -70,8 +75,10 @@ export const createQuickWorktree = async (
   project: ProjectRef,
   options: { preferredName?: string; startRef?: string } = {},
 ) => {
+  const scope = captureRuntimeRequestScope();
   const preferredName = options.preferredName ?? generateBranchName();
-  const setupCommands = await getWorktreeSetupCommands(project);
+  const setupCommands = await resolveWorktreeSetupCommands(project);
+  assertRuntimeRequestScope(scope);
   return createWorktreeWithDefaults(project, {
     preferredName,
     mode: 'new',
@@ -194,6 +201,7 @@ const createInstantWorktreeDraft = async (options?: {
     return null;
   }
 
+  const scope = captureRuntimeRequestScope();
   const projectDirectory = activeProject.path;
 
   let isGitRepo = false;
@@ -203,6 +211,7 @@ const createInstantWorktreeDraft = async (options?: {
     // Ignore errors, treat as not a git repo
   }
 
+  if (!isRuntimeRequestScopeCurrent(scope)) return null;
   if (!isGitRepo) {
     toast.error('Not a Git repository', {
       description: 'Worktrees can only be created in Git repositories.',
@@ -217,7 +226,7 @@ const createInstantWorktreeDraft = async (options?: {
     const pendingRequestId = createPendingDraftWorktreeRequest();
 
     // Lock the draft immediately so no React effect can reset it to the project
-    // root while we await the preview / worktree creation below.
+    // root while we await worktree creation below.
     const sessionStore = useSessionUIStore.getState();
     if (sessionStore.newSessionDraft?.open) {
       sessionStore.overrideNewSessionDraftTarget({
@@ -241,27 +250,10 @@ const createInstantWorktreeDraft = async (options?: {
 
     const preferredName = generateBranchName();
 
-    const preview = await previewGitWorktree(projectRef.path, {
-      mode: 'new',
-      branchName: preferredName,
-      worktreeName: preferredName,
-    }).catch(() => null);
-
-    // Refine draft target once we know the actual worktree path from the preview.
-    if (preview?.path) {
-      useSessionUIStore.getState().overrideNewSessionDraftTarget({
-        projectId: projectRef.id,
-        directoryOverride: preview.path,
-        pendingWorktreeRequestId: pendingRequestId,
-        bootstrapPendingDirectory: preview.path,
-        preserveDirectoryOverride: true,
-        title: options?.title,
-        initialPrompt: options?.initialPrompt,
-      });
-      useDirectoryStore.getState().setDirectory(preview.path, { showOverlay: false });
-    }
-
+    // A preview path has no bootstrap state yet. Selecting it lets background
+    // OpenCode reads initialize an instance before the worktree exists.
     const metadata = await createQuickWorktree(projectRef, { preferredName });
+    assertRuntimeRequestScope(scope);
 
     resolvePendingDraftWorktreeRequest(pendingRequestId, metadata.path);
     useSessionUIStore.getState().overrideNewSessionDraftTarget({
@@ -334,6 +326,7 @@ export async function createWorktreeSessionForNewBranch(
   }
 
   isCreatingWorktreeSession = true;
+  const scope = captureRuntimeRequestScope();
 
   try {
     const start = startPoint?.trim() || 'HEAD';
@@ -363,8 +356,11 @@ export async function createWorktreeSessionForNewBranch(
       return null;
     }
 
-    const setupCommands = await getWorktreeSetupCommands(projectRef);
+    assertRuntimeRequestScope(scope);
+    const setupCommands = await resolveWorktreeSetupCommands(projectRef);
+    assertRuntimeRequestScope(scope);
     const rootBranch = await getRootBranch(projectRef.path);
+    assertRuntimeRequestScope(scope);
     try {
       const metadata = await createWorktreeWithDefaults(projectRef, {
         preferredName: base,
@@ -380,6 +376,7 @@ export async function createWorktreeSessionForNewBranch(
         setupCommands,
         returnAfterDirectoryCreated: options?.returnAfterDirectoryCreated,
       });
+      assertRuntimeRequestScope(scope);
       const createdMetadata = {
         ...metadata,
         createdFromBranch: options?.createdFromBranch || rootBranch || start,
@@ -387,9 +384,11 @@ export async function createWorktreeSessionForNewBranch(
       };
 
       await waitForWorktreeBootstrapIfEnabled(projectRef, metadata.path);
+      assertRuntimeRequestScope(scope);
 
       const sessionStore = useSessionUIStore.getState();
       const session = await sessionStore.createSession(undefined, metadata.path);
+      assertRuntimeRequestScope(scope);
       if (!session) {
         await removeProjectWorktree(projectRef, metadata, { deleteLocalBranch: true }).catch(() => undefined);
         throw new Error('Could not create a session for the worktree.');

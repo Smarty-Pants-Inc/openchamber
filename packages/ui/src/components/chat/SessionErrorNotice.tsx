@@ -5,6 +5,7 @@ import { lastRealMessage } from './message/systemNote';
 import { useLatestSessionError } from '@/sync/notification-store';
 import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
 import { usePromptsInFlight } from '@/sync/prompts-in-flight';
+import { readLastMessageState, type LastMessageState } from './sessionErrorNoticeState';
 
 interface SessionErrorNoticeProps {
   sessionId: string;
@@ -14,12 +15,6 @@ interface SessionErrorNoticeProps {
 // How long a user message may sit unanswered on an idle session before the
 // notice calls it a reply that never began.
 const UNANSWERED_AFTER_MS = 5_000;
-
-type LastMessageState = {
-  role: string;
-  timestamp: number;
-  hasError: boolean;
-} | null;
 
 // The last message of a session, with whether it already carries an error of
 // its own: an assistant message that OpenCode marked failed renders its error
@@ -31,20 +26,11 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
     if (!sessionId) return null;
     const messages = store.getState().message[sessionId];
     // A system note (a voice call started or ended) is no reply and no request: judge the last real message.
-    const last = lastRealMessage(messages);
-    // SAFETY: store messages are SDK `Message` records; `error` is the optional
-    // assistant-message error the SDK types carry, read here only for presence.
-    const info = last as { role?: string; time?: { completed?: number; created?: number }; error?: unknown } | null;
-    if (!info) {
+    const next = readLastMessageState(lastRealMessage(messages));
+    if (!next) {
       cacheRef.current = null;
       return null;
     }
-    const next: LastMessageState = {
-      role: typeof info.role === 'string' ? info.role : '',
-      // An optimistic user message has `completed: 0` (session-actions): its time is when it was created (#902 review).
-      timestamp: info.time?.completed || info.time?.created || 0,
-      hasError: Boolean(info.error),
-    };
     const cached = cacheRef.current;
     if (cached && cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError) {
       return cached;
@@ -84,7 +70,8 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
   // with an error, shown by the send's own error path at once.
   const sending = usePromptsInFlight((state) => (state.pending[sessionId] ?? 0) > 0);
   const answeredAt = usePromptsInFlight((state) => state.answeredAt[sessionId] ?? 0);
-  const waitingSince = !reportedError && isIdle && lastMessage?.role === 'user' ? Math.max(lastMessage.timestamp, answeredAt) : null;
+  const waitingSince = !reportedError && isIdle && lastMessage?.role === 'user' && lastMessage.timestamp > 0
+    ? Math.max(lastMessage.timestamp, answeredAt) : null;
   // One clock: while sending, from the message (after the same wait it says "Sending…"); after, from the answer.
   const clockSince = waitingSince === null ? null : sending ? lastMessage?.timestamp ?? waitingSince : waitingSince;
   const [now, setNow] = React.useState(() => Date.now());

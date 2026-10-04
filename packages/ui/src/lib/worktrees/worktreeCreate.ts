@@ -1,4 +1,5 @@
 import { checkIsGitRepository, getGitBranches, getGitStatus } from '@/lib/gitApi';
+import { assertRuntimeRequestScope, captureRuntimeRequestScope } from '@/lib/runtime-switch';
 import type { CreateWorktreeArgs, ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktree } from '@/lib/worktrees/worktreeManager';
 import { getRootBranch, resolveProjectRoot } from '@/lib/worktrees/worktreeStatus';
@@ -169,11 +170,15 @@ export const createWorktreeWithDefaults = async (
   args: CreateWorktreeArgs,
   options?: { resolvedRootTrackingRemote?: string | null }
 ) => {
+  const scope = captureRuntimeRequestScope();
   const isGitRepository = await checkIsGitRepository(project.path);
+  assertRuntimeRequestScope(scope);
   if (!isGitRepository) {
     throw new WorktreeRequiresGitRepositoryError();
   }
   const remoteArgs = await withWorktreeRemoteStartRef(project, args);
+  assertRuntimeRequestScope(scope);
   const resolvedArgs = await withWorktreeUpstreamDefaults(project.path, remoteArgs, options);
+  assertRuntimeRequestScope(scope);
   return createWorktree(project, resolvedArgs);
 };

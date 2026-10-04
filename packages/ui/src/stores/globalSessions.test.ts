@@ -2,8 +2,9 @@ import { ensureChatsRootDirectory } from '@/lib/chatDirectories';
 import { opencodeClient } from '@/lib/opencode/client';
 import { describe, expect, test } from 'bun:test'
 import type { OpencodeClient, Session } from '@opencode-ai/sdk/v2'
+import { createOpencodeClient } from '@opencode-ai/sdk/v2'
 
-import { getBackgroundNetworkState, runBackgroundNetworkTask } from '@/lib/background-network';
+import { getBackgroundNetworkState, runBackgroundNetworkTask, runSessionListNetworkTask } from '@/lib/background-network';
 import { filterManagedChatsForRuntime, listGlobalSessionPages, splitGlobalSessionsByArchived } from './globalSessions'
 
 describe('managed Chats runtime visibility', () => {
@@ -39,10 +40,11 @@ describe('listGlobalSessionPages', () => {
     await expect(listGlobalSessionPages(apiClient, { archived: false, pageSize: 2, ungated: true, isCurrent: () => current })).rejects.toThrow('Superseded')
     expect(calls).toBe(1)
   })
-  test('an ungated bootstrap list does not wait behind saturated background work', async () => {
+  test('an ungated bootstrap list does not wait behind saturated shared network work', async () => {
     expect(getBackgroundNetworkState().active).toBe(0)
     const releases: Array<() => void> = []
-    const blockers = Array.from({ length: 3 }, () => runBackgroundNetworkTask(() => new Promise<void>((resolve) => releases.push(resolve))))
+    const hold = () => new Promise<void>((resolve) => releases.push(resolve))
+    const blockers = [runBackgroundNetworkTask(hold), runSessionListNetworkTask(hold), runSessionListNetworkTask(hold)]
     try {
       const apiClient = { experimental: { session: { list: async () => ({ data: [], response: new Response('[]') }) } } } as unknown as OpencodeClient
       const race = (options: { ungated?: boolean }) => Promise.race([
@@ -56,6 +58,27 @@ describe('listGlobalSessionPages', () => {
       for (const release of releases) release()
       await Promise.all(blockers)
     }
+  })
+
+  test('uses the next cursor from the SDK HTTP response rather than guessing from session timestamps', async () => {
+    const cursors: Array<string | null> = []
+    const apiClient = createOpencodeClient({
+      baseUrl: 'https://sessions.test',
+      fetch: async (request) => {
+        const url = new URL(request instanceof Request ? request.url : request.toString())
+        const cursor = url.searchParams.get('cursor')
+        cursors.push(cursor)
+        return cursor === null
+          ? Response.json([
+            { id: 'first', time: { updated: 20 } },
+            { id: 'second', time: { updated: 10 } },
+          ], { headers: { 'x-next-cursor': '8' } })
+          : Response.json([{ id: 'last', time: { updated: 5 } }])
+      },
+    })
+    const sessions = await listGlobalSessionPages(apiClient, { archived: false, pageSize: 2 })
+    expect(cursors).toEqual([null, '8'])
+    expect(sessions.map((session) => session.id)).toEqual(['first', 'second', 'last'])
   })
 
   test('sanitizes session list records before returning them', async () => {

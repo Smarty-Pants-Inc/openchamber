@@ -1,5 +1,5 @@
 /**
- * Toggles whether tool permissions are auto-accepted for this session.
+ * Reports the fork's unsupported permission auto-accept control.
  *
  * The pointer guards keep a tap from dismissing the mobile keyboard: on
  * Android's resizes-content viewport the keyboard-close relayout moves this
@@ -27,18 +27,12 @@ export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcce
     const {
         footerIconButtonClass,
         iconSizeClass,
-        isInteractive,
-        permissionAutoAcceptEnabled,
         handlePermissionAutoAcceptToggle,
         withTooltip = false,
     } = props;
 
-    const ariaLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.disable')
-        : t('chat.chatInput.permissionAutoAccept.enable');
-    const tooltipLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.on')
-        : t('chat.chatInput.permissionAutoAccept.off');
+    const ariaLabel = t('common.unavailable');
+    const tooltipLabel = ariaLabel;
 
     const button = (
         <button
@@ -46,8 +40,7 @@ export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcce
             onClick={handlePermissionAutoAcceptToggle}
             className={cn(
                 footerIconButtonClass,
-                'rounded-md hover:bg-transparent',
-                !isInteractive && 'opacity-30',
+                'rounded-md opacity-30',
             )}
             onMouseDown={(event) => {
                 event.preventDefault();
@@ -58,15 +51,12 @@ export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcce
                     event.stopPropagation();
                 }
             }}
-            aria-pressed={permissionAutoAcceptEnabled}
+            aria-pressed={false}
+            aria-disabled="true"
             aria-label={ariaLabel}
             title={ariaLabel}
         >
-            {permissionAutoAcceptEnabled ? (
-                <Icon name="shield-check" className={cn(iconSizeClass)} style={{ color: 'var(--status-info)' }} />
-            ) : (
-                <Icon name="shield-user" className={cn(iconSizeClass)} />
-            )}
+            <Icon name="shield-user" className={cn(iconSizeClass)} />
         </button>
     );
 

@@ -592,8 +592,8 @@ test('runtime branding is limited to owned templates and compatibility identitie
     'vscode:dev': packageJson.scripts['vscode:dev'],
   }, {
     'dev:web:hmr': 'node ./scripts/dev-web-hmr.mjs',
-    'electron:dev': 'node ./packages/electron/scripts/electron-dev.mjs',
-    'electron:dev:bundled': 'OPENCHAMBER_ELECTRON_USE_BUNDLED_UI=1 node ./packages/electron/scripts/electron-dev.mjs',
+    'electron:dev': 'bun run extensions:build && node ./packages/electron/scripts/electron-dev.mjs',
+    'electron:dev:bundled': 'bun run extensions:build && OPENCHAMBER_ELECTRON_USE_BUNDLED_UI=1 node ./packages/electron/scripts/electron-dev.mjs',
     'mobile:open:android': 'bun run --cwd packages/mobile open:android',
     'vscode:dev': 'node ./scripts/dev-vscode.mjs',
   });

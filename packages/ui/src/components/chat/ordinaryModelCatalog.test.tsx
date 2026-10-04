@@ -10,7 +10,7 @@ Object.assign(globalThis, { window: win, document: win.document, navigator: win.
   HTMLElement: win.HTMLElement, Element: win.Element, Node: win.Node, localStorage: win.localStorage,
   getComputedStyle: win.getComputedStyle.bind(win), requestAnimationFrame: win.requestAnimationFrame.bind(win),
   cancelAnimationFrame: win.cancelAnimationFrame.bind(win), ResizeObserver: win.ResizeObserver,
-  CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true });
+  MutationObserver: win.MutationObserver, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true });
 const { OrdinaryModelControls } = await import('./OrdinaryModelControls');
 const { I18nProvider } = await import('@/lib/i18n');
 const { selectProvidersForDirectory, useConfigStore } = await import('@/stores/useConfigStore');

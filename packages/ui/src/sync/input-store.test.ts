@@ -51,6 +51,133 @@ const waitForReaderCount = async (count: number) => {
 
 const pngBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
 
+describe("input-store composer restore", () => {
+  beforeEach(() => {
+    useInputStore.setState({ pendingComposerRestore: null })
+  })
+
+  test("only the destination can consume a restore, and only once", () => {
+    const target = { runtimeKey: "runtime", directory: "/repo", sessionId: "fork" }
+    const pending = { target, text: "replay", files: [] }
+    useInputStore.setState({ pendingComposerRestore: pending })
+    for (const identity of [
+      null,
+      { ...target, sessionId: "source" },
+      { ...target, directory: "/elsewhere" },
+      { ...target, runtimeKey: "other-runtime" },
+    ]) {
+      expect(useInputStore.getState().consumePendingComposerRestore(identity)).toBeNull()
+      expect(useInputStore.getState().pendingComposerRestore).toBe(pending)
+    }
+    expect(useInputStore.getState().consumePendingComposerRestore(target)).toBe(pending)
+    expect(useInputStore.getState().consumePendingComposerRestore(target)).toBeNull()
+  })
+
+  test("keeps ordinary pending text independent from fork restoration", () => {
+    const target = { runtimeKey: "runtime", directory: "/repo", sessionId: "fork" }
+    const pending = { target, text: "", files: [] }
+    useInputStore.setState({ pendingComposerRestore: pending })
+    useInputStore.getState().setPendingInputText("ordinary insertion", "append")
+    expect(useInputStore.getState().consumePendingInputText()).toEqual({ text: "ordinary insertion", mode: "append" })
+    expect(useInputStore.getState().consumePendingComposerRestore(target)).toBe(pending)
+  })
+})
+
+describe("input-store automatic reload custody", () => {
+  const source = { runtimeKey: "runtime", directory: "/repo", sessionId: "A" }
+  const other = { ...source, sessionId: "B" }
+  const file = { url: "data:text/plain;base64,aGVsbG8=", mimeType: "text/plain", filename: "hello.txt" }
+  const reconnect = async (sleep: () => Promise<void> = async () => undefined) => {
+    let reloaded = 0
+    const result = await reloadIfNewBuild({
+      running: () => "/assets/main-OLD.js",
+      fetchIndex: async () => '<script type="module" src="/assets/main-NEW.js"></script>',
+      busy: () => reloadHeld() || useInputStore.getState().hasReloadBlockingInput(),
+      reload: () => { reloaded += 1 },
+      jitterMs: () => 30_000,
+      sleep,
+    })
+    return { result, reloaded }
+  }
+
+  beforeEach(() => {
+    useInputStore.setState({ pendingComposerRestore: null, attachmentDraftKey: null, attachmentDrafts: new Map() })
+    useInputStore.getState().setAttachedFiles([])
+  })
+
+  test("A's file still holds a newer-build reconnect after selecting empty B; clearing the last owner releases it", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    input.addRestoredAttachment(file)
+    const files = useInputStore.getState().attachedFiles
+    input.selectAttachmentDraft(other)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(reloadHeld()).toBe(false) // No text, send or file-read hold can hide this regression.
+    expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+    input.selectAttachmentDraft(source)
+    expect(useInputStore.getState().attachedFiles).toBe(files)
+    input.selectAttachmentDraft(other)
+    input.clearAttachedFiles(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("clearing one owner cannot release another runtime or directory's retained files", async () => {
+    const input = useInputStore.getState()
+    const owners = [source, { ...source, directory: "/other" }, { ...source, runtimeKey: "other-runtime" }]
+    for (const owner of owners) {
+      input.selectAttachmentDraft(owner)
+      input.addRestoredAttachment(file)
+    }
+    input.selectAttachmentDraft(other)
+    for (const owner of owners) {
+      expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+      input.clearAttachedFiles(owner)
+    }
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("pending file-only or text-only replay holds reload before its destination renders", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    for (const replay of [{ text: "", files: [file] }, { text: "replay words", files: [] }]) {
+      const pending = { target: other, ...replay }
+      useInputStore.setState({ pendingComposerRestore: pending })
+      expect(input.consumePendingComposerRestore(source)).toBeNull()
+      expect(useInputStore.getState().attachedFiles).toEqual([])
+      expect(reloadHeld()).toBe(false)
+      expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+      expect(input.consumePendingComposerRestore(other)).toBe(pending)
+      expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+    }
+  })
+
+  test("counterexample: an emptied same owner and an empty replay allow reload", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    input.addRestoredAttachment(file)
+    expect(await reconnect()).toEqual({ result: false, reloaded: 0 })
+    input.clearAttachedFiles(source)
+    input.selectAttachmentDraft(source)
+    useInputStore.setState({ pendingComposerRestore: { target: source, text: "", files: [] } })
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+    input.selectAttachmentDraft(other)
+    input.selectAttachmentDraft(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+
+  test("the scheduler rechecks retained owners after its delay, not just visible files", async () => {
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    expect(await reconnect(async () => {
+      input.addRestoredAttachment(file)
+      input.selectAttachmentDraft(other)
+    })).toEqual({ result: false, reloaded: 0 })
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    input.clearAttachedFiles(source)
+    expect(await reconnect()).toEqual({ result: true, reloaded: 1 })
+  })
+})
+
 describe("input-store attachments", () => {
   beforeEach(() => {
     pendingReaders.length = 0
@@ -59,7 +186,11 @@ describe("input-store attachments", () => {
       pendingInputText: null,
       pendingInputMode: "replace",
       pendingSyntheticParts: null,
+      pendingGuestIssue: null,
+      pendingBtwComposerRequest: null,
       activeEditorFile: null,
+      attachmentDraftKey: null,
+      attachmentDrafts: new Map(),
     })
     useInputStore.getState().setAttachedFiles([])
   })
@@ -74,7 +205,7 @@ describe("input-store attachments", () => {
     let reloaded = 0
     const index = '<script type="module" src="/assets/main-NEW.js"></script>'
     expect(await reloadIfNewBuild({ running: () => "/assets/main-OLD.js", fetchIndex: async () => index,
-      busy: () => reloadHeld() || useInputStore.getState().attachedFiles.length > 0, reload: () => { reloaded += 1 },
+      busy: () => reloadHeld() || useInputStore.getState().hasReloadBlockingInput(), reload: () => { reloaded += 1 },
       jitterMs: () => 30_000, sleep: async () => undefined })).toBe(false)
     expect(reloaded).toBe(0)
     resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
@@ -103,6 +234,24 @@ describe("input-store attachments", () => {
     expect(useInputStore.getState().attachedFiles).toEqual([])
   })
 
+  testWithMockFileReader("rejects pending file and selection reads after switching drafts, even after returning", async () => {
+    const source = { runtimeKey: "runtime", directory: "/repo", sessionId: "source" }
+    const input = useInputStore.getState()
+    input.selectAttachmentDraft(source)
+    input.addRestoredAttachment({ url: "data:text/plain;base64,aGVsbG8=", mimeType: "text/plain", filename: "ready.txt" })
+    const ready = useInputStore.getState().attachedFiles
+    const local = input.addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+    const selection = input.addVSCodeSelectionAttachment("/repo/code.ts", new File(["hello"], "selection.ts", { type: "text/plain" }))
+    expect(pendingReaders).toHaveLength(2)
+    input.selectAttachmentDraft({ ...source, sessionId: "other" })
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    input.selectAttachmentDraft(source)
+    for (const reader of pendingReaders) resolveReader(reader, "data:text/plain;base64,aGVsbG8=")
+    expect(await local).toBe(false)
+    await selection
+    expect(useInputStore.getState().attachedFiles).toBe(ready)
+  })
+
   testWithMockFileReader("does not attach a local file after attached files are replaced", async () => {
     const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
     expect(pendingReaders).toHaveLength(1)
@@ -111,6 +260,25 @@ describe("input-store attachments", () => {
     resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
     await addPromise
 
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+  })
+
+  testWithMockFileReader("a pending selection in another draft does not block the same selection here", async () => {
+    const source = { runtimeKey: "runtime", directory: "/repo", sessionId: "source" }
+    const input = useInputStore.getState()
+    const file = new File(["hello"], "selection.ts", { type: "text/plain" })
+    input.selectAttachmentDraft(source)
+    const first = input.addVSCodeSelectionAttachment("/repo/code.ts", file)
+    input.selectAttachmentDraft({ ...source, sessionId: "other" })
+    const second = input.addVSCodeSelectionAttachment("/repo/code.ts", file)
+    expect(pendingReaders).toHaveLength(2)
+    // A repeated selection of the current identity must not cancel its read.
+    input.selectAttachmentDraft({ ...source, sessionId: "other" })
+    input.clearAttachedFiles(source)
+    for (const reader of pendingReaders) resolveReader(reader, "data:text/plain;base64,aGVsbG8=")
+    await Promise.all([first, second])
+    expect(useInputStore.getState().attachedFiles.map((attachment) => attachment.filename)).toEqual(["selection.ts"])
+    input.selectAttachmentDraft(source)
     expect(useInputStore.getState().attachedFiles).toEqual([])
   })
 
@@ -398,5 +566,64 @@ describe("input-store attachments", () => {
     // Removing the text entry cascades to the slide image
     useInputStore.getState().removeAttachedFile(files[0].id)
     expect(useInputStore.getState().attachedFiles).toEqual([])
+  })
+})
+
+describe("input-store guest attach", () => {
+  beforeEach(() => {
+    useInputStore.setState({ pendingGuestIssue: null })
+  })
+
+  test("holds a guest issue until the composer consumes it", () => {
+    const issue = {
+      providerId: "clickup",
+      id: "abc",
+      title: "Login",
+      url: "https://app.clickup.com/t/abc",
+    }
+    useInputStore.getState().setPendingGuestIssue(issue)
+    expect(useInputStore.getState().pendingGuestIssue).toEqual(issue)
+    expect(useInputStore.getState().consumePendingGuestIssue()).toEqual(issue)
+    expect(useInputStore.getState().pendingGuestIssue).toBeNull()
+    expect(useInputStore.getState().consumePendingGuestIssue()).toBeNull()
+  })
+
+  test("holds a guest pull with author and branches", () => {
+    const pull = {
+      providerId: "gitlab",
+      id: "!12",
+      title: "Fix login",
+      url: "https://gitlab.com/acme/app/-/merge_requests/12",
+      kind: "pull" as const,
+      author: "ada",
+      branches: { head: "feature", base: "main" },
+    }
+    useInputStore.getState().setPendingGuestIssue(pull)
+    expect(useInputStore.getState().pendingGuestIssue).toEqual(pull)
+    expect(useInputStore.getState().consumePendingGuestIssue()).toEqual(pull)
+  })
+})
+
+describe("input-store BTW composer requests", () => {
+  test("keeps the request scoped to its parent without changing the normal composer", () => {
+    useInputStore.setState({
+      pendingInputText: "normal draft",
+      pendingInputMode: "replace",
+      pendingBtwComposerRequest: null,
+      attachedFiles: [],
+    })
+    useInputStore.getState().requestBtwComposer({
+      parentSessionId: "parent-1",
+      text: "> selected text",
+    })
+
+    expect(useInputStore.getState().consumePendingBtwComposerRequest("parent-2")).toBeNull()
+    expect(useInputStore.getState().pendingInputText).toBe("normal draft")
+    expect(useInputStore.getState().consumePendingBtwComposerRequest("parent-1")).toEqual({
+      parentSessionId: "parent-1",
+      text: "> selected text",
+    })
+    expect(useInputStore.getState().consumePendingBtwComposerRequest("parent-1")).toBeNull()
+    expect(useInputStore.getState().pendingInputText).toBe("normal draft")
   })
 })

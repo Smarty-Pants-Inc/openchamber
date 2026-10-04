@@ -1,34 +1,33 @@
-# Permission Auto-Accept
+# Permission auto-accept
 
-## Purpose
+Permission auto-accept is hard-disabled in this fork. This is an execution boundary, not a default-off setting or a Pi gateway capability check. It applies even when the backend is OpenCode and has pending permissions.
 
-This module owns the authoritative permission auto-accept policy for web, desktop, and mobile runtimes. Policy is persisted in OpenChamber settings so permission handling survives UI disconnects and server restarts.
+## Runtime and stored policy
 
-## Policy
+`createPermissionAutoAcceptRuntime` keeps its existing entry points for older and scheduled callers. `setSessionPolicy` rejects with unsupported status 501. `isSessionAutoAccepting` and `processPermission` return false. Startup, reconnect and pending reconciliation perform no subscriptions, settings reads, evaluator calls, requests, timers or replies. `load` and `snapshot` return an unsupported projection, not stored authorization.
 
-`permissionAutoAccept.sessions` contains explicit per-session boolean policies.
+Stored `permissionAutoAccept` settings remain untouched. No environment flag, routing setting, injected evaluator or saved ancestor policy can re-enable execution. The former evaluator, retry and reply implementation has been removed, so an accepted result or timeout/error fallback cannot release a permission after Off. Re-enabling this feature requires a new implementation and security review.
 
-Policy inheritance uses the nearest explicit session value. A child `false` therefore overrides a parent `true`; descendants without an explicit value inherit from their nearest configured ancestor.
+## Routes and bridge
 
-## Runtime
+Every method beneath `/api/permission-auto-accept` returns 501 JSON with `supported: false` before the generic OpenCode proxy. The composition root also refuses the older `POST /api/notifications/auto-accept` during normal authenticated bootstrap, before its original notification handler.
 
-`createPermissionAutoAcceptRuntime` loads and serializes policy writes, subscribes to the global OpenCode event hub, caches session lineage, retries transient replies, and reconciles pending permissions after startup, reconnect, and policy enablement. Enabling Auto-Accept for a session immediately accepts matching pending requests and keeps handling future requests without requiring a connected UI.
+VS Code's actual policy bridge refuses GET and set operations without reading, writing or broadcasting global state. Its separate foreground responder and production live/bootstrap/reconnect entry points are inert. The webview cannot restore automatic replies from an old broadcast.
 
-Unknown lineage and failed policy loads fail closed. A failed pending-permission fetch is distinct from an empty successful response and never clears policy state.
+## Shared client
 
-## Routes
+The permission store never hydrates or migrates stored policy into live authority and never contacts the policy endpoint. Its predicate and lineage utility return false even for previously enabled maps. Legacy migration candidates stay stored. Enabling through the store rejects as unsupported; an explicit false remains a no-op for older Off callers.
 
-- `GET /api/permission-auto-accept`
-- `PUT /api/permission-auto-accept/sessions/:sessionId`
+The real composer button and shortcut report localized Unavailable, including draft and unsent BTW modes, without changing local pending flags. The button always shows an inactive shield, never a saved enabled state. Older calls through the toggle helper fail without changing policy or draft state. Manual BTW creation no longer enrolls a policy, whether an old caller supplies an absent, false or true flag. Scheduled enrollment fails through the runtime refusal; the scheduler's existing catch lets the task continue with manual permissions.
 
-These are normal authenticated OpenChamber runtime routes. They must not be added to browser URL-token allowlists.
+Web, Electron, hosted mobile and Capacitor use the disabled server and shared client. VS Code refuses both its policy bridge and foreground responder. There is no runtime-specific opt-in or local fallback loop.
 
-## UI ownership
+## Manual permissions and safety policy
 
-`packages/ui/src/stores/permissionStore.ts` is a projection of server policy and does not persist an independent policy. The server is the sole responder and the UI renders pending requests until the authoritative `permission.replied` event arrives.
+Manual `once`, `always` and `reject` permission replies still use the official SDK and normal OpenCode proxy. Permission cards and event reconciliation stay available. This disable does not change upstream tool safety policy or the separate routing evaluator's decisions.
 
-VS Code retains its foreground-only responder because it does not run the web server runtime. Its extension host persists and broadcasts the authoritative policy across webviews, while the active UI handles live events plus startup, reconnect, and enablement reconciliation. With all OpenChamber webviews closed or suspended, permissions are not auto-accepted; this is an intentional VS Code limitation.
+## Regression evidence
 
-## Tests
+`runtime.test.js` exercises the actual responder, routing evaluator and timeout/error fallbacks, explicit Off controls, stored-policy preservation, every feature-route method, the real generic proxy, and exported server bootstrap with a pending/live OpenCode fixture. Manual replies remain the positive control.
 
-`runtime.test.js` covers restart persistence, nearest explicit subagent inheritance, missing-lineage lookup, retry/deduplication, and reconnect reconciliation.
+The owning UI/store/sync/VS Code tests cover old stored and broadcast policies, disabled foreground entry points, actual bridge refusal, real scoped SDK manual replies, and mounted composer button plus shortcut in session, draft and BTW modes. DOM fixtures do not prove installed browser, mobile-device or native extension-host behavior.

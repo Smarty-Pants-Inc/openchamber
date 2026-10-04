@@ -91,7 +91,7 @@ await plugin({ name: 'mini-chat-worker-url', setup(build) {
     contents: "export default 'data:text/javascript,throw new Error(\"Unexpected markdown worker\")'",
     loader: 'js',
   }));
-  build.onLoad({ filter: /useProviderLogo\.ts$/ }, async ({ path }) => {
+  build.onLoad({ filter: /useProviderLogo\.ts$/ }, async ({ path }): Promise<{ contents: string; loader: 'ts' }> => {
     const logos = Object.fromEntries(readdirSync(fileURLToPath(new URL('../assets/provider-logos/', import.meta.url))).filter((name) => name.endsWith('.svg'))
       .map((name) => [`../assets/provider-logos/${name}`, `/assets/provider-logos/${name}`]));
     const source = await readFile(path, 'utf8');

@@ -33,7 +33,7 @@ beforeEach(() => {
   storage.setItem('lastDirectory', pending.worktree);
   useSessionUIStore.setState({ currentSessionId: 'ses_open', currentSessionDirectory: pending.worktree });
   useDirectoryStore.setState({ currentDirectory: live.worktree });
-  const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue(undefined);
+  const save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue({ ok: true });
   note = spyNotes();
   restore = [save, note];
 });

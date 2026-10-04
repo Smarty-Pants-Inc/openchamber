@@ -20,7 +20,7 @@ let stopAutoSave: (() => void) | null = null;
 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
 beforeEach(() => {
-  save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue(undefined);
+  save = spyOn(settings, 'updateDesktopSettings').mockResolvedValue({ ok: true });
 });
 afterEach(() => {
   stopAutoSave?.();

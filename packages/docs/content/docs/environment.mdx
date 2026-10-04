@@ -25,6 +25,8 @@ Starts Smarty Code in headless mode when set to `true` or `1`. API routes stay a
 
 Overrides the Smarty Code data directory. The default is `~/.config/openchamber`.
 
+Everything Smarty Code stores lives under this directory: settings, auth, project configs, themes, plans, and speech models. An instance that used a custom directory before version 1.23 gets its `projects`, `themes`, and `speech-models` folders copied from `~/.config/openchamber` on the first start; the originals stay in place and nothing is merged.
+
 ### `OPENCHAMBER_CHATS_DIR`
 
 Moves the managed chat directories that Smarty Code creates for chats without a project. The default is `~/.config/openchamber/chats`. Set it to a directory the OpenCode server can read when Smarty Code and OpenCode run as different users. Existing chats are not moved.

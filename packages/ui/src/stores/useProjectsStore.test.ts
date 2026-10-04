@@ -5,8 +5,54 @@ import type { DesktopSettings } from "@/lib/desktop"
 import { useProjectsStore } from "./useProjectsStore"
 import { useDirectoryStore } from "./useDirectoryStore"
 import { getDeferredSafeStorage } from "./utils/safeStorage"
+import { opencodeClient } from "../lib/opencode/client"
 
 describe("useProjectsStore settings synchronization", () => {
+  test("preserves drive roots and deduplicates Windows drive/separator variants", () => {
+    const previous = useProjectsStore.getState()
+    const directoryState = useDirectoryStore.getState()
+    const sdkDirectory = opencodeClient.getDirectory()
+    try {
+      useProjectsStore.getState().synchronizeFromSettings({ projects: [
+        { id: "drive", path: "c:\\" },
+        { id: "lower", path: "c:\\Users\\Developer\\Project\\" },
+        { id: "upper", path: "C:/Users/Developer/Project" },
+      ] })
+      expect(useProjectsStore.getState().projects.map((project) => project.path)).toEqual(["C:/", "C:/Users/Developer/Project"])
+    } finally {
+      useProjectsStore.setState(previous, true)
+      useDirectoryStore.setState(directoryState, true)
+      opencodeClient.setDirectory(sdkDirectory)
+    }
+  })
+
+  test("directory navigation preserves roots and does not create history duplicates for Windows spelling variants", () => {
+    const previous = useDirectoryStore.getState()
+    const sdkDirectory = opencodeClient.getDirectory()
+    try {
+      useDirectoryStore.setState({ homeDirectory: "/home", currentDirectory: "/home", directoryHistory: ["/home"], historyIndex: 0 })
+      useDirectoryStore.getState().setDirectory("c:\\Project")
+      useDirectoryStore.getState().setDirectory("C:/Project/")
+      expect(useDirectoryStore.getState().directoryHistory).toEqual(["/home", "C:/Project"])
+      useDirectoryStore.setState({ directoryHistory: ["/home", "C:/Project", "C:/Other"], historyIndex: 1 })
+      useDirectoryStore.getState().setDirectory("c:\\Project\\")
+      expect(useDirectoryStore.getState().historyIndex).toBe(1)
+      expect(useDirectoryStore.getState().directoryHistory).toEqual(["/home", "C:/Project", "C:/Other"])
+      useDirectoryStore.getState().goToParent()
+      expect(useDirectoryStore.getState().currentDirectory).toBe("C:/")
+      expect(opencodeClient.getDirectory()).toBe("C:/")
+      useDirectoryStore.getState().goToParent()
+      expect(useDirectoryStore.getState().currentDirectory).toBe("C:/")
+      useDirectoryStore.getState().setDirectory("\\\\Server\\Share\\Folder")
+      useDirectoryStore.getState().goToParent()
+      useDirectoryStore.getState().goToParent()
+      expect(useDirectoryStore.getState().currentDirectory).toBe("//Server/Share")
+    } finally {
+      useDirectoryStore.setState(previous, true)
+      opencodeClient.setDirectory(sdkDirectory)
+    }
+  })
+
   test("treats a successful empty project snapshot as authoritative", () => {
     const project = { id: "project-a", path: "/repo", label: "Repo" } as ProjectEntry
     useProjectsStore.setState({
@@ -61,7 +107,7 @@ describe("bootstrap active pointer while discovery is pending", () => {
   // 3.13: a fresh browser's bootstrap adopted the shared active pointer (smarty-code) before managed discovery,
   // so it opened there instead of the remembered lastDirectory (smarty-dev).
   test("a managed catalog selects the remembered directory, not the held shared pointer", () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       useProjectsStore.getState().resetManagedCatalog()
       useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
@@ -108,7 +154,7 @@ describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
     return { first: first!, second: second! }
   }
   for (const choice of ["setActiveProject", "directory"] as const) test(`a newer explicit selection (${choice}) is not undone by the stock answer`, () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       const { second } = hold()
       if (choice === "setActiveProject") useProjectsStore.getState().setActiveProject(second.id)
@@ -118,7 +164,7 @@ describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
     } finally { save.mockRestore(); useProjectsStore.getState().resetManagedCatalog() }
   })
   test("choosing the directory already shown still discards the held pointer", () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       // This browser already remembered /repo-b when the bootstrap held A's pointer.
       const { second } = hold("/repo-b")
@@ -137,7 +183,7 @@ describe("held bootstrap pointer lifecycle (review/astra on OC#159)", () => {
     useProjectsStore.getState().resetManagedCatalog()
   })
   test("unknown -> unavailable -> stock restores the saved selection without a settings write", () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       const { first } = hold()
       useProjectsStore.setState({ managedCatalogStatus: "unavailable" })
@@ -214,13 +260,31 @@ describe("useProjectsStore default model and thinking level", () => {
     const project = useProjectsStore.getState().projects[0]
     expect(project?.defaultVariant).toBe(undefined)
   })
+
+  test("persists and clears a project default agent", () => {
+    seed({ id: "project-a", path: "/repo" })
+
+    useProjectsStore.getState().updateProjectMeta("project-a", { defaultAgent: "plan" })
+    expect(useProjectsStore.getState().projects[0]?.defaultAgent).toBe("plan")
+
+    useProjectsStore.getState().updateProjectMeta("project-a", { defaultAgent: "   " })
+    expect(useProjectsStore.getState().projects[0]?.defaultAgent).toBe(undefined)
+  })
+
+  test("sanitizes a project default agent from settings", () => {
+    useProjectsStore.getState().synchronizeFromSettings({
+      projects: [{ id: "project-a", path: "/repo", defaultAgent: "  plan  " }],
+    })
+
+    expect(useProjectsStore.getState().projects[0]?.defaultAgent).toBe("plan")
+  })
 })
 
 describe("managed catalog default project", () => {
   // Live 2026-09-24: shared settings said smarty-code, but a fresh page opened on the first catalog
   // member because the catalog published before the bootstrap settings sync and that sync was ignored.
   test("a bootstrap settings sync after the catalog selects the shared remembered project", () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       useProjectsStore.getState().resetManagedCatalog()
       useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
@@ -243,7 +307,7 @@ describe("managed catalog default project", () => {
 describe("managed catalog remembered directory", () => {
   // R3.4 gate: shared lastDirectory named the smarty-dev checkout, but the stale active pointer selected smarty-code.
   test("a bootstrap sync prefers the remembered directory over a stale active pointer", () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       useProjectsStore.getState().resetManagedCatalog()
       useProjectsStore.setState({ projects: [], activeProjectId: null, manualProjectOrder: [] })
@@ -286,7 +350,7 @@ describe("useProjectsStore.addProjects", () => {
   }
 
   test("adding and selecting captures the project list before the addition", async () => {
-    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue(undefined)
+    const save = spyOn(settings, "updateDesktopSettings").mockResolvedValue({ ok: true })
     try {
       resetProjects()
       await useProjectsStore.getState().addProject("/one")

@@ -55,6 +55,20 @@ const isSseProxyPath = (requestPath: string): boolean => {
   }
 };
 
+const disabledPermissionPolicyResponse = (requestPath: string): ApiProxyResponsePayload | null => {
+  // Match the URL receiver's path, not its query. Decode path bytes before a
+  // second URL normalization so encoded separators/dot segments cannot escape.
+  const pathname = new URL(requestPath.replace(/^\/+/, ''), 'https://openchamber.invalid/').pathname;
+  const decodedPathname = pathname.replace(/%([0-9a-f]{2})/gi, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+  const policyPathname = new URL(decodedPathname.replace(/\\/g, '/').replace(/\/{2,}/g, '/'), 'https://openchamber.invalid/').pathname;
+  if (!/^\/(?:api\/)?(?:permission-auto-accept|notifications\/auto-accept)(?:\/|$)/i.test(policyPathname)) return null;
+  return {
+    status: 501,
+    headers: { 'content-type': 'application/json' },
+    bodyText: JSON.stringify({ error: 'Permission auto-accept is unsupported in this fork', supported: false }),
+  };
+};
+
 type ProxyRuntimeDeps = {
   tryHandleLocalFsProxy: (method: string, requestPath: string) => Promise<ApiProxyResponsePayload | null>;
   buildUnavailableApiResponse: () => ApiProxyResponsePayload;
@@ -144,6 +158,9 @@ export async function handleProxyBridgeMessage(
           : `/${requestPath.trim()}`
           : '/';
 
+      const disabledPolicy = disabledPermissionPolicyResponse(normalizedPath);
+      if (disabledPolicy) return { id, type, success: true, data: disabledPolicy };
+
       if (isSseProxyPath(normalizedPath)) {
         const data: ApiProxyResponsePayload = {
           status: 400,
@@ -217,12 +234,6 @@ export async function handleProxyBridgeMessage(
     }
 
     case 'api:session:message': {
-      const apiUrl = await waitForApiUrl(ctx?.manager);
-      if (!apiUrl) {
-        const data = deps.buildUnavailableApiResponse();
-        return { id, type, success: true, data };
-      }
-
       const { path: requestPath, headers, bodyText } = (payload || {}) as ApiSessionMessageRequestPayload;
       const normalizedPath =
         typeof requestPath === 'string' && requestPath.trim().length > 0
@@ -230,6 +241,15 @@ export async function handleProxyBridgeMessage(
             ? requestPath.trim()
             : `/${requestPath.trim()}`
           : '/';
+
+      const disabledPolicy = disabledPermissionPolicyResponse(normalizedPath);
+      if (disabledPolicy) return { id, type, success: true, data: disabledPolicy };
+
+      const apiUrl = await waitForApiUrl(ctx?.manager);
+      if (!apiUrl) {
+        const data = deps.buildUnavailableApiResponse();
+        return { id, type, success: true, data };
+      }
 
       if (!/^\/session\/[^/]+\/message(?:\?.*)?$/.test(normalizedPath)) {
         const body = JSON.stringify({ error: 'Invalid session message proxy path' });

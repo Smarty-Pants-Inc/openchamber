@@ -42,13 +42,21 @@ test("SSE: the old branch's frame, delivered after the replacement, is dropped; 
     return { stream: (async function* () {
       while (!signal.aborted) { while (pending.length) yield { directory: target.directory, payload: pending.shift()! }; await new Promise<void>(r => { wake = r }) }
     })() } } } } as OpencodeClient
-  const pipeline = createEventPipeline({ sdk, transport: "sse", heartbeatTimeoutMs: 60_000, onEvents: (_d, events) => reducer(s)(events) })
-  const push = (event: Event) => { pending.push(event); wake() }
+  const delivered = new Map<string, () => void>()
+  const pipeline = createEventPipeline({ sdk, transport: "sse", heartbeatTimeoutMs: 60_000, onEvents: (_d, events) => {
+    reducer(s)(events)
+    for (const event of events) delivered.get(event.id)?.()
+  } })
+  const push = (event: Event) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { delivered.delete(event.id); reject(new Error(`Event ${event.id} was not flushed`)) }, 1000)
+    delivered.set(event.id, () => { clearTimeout(timer); delivered.delete(event.id); resolve() })
+    pending.push(event); wake()
+  })
   try {
     await sleep(20); await recovered(s)
-    push(updated("m0002", "7:0:200")); await sleep(80) // b arrives on the same, still open connection.
+    await push(updated("m0002", "7:0:200")) // b arrives on the same, still open connection.
     expect(s.shown()).toEqual(["m0001", "m0003"])
-    push(updated("m0004", "7:0:400")); await sleep(80) // Counterexample: committed after the read.
+    await push(updated("m0004", "7:0:400")) // Counterexample: committed after the read.
     expect(s.shown()).toEqual(["m0001", "m0003", "m0004"])
   } finally { pipeline.cleanup(); setImperativeSessionMessageLoader(null); s.done() }
 })

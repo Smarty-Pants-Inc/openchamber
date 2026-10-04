@@ -7,8 +7,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { MiniChatLayout } from '@/components/mini-chat/MiniChatLayout';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
+import { SharedTrustConfirmDialog } from '@/components/projects/SharedTrustConfirmDialog';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
+import { useRoutingSync } from '@/hooks/useRoutingSync';
 import { useRootScrollLock } from '@/hooks/useRootScrollLock';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -28,6 +30,8 @@ import {
   partitionWorktreesByRegisteredProject,
   worktreeMapsEqual,
 } from '@/lib/worktrees/worktreeManager';
+import { refreshWorktreeTopologyForChange } from '@/lib/worktrees/worktreeTopologyRefresh';
+import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 
@@ -226,6 +230,22 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
     };
   }, [projects]);
 
+  // The main window (or an agent, or a terminal) may add or remove a worktree
+  // while this window is open; the server's control event names the affected
+  // repository so only its projects are re-listed.
+  React.useEffect(() => {
+    if (projects.length === 0) return;
+    let cancelled = false;
+    const unsubscribe = subscribeOpenchamberEvents((event) => {
+      if (event.type !== 'worktree-changed') return;
+      void refreshWorktreeTopologyForChange(projects, event.directories, () => cancelled);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [projects]);
+
   // Dismiss the HTML splash (see mini-chat.html) once the real content is ready,
   // so the window doesn't flash through white/connecting states. Fades out when
   // the target session is active (or the draft is open); a grace timer ensures
@@ -324,6 +344,7 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
   useMiniChatKeyboardShortcuts();
   usePushVisibilityBeacon({ enabled: true });
   useWindowTitle();
+  useRoutingSync();
   useRootScrollLock();
 
   return (
@@ -334,6 +355,7 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
             <div className="h-full text-foreground bg-background">
               <ElectronMiniChatContent config={config} />
               <AppLinkConfirmDialog />
+              <SharedTrustConfirmDialog />
               <Toaster />
             </div>
           </TooltipProvider>

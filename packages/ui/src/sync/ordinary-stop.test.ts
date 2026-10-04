@@ -51,11 +51,12 @@ test('busy A to busy B and target removal are observable, duplicate metadata is 
 
 test('bootstrap and authoritative reconnect preserve the same ordinary metadata as SSE', async () => {
   let state: State = { ...INITIAL_STATE, session_status: {} }
-  await bootstrapDirectory({ directory: '/repo', sdk, getState: () => state,
+  const initialization = bootstrapDirectory({ directory: '/repo', sdk, store: { getState: () => state },
     set: (patch) => { state = { ...state, ...patch } },
     global: { config: {}, projects: [{ id: 'project', worktree: '/repo', time: { created: 1, updated: 1 }, sandboxes: [] }] },
     loadSessions: () => {},
   })
+  await Promise.all([initialization.sessions, initialization.environment])
   expect(state.session_status.fixture).toEqual(a)
   expect(state.session_status.idle).toEqual({ type: 'idle', ordinary: true, ordinaryTarget: null })
   store.setState({ session_status: state.session_status })

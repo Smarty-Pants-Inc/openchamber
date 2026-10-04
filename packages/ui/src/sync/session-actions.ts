@@ -5,11 +5,11 @@
 
 import { newOperationId, reportClientError } from "@/lib/clientErrorReport"
 import { optimisticStatuses, sendingStatuses } from "./optimistic-status"
-import type { OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
+import type { FilePart, OpencodeClient, Session, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "./binary"
 import { isVoiceTurn } from "@/components/chat/message/voiceTurnData"
 import { isSystemNoteMessage } from "@/components/chat/message/systemNote"
-import { useSessionUIStore } from "./session-ui-store"
+import { useSessionUIStore, type SessionRevealTicket } from "./session-ui-store"
 import { useInputStore } from "./input-store"
 import type { ChildStoreManager } from "./child-store"
 import { computeSubtreeIds } from "./scoped-blocking-requests"
@@ -52,6 +52,8 @@ import { deleteChatDirectory } from "@/lib/chatDirectories"
 import { useNotificationStore } from "./notification-store"
 import { keepSavedState } from "./unsaved"
 import { isClientIdConflict } from "@/lib/sendRecovery"
+import { createChatDraftIdentity } from "@/lib/chatDraftPersistence"
+import { cancelSessionTitleGeneration } from "./session-title-generation"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -473,7 +475,8 @@ export type SessionLiveActivity = "unknown" | "idle" | "active"
  * Absence of a non-idle status is not proof of idleness. Child stores are
  * evicted for background directories, and the global status index keeps only
  * non-idle entries, so "no report" and "idle" are different answers: report
- * "idle" only when a child store actually covers the session's directory.
+ * "idle" only after a live idle event or successful status snapshot covers
+ * the session's own directory. A loaded session list is not status authority.
  */
 export function getSessionLiveActivity(sessionId: string): SessionLiveActivity {
   const stores = _childStores
@@ -490,15 +493,16 @@ export function getSessionLiveActivity(sessionId: string): SessionLiveActivity {
   if (useGlobalSessionStatusStore.getState().statusById.has(sessionId)) return "active"
 
   if (!stores) return "unknown"
-  return isSessionCoveredByChildStore(sessionId, stores) ? "idle" : "unknown"
+  return hasAuthoritativeIdleCoverage(sessionId, stores) ? "idle" : "unknown"
 }
 
-function isSessionCoveredByChildStore(sessionId: string, stores: ChildStoreManager): boolean {
-  if (findSessionDirectoryInChildStores(sessionId)) return true
+function hasAuthoritativeIdleCoverage(sessionId: string, stores: ChildStoreManager): boolean {
   const directory = useSessionUIStore.getState().getDirectoryForSession(sessionId)
     ?? resolveKnownSessionDirectory(sessionId)
+    ?? findSessionDirectoryInChildStores(sessionId)
   if (!directory) return false
-  return stores.children.has(normalizePath(directory) ?? directory)
+  const state = stores.getChild(directory)?.getState()
+  return state?.sessionStatusReady === true || state?.session_status[sessionId]?.type === "idle"
 }
 
 function resolveKnownSessionDirectory(sessionId: string): string | null {
@@ -932,8 +936,14 @@ export async function createSession(
   parentID?: string | null,
   metadata?: Record<string, unknown>,
   selectionTransition?: "submitted-draft",
-  revealTicket = useSessionUIStore.getState().beginSessionReveal(),
+  revealTicketOrNavigation: SessionRevealTicket | "open" | "preserve" = "open",
 ): Promise<Session | null> {
+  const navigation = revealTicketOrNavigation === "preserve" ? "preserve" : "open"
+  const revealTicket = revealTicketOrNavigation === "open" || revealTicketOrNavigation === "preserve"
+    ? navigation === "open" ? useSessionUIStore.getState().beginSessionReveal() : undefined
+    : revealTicketOrNavigation
+  const runtimeKey = getRuntimeKey()
+  const runtimeClient = opencodeClient.getSdkClient()
   try {
     // Capture the effective directory used for session creation so we can fall
     // back to it when the server response omits the `directory` field.
@@ -947,18 +957,32 @@ export async function createSession(
       metadata,
     }, effectiveDirectory)
 
+    if (getRuntimeKey() !== runtimeKey || opencodeClient.getSdkClient() !== runtimeClient) {
+      if (revealTicket) useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision)
+      return null
+    }
     const sessionDirectory = (session as { directory?: string | null }).directory ?? effectiveDirectory ?? null
     // Pre-populate routing index so SSE events arriving before session.created
     // can be routed to the correct child store
     if (sessionDirectory) {
       registerSessionDirectory(session.id, sessionDirectory)
+      const store = _childStores?.ensureChild(sessionDirectory, { bootstrap: false })
+      if (store) {
+        const current = store.getState().session
+        const existing = Binary.search(current, session.id, (candidate) => candidate.id)
+        // An event may have published newer metadata before the create response.
+        if (!existing.found) {
+          store.setState({ session: [...current.slice(0, existing.index), session, ...current.slice(existing.index)] })
+        }
+      }
+      getImperativeSessionMessageLoader()?.initializeCreatedSession({ directory: sessionDirectory, sessionID: session.id })
     }
-    useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory, selectionTransition, revealTicket)
+    if (navigation === "open") useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory, selectionTransition, revealTicket)
     useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id)
     useGlobalSessionsStore.getState().upsertSession(session)
     return session
   } catch (error) {
-    useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision)
+    if (revealTicket) useSessionUIStore.getState().consumeSessionReveal(revealTicket.revision)
     console.error("[session-actions] createSession failed", error)
     return null
   }
@@ -1583,134 +1607,6 @@ function commitArchivedSessions(sessions: Session[], directory: string): void {
  */
 const UNARCHIVED_TIMESTAMP = 0
 
-async function getProjectPrimaryDirectory(projectID?: string): Promise<string | null> {
-  if (!projectID) return null
-
-  try {
-    const result = await sdk().project.list()
-    const projects = assertSdkData(result, "project.list")
-    const projectDirectory = projects.find((candidate) => candidate.id === projectID)?.worktree?.trim()
-    return projectDirectory ? normalizePath(projectDirectory) ?? projectDirectory : null
-  } catch {
-    return null
-  }
-}
-
-type MissingWorktreeRelocation = { sourceDirectory: string; destinationDirectory: string }
-
-const isFilesystemRoot = (directory: string): boolean => directory === "/" || /^[A-Za-z]:\/?$/.test(directory)
-
-async function resolveMissingWorktreeRelocation(
-  session: Session & { project?: { worktree?: string | null } | null },
-): Promise<MissingWorktreeRelocation | null> {
-  const ownedDirectory = resolveSessionOwnedDirectory(session)
-  const projectWorktree = session.project?.worktree?.trim()
-  if (!ownedDirectory || !projectWorktree) return null
-
-  let availability: Awaited<ReturnType<typeof opencodeClient.getDirectoryAvailability>>
-  try {
-    availability = await opencodeClient.getDirectoryAvailability(ownedDirectory)
-  } catch {
-    return null
-  }
-  if (availability !== "missing") return null
-
-  const projectDirectory = await getProjectPrimaryDirectory(session.projectID)
-  if (!projectDirectory || projectDirectory === ownedDirectory) return null
-  // OpenCode files a directory outside any Git repository under its global
-  // project, whose "worktree" is the filesystem root. That is not a home for
-  // a session; a managed chat whose directory vanished stays where it is.
-  if (isFilesystemRoot(projectDirectory)) return null
-  return { sourceDirectory: ownedDirectory, destinationDirectory: projectDirectory }
-}
-
-type OwnedSubtreeEntry = { session: Session; ownedDirectory: string | null }
-
-/**
- * The root's subtree as the global cache knows it, root first. Drawn from the
- * global cache rather than a live child store so archived descendants that
- * never materialized in a directory store are still included.
- */
-function getGlobalSubtree(rootSession: Session): OwnedSubtreeEntry[] {
-  const global = useGlobalSessionsStore.getState()
-  const sessionsById = new Map<string, Session>()
-
-  for (const session of [...global.activeSessions, ...global.archivedSessions]) {
-    const current = sessionsById.get(session.id)
-    if (!current || Boolean(session.time?.archived)) sessionsById.set(session.id, session)
-  }
-  sessionsById.set(rootSession.id, rootSession)
-
-  return [...computeSubtreeIds([...sessionsById.values()], rootSession.id)]
-    .map((id) => sessionsById.get(id))
-    .filter((session): session is Session => Boolean(session))
-    .map((session) => ({ session, ownedDirectory: resolveSessionOwnedDirectory(session) }))
-}
-
-function getRestoreSubtree(rootSession: Session, sourceDirectory: string): Array<{ session: Session; sourceDirectory: string }> {
-  return getGlobalSubtree(rootSession)
-    // Keep a node while it is still archived or still stranded in the
-    // confirmed-missing worktree. The second clause matters on retry: a prior
-    // attempt may have already unarchived the root (server echo made it active)
-    // but failed to move it, so filtering on `archived` alone would drop the
-    // root and report a false success while it stays in the deleted worktree.
-    .filter((entry) => Boolean(entry.session.time?.archived) || entry.ownedDirectory === sourceDirectory)
-    .map((entry) => (entry.ownedDirectory ? { session: entry.session, sourceDirectory: entry.ownedDirectory } : null))
-    .filter((entry): entry is { session: Session; sourceDirectory: string } => entry !== null)
-}
-
-export type MissingDirectoryRelocation =
-  /** The session's directory is gone; its subtree now lives in the project directory. */
-  | { status: "moved"; sourceDirectory: string; destinationDirectory: string; movedSessionIds: string[] }
-  /** The directory is available, its state is unknown, or the session has no project to move to. */
-  | { status: "unchanged" }
-  /** The runtime changed while the relocation was in flight; nothing local was published. */
-  | { status: "stale" }
-  /** A control-plane move failed; `movedSessionIds` already live in the destination. */
-  | { status: "failed"; movedSessionIds: string[]; error: unknown }
-
-/**
- * Move an active session whose worktree no longer exists into its project's
- * primary directory.
- *
- * Same gate as the archived-session restore fallback: only a server-confirmed
- * `missing` directory qualifies, the destination is the OpenCode project the
- * session belongs to, and `available`, `unknown`, probe failures, and sessions
- * without a project leave everything untouched. Every session of the root's
- * subtree still stranded in that directory moves with it, root first, so the
- * session the user is looking at is usable even if a descendant move fails.
- * Moves carry no changes (`moveChanges: false`): the directory is gone, so
- * there is nothing to carry.
- */
-export async function relocateSessionFromMissingDirectory(
-  sessionId: string,
-  expectedRuntimeKey = getRuntimeKey(),
-): Promise<MissingDirectoryRelocation> {
-  if (isStaleRuntime(expectedRuntimeKey)) return { status: "stale" }
-  const rootSession = getGlobalSessionSnapshot(sessionId)
-  if (!rootSession) return { status: "unchanged" }
-
-  const relocation = await resolveMissingWorktreeRelocation(rootSession)
-  if (isStaleRuntime(expectedRuntimeKey)) return { status: "stale" }
-  if (!relocation) return { status: "unchanged" }
-
-  const stranded = getGlobalSubtree(rootSession)
-    .filter((entry) => entry.ownedDirectory === relocation.sourceDirectory)
-    .map((entry) => entry.session)
-  const movedSessionIds: string[] = []
-  for (const session of stranded) {
-    try {
-      await moveSessionToDirectory(session, relocation.sourceDirectory, relocation.destinationDirectory, false, expectedRuntimeKey)
-    } catch (error) {
-      console.error("[session-actions] relocateSessionFromMissingDirectory failed", error)
-      return { status: "failed", movedSessionIds, error }
-    }
-    if (isStaleRuntime(expectedRuntimeKey)) return { status: "stale" }
-    movedSessionIds.push(session.id)
-  }
-  return { status: "moved", ...relocation, movedSessionIds }
-}
-
 /**
  * Restore one archived session back to the active list.
  *
@@ -1723,34 +1619,8 @@ export async function relocateSessionFromMissingDirectory(
  */
 export async function unarchiveSession(sessionId: string, expectedRuntimeKey = getRuntimeKey()): Promise<boolean> {
   if (isStaleRuntime(expectedRuntimeKey)) return false
-  const globalSession = getGlobalSessionSnapshot(sessionId)
   const sessionDirectory = getSessionDirectory(sessionId)
   try {
-    const restore = globalSession
-      ? await resolveMissingWorktreeRelocation(globalSession)
-      : null
-    if (isStaleRuntime(expectedRuntimeKey)) return false
-
-    if (globalSession && restore) {
-      for (const { session, sourceDirectory } of getRestoreSubtree(globalSession, restore.sourceDirectory)) {
-        const restored = await opencodeClient.updateSession(
-          session.id,
-          { time: { archived: UNARCHIVED_TIMESTAMP } },
-          sourceDirectory,
-        )
-        if (isStaleRuntime(expectedRuntimeKey)) return false
-        if (!restored) {
-          throw new Error("session.update failed: server did not return the restored session")
-        }
-        if (restored.time?.archived) {
-          throw new Error("session.update failed: server kept the session archived")
-        }
-        await moveSessionToDirectory(restored, sourceDirectory, restore.destinationDirectory, false, expectedRuntimeKey)
-        if (isStaleRuntime(expectedRuntimeKey)) return false
-      }
-      return true
-    }
-
     const restored = await opencodeClient.updateSession(sessionId, { time: { archived: UNARCHIVED_TIMESTAMP } }, sessionDirectory)
     if (isStaleRuntime(expectedRuntimeKey)) return false
     if (!restored) {
@@ -1806,9 +1676,18 @@ export async function unarchiveSessions(
   return { restoredIds, failedIds }
 }
 
-export async function updateSessionTitle(sessionId: string, title: string): Promise<void> {
-  const sessionDirectory = getSessionDirectory(sessionId)
+export async function updateSessionTitle(
+  sessionId: string,
+  title: string,
+  options?: { directory?: string | null; expectedRuntimeKey?: string; signal?: AbortSignal },
+): Promise<void> {
+  if (isStaleRuntime(options?.expectedRuntimeKey)) throw new Error("runtime changed")
+  if (options?.signal) options.signal.throwIfAborted()
+  else cancelSessionTitleGeneration(sessionId)
+  const sessionDirectory = options?.directory ?? getSessionDirectory(sessionId)
   const session = await opencodeClient.updateSession(sessionId, { title }, sessionDirectory)
+  if (isStaleRuntime(options?.expectedRuntimeKey)) throw new Error("runtime changed")
+  options?.signal?.throwIfAborted()
   useGlobalSessionsStore.getState().upsertSession(session)
   mirrorSessionIntoLiveStores(session, sessionDirectory)
 }
@@ -1978,7 +1857,9 @@ export async function optimisticSend(input: {
     agent: input.agent ?? "",
     model: `${input.providerID}/${input.modelID}`,
     metadata: {} as Record<string, unknown>,
-    time: { created: Date.now(), completed: 0 },
+    // A user message never completes a turn; only assistant messages carry
+    // `time.completed`, and readers treat its presence as "turn finished".
+    time: { created: Date.now() },
   } as unknown as Message
 
   // Insert into store + register in shadow Map (for mergeOptimisticPage cleanup). A re-send that reuses its first
@@ -2676,7 +2557,7 @@ export async function unrevertSession(sessionId: string): Promise<void> {
  * 1. Extract text from the message for input restoration
  * 2. Call the runtime fork endpoint
  * 3. Insert the new session into the child store (so sidebar updates immediately)
- * 4. Switch to new session and set pending input text
+ * 4. Switch to the new session and stage its composer replay
  */
 export async function forkFromMessage(sessionId: string, messageId: string): Promise<void> {
   // The store shows "Failed to fork session" when this throws: the fleet sees it too (smarty-code#536).
@@ -2686,6 +2567,7 @@ export async function forkFromMessage(sessionId: string, messageId: string): Pro
 }
 
 async function forkFromMessageUnreported(sessionId: string, messageId: string): Promise<void> {
+  const expectedRuntimeKey = getRuntimeKey()
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
 
@@ -2700,9 +2582,12 @@ async function forkFromMessageUnreported(sessionId: string, messageId: string): 
     .map((p: Part) => ((p as Record<string, unknown>).text as string) || ((p as Record<string, unknown>).content as string) || "")
     .join("\n")
     .trim()
-  const fileParts = parts.filter((p) => p.type === "file" && !isSyntheticPart(p)) as Array<Record<string, unknown>>
+  const fileParts = parts.filter((part): part is FilePart => part.type === "file" && !isSyntheticPart(part))
 
   const forkedSession = await opencodeClient.forkSession(sessionId, messageId, directory)
+  if (isStaleRuntime(expectedRuntimeKey)) return
+  const target = createChatDraftIdentity(expectedRuntimeKey, resolveSessionOwnedDirectory(forkedSession) ?? directory, forkedSession.id)
+  if (!target) throw new Error("Forked session has no composer directory")
 
   // Insert new session into child store so sidebar updates immediately
   const current = store.getState()
@@ -2714,22 +2599,24 @@ async function forkFromMessageUnreported(sessionId: string, messageId: string): 
   }
 
   // Switch to new session
-  useSessionUIStore.getState().setCurrentSession(forkedSession.id)
+  useSessionUIStore.getState().setCurrentSession(forkedSession.id, target.directory)
 
-  // Restore forked message text and file attachments to input
-  if (messageText) {
-    useInputStore.setState({
-      pendingInputText: messageText,
-      pendingInputMode: "replace" as const,
-    })
-  }
-  // Clear existing attachments and restore file parts from the forked message.
-  restoreFilePartsToInput(fileParts)
+  // Navigation is deferred in the chat column. Leave the source composer alone
+  // until the rendered draft identity matches the fork, including for file-only prompts.
+  useInputStore.setState({
+    pendingComposerRestore: {
+      target,
+      text: messageText,
+      files: fileParts.filter((part) => part.url).map((part) => ({
+        url: part.url,
+        mimeType: part.mime,
+        filename: part.filename ?? "attachment",
+      })),
+    },
+  })
   // The forked session is a fresh draft target, so the attached context of the
   // forked message follows the text into its composer.
-  if (directory) {
-    restoreContextPartsToInput(parts, { directory, sessionKey: forkedSession.id })
-  }
+  restoreContextPartsToInput(parts, { directory: target.directory, sessionKey: forkedSession.id })
 }
 
 export async function fetchMessagesForSession(sessionID: string, directory?: string | null): Promise<void> {

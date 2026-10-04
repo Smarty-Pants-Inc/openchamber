@@ -10,27 +10,7 @@ export type PermissionAutoAcceptToggleArgs = {
 };
 
 export const togglePermissionAutoAccept = (args: PermissionAutoAcceptToggleArgs): void => {
-    const {
-        permissionScopeSessionId,
-        newSessionDraftOpen,
-        draftPermissionAutoAcceptEnabled,
-        permissionAutoAcceptEnabled,
-        setDraftPermissionAutoAcceptEnabled,
-        setSessionAutoAccept,
-        onOpenSessionFirst,
-        onToggleFailed,
-    } = args;
-
-    if (!permissionScopeSessionId) {
-        if (!newSessionDraftOpen) {
-            onOpenSessionFirst();
-            return;
-        }
-
-        setDraftPermissionAutoAcceptEnabled(!draftPermissionAutoAcceptEnabled);
-        return;
-    }
-
-    const nextEnabled = !permissionAutoAcceptEnabled;
-    void setSessionAutoAccept(permissionScopeSessionId, nextEnabled).catch(onToggleFailed);
+    // Compatibility entry point for older callers. Never mutate a draft or
+    // policy, and never start a foreground reply loop on any runtime.
+    args.onToggleFailed();
 };

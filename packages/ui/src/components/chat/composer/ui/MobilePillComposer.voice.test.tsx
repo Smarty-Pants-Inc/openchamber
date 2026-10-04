@@ -13,8 +13,8 @@ const { createOpencodeClient } = await import('@opencode-ai/sdk/v2');
 const { SyncProvider } = await import('@/sync/sync-context');
 const { ThemeSystemProvider } = await import('@/contexts/ThemeSystemContext');
 const { I18nProvider } = await import('@/lib/i18n');
-const { getDefaultTheme } = await import('@/lib/theme/themes');
 const { MobilePillComposer } = await import('./MobilePillComposer');
+const fixtureFetch = Object.assign(async () => new Response('[]', { headers: { 'content-type': 'application/json' } }), { preconnect: () => {} });
 
 const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean }): Promise<string[]> => {
     const win = new Window({ url: 'http://localhost' });
@@ -25,7 +25,7 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
     const root = createRoot(container);
     try {
         await act(async () => root.render(
-        <SyncProvider directory="/fixture" sdk={createOpencodeClient({ baseUrl: "http://opencode.test", fetch: (async () => new Response("[]", { headers: { "content-type": "application/json" } })) as unknown as typeof fetch })}>
+        <SyncProvider directory="/fixture" sdk={createOpencodeClient({ baseUrl: "http://opencode.test", fetch: fixtureFetch })}>
         <ThemeSystemProvider>
         <I18nProvider>
             <MobilePillComposer
@@ -40,12 +40,9 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
                 iconSizeClass="icon-size"
                 sendIconSizeClass="send-icon-size"
                 stopIconSizeClass="stop-icon-size"
-                theme={getDefaultTheme(false)}
                 onExpand={() => {}}
-                onApplySuggestion={() => {}}
                 onPrimaryAction={() => {}}
                 onQueueMessage={() => {}}
-                onNewSession={() => {}}
                 onPickLocalFiles={() => {}}
                 onOpenIssuePicker={() => {}}
                 onOpenPrPicker={() => {}}

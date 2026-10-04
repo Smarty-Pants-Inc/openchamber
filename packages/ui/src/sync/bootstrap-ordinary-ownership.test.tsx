@@ -69,7 +69,7 @@ for (const kind of ['own ordinary idle', 'managed idle', 'managed omission', 'fr
       await started.promise
       const active = kind === 'fresh managed busy', omitted = kind === 'managed omission'
       response.resolve(Response.json(omitted ? {} : { [id]: active ? busy : idle })); await drain()
-      expect(store.getState().session_status[id]).toEqual(omitted ? undefined : active ? busy : idle)
+      expect(store.getState().session_status[id]).toEqual(omitted ? undefined : active ? busy : kind === 'own ordinary idle' ? { type: 'idle', ordinary: true, ordinaryTarget: null } : idle)
       expect(useGlobalSessionStatusStore.getState().activeSessionIds.has(id)).toBe(active)
       expect(getSessionStatusEventVersion(id)).toBe(revision)
       if (active) {

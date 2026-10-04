@@ -14,7 +14,7 @@ const leaves = {
   '@/components/chat/FileAttachment': ['AttachedFilesList', 'AttachedVSCodeFileChips', 'ActiveEditorFileSuggestion', 'MessageFilesDisplay'],
   '@/components/chat/QueuedMessageChips': ['QueuedMessageChips'],
   '@/components/chat/AutoReviewBanner': ['AutoReviewBanner'],
-  '@/components/chat/ModelControls': ['ModelControls'],
+  '@/components/chat/ModelControls': ['ModelControls', 'NativeDraftModelControls'],
   '@/components/chat/ComposerStatusBar': ['ComposerStatusBar'],
   '@/components/chat/PendingChangesBar': ['PendingChangesBar'],
   '@/components/chat/MobileAgentButton': ['MobileAgentButton'],
@@ -25,7 +25,6 @@ const leaves = {
   '@/components/chat/DraftPresetChips': ['DraftPresetChips'],
   '@/components/chat/composer/ui/DraftTargetSelectors': ['DraftTargetSelectors', 'MobileDraftTargetSheets', 'MobileDraftTargetTriggers'],
   '@/components/chat/composer/ui/ComposerAutocompletePopups': ['ComposerAutocompletePopups'],
-  '@/components/chat/composer/ui/ComposerFooter': ['ComposerFooter'],
   '@/components/chat/composer/ui/ComposerContextChips': ['ComposerContextChips'],
   '@/components/chat/composer/ui/LinkedReferenceRow': ['LinkedReferenceRow'],
   '@/components/chat/composer/ui/RevertedMessageDock': ['RevertedMessageDock'],
@@ -38,7 +37,6 @@ mock.module('@/contexts/useThemeSystem', () => ({ useThemeSystem: () => ({ curre
 /** The current session's shown activity; a test may set 'busy' (a mounted composer re-renders to read it). */
 export const shownActivity: { phase: 'idle' | 'busy' } = { phase: 'idle' };
 mock.module('@/hooks/useSessionActivity', () => ({ useSessionActivity: () => ({ phase: 'idle' }), useCurrentSessionActivity: () => ({ phase: shownActivity.phase }) }));
-mock.module('@/components/chat/btw/useBtwPanelState', () => ({ useBtwPanelState: () => ({ collapsed: true, btwSessionId: null, btwDirectory: null, parentSession: null }) }));
 export const errors: string[] = [];
 const bootstrap = nativeComposerDom();
 const bootstrapFetch = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 404 }));
@@ -48,6 +46,23 @@ spyOn(toast, 'success').mockImplementation(() => 'test-toast');
 const { createRoot } = await import('react-dom/client');
 const { EditorView } = await import('@codemirror/view');
 const sync = await import('@/sync/sync-context');
+type SyncRuntime = ReturnType<typeof sync.useSyncRuntime>;
+// SAFETY: sync-context declares these exact shared globals; derive their value
+// from its public hook and supply only the existing fixture's real owners.
+const globals: typeof globalThis & {
+  __openchamber_sync_context__?: React.Context<(SyncRuntime & { directory: string }) | null>;
+  __openchamber_sync_runtime_context__?: React.Context<SyncRuntime | null>;
+} = globalThis;
+const { opencodeClient } = await import('@/lib/opencode/client');
+const { getRuntimeKey } = await import('@/lib/runtime-switch');
+const btwPanel = await import('@/components/chat/btw/useBtwPanelState');
+// A receiver integration test can restore the actual hook; ordinary fixture
+// consumers keep their existing inactive-BTW baseline.
+export const btwPanelSpy = spyOn(btwPanel, 'useBtwPanelState');
+btwPanelSpy.mockReturnValue({
+  collapsed: true, btwSessionId: null, btwDirectory: null, parentSession: null,
+  btwSession: null, boundaryMessageID: null, creating: false, pending: false,
+});
 spyOn(sync, 'useUserMessageHistory').mockReturnValue([]);
 spyOn(sync, 'useSessions').mockReturnValue([]);
 // This fixture deliberately mounts ChatInput without SyncProvider. Keep the
@@ -84,7 +99,25 @@ export async function mountedNativeComposer(persistChatDraft: boolean, existingD
   else await prepareNativeDraft();
   const root = createRoot(dom.container);
   let epoch = 0;
-  const render = () => root.render(<I18nProvider key={epoch}>{body ? body(fixture) : <ChatInput />}{extraContent}</I18nProvider>);
+  // The production sync module owns these shared contexts. Supply the actual
+  // fixture stores/loader/SDK without starting a second provider lifecycle.
+  // Custom content may still bind its own inner providers for held A/live B.
+  const System = globals.__openchamber_sync_context__;
+  const Runtime = globals.__openchamber_sync_runtime_context__;
+  if (!System || !Runtime) throw new Error('Actual sync context seam missing');
+  const render = () => {
+    const value: SyncRuntime = { childStores: fixture.children, messageLoader: fixture.loader,
+      sdk: opencodeClient.getSdkClient(), runtimeKey: getRuntimeKey(),
+      currentDirectory: {
+        get: () => useDirectoryStore.getState().currentDirectory,
+        subscribe: notify => useDirectoryStore.subscribe((state, previous) => {
+          if (state.currentDirectory !== previous.currentDirectory) notify();
+        }),
+      } };
+    root.render(<I18nProvider key={epoch}><System.Provider value={{ ...value, directory: useDirectoryStore.getState().currentDirectory }}>
+      <Runtime.Provider value={value}>{body ? body(fixture) : <ChatInput />}{extraContent}</Runtime.Provider>
+    </System.Provider></I18nProvider>);
+  };
   try { await act(async () => render()); }
   catch (error) {
     await act(async () => root.unmount()); fixture.dispose(); useUIStore.setState(initialUI, true); if (!existingDom) await dom.restore(); throw error;

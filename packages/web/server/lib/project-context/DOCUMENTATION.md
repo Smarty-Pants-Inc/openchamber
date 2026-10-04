@@ -9,9 +9,20 @@ The managed Chats root (`~/.config/openchamber/chats`) is also one context owner
 
 | Path | Owner | Contents |
 |---|---|---|
-| `<projectsDir>/<projectId>.json` | shared UI (`packages/ui/src/lib/openchamberConfig.ts`), plus server-owned `version` / `scheduledTasks` | worktree setup, draft starters, project actions |
+| `<projectsDir>/<projectId>.json` | `packages/web/server/lib/projects` (`project-setup.js` for the client-owned keys behind `/api/projects/:projectId/config`; `project-config.js` for `version` / `scheduledTasks`), one write lock for both | worktree setup, draft starters, project actions, scheduled tasks |
 | `<projectsDir>/<projectId>/context.json` | **this module, exclusively** | notes, todos, plan manifest |
 | `<projectsDir>/<projectId>/plans/*.md` | **this module, exclusively** | plan bodies |
+| `<projectsDir>/<projectId>/memory.json` | `packages/web/server/lib/agent-memory` | what the agent chose to remember about the project |
+| `<repo>/<plansDir>/*.md` | repository-owned files; production shared-plan access is hard-disabled in this fork | retained shared plan bodies |
+
+`<projectId>` in these paths is the bounded stem `projectConfigFileStemOf`
+(`packages/web/server/lib/projects/project-id.js`) gives the id: the id itself
+up to 200 characters, `path_sha256_<digest>` beyond that, so a deeply nested
+checkout gets a folder the filesystem accepts. The folder, the config file,
+and the memory file all share that one stem; nothing here composes a path from
+the raw id. The legacy-migration read below looks at the bounded config file
+for the same reason: a read of `<raw id>.json` would fail with ENAMETOOLONG
+and turn an empty project into an error.
 
 The split is the point. Both files were previously one, written by the client
 with a whole-file read-modify-write. Adding a server writer to that file would
@@ -58,6 +69,24 @@ denormalized into the manifest so listing plans costs one read rather than one
 read per plan; `readPlan` returns the title parsed from the file, which wins if
 the two ever disagree.
 
+## Shared plans
+
+Production repository shared plans are unavailable. The project config runtime
+returns no shared folder, even for valid default or configured directories.
+See [the fork policy and smarty-code#1325](../projects/DOCUMENTATION.md#repository-shared-plans-are-disabled)
+for the upstream introduction and security cause.
+
+`readContext` lists only personal plans and returns `sharedPlansDir: null`.
+Direct `shared:<file>` IDs and existing manifest entries marked `shared: true`
+cannot be read, edited, pinned, deleted or unshared. These operations return
+not found before filesystem or manifest mutation. Sharing returns the existing
+required-folder error. Stored shared files and manifest entries remain untouched;
+personal CRUD, notes and todos remain supported.
+
+The low-level runtime still accepts an explicitly injected non-null resolver for
+upstream shared-feature unit tests. Production composition must use
+`projectConfigRuntime.resolveSharedPlansDir`, never a repository-derived resolver.
+
 ## Routes
 
 | Method | Route | Notes |
@@ -72,6 +101,8 @@ the two ever disagree.
 | POST | `/api/project-context/:projectId/plans` | `201`; takes `{title, body}`, never a path |
 | PUT | `/api/project-context/:projectId/plans/:planId` | takes the whole `{raw}` document; `404` when the link or its markdown is gone |
 | DELETE | `/api/project-context/:projectId/plans/:planId` | `404` when unknown |
+| POST | `/api/project-context/:projectId/plans/:planId/share` | `400` in production because repository shared plans are disabled |
+| POST | `/api/project-context/:projectId/plans/:planId/unshare` | `404` in production; stored shared files and links remain untouched |
 
 **Body parsing is attached per route.** This server has no global JSON parser:
 `core-routes` parses only an allowlist of `/api` path prefixes so the generic
@@ -123,9 +154,9 @@ and I/O failures are `500`.
 ## Legacy migration
 
 `projectNotes`, `projectTodos`, and `projectPlanFiles` originally lived in
-`<projectId>.json`. On the first read with no `context.json`, those three keys
-are moved out and deleted from the client-owned file; every other key is
-preserved untouched.
+`<projectId>.json` (the bounded name, see Ownership). On the first read with
+no `context.json`, those three keys are moved out and deleted from the
+client-owned file; every other key is preserved untouched.
 
 Plan links carried absolute paths. Migration converts each to a base name. A
 file already in the plans directory is used in place; one referenced from

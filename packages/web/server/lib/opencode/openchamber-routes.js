@@ -18,6 +18,45 @@ function quotePosixShell(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
+/**
+ * `echo` in batch treats `& | < > ( ) ^` as syntax and `%var%` as expansion,
+ * so a line of the log preamble is escaped before it becomes an `echo`.
+ */
+const quoteCmd = (value) => String(value).replace(/[\r\n]/g, ' ').replace(/%/g, '%%').replace(/[&|<>()^"]/g, '^$&');
+
+const escapeBatchEchoLine = (line) => {
+  if (!line) return 'echo.';
+  return `echo ${line.replace(/%/g, '%%').replace(/[&|<>()^]/g, '^$&')}`;
+};
+
+/**
+ * The Windows update runs as a batch file, one command per line, so the
+ * `if ... else` block and the multi-line log preamble keep their structure.
+ */
+const buildWindowsUpdateScript = ({ logPreamble, updateCmd, restartCmd }) => [
+  '@echo off',
+  ...logPreamble.split('\n').map(escapeBatchEchoLine),
+  // `timeout` refuses redirected stdin, which is what a detached child has;
+  // a ping to loopback waits about two seconds without a console.
+  'ping -n 3 127.0.0.1 >nul',
+  // npm, pnpm and yarn are .cmd shims on Windows. Without `call`, a batch
+  // file hands control to them for good and the restart below never runs.
+  // Read from a file, cmd expands `%x%` and drops a lone `%`, so a `%` in a
+  // host or UI password would change the restart command. Doubling keeps it.
+  `call ${updateCmd.replace(/%/g, '%%')}`,
+  'if %ERRORLEVEL% EQU 0 (',
+  `  echo ${quoteCmd(`Update successful, restarting ${PRODUCT_NAME}...`)}`,
+  `  ${restartCmd ? restartCmd.replace(/%/g, '%%') : `echo ${quoteCmd(`Service manager will restart ${PRODUCT_NAME}.`)}`}`,
+  ') else (',
+  '  echo Update failed',
+  ')',
+  // The restart command carries the server's own flags, `--ui-password`
+  // included, so the file does not outlive the run. Deleting the running
+  // batch file on its last line is safe: cmd has already read it.
+  'del "%~f0"',
+  '',
+].join('\r\n');
+
 export const registerOpenChamberRoutes = (app, dependencies) => {
   const {
     fs,
@@ -31,11 +70,13 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
     readSettingsFromDiskMigrated,
     fetchFreeZenModels,
     getCachedZenModels,
+    desktopUpdater,
   } = dependencies;
+
+  let desktopRestartError = null;
 
   app.get('/api/openchamber/update-check', async (req, res) => {
     try {
-      const { checkForUpdates } = await import('../package-manager.js');
       const parseString = (value) => (typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined);
       const parseReportUsage = (value) => {
         if (typeof value !== 'string') return true;
@@ -51,8 +92,7 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
         return 'desktop';
       };
       const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '';
-
-      const updateInfo = await checkForUpdates({
+      const updateRequest = {
         appType: parseString(req.query.appType),
         deviceClass: parseString(req.query.deviceClass) || inferDeviceClass(userAgent),
         platform: parseString(req.query.platform),
@@ -61,7 +101,31 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
         currentVersion: parseString(req.query.currentVersion),
         installId: parseString(req.query.installId),
         reportUsage: parseReportUsage(parseString(req.query.reportUsage)),
-      });
+      };
+      let updateInfo;
+      if (process.env.OPENCHAMBER_RUNTIME === 'desktop' && updateRequest.appType === 'web') {
+        if (desktopRestartError && req.query.updateStatus === 'true') {
+          return res.status(503).json({
+            code: 'DESKTOP_UPDATE_RESTART_FAILED',
+            error: desktopRestartError,
+          });
+        }
+        if (typeof desktopUpdater?.check !== 'function') {
+          return res.status(503).json({
+            available: false,
+            code: 'DESKTOP_UPDATER_UNAVAILABLE',
+            error: 'The desktop updater is not available.',
+          });
+        }
+        updateInfo = {
+          ...await desktopUpdater.check(),
+          packageManager: 'electron',
+          updateOwner: 'electron-updater',
+        };
+      } else {
+        const { checkForUpdates } = await import('../package-manager.js');
+        updateInfo = await checkForUpdates(updateRequest);
+      }
       res.json(updateInfo);
     } catch (error) {
       console.error('Failed to check for updates:', error);
@@ -74,6 +138,41 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
 
   app.post('/api/openchamber/update-install', async (_req, res) => {
     try {
+      if (process.env.OPENCHAMBER_RUNTIME === 'desktop') {
+        if (typeof desktopUpdater?.install !== 'function' || typeof desktopUpdater?.restart !== 'function') {
+          return res.status(503).json({
+            code: 'DESKTOP_UPDATER_UNAVAILABLE',
+            error: 'The desktop updater is not available.',
+          });
+        }
+
+        desktopRestartError = null;
+        const updateInfo = await desktopUpdater.install();
+        if (!updateInfo?.available) {
+          return res.status(400).json({ error: 'No update available' });
+        }
+
+        res.json({
+          success: true,
+          message: 'Desktop update downloaded, host will restart shortly',
+          version: updateInfo.version,
+          packageManager: 'electron',
+          updateOwner: 'electron-updater',
+          autoRestart: true,
+          restartManager: 'electron-updater',
+        });
+
+        setImmediate(() => {
+          Promise.resolve()
+            .then(() => desktopUpdater.restart())
+            .catch((error) => {
+              desktopRestartError = error instanceof Error ? error.message : 'Failed to restart after desktop update';
+              console.error('Failed to restart after desktop update:', error);
+            });
+        });
+        return;
+      }
+
       const { spawn: spawnChild, spawnSync } = await import('child_process');
       const {
         checkForUpdates,
@@ -184,7 +283,8 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
       const quotePosix = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
       const quoteCmd = (value) => {
         const stringValue = String(value);
-        return `"${stringValue.replace(/%/g, '%%').replace(/"/g, '""')}"`;
+        // Percent signs are escaped once when serializing the batch file.
+        return `"${stringValue.replace(/"/g, '""')}"`;
       };
 
       const cliPath = path.resolve(__dirname, '..', 'bin', 'cli.js');
@@ -242,6 +342,26 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
         `logPath=${updateLogPath}`,
       ].join('\n');
 
+      const shell = isWindows ? (process.env.ComSpec || 'cmd.exe') : 'sh';
+      const shellFlag = isWindows ? '/c' : '-c';
+      // cmd.exe /c takes one command line: a newline inside it ends the
+      // command, so a multi-line script passed as the argument ran nothing
+      // and exited 0, and the server shut itself down believing the update
+      // was under way (#3084). Batch runs from a file instead, written before
+      // the client is told to expect a restart.
+      const windowsScriptPath = path.join(openchamberDataDir, 'update-install.cmd');
+      if (isWindows) {
+        try {
+          fs.mkdirSync(path.dirname(windowsScriptPath), { recursive: true });
+          fs.writeFileSync(windowsScriptPath, buildWindowsUpdateScript({ logPreamble, updateCmd, restartCmd }), 'utf8');
+        } catch (scriptError) {
+          console.error('Failed to write the update script, update not started:', scriptError);
+          return res.status(500).json({
+            error: `Could not write the update script at ${windowsScriptPath}: ${scriptError instanceof Error ? scriptError.message : String(scriptError)}`,
+          });
+        }
+      }
+
       res.json({
         success: true,
         message: 'Update starting, server will restart shortly',
@@ -256,21 +376,8 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
           console.log(`Running: ${updateCmd}`);
           console.log(logPreamble);
 
-          const shell = isWindows ? (process.env.ComSpec || 'cmd.exe') : 'sh';
-          const shellFlag = isWindows ? '/c' : '-c';
           const script = isWindows
-            ? `
-            echo ${quoteCmd(logPreamble)}
-            timeout /t 2 /nobreak >nul
-            ${updateCmd}
-            if %ERRORLEVEL% EQU 0 (
-              echo ${quoteCmd(`Update successful, restarting ${PRODUCT_NAME}...`)}
-              ${restartCmd || `echo ${quoteCmd(`Service manager will restart ${PRODUCT_NAME}.`)}`}
-            ) else (
-              echo Update failed
-              exit /b 1
-            )
-            `
+            ? windowsScriptPath
           : `
             printf '%s\n' ${quotePosix(logPreamble)}
             sleep 2
@@ -292,10 +399,24 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
           console.warn('Failed to open update log file, continuing without log capture:', logError);
         }
 
+        if (isWindows) {
+          // On Windows the detached child inherits this process's listening
+          // socket, and keeps the port for as long as the batch runs. The
+          // restart inside that batch then fails with "port already in use",
+          // and the update ends with no server. Closing the listener first
+          // leaves nothing to inherit; the process exits right after anyway.
+          try {
+            server.close();
+          } catch (closeError) {
+            console.warn('Failed to close the listener before the update script:', closeError);
+          }
+        }
+
         const child = spawnChild(shell, [shellFlag, script], {
           detached: true,
           stdio: logFd !== null ? ['ignore', logFd, logFd] : 'ignore',
           env: process.env,
+          windowsHide: true,
         });
         child.unref();
 

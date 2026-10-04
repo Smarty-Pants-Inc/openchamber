@@ -1,0 +1,845 @@
+{
+  "issue": "smarty-code#1315",
+  "baseHead": "d41518e48463b6231653def3585a3a59ad2ef870",
+  "upstreamHead": "614d7f76e581a132a86575c03d3fa9aad5e624b6",
+  "predecessorLedgers": {
+    "branding/coverage.json": "10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df",
+    "branding/behavior-overlay.json": "42cb0bcc611bd57ca55b84ac94f08906385546ab7f8f39ccadc27dcb6bc4c8e5",
+    "branding/stock-owner-parity.json": "e432dc759a1b79c9d6e4d6f85d749aa47f1df98cfc8232970b8913e851da4102",
+    "branding/http-response-policy-overlay.json": "0d07d352bad0275e0afd4e98b28bf338478736a962feac35cfaaf137129c454a"
+  },
+  "note": "Upstream v1.24.2 merge successors over immutable donor, behavior and response-policy proof. Null output hashes are deliberately unfinalized while writers are active and must fail current-byte checks. Bind only reviewed released outputs after brand generation; this is source provenance, not runtime/security acceptance.",
+  "reviewSuccessors": {
+    "predecessorHead": "74503e43955b13a5b49731417f0efeae8748a702",
+    "reviewedHead": "4f86403ec77539242efd27c8a87884fcd5b5184e",
+    "files": [
+      {
+        "path": ".github/workflows/oc-review.yml",
+        "predecessorSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
+        "sha256": "2ac1b0bc25a1f3e0886077b6716c556b67b96078b4a07b0816fadeda86ea9ff3",
+        "note": "Reviewed CI heap policy from ci-heap-fix.md: add NODE_OPTIONS --max-old-space-size=4096 only to the existing Build step, retaining bun run build, every later phase and all source/runner/admission guards. This is a behavioral resource-policy successor, not brand-only normalization or a CI pass. The predecessor is the unchanged first-parent workflow blob 48cb5f9083e81c8de7239a24ca4f7aa0a7284626."
+      },
+      {
+        "path": "packages/web/server/lib/opencode/openchamber-routes.js",
+        "predecessorSha256": "91275f4649f710e2f41a30ab67673bce00a30da7aa77fee38c9b3f05cee36098",
+        "sha256": "ed95e227c1c08e3adc2a88ca3dfbf14c21a623d79ddb04ae99a0a4d26f7103df",
+        "note": "Reviewed A4 repair from astra-windows-percent.md: remove argument-quoter percent doubling so the upstream batch serializer escapes each percent once. Retain quote doubling, generated Smarty messages, POSIX behavior, flags, fallback restart and process lifecycle. The exact merge-output predecessor and earlier donor predecessor remain in the upstream row. This is behavior provenance, not Windows execution or installed-update proof."
+      },
+      {
+        "path": "packages/web/server/lib/opencode/openchamber-routes.test.js",
+        "predecessorSha256": "a4d7abc0e4e8d41302de6c79f1eccae0f396b5435051c915c94307860442d9ae",
+        "sha256": "b2080c1d4f5dacc0ef2cb3e20f6d6db53b112dafa8bbb2bb289fc865ad3f347d",
+        "note": "Reviewed A4 registered-route regression from astra-windows-percent.md: allow injected server directory and path.win32, then add ordinary-path and three percent-path cases checking the executable batch line, diagnostics, flags and lifecycle. All ten original tests and their assertions remain. Retain the exact earlier merge-output binding in the upstream row; Linux fixture execution is not cmd.exe proof."
+      }
+    ]
+  },
+  "round2Successors": {
+    "parentHead": "16eda5b18ba2cd764d0da0827a2e8741b12d3834",
+    "note": "Security round 2 raw successors over PARENT16, bound after Main finalization, writer quiescence and branding generation. Source and security acceptance remain separate.",
+    "files": [
+      {
+        "path": "branding/generated.json",
+        "predecessorSha256": "a9a2f757f51943e7c373d571c7da557a32db739a0c9822fce582785b5f2c641c",
+        "sha256": "56db446fba0c40e1c86f3ef4069aacb9e1a991a1a2eaf70c53190f20292a3009",
+        "note": "Refresh the existing generated-output manifest after all writers are quiescent and Main completes branding generation; preserve the controlled output membership."
+      },
+      {
+        "path": "packages/electron/README.md",
+        "predecessorSha256": "e5e07824575275979b212ab2c00310d7edca1844b1777c1dd29ad7c02cbd760e",
+        "sha256": "e84bab9e91e86a8f8a99f099854bacb2633a97387100acd32ac1de04f4654439",
+        "note": "F11 documentation records the disabled splash theme IPC; bind released bytes after branding generation."
+      },
+      {
+        "path": "packages/electron/main.mjs",
+        "predecessorSha256": "e51b64996139c1bc172e8146ba1706139869325f28c9033613b4cfd9d91f30fc",
+        "sha256": "bcdc9aab44ae6b61d185ee0b582b0465949e07d57c6f350e51bac702e683dc27",
+        "note": "F11 handler refuses the disabled desktop_set_window_theme switch and persisted splash colors are ignored; the renderer send was not removed, and the refusal is covered by the policy test. Bind released source bytes."
+      },
+      {
+        "path": "packages/vscode/src/opencode.ts",
+        "predecessorSha256": "a5faffffcf4e2e10a7186a1aeac6324baf67aac2fb69dc8a4b9538ae2736adf6",
+        "sha256": "508b5745a63f7ad8e48c2e05e96572dc02fceedd0b971a70692636d7d7a4ed3e",
+        "note": "F12 disables managed VS Code lifecycle while retaining external connections; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/index.js",
+        "predecessorSha256": "bd7a2b0cf2c8613e8d52b86a8259eaa8909fd05ee6c60d03f1a9085091eac7be",
+        "sha256": "4511ca6ea8d4e0b734c182270efc7efb9ba419938dd27fdd41c8c064cd5e207b",
+        "note": "F13 disables permission auto-accept wiring at the server boundary; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/lib/small-model/call.js",
+        "predecessorSha256": "17f1aaa3bfc6234cc5f3501800bd423eb9cd1a021b755fa8ef2a48694342db83",
+        "sha256": "528314c7e1b8d7e1c4d5d17c9a7b47377de5ee0a1e726050c0e66314a35de126",
+        "note": "F15 confines provider credentials to approved runtime endpoints; bind released source bytes."
+      },
+      {
+        "path": "packages/web/server/lib/small-model/runtime-providers.js",
+        "predecessorSha256": "e4755399336af319ce9ea348ebce3ec6414e082ef7442720868b38bef4081eb6",
+        "sha256": "ce82363307ef363d35839845a020306232c5f5ac4c4093db45ff784ef6ea8d24",
+        "note": "F15 validates runtime provider endpoint provenance; bind released source bytes."
+      },
+      {
+        "path": "packages/vscode/webview/main.tsx",
+        "predecessorSha256": "508962c076ff50e76831bf0be9015da265ef06ba4e946f6eb244c1c303075608",
+        "sha256": "ff40a151d43e5ce2dc6056fbcd46b4b4010e76898776f2fd7dc41fd4ac95a22a",
+        "note": "F13 follow-up refuses every method, root and descendant of permission-auto-accept and legacy notifications/auto-accept with 501 and supported: false in the complete window.fetch wrapper before local-route dispatch or fallback. Matching handles mixed case, encoded path bytes, dot segments and slash normalization without matching query contents; manual once/always/reject replies remain supported. Raw bytes bound after writer quiescence, not runtime or security acceptance."
+      },
+      {
+        "path": "packages/vscode/src/bridge-proxy-runtime.ts",
+        "predecessorSha256": "239bc3371553fe4911b0ec96f11763059775784748322dccb37860ae8d41c6a3",
+        "sha256": "cd5e9d85a63a394b91b25a6c635020d8835da2274b18267da82e31951d7faa14",
+        "note": "F13 follow-up independently refuses every method, root and descendant of permission-auto-accept and legacy notifications/auto-accept with 501 and supported: false at api:proxy and raw api:session:message before manager readiness, auth, local filesystem dispatch or fetch. Matching handles mixed case, encoded path bytes, dot segments and slash normalization without matching query contents; manual once/always/reject replies remain supported. Raw bytes bound after writer quiescence, not runtime or security acceptance."
+      }
+    ]
+  },
+  "round4Successors": {
+    "parentHead": "f8405a820bf9b2fae63fdffe37e0e3d2e6b163df",
+    "files": [
+      {
+        "path": "packages/ui/src/lib/worktreeSessionCreator.ts",
+        "predecessorSha256": "50a84f22b74a57af06d4d1fd5ff887c3267509fff123892441edfa6a0c8f76f9",
+        "sha256": "f7a5759bb1f50a2946b79aa957c6b8d249ce4e534e887d75dc4b897eb72d3dad",
+        "note": "A9 worktree-origin-custody.md binds frozen current source after writer release: quick creation captures origin and request generation before setup awaits, and worktree/session continuations recheck that origin. Author receiver tests report zero retired create POSTs for A to B and A to B to A, with current personal setup and current optional offline controls retained. Source provenance only, not independent security, CI, native or install acceptance."
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": ".github/workflows/mobile-ci.yml",
+      "predecessorSha256": "ba7b58fbd604d6b23c1ad0474e802e42dd6772c937f9bef3eebbf6fc9a074131",
+      "sha256": "835d58a5613bdc616f703afc02bf4bf186bf1d04920c0b606f0af131b1d8e0b0",
+      "note": "Read-only successor binding for upstream Bun pin/build additions with existing fork disabled-job/runner/source guards; no workflow policy edits by the branding task."
+    },
+    {
+      "path": ".github/workflows/mobile-release.yml",
+      "predecessorSha256": "684191a77a185b1c773450dae25e0230343fb4af7f5977cb4d170b475eaa45f5",
+      "sha256": "4a38e2420a63e06f1988199eb91f2fa271559b757a4025b16ec2dc9d2381ee99",
+      "note": "Read-only successor binding for upstream Bun pin/build additions with existing fork disabled-job/runner/source guards; no workflow policy edits by the branding task."
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "predecessorSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "sha256": "98f7b2291c324b7e8dbf57b8878d0d85371cd22273dc9b85d985b97d42474b18",
+      "note": "Read-only successor binding for upstream Bun pin/build additions with existing fork disabled-job/runner/source guards; no workflow policy edits by the branding task."
+    },
+    {
+      "path": "Dockerfile",
+      "predecessorSha256": "c42e47ff26d8f132a12f34f4f9656ac8a308d02fd996fd2735262b5cd4de89c6",
+      "sha256": "e690194b692f7565c3271a2d6496f1fcc87ac948030059ea83f9240ed715f23a",
+      "note": "Retain upstream SDK/example workspace staging, extension builds and runtime assets together with the fork generated-brand module COPY."
+    },
+    {
+      "path": "README.md",
+      "predecessorSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
+      "sha256": "a5180d7e61393121be3bcbe72149df88b77cc2e78a2d573f9191551dcbb27b3b",
+      "note": "Retain the rewritten upstream product guide and contributors with protected OpenChamber attribution, Smarty prose and truthful upstream install/artifact links."
+    },
+    {
+      "path": "branding/generated.json",
+      "predecessorSha256": "20fc3389df019ea7c726d381356e6edc7ed5f9637fb6e9dfa6c3d89ad0f97fa1",
+      "sha256": "a9a2f757f51943e7c373d571c7da557a32db739a0c9822fce582785b5f2c641c",
+      "note": "Refresh only the generated-output manifest after all source writers release and brand generation completes; the original 142-output membership remains authoritative."
+    },
+    {
+      "path": "docs/CUSTOM_THEMES.md",
+      "predecessorSha256": "7086a3e353b1fa9c63cd8e444c015bb16f84e11221d6fbb5bc6a0a202be188ae",
+      "sha256": "420a11683cc20e97262164844d6002227d9ac25db2500436733875e4933d967c",
+      "note": "Retain upstream compact theme imports, catalog deletion and limits with Smarty presentation and supported description/version/tags metadata."
+    },
+    {
+      "path": "package.json",
+      "predecessorSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "sha256": "c8ecb51247d8189a6ffac42465f6eaedb0d7c7db1cb7b566b5d1d5f9c130e4fd",
+      "note": "Retain upstream 1.24.2 dependencies, SDK workspaces, extensions build/dev/postinstall wiring and fork branding entrypoints."
+    },
+    {
+      "path": "packages/docs/content/docs/de/project-actions.mdx",
+      "predecessorSha256": "a3f227c3260d7bb4b684e7c2cf41eaba950ecdce21ed7469012e9ca28a6c2da7",
+      "sha256": "9eae78387d13b02e7352fd139bf420f3f4143ceef8a11a7f4c10c2cdacc9e759",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/de/themes.mdx",
+      "predecessorSha256": "2cf42e25d08703cb299f8a9edd47d2e618537445f29b4b803ab8eb6325c81f98",
+      "sha256": "ac9baf9d6141f2413831fe9c8dd29e7f99cffd8a5ffa5227752433c9d6d9c9e4",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/environment.mdx",
+      "predecessorSha256": "33897594debd921185bdc9e26ab1ea7f528c8e104667c283c9fbed977a5829aa",
+      "sha256": "a5a3e417989f6fa6bbc944d3d71ff6e4a8a6a77b6ccd9fa10852bc471b0ab4df",
+      "note": "Retain translated upstream environment documentation additions with owned Smarty prose and unchanged variable/command identities."
+    },
+    {
+      "path": "packages/docs/content/docs/es/project-actions.mdx",
+      "predecessorSha256": "7e7fc955c5bb087e2dde48f1dd529fff38923cf6d7032cc2e0f13dea799c7ba3",
+      "sha256": "d6710531b46b6d5e487db6b6b20bf35ceb5329e5dd1452f9e7be5d508014ce8d",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/es/themes.mdx",
+      "predecessorSha256": "f862ba538210930aff329d492ea96a3d6f81500daa3754898c692db0ccb8089a",
+      "sha256": "db76d1a9e75dcbfc0d107852e22ffaa7991c5a75adc2d2c8ee38d66d53efeeae",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/fr/project-actions.mdx",
+      "predecessorSha256": "f7255e4032bd348c3b84f36c1ffdbe4a6d09c7585b0688312e4baaf7cf5e4ba8",
+      "sha256": "79de7497ad72577fe0fcd481d01fab7181929fe560e796d66e4becaf6f115fd3",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/fr/themes.mdx",
+      "predecessorSha256": "e348e210172af53b67d9baee401353a54badaa73112929c6ff3ce05db64bce89",
+      "sha256": "a6b6d81d773df9b333e392dcca12530d5079d78c39c58f55708ad2988f949103",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/ja/environment.mdx",
+      "predecessorSha256": "7da8650f30acce9d54a7fb1f7c4d891d1341d42a48a5ada07d351b95a44e8d92",
+      "sha256": "3116da5a56f8b45a5304eb93a5f8291871d3bae9430663533090004c851d17e4",
+      "note": "Retain translated upstream environment documentation additions with owned Smarty prose and unchanged variable/command identities."
+    },
+    {
+      "path": "packages/docs/content/docs/ja/project-actions.mdx",
+      "predecessorSha256": "6250e532295ddad4f4be82a67aa9ee42e5a7b83141da1cb6f878786f3fc30f19",
+      "sha256": "5c1bddb27abd9f1d9ef3c47a6f76713ee3f34ed1e73d8acab870fb4880f1c9af",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/ja/themes.mdx",
+      "predecessorSha256": "94616b4010a53c070f1aa8a8a04131d54841cf22f9756aec9648429e0433fc34",
+      "sha256": "af214e8855c6485c00ab0e015e244a7698a80e2547395b4a4bbd6a8c74edec97",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/ko/project-actions.mdx",
+      "predecessorSha256": "3ac8f5098ec47ced41a89381af95d5decb271b442037dd8ba581f70fc1d7bb6e",
+      "sha256": "d9259a09d8fe36dd24670c8445c9e619e9f613febe53a09051dea1a9d5e0dbf2",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/ko/themes.mdx",
+      "predecessorSha256": "30f13dccec13faa34a18787f191b28c6c90c19b0bac6f42b815feaea12724cc6",
+      "sha256": "2a4d3c2393316d646ef92b2820c3e9e6a539a403f0b3411e474a391584c7614a",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/pl/environment.mdx",
+      "predecessorSha256": "3603803e6465c0af714429d81470146c5f0231a02bc12610203fb9c2e251fffd",
+      "sha256": "1fef5241f81e4550d482313725d230affbe69655e065c5a82d615533620d11db",
+      "note": "Retain translated upstream environment documentation additions with owned Smarty prose and unchanged variable/command identities."
+    },
+    {
+      "path": "packages/docs/content/docs/pl/project-actions.mdx",
+      "predecessorSha256": "2c5a76cd991ba368699bc38f4707ced1957a202968bb3599c1b725f530e10726",
+      "sha256": "39b5dd77ad0e83050df647c5d1419ad59096e3e88bee1d74548b679371c7f25b",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/pl/themes.mdx",
+      "predecessorSha256": "ee14b57ebf2c6f9ad39f000b89017e465aa778272b338d774f41c5328e491c72",
+      "sha256": "d151c74b77eafbf0c79e6c8810c2299f3de3b3d55f72f75b51dbca10e11e099b",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/project-actions.mdx",
+      "predecessorSha256": "4b76ef4c7931fa630e597e914004ad76803eab8f69643b6bdfb7f91169d48e60",
+      "sha256": "f7619bd4f49dd7f3c6a15bceb90e951e9aee15e0edafee7f0c8f92928e0e5505",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/project-actions.mdx",
+      "predecessorSha256": "a8f43dc91e17eac3c26be79aff1cfd25d1ee4b98ba53a277f0669a2356740e3e",
+      "sha256": "56b4df12abf2ff3a382ead4429a46ecbc89d4823faba0b7bc9721e9acf380e5d",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/themes.mdx",
+      "predecessorSha256": "aea2873256d79d6d0cb09da5b5778c2f77b3004fa27694df0e1b1b8ef75af74b",
+      "sha256": "a4a8781081fa8b8fa83cc7344e06625e92222e48832927344961863cb4802bda",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/themes.mdx",
+      "predecessorSha256": "f0ba0a5cea1745209d8d0236fcc0ba126568bbe469d22e17d871a943f2a7f446",
+      "sha256": "4eb6a53009615d7944fe26c76121e1f90fe816922dd94baf7b6214e822723df4",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/uk/project-actions.mdx",
+      "predecessorSha256": "1eae832678811cd314965db96fc422bbcbe1279401c387895e013aa46d4584d5",
+      "sha256": "277153c321c6e126760a8f8e257feeedaf9812f6bb6d2f53dc77b871e8135bd2",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/uk/themes.mdx",
+      "predecessorSha256": "05e93042a2e40eacaf2c1c4abda4e8419b04de567fbaa204af8e0e5e898f44bf",
+      "sha256": "9cfe5436e5f15aa4ca349f15a8ecf26ea20d235424c59a686e23350e81804255",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/environment.mdx",
+      "predecessorSha256": "de282d4e6e16e8f090b3f02563fe5b5f054cf86a58377a8d0875e5283eefd8f3",
+      "sha256": "97ce94937ba4e9f9bf8ff7345c7ce428921103d9a07c3140f1d872e443d64394",
+      "note": "Retain translated upstream environment documentation additions with owned Smarty prose and unchanged variable/command identities."
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/project-actions.mdx",
+      "predecessorSha256": "6fb1aa0dd10fc5e8e3da15bcff1d22a527d5e42d242fea260f34466ed4b74a41",
+      "sha256": "753ed05b7c643f261eb56834328b348c4416bd2002f5a593bcc74516be586a42",
+      "note": "Retain the translated upstream shared repository action/setup link with existing Smarty prose; technical destinations stay unchanged."
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/themes.mdx",
+      "predecessorSha256": "da6b2f637f6620460985b6550b595df1b50689a64ec80125cd1bb937cc717020",
+      "sha256": "a10ee07cab0a65af55d4584234476a297f308f3c42d86e703e8afdb3062a427c",
+      "note": "Retain translated upstream theme catalog/import/delete guidance with owned Smarty prose; technical JSON/schema/path identities stay unchanged."
+    },
+    {
+      "path": "packages/electron/README.md",
+      "predecessorSha256": "59315dbda4a10c26d792749b5fa41d1d55b380f3e0beea60fd265855644c7935",
+      "sha256": "e5e07824575275979b212ab2c00310d7edca1844b1777c1dd29ad7c02cbd760e",
+      "note": "Retain upstream shutdown, extension packaging and SSH adoption documentation with generated Smarty desktop presentation and asset guidance."
+    },
+    {
+      "path": "packages/electron/main.mjs",
+      "predecessorSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "sha256": "e51b64996139c1bc172e8146ba1706139869325f28c9033613b4cfd9d91f30fc",
+      "note": "Retain escaped Smarty splash/name/mark and legacy identities with upstream owned theme colors, packaged extensions and lifecycle changes."
+    },
+    {
+      "path": "packages/electron/package.json",
+      "predecessorSha256": "7832d540edfbccaf6b748e7926a5c872a146988940a6391a5c24cb1df911938f",
+      "sha256": "c573ef67f5d7cadf4973352f1621f87b48995739ee645c5d5a8047b691ab35e0",
+      "note": "Retain upstream version and built-in extension ASAR unpacking while keeping Smarty productName and generated PNG icons on all platforms."
+    },
+    {
+      "path": "packages/electron/ssh-manager.mjs",
+      "predecessorSha256": "912262cae031df5a2e9dc6e031368125d5bce03408564b91c0058ca06b66f5db",
+      "sha256": "8e3efb34ed19feafa7fcb812d20976516fcfda28e7504bb1e527674a2681046f",
+      "note": "Retain Smarty connection diagnostics with upstream auth-health envelopes, remote daemon adoption, reuse and ownership-based cleanup."
+    },
+    {
+      "path": "packages/electron/ssh-manager.test.mjs",
+      "predecessorSha256": "bcb9aa24ad3bc38ff0d534eee4b8136e01ce7e8d6353dbcbec6829494f1fbcad",
+      "sha256": "213ddb733501e38aa898d1b0094eaeb4899485e928009a3a4392de313a46479f",
+      "note": "Retain SSH adoption/probe/cleanup coverage and update owned presentation expectations with the matching source repair."
+    },
+    {
+      "path": "packages/mobile/README.md",
+      "predecessorSha256": "9de1843c5eb1ec82657785c12fc10b0c23b77cecf8071b39e12fb9136bcd1a9d",
+      "sha256": "ee36ced75ac6487469b311242934a05773f2c7dc2fcea234be37d1d09cc733ed",
+      "note": "Retain upstream comparison documentation with fork remote-server branding and generated launcher/splash/notification asset guidance."
+    },
+    {
+      "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
+      "predecessorSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "sha256": "06f2a84dc20d8fe46735da1bc1bb34b0c2bdc1208bd6ea8e7d5facbe51101fbf",
+      "note": "Retain human-auth and runtime-recovery ownership with compatible upstream startup behavior and Smarty product presentation."
+    },
+    {
+      "path": "packages/ui/src/components/chat/ChatMessage.tsx",
+      "predecessorSha256": "0e77df22ceae998e19e5d300b6e6ace343cae6dd821b0ee5eb0670f58059d227",
+      "sha256": "dfe0a1ee35c70cee952fef633926e941abfea8b83bc49124cc7abd25ed5788d3",
+      "note": "Retain Smarty unsaved/sender/notice/voice rows and raw diagnostic boundaries with compatible upstream activity and message rendering."
+    },
+    {
+      "path": "packages/ui/src/components/chat/CommandAutocomplete.tsx",
+      "predecessorSha256": "037d9b80c550b9f0be8f60061c0a4f721d211823967671e758552b4cc90b1c17",
+      "sha256": "bc510419cd9eb009b367fc386043f2feb9967f4bfda59b6d5d09283dfb4751ca",
+      "note": "Retain generated Smarty product labels and native command ownership while incorporating upstream command UI additions."
+    },
+    {
+      "path": "packages/ui/src/components/chat/markdown/markdownCore.test.ts",
+      "predecessorSha256": "704246031d9ecdbb4cce1ced61f37f16269dfc0de4cf1234da1e9e88b0c3cbd4",
+      "sha256": "f540c825768d3b3d4d6029b2d704a7087a128742f1c126c105f7452cfdde3fd1",
+      "note": "Retain owned presentation escaping and Markdown behavior coverage with the upstream markdown test changes."
+    },
+    {
+      "path": "packages/ui/src/components/layout/Header.tsx",
+      "predecessorSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "sha256": "ddae05fd0dbdc72cf1687623acf8ee912784d446a42567d0d7f6f5570b0d0859",
+      "note": "Retain Smarty account/context-window/managed-catalog presentation with upstream header additions."
+    },
+    {
+      "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
+      "predecessorSha256": "074edb3fb587d49c02c183c16f64c9415361b554bce3c60ba9eccb9fb90f987d",
+      "sha256": "ebbe7700528b28f892e7e3568d3602692405df96651a70465833c277ce282a74",
+      "note": "Retain managed-target and generated-brand Mini Chat behavior with compatible upstream layout changes."
+    },
+    {
+      "path": "packages/ui/src/components/sections/mcp/McpSidebar.tsx",
+      "predecessorSha256": "407ef41fb0218b23db7d6416e61ddd51521a02dbea76785ddce0979bd47b92e2",
+      "sha256": "eefa618addd8d014d7ca1d88b9586c22aafb6c7c1a395688134b09ea448710f0",
+      "note": "Retain generated Smarty settings product presentation with upstream settings composition and feature additions; no replacement of technical configuration identity."
+    },
+    {
+      "path": "packages/ui/src/components/sections/openchamber/OpenChamberVisualSettings.tsx",
+      "predecessorSha256": "25a62fee0e60121a079ecbb947055c28d06bdd242df5dd6ea0141816a2cb29aa",
+      "sha256": "50bc8e8325e17e603205a0ee35d81eccedc5fb7242a2f6949e938fc41d7814e4",
+      "note": "Retain generated Smarty settings product presentation with upstream settings composition and feature additions; no replacement of technical configuration identity."
+    },
+    {
+      "path": "packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx",
+      "predecessorSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "sha256": "3c3279afdce215ea2b628bbc6beb83323ea96ac1b086d359bed170ee3f5dbfeb",
+      "note": "Retain generated Smarty settings product presentation with upstream settings composition and feature additions; no replacement of technical configuration identity."
+    },
+    {
+      "path": "packages/ui/src/components/ui/OpenChamberLogo.tsx",
+      "predecessorSha256": "a546ba1421404ede6987529dff7016cc08a828347f211a26080d29e9c9d5e3fc",
+      "sha256": "281281beb4d50fc57014f007930a8dccb02a344d23437c822c1ea30a738d5cd1",
+      "note": "Retain generated Smarty logo/name/mark with compatible upstream UI behavior and existing accessibility presentation."
+    },
+    {
+      "path": "packages/ui/src/hooks/useTraySync.ts",
+      "predecessorSha256": "08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26",
+      "sha256": "1a44d7bd5be549295913b74cf340c14dad7f962951d405b068dc55f97e5ac7e0",
+      "note": "Retain generated Smarty local-instance/tray presentation and managed-catalog ownership with upstream tray changes."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/de.settings.ts",
+      "predecessorSha256": "27834a8542174338dcb24895a08b428079c489ff5ef402fc44a6672386ed4975",
+      "sha256": "a0d5f610a3b54c07c7fd262c2c14572aff3659ece461ccad691d4c3336988a79",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/de.ts",
+      "predecessorSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "sha256": "8c9d6e12eab53813fcbf13b9f3fa783e73e4418f165ba76476e0835c95c931a9",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/en.settings.ts",
+      "predecessorSha256": "6f5b0aff3a827183c7918c92c172fbe3c5af46f5cfbf86e43301894f59b4a06a",
+      "sha256": "a0900f9070504fc10aaf441fb7811cd5c5e8ea1c03a64c18d94739602a484afd",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/en.ts",
+      "predecessorSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "sha256": "732aab12717ddc9a7e5e322da47cb8621dbead3e598b4f6a3c20c952da9d45c0",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/es.settings.ts",
+      "predecessorSha256": "e943c443bc12f3fee8dd7853e1e31b7cafb7449116ab01bdbccd6f9c2443426c",
+      "sha256": "026c43c45874d97e35ef58c7246aa029bd3b211ceea2e6ad09ed05ebd1fbb599",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/es.ts",
+      "predecessorSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "sha256": "10874fc01ab638d761d1533ccbdef2853aa3807aaa03947e4b86108d8d45a4b4",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/fr.settings.ts",
+      "predecessorSha256": "99bf0d02c48a94bd3d7c5f530d060e16d2e3f2a53c867e25a774f577c33df2d7",
+      "sha256": "6e2969280e09b5b8d2b7fc8539cc083b3ef7a290a27e3e0ec5f39dba6cd0f38b",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/fr.ts",
+      "predecessorSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "sha256": "9c802b79cf8f440622a1ab7448d08fa5877772625a3ab977f543c7554970757f",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ja.settings.ts",
+      "predecessorSha256": "8e8cc4b7a2a0c4334f854d8d98e779b956c4dcb517aed8f6ebe60c672895cced",
+      "sha256": "5e001186b0a84bc140d70b6111c85514c990b8f95d6a1cc286b0295521da115f",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ja.ts",
+      "predecessorSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "sha256": "94cf3ba2af71b203bd934c4fab6dd9b2a582fa28d8d3f211b80f66cee65409e5",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ko.settings.ts",
+      "predecessorSha256": "db6b86f54c21dff42b4a639afa9cf943e8a32e25e36c3daec596d23a764812d2",
+      "sha256": "d4c8b3845c09f8e160429d347511ec3462ae094ce6f18bc7f7ed7395a404384f",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ko.ts",
+      "predecessorSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "sha256": "cb834cc6436caaccdec7ac4ca16022d8f00280d39e25e53dae48886753a864ec",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pl.settings.ts",
+      "predecessorSha256": "3e0ca5b22552687d0a41b7c0c94e58f3e144456c1e3d18e32664f3cd0b9c3706",
+      "sha256": "4d1e0df4f0c1fa7dcca075e47a227df1d93a240dd415c9cf09dabf6e5bb3b09c",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pl.ts",
+      "predecessorSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "sha256": "213ba752f909409cda5d800302e7d0fd7a89b4b9c1689e91f04fb84ba1d2d6fe",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pt-BR.settings.ts",
+      "predecessorSha256": "1c5f590b916d3efd054d321fa843d0ec3ceb6c6bfc6cb9de9717ec6c90499a31",
+      "sha256": "4251ec9cd018be3a8d8a3578d8f8169ebf42819f5619909045a1b23b5e7e7c3f",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pt-BR.ts",
+      "predecessorSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "sha256": "53ff4933152372ff4cca255eb1c64b2334abdd477d299a93a287fccb31541b0f",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/uk.settings.ts",
+      "predecessorSha256": "d3a9d61026217e636b184ad484c38187fcb4fbea9c997a2818ad77bcf9b40d07",
+      "sha256": "808fcbef13680265a1a9e4db1038498cff4e00e05f9464787cac77fd45542112",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/uk.ts",
+      "predecessorSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "sha256": "03037a1cd83de3c6de0d217880a55c6135eec1f64ab3f73944e9b941107c1b35",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-CN.settings.ts",
+      "predecessorSha256": "d466fd9f526afe53be34bd6f44413d4ee483b9d17a554b09d1eb9dea3d7d7de5",
+      "sha256": "138f3dc51dc195a27553fb62ccb6c0ccf70557ba2d007f029fac3e9576d6b8c8",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-CN.ts",
+      "predecessorSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "sha256": "204fb5406a9c29159fa74b00bb1279b097e37110f749133470d51e36dd571ac5",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-TW.settings.ts",
+      "predecessorSha256": "43cbe29814ce4e47fef2664922490615d5140a7f9af5cde59dd6ee3895c849d2",
+      "sha256": "529c853224d11f0d081c081e947587b0d0e2e163d92e2a2405a0ffb31dd7bd54",
+      "note": "Retain upstream translated settings additions and existing runtime-generated Smarty presentation; do not brand protocol or external identities."
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-TW.ts",
+      "predecessorSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "sha256": "ec83328e27cf9a032d835c2040ad69b5a926611fea6605383d3d00256b658cc3",
+      "note": "Retain every fork displayName/nativeCreation/piVoice/sidebarHerdr/statusUnavailable/inboxSteps import and spread with upstream AI-rename/comparison/live-activity and plugin/routing additions."
+    },
+    {
+      "path": "packages/ui/src/lib/theme/themes/index.ts",
+      "predecessorSha256": "3181197b16fcec35ad61d1bec4b5de4f8470231400a905f7ebcc67e394bbaf12",
+      "sha256": "bb540087c1c6706f7d8fedba804ed71d5d00196be40ae61a497f43b7cffcc97e",
+      "note": "Retain generated Smarty product theme presentation and original theme authors with upstream theme-catalog changes; use a relative runtime branding import so the shared registry also loads from the root theme-conversion CLI without UI-only aliases."
+    },
+    {
+      "path": "packages/ui/src/lib/worktreeSessionCreator.ts",
+      "predecessorSha256": "47ca11c191661e93dd4b8ae566127b09186d4d7baae8d0a16dc597077805eeaa",
+      "sha256": "50a84f22b74a57af06d4d1fd5ff887c3267509fff123892441edfa6a0c8f76f9",
+      "note": "Retain native project admission and generated Smarty errors with compatible upstream worktree creation changes."
+    },
+    {
+      "path": "packages/ui/src/sync/session-actions.test.ts",
+      "predecessorSha256": "6ba028cf688b7851431cc85cf4342ed7900248cf13e773ccd2416988a0046fd9",
+      "sha256": "88310eaeb7ce2fdcc20efdec2ea96314c121c701fa85cc8def13d28076453c30",
+      "note": "Retain reviewed native creation, readiness and unsupported-route assertions with upstream session-action coverage; bind the reviewed combined test bytes, not normalization-only stock parity."
+    },
+    {
+      "path": "packages/ui/src/sync/session-ui-store.ts",
+      "predecessorSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "sha256": "2fa2d9706a7f3837de632c47482adeb28bac6b716d9e7e6a9ee8eb83ca135bea",
+      "note": "Retain native creation/send authority, draft and held-open lifecycle, managed-catalog selection and sidebar reveal fixes with compatible upstream selection/title/loading changes."
+    },
+    {
+      "path": "packages/vscode/package.json",
+      "predecessorSha256": "c1110ef3e8aa46ca7f744de7247db06f4a79964da0f303a95b21ad046295a24f",
+      "sha256": "e81d4170c96436e695418ce0934f703be2139dd7afbaeee170c36781ae658bd7",
+      "note": "Retain upstream version/dependencies/commands with localized Smarty command categories, product presentation and stable publisher/extension identities."
+    },
+    {
+      "path": "packages/vscode/src/bridge-git-special-runtime.ts",
+      "predecessorSha256": "cfd876b70cc1408d4e87b1417e6c57a7788073b28f375a72f8abdd8a0660e29f",
+      "sha256": "1d53c367b0b9607546b3c3ff3ba43246299318811da23de2e44846b448775bb6",
+      "normalizedPredecessorSha256": "56e7ac8da8401f40010efd069db997df0f708882c55f81546698021411680078",
+      "normalizedSha256": "9bd1e7bc60e260c886c162f6c1f99fc60b99ed238a42b54ee3d86a19ad15de2f",
+      "note": "Retain upstream Git bridge behavior with the existing single Engine API unavailable label normalization."
+    },
+    {
+      "path": "packages/vscode/src/bridge-localfs-proxy-runtime.ts",
+      "predecessorSha256": "e3cf024ef8cd0003aeb6580bce06f28d0eb193d491aac518abe5243193944be1",
+      "sha256": "b96c40fdc7261aaec3c36dd65277d47ae9c146981f78b96dda0251a2f5385c98",
+      "normalizedPredecessorSha256": "94b32b529c209148ea08e31ba37acae7a99c79ad23b90136192b778d19504a22",
+      "normalizedSha256": "193d821ebaa3d53da2876454a23d0469273381d1a2acb3307b026c0e2d4f41cf",
+      "note": "Retain upstream explicit directory-stat 501 and filesystem behavior with the existing single Engine API unavailable label normalization."
+    },
+    {
+      "path": "packages/vscode/src/bridge.ts",
+      "predecessorSha256": "8a4844a836e52e7fb614561b67f7294ba78afe2205ca92541ce802f5f25f4b62",
+      "sha256": "50936e83b07ea7d96cdb8d220e71c5857aa6b7f492c3a5c53854a8f76a53837c",
+      "note": "Retain upstream bridge.ts behavior and additions with existing owned Smarty presentation, stable bridge/protocol IDs and unmodified raw errors."
+    },
+    {
+      "path": "packages/vscode/src/extension.ts",
+      "predecessorSha256": "949323f7434494363085925dd7b1923196ad4967a6b79a9a4cee310ef50cd586",
+      "sha256": "01baf9baeda8fc67b616cc231b31d28623d7a3b556e3ee38d13119fbc1458f66",
+      "note": "Retain translated Smarty output/channel/error presentation with upstream network defaults, viewer state and awaited process cleanup."
+    },
+    {
+      "path": "packages/vscode/src/gitService.ts",
+      "predecessorSha256": "9cb54b637983edd275e6b0b2ec9eda9b48e1333c165d7bc59654551d765dd866",
+      "sha256": "6d70cb62f3d54dd02818672f14081442414d2179e4cb92f98e2ada4848212abf",
+      "note": "Retain upstream gitService.ts behavior and additions with existing owned Smarty presentation, stable bridge/protocol IDs and unmodified raw errors."
+    },
+    {
+      "path": "packages/vscode/src/opencode.ts",
+      "predecessorSha256": "bc30c7284ae2c0359c72326e3b40ebe572447252a748c6dd2df06c9eceabceae",
+      "sha256": "a5faffffcf4e2e10a7186a1aeac6324baf67aac2fb69dc8a4b9538ae2736adf6",
+      "note": "Retain localized Smarty diagnostics and compatibility identity while adopting upstream managed-process registration/readiness/abort/cleanup."
+    },
+    {
+      "path": "packages/vscode/src/quotaProviders.ts",
+      "predecessorSha256": "f6fdb3165ed850165990d541bb4de0074609bec3045c6d3f2f28bf153aa4eb6d",
+      "sha256": "15db544dc15514746f61ed421415fd4d7d91da06b48a9b566cb671395903d8de",
+      "note": "Retain upstream quotaProviders.ts behavior and additions with existing owned Smarty presentation, stable bridge/protocol IDs and unmodified raw errors."
+    },
+    {
+      "path": "packages/vscode/webview/main.tsx",
+      "predecessorSha256": "1710831fce81e5aa27300947467227a84883f10af015efece589c0945af4dc75",
+      "sha256": "508962c076ff50e76831bf0be9015da265ef06ba4e946f6eb244c1c303075608",
+      "note": "Retain Smarty logs and notification defaults with upstream viewer-state reporting and explicit guest/project-setup behavior."
+    },
+    {
+      "path": "packages/web/bin/cli.js",
+      "predecessorSha256": "cf61bbe61b91e6765fdfbcc79ed9122f68ca4f4236e7e20dc40efd06f87e6a40",
+      "sha256": "4e299d365d4b37084b0c43a40afab25d9cfaf479e4ffc28545b2786153b30e22",
+      "note": "Retain upstream cli.js CLI behavior and additions with existing owned Smarty labels, real openchamber commands and raw diagnostic serialization."
+    },
+    {
+      "path": "packages/web/bin/cli.test.js",
+      "predecessorSha256": "ba7993bab585518b958ebbe1fe9e0f1def529687701edda8a83f9d017506cf6e",
+      "sha256": "10b7b02eb433d302e7c5842bf0a75bb454c05bad84072ef48bf32be1f61b036d",
+      "note": "Retain upstream cli.test.js CLI behavior and additions with existing owned Smarty labels, real openchamber commands and raw diagnostic serialization."
+    },
+    {
+      "path": "packages/web/bin/lib/commands-status.js",
+      "predecessorSha256": "5efade906dbe1c2b5b7ead630aa6446dd9cd7e421b40d34c90935718e6e9839a",
+      "sha256": "3308bac190f170e5ff9a75e90db850d871a17ae22a6fb613aefecbb3fbe51808",
+      "note": "Retain upstream commands-status.js CLI behavior and additions with existing owned Smarty labels, real openchamber commands and raw diagnostic serialization."
+    },
+    {
+      "path": "packages/web/index.html",
+      "predecessorSha256": "57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348",
+      "sha256": "bd54d33bce63eaf48c59fbc305216868db77741881aa5e27165ff2069350407c",
+      "note": "Retain escaped generated Smarty HTML/JSON loading/title/meta templates with upstream web asset/build changes."
+    },
+    {
+      "path": "packages/web/package.json",
+      "predecessorSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
+      "sha256": "98914029b2d9498a96588f2f5f522910ed8c6396bc4c0a5e19d17c48891d6857",
+      "note": "Retain upstream SDK/Zod and extension build/watch/package wiring alongside fork better-auth, fast-diff, Yjs and packaged branding modules."
+    },
+    {
+      "path": "packages/web/server/index.js",
+      "predecessorSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
+      "sha256": "bd7a2b0cf2c8613e8d52b86a8259eaa8909fd05ee6c60d03f1a9085091eac7be",
+      "note": "Retain response-policy injection, Host/human-auth boundaries, native creation/accepted-view and receipt/error headers with upstream server routing and lifecycle additions."
+    },
+    {
+      "path": "packages/web/server/lib/agent-tool/runtime.js",
+      "predecessorSha256": "2e524d735aa2615b5636be05b1e8e58b5c013af243321d70c1a95477ec1cb260",
+      "sha256": "a8c41d7b8c96ae1a3cc48c7a6ca0af0d20fa031ce4d83c872c79d934b539a71f",
+      "note": "Retain upstream agent-tool/runtime.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/global-hub.js",
+      "predecessorSha256": "60c87d57f2533e1e8578be349109b9a9f83c6cff632991d7fda299538cf7116d",
+      "sha256": "d7666cd94e25f4a2a0cd8aa91552a2d752bf0dcb02a335bd80ce14db396294d1",
+      "note": "Retain upstream event-stream/global-hub.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/global-ws-bridge.js",
+      "predecessorSha256": "b1ccc6b3f4092bac6296b369bee7c555b68e1dc6c42ab7d691b931a9a734ac47",
+      "sha256": "ac8b509c44077a7b444eb6515deb976a415f0dac9e9ed56bf1b480ec1b47fd42",
+      "note": "Retain upstream event-stream/global-ws-bridge.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/runtime.js",
+      "predecessorSha256": "1fbb464c5cee78f7eb24831557032332085403007f70180bd4f58cd2ee520c99",
+      "sha256": "e4b93e46d35f05b8d5d23d4ab24b185c6242a69856368f3664ce2d0ad620b9cf",
+      "note": "Retain passwordless origin guard and human-session lifetime revocation with compatible upstream live event transport; preserve raw protocol data."
+    },
+    {
+      "path": "packages/web/server/lib/event-stream/runtime.test.js",
+      "predecessorSha256": "62db5bdd20ffc0d01f6343f2e15a100d815128ddabf3565db86441694adcacec",
+      "sha256": "ff30ead4e7cdd8eb853ad2ce51fa301134dad1a177f5e8174765b6d52b6a1880",
+      "note": "Retain fork determinism/origin/session-lifetime coverage and compatible upstream event-runtime assertions."
+    },
+    {
+      "path": "packages/web/server/lib/git/service.js",
+      "predecessorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "sha256": "8dd7363e56dea871d4b2698c0c7072bbeede56bc071143b93adb9001829ddb3a",
+      "note": "Retain reviewed shared-worktree-root behavior with upstream serial refresh and Git service changes."
+    },
+    {
+      "path": "packages/web/server/lib/openchamber-sessions/routes.js",
+      "predecessorSha256": "67d3fd2606ae9e2f17dd1d0f3eed991e6aa3c872d4b8866f610599c1979dba18",
+      "sha256": "80c053b725d6b65603b1e8db270c8eb6ee85d92d4c4f656fe8e3d975323106e4",
+      "normalizedPredecessorSha256": "854df4a5c8a6b0d072fd64ea1315e402ed9cb51a3f339366099ca442b96d1a04",
+      "normalizedSha256": "82765237204e9455eba74030d83edc3b4142bc9ed82644ea6af4164b8829c8a6",
+      "note": "Retain upstream session-route behavior with the existing single engine-accepted-prompt presentation normalization."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/core-routes.js",
+      "predecessorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "sha256": "8d488a3d29b8d434686494e1df006ed05c4a21c084e8d1e547e03f277bbbea95",
+      "note": "Retain fork settings/privacy/identity semantics and raw protocol identifiers with compatible upstream core routes."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/env-runtime.js",
+      "predecessorSha256": "a2b77a71d8da1b233b933b8c4d0e999ceda1f6f1bd9861e408c8251a45ca797b",
+      "sha256": "bbc14e9b2837671d92a4b5d6932151faf84efe455b599e319bcf970322a4be6a",
+      "note": "Retain upstream opencode/env-runtime.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/env-runtime.test.js",
+      "predecessorSha256": "813db4a754417c62fbb5d1a927d5bbf216b72be25799bf5ca0a280110cd2058f",
+      "sha256": "172dc3cc5ab1a86fb1758c51be088f20df4e362d57ddc8ab6137f8ac41188df7",
+      "note": "Retain upstream opencode/env-runtime.test.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/lifecycle.js",
+      "predecessorSha256": "9106395f6079904e6d90a763b97d459f3f3757ac3bcec87d4dadfbbc6b1c2b74",
+      "sha256": "7c84b8f2652505826619a8d33353fdc3b1cfa991ecdce6078e5e56596462679c",
+      "note": "Retain upstream opencode/lifecycle.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/lifecycle.test.js",
+      "predecessorSha256": "d11e424c465c0fb7d11d469c03c388cfd916ac7145db84108544a1f5b81e61c6",
+      "sha256": "0e5972ce075dea436f02077c1e9998addcaf2e66c9635a90d1559780b2006bb1",
+      "note": "Retain upstream opencode/lifecycle.test.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.js",
+      "predecessorSha256": "6279be8f9230108dc423fb830119f56c83697a11c930da55716adb84347f3f89",
+      "sha256": "91275f4649f710e2f41a30ab67673bce00a30da7aa77fee38c9b3f05cee36098",
+      "note": "Retain escaped generated Smarty updater messages on POSIX and Windows with upstream update behavior; Windows presentation repair belongs to the server owner."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.test.js",
+      "predecessorSha256": "a24f6ae53946220871010b7a68eadeae8d18a089f2fefc33767673911c13668d",
+      "sha256": "a4d7abc0e4e8d41302de6c79f1eccae0f396b5435051c915c94307860442d9ae",
+      "note": "Retain upstream updater coverage and the matching Smarty owned-message/escaping expectations."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/proxy.js",
+      "predecessorSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
+      "sha256": "e7b9cef22b0a1b7b82060a287d252d9d04576adc20545070a1e48106c41182e9",
+      "note": "Retain Code-made/Fabric/Inbox allowlists, native gateway request fidelity and hop-by-hop Connection removal with upstream proxy changes; no replay or OpenCode fallback."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/routes.js",
+      "predecessorSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
+      "sha256": "b65d986c1a8d3a2bdc1e4b423b1306d7163e7e4c974c67c43729999f68ebf38c",
+      "note": "Retain escaped generated Smarty callback presentation and real auth protocol identifiers with upstream route additions."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/session-runtime.js",
+      "predecessorSha256": "adcc88e1439e4c4e0248a6766092f5504cdb9312c5fb12a37ec0ed367ee9eb7d",
+      "sha256": "eabfad6c92313bb5b8fceb9e30d1e34b092bbe6124d40bac89f03d32d18fdf2d",
+      "note": "Retain upstream opencode/session-runtime.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/session-runtime.test.js",
+      "predecessorSha256": "4abb718e576bc5cce856fe96437018e7b89a087ee01180a9030b7c5586504cfb",
+      "sha256": "d770712d5c9b674b6cefe04f657500911b6794b6b7941341ea511907fe7ffd3a",
+      "note": "Retain upstream opencode/session-runtime.test.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/session-assist/runtime.js",
+      "predecessorSha256": "3f3348be7085c65e3b3672b357e590788a80a9e0e847a72d7d87e08c756f4853",
+      "sha256": "392559421b8a4faf7092f46eed565dc6f0273868578397f76dc66074ffd8b566",
+      "note": "Retain system-note exclusion with upstream bounded SDK context, cancellation and fresh metadata checks."
+    },
+    {
+      "path": "packages/web/server/lib/session-goal/runtime.js",
+      "predecessorSha256": "699c29e2a89fdb91dad01ed6ce9a668f8f1232ec018f21c2796eeb6ee6a99afd",
+      "sha256": "c281583c0e5a64dcfbd5f62e4acbeb67a784c65d7737c89ca8fa54ecfc40a915",
+      "normalizedPredecessorSha256": "b9de881a0fdc295d1cd1bb93b6d386f4980fd053ead7f5e4e17e138de8efd5b4",
+      "normalizedSha256": "4cf9ebf8be5443c9c7dacc72fe2624c9cfa287820e573c05e4e4fac0ece724c1",
+      "note": "Retain upstream goal runtime changes with the existing single Engine request-failure presentation normalization."
+    },
+    {
+      "path": "packages/web/server/lib/small-model/call.js",
+      "predecessorSha256": "8598a9f3707477300e0dad5813a9927df903e686fcc1d43a66574d5617d2c208",
+      "sha256": "17f1aaa3bfc6234cc5f3501800bd423eb9cd1a021b755fa8ef2a48694342db83",
+      "note": "Retain upstream small-model/call.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/server/lib/small-model/runtime-providers.js",
+      "predecessorSha256": "cb521f8dac77da10cb1c8fbdf7ad30b1e6103a58c34a8041355839b6cafa2e74",
+      "sha256": "e4755399336af319ce9ea348ebce3ec6414e082ef7442720868b38bef4081eb6",
+      "note": "Retain upstream small-model/runtime-providers.js implementation/test additions and existing owning Smarty behavior/presentation; no generic branding rewrite of raw errors, content or protocols."
+    },
+    {
+      "path": "packages/web/src/api/settings.ts",
+      "predecessorSha256": "a4b0e0815b6c3a52a0078accc7d5c09f1ffcb164b48aaeff0d3880fcc97eef72",
+      "sha256": "ff51c7e6bbb28db7e6851e77de494b69e13f21c92d445def503fd39028e39b8a",
+      "note": "Retain serialized conditional revision writes, explicit model preferences and unload flush with upstream per-surface/profile settings; failed reads remain failures."
+    },
+    {
+      "path": "packages/web/vite.config.ts",
+      "predecessorSha256": "ebfc3515e1481f4aafc5a5eba16e02753a3bca58558157fc0696423eb56b15f3",
+      "sha256": "7021662636c05e2cd72f740669a2bb11583897554b6696dcc28e7f4b854d29b3",
+      "note": "Retain escaped generated Smarty HTML/JSON loading/title/meta templates with upstream web asset/build changes."
+    },
+    {
+      "path": "scripts/apply-brand.test.mjs",
+      "predecessorSha256": "cf130ef80aaec64bd02f07749ce4e0bb8460ff9fd4dc59806d239526c891e0d5",
+      "sha256": "eda6e9e23e9c7a52f04fe7326d263ab22b7deba36aca3a5010f08bca73804aa7",
+      "note": "Update only the two current Electron dev command expectations to retain upstream extensions:build; all Smarty generation, escaping and compatibility assertions remain."
+    }
+  ],
+  "mergeSuccessors": {
+    "sourceHead": "32ec1d2975b5e9dc8ab899da3a2e6e898afef602",
+    "parents": [
+      "0abf901ea521eaf47d54f9641c1ed7740a5e2f8c",
+      "36ccd44b4069a1ca283854ae7613f673ded3f80a"
+    ],
+    "baseBehaviorLedgerSha256": "e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f",
+    "files": [
+      {
+        "path": "packages/ui/src/hooks/useTraySync.ts",
+        "predecessorSha256": "1a44d7bd5be549295913b74cf340c14dad7f962951d405b068dc55f97e5ac7e0",
+        "basePredecessorSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+        "sha256": "e5b78c8ea260180bcdf8b5b137561cb80177dfb0ae23eb20ca1b3d217ec2c1c0",
+        "note": "Merge PR486 scoped status reads with the upstream tray API and retained Smarty managed-catalog presentation. Both parent outputs remain historical evidence."
+      },
+      {
+        "path": "packages/ui/src/sync/bootstrap.ts",
+        "predecessorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+        "basePredecessorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+        "sha256": "3e6662fcc87b7cb82ca57faa6f85e1385da98846cf87c08688a06d1fb6bbabe7",
+        "note": "Merge PR486 read provenance with upstream bootstrap APIs; retain the exact base source record without inventing a donor predecessor."
+      },
+      {
+        "path": "packages/ui/src/sync/global-session-status.ts",
+        "predecessorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+        "basePredecessorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
+        "sha256": "97ec637a03cd2c24b1d41dea7344b294d8c2c9a4ea12991decaa43d3d3305687",
+        "note": "Merge PR486 held-ID and omitted-sibling lifecycle coverage with upstream global status APIs; preserve the exact base source record."
+      },
+      {
+        "path": "packages/ui/src/sync/sync-context.tsx",
+        "predecessorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+        "basePredecessorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+        "sha256": "68f82c6894c3aa7ddfd9396fd3e4362dd230dc196c460bc5c0b5e8b21964bd17",
+        "note": "Merge PR486 scoped ingress and ownership fences with upstream sync APIs; preserve the exact base source record."
+      }
+    ]
+  }
+}

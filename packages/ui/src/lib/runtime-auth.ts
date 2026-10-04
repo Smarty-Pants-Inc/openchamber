@@ -266,6 +266,56 @@ const getRuntimeAuthCredential = async (signal?: AbortSignal): Promise<RuntimeAu
 // Performs the actual network mint and swaps the new token in atomically (the
 // previous token stays valid until `setRuntimeUrlAuthToken` replaces it — no
 // empty-token window). Concurrent callers share one in-flight request.
+type UrlAuthScope = `guest:${string}`;
+
+type MintedUrlAuthToken = { token: string; expiresAt: number };
+
+// One POST to `/auth/url-token` with the current runtime credentials. In relay
+// mode the mint must ride the tunnel, not the network: there is no reachable
+// network base URL. Same auth headers, same route, tunneled.
+const postUrlAuthTokenMint = async (apiBaseUrl: string | null | undefined, authScope?: UrlAuthScope): Promise<MintedUrlAuthToken> => {
+  const scope = captureRuntimeRequestScope();
+  const signal = AbortSignal.timeout(URL_AUTH_REQUEST_TIMEOUT_MS);
+  const credential = await getRuntimeAuthCredential(signal);
+  assertRuntimeRequestScope(scope);
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(getRuntimeExtraHeadersSync())) {
+    headers.set(key, value);
+  }
+  if (credential?.type === 'bearer') {
+    headers.set('Authorization', `Bearer ${credential.token}`);
+  }
+  const route = authScope ? `/auth/url-token?scope=${encodeURIComponent(authScope)}` : '/auth/url-token';
+  const relay = getActiveRelayTunnel();
+  const url = apiBaseUrl ? buildAuthUrl(apiBaseUrl, route) : scope.resolver.auth(route);
+  const response = await awaitRuntimeAuth(relay
+    ? relay.fetch(route, { method: 'POST', headers, signal })
+    : fetch(url, { method: 'POST', headers, credentials: 'include', signal }), signal);
+  assertRuntimeRequestScope(scope);
+  if (!response.ok) {
+    throw new Error(`Failed to mint runtime URL auth token (${response.status})`);
+  }
+  const minted = urlAuthResponseSchema.parse(await awaitRuntimeAuth(response.json(), signal));
+  assertRuntimeRequestScope(scope);
+  if (minted.expiresAt <= Date.now() + URL_AUTH_REFRESH_SKEW_MS) {
+    throw new Error('Guest URL auth token response was invalid');
+  }
+  return minted;
+};
+
+/**
+ * A token that opens only one guest's package files. It is never cached: the
+ * guest iframe URL is readable by the guest's own script, so every mount gets a
+ * fresh token that is worthless outside `/api/guests/<id>/`.
+ */
+export const mintGuestFrameUrlAuthToken = async (guestId: string): Promise<MintedUrlAuthToken> => {
+  const minted = await postUrlAuthTokenMint(null, `guest:${guestId}`);
+  if (!minted.token) {
+    throw new Error('Guest URL auth token response was invalid');
+  }
+  return minted;
+};
+
 const mintRuntimeUrlAuthToken = (apiBaseUrl?: string | null): Promise<string> => {
   if (runtimeUrlAuthRefreshPromise) return runtimeUrlAuthRefreshPromise;
   if (urlAuthRejected || Date.now() < urlAuthRetryAt) {

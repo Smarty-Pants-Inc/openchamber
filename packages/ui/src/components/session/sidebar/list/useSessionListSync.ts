@@ -11,7 +11,6 @@ import { refreshManagedProjects } from '@/lib/managed-project-refresh';
 import { buildSessionBootstrapDemands } from './sessionBootstrapDemands';
 import { buildKnownSessionDirectories } from './sessionListDirectories';
 import { useAuthoritativeSessionCleanup } from './useAuthoritativeSessionCleanup';
-import { normalizePath } from '../utils';
 
 const EMPTY_WORKTREES_BY_PROJECT = new Map();
 
@@ -27,7 +26,6 @@ export const useSessionListSync = ({
   const managed = useProjectsStore(state => state.managedCatalogAdmitted);
   const catalogStatus = useProjectsStore(state => state.managedCatalogStatus);
   React.useEffect(() => { if (!isVSCode) void refreshManagedProjects(); }, [isVSCode]);
-  const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
   const availableWorktreesByProject = useSessionUIStore((state) => isVSCode ? EMPTY_WORKTREES_BY_PROJECT : state.availableWorktreesByProject);
@@ -40,23 +38,17 @@ export const useSessionListSync = ({
   const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
   const bootstrapDemandOwner = `session-list-sync:${React.useId()}`;
 
-  // Until discovery answers, the directories in hand (home fallback, saved bookmarks) may not be admitted by a
-  // managed gateway, which refuses them with 403 (#126 startup 403s). Stock discovery answers within a request.
+  // The only bootstrap demand owner: known topology never initializes a directory.
+  // Until discovery answers, saved paths may not be admitted by a managed gateway (#126 startup 403s).
   const discoveryPending = !isVSCode && catalogStatus === 'unknown';
   React.useEffect(() => {
     if (discoveryPending) return;
     childStores.setBootstrapDemand(bootstrapDemandOwner, buildSessionBootstrapDemands({
-      knownDirectories,
-      activeProjectDirectory: normalizePath(projects.find((project) => project.id === activeProjectId)?.path ?? null),
-      activeProjectId,
-      collapsedProjects: new Set(),
-      collapsedGroups: new Set(),
       currentDirectory,
       currentSessionDirectory,
-      managed,
     }));
     return () => childStores.clearBootstrapDemand(bootstrapDemandOwner);
-  }, [activeProjectId, bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, discoveryPending, knownDirectories, managed, projects]);
+  }, [bootstrapDemandOwner, childStores, currentDirectory, currentSessionDirectory, discoveryPending]);
 
   const knownProjectSessionDirectoriesRef = React.useRef<Set<string> | null>(null);
   React.useEffect(() => {

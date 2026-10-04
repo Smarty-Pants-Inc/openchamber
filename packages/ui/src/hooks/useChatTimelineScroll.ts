@@ -3,6 +3,8 @@ import React from 'react';
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
 import { SCROLL_NAVIGATE_EVENT, signalScroll } from '@/lib/scrollIntent';
 import { createScrollSpy } from '@/components/chat/lib/scroll/scrollSpy';
+import { createKeyboardFollowGlide, type KeyboardFollowGlide } from '@/components/chat/lib/scroll/keyboardFollowGlide';
+import { retireScrollContent } from '@/components/chat/lib/scroll/retireScrollContent';
 import { useViewportStore } from '@/sync/viewport-store';
 import { useUIStore } from '@/stores/useUIStore';
 import type { TimelineRevealGate } from '@/components/chat/timelineRevealGate';
@@ -31,11 +33,8 @@ import {
 //
 //   • `following-end`      — pinned to the live edge. The list keeps us there
 //     through `maintainScrollAtEnd`; we only re-assert after a data change.
-//   • `anchoring-new-turn` — the just-sent user message is parked near the TOP
-//     of the viewport and the reply streams into the reserved end space below
-//     it. The viewport does NOT move while the turn still fits; once the turn
-//     outgrows the usable viewport we scroll by the exact delta needed to keep
-//     its end visible.
+//   • `anchoring-new-turn` — the sent user message stays near the top until
+//     the turn outgrows the usable viewport, then its end stays visible.
 //   • `free-scrolling`     — the user took over. Nothing moves until they opt
 //     back in by returning to the end.
 //
@@ -75,8 +74,7 @@ interface UseChatTimelineScrollOptions {
     currentSessionKey: string | null;
     sessionMessageCount: number;
     composerOverlayHeight: number;
-    // Id of the newest user message in the rendered timeline. When a send has
-    // armed the anchor, the next new id here becomes the anchored row.
+    // The next new user message claims the anchor armed by Send.
     lastUserMessageId: string | null;
     // True while the session is producing output. Follow corrections glide
     // only then. Outside a live stream — entering a session, a tab becoming
@@ -103,11 +101,19 @@ export interface UseChatTimelineScrollResult {
     onAnchorReady: (messageId: string, anchorIndex: number) => void;
     onAnchorSizeChanged: (messageId: string) => void;
     onIsAtEndChange: (isAtEnd: boolean) => void;
+    onListMetricsChange: (metrics: { readonly footerSize: number }) => void;
     onManualNavigation: () => void;
     onTimelineDataChange: () => void;
     showScrollButton: boolean;
     /** A real gesture took the scroll; flips back on any explicit opt-in. */
     userOwnsScroll: boolean;
+    /**
+     * The viewport sits within the re-arm band of the content end, measured
+     * from the scroll position on every scroll event rather than from the
+     * list's at-end transitions (which follow logic may swallow). For
+     * chrome that mirrors the reader's actual position, like the recap hint.
+     */
+    viewportAtEnd: boolean;
     isFollowingProgrammatically: boolean;
     goToBottom: (mode?: 'instant' | 'smooth') => void;
     scrollToBottomOnSend: () => void;
@@ -120,13 +126,9 @@ export interface UseChatTimelineScrollResult {
 // Hiding is always immediate.
 const SHOW_SCROLL_BUTTON_DELAY_MS = 150;
 const SAVE_DEBOUNCE_MS = 150;
-// The anchor scroll is animated; `scrollend` is the authoritative completion
-// signal, and this bounds the wait for browsers that drop it.
+// scrollend completes positioning; the timer bounds browsers that omit it.
 const ANCHOR_SETTLE_FALLBACK_MS = 750;
-// Re-running the anchor positioning while the list is still mounting rows.
 const ANCHOR_POSITION_ATTEMPTS = 12;
-// Anchor restores only correct sub-pixel drift; anything larger is the user or
-// a genuine relayout and must not be undone.
 const ANCHOR_RESTORE_TOLERANCE_PX = 2;
 
 export const useChatTimelineScroll = ({
@@ -154,6 +156,7 @@ export const useChatTimelineScroll = ({
     // True after a real gesture until an explicit opt back in; drives the
     // overlay scrollbar suppression instead of the anchor's mere existence.
     const [userOwnsScroll, setUserOwnsScroll] = React.useState(false);
+    const [viewportAtEnd, setViewportAtEnd] = React.useState(true);
     const userOwnsScrollRef = React.useRef(userOwnsScroll);
     userOwnsScrollRef.current = userOwnsScroll;
 
@@ -167,8 +170,7 @@ export const useChatTimelineScroll = ({
     // while `liveFollowGenerationRef` still equals it.
     const userGenerationRef = React.useRef(0);
     const liveFollowGenerationRef = React.useRef<number | null>(0);
-    // Anchor lifecycle: armed on send → pending until the row exists → positioned
-    // while the animated scroll runs → settled once it has come to rest.
+    // Armed on send, positioned when its row is measured, then settled.
     const armedForNextUserMessageRef = React.useRef(false);
     const pendingAnchorRef = React.useRef<string | null>(null);
     const positionedAnchorRef = React.useRef<string | null>(null);
@@ -184,6 +186,17 @@ export const useChatTimelineScroll = ({
 
     const composerOverlayHeightRef = React.useRef(composerOverlayHeight);
     composerOverlayHeightRef.current = composerOverlayHeight;
+    // Mobile keyboard / composer transitions drive scrollTop themselves for
+    // their duration (keyboardFollowGlide); every automatic end write below
+    // yields while the glide holds the viewport.
+    const followGlideRef = React.useRef<KeyboardFollowGlide | null>(null);
+    const followGlideHeld = () => followGlideRef.current?.isHeld() === true;
+    // Size of the list footer, reported by the list as it is measured; the
+    // real content end sits below the last row by this much.
+    const listFooterSizeRef = React.useRef(0);
+    const onListMetricsChange = React.useCallback((metrics: { readonly footerSize: number }) => {
+        listFooterSizeRef.current = Number.isFinite(metrics.footerSize) ? metrics.footerSize : 0;
+    }, []);
     const sessionMessageCountRef = React.useRef(sessionMessageCount);
     sessionMessageCountRef.current = sessionMessageCount;
     const currentSessionIdRef = React.useRef(currentSessionId);
@@ -227,9 +240,8 @@ export const useChatTimelineScroll = ({
         setAnchorMessageId(null);
     }, []);
 
-    // A real gesture: stop every automatic movement until the user opts back
-    // in. The anchored END SPACE stays — collapsing it mid-gesture clamps the
-    // viewport back to the end — only the anchor machinery is disarmed.
+    // A real gesture disarms movement, but retains anchored end space so the
+    // viewport cannot clamp back to the end during the gesture.
     const onManualNavigation = React.useCallback(() => {
         userGenerationRef.current += 1;
         modeRef.current = 'free-scrolling';
@@ -350,27 +362,19 @@ export const useChatTimelineScroll = ({
     }, [clearAnchor, clearGoToBottomReasserts, hideScrollButton]);
 
     // User preference: with auto-follow off, streaming growth never moves the
-    // viewport. Sending from the live edge still parks the new message at the
-    // top, but no glide or end-follow correction runs afterwards; sending from
-    // mid-history leaves the viewport untouched.
+    // viewport. Sending from the live edge still anchors the new message;
+    // sending from mid-history leaves the viewport untouched.
     const streamingAutoFollowEnabled = useUIStore((state) => state.streamingAutoFollowEnabled);
     const streamingAutoFollowEnabledRef = React.useRef(streamingAutoFollowEnabled);
     streamingAutoFollowEnabledRef.current = streamingAutoFollowEnabled;
 
-    // Sending arms the anchor. The message id is not known here (the optimistic
-    // row is created by the store), so the next new user message id claims it.
-    // Whether the send-time anchor positioning may animate. Sending from the
-    // live edge parks the new message with a short smooth scroll; sending
-    // from mid-history teleports — a long smooth scroll through the
-    // virtualized timeline gets cancelled by rows mounting and measuring
-    // along the way and dies partway there.
+    // Send arms the next user row. A mid-history send positions instantly,
+    // because mounting rows can cancel a long smooth scroll through history.
     const anchorPositionInstantRef = React.useRef(false);
-
     const scrollToBottomOnSend = React.useCallback(() => {
         // With auto-follow off, a reader who scrolled away from the end stays
-        // exactly where they are: the sent message is not anchored and the
-        // scroll-to-bottom pill (already showing) leads to it. From the live
-        // edge, sending anchors the new turn as usual.
+        // exactly where they are; the scroll-to-bottom pill (already showing)
+        // leads to the sent message.
         if (!streamingAutoFollowEnabledRef.current && !isAtEndRef.current) return;
         anchorPositionInstantRef.current = !isAtEndRef.current;
         isAtEndRef.current = true;
@@ -424,21 +428,28 @@ export const useChatTimelineScroll = ({
 
     // ── list callbacks ──────────────────────────────────────────────────────
     const registerList = React.useCallback((list: TimelineListHandle | null) => {
+        const previousNode = scrollRef.current;
         listRef.current = list;
         const node = (list?.getScrollableNode() as HTMLDivElement | null) ?? null;
         scrollRef.current = node;
         setScrollNode(node);
+        if (previousNode && previousNode !== node) {
+            retireScrollContent(previousNode, () => scrollRef.current === previousNode);
+        }
     }, []);
 
     const onIsAtEndChange = React.useCallback((isAtEnd: boolean) => {
         // While an automatic movement owns the viewport, leaving the end is our
-        // own doing (the anchored turn parks mid-timeline, the glide trails its
-        // target between corrections) — not a reason to offer the pill. Only a
+        // own doing (the glide trails its target between corrections) — not a
+        // reason to offer the pill. Only a
         // real gesture (free-scrolling) shows it.
         if (!isAtEnd && isLiveFollowActive()) {
             hideScrollButton();
             return;
         }
+        // Mid-glide the viewport trails the end by design; the glide lands on
+        // it, so a "left the end" report here is not a reader leaving.
+        if (!isAtEnd && followGlideHeld()) return;
         if (isAtEndRef.current === isAtEnd) return;
         isAtEndRef.current = isAtEnd;
         setIsPinned(isAtEnd);
@@ -459,11 +470,8 @@ export const useChatTimelineScroll = ({
         queueSave();
     }, [hideScrollButton, isLiveFollowActive, queueSave, scheduleShowScrollButton]);
 
-    // Park the anchored row near the top once the list has measured it.
+    // Position only during the send's anchor lifecycle, never on later row growth.
     const onAnchorReady = React.useCallback((messageId: string, anchorIndex: number) => {
-        // The anchored end space can be remeasured long after the send (turn
-        // completion, images decoding). Only the send-time anchoring mode may
-        // position the viewport.
         if (modeRef.current !== 'anchoring-new-turn') return;
         if (pendingAnchorRef.current === messageId) {
             pendingAnchorRef.current = null;
@@ -494,8 +502,6 @@ export const useChatTimelineScroll = ({
                     clearTimeout(fallbackTimer);
                     scrollNode.removeEventListener('scrollend', finishPositioning);
                     if (positionedAnchorRef.current !== messageId) return;
-                    // Re-assert the resting offset without animation so the
-                    // smooth scroll's own momentum cannot drift past it.
                     const scrollOffset = list.getState().scroll;
                     void list.scrollToOffset({ offset: scrollOffset, animated: false });
                     settledAnchorRef.current = messageId;
@@ -515,9 +521,7 @@ export const useChatTimelineScroll = ({
         requestAnimationFrame(() => positionAnchor(ANCHOR_POSITION_ATTEMPTS));
     }, []);
 
-    // The anchored row can still change height after it settles (an image
-    // decoding, a code block highlighting). Hold the resting offset, but only
-    // against sub-pixel drift and only while the user has not taken over.
+    // Correct only sub-pixel drift after the anchor settles, not user movement.
     const onAnchorSizeChanged = React.useCallback((messageId: string) => {
         if (settledAnchorRef.current !== messageId) return;
         if (!isLiveFollowActive()) return;
@@ -555,9 +559,7 @@ export const useChatTimelineScroll = ({
         });
     }, [isLiveFollowActive]);
 
-    // Whether the real rows (ignoring any reserved anchored end space) are tall
-    // enough to scroll. Without this, entering a short session would scroll into
-    // the reserved space and strand the content above the viewport.
+    // Whether the real rows, excluding reserved anchored end space, overflow.
     const realContentOverflowsViewport = React.useCallback((list: TimelineListHandle): boolean => {
         const state = list.getState();
         if (state.data.length === 0) return false;
@@ -574,30 +576,18 @@ export const useChatTimelineScroll = ({
             return false;
         }
 
-        const realContentBottom = lastTop + Math.max(1, lastHeight);
-        const visibleScrollLength = Math.max(
-            0,
-            state.scrollLength - composerOverlayHeightRef.current - CHAT_LIST_ANCHOR_OFFSET,
-        );
+        const realContentBottom = lastTop + Math.max(1, lastHeight) + Math.max(0, listFooterSizeRef.current);
+        const visibleScrollLength = Math.max(0, state.scrollLength - composerOverlayHeightRef.current - CHAT_LIST_ANCHOR_OFFSET);
         return realContentBottom > visibleScrollLength;
     }, []);
 
-    // One deterministic correction per data change, two frames out so the list
-    // has measured the new rows. Nothing runs while the user owns the scroll.
     const dataChangeFramesRef = React.useRef<{ first: number | null; second: number | null }>({
         first: null,
         second: null,
     });
-    // While the list width is resizing, every pinning write fights the
-    // per-frame row re-measure and the pinned viewport shakes. Corrections
-    // stand down for the whole resize and the visible content is held by the
-    // list's size compensation instead. Deliberately NO snap back to the end
-    // afterwards for a mid-conversation reader: a slow drag settles
-    // repeatedly, and each snap reads as the very jump this suspension
-    // removes. A reader pinned to a STREAMING session is the exception — the
-    // live edge is what they are watching, so the end is re-asserted once on
-    // settle. A pinned reader of an idle session gets no scroll at all: if the
-    // re-wrap moved the viewport off the end, the pin is released instead.
+    // Width changes re-wrap rows. Idle readers keep their position through
+    // size compensation, without an end snap. Streaming readers retain the
+    // measured live edge, including the footer, rather than stale list size.
     const widthResizingRef = React.useRef(false);
     React.useEffect(() => {
         if (!scrollNode || typeof ResizeObserver === 'undefined') return;
@@ -618,6 +608,7 @@ export const useChatTimelineScroll = ({
                 quietTimer = null;
                 widthResizingRef.current = false;
                 if (!isAtEndRef.current || pendingAnchorRef.current !== null) return;
+                if (userOwnsScrollRef.current || modeRef.current !== 'following-end' || followGlideHeld()) return;
                 if (!sessionIsWorkingRef.current) {
                     // An idle pinned reader asked for nothing — a width change
                     // must not scroll them. If the re-wrap left the viewport
@@ -651,6 +642,7 @@ export const useChatTimelineScroll = ({
                         ? resolveRealContentEndOffset({
                             state,
                             composerOverlayHeight: composerOverlayHeightRef.current,
+                            footerSize: listFooterSizeRef.current,
                         })
                         : null;
                     if (list && offset !== null) {
@@ -680,6 +672,7 @@ export const useChatTimelineScroll = ({
     const followEnd = React.useCallback(() => {
         const node = scrollRef.current;
         if (!node) return;
+        if (followGlideHeld()) return;
         const end = node.scrollHeight - node.clientHeight;
         const distance = end - node.scrollTop;
         if (distance <= 1) return;
@@ -709,11 +702,12 @@ export const useChatTimelineScroll = ({
                 const state = list.getState();
                 const lastIndex = state.data.length - 1;
                 const lastBottom = lastIndex >= 0 ? getRowBottom(state, lastIndex) : null;
-                if (lastBottom !== null && state.scroll > lastBottom) {
+                if (lastBottom !== null && state.scroll > lastBottom + Math.max(0, listFooterSizeRef.current)) {
                     const offset = resolveRealContentEndOffset({
                         state,
                         composerOverlayHeight: composerOverlayHeightRef.current,
                         extraInset: CHAT_LIST_ANCHOR_OFFSET,
+                        footerSize: listFooterSizeRef.current,
                     });
                     if (offset !== null) {
                         void list.scrollToOffset({ offset, animated: false });
@@ -737,7 +731,7 @@ export const useChatTimelineScroll = ({
                 const lastBottom = lastIndex >= 0 ? getRowBottom(state, lastIndex) : null;
                 if (lastBottom !== null) {
                     const visibleBottom = state.scroll + state.scrollLength - composerOverlayHeightRef.current;
-                    if (lastBottom - visibleBottom > TIMELINE_FOLLOW_REARM_THRESHOLD_PX) {
+                    if (lastBottom + Math.max(0, listFooterSizeRef.current) - visibleBottom > TIMELINE_FOLLOW_REARM_THRESHOLD_PX) {
                         isAtEndRef.current = false;
                         setIsPinned(false);
                         scheduleShowScrollButton();
@@ -769,9 +763,7 @@ export const useChatTimelineScroll = ({
             frames.first = null;
             frames.second = requestAnimationFrame(() => {
                 frames.second = null;
-                if (!isLiveFollowActive()) return;
-                // An anchor that exists but has not come to rest yet owns the
-                // viewport; correcting now would fight its animation.
+                if (!isLiveFollowActive() || followGlideHeld()) return;
                 if (pendingAnchorRef.current !== null) return;
                 if (
                     positionedAnchorRef.current !== null
@@ -779,33 +771,23 @@ export const useChatTimelineScroll = ({
                 ) {
                     return;
                 }
-
                 const list = listRef.current;
-                if (!list) return;
-
-                if (modeRef.current === 'anchoring-new-turn') {
-                    const anchorIndex = activeAnchorIndexRef.current;
-                    if (anchorIndex === null) return;
-                    const metrics = getAnchoredTurnMetrics({
-                        state: list.getState(),
-                        anchorIndex,
-                        composerOverlayHeight: composerOverlayHeightRef.current,
-                        anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
-                    });
-                    // The turn still fits: leave the viewport exactly where the
-                    // user is reading.
-                    if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) return;
-                    // Animated: successive corrections restart the smooth scroll
-                    // from the current position, so streaming reads as one
-                    // continuous glide instead of a per-line hop. A real user
-                    // gesture interrupts the native smooth scroll on its own.
-                    void list.scrollToOffset({
-                        offset: list.getState().scroll + metrics.scrollDeltaToRevealEnd,
-                        animated: true,
-                    });
-                    return;
-                }
-
+                if (!list || modeRef.current !== 'anchoring-new-turn') return;
+                const anchorIndex = activeAnchorIndexRef.current;
+                if (anchorIndex === null) return;
+                const metrics = getAnchoredTurnMetrics({
+                    state: list.getState(),
+                    anchorIndex,
+                    composerOverlayHeight: composerOverlayHeightRef.current,
+                    anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
+                    footerSize: listFooterSizeRef.current,
+                });
+                // Leave fitting turns fixed; reveal only growth beyond the viewport.
+                if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) return;
+                void list.scrollToOffset({
+                    offset: list.getState().scroll + metrics.scrollDeltaToRevealEnd,
+                    animated: true,
+                });
             });
         });
     }, [followEnd, isLiveFollowActive, scheduleShowScrollButton]);
@@ -835,11 +817,7 @@ export const useChatTimelineScroll = ({
 
         // A gesture is meaningful when the viewport can move up AT ALL:
         // either the real rows overflow the viewport, or there is scrolled
-        // history above (an anchored turn parks mid-conversation with
-        // reserved space below — the real rows may not overflow yet, but
-        // wheel-up is still a genuine opt-out; swallowing it left live-follow
-        // armed, which suppressed the pill and kept corrections armed under a
-        // viewport the user had taken).
+        // history above.
         const canScrollUp = () => {
             const list = listRef.current;
             if (!list) return false;
@@ -863,20 +841,32 @@ export const useChatTimelineScroll = ({
         // an at-end transition means the drag never registers — the user
         // cannot scroll, the pill never appears, and live-follow stays armed
         // under a viewport they are fighting for.
+        let touchLastX: number | null = null;
         let touchLastY: number | null = null;
         const handleTouchStart = (event: TouchEvent) => {
+            touchLastX = event.touches[0]?.clientX ?? null;
             touchLastY = event.touches[0]?.clientY ?? null;
         };
         const handleTouchMove = (event: TouchEvent) => {
+            const x = event.touches[0]?.clientX ?? null;
             const y = event.touches[0]?.clientY ?? null;
+            const lastX = touchLastX;
             const lastY = touchLastY;
+            touchLastX = x;
             touchLastY = y;
-            if (y === null) return;
+            if (x === null || y === null || lastX === null || lastY === null) return;
+            // Only a vertical drag is a scroll gesture: a horizontal swipe (the
+            // mobile drawers open from the chat's edges) wobbles a pixel or two
+            // in y and must not release follow or hide the floating rows.
+            const dx = x - lastX;
+            const dy = y - lastY;
+            if (Math.abs(dy) <= Math.abs(dx)) return;
             // A downward finger drags the content up — the touch wheel-up.
-            const draggedUp = lastY !== null && y > lastY;
+            const draggedUp = dy > 0;
             if ((draggedUp || !isAtEndRef.current) && canScrollUp()) gesture();
         };
         const handleTouchEnd = () => {
+            touchLastX = null;
             touchLastY = null;
         };
         const handlePointerDown = (event: PointerEvent) => {
@@ -896,6 +886,10 @@ export const useChatTimelineScroll = ({
         };
         const handleScroll = () => {
             queueSave();
+            // Mid-glide the viewport is legitimately short of the end.
+            if (followGlideHeld()) return;
+            const distance = scrollNode.scrollHeight - scrollNode.clientHeight - scrollNode.scrollTop;
+            setViewportAtEnd(distance <= TIMELINE_FOLLOW_REARM_THRESHOLD_PX);
         };
 
         scrollNode.addEventListener('wheel', handleWheel, { passive: true });
@@ -943,23 +937,58 @@ export const useChatTimelineScroll = ({
         };
     }, [currentSessionKey, revealGate, scrollNode]);
 
+    // ── keyboard follow glide ───────────────────────────────────────────────
+    // On mobile the keyboard and the composer morph change the transcript's
+    // geometry in single steps; the glide drives scrollTop across them on the
+    // keyboard's curve so a pinned reader sees one motion, not snaps. It only
+    // engages for a reader on the end with follow active.
+    React.useEffect(() => {
+        if (!scrollNode) return;
+        const glide = createKeyboardFollowGlide({
+            scrollNode,
+            canFollow: () => !userOwnsScrollRef.current && isAtEndRef.current && modeRef.current === 'following-end',
+        });
+        followGlideRef.current = glide;
+        return () => {
+            glide.dispose();
+            if (followGlideRef.current === glide) followGlideRef.current = null;
+        };
+    }, [scrollNode]);
+
     // ── pinned end ──────────────────────────────────────────────────────────
     // "At the end" is an invariant, not a one-time scroll: while the reader
     // sits on the end of a session that is not producing output, any growth
     // of the content (a footer that decides to render, a row re-measured)
     // keeps the end in view with one instant write. Output growth belongs to
-    // followEnd, which glides.
+    // followEnd, which glides. A width resize is the one case handled for a
+    // streaming reader as well — see the resize observer above.
     React.useEffect(() => {
         if (!scrollNode || typeof MutationObserver === 'undefined') return;
         const content = scrollNode.firstElementChild;
         if (!content) return;
         const pin = () => {
-            if (sessionIsWorkingRef.current) return;
-            // A width resize re-wraps every row; pinning against each mutation
-            // scrolls the idle reader around. The resize settle handler above
-            // decides whether the pin survives the resize.
-            if (widthResizingRef.current) return;
             if (userOwnsScrollRef.current || !isAtEndRef.current || modeRef.current !== 'following-end') return;
+            if (followGlideHeld()) return;
+            if (widthResizingRef.current) {
+                if (!sessionIsWorkingRef.current) return;
+                // Re-wrapping rows: the scroll node's scrollHeight carries the
+                // list's stale total, so the end is the measured bottom of the
+                // last real row. Held for a streaming reader too — output
+                // growth is not what moves the viewport during a resize.
+                const state = listRef.current?.getState();
+                const offset = state
+                    ? resolveRealContentEndOffset({
+                        state,
+                        composerOverlayHeight: composerOverlayHeightRef.current,
+                        footerSize: listFooterSizeRef.current,
+                    })
+                    : null;
+                if (offset !== null && Math.abs(offset - scrollNode.scrollTop) > 1) {
+                    scrollNode.scrollTop = offset;
+                }
+                return;
+            }
+            if (sessionIsWorkingRef.current) return;
             const end = scrollNode.scrollHeight - scrollNode.clientHeight;
             if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
         };
@@ -972,6 +1001,9 @@ export const useChatTimelineScroll = ({
         mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
         const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pin);
         resizes?.observe(content);
+        // The viewport itself shrinking (window height, a panel docked below)
+        // moves the end out of view just like content growth does.
+        resizes?.observe(scrollNode);
         return () => {
             mutations.disconnect();
             resizes?.disconnect();
@@ -990,6 +1022,7 @@ export const useChatTimelineScroll = ({
         flushSave();
         isAtEndRef.current = true;
         setUserOwnsScroll(false);
+        setViewportAtEnd(true);
         modeRef.current = 'following-end';
         gestureOwnsScrollRef.current = false;
         liveFollowGenerationRef.current = userGenerationRef.current;
@@ -1095,10 +1128,12 @@ export const useChatTimelineScroll = ({
         onAnchorReady,
         onAnchorSizeChanged,
         onIsAtEndChange,
+        onListMetricsChange,
         onManualNavigation,
         onTimelineDataChange,
         showScrollButton,
         userOwnsScroll,
+        viewportAtEnd,
         isFollowingProgrammatically,
         goToBottom,
         scrollToBottomOnSend,

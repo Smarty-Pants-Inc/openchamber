@@ -12,10 +12,11 @@ import { isVSCodeRuntime } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { normalizePath } from '@/lib/pathNormalization';
 import { opencodeClient } from '@/lib/opencode/client';
+import { getQueuedMessagePreview } from '@/lib/messages/queuedMessagePreview';
 
 export type FollowUpBehavior = 'steer' | 'queue';
 
-export const DEFAULT_FOLLOW_UP_BEHAVIOR: FollowUpBehavior = 'queue';
+const DEFAULT_FOLLOW_UP_BEHAVIOR: FollowUpBehavior = 'queue';
 
 export const isFollowUpBehavior = (value: unknown): value is FollowUpBehavior => (
     value === 'steer' || value === 'queue'
@@ -100,6 +101,8 @@ export interface QueuedMessage {
     attachments?: AttachedFile[];
     /** Absent on a server projection item; a take brings it back. */
     context?: QueuedContextPart[];
+    /** Bounded display-only context summary retained in server projections. */
+    contextPreview?: string;
     createdAt: number;
     /** Send config captured at queue time — used as-is when auto-sending */
     sendConfig?: QueuedMessageSendConfig;
@@ -184,6 +187,7 @@ const serverItemSchema = z.object({
     attachments: z.array(serverAttachmentSchema),
     /** Present only on a taken item; broadcasts and snapshots omit it like attachment payloads. */
     context: z.array(serverContextPartSchema).optional(),
+    contextPreview: z.string().optional(),
     sendConfig: serverSendConfigSchema,
     state: z.enum(['pending', 'attempting', 'unknown', 'blocked', 'taken']),
 });
@@ -263,6 +267,7 @@ const toQueuedMessage = (item: ServerQueueItem): QueuedMessage => {
     if (item.agentMention) message.agentMention = item.agentMention;
     if (item.attachments.length > 0) message.attachments = item.attachments.map(toAttachedFile);
     if (item.context) message.context = item.context;
+    if (item.contextPreview) message.contextPreview = item.contextPreview;
     return message;
 };
 
@@ -274,6 +279,7 @@ type ServerQueueItemInput = {
     agentMention?: string;
     attachments: ServerQueueAttachmentInput[];
     context: QueuedContextPart[];
+    contextPreview?: string;
     sendConfig: QueuedMessageSendConfig;
 };
 
@@ -304,6 +310,8 @@ const toServerItemInput = (message: QueuedMessageInput, sendConfig: QueuedMessag
         sendConfig,
     };
     if (message.agentMention) item.agentMention = message.agentMention;
+    const contextPreview = getQueuedMessagePreview({ content: '', context: message.context });
+    if (contextPreview) item.contextPreview = contextPreview;
     return item;
 };
 
@@ -371,6 +379,8 @@ const serverOwnedRuntimeKeys = new Set<string>();
 
 /** Server revision last applied per queue key; older snapshots are ignored. */
 const appliedRevisions = new Map<string, number>();
+/** A full snapshot also owns sessions it omits, including previously unseen keys. */
+const snapshotRevisions = new Map<string, number>();
 let hydrationGeneration = 0;
 
 interface MessageQueueState {
@@ -418,6 +428,8 @@ interface MessageQueueActions {
     getQueueForTarget: (target: MessageQueueTarget) => QueuedMessage[];
     /** Server-owned queue: load the authoritative queue for the active runtime. */
     hydrate: () => Promise<void>;
+    /** Server-owned queue: re-read after an event-stream gap. */
+    resync: () => Promise<void>;
     /** Server-owned queue: apply one session's authoritative state (broadcast or response). */
     applyServerSession: (session: ServerQueueSession, revision: number, expectedRuntimeKey: string) => void;
     /** Server-owned queue: tell the server to hold or release a session's delivery. */
@@ -505,9 +517,12 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
     devtools(
         persist(
             (set, get) => {
+                let hydration: { runtimeKey: string; promise: Promise<void> } | null = null;
+                let resyncRequested = false;
                 const applyServerSession = (session: ServerQueueSession, revision: number, expectedRuntimeKey: string) => {
                     if (expectedRuntimeKey !== getRuntimeKey()) return;
                     serverOwnedRuntimeKeys.add(expectedRuntimeKey);
+                    if ((snapshotRevisions.get(expectedRuntimeKey) ?? -1) > revision) return;
                     const target = createMessageQueueTarget(session.sessionId, session.directory, expectedRuntimeKey);
                     if (!target) {
                         // Servers before 1.22.2 drop a session's directory once its
@@ -702,18 +717,23 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         requireCurrentTarget(target);
                         if (isServerOwnedMessageQueue()) {
                             const scope = captureRuntimeRequestScope();
-                            if (messageId) {
-                                const result = await requestJson(
-                                    serverTakeResponseSchema,
-                                    `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}/take`,
-                                    jsonInit('POST'),
-                                );
+                            try {
+                                if (messageId) {
+                                    const result = await requestJson(
+                                        serverTakeResponseSchema,
+                                        `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}/take`,
+                                        jsonInit('POST'),
+                                    );
+                                    if (isRuntimeRequestScopeCurrent(scope)) applyServerSession(result.session, result.revision, target.runtimeKey);
+                                    return [toQueuedMessage(result.item)];
+                                }
+                                const result = await requestJson(serverTakeAllResponseSchema, `${sessionPath(target.sessionId)}/take`, jsonInit('POST'));
                                 if (isRuntimeRequestScopeCurrent(scope)) applyServerSession(result.session, result.revision, target.runtimeKey);
-                                return [toQueuedMessage(result.item)];
+                                return result.items.map(toQueuedMessage);
+                            } catch (error) {
+                                if (isRuntimeRequestScopeCurrent(scope)) await refreshSession(target);
+                                throw error;
                             }
-                            const result = await requestJson(serverTakeAllResponseSchema, `${sessionPath(target.sessionId)}/take`, jsonInit('POST'));
-                            if (isRuntimeRequestScopeCurrent(scope)) applyServerSession(result.session, result.revision, target.runtimeKey);
-                            return result.items.map(toQueuedMessage);
                         }
 
                         const state = get();
@@ -809,11 +829,13 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         return get().queuedMessages[getMessageQueueKey(target)] ?? [];
                     },
 
-                    hydrate: async () => {
-                        if (!isServerOwnedMessageQueue()) return;
+                    hydrate: () => {
+                        if (!isServerOwnedMessageQueue()) return Promise.resolve();
                         const runtimeKey = getRuntimeKey();
+                        if (hydration?.runtimeKey === runtimeKey) return hydration.promise;
                         const generation = ++hydrationGeneration;
                         const isCurrent = () => generation === hydrationGeneration && runtimeKey === getRuntimeKey();
+                        const promise = (async () => {
 
                         // A legacy browser item may already have been attempted.
                         // Retain it for review; reconnect never creates new intake.
@@ -832,9 +854,21 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                             });
                         }
 
-                        const snapshot = await requestJson(serverSnapshotSchema, '/api/message-queue');
-                        if (!isCurrent()) return;
-                        serverOwnedRuntimeKeys.add(runtimeKey);
+
+                            do {
+                                resyncRequested = false;
+                                let snapshot: z.infer<typeof serverSnapshotSchema>;
+                                try {
+                                    snapshot = await requestJson(serverSnapshotSchema, '/api/message-queue', { signal: AbortSignal.timeout(15_000) });
+                                } catch (error) {
+                                    if (!isCurrent()) return;
+                                    if (resyncRequested) continue;
+                                    throw error;
+                                }
+                                if (!isCurrent()) return;
+                                serverOwnedRuntimeKeys.add(runtimeKey);
+                                if ((snapshotRevisions.get(runtimeKey) ?? -1) > snapshot.revision) continue;
+                                snapshotRevisions.set(runtimeKey, snapshot.revision);
                         set((state) => {
                             const queuedMessages = { ...state.queuedMessages };
                             const sendingIds = { ...state.sendingIds };
@@ -866,6 +900,20 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                             }
                             return { queuedMessages, sendingIds, recoveryMessages };
                         });
+                            } while (resyncRequested && isCurrent());
+                        })();
+                        const run = { runtimeKey, promise };
+                        hydration = run;
+                        const release = () => { if (hydration === run) hydration = null; };
+                        void promise.then(release, release);
+                        return promise;
+                    },
+
+                    resync: () => {
+                        // Share legacy migration with bootstrap. A recovery edge
+                        // during its snapshot read still earns one trailing read.
+                        if (hydration?.runtimeKey === getRuntimeKey()) resyncRequested = true;
+                        return get().hydrate();
                     },
 
                     applyServerSession,
@@ -878,6 +926,14 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                     resetForRuntimeSwitch: (previousRuntimeKey) => {
                         hydrationGeneration += 1;
+                        hydration = null;
+                        resyncRequested = false;
+                        if (previousRuntimeKey) {
+                            snapshotRevisions.delete(previousRuntimeKey);
+                            for (const key of appliedRevisions.keys()) {
+                                if (parseMessageQueueKey(key)?.runtimeKey === previousRuntimeKey) appliedRevisions.delete(key);
+                            }
+                        }
                         if (!previousRuntimeKey || !serverOwnedRuntimeKeys.has(previousRuntimeKey)) return;
                         // The previous runtime's projection belongs to its server;
                         // switching back re-hydrates it from there.
@@ -925,19 +981,17 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
     )
 );
 
-const serverUpdatedEventSchema = z.object({
+export const messageQueueUpdatedEventSchema = z.object({
+    type: z.literal('openchamber:message-queue.updated'),
     properties: z.object({ revision: z.number(), session: serverSessionSchema }),
 });
 
-export type MessageQueueUpdatedEvent = {
-    type: 'openchamber:message-queue.updated';
-    properties: z.infer<typeof serverUpdatedEventSchema>['properties'];
-};
+export type MessageQueueUpdatedEvent = z.infer<typeof messageQueueUpdatedEventSchema>;
 
 /** `openchamber:message-queue.updated` broadcast → projection. */
 export const applyMessageQueueUpdatedEvent = (payload: Event | MessageQueueUpdatedEvent, expectedRuntimeKey: string): void => {
     if (!isServerOwnedMessageQueue()) return;
-    const parsed = serverUpdatedEventSchema.safeParse(payload);
+    const parsed = messageQueueUpdatedEventSchema.safeParse(payload);
     if (!parsed.success) return;
     const { session, revision } = parsed.data.properties;
     useMessageQueueStore.getState().applyServerSession(session, revision, expectedRuntimeKey);

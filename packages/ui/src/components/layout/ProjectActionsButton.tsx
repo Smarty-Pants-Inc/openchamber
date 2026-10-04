@@ -17,6 +17,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { isDesktopShell } from '@/lib/desktop';
 import { useUIStore } from '@/stores/useUIStore';
 import { isActiveProjectActionTab, useTerminalStore } from '@/stores/useTerminalStore';
+import { terminalSnapshotSize } from '@/lib/terminalApi';
 import { extractAnnouncedUrls, extractProjectActionUrl } from '@/lib/terminalPreview';
 import { setAnnouncedDevServers } from '@/lib/browser/announcedServers';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -24,10 +25,13 @@ import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
 import { openExternalUrl } from '@/lib/url';
 import { useI18n } from '@/lib/i18n';
 import {
-  getProjectActionsState,
+  getProjectSetup,
   type OpenChamberProjectAction,
+  type ProjectSetup,
   type ProjectRef,
 } from '@/lib/openchamberConfig';
+import { ensureSharedSetupTrusted } from '@/lib/sharedTrustConfirmation';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import {
   normalizeProjectActionDirectory,
   PROJECT_ACTION_ICONS,
@@ -145,6 +149,10 @@ export const ProjectActionsButton = ({
   const captureStartedActionMutationRevisions = useTerminalStore((state) => state.captureStartedActionMutationRevisions);
 
   const [actions, setActions] = React.useState<OpenChamberProjectAction[]>([]);
+  const actionsAuthorityRef = React.useRef<{
+    project: ProjectRef;
+    scope: ReturnType<typeof captureRuntimeRequestScope>;
+  } | null>(null);
   const [selectedActionId, setSelectedActionId] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const urlWatchByRunKeyRef = React.useRef<Record<string, UrlWatchEntry>>({});
@@ -183,13 +191,15 @@ export const ProjectActionsButton = ({
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
 
+    const scope = captureRuntimeRequestScope();
     setIsLoading(true);
     try {
-      const state = await getProjectActionsState(stableProjectRef);
-      if (loadRequestIdRef.current !== requestId) {
+      const setup = await getProjectSetup(stableProjectRef);
+      if (loadRequestIdRef.current !== requestId || !isRuntimeRequestScopeCurrent(scope)) {
         return;
       }
-      const filtered = state.actions;
+      actionsAuthorityRef.current = { project: stableProjectRef, scope };
+      const filtered = setup.projectActions;
       setActions(filtered);
       setSelectedActionId((current) => {
         if (current === AUTO_DISCOVER_ACTION_ID) {
@@ -265,6 +275,16 @@ export const ProjectActionsButton = ({
     }
     return normalizedDirectory;
   }, [normalizedDirectory, normalizedProjectDirectory]);
+
+  const launchOwner = React.useMemo(() => ({
+    project: stableProjectRef, directory: normalizedDirectory, terminal,
+  }), [stableProjectRef, normalizedDirectory, terminal]);
+  const launchOwnerRef = React.useRef<typeof launchOwner | null>(launchOwner);
+  launchOwnerRef.current = launchOwner;
+  React.useEffect(() => {
+    launchOwnerRef.current = launchOwner;
+    return () => { launchOwnerRef.current = null; };
+  }, [launchOwner]);
 
   const executionKey = React.useCallback((executionDirectory: string, actionId: string, executionId: string) => (
     `${executionDirectory}::${actionId}::${executionId}`
@@ -658,7 +678,7 @@ export const ProjectActionsButton = ({
           onEvent: (event) => {
             if (!matchesActionExecution(tabDirectory, tab.id, currentExecutionId)) return;
             if (event.type === 'snapshot') {
-              useTerminalStore.getState().replaceBuffer(tabDirectory, tab.id, event.data ?? '', event.sequence ?? 0);
+              useTerminalStore.getState().replaceBuffer(tabDirectory, tab.id, event.data ?? '', event.sequence ?? 0, terminalSnapshotSize(event));
               if (event.status === 'running') {
                 useTerminalStore.getState().setTabLifecycle(tabDirectory, tab.id, 'running', { expectedExecutionId: currentExecutionId });
               }
@@ -741,7 +761,17 @@ export const ProjectActionsButton = ({
       return;
     }
 
-    const runKey = toProjectActionRunKey(executionDirectoryFor(action), action.id);
+    const scope = captureRuntimeRequestScope();
+    const owner = launchOwner;
+    const isOwnerCurrent = () => launchOwnerRef.current === owner && isRuntimeRequestScopeCurrent(scope);
+    const catalogAuthority = actionsAuthorityRef.current;
+    if (!stableProjectRef || (action.id !== AUTO_DISCOVER_ACTION_ID && (
+      catalogAuthority?.project !== stableProjectRef || !isRuntimeRequestScopeCurrent(catalogAuthority.scope)
+    ))) return;
+    // Capture executable bytes, target and owner before discovery or confirmation yields.
+    action = { ...action };
+    const launchDirectory = executionDirectoryFor(action);
+    const runKey = toProjectActionRunKey(launchDirectory, action.id);
     const existingRun = projectActionRuns[runKey];
     if (existingRun && existingRun.status === 'running') {
       return;
@@ -751,26 +781,52 @@ export const ProjectActionsButton = ({
     let requestedExecution: { directory: string; tabId: string; id: string } | null = null;
 
     try {
-      const discovered = action.id === AUTO_DISCOVER_ACTION_ID
-        ? await (async (): Promise<OpenChamberProjectAction> => {
-          const [actionsState, scripts] = await Promise.all([
-            getProjectActionsState({ id: stableProjectRef?.id ?? '', path: normalizedDirectory }),
-            readPackageJsonScripts(normalizedDirectory),
-          ]);
-          const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
-          if (!devServer) {
-            throw new Error(t('contextPanel.preview.noDevServer'));
-          }
-          return {
-            id: AUTO_DISCOVER_ACTION_ID,
-            name: t('projectActions.actions.autoDiscover'),
-            command: devServer.command,
-            icon: 'scan-2',
-            autoOpenUrl: true,
-            openUrl: devServer.previewUrlHint || '',
-          };
-        })()
-        : action;
+      const trustProject = action.id === AUTO_DISCOVER_ACTION_ID
+        ? { id: stableProjectRef.id, path: normalizedDirectory }
+        : stableProjectRef;
+      let setup: ProjectSetup | null = null;
+      let candidate = action;
+      let discovered = action;
+      if (action.id === AUTO_DISCOVER_ACTION_ID) {
+        const [discoverySetup, scripts] = await Promise.all([
+          getProjectSetup(trustProject, { strict: true }),
+          readPackageJsonScripts(normalizedDirectory),
+        ]);
+        setup = discoverySetup;
+        if (!isOwnerCurrent()) return;
+        const devServer = await detectDevServerCommand(normalizedDirectory, setup.projectActions, scripts);
+        if (!devServer) throw new Error(t('contextPanel.preview.noDevServer'));
+        const detectedAction = devServer.actionId
+          ? setup.projectActions.find((entry) => entry.id === devServer.actionId)
+          : null;
+        if (devServer.actionId && (!detectedAction || detectedAction.command !== devServer.command)) return;
+        candidate = detectedAction ? { ...detectedAction } : { ...action, command: devServer.command };
+        discovered = {
+          ...candidate,
+          id: AUTO_DISCOVER_ACTION_ID,
+          name: t('projectActions.actions.autoDiscover'),
+          command: devServer.command,
+          icon: 'scan-2',
+          autoOpenUrl: true,
+          openUrl: devServer.previewUrlHint || '',
+        };
+      }
+      const matchesCandidate = (view: ProjectSetup) => view.projectActions.some((entry) => (
+        entry.id === candidate.id && entry.source === candidate.source
+        && entry.command === candidate.command && entry.runIn === candidate.runIn
+      )) && view.shared.projectActions.some((entry) => (
+        entry.id === candidate.id && entry.command === candidate.command && entry.runIn === candidate.runIn
+      ));
+      if (candidate.source === 'shared') {
+        setup ??= await getProjectSetup(trustProject, { strict: true });
+        if (!isOwnerCurrent() || !matchesCandidate(setup)) {
+          if (isOwnerCurrent()) void loadActions();
+          return;
+        }
+        const approvedSetup = setup;
+        if (!(await ensureSharedSetupTrusted(trustProject, approvedSetup, isOwnerCurrent))) return;
+      }
+      if (!isOwnerCurrent()) return;
 
       const hasCustomOpenUrl = discovered.autoOpenUrl === true && (discovered.openUrl || '').trim().length > 0;
       const revealTerminal = !hasCustomOpenUrl && action.id !== AUTO_DISCOVER_ACTION_ID;
@@ -803,6 +859,16 @@ export const ProjectActionsButton = ({
         }
       }
 
+      if (!isOwnerCurrent() || executionDirectory !== launchDirectory) return;
+      if (candidate.source === 'shared' && setup) {
+        const currentSetup = await getProjectSetup(trustProject, { strict: true });
+        if (!isOwnerCurrent() || !matchesCandidate(currentSetup) || currentSetup.trust.hash !== setup.trust.hash
+          || (setup.trust.trusted && !currentSetup.trust.trusted)) {
+          if (isOwnerCurrent()) void loadActions();
+          return;
+        }
+      }
+      if (!isOwnerCurrent()) return;
       const priorTab = getActionTab(executionDirectory, discovered.id);
       let activeSessionId: string;
       let adoptedExecutionId: string;
@@ -868,7 +934,7 @@ export const ProjectActionsButton = ({
             if (!matchesActionExecution(executionDirectory, tabId, adoptedExecutionId)) return;
             if (event.purpose?.type === 'project-action' && event.purpose.executionId !== adoptedExecutionId) return;
             if (event.type === 'snapshot') {
-              useTerminalStore.getState().replaceBuffer(executionDirectory, tabId, event.data ?? '', event.sequence ?? 0);
+              useTerminalStore.getState().replaceBuffer(executionDirectory, tabId, event.data ?? '', event.sequence ?? 0, terminalSnapshotSize(event));
               useTerminalStore.getState().setConnecting(executionDirectory, tabId, false, { expectedExecutionId: adoptedExecutionId });
               if (event.purpose?.type === 'project-action') {
                 useTerminalStore.getState().setTabPurpose(executionDirectory, tabId, { type: 'project-action', actionId: event.purpose.actionId, executionId: event.purpose.executionId });
@@ -1002,7 +1068,9 @@ export const ProjectActionsButton = ({
     setTabPurpose,
     setTabPreviewUrl,
     setTabSessionId,
-    stableProjectRef?.id,
+    stableProjectRef,
+    launchOwner,
+    loadActions,
     t,
     terminal,
   ]);
@@ -1122,7 +1190,7 @@ export const ProjectActionsButton = ({
               className={cn(
                 'app-region-no-drag inline-flex h-9 w-9 items-center justify-center rounded-[10px] [corner-shape:squircle] supports-[corner-shape:squircle]:rounded-[50px] p-2',
                 'typography-ui-label font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'disabled:cursor-not-allowed',
                 className
               )}
@@ -1147,7 +1215,7 @@ export const ProjectActionsButton = ({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="app-region-no-drag -ml-1 inline-flex h-9 w-7 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="app-region-no-drag -ml-1 inline-flex h-9 w-7 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('projectActions.actions.openPreview')}
                 onClick={handleOpenSelectedPreview}
               >
@@ -1161,7 +1229,7 @@ export const ProjectActionsButton = ({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="app-region-no-drag -ml-1 inline-flex h-9 w-5 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="app-region-no-drag -ml-1 inline-flex h-9 w-5 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t('projectActions.actions.chooseActionAria')}
             >
               <Icon name="arrow-down-s" className="h-3.5 w-3.5" />
@@ -1190,6 +1258,11 @@ export const ProjectActionsButton = ({
                 >
                   <Icon name={iconName} className="h-4 w-4" />
                   <span className="typography-ui-label text-foreground truncate">{entry.name}</span>
+                  {entry.source === 'shared' ? (
+                    <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-muted-foreground bg-[var(--surface-subtle)]">
+                      {t('projectActions.menu.sharedBadge')}
+                    </span>
+                  ) : null}
                   {isStopping || runState?.status === 'waiting-for-preview'
                     ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-[var(--status-warning)]" />
                     : isRunning
@@ -1223,7 +1296,7 @@ export const ProjectActionsButton = ({
             className={cn(
               'inline-flex h-full items-center justify-center typography-ui-label font-medium text-foreground hover:bg-interactive-hover',
               compact ? 'w-9 px-0' : 'px-2.5',
-              'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed'
+              'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed'
             )}
             aria-label={selectedRunning
               ? t('projectActions.actions.stopNamedAria', { name: resolvedSelected.name })
@@ -1252,7 +1325,7 @@ export const ProjectActionsButton = ({
               className={cn(
                 compact ? 'inline-flex h-full w-8 items-center justify-center' : 'inline-flex h-full w-7 items-center justify-center',
                 'border-l border-[var(--interactive-border)] text-foreground',
-                'hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+                'hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
               )}
               aria-label={t('projectActions.actions.openPreview')}
             >
@@ -1270,7 +1343,7 @@ export const ProjectActionsButton = ({
             className={cn(
               compact ? 'inline-flex h-full w-8 items-center justify-center' : 'inline-flex h-full w-7 items-center justify-center',
               'border-l border-[var(--interactive-border)] text-muted-foreground',
-              'hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+              'hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
             )}
             aria-label={t('projectActions.actions.chooseActionAria')}
           >
@@ -1300,6 +1373,11 @@ export const ProjectActionsButton = ({
               >
                 <Icon name={iconName} className="h-4 w-4" />
                 <span className="typography-ui-label text-foreground truncate">{entry.name}</span>
+                {entry.source === 'shared' ? (
+                  <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-muted-foreground bg-[var(--surface-subtle)]">
+                    {t('projectActions.menu.sharedBadge')}
+                  </span>
+                ) : null}
                 {isStopping || runState?.status === 'waiting-for-preview'
                   ? <Icon name="loader-4" className="ml-auto h-4 w-4 animate-spin text-[var(--status-warning)]" />
                   : isRunning

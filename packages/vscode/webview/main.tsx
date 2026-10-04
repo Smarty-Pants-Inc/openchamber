@@ -20,6 +20,7 @@ import { processVSCodePermissionAutoAccept } from '@openchamber/ui/sync/vscode-p
 import type { PermissionRequest } from '@opencode-ai/sdk/v2/client';
 import { focusChatInput } from '@openchamber/ui/components/chat/composer/editor/dom';
 import { PRODUCT_NAME } from '@openchamber/ui/lib/brand.generated';
+import { hostViewerStateSchema, reportHostViewerState } from '@openchamber/ui/lib/surfaceAttention';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
 type PanelType = 'chat' | 'agentManager';
@@ -385,6 +386,10 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
     return unsupportedWebRouteResponse('Preview proxy');
   }
 
+  if (normalizedPathname === '/api/config/themes' || normalizedPathname.startsWith('/api/config/themes/')) {
+    return unsupportedWebRouteResponse('Theme import and management');
+  }
+
   if (normalizedPathname.startsWith('/api/openchamber/tunnel/')) {
     return unsupportedWebRouteResponse('Remote tunnel settings');
   }
@@ -399,6 +404,27 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
 
   if (/^\/api\/projects\/[^/]+\/scheduled-tasks(?:\/[^/]+)?$/.test(normalizedPathname)) {
     return unsupportedWebRouteResponse('Scheduled tasks');
+  }
+
+  // Project setup (worktree setup commands, project actions, draft starters)
+  // lives in the user's OpenChamber config dir; the extension host owns the
+  // file the way the OpenChamber server does elsewhere.
+  const projectSetupMatch = normalizedPathname.match(/^\/api\/projects\/([^/]+)\/config(\/shared)?$/);
+  if (projectSetupMatch && (method === 'GET' || method === 'PUT') && !(method === 'GET' && projectSetupMatch[2])) {
+    const projectId = decodeURIComponent(projectSetupMatch[1]);
+    const payload = method === 'GET'
+      ? { projectId }
+      : { projectId, patch: await extractJsonBody(input, init, method) };
+    const bridgeType = method === 'GET'
+      ? 'api:project-setup:get'
+      : projectSetupMatch[2] ? 'api:project-setup:update-shared' : 'api:project-setup:update';
+    try {
+      const data = await sendBridgeMessage(bridgeType, payload);
+      return jsonResponse(data, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project config request failed';
+      return jsonResponse({ error: message }, /must be|is required|unsupported characters/.test(message) ? 400 : 500);
+    }
   }
 
   if (normalizedPathname === '/api/fs/git-dirs') {
@@ -429,28 +455,6 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
     });
   }
 
-  if (normalizedPathname === '/api/permission-auto-accept' && method === 'GET') {
-    const snapshot = await sendBridgeMessage('api:permission-auto-accept:get');
-    return new Response(JSON.stringify(snapshot), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const permissionPolicyMatch = normalizedPathname.match(/^\/api\/permission-auto-accept\/sessions\/([^/]+)$/);
-  if (permissionPolicyMatch && method === 'PUT') {
-    const bodyText = await extractBodyText(url, init, method);
-    const body = bodyText ? JSON.parse(bodyText) as { enabled?: unknown } : {};
-    const snapshot = await sendBridgeMessage('api:permission-auto-accept:set', {
-      sessionId: decodeURIComponent(permissionPolicyMatch[1]),
-      enabled: body.enabled,
-    });
-    return new Response(JSON.stringify(snapshot), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   if (/^\/api\/sessions\/[^/]+\/message-sent$/.test(normalizedPathname) && method === 'POST') {
     const sessionId = normalizedPathname.split('/')[3] || '';
     return new Response(
@@ -476,10 +480,25 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
   }
 
   if (normalizedPathname === '/api/sessions/status' && method === 'GET') {
+    // Parity with the web server's cross-project status map, served from the
+    // extension host's activity watcher. Its phases collapse busy and retry
+    // into `busy` and it settles sessions itself through `cooldown`, so every
+    // busy entry is current as of now.
+    type ActivitySnapshot = Record<string, { type: 'idle' | 'busy' | 'cooldown' }>;
+    const activity = await sendBridgeMessage<ActivitySnapshot>('api:session-activity:get')
+      .catch((): ActivitySnapshot => ({}));
+    const now = Date.now();
+    const sessions: Record<string, { status: 'busy'; lastUpdateAt: number }> = {};
+    for (const [sessionId, entry] of Object.entries(activity || {})) {
+      if (entry?.type === 'busy') sessions[sessionId] = { status: 'busy', lastUpdateAt: now };
+    }
+    // The extension host keeps no pending-request map; directory stores and
+    // its own auto-accept path cover requests in VS Code.
     return new Response(
       JSON.stringify({
-        sessions: {},
-        serverTime: Date.now(),
+        sessions,
+        pending: {},
+        serverTime: now,
       }),
       {
         status: 200,
@@ -1171,6 +1190,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
   const pathname = targetUrl?.pathname || '';
   const normalizedPathname = pathname.replace(/\/{2,}/g, '/');
+  // Cut off the complete policy namespace before local handlers or any proxy.
+  // The host repeats this boundary for direct bridge callers.
+  const decodedPathname = pathname.replace(/%([0-9a-f]{2})/gi, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+  const policyPathname = new URL(decodedPathname.replace(/\\/g, '/').replace(/\/{2,}/g, '/'), 'https://openchamber.invalid/').pathname;
+  if (/^\/(?:api\/)?(?:permission-auto-accept|notifications\/auto-accept)(?:\/|$)/i.test(policyPathname)) {
+    return jsonResponse({ error: 'Permission auto-accept is unsupported in this fork', supported: false }, 501);
+  }
+
   if (targetUrl && normalizedPathname === '/health') {
     const connectionStatus = window.__OPENCHAMBER_CONNECTION__?.status;
     const isReady = connectionStatus === 'connected';
@@ -1722,10 +1749,12 @@ onCommand('showNotification', (payload) => {
   showOpenChamberNotification(payload as { title?: unknown; body?: unknown; sessionId?: unknown; requireHidden?: unknown } | undefined);
 });
 
-onCommand('windowFocusChanged', (payload) => {
-  if (typeof payload === 'object' && payload && typeof (payload as { focused?: unknown }).focused === 'boolean') {
-    window.__OPENCHAMBER_VSCODE_WINDOW_FOCUSED__ = (payload as { focused: boolean }).focused;
-  }
+onCommand('viewerStateChanged', (payload) => {
+  const parsed = hostViewerStateSchema.safeParse(payload);
+  if (!parsed.success) return;
+  window.__OPENCHAMBER_VSCODE_WINDOW_FOCUSED__ = parsed.data.windowFocused;
+  // The webview document's own focus is not whether the user sees the chat.
+  reportHostViewerState(parsed.data);
 });
 
 const readyNotificationCooldowns = new Map<string, number>();
