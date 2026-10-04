@@ -41,6 +41,7 @@ const page = () => Response.json([{ info: { id: 'tail', sessionID: target.sessio
 let detailGets = 0, detail = () => Response.json({ ...info, ordinary: native });
 const streams = [];
 const requests = [];
+const catalogReads = [];
 globalThis.fetch = async (input, init) => {
   const request = new Request(input instanceof Request ? input : new URL(input, window.location.href), init);
   const path = new URL(request.url).pathname.replace(/^\/api/, '');
@@ -56,6 +57,14 @@ globalThis.fetch = async (input, init) => {
   if (path === '/path') return Response.json({ state: '', config: '', worktree: '/repo', directory: '/repo', home: '/home' });
   if (path === '/project/current') return Response.json({ id: 'project', worktree: '/repo' });
   if (path === '/global/config') return Response.json({});
+  // #1138 (Astra r3): the selected session's own catalog, answered only for a session-scoped read of that session.
+  if (path === '/config/providers') {
+    const query = new URL(request.url).searchParams;
+    catalogReads.push({ session: query.get('session'), directory: query.get('directory') });
+    if (query.get('session') !== target.sessionID) return Response.json({ providers: [], default: {} });
+    return Response.json({ providers: [{ id: 'cliproxyapi', name: 'cliproxyapi', models: { 'gpt-6-astra': {
+      id: 'gpt-6-astra', name: 'GPT-6 Astra', variants: { low: {}, medium: {}, high: {} } } } }], default: {} });
+  }
   if (path === '/openchamber/chat-directory') return Response.json({ path: '/chats' });
   return Response.json([]);
 };
@@ -215,6 +224,8 @@ test('actual ChatContainer fetches missing native detail after eager history is 
     await act(async () => { release(Response.json({ ...info, ordinary: model })); });
     assert.equal(container.querySelector('.model-controls__model-label')?.textContent, 'GPT-6 Astra');
     assert.equal(container.querySelector('.model-controls__variant-label')?.textContent, 'Medium');
+    assert.ok(catalogReads.length > 0 && catalogReads.every(read => read.session === target.sessionID && read.directory === '/repo'),
+      `the catalog is read only for the selected session: ${JSON.stringify(catalogReads)}`);
     await act(async () => store.setState({ session: [{ ...info,
       ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null } }] }));
     assert.match(container.textContent, /Unavailable/);
