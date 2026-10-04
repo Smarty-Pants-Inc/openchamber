@@ -110,6 +110,12 @@ without claiming `mobile-session-tree` anonymous values. Worktree keys adapt to
 `${projectId}:root`. Mobile still renders one root bucket rather than desktop's
 workspace subgroups. Legacy mobile and VS Code retain their existing view path.
 
+A successful preference GET admitting a different person retires the previous
+person's maps and runtime request scope before publishing the new maps. In-flight
+reads and tab-receipt writes using the old scope cannot apply to the new person.
+Forced owner or focus revalidation starts a fresh GET instead of joining an older
+read. Only the latest read can publish or retire that admission.
+
 A current preference PATCH returning owner-mismatch 409 retires the old person's
 maps and request authority, then loads the newly admitted person's preferences.
 Queued old-person choices reject without dispatch or replay. A stale 409 cannot

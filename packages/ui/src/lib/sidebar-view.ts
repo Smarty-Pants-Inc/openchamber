@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useHumanAuth } from './human-auth';
 import { useAuthSessionStore } from './runtime-auth-expiry';
+import { resetRuntimeAuthGeneration } from './runtime-auth';
 import { runtimeFetch } from './runtime-fetch';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from './runtime-switch';
 import { formatMessage, useI18nStore } from './i18n/store';
@@ -27,11 +28,12 @@ type Entry = {
   tail: Promise<void>;
   revisions: { projects: Map<string, symbol>; groups: Map<string, symbol> };
   confirmed: { projects: Record<string, boolean>; groups: Record<string, boolean> };
+  readRevision: number;
 };
 const newEntry = (): Entry => ({
   admission: Symbol('sidebar preference admission'),
   scope: captureRuntimeRequestScope(), owner: null, load: null, hydrating: null, tail: Promise.resolve(),
-  revisions: { projects: new Map(), groups: new Map() }, confirmed: { projects: {}, groups: {} },
+  revisions: { projects: new Map(), groups: new Map() }, confirmed: { projects: {}, groups: {} }, readRevision: 0,
 });
 const mutationListeners = new Set<(patch: Patch) => void>();
 export function subscribePersonalSidebarViewMutations(listener: (patch: Patch) => void): () => void {
@@ -59,18 +61,22 @@ export function isPersonalSidebarAdmissionCurrent(admission: symbol): boolean {
 const sameOwner = (left: Owner, right: Owner): boolean => left.issuer === right.issuer && left.subject === right.subject;
 
 async function hydrate(captured: typeof entry, force = false): Promise<void> {
-  if (captured.hydrating) return captured.hydrating;
+  // Forced revalidation must be a new read. It may supersede an older read
+  // whose cookie/owner was captured before a person change.
+  if (!force && captured.hydrating) return captured.hydrating;
   if (!force && captured.load) return captured.load;
+  const readRevision = ++captured.readRevision;
   const request = (async () => {
     if (!current(captured)) throw new Error('Sidebar preference scope retired');
     const response = await runtimeFetch('/api/config/sidebar-view', { cache: 'no-store', credentials: 'include' });
     if (!response.ok) throw new Error(`Sidebar preference read failed (${response.status})`);
     const data = responseSchema.parse(await response.json());
-    if (!current(captured)) throw new Error('Sidebar preference scope retired');
+    if (!current(captured) || captured.readRevision !== readRevision) return;
 
     const target = captured.owner && !sameOwner(captured.owner, data.owner) ? (() => {
-      // A successful authenticated read is authoritative for the person using
-      // this tab. Never let the previous person's choices cross that boundary.
+      // This authenticated GET admits a new person. Revoke A-scoped requests
+      // and tab receipts before publishing B's maps.
+      resetRuntimeAuthGeneration();
       retire();
       return entry;
     })() : captured;
@@ -85,6 +91,7 @@ async function hydrate(captured: typeof entry, force = false): Promise<void> {
   captured.hydrating = request;
   if (!force) captured.load = request;
   try { await request; } catch (error) {
+    if (captured.readRevision !== readRevision) return;
     if (!force) captured.load = null;
     if (current(captured) && !captured.owner) {
       // Failed admission retires all queued choices and optimistic values.
@@ -171,7 +178,9 @@ export async function readPersonalSidebarOwner(scope: ReturnType<typeof captureR
   if (!isRuntimeRequestScopeCurrent(entry.scope)) retire();
   const captured = entry;
   if (!consumers && !captured.owner) idleAdmissionCaptured = true;
-  try { await hydrate(captured, true); } catch (error) {
+  // Before first admission, readers share its healthy initiating GET. Once an
+  // owner is known, checking it is a forced revalidation, never an old read join.
+  try { await hydrate(captured, captured.owner !== null); } catch (error) {
     // A read may join an independently running successor, but cannot renew action authority.
     if (!isRuntimeRequestScopeCurrent(scope)) return null;
     if (captured === entry || !entry.load) throw error;
