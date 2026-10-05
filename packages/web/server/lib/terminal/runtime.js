@@ -12,6 +12,7 @@ import { sanitizeTerminalHistoryChunk } from './history.js';
 import { consumeTerminalThemeQueries, terminalThemeModeReport } from './theme-response.js';
 import { buildTerminalShellLaunch, createTerminalShellResolver, normalizeTerminalShell } from './shells.js';
 import { stripAppImageArgv0Leak, resolveLinuxPtyLaunch } from '../inherited-env.js';
+import { createMemberLifetimeFrameHandler } from './member-lifetime.js';
 
 const MAX_SESSIONS = 20;
 const MAX_HISTORY_BYTES = 512 * 1024;
@@ -350,12 +351,13 @@ export function createTerminalRuntime({
     finally { if (pendingSessionCreates.get(id) === pendingEntry) pendingSessionCreates.delete(id); }
   };
 
-  wsServer.on('connection', (socket) => {
+  wsServer.on('connection', (socket, req) => {
+    if (uiAuthController?.humanMode && !req?.humanConnection) { socket.terminate(); return; }
     const connection = { socket, attachments: new Map() };
     connections.add(connection);
     send(socket, { t: 'hello', v: 3 });
     const heartbeat = setInterval(() => { try { socket.ping(); } catch { /* closed */ } }, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS);
-    socket.on('message', (raw, isBinary) => {
+    socket.on('message', createMemberLifetimeFrameHandler(socket, req?.humanConnection, (raw, isBinary) => {
       if (!isBinary) { send(socket, { t: 'error', v: 3, code: 'BAD_FRAME', message: 'Binary control frame required', fatal: false }); return; }
       const message = readTerminalWsControlFrame(raw);
       if (!message || message.v !== 3 || typeof message.t !== 'string') { send(socket, { t: 'error', v: 3, code: 'BAD_FRAME', message: 'Invalid terminal frame', fatal: false }); return; }
@@ -380,7 +382,7 @@ export function createTerminalRuntime({
         if (session.status !== 'running' || !session.process) { send(socket, { t: 'error', v: 3, s: id, code: 'NOT_RUNNING', message: 'Terminal is not running', fatal: false }); return; }
         try { session.process.write(message.d); session.lastActivity = Date.now(); } catch { send(socket, { t: 'error', v: 3, s: id, code: 'WRITE_FAILED', message: 'Failed to write to terminal', fatal: false }); }
       }
-    });
+    }));
     const cleanup = () => { clearInterval(heartbeat); connection.attachments.clear(); connections.delete(connection); };
     socket.on('close', cleanup); socket.on('error', () => {});
   });

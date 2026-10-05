@@ -46,8 +46,9 @@ CSRF, account bindings and sessions. Do not parse Google tokens in product code.
 `actor(session)` returns `{version:1,issuer,subject,name,email,image?}`. Profile fields are
 presentation only. Default actors, public status, profiles and sidebar ownership do
 not expose Node membership or Google's subject. `protect` attaches this actor to `req.humanIdentity` and closes
-registered responses on expiry or session deletion. It registers each response
-before an authoritative session recheck to close the revocation/admission race.
+registered responses on expiry, session deletion or required Node membership
+withdrawal. It registers each response before an authoritative recheck to close
+the revocation/admission race.
 `status` is the existing
 `/auth/session` seam. `dispose` closes registered responses, not the caller's DB.
 
@@ -79,8 +80,20 @@ public user fields. Only `actor(session, {forwarded:true})` adds
 cannot supply a binding, and returned member objects cannot mutate stored authority.
 Issuer and subject remain the original Code origin and Better Auth user ID for
 authorship and preferences. Billing-role lookup shares the same pure person resolver.
-Session revocation and response-expiry tracking remain unchanged. Record freshness
-is the registry publisher's cadence; no membership watcher is added here.
+`human-connection.js` owns admitted responses and raw upgrade sockets. It keeps
+the original session, person and member binding private to the connection. In
+required Node mode, one controller-owned sweep rechecks Google account and Record B
+membership once per person each second. Withdrawal, a changed binding or an
+unavailable record closes that person's retained connections. Other admitted
+people keep their own streams. The sweep stops when the last response closes or
+the controller is disposed. Record freshness still depends on the publisher's cadence.
+
+Terminal attach and write frames also recheck the original connection authority
+before their effect. A periodic sweep is not a native-effect permission lease.
+Frames remain ordered, and a closed connection cannot issue a queued effect.
+Connection closure removes presentation attachments; it does not stop the PTY,
+replace a Pi, change its journal or replay an uncertain action. Non-Node human
+mode retains session deletion and expiry tracking without a membership sweep.
 
 Google is the only configured provider. Its default scopes are `openid email
 profile`; no Gmail, Workspace administration or offline scope is requested.

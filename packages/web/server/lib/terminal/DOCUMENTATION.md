@@ -42,6 +42,15 @@ HTTP remains the authenticated command plane for create, resize, appearance upda
 
 ## Security And Relay
 
+Human terminal sockets keep the private authority established by the raw upgrade.
+Each attach or write frame rechecks that same session and member binding before
+accessing the terminal. Human frames are serialized so delayed authorization does
+not reorder writes. Withdrawal or failed reauthorization closes the socket and
+clears its attachments, including queued frames. It does not terminate retained
+PTYs or alter their history. Required Node mode also closes idle connections when
+the controller's membership sweep observes withdrawal. Passwordless and legacy
+UI-password frames retain their existing synchronous behavior.
+
 The WebSocket path must remain in both `isUrlAuthWebSocketPath` and relay `ALLOWED_WS_PATHS`. The client must use `getRuntimeUrlResolver().websocket()` and `openRuntimeWebSocket`; direct local URLs or raw browser WebSockets break relay and URL-token authentication.
 
 ## Verification

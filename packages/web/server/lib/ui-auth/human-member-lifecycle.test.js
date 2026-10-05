@@ -72,6 +72,20 @@ test('membership withdrawal during protect recheck cannot admit an untracked str
   } finally { f.human.auth.api.getSession = original; await f.close(); }
 });
 
+test('member-bound connection reauthorization refuses withdrawn members', async () => {
+  const f = await fixture();
+  try {
+    const req = request(f.headers); let effects = 0;
+    const stream = new EventEmitter();
+    stream.destroy = () => { stream.emit('close'); };
+    await f.human.protect(req, stream, () => { effects++; });
+    assert.equal(effects, 1);
+    assert.equal(await req.humanConnection.authorize(), true);
+    const data = record(); data.orgs[0].members[0].status = 'removed'; await f.publish(data);
+    assert.equal(await req.humanConnection.authorize(), false);
+  } finally { await f.close(); }
+});
+
 test('member-bound streams still close on Better Auth revocation, and expired groups stay denied', async () => {
   const f = await fixture();
   try {

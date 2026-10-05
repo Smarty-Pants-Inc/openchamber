@@ -6,6 +6,7 @@ import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
 import { createHumanSidebarView } from './human-sidebar-view.js';
 import { createHumanMemberBinding } from './human-member.js';
+import { createHumanConnectionLifetime } from './human-connection.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
@@ -23,11 +24,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   if (!database || typeof secret !== 'string' || secret.length < 32 || !googleClientId || !googleClientSecret) {
     throw new Error('Human authentication configuration is incomplete');
   }
-  const liveResponses = new Map();
-  const closeSession = (id) => {
-    for (const response of liveResponses.get(id) || []) response.destroy();
-    liveResponses.delete(id);
-  };
+  let connections;
   const deny = () => { throw new APIError('FORBIDDEN', { message: 'This account is not allowed to use this instance' }); };
   const options = {
     database, baseURL, secret,
@@ -73,7 +70,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
           if (!admits(user)) deny();
           return { data: { ...session, workspacePolicy: `google-hd:${hostedDomain}` } };
         } },
-        delete: { after: async (session) => { closeSession(session.id); } },
+        delete: { after: async (session) => { connections?.closeSession(session.id); } },
       },
     },
   };
@@ -103,6 +100,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       return session;
     } catch { return null; } // Lookup failure is a refusal, never an admitted or guessed member.
   };
+  connections = createHumanConnectionLifetime({ resolve, members, adapter });
   const actor = (session, { forwarded = false } = {}) => {
     const identity = {
       version: 1, issuer: baseURL, subject: session.user.id,
@@ -136,27 +134,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const checked = startWebTiming(req); // smarty-code#827: the web server's share of a request, forwarded to Code.
     const session = await resolve(req);
     if (!session) return reject(res);
-    const responses = liveResponses.get(session.session.id) || new Set();
-    liveResponses.set(session.session.id, responses);
-    responses.add(res);
-    // Session expiry also closes already-open streams, not just later HTTP requests.
-    const remaining = new Date(session.session.expiresAt).getTime() - Date.now();
-    if (remaining <= 0) { closeSession(session.session.id); return; }
-    const timer = setTimeout(() => res.destroy(), Math.min(remaining, 2_147_483_647));
-    timer.unref?.();
-    let closed = false;
-    const cleanup = () => {
-      closed = true;
-      clearTimeout(timer); responses.delete(res);
-      if (!responses.size) liveResponses.delete(session.session.id);
-    };
-    res.once('close', cleanup);
-    res.once('finish', cleanup);
-    // Register before rechecking so deletion cannot fall between admission and tracking.
-    const current = await resolve(req);
-    if (closed || res.destroyed || res.writableEnded || !current || current.session.id !== session.session.id) {
-      cleanup(); res.destroy(); return;
-    }
+    const current = await connections.admit(req, res, session);
+    if (!current) return;
     checked();
     req.humanIdentity = actor(current, { forwarded: true });
     return next();
@@ -174,7 +153,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       const session = await resolve(req);
       return session ? res.json({ authenticated: true, humanAuth: true, user: actor(session) }) : unauthorized(res);
     },
-    dispose: () => { for (const id of liveResponses.keys()) closeSession(id); },
+    dispose: () => connections.dispose(),
   };
 }
 
