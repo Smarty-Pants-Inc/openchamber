@@ -5,8 +5,8 @@
 // publish cadence (every registry change republishes the file); a stale role only shows or hides a link that billing
 // authorizes again. The login is matched on the exact (issuer, subject) of the person's verified Google account.
 import { readFile } from 'node:fs/promises';
-
-const GOOGLE_ISSUER = 'https://accounts.google.com';
+import { resolveNodeMember } from './node-member.js';
+import { findGoogleAccountId } from '../ui-auth/google-account.js';
 
 /** The owner check. `record`: the registry.json path (SMARTY_NODE_RECORD); unset, nobody is shown billing links. */
 export function createBillingRole({ env = process.env, read = readFile } = {}) {
@@ -17,11 +17,8 @@ export function createBillingRole({ env = process.env, read = readFile } = {}) {
   const isOwner = async (googleAccountId) => {
     if (!record || !googleAccountId) return false;
     const data = JSON.parse(await read(record, 'utf8'));
-    if (data?.format !== 1 || !Array.isArray(data.orgs) || !Array.isArray(data.logins)) throw new Error('unsupported Node record');
-    const org = env.SMARTY_NODE_ORG_ID ? data.orgs.find((o) => o?.id === env.SMARTY_NODE_ORG_ID)
-      : data.orgs.find((o) => o?.placement === 'primary');
-    const ids = new Set(data.logins.filter((l) => l?.issuer === GOOGLE_ISSUER && l?.subject === googleAccountId).map((l) => l.smarty_id));
-    return Array.isArray(org?.members) && org.members.some((m) => ids.has(m?.smarty_id) && m.role === 'owner' && m.status === 'active');
+    return resolveNodeMember(data, googleAccountId,
+      { orgId: env.SMARTY_NODE_ORG_ID, nodeId: env.SMARTY_CODE_NODE_ID })?.role === 'owner';
   };
   return { isOwner, links: { checkout: `${billing}/checkout`, portal: `${billing}/portal` } };
 }
@@ -34,9 +31,7 @@ export function registerBillingRoleRoute(app, humanAuth, { env = process.env, bi
       const session = await humanAuth.resolve(req);
       if (!session) return res.status(401).json({ owner: false });
       const { adapter } = await humanAuth.auth.$context;
-      const account = await adapter.findOne({ model: 'account', where: [{ field: 'userId', value: session.user.id },
-        { field: 'providerId', value: 'google' }], select: ['accountId'] });
-      const owner = await billingRole.isOwner(account?.accountId);
+      const owner = await billingRole.isOwner(await findGoogleAccountId(adapter, session.user.id));
       return res.json(owner ? { owner: true, ...billingRole.links } : { owner: false });
     } catch {
       // Not an answer (the record or the sign-in store failed): 503, so the page shows no link and asks again later;
