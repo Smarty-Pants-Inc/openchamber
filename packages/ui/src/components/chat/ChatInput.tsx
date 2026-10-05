@@ -358,6 +358,7 @@ interface ChatInputProps {
     piReloading?: boolean;
     /** A Code-made session whose Pi lost Code's connection (smarty-code#957): say so, and how to reconnect. */
     piDisconnected?: boolean;
+    ownerPending?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -381,6 +382,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     sessionLoadFailed = false,
     piReloading = false,
     piDisconnected = false,
+    ownerPending = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -1111,11 +1113,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Observed (a change re-renders this composer): a session the managed listing left out is unavailable over any older sync row.
     const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isGloballyUnavailable(state.entityById.get(currentSessionId!)));
     const ordinaryNow = currentSessionId ? readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined, retainedUnavailable) : undefined;
-    const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
+    useSessionUIStore(state => state.selectedManagedOwner);
+    const ordinaryUnavailable = ownerPending || (ordinaryNow !== undefined && !ordinaryNow.model);
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
     // while it is unavailable its view is also re-read every 2 s: the model control and Send come back on their own.
-    const unavailableTarget = ordinaryUnavailable && currentSessionId
+    const unavailableTarget = ordinaryUnavailable && !ownerPending && currentSessionId
         ? { sessionID: currentSessionId, directory: currentSessionDirectoryForSync ?? currentDirectory ?? '' } : null;
     const unavailableKey = unavailableTarget ? `${unavailableTarget.directory}\n${unavailableTarget.sessionID}` : null;
     React.useEffect(() => {
@@ -1522,7 +1525,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the managed listing left out is unavailable over them (openchamber#364).
         const ordinary = readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
             isGloballyUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
-        if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
+        if (ownerPending || (ordinary && !ordinary.model)) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
             return;

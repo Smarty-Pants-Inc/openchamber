@@ -29,6 +29,18 @@ let runtimeAuthGeneration = 0;
 
 export const getRuntimeAuthGeneration = (): number => runtimeAuthGeneration;
 
+const runtimeAuthGenerationListeners = new Set<() => void>();
+/** Existing credential/header generation only. URL-token refresh is not a credential change. */
+export const subscribeRuntimeAuthGenerationChanged = (listener: () => void): (() => void) => {
+  runtimeAuthGenerationListeners.add(listener);
+  return () => { runtimeAuthGenerationListeners.delete(listener); };
+};
+const notifyRuntimeAuthGenerationChanged = (): void => {
+  for (const listener of runtimeAuthGenerationListeners) {
+    try { listener(); } catch { /* Observers must not interrupt existing credential setup. */ }
+  }
+};
+
 const urlAuthResponseSchema = z.object({ token: z.string().trim().min(1), expiresAt: z.number().finite() });
 
 const URL_AUTH_REFRESH_SKEW_MS = 10_000;
@@ -113,7 +125,7 @@ export const clearRuntimeUrlAuthToken = (): void => {
   clearLocalRuntimeUrlAuthToken();
 };
 
-export const resetRuntimeAuthGeneration = (): void => {
+const resetRuntimeAuthGenerationState = (): void => {
   runtimeAuthGeneration += 1;
   urlAuthFailureCount = 0;
   urlAuthRetryAt = 0;
@@ -125,26 +137,34 @@ export const resetRuntimeAuthGeneration = (): void => {
   scheduleUrlAuthRefresh();
 };
 
+export const resetRuntimeAuthGeneration = (): void => {
+  resetRuntimeAuthGenerationState();
+  notifyRuntimeAuthGenerationChanged();
+};
+
 export const setRuntimeAuthCredentialProvider = (provider: RuntimeAuthCredentialProvider): void => {
   credentialConfigured = true;
   runtimeBearerToken = '';
-  resetRuntimeAuthGeneration();
+  resetRuntimeAuthGenerationState();
   credentialProvider = provider;
+  notifyRuntimeAuthGenerationChanged();
 };
 
 export const clearRuntimeAuthCredentialProvider = (): void => {
   credentialConfigured = false;
   runtimeBearerToken = '';
-  resetRuntimeAuthGeneration();
+  resetRuntimeAuthGenerationState();
   credentialProvider = () => null;
+  notifyRuntimeAuthGenerationChanged();
 };
 
 export const setRuntimeBearerToken = (token: string | null | undefined): void => {
   const normalized = normalizeBearerToken(token);
   credentialConfigured = true;
   runtimeBearerToken = normalized;
-  resetRuntimeAuthGeneration();
+  resetRuntimeAuthGenerationState();
   credentialProvider = () => normalized ? { type: 'bearer', token: normalized } : null;
+  notifyRuntimeAuthGenerationChanged();
 };
 
 export const setRuntimeExtraHeaders = (headers: Record<string, string> | null | undefined): void => {

@@ -1,5 +1,6 @@
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
+import { useSelectedSessionOwner } from '@/sync/selected-session-owner';
 import { z } from 'zod';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import type { PermissionRequest } from '@/types/permission';
@@ -1048,7 +1049,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
     // smarty-code#811: the managed listing's row can say 'ended' while this directory row missed the update (busy fleet).
     const globalEnded = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isHerdrEnded(state.entityById.get(currentSessionId!)));
-    const endedSession = isHerdrEnded(currentSession) || globalEnded;
+    const managedOwner = useSelectedSessionOwner(currentSessionId, effectiveSessionDirectory, sessionMessageLoadState.readOnly);
+    const ownerPending = managedOwner?.status === 'checking' || managedOwner?.status === 'unknown';
+    const endedSession = managedOwner ? managedOwner.status === 'ended' : isHerdrEnded(currentSession) || globalEnded;
+    const ownerSession = managedOwner && 'row' in managedOwner ? managedOwner.row : currentSession;
     const continueStatus = useContinueStatus(currentSessionId, effectiveSessionDirectory);
     const continueRecovery = continueStatus?.status === 'starting' || continueStatus?.status === 'unknown';
     const continueAvailable = useNativeResumeSupport(effectiveSessionDirectory, currentSessionId,
@@ -1761,8 +1765,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         </div>
                     </>
                 )}
-                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded) || continueRecovery ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={endedSession} reloading={isOrdinaryReloading(currentSession)}
+                {!ownerPending && ((managedOwner ? managedOwner.status === 'ended' : showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded)) || continueRecovery) ? (
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(ownerSession)} ended={endedSession} reloading={isOrdinaryReloading(ownerSession)}
                         resume={(endedSession || continueRecovery) && currentSessionId && effectiveSessionDirectory
                             ? { directory: effectiveSessionDirectory, sessionID: currentSessionId, available: continueAvailable,
                                 project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
@@ -1779,8 +1783,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         // that is gone (its "try again" would mislead; the transcript says why, smarty-code#775).
                         sessionLoadFailed={Boolean(currentSessionId && sessionMessageLoadState.status === 'error' && !authSessionExpired && !sessionDirectoryGone
                             && isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking)}
-                        piReloading={isOrdinaryReloading(currentSession)}
-                        piDisconnected={isPiDisconnected(currentSession)}
+                        ownerPending={ownerPending}
+                        piReloading={isOrdinaryReloading(ownerSession)}
+                        piDisconnected={!ownerPending && isPiDisconnected(ownerSession)}
                     />
                 )}
             </div>

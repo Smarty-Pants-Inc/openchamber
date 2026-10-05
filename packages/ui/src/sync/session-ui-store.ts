@@ -14,6 +14,7 @@
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
+import { isSelectedOwnerCurrent, selectedOwnerOrdinaryState } from "./selected-session-owner"
 import type { Session, Part, TextPart } from "@opencode-ai/sdk/v2/client"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
@@ -174,7 +175,7 @@ export async function routeMessage(params: {
   const requestDirectory = params.directory ?? undefined
   const selectedOrdinary = () => {
     const directory = normalizePath(requestDirectory) ?? undefined
-    return readOrdinaryModel(getSyncSessions(directory)
+    return selectedOwnerOrdinaryState(params.sessionId, directory) ?? readOrdinaryModel(getSyncSessions(directory)
       .find(session => session.id === params.sessionId && (!directory || normalizePath(session.directory) === directory)))
   }
   const ordinary = selectedOrdinary()
@@ -403,6 +404,7 @@ export type SessionHistoryMeta = {
 }
 
 export type SessionUIState = {
+  selectedManagedOwner: import("./selected-session-owner").SelectedManagedOwner | null
   currentSessionId: string | null
   currentSessionDirectory: string | null
   materializedDraftSessionId: string | null
@@ -1146,6 +1148,7 @@ const flattenWorktreeMap = (map: Map<string, WorktreeMetadata[]>): WorktreeMetad
 const PERSISTED_WORKTREE_MAP = readPersistedWorktreeTopology(runtimeMemoryKey())
 
 export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
+  selectedManagedOwner: null,
   currentSessionId: null,
   currentSessionDirectory: null,
   sessionRevealRevision: 0,
@@ -2510,6 +2513,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   getDirectoryForSession: (sessionId) => {
+    const owner = get().selectedManagedOwner
+    if (owner?.sessionID === sessionId && owner.status === "live"
+      && isSelectedOwnerCurrent(owner)) return owner.directory
     // The selection-time directory participates in resolution, it does not
     // short-circuit it. For a worktree session selected before its directory
     // store finished bootstrapping, that value is a startup fallback pointing
