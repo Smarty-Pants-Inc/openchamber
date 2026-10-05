@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
+import { selectedOwnerOutputSha256 as currentOutput, unwindSelectedOwner } from './branding-selected-owner.mjs';
 
-const overlay = JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8'));
+// Unwind the selected-owner source layer before PR486 and every older assertion.
+const overlay = unwindSelectedOwner(JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8')));
 const digest = value => createHash('sha256').update(value).digest('hex');
 const consumers = [
   'packages/ui/src/components/layout/Header.tsx',
