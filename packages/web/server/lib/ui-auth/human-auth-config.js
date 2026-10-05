@@ -7,6 +7,10 @@ import { createHumanAudience } from './human-audience.js';
 /** Ordinary injected environment only; credential delivery and activation belong to the caller. */
 export async function createConfiguredHumanAuth(env) {
   const mode = env.OPENCHAMBER_HUMAN_AUTH;
+  // A present Node pin (even empty) forbids legacy admission before any database/startup effects.
+  if (env.SMARTY_CODE_NODE_ID !== undefined && mode !== 'google') {
+    throw new Error('SMARTY_CODE_NODE_ID requires OPENCHAMBER_HUMAN_AUTH=google');
+  }
   if (mode === undefined || mode === '' || mode === 'off') return null;
   if (mode !== 'google') throw new Error('OPENCHAMBER_HUMAN_AUTH must be google or off');
   for (const key of ['OPENCHAMBER_HUMAN_AUTH_DB', 'BETTER_AUTH_URL', 'BETTER_AUTH_SECRET',
@@ -31,7 +35,7 @@ export async function createConfiguredHumanAuth(env) {
   const { DatabaseSync } = await import('node:sqlite');
   const database = new DatabaseSync(path);
   try {
-    const humanAuth = await createHumanAuth({ database, allowedDomains, baseURL: env.BETTER_AUTH_URL,
+    const humanAuth = await createHumanAuth({ database, allowedDomains, env, baseURL: env.BETTER_AUTH_URL,
       secret: env.BETTER_AUTH_SECRET, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET });
     const dispose = humanAuth.dispose;
     let closed = false;
