@@ -86,7 +86,11 @@ required Node mode, one controller-owned sweep rechecks Google account and Recor
 membership once per person each second. Withdrawal, a changed binding or an
 unavailable record closes that person's retained connections. Other admitted
 people keep their own streams. The sweep stops when the last response closes or
-the controller is disposed. Record freshness still depends on the publisher's cadence.
+the controller is disposed. Admission also checks whether the HTTP response or
+raw upgrade socket closed during the first authentication lookup. Closed transports
+allocate no lifetime resources. A transport that closes during the registered
+recheck releases its listeners, expiry timer and membership entry before admission
+returns. Record freshness still depends on the publisher's cadence.
 
 Terminal attach and write frames also recheck the original connection authority
 before their effect. A periodic sweep is not a native-effect permission lease.
