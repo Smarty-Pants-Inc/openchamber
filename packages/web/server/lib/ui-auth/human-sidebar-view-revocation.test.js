@@ -109,8 +109,19 @@ for (const ending of ['revoke', 'expire', 'dispose']) test(`held registered PATC
     assert.ok(outcome.error, 'caller must see the failed connection, not an accepted PATCH');
     assert.equal(outcome.error.code, 'ECONNRESET', 'protected response must close before the client deadline');
     assert.equal(f.stored(), before);
-    await f.call(1).expect(ending === 'dispose' ? 200 : 401);
-    assert.deepEqual((await f.call(0).expect(200)).body.projects, { retained: false });
+    if (ending === 'dispose') {
+      // Disposal closes this controller, not the durable preferences or either library session.
+      for (const device of [1, 0]) {
+        const refused = await f.call(device).then(value => ({ value }), error => ({ error }));
+        assert.ok(refused.error, 'disposed controller must refuse every new admission');
+        assert.equal(refused.error.code, 'ECONNRESET');
+      }
+      assert.equal(f.stored(), before);
+      assert.deepEqual(JSON.parse(f.stored()), { projects: { retained: false }, groups: {} });
+    } else {
+      await f.call(1).expect(401);
+      assert.deepEqual((await f.call(0).expect(200)).body.projects, { retained: false });
+    }
   } finally { await f.close(); }
 });
 
