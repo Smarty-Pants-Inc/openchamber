@@ -373,7 +373,7 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "combinedSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
       "catalogReloadSource": "b4b815b491de25924df4a9a33554427efff10898",
       "catalogReloadSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "preCatalogReloadCombinedSha256": "bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb",
@@ -420,7 +420,10 @@
       "personalSidebarReviewNote": "PR454 review 5914164668 finding 1: preserve the held-open reveal ticket and manual-collapse cancellation through managed-catalog admission. Source writer released the correction at 2026-09-30T16:08Z; parent and branding-worker SHA256 readbacks match the released store output. Original reviewed 9ba0596d output and all preceding hashes remain historical evidence. Exact combined-head CI and served-release acceptance remain separate.",
       "prePersonalSidebarRevealCombinedSha256": "55c8ea1f9a25110b480346825bd4828e0607fbafea1c017c7a13209e34064240",
       "personalSidebarRevealSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
-      "personalSidebarRevealNote": "PR454 security comment 5919567288 P2: bind reveal persistence and delayed ticket publication to the initiating preference-admission cohort, retaining manual-collapse cancellation as local intent. Writer released its store at 2026-09-30T22:45:25Z; parent verified all eight source hashes. A subsequent actual-store RED exposed consumed-ticket resurrection; the parent added the matching-live-intent guard and retained collapse sets, then released and independently hashed the final store at 2026-09-30T22:52:50Z. The older held-open correction and every prior ledger field remain historical evidence. Security review, exact-head CI and served-release acceptance remain separate."
+      "personalSidebarRevealNote": "PR454 security comment 5919567288 P2: bind reveal persistence and delayed ticket publication to the initiating preference-admission cohort, retaining manual-collapse cancellation as local intent. Writer released its store at 2026-09-30T22:45:25Z; parent verified all eight source hashes. A subsequent actual-store RED exposed consumed-ticket resurrection; the parent added the matching-live-intent guard and retained collapse sets, then released and independently hashed the final store at 2026-09-30T22:52:50Z. The older held-open correction and every prior ledger field remain historical evidence. Security review, exact-head CI and served-release acceptance remain separate.",
+      "preSelectedOwnerCombinedSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "selectedOwnerSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
+      "selectedOwnerNote": "PR549 smarty-code#1378: bind selected managed ownership and ordinary send authority to actual source head2547. Preserve every prior store hash. Source inventory only, not review or runtime acceptance."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
@@ -745,6 +748,150 @@
       "reason": "PR486 #1115/#1116/#1129: exact existing ownership, in-flight event/deletion and omitted-sibling lifecycle regression record. Source provenance only; test cases and production behavior remain untouched.",
       "sessionStatusReadAdded": true,
       "sessionStatusReadSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36"
+    },
+    {
+      "path": "packages/ui/src/components/chat/365-mounted-ended-continue.test.tsx",
+      "behaviorSha256": "8c255e92916d1f1bc7a80b09c661b83bb1af960a248f11b8ce00e16da686602c",
+      "combinedSha256": "8c255e92916d1f1bc7a80b09c661b83bb1af960a248f11b8ce00e16da686602c",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "8c255e92916d1f1bc7a80b09c661b83bb1af960a248f11b8ce00e16da686602c"
+    },
+    {
+      "path": "packages/ui/src/components/chat/ChatContainer.tsx",
+      "behaviorSha256": "6eaedf42eb729d1b155d1c6c1702088fa744ba7e98d4aee5b2a1e1ddf7841584",
+      "combinedSha256": "6eaedf42eb729d1b155d1c6c1702088fa744ba7e98d4aee5b2a1e1ddf7841584",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "6eaedf42eb729d1b155d1c6c1702088fa744ba7e98d4aee5b2a1e1ddf7841584"
+    },
+    {
+      "path": "packages/ui/src/components/chat/ChatInput.tsx",
+      "behaviorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
+      "combinedSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51"
+    },
+    {
+      "path": "packages/ui/src/lib/openOrdinaryState.ts",
+      "behaviorSha256": "668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa",
+      "combinedSha256": "668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa"
+    },
+    {
+      "path": "packages/ui/src/lib/runtime-auth-generation.test.ts",
+      "behaviorSha256": "5ceebf0138a713c84473c4146fd030b4b1a680e0384cf7826397236f825b41f3",
+      "combinedSha256": "5ceebf0138a713c84473c4146fd030b4b1a680e0384cf7826397236f825b41f3",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "5ceebf0138a713c84473c4146fd030b4b1a680e0384cf7826397236f825b41f3"
+    },
+    {
+      "path": "packages/ui/src/lib/runtime-auth.ts",
+      "behaviorSha256": "6156b1906968b984b81a5a83137b539ba2ff8f163890b5a0f888cc1c4370b71a",
+      "combinedSha256": "6156b1906968b984b81a5a83137b539ba2ff8f163890b5a0f888cc1c4370b71a",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "6156b1906968b984b81a5a83137b539ba2ff8f163890b5a0f888cc1c4370b71a"
+    },
+    {
+      "path": "packages/ui/src/sync/DOCUMENTATION.md",
+      "behaviorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
+      "combinedSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-destination.test.ts",
+      "behaviorSha256": "defe6284dadf9db0f128fdc59cf1275d496418c58ce51ab75dc46eaf7932fb66",
+      "combinedSha256": "defe6284dadf9db0f128fdc59cf1275d496418c58ce51ab75dc46eaf7932fb66",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "defe6284dadf9db0f128fdc59cf1275d496418c58ce51ab75dc46eaf7932fb66"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-lifecycle.test.tsx",
+      "behaviorSha256": "e8ba49972ae6cb9db60b65f2887f62fbfc924abfdddad3a00aeff4bf7a650a06",
+      "combinedSha256": "e8ba49972ae6cb9db60b65f2887f62fbfc924abfdddad3a00aeff4bf7a650a06",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "e8ba49972ae6cb9db60b65f2887f62fbfc924abfdddad3a00aeff4bf7a650a06"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-native-cas.test.ts",
+      "behaviorSha256": "051f785dd186f3a7b36ddd89f5342cbc2196ac50e71d9d68b39d3f499c0e59ee",
+      "combinedSha256": "051f785dd186f3a7b36ddd89f5342cbc2196ac50e71d9d68b39d3f499c0e59ee",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "051f785dd186f3a7b36ddd89f5342cbc2196ac50e71d9d68b39d3f499c0e59ee"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-operation.ts",
+      "behaviorSha256": "0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c",
+      "combinedSha256": "0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx",
+      "behaviorSha256": "33cbd8f68e5f31c6cc9ef10831ee157cc2d9b2392889bf1a1be39ecc036a7ac9",
+      "combinedSha256": "33cbd8f68e5f31c6cc9ef10831ee157cc2d9b2392889bf1a1be39ecc036a7ac9",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "33cbd8f68e5f31c6cc9ef10831ee157cc2d9b2392889bf1a1be39ecc036a7ac9"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-review-fixture.ts",
+      "behaviorSha256": "4741391c46a3ea1335c8ed2616f71b50d0fd01709f734ee45afc829976d202f8",
+      "combinedSha256": "4741391c46a3ea1335c8ed2616f71b50d0fd01709f734ee45afc829976d202f8",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "4741391c46a3ea1335c8ed2616f71b50d0fd01709f734ee45afc829976d202f8"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-routing.test.ts",
+      "behaviorSha256": "453b3f0e85d0749b1d533e2fe7390440a36a264373aa09e721df1c9e3dca7864",
+      "combinedSha256": "453b3f0e85d0749b1d533e2fe7390440a36a264373aa09e721df1c9e3dca7864",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "453b3f0e85d0749b1d533e2fe7390440a36a264373aa09e721df1c9e3dca7864"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-owner-supersession.test.tsx",
+      "behaviorSha256": "ccd0280624f9cf8c69a1f3d850ffd47bcf6afbdb4883e991cde584f71d451849",
+      "combinedSha256": "ccd0280624f9cf8c69a1f3d850ffd47bcf6afbdb4883e991cde584f71d451849",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "ccd0280624f9cf8c69a1f3d850ffd47bcf6afbdb4883e991cde584f71d451849"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-session-owner.test.tsx",
+      "behaviorSha256": "a713218dcdab1ff73a40a7f1ee0bc7845df05b0840b0ca0bbdaffa71b3932383",
+      "combinedSha256": "a713218dcdab1ff73a40a7f1ee0bc7845df05b0840b0ca0bbdaffa71b3932383",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "a713218dcdab1ff73a40a7f1ee0bc7845df05b0840b0ca0bbdaffa71b3932383"
+    },
+    {
+      "path": "packages/ui/src/sync/selected-session-owner.ts",
+      "behaviorSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
+      "combinedSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0"
+    },
+    {
+      "path": "packages/ui/src/sync/session-actions.ts",
+      "behaviorSha256": "8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b",
+      "combinedSha256": "8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b",
+      "reason": "PR549 smarty-code#1378: exact selected-owner source, fixture, regression or documentation record outside the donor ledger. Ordinary source inventory, not stock/branding parity.",
+      "selectedOwnerAdded": true,
+      "selectedOwnerSha256": "8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -797,5 +944,92 @@
     "pullRequest": 486,
     "sourceHead": "f1a339a16dd4199c38cb033a607491a55cb1c6c7",
     "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
+  },
+  "selectedOwnerProvenance": {
+    "pullRequest": 549,
+    "issue": "smarty-code#1378",
+    "baseHead": "47531865f388d1c2a4e8b2ec331bb9b05b0ffc46",
+    "sourceHead": "2547fddaff3a764f56a3c1f3fd9c7b58952a181a",
+    "predecessorLedgerSha256": "8fec0501cecd9fe031e9bd6ca9a8f3b7dd8c7f049005b17985778957deea4e0e",
+    "predecessorLedgerBytesSha256": "e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f",
+    "scope": [
+      {
+        "status": "A",
+        "path": "packages/ui/src/components/chat/365-mounted-ended-continue.test.tsx"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/components/chat/ChatContainer.tsx"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/components/chat/ChatInput.tsx"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/lib/openOrdinaryState.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/lib/runtime-auth-generation.test.ts"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/lib/runtime-auth.ts"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/sync/DOCUMENTATION.md"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-destination.test.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-lifecycle.test.tsx"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-native-cas.test.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-operation.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-review-fixture.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-routing.test.ts"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-owner-supersession.test.tsx"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-session-owner.test.tsx"
+      },
+      {
+        "status": "A",
+        "path": "packages/ui/src/sync/selected-session-owner.ts"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/sync/session-actions.ts"
+      },
+      {
+        "status": "M",
+        "path": "packages/ui/src/sync/session-ui-store.ts"
+      }
+    ],
+    "note": "Parent-exported exact Git base-to-source scope:19 total files,12 added and7 modified. Source head2547 includes the ended-owner correction. This is behavior provenance, not a security pass, exact-head CI, native/browser proof or release acceptance."
   }
 }

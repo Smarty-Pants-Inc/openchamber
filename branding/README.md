@@ -123,6 +123,34 @@ including `X-OpenChamber-Settings-CAS`, `ETag`, `If-Match` and
 may process protocol identifiers. Combined runtime review/CI and protected owning
 landing remain separate from either earlier lane's proof.
 
+### Selected managed-owner source
+
+`selectedOwnerProvenance` names PR549 for smarty-code#1378. Its actual behavior
+source is `2547fddaff3a764f56a3c1f3fd9c7b58952a181a`, compared with Git merge base
+`47531865f388d1c2a4e8b2ec331bb9b05b0ffc46`. The exact scope has 19 files,
+12 added and 7 modified, including the ended-owner correction and its regression.
+The inventory test pins every source file's full byte hash. It does not execute
+those UI/auth tests or claim that the selected-owner behavior passed review.
+
+Only `session-ui-store.ts` overlaps the existing donor ledger.
+`preSelectedOwnerCombinedSha256` keeps its exact `81b57a1b` predecessor;
+`selectedOwnerSha256` binds its `01275f06` output. The other 18 paths are new
+source-inventory entries, marked `selectedOwnerAdded`. That marker means added
+to this ledger, not added in Git. Those ordinary modules, fixtures, tests and
+documentation have no invented stock or branding predecessor. Original donor
+coverage, asset counters and response-policy successors stay unchanged.
+
+Both ownership suites unwind this layer first. They restore the complete
+48-entry base ledger, pin its parsed digest `8fec0501` and byte digest
+`e6baee9f`, then run the older exact assertions. Native creation, draft,
+completion, input lifetime, ordinary selection, client ID and sidebar evidence
+remain intact. The current-output adapter extends only the store; it retains
+the existing response-policy adapter for unrelated owners.
+
+This is source provenance, not a new security badge. Fresh exact-head security
+review, owning CI, and the real same-Pi pane-move proof remain separate gates.
+Linux branding GREEN does not close the existing Apple compiler finding.
+
 ### Human Host boundary successors
 
 `humanHostBoundarySource` names the initial Host patch
