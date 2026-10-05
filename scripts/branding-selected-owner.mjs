@@ -37,14 +37,49 @@ export function unwindSelectedOwner(input) {
   return historical;
 }
 
-// Only the existing store is a successor of a historical owner. The eighteen
-// other records are ordinary source inventory, never blanket branding parity.
+export const selectedOwnerRepairOverlay = JSON.parse(readFileSync(new URL('../branding/selected-owner-repair-overlay.json', import.meta.url), 'utf8'));
+const repairs = new Map(selectedOwnerRepairOverlay.files.map(entry => [entry.path, entry]));
+assert.equal(repairs.size, selectedOwnerRepairOverlay.files.length, 'duplicate repair path');
+for (const entry of repairs.values()) {
+  assert.match(entry.path, /^packages\/ui\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*$/);
+  assert.ok(['M', 'A'].includes(entry.status), `${entry.path}: unsupported repair status`);
+  assert.match(entry.blob, /^[a-f0-9]{40}$/);
+  assert.match(entry.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(entry.mode, '100644');
+  assert.match(entry.note, /\S/, `${entry.path}: missing repair disposition`);
+  if (entry.status === 'A') {
+    assert.equal(entry.predecessorBlob, null);
+    assert.equal(entry.predecessorMode, null);
+    assert.equal(entry.predecessorSha256, null);
+  } else {
+    assert.match(entry.predecessorBlob, /^[a-f0-9]{40}$/);
+    assert.equal(entry.predecessorMode, entry.mode);
+    assert.match(entry.predecessorSha256, /^[a-f0-9]{64}$/);
+  }
+}
+
+// Additions are inventory only: they have no historical output to map.
+export function selectedOwnerRepairOutputSha256(file, predecessorSha256) {
+  const entry = repairs.get(file);
+  if (!entry || entry.status === 'A') return predecessorSha256;
+  assert.equal(predecessorSha256, entry.predecessorSha256, `${file}: repair predecessor changed`);
+  assert.match(entry.sha256, /^[a-f0-9]{64}$/);
+  assert.match(entry.note, /\S/, `${file}: missing repair disposition`);
+  return entry.sha256;
+}
+
+// Preserve the historical store and response-policy guards before the terminal repair.
 export function selectedOwnerOutputSha256(file, historicalSha256) {
-  if (file !== store) return responsePolicyOutputSha256(file, historicalSha256);
-  const entry = selectedOwnerOverlay.files.find(owner => owner.path === store);
-  assert.equal(historicalSha256, predecessor, `${file}: selected-owner predecessor changed`);
-  assert.equal(entry.preSelectedOwnerCombinedSha256, predecessor);
-  assert.equal(entry.selectedOwnerSha256, successor);
-  assert.equal(entry.combinedSha256, successor);
-  return successor;
+  let output;
+  if (file !== store) {
+    output = responsePolicyOutputSha256(file, historicalSha256);
+  } else {
+    const entry = selectedOwnerOverlay.files.find(owner => owner.path === store);
+    assert.equal(historicalSha256, predecessor, `${file}: selected-owner predecessor changed`);
+    assert.equal(entry.preSelectedOwnerCombinedSha256, predecessor);
+    assert.equal(entry.selectedOwnerSha256, successor);
+    assert.equal(entry.combinedSha256, successor);
+    output = successor;
+  }
+  return selectedOwnerRepairOutputSha256(file, output);
 }
