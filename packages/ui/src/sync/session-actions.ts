@@ -396,6 +396,9 @@ function reconcileSessionMove(
 
 /** Observe an external pane move locally. Never dispatch a control-plane move or transfer an accepted view. */
 export function adoptObservedSessionOwner(session: Session, sourceDirectory: string): void {
+  // This is the last verified boundary before local move reconciliation. Refuse a
+  // destination draft conflict before invalidation or attribution can mutate state.
+  useSessionUIStore.getState().prepareObservedOwnerDraftTransfer(session.id, sourceDirectory, session.directory)
   invalidateSessionLoads(session.id, [sourceDirectory, session.directory])
   const moved = reconcileSessionMove(session, sourceDirectory, session.directory)
   // Other initialized children may still hold the losing row. Rewrite its metadata, not its history.

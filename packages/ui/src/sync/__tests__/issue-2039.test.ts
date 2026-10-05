@@ -219,6 +219,8 @@ mock.module("@/lib/userSendAnimation", () => ({
 
 mock.module("../sync-context", () => ({
   setActiveSession: () => undefined,
+  useSyncRuntime: () => { throw new Error("Unexpected sync runtime hook in legacy draft fixture") },
+  useDirectoryStore: () => { throw new Error("Unexpected directory hook in legacy draft fixture") },
 }))
 
 mock.module("../notification-store", () => ({
@@ -264,7 +266,9 @@ mock.module("../input-store", () => ({
   },
 }))
 
+const realSyncRefs = { ...await import("../sync-refs") }
 mock.module("../sync-refs", () => ({
+  ...realSyncRefs,
   getDirectoryState: () => null,
   getSyncSessions: () => [],
   getSyncMessages: () => [],
@@ -278,6 +282,7 @@ mock.module("../sync-refs", () => ({
 
 mock.module("../session-actions", () => ({
   createNativeSession: () => { throw new Error("Unexpected native creation in legacy draft fixture") },
+  adoptObservedSessionOwner: () => { throw new Error("Unexpected ordinary owner adoption in legacy draft fixture") },
   // Mirrors the real action's authoritative steps: the created session becomes
   // current under the directory the server confirmed, and that directory enters
   // the routing index. Everything these tests assert about routing depends on

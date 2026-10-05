@@ -95,7 +95,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey, captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from "@/lib/runtime-switch"
-import { claimChatDraftOwnership, createChatDraftIdentity, type ChatDraftIdentity } from '@/lib/chatDraftPersistence'
+import { claimChatDraftOwnership, createChatDraftIdentity, readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence'
 import { NativeCreationError } from '@/lib/opencode/nativeCreation'
 import { preparedNativeDraft, type NativeDraftCreation } from './native-draft-creation'
 import { acceptNativeDraftSend, assertNativeDraftReady, beginNativeDraftSend, isFirstSendInFlightFor, prepareNativeDraftSend, type NativeDraftSend } from './native-draft-send'
@@ -408,6 +408,7 @@ export type SessionUIState = {
   currentSessionId: string | null
   currentSessionDirectory: string | null
   materializedDraftSessionId: string | null
+  prepareObservedOwnerDraftTransfer: (sessionId: string, sourceDirectory: string, destinationDirectory: string) => void
   newSessionDraft: NewSessionDraftState
   nativeDraftCreations: ReadonlyMap<string, NativeDraftCreation>
   abortPromptSessionId: string | null
@@ -714,6 +715,46 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
 let nextDraftId = 1
 let pendingGlobalCatalogDraft: { draftId: number; runtimeKey: string; edited?: boolean; remembered?: PersistedDraftTarget } | null = null
 let catalogDraftTransfer: { draftId: number; runtimeKey: string; to: string | null; edited?: boolean } | null = null
+type ObservedOwnerDraftTransfer = { scope: RuntimeRequestScope; revision: number; sessionId: string; sourceDirectory: string; destinationDirectory: string }
+let observedOwnerDraftTransfer: ObservedOwnerDraftTransfer | null = null
+
+/** Arm only the currently selected, verified same-session move; never transfer a background session's draft. */
+function prepareObservedOwnerDraftTransfer(sessionId: string, sourceDirectory: string, destinationDirectory: string): void {
+  const state = useSessionUIStore.getState(), owner = state.selectedManagedOwner
+  const source = normalizePath(sourceDirectory), destination = normalizePath(destinationDirectory)
+  if (!source || !destination || source === destination || state.currentSessionId !== sessionId
+    || normalizePath(state.currentSessionDirectory) !== source || owner?.status !== 'checking'
+    || owner.sessionID !== sessionId || owner.directory !== source || !isSelectedOwnerCurrent(owner)) return
+  const destinationDraft = readChatDraft({ runtimeKey: owner.scope.runtimeKey, directory: destination, sessionId })
+  if (destinationDraft.text || destinationDraft.confirmedMentions.size > 0) {
+    throw new Error(`Cannot adopt session ${sessionId}: destination draft is not empty; reopen it before moving the session.`)
+  }
+  observedOwnerDraftTransfer = { scope: owner.scope, revision: state.sessionRevealRevision,
+    sessionId, sourceDirectory: source, destinationDirectory: destination }
+}
+
+/** Consume the one verified move after React publishes the destination identity. */
+export function consumeObservedOwnerDraftTransfer(
+  previous: ChatDraftIdentity | null,
+  current: ChatDraftIdentity | null,
+): false | 'retain' | 'conflict' {
+  const transfer = observedOwnerDraftTransfer, state = useSessionUIStore.getState()
+  if (!transfer) return false
+  if (!isRuntimeRequestScopeCurrent(transfer.scope) || state.currentSessionId !== transfer.sessionId
+    || state.sessionRevealRevision !== transfer.revision || state.selectedManagedOwner?.scope !== transfer.scope) {
+    observedOwnerDraftTransfer = null
+    return false
+  }
+  if (!previous || !current || state.currentSessionDirectory !== transfer.destinationDirectory
+    || state.selectedManagedOwner?.adopted !== true || state.selectedManagedOwner.directory !== transfer.destinationDirectory
+    || previous.runtimeKey !== transfer.scope.runtimeKey || current.runtimeKey !== transfer.scope.runtimeKey
+    || previous.sessionId !== transfer.sessionId || current.sessionId !== transfer.sessionId
+    || previous.directory !== transfer.sourceDirectory || current.directory !== transfer.destinationDirectory) return false
+  observedOwnerDraftTransfer = null
+  // A verified conflict is not navigation: with storage off the source exists only in the live editor.
+  const destinationDraft = readChatDraft(current)
+  return destinationDraft.text || destinationDraft.confirmedMentions.size > 0 ? 'conflict' : 'retain'
+}
 
 export function markDraftInputEdited(draftId: number): void {
   const draft = useSessionUIStore.getState().newSessionDraft
@@ -1185,6 +1226,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     } })
   },
   materializedDraftSessionId: null,
+  prepareObservedOwnerDraftTransfer,
   newSessionDraft: { ...DEFAULT_DRAFT },
   nativeDraftCreations: new Map(),
   abortPromptSessionId: null,

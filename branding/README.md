@@ -129,7 +129,8 @@ landing remain separate from either earlier lane's proof.
 source is `2547fddaff3a764f56a3c1f3fd9c7b58952a181a`, compared with Git merge base
 `47531865f388d1c2a4e8b2ec331bb9b05b0ffc46`. The exact scope has 19 files,
 12 added and 7 modified, including the ended-owner correction and its regression.
-The inventory test pins every source file's full byte hash. It does not execute
+The inventory test keeps every historical source file's full byte hash. Its disk
+comparison follows the explicit repair successor below. It does not execute
 those UI/auth tests or claim that the selected-owner behavior passed review.
 
 Only `session-ui-store.ts` overlaps the existing donor ledger.
@@ -144,8 +145,34 @@ Both ownership suites unwind this layer first. They restore the complete
 48-entry base ledger, pin its parsed digest `8fec0501` and byte digest
 `e6baee9f`, then run the older exact assertions. Native creation, draft,
 completion, input lifetime, ordinary selection, client ID and sidebar evidence
-remain intact. The current-output adapter extends only the store; it retains
-the existing response-policy adapter for unrelated owners.
+remain intact. The historical selected-owner mapping extends only the store and
+retains the response-policy mapping for unrelated owners. The repair mapping
+runs last, after either historical mapping.
+
+`selected-owner-repair-overlay.json` records the frozen successor of base
+`11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
+and `sourceTree` is native Git subtree `983e35e27bee3b3fb9acbeafb84ee1d9f2c9fb80`.
+This is a UI tree, not a commit, full repository tree or qualified release pin.
+Branding, scripts and this README are outside that subtree, so UI and provenance
+can land in one combined patch without a future commit or self-reference.
+
+The exact parent-exported scope contains 15 paths, 9 modified and 6 added.
+Each row keeps native SHA1 blob IDs, file modes, separate byte SHA256 hashes and
+its repair disposition. Modified rows name their actual base bytes even outside
+the old ledger. Added rows have null predecessor fields and are source inventory,
+never historical stock or branding parity. The old 19-file table and complete
+66-entry behavior ledger remain unchanged. Their parsed digest is `976e08cc`
+and raw byte digest is `25d8427a`; the older 48-entry unwind stays unchanged.
+
+The repair test fixes metadata and all rows from independent parent-native
+exports, then hashes all 15 current files. It needs no old or unreachable Git
+objects. Run it explicitly with
+`node --test scripts/branding-selected-owner-repair.test.mjs`.
+The isolated root runner discovers it, but `test:brand` does not list it.
+Metadata equality does not recompute the complete UI Git tree. Parent integration
+must compare the final combined commit's native `packages/ui` subtree with this
+pin and verify its full delta and every exported blob. Any UI byte change
+invalidates the export and requires a fresh freeze and native receipt.
 
 This is source provenance, not a new security badge. Fresh exact-head security
 review, owning CI, and the real same-Pi pane-move proof remain separate gates.

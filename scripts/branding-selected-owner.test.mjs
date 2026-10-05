@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { selectedOwnerOverlay as overlay, unwindSelectedOwner, selectedOwnerOutputSha256 } from './branding-selected-owner.mjs';
+import { selectedOwnerOverlay as overlay, unwindSelectedOwner, selectedOwnerOutputSha256, selectedOwnerRepairOutputSha256 } from './branding-selected-owner.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const read = file => readFileSync(new URL(`../${file}`, import.meta.url));
@@ -56,7 +56,7 @@ function assertInventory(candidate, readSource = read) {
     const entry = owners.get(file);
     assert.equal(entry.selectedOwnerSha256, hash, file);
     assert.equal(entry.combinedSha256, hash, file);
-    assert.equal(digest(readSource(file)), hash, `${file}: frozen source bytes`);
+    assert.equal(digest(readSource(file)), selectedOwnerRepairOutputSha256(file, hash), `${file}: frozen source bytes`);
     if (file === store) {
       assert.equal(entry.preSelectedOwnerCombinedSha256, predecessor);
       assert.equal(entry.personalSidebarRevealSha256, predecessor);

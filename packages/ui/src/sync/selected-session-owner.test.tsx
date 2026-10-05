@@ -17,6 +17,7 @@ import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { deferred } from '@/lib/runtime-isolation-fixture';
 import { readOpenOrdinaryState } from '@/lib/openOrdinaryState';
 import { checkSelectedSessionOwner, readSelectedSessionOwner, useSelectedSessionOwner } from './selected-session-owner';
+import type { useSyncRuntime } from './sync-context';
 
 const A = '/admitted/source', B = '/admitted/destination', id = 'same-native-session';
 const view = `ov2_${'d'.repeat(64)}`;
@@ -176,9 +177,14 @@ test('mounted selected owner hook recovers without a keystroke; healthy stock ma
     const owner = useSelectedSessionOwner(id, directory ?? undefined, false);
     seen.push(owner?.status ?? 'stock'); return <button disabled={owner?.status !== 'live'}>{owner?.status}</button>;
   };
+  const globals: typeof globalThis & { __openchamber_sync_runtime_context__?: React.Context<ReturnType<typeof useSyncRuntime> | null> } = globalThis;
+  const context = globals.__openchamber_sync_runtime_context__;
+  if (!context) throw new Error('Native sync runtime context missing');
+  const runtime: ReturnType<typeof useSyncRuntime> = { childStores: stores, messageLoader: loader, sdk: opencodeClient.getSdkClient(), runtimeKey: 'owner-test',
+    currentDirectory: { get: () => useSessionUIStore.getState().currentSessionDirectory ?? '', subscribe: listener => useSessionUIStore.subscribe(listener) } };
   const root = createRoot(document.createElement('div'));
   try {
-    await act(async () => { root.render(<Probe />); await new Promise(resolve => setTimeout(resolve, 80)); });
+    await act(async () => { root.render(<context.Provider value={runtime}><Probe /></context.Provider>); await new Promise(resolve => setTimeout(resolve, 80)); });
     expect(seen).toContain('checking'); expect(seen.at(-1)).toBe('live'); expect(seen).not.toContain('ended');
     await act(async () => { useProjectsStore.setState({ managedCatalogAdmitted: false }); useSessionUIStore.setState({ selectedManagedOwner: null }); });
     expect(readSelectedSessionOwner(id, B)).toBeNull();
