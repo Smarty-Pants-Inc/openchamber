@@ -120,6 +120,7 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string):
       assertDestination();
       const pane = readHerdrPaneLive(result.data);
       if (pane === false && isHerdrEnded(result.data)) {
+        if (identity.directory !== directory) throw new Error('Ended owner directory differs from selected directory');
         proof = { ...proof, status: 'ended', row: result.data };
         useSessionUIStore.setState({ selectedManagedOwner: proof });
         return;
