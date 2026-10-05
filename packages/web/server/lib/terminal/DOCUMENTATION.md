@@ -51,6 +51,12 @@ PTYs or alter their history. Required Node mode also closes idle connections whe
 the controller's membership sweep observes withdrawal. Passwordless and legacy
 UI-password frames retain their existing synchronous behavior.
 
+Human HTTP create and queued restart operations retain the original request's
+connection handle. After directory, provider and shell preparation, each pending
+spawn attempt rechecks that authority immediately before invoking the provider.
+A refused or closed request cannot spawn, replace a PTY or clear its history.
+A spawn already invoked while authorized may settle normally after withdrawal.
+
 The WebSocket path must remain in both `isUrlAuthWebSocketPath` and relay `ALLOWED_WS_PATHS`. The client must use `getRuntimeUrlResolver().websocket()` and `openRuntimeWebSocket`; direct local URLs or raw browser WebSockets break relay and URL-token authentication.
 
 ## Verification

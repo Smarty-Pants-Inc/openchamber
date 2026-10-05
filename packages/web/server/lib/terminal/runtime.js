@@ -119,11 +119,12 @@ export function createTerminalRuntime({
     return ptyProviderPromise;
   };
 
-  const spawnPty = async ({ cwd, cols, rows, themeMode, shell, loginShell, mode, command }) => {
+  const spawnPty = async ({ cwd, cols, rows, themeMode, shell, loginShell, mode, command }, humanConnection, response) => {
     const provider = await getPtyProvider();
     const resolvedShell = await shellResolver.resolve(shell);
     let lastError = null;
     for (const executable of resolvedShell.executables) {
+      let launch, options;
       try {
         const env = { ...process.env, PATH: buildAugmentedPath(), TERM: 'xterm-256color', COLORTERM: 'truecolor', COLORFGBG: themeMode === 'light' ? '0;15' : '15;0' };
         // The daemon's IPC fd is closed inside the PTY. An explicit override is
@@ -134,9 +135,17 @@ export function createTerminalRuntime({
         // bun-pty also merges the native OS environ, so wrap with `env -u ARGV0` on Linux.
         stripAppImageArgv0Leak(env);
         const shellLaunch = buildTerminalShellLaunch(executable, { mode, command, loginShell });
-        const launch = resolveLinuxPtyLaunch(shellLaunch.executable, shellLaunch.args);
-        const options = { name: 'xterm-256color', cwd, cols, rows, env };
+        launch = resolveLinuxPtyLaunch(shellLaunch.executable, shellLaunch.args);
+        options = { name: 'xterm-256color', cwd, cols, rows, env };
         if (process.platform === 'win32') options.useConpty = true;
+      } catch (error) { lastError = error; continue; }
+      // The original HTTP owner must authorize every still-unissued attempt.
+      // Keep refusal outside fallback handling and invocation adjacent to the check.
+      if (uiAuthController?.humanMode && (!humanConnection || !await humanConnection.authorize())) {
+        throw new Error('Human terminal authorization required');
+      }
+      if (response?.destroyed || response?.writableEnded) throw new Error('Terminal response is closed');
+      try {
         return { process: await provider.spawn(launch.executable, launch.args, options), backend: provider.backend, shell: resolvedShell.id, loginShell };
       } catch (error) { lastError = error; }
     }
@@ -265,9 +274,9 @@ export function createTerminalRuntime({
     }
   };
 
-  const startSession = async (session, { cwd, cols, rows, themeMode = 'dark', terminalBackground, terminalForeground, shell, loginShell, mode = INTERACTIVE_TERMINAL_MODE, command = null, purpose = TERMINAL_PURPOSE }, clear = true) => {
+  const startSession = async (session, { cwd, cols, rows, themeMode = 'dark', terminalBackground, terminalForeground, shell, loginShell, mode = INTERACTIVE_TERMINAL_MODE, command = null, purpose = TERMINAL_PURPOSE }, humanConnection, response, clear = true) => {
     await validateCwd(cwd);
-    const spawned = await spawnPty({ cwd, cols, rows, themeMode, shell, loginShell, mode, command });
+    const spawned = await spawnPty({ cwd, cols, rows, themeMode, shell, loginShell, mode, command }, humanConnection, response);
     if (clear) { session.history = ''; session.pendingHistoryControlSequence = ''; session.pendingThemeControlSequence = ''; session.themeModeEnabled = false; }
     session.cwd = cwd; session.cols = cols; session.rows = rows; session.process = spawned.process;
     session.backend = spawned.backend; session.shell = spawned.shell; session.loginShell = spawned.loginShell; session.status = 'running'; session.exitCode = null; session.signal = null;
@@ -279,7 +288,8 @@ export function createTerminalRuntime({
     return spawned.process;
   };
 
-  const createSession = async ({ sessionId, cwd, cols = 80, rows = 24, themeMode, terminalBackground, terminalForeground, shell = 'auto', loginShell = false, mode, command, purpose }) => {
+  const createSession = async ({ sessionId, cwd, cols = 80, rows = 24, themeMode, terminalBackground, terminalForeground, shell = 'auto', loginShell = false, mode, command, purpose }, humanConnection, response) => {
+    if (uiAuthController?.humanMode && !humanConnection) throw new Error('Human terminal authorization required');
     if (!validateSize(cols, 1000) || !validateSize(rows, 500)) throw new Error('Invalid terminal dimensions');
     if (typeof loginShell !== 'boolean') throw new Error('Invalid terminal login mode');
     const normalizedShell = normalizeTerminalShell(shell);
@@ -314,12 +324,20 @@ export function createTerminalRuntime({
       if (pending.mode !== launchMode.mode) throw new Error('Terminal session is already being created with a different mode');
       if (launchMode.mode === COMMAND_TERMINAL_MODE && pending.command !== launchMode.command) throw new Error('Terminal session is already being created with a different command');
       const session = await pending.promise;
+      if (uiAuthController?.humanMode && (!humanConnection || !await humanConnection.authorize())) {
+        throw new Error('Human terminal authorization required');
+      }
+      if (response?.destroyed || response?.writableEnded) throw new Error('Terminal response is closed');
       applyAppearance(session, { themeMode, terminalBackground, terminalForeground });
       return session;
     }
     const pendingActionCreate = findPendingActionCreate(pendingSessionCreates, resolvedCwd, normalizedPurpose);
     if (pendingActionCreate) {
       const session = await pendingActionCreate.promise;
+      if (uiAuthController?.humanMode && (!humanConnection || !await humanConnection.authorize())) {
+        throw new Error('Human terminal authorization required');
+      }
+      if (response?.destroyed || response?.writableEnded) throw new Error('Terminal response is closed');
       applyAppearance(session, { themeMode, terminalBackground, terminalForeground });
       return session;
     }
@@ -331,7 +349,7 @@ export function createTerminalRuntime({
     const pendingEntry = { cwd: resolvedCwd, shell: normalizedShell, loginShell, mode: launchMode.mode, command: launchMode.command, purpose: normalizedPurpose, cancelled: false, promise: null };
     const creation = (async () => {
       const session = existing ?? { id, sequence: 0, history: '', pendingHistoryControlSequence: '', pendingThemeControlSequence: '', eventQueue: [], draining: false, createdAt: Date.now() };
-      const ptyProcess = await startSession(session, { cwd, cols, rows, themeMode, terminalBackground, terminalForeground, shell: normalizedShell, loginShell, mode: launchMode.mode, command: launchMode.command, purpose: normalizedPurpose });
+      const ptyProcess = await startSession(session, { cwd, cols, rows, themeMode, terminalBackground, terminalForeground, shell: normalizedShell, loginShell, mode: launchMode.mode, command: launchMode.command, purpose: normalizedPurpose }, humanConnection, response);
       if (pendingEntry.cancelled) {
         session.process = null;
         await terminateProcess(ptyProcess, true);
@@ -482,7 +500,8 @@ export function createTerminalRuntime({
   });
   app.post('/api/terminal/create', async (req, res) => {
     try {
-      const session = await createSession(req.body ?? {});
+      const session = await createSession(req.body ?? {}, req.humanConnection, res);
+      if (res.destroyed || res.writableEnded) return;
       res.json({
         sessionId: session.id,
         cols: session.cols,
@@ -492,7 +511,9 @@ export function createTerminalRuntime({
         purpose: getSessionPurpose(session),
       });
     }
-    catch (error) { res.status(error?.message === 'Maximum terminal sessions reached' ? 429 : 400).json(errorBody(error, 'Failed to create terminal session')); }
+    catch (error) {
+      if (!res.destroyed && !res.writableEnded) res.status(error?.message === 'Maximum terminal sessions reached' ? 429 : 400).json(errorBody(error, 'Failed to create terminal session'));
+    }
   });
   app.post('/api/terminal/:sessionId/resize', (req, res) => {
     const session = sessions.get(req.params.sessionId);
@@ -520,13 +541,14 @@ export function createTerminalRuntime({
     const terminalForeground = req.body?.terminalForeground ?? session.terminalForeground;
     const shell = req.body?.shell ?? 'auto';
     const loginShell = req.body?.loginShell ?? false;
+    const humanConnection = req.humanConnection;
     const previousRestart = pendingSessionRestarts.get(session.id) ?? Promise.resolve();
     const restart = previousRestart.catch(() => {}).then(async () => {
       await validateCwd(cwd);
       if (!validateSize(cols, 1000) || !validateSize(rows, 500)) throw new Error('Invalid terminal dimensions');
       if (typeof loginShell !== 'boolean') throw new Error('Invalid terminal login mode');
       const oldProcess = session.process;
-      const spawned = await spawnPty({ cwd, cols, rows, themeMode, shell, loginShell });
+      const spawned = await spawnPty({ cwd, cols, rows, themeMode, shell, loginShell }, humanConnection, res);
       session.process = spawned.process; session.backend = spawned.backend; session.shell = spawned.shell; session.loginShell = spawned.loginShell; session.cwd = cwd; session.cols = cols; session.rows = rows;
       session.history = ''; session.pendingHistoryControlSequence = ''; session.pendingThemeControlSequence = ''; session.themeModeEnabled = false; session.status = 'running'; session.exitCode = null; session.signal = null; session.eventQueue.length = 0;
       session.themeMode = themeMode === 'light' ? 'light' : 'dark'; session.terminalBackground = terminalBackground; session.terminalForeground = terminalForeground;
@@ -535,8 +557,10 @@ export function createTerminalRuntime({
     pendingSessionRestarts.set(session.id, restart);
     try {
       await restart;
-      res.json({ sessionId: session.id, cols, rows, status: session.status });
-    } catch (error) { res.status(400).json(errorBody(error, 'Failed to restart terminal')); }
+      if (!res.destroyed && !res.writableEnded) res.json({ sessionId: session.id, cols, rows, status: session.status });
+    } catch (error) {
+      if (!res.destroyed && !res.writableEnded) res.status(400).json(errorBody(error, 'Failed to restart terminal'));
+    }
     finally { if (pendingSessionRestarts.get(session.id) === restart) pendingSessionRestarts.delete(session.id); }
   });
   app.delete('/api/terminal/:sessionId', async (req, res) => {
