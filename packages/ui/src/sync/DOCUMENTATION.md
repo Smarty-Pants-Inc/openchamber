@@ -38,6 +38,49 @@ So:
 - Use the **global sessions store** for cold/global session coverage (especially archived pages and unopened directories)
 - Use **aggregated child-store sessions and the global live status index** for live truth across initialized directories
 
+## Selected managed session ownership
+
+`selected-session-owner.ts` owns the proof readers and React hook. `selected-owner-operation.ts`
+owns their shared request and selection lifetime, including cancellation, native CAS and adoption.
+The public check/retain entrypoints remain exported from `selected-session-owner.ts`.
+They check one selected ordinary session's owner when an ended,
+retained-unavailable or conflicting-directory row would otherwise decide the page. It stores
+that transient result in `session-ui-store.ts`, which already owns selection. Healthy stock,
+reload, disconnected and ordinary fleet read-only behavior keep their existing path.
+
+The runtime SDK's unqualified session detail uses the managed gateway's strict admitted-project
+lookup. Every admitted listing must succeed; fleet cache refresh and missing/404 responses do
+not certify an end. Only a fresh explicit ended row with `herdrPaneLive:false` confirms ended.
+The extension parser reads pane topology, never cached busy/model presence. Checking and unknown
+results show no ended/Continue claim and block the composer and dispatch preflight.
+
+A live destination needs fresh scoped detail and a fresh newest writable accepted loader view.
+`adoptObservedSessionOwner` reuses local move reconciliation and selection routing. It invalidates
+both targets' loader views, preserves session/draft/history identity, and never invokes the
+control-plane move endpoint. Confirmed owner routing outranks late losing child metadata.
+Ordinary sends then retain the loader's existing same-branch sendable-view behavior.
+
+One selected check shares its strict read and has a ten-second observation deadline. Runtime,
+auth, selection A-B-A, admitted catalog identity and native generation changes reject stale
+completion. Mounted consumers own and release the selection observer. Last unmount, selection,
+catalog or credential-generation supersession aborts pending detail work immediately. StrictMode
+cleanup can start a replacement leg; the operation's own synchronous A-to-B adoption does not cancel
+itself. Explicit checks own observers until settlement and share an already-pending selected check.
+
+Destination per-ID row and mutation revisions are captured before the strict read, checked again
+across scoped detail, then recaptured for the operation's own child initialization and adoption. Any newer child
+observation across the loader await prevents live permission. Native generations are opaque, not
+ordered. Only a current verified live owner can outrank canonical record ownership for title/archive
+routing. Checking and unknown block Send but do not promote the selection fallback. A same-ID plain
+stock replacement drops stale proof; a reconciled live alias keeps its proof against late losing rows.
+
+Unknown retries on existing endpoint, credential-generation, connection or loader recovery signals,
+or an explicit check, not immediately on 503. Credential notifications carry no credentials and fire
+after the existing provider assignment. Recovery uses the loader's existing configure seam to revoke
+old accepted views and replace its credential-bound SDK, then requires a fresh writable accepted view.
+There is no new fleet scan, polling loop or mutation redirect. Tests use real SDK,
+React, child stores and loader with controlled transport responses; they do not qualify native
+pane moves or the original Pi process.
 ## Ownership map
 
 | Layer / Store | Owns | Scope |
