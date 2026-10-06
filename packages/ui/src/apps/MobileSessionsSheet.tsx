@@ -75,6 +75,7 @@ import type { WorktreeMetadata } from '@/types/worktree';
 
 import { MobileDeleteWorktreeDialog } from './MobileDeleteWorktreeDialog';
 import { MobileProjectEditSurface } from './MobileProjectEditSurface';
+import { FeedMenuButton } from '@/components/views/feed/FeedNav';
 
 type MobileSessionsSheetProps = {
   open: boolean;
@@ -1980,6 +1981,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               <div className="min-w-0 flex-1" />
             )}
             <div className="flex shrink-0 items-center gap-1">
+              <FeedMenuButton onOpen={() => onOpenChange(false)} />
               {footer.onOpenUpdate ? (
                 <Button
                   type="button"
