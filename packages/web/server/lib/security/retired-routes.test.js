@@ -18,3 +18,14 @@ test('remaining routes and look-alike names are not retired', () => {
     '/api/terminal-theme', '/api/session/terminal', '/terminal', '/api', '/', '', '/api/fs/exec',
   ]) assert.equal(isRetiredRoutePath(url), false, url);
 });
+
+test('security round 2: a malformed escape or deep encoding never hides the retired namespace', () => {
+  let deep = 'terminal';
+  for (let round = 0; round < 6; round += 1) deep = encodeURIComponent(deep).replace(/t/, '%74');
+  for (const url of [
+    '/api/%74erminal/ws%', '/api/%74erminal/ws%zz', '/api/%2574erminal/ws%E0%A4%A', // valid escapes decode past a malformed tail
+    `/api/${deep}/ws`, // six rounds of encoding
+    `/api/${Array.from({ length: 17 }).reduce((v) => v.replace(/%/g, '%25'), '%74erminal')}/ws`, // still decoding past the bound: fail closed
+  ]) assert.equal(isRetiredRoutePath(url), true, url);
+  for (const url of ['/api/global/event/ws%', '/api/%zz/ws']) assert.equal(isRetiredRoutePath(url), false, url);
+});

@@ -3,26 +3,27 @@
 // the served index or an unowned raw upgrade socket.
 const RETIRED_NAMESPACES = [['api', 'terminal']];
 
+// Tolerant, repeated percent-decoding (security round 2): a malformed escape never stops decoding the
+// valid ones, and a value that keeps changing past the bound is treated as retired (fail closed).
+const DECODE_ROUNDS = 16;
+const UNDECIDABLE = Symbol('undecidable');
 const decodeFully = (value) => {
   let current = value;
-  for (let round = 0; round < 4; round += 1) {
-    let next;
-    try {
-      next = decodeURIComponent(current);
-    } catch {
-      return current;
-    }
+  for (let round = 0; round < DECODE_ROUNDS; round += 1) {
+    const next = current.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
     if (next === current) return current;
     current = next;
   }
-  return current;
+  return UNDECIDABLE;
 };
 
 // Normalize the spellings Express or an upstream may treat as equal: case,
 // percent-encoding, backslashes, repeated slashes and dot segments.
 const pathSegments = (pathname) => {
+  const decoded = decodeFully(pathname);
+  if (decoded === UNDECIDABLE) return UNDECIDABLE;
   const segments = [];
-  for (const segment of decodeFully(pathname).replace(/\\/g, '/').toLowerCase().split('/')) {
+  for (const segment of decoded.replace(/\\/g, '/').toLowerCase().split('/')) {
     if (segment === '' || segment === '.') continue;
     if (segment === '..') {
       segments.pop();
@@ -35,6 +36,7 @@ const pathSegments = (pathname) => {
 
 const isRetiredPathname = (pathname) => {
   const segments = pathSegments(pathname);
+  if (segments === UNDECIDABLE) return true;
   return RETIRED_NAMESPACES.some((namespace) => namespace.every((part, index) => segments[index] === part));
 };
 
