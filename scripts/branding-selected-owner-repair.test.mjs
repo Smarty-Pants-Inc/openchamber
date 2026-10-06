@@ -7,21 +7,36 @@ import { responsePolicyOutputSha256 } from './branding-response-policy.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const read = file => readFileSync(new URL(`../${file}`, import.meta.url));
-// Copied from the independently native-exported parent receipt, SHA256 bfce2367.
+// Copied from the frozen round-4 parent-native receipt, SHA256 83c6f2b4.
 // Never learned from the candidate ledger or filesystem; no Git object dependency.
 const inventory = [
-  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', 'ac840de0783c05a0bd8eedf695d66d20b1ae251c',
-    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', '8607f70bbfa988cb95d564210332b5a2a0f54c8b6ba837e72683ad9306aed9a0',
-    'Connect verified owner draft transfer and capture submission write authority for recovery and accepted cleanup.'],
-  ['M', 'packages/ui/src/components/chat/composer/state/useComposerDraft.ts', 'a016acfef2c108e95982c945dd6005c1d77c4aae', '252ba27c7ead35322e59d83684f8c506fd200351',
-    '6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011', '096c5816df984028cca6032338682e947628a1182876d080b7d54e46e6425495',
-    'Retain live input through verified moves and prevent page-only conflict submissions from writing the destination draft.'],
+  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', '6f2e45a900da3bafd8c6c2fd9b0892e140be2a23',
+    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', 'ca06443f2ae4567b5057e8dae4c2853abb099a0d1056b072d5cdbde6fc63a092',
+    'Transfer pending recovery target and owned input only after verified same-session owner adoption.'],
+  ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', '2134c269430e53b822ebf0f18b2dc17921ca3520',
+    '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'aae854fa750dc23eee2287bfcfa79db9d08b3347234f29db8c10c089de735a67',
+    'Document pending Send recovery and client identity across a verified same-session owner move.'],
+  ['M', 'packages/ui/src/components/chat/composer/state/useComposerDraft.ts', 'a016acfef2c108e95982c945dd6005c1d77c4aae', '795c8717aa9f7ea0b167e89a2968cdfcdf68d08c',
+    '6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011', '842c701a5ed447c9aa409f81b0c479ede079a07baed0c2c5a556d3fb6d03cc47',
+    'Transfer live editor and pending-send recovery identity through the verified owner-move boundary.'],
   ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx', null, '33b0a27a6d8f267222738b1e5227dc3a674f2b2a',
     null, '6d9e623637b5c1123daaf7057709c03f3ee91856140db129e2f680794ab58425',
     'Add actual composer move, input, mention, conflict and runtime isolation regressions; no historical predecessor.'],
-  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '5bf7323e0570a7218eb1484b410113869a6a6981',
-    null, 'e0217cf79af1d79fe36fbbbce6078b676c8dcdfad6c400748271772353d9d641',
-    'Add failed send and late accepted cleanup regressions for protected and ordinary drafts; no historical predecessor.'],
+  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx', null, '61b0f5cfd806fc8fb175f64b5c0041ac33b63301',
+    null, '9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e',
+    'Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection.'],
+  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '739479d0b06ee9e098237d9a2b93271446a9c260',
+    null, '94e91919fb5cf2c507610a2155bf0794cb5162699a0e5dc82bde00a1d2873a65',
+    'Cover held POST moves before and after watchdog restoration, drafts on/off, one client ID and late cleanup.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.test.ts', '9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29', 'fb30e14db87d84e5c26136e32024f531a8b1f575',
+    'a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d', 'bd920b6d8f7d88804ac6deb79c9f34ba92a641e91d852653f96113c827447799',
+    'Cover transferred recovery groups, explicit resend deduplication, late acceptance and unrelated-target isolation.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '613f5a47cd5dc3b4304f2f82cdc12db93632c412',
+    '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', 'b5cd0ae30133737354df0227389f2012d1de307219c3e499b9b7a7410496ca3c',
+    'Retarget pending recovery groups only through verified same-session owner transfer while preserving client IDs and owned input.'],
+  ['M', 'packages/ui/src/sync/DOCUMENTATION.md', '16d18c486a11185137809abd0787bb3f48157ddf', '5b0a9b84bec562a07524ec1b0ec6d7bc3c722a91',
+    '6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4', 'b2500f9fddea9bd6138aa505dc6d059e302a771ddf6667d485e460acf6217a7f',
+    'Document bounded quiet history recovery and verified pending submission ownership transfer.'],
   ['M', 'packages/ui/src/sync/__tests__/issue-2039.test.ts', 'e36c09042954387cf3948994463f2755fc46fd74', '374c93c4ec31a25075aa7a6ca03e6a17eb8de130',
     '8e3f78cc062ced51015dd3f310fc9c8bbbd40cc8f822ded2a37d55c2a0fa90c6', '8c341c7ec6e506b2db5241f88e9c1b816f494de3533942cdec59ba429dca68ab',
     'Keep legacy draft fixture exports compatible with the provider-scoped owner imports and reject unexpected owner adoption.'],
@@ -31,9 +46,9 @@ const inventory = [
   ['A', 'packages/ui/src/sync/selected-owner-cold-provider.test.tsx', null, '81d0f5c94c8a726ded6cdaa2d5f0e80ca0cfc484',
     null, '664dc2eefd6834b9fa79af02d65783233614a806a7d87c3e8fd4294d3cf059b4',
     'Add native provider subscription, cold and StrictMode mount and scoped cleanup regressions; no historical predecessor.'],
-  ['A', 'packages/ui/src/sync/selected-owner-history-recovery.test.tsx', null, '424a117ee5c6fc1f26de19fb79c7eb92d07eb867',
-    null, '0308bcd71110cf1ecf09bd4a89c03e1f30ec8f0bec6e02ce10106d2cc6b5debe',
-    'Add live proof history failure, reconnect and read-only recovery controls without hot retries; no historical predecessor.'],
+  ['A', 'packages/ui/src/sync/selected-owner-history-recovery.test.tsx', null, 'c509804b547c055827a36451a08ac7db281839ed',
+    null, '5ec52e8f7347d42a764f6465c1ce3a99fa5b781da1f645ea4859c334bf1947e4',
+    'Cover exhausted transport failures, quiet HTTP recovery, permanent-failure bounds and current native authority.'],
   ['M', 'packages/ui/src/sync/selected-owner-operation.ts', '472264eda3936d8e0429c3e74ec05a4185fb3daf', '14cb04e9ac9ecbb348e64606bb51a593e8956edd',
     '0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c', 'b2c566553fac8f53aed34c46a051a993380512b13da799b4d2148de7f5884b9e',
     'Bind owner checks to captured provider child stores and refuse adoption after provider replacement.'],
@@ -46,9 +61,9 @@ const inventory = [
   ['M', 'packages/ui/src/sync/selected-session-owner.test.tsx', '3f7df0b617269dfe293e472dd3a96a3c8353e78c', '48c1eb50d62a2b0bca6ad1e94c96797fcf5a6515',
     'a713218dcdab1ff73a40a7f1ee0bc7845df05b0840b0ca0bbdaffa71b3932383', '923d72fd89c0f86fdf1e9e444baac70d54011ffccbe46cd068510160cdde58d5',
     'Run the existing mounted owner recovery regression within its native sync runtime provider.'],
-  ['M', 'packages/ui/src/sync/selected-session-owner.ts', 'ce7cbb896495c684366f2142d63683500ce9d88f', '856a5da34e969dc0d848b9036f06f71ceb131ed1',
-    '221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0', '1a67bf814aa78a036f05b87e4067785dd30713bf52e1ab8f442a8f42591540cf',
-    'Observe provider-owned rows, titles and writable history and recheck unusable live proof only on recovery signals.'],
+  ['M', 'packages/ui/src/sync/selected-session-owner.ts', 'ce7cbb896495c684366f2142d63683500ce9d88f', '709c8b02da1a415fd96da3386afae87839f3f3c3',
+    '221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0', 'd959164c33d77e1ea8795bbf54fa6956cccce2b7e6b5132e99e013cfaea9c7be',
+    'Bound a replacement check for unusable established live history without requiring reconnect or catalog change.'],
   ['M', 'packages/ui/src/sync/session-actions.ts', 'd4b8d10de9af28d33d1c44055c7effda713830f8', 'a722d19661225e1a461a80b333423a033f6c04b2',
     '8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b', '723d026fcecd41fb3600c59eaba481356ad98c3751e62da1e6344f3cd54940a1',
     'Check destination draft conflict before verified owner reconciliation can invalidate history or change attribution.'],
@@ -59,14 +74,14 @@ const inventory = [
 const expected = {
   schemaVersion: 1, pullRequest: 549, issue: 'smarty-code#1378',
   baseHead: '11796181f2f7341730e3a467b347bdd0470b0642', sourceTreePath: 'packages/ui',
-  sourceTree: '983e35e27bee3b3fb9acbeafb84ee1d9f2c9fb80', objectFormat: 'sha1',
+  sourceTree: 'deaf2f4a126354d22ddaf2f4e5fe40c8d770e8da', objectFormat: 'sha1',
   predecessorLedgerSha256: '976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b',
   predecessorLedgerBytesSha256: '25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1',
   scope: inventory.map(([status, path]) => ({ status, path })),
   files: inventory.map(([status, path, predecessorBlob, blob, predecessorSha256, sha256, note]) => ({
     status, path, predecessorBlob, blob, predecessorMode: status === 'A' ? null : '100644', mode: '100644', predecessorSha256, sha256, note,
   })),
-  note: 'Parent-native export of the frozen PR549 repair: 15 UI files, 9 modified and 6 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
+  note: 'Parent-native export of the frozen PR549 round-4 repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
 };
 function assertInventory(candidate, readSource = read, ledgerBytes = read('branding/behavior-overlay.json')) {
   assert.deepEqual(candidate, expected);
@@ -86,12 +101,12 @@ function assertInventory(candidate, readSource = read, ledgerBytes = read('brand
   }
 }
 
-test('repair pins exact native subtree metadata, all fifteen rows and independent current byte hashes', () => {
+test('repair pins exact native subtree metadata, all twenty rows and independent current byte hashes', () => {
   const before = JSON.stringify(repair);
   assertInventory(repair);
-  assert.equal(expected.files.length, 15);
-  assert.equal(expected.files.filter(entry => entry.status === 'M').length, 9);
-  assert.equal(expected.files.filter(entry => entry.status === 'A').length, 6);
+  assert.equal(expected.files.length, 20);
+  assert.equal(expected.files.filter(entry => entry.status === 'M').length, 13);
+  assert.equal(expected.files.filter(entry => entry.status === 'A').length, 7);
   assert.equal(JSON.stringify(repair), before);
 });
 

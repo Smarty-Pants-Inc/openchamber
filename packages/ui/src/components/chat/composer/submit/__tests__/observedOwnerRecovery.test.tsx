@@ -128,6 +128,109 @@ for (const persist of [false, true]) test(`ordinary offscreen failed send restor
   expect(readChatDraft(c.identity(B)).text).toBe(''); expect(c.prompts()).toHaveLength(1);
 });
 
+for (const persist of [false, true]) for (const timing of ['before', 'after'] as const) {
+  test(`pending Send follows verified move ${timing} watchdog, drafts ${persist}`, async () => {
+    const c = await mount(persist), text = c.text(), first = deferred<Response>();
+    await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+    sendUnconfirmed.ms = 250;
+    c.handlers.prompt = async () => first.promise;
+    await act(async () => useInputStore.setState({
+      attachedFiles: [{ id: 'pending-file', filename: 'context.md', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,bm90ZXM=',
+        source: 'local', file: new File(['notes'], 'context.md', { type: 'text/plain' }), size: 5 }],
+      pendingSyntheticParts: [{ text: 'Pending move context', synthetic: true }],
+    }));
+    await c.submit(); expect(c.prompts()).toHaveLength(1); expect(c.text()).toBe('');
+    if (timing === 'after') { await act(async () => { await sleep(300); }); expect(c.text()).toBe(text); }
+    await act(async () => { await checkSelectedSessionOwner(session.id, A); });
+    expect(useSessionUIStore.getState().currentSessionDirectory).toBe(B);
+    await act(async () => { await sleep(300); });
+    expect(c.text()).toBe(text); highlighted(c);
+    expect(useInputStore.getState().attachedFiles.map(file => file.id)).toEqual(['pending-file']);
+    expect(useInputStore.getState().pendingSyntheticParts?.map(part => part.text)).toEqual(['Pending move context']);
+    expect(c.prompts()).toHaveLength(1); // Adoption and the watchdog never replay POST.
+    c.handlers.prompt = async () => new Response(JSON.stringify({ message: 'client message id already exists or a submission is pending' }), { status: 409 });
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+    const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
+    expect(sent[1].messageID).toBe(sent[0].messageID);
+    expect(new URL(c.prompts()[0].url).searchParams.get('directory')).toBe(A);
+    expect(new URL(c.prompts()[1].url).searchParams.get('directory')).toBe(B);
+    await act(async () => { await sleep(300); }); expect(c.text()).toBe(text);
+    await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
+    expect(c.text()).toBe(''); expect(readChatDraft(c.identity(B)).text).toBe('');
+    expect(useInputStore.getState().attachedFiles).toHaveLength(0);
+    expect(useInputStore.getState().pendingSyntheticParts).toHaveLength(0);
+    expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(2);
+  });
+}
+
+for (const persist of [false, true]) for (const timing of ['before', 'after'] as const) {
+  for (const newer of ['untouched', 'next-input', 'edited-copy', 'retyped-copy'] as const) {
+    test(`moved pending Send late acceptance keeps ${newer}, ${timing} watchdog, drafts ${persist}`, async () => {
+      const c = await mount(persist), text = c.text(), first = deferred<Response>();
+      await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+      sendUnconfirmed.ms = 250; c.handlers.prompt = async () => first.promise;
+      await c.submit(); expect(c.prompts()).toHaveLength(1);
+      if (timing === 'after') { await act(async () => { await sleep(300); }); expect(c.text()).toBe(text); }
+      await act(async () => { await checkSelectedSessionOwner(session.id, A); });
+      expect(useSessionUIStore.getState().currentSessionDirectory).toBe(B);
+      const next = 'Newer request';
+      if (newer === 'next-input') await c.replace(timing === 'before' ? next : `${next}\n\n${text}`);
+      await act(async () => { await sleep(300); });
+      expect(c.text()).toContain(text); highlighted(c);
+      const edited = text.replace('investigation', 'edited investigation');
+      if (newer === 'edited-copy') await c.replace(edited);
+      if (newer === 'retyped-copy') { await c.replace('Replacement input'); await c.replace(text); }
+      expect(c.prompts()).toHaveLength(1);
+      await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
+      expect(c.text()).toBe(newer === 'next-input' ? `${next}\n\n` : newer === 'edited-copy' ? edited : newer === 'retyped-copy' ? text : '');
+      await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+      expect(readChatDraft(c.identity(A)).text).toBe('');
+      if (persist || newer === 'untouched') expect(readChatDraft(c.identity(B)).text).toBe(c.text());
+      expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(1);
+    });
+  }
+}
+
+for (const persist of [false, true]) test(`moved pending Send late acceptance is scoped offscreen, drafts ${persist}`, async () => {
+  const c = await mount(persist), text = c.text(), first = deferred<Response>();
+  await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+  sendUnconfirmed.ms = 250; c.handlers.prompt = async () => first.promise;
+  await c.submit(); await act(async () => { await checkSelectedSessionOwner(session.id, A); });
+  await act(async () => { await sleep(300); }); expect(c.text()).toBe(text);
+  await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
+  await c.replace('Other visible input');
+  await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
+  expect(c.text()).toBe('Other visible input');
+  expect(readChatDraft(c.identity(A)).text).toBe(''); expect(readChatDraft(c.identity(B)).text).toBe('');
+  expect(c.prompts()).toHaveLength(1); expect(c.creates()).toHaveLength(0);
+});
+
+for (const persist of [false, true]) for (const timing of ['before', 'after'] as const) {
+  test(`pending move protects concurrent destination draft ${timing} watchdog, drafts ${persist}`, async () => {
+    const c = await mount(persist), text = c.text(), first = deferred<Response>();
+    await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+    sendUnconfirmed.ms = 250; c.handlers.prompt = async () => first.promise;
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    if (timing === 'after') await act(async () => { await sleep(300); });
+    const destination = 'Concurrent destination @destination.md';
+    let wrote = false;
+    const stop = c.children.ensureChild(B, { bootstrap: false }).subscribe(state => {
+      if (wrote || !state.session.some(row => row.id === session.id)) return;
+      wrote = true; writeChatDraft(c.identity(B), destination, ['destination.md']);
+    });
+    try { await act(async () => { await checkSelectedSessionOwner(session.id, A); }); } finally { stop(); }
+    expect(wrote).toBe(true); expect(useSessionUIStore.getState().currentSessionDirectory).toBe(B);
+    await act(async () => { await sleep(300); });
+    expect(c.text()).toContain(text); highlighted(c);
+    expect(readChatDraft(c.identity(B)).text).toBe(destination);
+    expect(c.prompts()).toHaveLength(1);
+    await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); window.dispatchEvent(new Event('pagehide')); });
+    expect(c.text().trim()).toBe(persist ? destination : '');
+    expect(readChatDraft(c.identity(B))).toEqual({ text: destination, confirmedMentions: new Set(['destination.md']) });
+    expect(c.prompts()).toHaveLength(1);
+  });
+}
+
 for (const exit of ['shown', 'offscreen'] as const) test(`protected destination survives late accepted cleanup ${exit}`, async () => {
   const c = await conflict(), response = deferred<Response>();
   sendUnconfirmed.ms = 5; c.handlers.prompt = async () => response.promise;

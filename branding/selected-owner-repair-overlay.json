@@ -4,15 +4,20 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "983e35e27bee3b3fb9acbeafb84ee1d9f2c9fb80",
+  "sourceTree": "deaf2f4a126354d22ddaf2f4e5fe40c8d770e8da",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
   "scope": [
     { "status": "M", "path": "packages/ui/src/components/chat/ChatInput.tsx" },
+    { "status": "M", "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md" },
     { "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts" },
     { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx" },
+    { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx" },
     { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx" },
+    { "status": "M", "path": "packages/ui/src/lib/sendRecovery.test.ts" },
+    { "status": "M", "path": "packages/ui/src/lib/sendRecovery.ts" },
+    { "status": "M", "path": "packages/ui/src/sync/DOCUMENTATION.md" },
     { "status": "M", "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts" },
     { "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx" },
     { "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx" },
@@ -28,19 +33,27 @@
   "files": [
     {
       "status": "M", "path": "packages/ui/src/components/chat/ChatInput.tsx",
-      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895", "blob": "ac840de0783c05a0bd8eedf695d66d20b1ae251c",
+      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895", "blob": "6f2e45a900da3bafd8c6c2fd9b0892e140be2a23",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "8607f70bbfa988cb95d564210332b5a2a0f54c8b6ba837e72683ad9306aed9a0",
-      "note": "Connect verified owner draft transfer and capture submission write authority for recovery and accepted cleanup."
+      "sha256": "ca06443f2ae4567b5057e8dae4c2853abb099a0d1056b072d5cdbde6fc63a092",
+      "note": "Transfer pending recovery target and owned input only after verified same-session owner adoption."
+    },
+    {
+      "status": "M", "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md",
+      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405", "blob": "2134c269430e53b822ebf0f18b2dc17921ca3520",
+      "predecessorMode": "100644", "mode": "100644",
+      "predecessorSha256": "03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d",
+      "sha256": "aae854fa750dc23eee2287bfcfa79db9d08b3347234f29db8c10c089de735a67",
+      "note": "Document pending Send recovery and client identity across a verified same-session owner move."
     },
     {
       "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts",
-      "predecessorBlob": "a016acfef2c108e95982c945dd6005c1d77c4aae", "blob": "252ba27c7ead35322e59d83684f8c506fd200351",
+      "predecessorBlob": "a016acfef2c108e95982c945dd6005c1d77c4aae", "blob": "795c8717aa9f7ea0b167e89a2968cdfcdf68d08c",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011",
-      "sha256": "096c5816df984028cca6032338682e947628a1182876d080b7d54e46e6425495",
-      "note": "Retain live input through verified moves and prevent page-only conflict submissions from writing the destination draft."
+      "sha256": "842c701a5ed447c9aa409f81b0c479ede079a07baed0c2c5a556d3fb6d03cc47",
+      "note": "Transfer live editor and pending-send recovery identity through the verified owner-move boundary."
     },
     {
       "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx",
@@ -51,12 +64,44 @@
       "note": "Add actual composer move, input, mention, conflict and runtime isolation regressions; no historical predecessor."
     },
     {
-      "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
-      "predecessorBlob": null, "blob": "5bf7323e0570a7218eb1484b410113869a6a6981",
+      "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx",
+      "predecessorBlob": null, "blob": "61b0f5cfd806fc8fb175f64b5c0041ac33b63301",
       "predecessorMode": null, "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "e0217cf79af1d79fe36fbbbce6078b676c8dcdfad6c400748271772353d9d641",
-      "note": "Add failed send and late accepted cleanup regressions for protected and ordinary drafts; no historical predecessor."
+      "sha256": "9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e",
+      "note": "Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection."
+    },
+    {
+      "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
+      "predecessorBlob": null, "blob": "739479d0b06ee9e098237d9a2b93271446a9c260",
+      "predecessorMode": null, "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "94e91919fb5cf2c507610a2155bf0794cb5162699a0e5dc82bde00a1d2873a65",
+      "note": "Cover held POST moves before and after watchdog restoration, drafts on/off, one client ID and late cleanup."
+    },
+    {
+      "status": "M", "path": "packages/ui/src/lib/sendRecovery.test.ts",
+      "predecessorBlob": "9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29", "blob": "fb30e14db87d84e5c26136e32024f531a8b1f575",
+      "predecessorMode": "100644", "mode": "100644",
+      "predecessorSha256": "a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d",
+      "sha256": "bd920b6d8f7d88804ac6deb79c9f34ba92a641e91d852653f96113c827447799",
+      "note": "Cover transferred recovery groups, explicit resend deduplication, late acceptance and unrelated-target isolation."
+    },
+    {
+      "status": "M", "path": "packages/ui/src/lib/sendRecovery.ts",
+      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e", "blob": "613f5a47cd5dc3b4304f2f82cdc12db93632c412",
+      "predecessorMode": "100644", "mode": "100644",
+      "predecessorSha256": "52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42",
+      "sha256": "b5cd0ae30133737354df0227389f2012d1de307219c3e499b9b7a7410496ca3c",
+      "note": "Retarget pending recovery groups only through verified same-session owner transfer while preserving client IDs and owned input."
+    },
+    {
+      "status": "M", "path": "packages/ui/src/sync/DOCUMENTATION.md",
+      "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf", "blob": "5b0a9b84bec562a07524ec1b0ec6d7bc3c722a91",
+      "predecessorMode": "100644", "mode": "100644",
+      "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
+      "sha256": "b2500f9fddea9bd6138aa505dc6d059e302a771ddf6667d485e460acf6217a7f",
+      "note": "Document bounded quiet history recovery and verified pending submission ownership transfer."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts",
@@ -84,11 +129,11 @@
     },
     {
       "status": "A", "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx",
-      "predecessorBlob": null, "blob": "424a117ee5c6fc1f26de19fb79c7eb92d07eb867",
+      "predecessorBlob": null, "blob": "c509804b547c055827a36451a08ac7db281839ed",
       "predecessorMode": null, "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "0308bcd71110cf1ecf09bd4a89c03e1f30ec8f0bec6e02ce10106d2cc6b5debe",
-      "note": "Add live proof history failure, reconnect and read-only recovery controls without hot retries; no historical predecessor."
+      "sha256": "5ec52e8f7347d42a764f6465c1ce3a99fa5b781da1f645ea4859c334bf1947e4",
+      "note": "Cover exhausted transport failures, quiet HTTP recovery, permanent-failure bounds and current native authority."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/selected-owner-operation.ts",
@@ -124,11 +169,11 @@
     },
     {
       "status": "M", "path": "packages/ui/src/sync/selected-session-owner.ts",
-      "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f", "blob": "856a5da34e969dc0d848b9036f06f71ceb131ed1",
+      "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f", "blob": "709c8b02da1a415fd96da3386afae87839f3f3c3",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
-      "sha256": "1a67bf814aa78a036f05b87e4067785dd30713bf52e1ab8f442a8f42591540cf",
-      "note": "Observe provider-owned rows, titles and writable history and recheck unusable live proof only on recovery signals."
+      "sha256": "d959164c33d77e1ea8795bbf54fa6956cccce2b7e6b5132e99e013cfaea9c7be",
+      "note": "Bound a replacement check for unusable established live history without requiring reconnect or catalog change."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/session-actions.ts",
@@ -147,5 +192,5 @@
       "note": "Arm and consume only the selected verified same-session draft transfer under runtime and reveal revision fences."
     }
   ],
-  "note": "Parent-native export of the frozen PR549 repair: 15 UI files, 9 modified and 6 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the frozen PR549 round-4 repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }

@@ -33,6 +33,41 @@ test('the client ID is fixed at the first Send: a re-send before any ID callback
   expect(again.messageID).toBe(first.messageID);
 });
 
+for (const timing of ['before', 'after', 'due'] as const) test(`verified target transfer ${timing} watchdog keeps client ID, pending attempts and late-copy cleanup`, () => {
+  const { r, log, advance, hooks, show } = harness();
+  let target = 's1';
+  const currentHooks = () => ({
+    restore: () => hooks('moved', target).restore(),
+    retarget: () => { target = 's2'; },
+    clearIfUntouched: () => { log.push(`clear ${target}`); },
+    notify: hooks('moved').notify,
+  });
+  const first = r.begin('s1', A, currentHooks())!;
+  if (timing === 'due') show('unrelated');
+  if (timing !== 'before') advance(15_000);
+  r.transferTarget('s1', 's2'); show('s2');
+  if (timing === 'before') advance(15_000);
+  expect(log.filter(entry => entry.startsWith('restore'))).toHaveLength(1);
+  const retry = r.begin('s2', A, currentHooks())!;
+  expect(retry.messageID).toBe(first.messageID);
+  expect(r.wouldBlock('s2', A)).toBe(true);
+  retry.conflict(); advance(15_000);
+  first.accepted(); expect(log).toContain('clear s2');
+  advance(60_000); expect(log.filter(entry => entry.startsWith('restore'))).toHaveLength(2);
+});
+
+test('a transfer never rebinds another target\'s recovery or grants automatic resend', () => {
+  const { r, log, advance, hooks } = harness();
+  r.begin('s1', A, hooks('A'))!;
+  const other = r.begin('s3', A, hooks('other', 's3'))!;
+  r.transferTarget('s1', 's2');
+  expect(r.wouldBlock('s2', A)).toBe(true);
+  expect(r.wouldBlock('s3', A)).toBe(true);
+  expect(log).toEqual([]);
+  other.accepted(); advance(15_000);
+  expect(log).not.toContain('restore other');
+});
+
 test('two overlapping sends: B succeeding never disarms A\'s recovery', () => {
   const { r, log, advance, hooks } = harness();
   r.begin('s1', A, hooks('A'))!;

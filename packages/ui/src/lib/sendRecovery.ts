@@ -24,6 +24,8 @@ type Hooks = {
   /** Saves the text into its target's saved draft (joined, never over it) while the target is not shown, so a reload or
    * an unmount cannot lose it (openchamber#375 review 5); after that, `restore` brings back only what is not text. */
   save?: () => void;
+  /** Rebind the saved/editor copy only after the caller verifies an identity-preserving owner move. */
+  retarget?: (copyRetained: boolean) => void;
   clearIfUntouched: () => void;
   notify: (kind: RecoveryNotice) => void;
 };
@@ -89,6 +91,25 @@ export class SendRecovery {
         this.giveBack(group, null);
       },
     };
+  }
+
+  /** A verified same-session owner move changes routing, never submission identity or attempt lifetime. */
+  transferTarget(source: string, destination: string, copyRetained = true) {
+    if (source === destination) return;
+    for (const g of [...this.groups.values()]) {
+      if (g.target !== source) continue;
+      const content = g.key.slice(source.length);
+      this.groups.delete(g.key);
+      g.target = destination;
+      g.key = `${destination}${content}`;
+      g.retarget?.(copyRetained);
+      if (!copyRetained) {
+        if (g.copyInComposer) g.due = 'still-pending';
+        g.copyInComposer = false;
+        g.saved = false;
+      }
+      this.groups.set(g.key, g);
+    }
   }
 
   /** The composer shows `target` again: every group due there comes back now, in the order it became due. */

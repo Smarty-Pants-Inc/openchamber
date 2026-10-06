@@ -1022,6 +1022,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         materializedSessionId: nativeModel ? materializedSessionId : null,
         consumeCatalogDraftTransfer,
         consumeObservedOwnerDraftTransfer,
+        onObservedOwnerDraftTransfer: (previous, current, copyRetained) => {
+            const target = (identity: ChatDraftIdentity) => [identity.runtimeKey, identity.directory, identity.sessionId].join('\u0000');
+            sendRecovery.current?.transferTarget(target(previous), target(current), copyRetained);
+        },
         initialDraft: {
             text: initialDraftRef.current ?? '',
             identity: initialDraftIdentityRef.current,
@@ -1468,7 +1472,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         const submitRuntimeKey = getRuntimeKey();
-        const persistSubmittedDraft = capturePersistNow(chatDraftIdentity);
+        let submissionIdentity = chatDraftIdentity;
+        let persistSubmittedDraft = capturePersistNow(submissionIdentity);
         const queuedOnly = options?.queuedOnly ?? false;
         const queuedMessageId = options?.queuedMessageId;
         const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
@@ -1583,11 +1588,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 own.at = joined.at; own.seen = joined.text; ownedJoinsRef.current.add(own);
                 return joined.text;
             };
-            if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+            if (!sameDraftIdentity(currentChatDraftIdentityRef.current, submissionIdentity)) {
                 if (textInDraft) return;
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
-                const saved = readChatDraft(chatDraftIdentity);
+                const saved = readChatDraft(submissionIdentity);
                 persistSubmittedDraft(join(saved.text), new Set([...saved.confirmedMentions, ...confirmedMentionsSnapshot]));
                 return;
             }
@@ -1896,11 +1901,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
             restore: () => {
                 // By value: coming back to a session makes a new identity object for the same draft.
-                if (!chatDraftIdentity || !sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) return false;
+                if (!submissionIdentity || !sameDraftIdentity(currentChatDraftIdentityRef.current, submissionIdentity)) return false;
                 restoreConsumedInput(); return true;
             },
             // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
-            save: () => { if (retainNativeDraft || !chatDraftIdentity) return; restoreComposerText(); textInDraft = true; },
+            save: () => { if (retainNativeDraft || !submissionIdentity) return; restoreComposerText(); textInDraft = true; },
+            retarget: (copyRetained) => {
+                // The moved editor carries this block. Retire only its untouched saved source copy, not another tab's draft.
+                const saved = readChatDraft(submissionIdentity);
+                const cut = saved.text === own.seen ? removeOwnedBlock(saved.text, inputSnapshot.message, own.at) : null;
+                if (cut) persistSubmittedDraft(cut.text, [...saved.confirmedMentions].filter(mention => cut.text.includes(`@${mention}`)));
+                submissionIdentity = currentChatDraftIdentityRef.current;
+                own.identity = submissionIdentity;
+                persistSubmittedDraft = capturePersistNow(submissionIdentity);
+                if (!copyRetained) { own.at = -1; own.seen = ''; textInDraft = false; }
+            },
             clearIfUntouched: () => {
                 // Joined with other texts (smarty-code#962): only its own copy goes, and only while it is intact where it
                 // was joined; edited, moved or ambiguous, it is the person's text now and stays.
@@ -1925,12 +1940,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 });
                 // An attachment-only send (review r2 2) has no text block to find: its restored parts still go.
                 if (textless) {
-                    if (!own.gone && sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) { own.gone = true; clearOwnParts(); }
+                    if (!own.gone && sameDraftIdentity(currentChatDraftIdentityRef.current, submissionIdentity)) { own.gone = true; clearOwnParts(); }
                     return;
                 }
-                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
+                if (!sameDraftIdentity(currentChatDraftIdentityRef.current, submissionIdentity)) {
                     // Off-screen, only a saved draft unchanged since this block was joined or last followed (review r3 1).
-                    const saved = readChatDraft(chatDraftIdentity);
+                    const saved = readChatDraft(submissionIdentity);
                     const rest = saved.text === own.seen ? removeOwn(saved.text) : null;
                     if (rest !== null) persistSubmittedDraft(rest, [...saved.confirmedMentions].filter(mention => rest.includes(`@${mention}`)));
                     ownedJoinsRef.current.delete(own);

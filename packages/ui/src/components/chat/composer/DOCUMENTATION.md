@@ -184,7 +184,12 @@ and the send path reading the same grammar.
   where the page may stop running, because a pending timer is not a saved
   draft. Two orderings are load-bearing: the debounced write is skipped once
   while a draft is being restored, and a deleted draft's empty signature is
-  recorded before a queued write could resurrect it.
+  recorded before a queued write could resurrect it. A verified same-session owner
+  move that retains live input also transfers that submission's pending
+  `SendRecovery` group and owned editor copy to the new directory. The client message ID stays unchanged across
+  an explicit re-send. The watchdog restores input on the current verified owner;
+  a late acceptance removes only its own untouched copy. This transfer never
+  posts input automatically and ordinary navigation does not transfer recovery.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It

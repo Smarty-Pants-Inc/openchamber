@@ -60,6 +60,8 @@ export interface ComposerDraftOptions {
     consumeCatalogDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => false | 'restore' | 'retain';
     /** A verified same-session owner move retains live input, never ordinary navigation. */
     consumeObservedOwnerDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => false | 'retain' | 'conflict';
+    /** Rebind pending submissions after the verified retained editor has acquired destination write authority. */
+    onObservedOwnerDraftTransfer?: (previous: ChatDraftIdentity, current: ChatDraftIdentity, copyRetained: boolean) => void;
     /** The draft restored on mount, if any. */
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
@@ -93,6 +95,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         materializedSessionId,
         consumeCatalogDraftTransfer,
         consumeObservedOwnerDraftTransfer,
+        onObservedOwnerDraftTransfer,
         initialDraft,
         onIdentityChange,
         onDraftRestored,
@@ -124,8 +127,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
-    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer });
-    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer };
+    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer, onObservedOwnerDraftTransfer });
+    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer, onObservedOwnerDraftTransfer };
 
     React.useLayoutEffect(() => { claimChatDraftOwnership(identity); }, [identity]);
 
@@ -172,8 +175,11 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
                 return;
             }
             if (conflictIdentityRef.current === key) return;
-            if (mentions) writeChatDraft(target, draft, mentions);
-            else persistNow(target, draft);
+            if (mentions) {
+                writeChatDraft(target, draft, mentions);
+                // Recovery wrote outside persistNow: an earlier cached empty signature no longer describes this slot.
+                if (key !== null) lastPersistedRef.current.delete(key);
+            } else persistNow(target, draft);
         };
     }, [persistNow]);
 
@@ -218,6 +224,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             conflictIdentityRef.current = ownerTransfer === 'conflict' ? currentKey : null;
             setConflictEphemeralOnly(ownerTransfer === 'conflict');
             if (persistEnabled) persistNow(identity, live);
+            if (previous && identity) callbacksRef.current.onObservedOwnerDraftTransfer?.(previous, identity, true);
             return; // The verified owner moved, not the user's input or its provenance.
         }
         const catalogTransfer = callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity);
@@ -255,8 +262,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             return;
         }
         if (persistEnabled) persistNow(previous, messageRef.current);
-        conflictIdentityRef.current = null;
-        setConflictEphemeralOnly(false);
+        conflictIdentityRef.current = ownerTransfer === 'conflict' ? currentKey : null;
+        setConflictEphemeralOnly(ownerTransfer === 'conflict');
         if (!persistEnabled) {
             messageRef.current = '';
             setMessage('');
@@ -274,6 +281,9 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         confirmedMentionsRef.current = restored.confirmedMentions;
         if (restored.text) {
             requestAnimationFrame(() => callbacksRef.current.onDraftRestored?.());
+        }
+        if (ownerTransfer === 'conflict' && previous && identity) {
+            callbacksRef.current.onObservedOwnerDraftTransfer?.(previous, identity, false);
         }
     }, [clearPending, confirmedMentionsRef, identity, materializedSessionId, messageRef, persistEnabled, persistNow, setMessage]);
 

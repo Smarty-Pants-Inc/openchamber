@@ -1,11 +1,10 @@
 import { act } from 'react';
 import { expect, test } from 'bun:test';
-import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { opencodeClient } from '@/lib/opencode/client';
 import { fixture, B, id, row, requests, view } from './selected-owner-review-fixture';
 import { mountProbe } from './selected-owner-react-fixture';
 import { readSelectedSessionOwner } from './selected-session-owner';
 import { useConfigStore } from '@/stores/useConfigStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from './session-ui-store';
 import { deferred } from '@/lib/runtime-isolation-fixture';
 
@@ -29,34 +28,28 @@ async function establish() {
   return probe;
 }
 
-test('established live proof observes exhausted ordinary 503 history failure, stays quiet, and recovers on connection', async () => {
+test('established live proof recovers exhausted history transport failure without connection or catalog changes', async () => {
   const probe = await establish();
   try {
-    // The native provider supports a raw SDK too. Exercise the real loader's exhausted HTTP retries,
-    // without opencodeClient's separate catalog-refresh side effect masking current-proof recovery.
-    await act(async () => {
-      fixture.loader.configure({ sdk: createOpencodeClient({ baseUrl: 'https://owner.invalid/api', fetch: globalThis.fetch }), runtimeKey: 'owner-test' });
-      await fixture.loader.ensure(target, { force: true, reason: 'navigation' });
-    });
     const proof = useSessionUIStore.getState().selectedManagedOwner;
+    const catalog = useProjectsStore.getState().managedRows;
     const owners = ownerReads().length, histories = historyReads().length;
-    fixture.history = async () => new Response(null, { status: 503 });
+    fixture.history = async () => { throw new TypeError('Failed to fetch'); };
     await act(async () => { await fixture.loader.refreshOrdinaryView(target); });
-    expect(historyReads()).toHaveLength(histories + 3); // Exhaust the existing loader's three attempts.
+    expect(historyReads()).toHaveLength(histories + 3); // Exhaust the real SDK/loader's three attempts.
     expect(fixture.loader.getSnapshot(target)).toMatchObject({ status: 'error', resolved: false });
     expect(fixture.loader.getSendableOrdinaryView(target, 'owner-test')).toBeUndefined();
     expect(useSessionUIStore.getState().selectedManagedOwner).toBe(proof);
     expect(readSelectedSessionOwner(id, B)?.status).toBe('checking');
     expect(fixture.stores.getState(B)?.message[id]).toHaveLength(1);
-    await tick(); await tick();
-    expect(ownerReads()).toHaveLength(owners); expect(historyReads()).toHaveLength(histories + 3);
     fixture.history = async () => page();
-    await act(async () => fixture.loader.configure({ sdk: opencodeClient.getSdkClient(), runtimeKey: 'owner-test' }));
-    await act(async () => useConfigStore.setState({ isConnected: false }));
-    await act(async () => useConfigStore.setState({ isConnected: true }));
-    await settle(() => readSelectedSessionOwner(id, B)?.status === 'live');
+    for (let turn = 0; turn < 400 && readSelectedSessionOwner(id, B)?.status !== 'live'; turn++) await tick();
+    expect(readSelectedSessionOwner(id, B)?.status).toBe('live');
     expect(ownerReads()).toHaveLength(owners + 2); expect(historyReads()).toHaveLength(histories + 4);
     expect(fixture.loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true, readOnly: false });
+    expect(useConfigStore.getState().isConnected).toBe(true);
+    expect(useProjectsStore.getState().managedRows).toBe(catalog);
+    expect(requests.filter(request => request.method !== 'GET' && !new URL(request.url).pathname.endsWith('/client-error'))).toEqual([]);
   } finally { await probe.close(); }
 });
 
@@ -96,6 +89,21 @@ test('readOnly recovery signal followed by strict 503 becomes unknown and never 
     await tick(); await tick(); await tick();
     expect(ownerReads()).toHaveLength(owners + 1); expect(historyReads()).toHaveLength(histories);
   } finally { await probe.close(); }
+});
+
+test('unmount cancels the delayed replacement for an exhausted established history read', async () => {
+  const probe = await establish();
+  const owners = ownerReads().length, histories = historyReads().length;
+  fixture.history = async () => { throw new TypeError('Failed to fetch'); };
+  try {
+    await act(async () => { await fixture.loader.refreshOrdinaryView(target); });
+    expect(fixture.loader.getSnapshot(target).status).toBe('error');
+  } finally { await probe.close(); }
+  fixture.history = async () => page();
+  await new Promise(resolve => setTimeout(resolve, 1_200));
+  expect(ownerReads()).toHaveLength(owners);
+  expect(historyReads()).toHaveLength(histories + 3);
+  expect(fixture.loader.getSendableOrdinaryView(target, 'owner-test')).toBeUndefined();
 });
 
 test('healthy send revocation retains the last branch view without selected owner revalidation', async () => {
