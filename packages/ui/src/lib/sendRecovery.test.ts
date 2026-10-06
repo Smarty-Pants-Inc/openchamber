@@ -1,14 +1,15 @@
 import { expect, test } from 'bun:test';
 import { SendRecovery, type RecoveryNotice } from './sendRecovery';
+import { sendUnconfirmed } from './sendUnconfirmed';
 
 // smarty-code#827 (openchamber#375 reviews 2 and 3): each submission's recovery is its own, keyed by target and content;
 // its client ID is fixed at its first Send; its input comes back only into its own target's composer.
-function harness() {
+function harness(ms = 15_000) {
   let now = 0; const due: { at: number; fn: () => void; id: number }[] = []; let next = 1, ids = 0;
   const timers = { set: (fn: () => void, ms: number) => { const id = next++; due.push({ at: now + ms, fn, id }); return id as unknown as ReturnType<typeof setTimeout>; },
     clear: (t: ReturnType<typeof setTimeout>) => { const i = due.findIndex(d => d.id === (t as unknown as number)); if (i >= 0) due.splice(i, 1); } };
   const advance = (ms: number) => { now += ms; for (let d; (d = due.filter(x => x.at <= now).sort((a, b) => a.at - b.at)[0]); ) { due.splice(due.indexOf(d), 1); d.fn(); } };
-  const r = new SendRecovery(() => 15_000, () => `msg_${++ids}`, timers);
+  const r = new SendRecovery(() => ms, () => `msg_${++ids}`, timers);
   const log: string[] = [];
   let shown = 's1';
   const hooks = (name: string, target = 's1') => ({ restore: () => { if (shown !== target) return false; log.push(`restore ${name}`); return true; },
@@ -114,4 +115,23 @@ test('due off-screen: saved once into its target draft, holds reloads while due,
   log.length = 0;
   r.begin('s1', B, saving('B'))!.refused(); expect(log).toEqual(['save B']); expect(r.hasDue()).toBe(true);
   show('s1'); expect(log).toEqual(['save B', 'restore B']); expect(r.hasDue()).toBe(false);
+});
+
+// smarty-code#1396 (#554 nightly 2026-10-06, load ~139/32): the POST was answered 204 after 15,447 ms, but the 15 s
+// watchdog had already put the text back with "not confirmed" (and Send replaced Stop while Pi worked). Over 7 days of
+// smarty.prompt logs: p99 15,347 ms, max 20,108 ms, 6 of 458 sends over 15 s. A normal slow answer is not "unconfirmed".
+test('#1396: a send answered as slowly as measured under load (15.4 s, max 20.1 s) never comes back or says "not confirmed"', () => {
+  for (const at of [15_447, 20_108]) {
+    const { r, log, advance, hooks } = harness(sendUnconfirmed.ms);
+    const a = r.begin('s1', A, hooks('A'))!;
+    advance(at); a.accepted();
+    expect(log).toEqual([]);
+  }
+});
+
+test('#1396: a POST that is never answered still gives its text back, within a minute', () => {
+  const { r, log, advance, hooks } = harness(sendUnconfirmed.ms);
+  r.begin('s1', A, hooks('A'))!;
+  advance(sendUnconfirmed.ms); expect(log).toEqual(['restore A', 'unconfirmed A']);
+  expect(sendUnconfirmed.ms).toBeLessThanOrEqual(60_000);
 });

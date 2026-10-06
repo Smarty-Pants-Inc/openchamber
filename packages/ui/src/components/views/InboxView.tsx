@@ -53,7 +53,7 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
         {TABS.map(t => (
           <button key={t.state} type="button" role="tab" aria-selected={tab === t.state} onClick={() => { if (t.state === tab) return; shownTab.current = t.state; setTab(t.state); setSelectedId(null); setItems(null); }}
-            className={cn('pb-2 typography-ui-label', tab === t.state ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground')}>
+            className={cn('rounded-md px-2 py-1 typography-ui-label', tab === t.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
             {t.label}{t.state === 'open' ? ` ${openCount}` : ''}
           </button>
         ))}
@@ -64,8 +64,7 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
         {items?.map(item => (
           <li key={item.id}>
             <button type="button" data-inbox-item={item.id} onClick={() => setSelectedId(item.id)} aria-current={selected?.id === item.id}
-              className={cn('block w-full border-b border-border px-4 py-3 text-left hover:bg-interactive-hover', selected?.id === item.id && 'bg-interactive-hover',
-                item.priority === 'p0' && 'border-l-2 border-l-destructive')}>
+              className={cn('block w-full border-b border-border px-4 py-3 text-left hover:bg-interactive-hover', selected?.id === item.id && 'bg-interactive-hover')}>
               <span className="line-clamp-2 typography-ui-label text-foreground">
                 {item.priority === 'p0' ? <span className="mr-1.5 rounded bg-destructive px-1 typography-micro font-semibold text-white">P0</span> : null}
                 {item.title}

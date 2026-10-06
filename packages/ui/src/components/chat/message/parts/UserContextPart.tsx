@@ -47,7 +47,7 @@ const ContextCard: React.FC<{
         const comment = text.trim();
         return (
             <div
-                className="my-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 border-l-2 border-[var(--interactive-border)] pl-3 text-xs text-[var(--surface-mutedForeground)]"
+                className="my-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-md bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--surface-mutedForeground)]"
                 onClick={onExpand}
                 title={title}
             >
@@ -65,7 +65,7 @@ const ContextCard: React.FC<{
     return (
         <div className="my-1.5 min-w-0 max-w-full">
             <div
-                className={cn('min-w-0 border-l-2 border-[var(--interactive-border)] pl-3', hasBody && 'cursor-pointer')}
+                className={cn('min-w-0 rounded-md bg-[var(--surface-muted)] px-2 py-1', hasBody && 'cursor-pointer')}
                 onClick={hasBody ? () => setExpanded((value) => !value) : undefined}
                 title={title}
             >
