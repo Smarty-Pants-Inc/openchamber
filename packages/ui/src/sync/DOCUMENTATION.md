@@ -397,11 +397,23 @@ Rules:
 Native create-only is an explicit capability-gated exception to regular draft
 materialization. `native-draft-creation.ts` retains each runtime/draft/project/
 directory result in browser memory. Runtime restoration and consumer remounts do
-not replace those records. Late completion updates its originating record, but
-`session-actions.createNativeSession` indexes it only in the active matching
-runtime. A mismatched directory is an uncertain result, not worktree
+not replace those records. `native-draft-create-wait.ts` bounds the local create
+wait to 120 seconds. A timeout remains unknown and retains its request ID. A late
+receipt can update only its retained originating record; it cannot index, select,
+answer a choice or send after the wait ends. Cancellation or replacement fences
+that receipt out. A mismatched directory is an uncertain result, not worktree
 canonicalization or permission to create again. Only known pre-create failures
 permit an explicit read-only recheck.
+
+`native-draft-attempt.ts` owns Start reservations per runtime and project
+directory. Another project can start independently; an older attempt cannot
+release a newer reservation or clear its request ID. `native-draft-stop.ts`
+settles an own start only from a cancellation receipt matching the original
+runtime, directory, operation and request ID. While create is held, one exact
+match in the scoped operation listing can expose Stop after expiry or the
+60-second grace. Stop waits for the actual browser lock release before returning
+input. Refused or uncertain cancellation keeps the reservation and text; neither
+a timeout nor Stop automatically creates a session or replays a prompt.
 
 For interactive starts, a successful Ready operation remains authoritative when
 the session-detail GET fails. Detail reads and backoff share the settle window's

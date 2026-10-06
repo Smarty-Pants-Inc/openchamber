@@ -1,16 +1,15 @@
 import { opencodeClient } from '@/lib/opencode/client';
-import { NATIVE_CREATION_INVALIDATED, nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
+import { nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
+import { assertManagedDraftTarget, isRetainedNativeCreation, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
 import { indexNativeCreatedSession } from './session-actions';
 import { useSessionUIStore } from './session-ui-store';
 import { readReadySession } from './native-draft-ready-detail';
+import { stopBlockingStart } from './native-draft-stop';
+export { abandonedNativeCreations, stopBlockingStart, stoppableAt, STOP_START_GRACE_MS } from './native-draft-stop';
 
 type Pending = Extract<NativeDraftCreation, { status: 'pending' }>;
-
-/** Operations this page abandoned (#340): settled for good, even in a list read before that. */
-export const abandonedNativeCreations = new Set<string>();
 
 /**
  * 'ready' is answered once per operation (F11), also across a reload of this tab: sessionStorage, keyed by the
@@ -87,7 +86,7 @@ async function acceptState(record: Pending, next: NativeCreationState, deadline?
         projectId: record.projectId, directory: record.directory, status: 'created', session, clientRequestId: ready.operation.clientRequestId });
     } catch (cause) {
       const error = cause instanceof NativeCreationError && cause.code === 'stale' ? cause : new NativeCreationError('history', cause);
-      if ([...useSessionUIStore.getState().nativeDraftCreations.values()].includes(ready)) {
+      if (isRetainedNativeCreation(ready)) {
         publishNativeCreation(ready, { ...ready, busy: false, error });
       }
       throw error;
@@ -116,14 +115,13 @@ async function request(record: Pending, reply?: NativeCreationReply, deadline?: 
     await acceptState(pending, next, deadline);
   } catch (cause) {
     // Keep the original operation after ambiguity. Re-read is allowed; replay is not.
-    const state = useSessionUIStore.getState();
     // A ready answer the server definitely refused (it answered 409 and armed nothing) may be answered again after a
     // re-read; an uncertain one never is.
     const refused = reply?.action === 'ready' && cause instanceof NativeCreationError && cause.status === 409;
-    if (refused) markReadyReplied(record.operation, false);
+    if (refused && isRetainedNativeCreation(pending)) markReadyReplied(record.operation, false);
     const error = pending.operation.phase === 'ready' && !(cause instanceof NativeCreationError && cause.code === 'stale')
       ? new NativeCreationError('history', cause) : cause instanceof NativeCreationError ? cause : new NativeCreationError('unknown', cause);
-    if ([...state.nativeDraftCreations.values()].includes(pending)) {
+    if (isRetainedNativeCreation(pending)) {
       publishNativeCreation(pending, { ...pending, busy: false, readyReplied: refused ? undefined : pending.readyReplied,
         answered: refused ? record.answered : pending.answered, error });
     }
@@ -158,39 +156,15 @@ export async function abandonNativeCreation(): Promise<boolean> {
   const pending: Pending = { ...record, busy: true };
   publishNativeCreation(record, pending);
   try {
-    const next = await opencodeClient.abandonNativeCreation(record.directory, record.operation.operationId);
-    if (next.operationId !== record.operation.operationId || next.phase !== 'cancelled') throw new NativeCreationError('unknown');
-    abandonedNativeCreations.add(next.operationId);
-    publishNativeCreation(pending, null);
+    await stopBlockingStart(record.operation);
+    const cancelled = [...useSessionUIStore.getState().nativeDraftCreations.values()].find(candidate =>
+      candidate.runtimeKey === record.runtimeKey && candidate.draftId === record.draftId && candidate.projectId === record.projectId
+      && candidate.directory === record.directory && candidate.status === 'pending'
+      && candidate.operation.operationId === record.operation.operationId && candidate.operation.phase === 'cancelled');
+    if (cancelled) publishNativeCreation(cancelled, null, cancelled);
     return true;
   } catch (cause) {
-    publishNativeCreation(pending, { ...record, busy: false });
+    publishNativeCreation(pending, { ...record, busy: false }, pending);
     throw cause instanceof NativeCreationError ? cause : nativeCreationFailure(cause);
   }
-}
-
-/** How long a start may go on before the page offers to stop it (sooner once it is past its own expiry). */
-export const STOP_START_GRACE_MS = 60_000;
-const firstSeen = new Map<string, number>();
-/**
- * When a start that blocks this project may be stopped (smarty-code#523): at once past its expiry, else after the grace
- * from when this page first saw it. A never-ending start never blocks New session with no way out.
- */
-export function stoppableAt(operation: NativeCreationState, now = Date.now()): number {
-  const seen = firstSeen.get(operation.operationId) ?? (firstSeen.set(operation.operationId, now), now);
-  return operation.expiresAt <= now ? now : Math.min(seen + STOP_START_GRACE_MS, operation.expiresAt);
-}
-
-/**
- * Stop a start that blocks this project (smarty-code#523): the gateway's abandon settles it for good (cancelled), and a
- * new start is admitted at once. Its text, if this page holds it as sent, comes back through the sent mark (cancelled).
- * A refusal (it finished meanwhile, or the server would not) throws, and nothing else changes.
- */
-export async function stopBlockingStart(operation: NativeCreationState): Promise<void> {
-  let next: NativeCreationState;
-  try { next = await opencodeClient.abandonNativeCreation(operation.directory, operation.operationId); }
-  catch (cause) { throw cause instanceof NativeCreationError ? cause : nativeCreationFailure(cause); }
-  if (next.operationId !== operation.operationId || next.phase !== 'cancelled') throw new NativeCreationError('unknown');
-  abandonedNativeCreations.add(next.operationId);
-  window.dispatchEvent(new CustomEvent(NATIVE_CREATION_INVALIDATED, { detail: { runtimeKey: getRuntimeKey(), directory: operation.directory } }));
 }

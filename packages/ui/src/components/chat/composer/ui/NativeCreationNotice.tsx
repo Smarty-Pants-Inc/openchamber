@@ -1,12 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey } from '@/lib/runtime-switch';
 import { ownNativeRequestId, startNativeDraftAgain, startNativeDraftInstead, useNativeDraftStarting, useUnresolvedNativeStart } from '@/sync/native-draft-start';
 import { isSentStartStopped, keepSentTextAsDraft, releaseSentStart, resolveSentStart, sentStartRequest, sentStartStopperSubject, sentStartStoppedBy, type SentStartOutcome } from '@/sync/native-draft-sent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { startsElsewhere, STOPPED_PHASES } from '@/sync/native-draft-creation';
-import { abandonedNativeCreations, stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
+import { stopBlockingStart, stoppableAt } from '@/sync/native-draft-control';
+import { matchingOwnNativeCreation, wasNativeCreationAbandoned } from '@/sync/native-draft-stop';
+import { isDraftOriginVisible } from '@/sync/native-draft-attempt';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import React from 'react';
 import type { useNativeCreation } from '../state/useNativeCreation';
@@ -39,7 +41,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   // past its expiry, else after a grace. Its text, if held here as sent, comes back (cancelled).
   const [stop, setStop] = React.useState<{ id: string; busy: boolean; error?: unknown } | null>(null);
   const [, tick] = React.useReducer((value: number) => value + 1, 0);
-  const blocking = startsElsewhere(native.operations.filter(operation => !abandonedNativeCreations.has(operation.operationId)), getRuntimeKey());
+  const scope = captureRuntimeRequestScope();
+  const blocking = startsElsewhere(native.operations.filter(operation => !wasNativeCreationAbandoned(scope.runtimeKey, operation)), scope.runtimeKey, draft.directoryOverride);
   const lockedRequest = sent && draft.directoryOverride ? sentStartRequest(getRuntimeKey(), draft.directoryOverride) : undefined;
   const stoppedBy = draft.directoryOverride ? sentStartStoppedBy(getRuntimeKey(), draft.directoryOverride) : undefined;
   // smarty-code#849: a stop by the person themself reads "You stopped this start", on both paths; another person is named.
@@ -47,10 +50,9 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   const stoppedByYou = !!self && !!draft.directoryOverride && sentStartStopperSubject(getRuntimeKey(), draft.directoryOverride) === self;
   const stoppable = (lockedRequest ? blocking.filter(operation => operation.clientRequestId === lockedRequest) : blocking)[0];
   const stopAt = native.canAbandon && stoppable ? stoppableAt(stoppable) : undefined;
-  // This draft's OWN start that does not finish (smarty-code#587: its shell frozen, the person saw only "Starting…" and
-  // a greyed Cancel): the same Stop after the same threshold as a blocking start.
+  // An own start uses the same Stop threshold, even when only its exact request-ID listing is available (#523).
   const own = creation?.status === 'pending' && !STOPPED_PHASES.includes(creation.operation.phase) && creation.operation.phase !== 'ready'
-    ? creation.operation : undefined;
+    ? creation.operation : matchingOwnNativeCreation(creation, native.operations, scope.runtimeKey);
   const ownStopAt = native.canAbandon && own ? stoppableAt(own) : undefined;
   React.useEffect(() => {
     const next = [stopAt, ownStopAt].filter((at): at is number => at !== undefined && at > Date.now());
@@ -67,17 +69,19 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
       <Button type="button" variant="outline" size="sm" disabled={busy} title={operation.operationId}
         data-operation-id={operation.operationId} onClick={() => {
         setStop({ id: operation.operationId, busy: true });
-        void stopBlockingStart(operation).then(async () => {
+        void stopBlockingStart(operation, scope).then(async () => {
+          if (!isDraftOriginVisible(draft, scope)) return;
+          const key = scope.runtimeKey, directory = operation.directory;
           setStop(null);
-          const key = getRuntimeKey(), directory = draft.directoryOverride;
-          // The person's own explicit Stop settled the start this draft's sent text belongs to (smarty-code#523, 3.45):
-          // this tab no longer continues it, so it is read now and the text comes back, not left locked until "check
-          // again" (the own-request exemption is for a start this tab still sends through).
+          // An own start is settled in core; another tab's sent mark still needs read-only reconciliation (#523).
           const mine = !!directory && operation.clientRequestId !== undefined && sentStartRequest(key, directory) === operation.clientRequestId;
           if (mine) await releaseSentStart(operation.clientRequestId); // The browser lock is gone before the read below.
+          if (!isDraftOriginVisible(draft, scope)) return;
           if (directory) void resolveSentStart(key, directory, draft.draftId, mine ? undefined : ownNativeRequestId(draft, key));
           native.refresh();
-        }, error => setStop({ id: operation.operationId, busy: false, error }));
+        }, error => {
+          if (isDraftOriginVisible(draft, scope)) setStop({ id: operation.operationId, busy: false, error });
+        });
       }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
     </>;
   };

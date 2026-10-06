@@ -2,15 +2,16 @@
 import * as worktreeBootstrap from '@/lib/worktrees/worktreeBootstrap';
 import { opencodeClient } from '@/lib/opencode/client';
 import { NativeCreationError, type NativeCreatedSession, type NativeCreationState } from '@/lib/opencode/nativeCreation';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
-import { createNativeSession } from './session-actions';
+import { waitForNativeDraftCreate } from './native-draft-create-wait';
 import { resolveDraftProjectDirectory } from './native-draft-identity';
 import { useSessionUIStore, type NewSessionDraftState } from './session-ui-store';
 
-type DraftTarget = { runtimeKey: string; draftId: number; directory: string; projectId: string };
+type DraftTarget = { runtimeKey: string; draftId: number; directory: string; projectId: string; clientRequestId?: string };
 export type NativeDraftCreation = DraftTarget & (
-  | { status: 'creating' | 'checking' }
+  | { status: 'creating'; submitted?: true }
+  | { status: 'checking' }
   | { status: 'failed'; error: NativeCreationError; submitted: boolean }
   | { status: 'created'; session: NativeCreatedSession; inputAccepted?: true;
       /** The start's request id: every Send to this session, retries too, carries its sent mark (#117). */
@@ -85,8 +86,12 @@ export function nativeCreationForDraft(creations: ReadonlyMap<string, NativeDraf
     directory: draft.directoryOverride, projectId: draft.selectedProjectId })) ?? null;
 }
 
-export function publishNativeCreation(target: DraftTarget, result: NativeDraftCreation | null): void {
+export const isRetainedNativeCreation = (record: NativeDraftCreation): boolean =>
+  useSessionUIStore.getState().nativeDraftCreations.get(targetKey(record)) === record;
+
+export function publishNativeCreation(target: DraftTarget, result: NativeDraftCreation | null, expected?: NativeDraftCreation): void {
   useSessionUIStore.setState(state => {
+    if (expected && state.nativeDraftCreations.get(targetKey(target)) !== expected) return state;
     const nativeDraftCreations = new Map(state.nativeDraftCreations);
     if (result) nativeDraftCreations.set(targetKey(target), result);
     else nativeDraftCreations.delete(targetKey(target));
@@ -108,32 +113,31 @@ export function applyNativeDraftModel(created: NativeCreatedSession, model: { pr
 
 /** Starts this draft's session once. A client request id is sent only where the gateway accepts it. */
 export async function prepareNativeDraft(clientRequestId?: string): Promise<void> {
-  const store = useSessionUIStore.getState(), draft = store.newSessionDraft, runtimeKey = getRuntimeKey();
+  const store = useSessionUIStore.getState(), draft = store.newSessionDraft, scope = captureRuntimeRequestScope(), runtimeKey = scope.runtimeKey;
   assertManagedDraftTarget(draft);
   if (nativeCreationForDraft(store.nativeDraftCreations, draft, runtimeKey)) return;
   const { project } = resolveDraftProjectDirectory(draft, visibleProjects(useProjectsStore.getState()), 'explicit');
   if (!isNativeDraftTarget(draft) || !draft.directoryOverride || !project) throw new NativeCreationError('target');
   const pending: NativeDraftCreation = { status: 'creating', runtimeKey, draftId: draft.draftId,
-    directory: draft.directoryOverride, projectId: project.id };
+    directory: draft.directoryOverride, projectId: project.id, clientRequestId };
   publishNativeCreation(pending, pending);
   let submitted = false;
   try {
     const support = await opencodeClient.nativeCreationSupport(pending.directory);
     if (support.mode === 'legacy') throw new NativeCreationError('unsupported');
     const current = useSessionUIStore.getState();
-    if (nativeCreationForDraft(current.nativeDraftCreations, current.newSessionDraft, getRuntimeKey()) !== pending) {
+    if (!isRuntimeRequestScopeCurrent(scope) || nativeCreationForDraft(current.nativeDraftCreations, current.newSessionDraft, getRuntimeKey()) !== pending) {
       throw new NativeCreationError('stale');
     }
     assertManagedDraftTarget(draft);
     submitted = true;
-    const session = await createNativeSession(pending.directory, runtimeKey, support.clientRequestId ? clientRequestId : undefined);
-    publishNativeCreation(pending, 'id' in session
-      ? { ...pending, status: 'created', session }
-      : { ...pending, status: 'pending', operation: session.nativeCreation });
-    // A late result belongs to its original draft, even while another target/runtime is visible.
+    const dispatched: NativeDraftCreation = { ...pending, submitted: true, clientRequestId: support.clientRequestId ? clientRequestId : undefined };
+    publishNativeCreation(pending, dispatched, pending);
+    await waitForNativeDraftCreate(dispatched, dispatched.clientRequestId, scope);
+    // A late receipt is retained only by its original request, never by a cancelled or replacement record.
   } catch (cause) {
     const error = cause instanceof NativeCreationError ? cause : new NativeCreationError(submitted ? 'unknown' : 'unavailable', cause);
-    publishNativeCreation(pending, { ...pending, status: 'failed', error, submitted });
+    publishNativeCreation(pending, { ...pending, status: 'failed', error, submitted }, pending);
     throw error;
   }
 }
