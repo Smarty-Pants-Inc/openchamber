@@ -2093,6 +2093,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': 'ブランチはすでにローカルに存在します',
   'session.githubIntegration.validation.failed': '検証に失敗しました',
   'chat.fileAttachment.toast.attachFailed': 'ファイルの添付に失敗しました',
+  'chat.fileAttachment.toast.workbookUnreadable': "このブックを読み込めませんでした: シートまたはセルが見つかりません",
   'chat.fileAttachment.toast.someFilesSkipped': '一部のファイルがスキップされました:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'VS Codeでのファイル選択に失敗しました',
   'chat.fileAttachment.fileFallback': 'ファイル',

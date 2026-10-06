@@ -89,9 +89,16 @@ const attribute = (tag: string, name: string): string | undefined => {
   return decodeXml(match?.[1] ?? match?.[2] ?? "") || undefined
 }
 
+const attributeByLocalName = (tag: string, name: string): string | undefined => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = tag.match(new RegExp(`(?:^|\\s)(?:[A-Za-z_][\\w.-]*:)?${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"))
+  return decodeXml(match?.[1] ?? match?.[2] ?? "") || undefined
+}
+
 const tagBlocks = (xml: string, tag: string): string[] => {
   const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  return Array.from(xml.matchAll(new RegExp(`<${escaped}\\b[^>]*>[\\s\\S]*?<\\/${escaped}>`, "gi")), (match) => match[0])
+  const qualified = tag.includes(":") ? escaped : `(?:[A-Za-z_][\\w.-]*:)?${escaped}`
+  return Array.from(xml.matchAll(new RegExp(`<${qualified}(?=[\\s>])[^>]*(?<!/)>[\\s\\S]*?<\\/${qualified}\\s*>`, "gi")), (match) => match[0])
 }
 
 const textDecoder = new TextDecoder()
@@ -103,7 +110,7 @@ const xml = (archive: Unzipped, path: string): string => {
 const parseRelationships = (archive: Unzipped, sourcePath: string): Relationships => {
   const result: Relationships = new Map()
   const source = xml(archive, relationshipsPath(sourcePath))
-  for (const match of source.matchAll(/<Relationship\b[^>]*\/?\s*>/gi)) {
+  for (const match of source.matchAll(/<(?:[A-Za-z_][\w.-]*:)?Relationship\b[^>]*\/?\s*>/gi)) {
     const id = attribute(match[0], "Id")
     const target = attribute(match[0], "Target")
     if (!id || !target) continue
@@ -322,12 +329,15 @@ const tsvValue = (value: string): string => {
   return `"${value.replace(/"/g, '""')}"`
 }
 
+const spreadsheetText = (source: string): string => tagBlocks(source, "t")
+  .map((text) => decodeXml(text.replace(/<[^>]+>/g, "")))
+  .join("")
+
 const cellValue = (cell: string, sharedStrings: string[]): string => {
-  const type = attribute(cell.match(/^<c\b[^>]*>/i)?.[0] ?? "", "t")
-  if (type === "inlineStr") {
-    return Array.from(cell.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi), (match) => decodeXml(match[1]).replace(/<[^>]+>/g, "")).join("")
-  }
-  const value = cell.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? ""
+  const type = attribute(cell.match(/^<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/i)?.[0] ?? "", "t")
+  if (type === "inlineStr") return spreadsheetText(cell)
+  const value = cell.match(/<(?:[A-Za-z_][\w.-]*:)?v\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?v\s*>/i)?.[1] ?? ""
+  if (!value) return ""
   if (type === "s") return sharedStrings[Number(value)] ?? ""
   if (type === "b") return value === "1" ? "TRUE" : "FALSE"
   return decodeXml(value)
@@ -364,11 +374,11 @@ const spreadsheetRows = (worksheet: string, sharedStrings: string[]): Spreadshee
   const rows: SpreadsheetRow[] = []
   for (const rowXml of tagBlocks(worksheet, "row")) {
     const cells: SpreadsheetCell[] = []
-    for (const match of rowXml.matchAll(/<c\b[^>]*>[\s\S]*?<\/c>/gi)) {
-      const tag = match[0].match(/^<c\b[^>]*>/i)?.[0] ?? ""
+    for (const cell of tagBlocks(rowXml, "c")) {
+      const tag = cell.match(/^<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/i)?.[0] ?? ""
       const reference = attribute(tag, "r")
       const coordinates = reference?.match(/^([a-z]+)([1-9]\d*)$/i)
-      const value = cellValue(match[0], sharedStrings)
+      const value = cellValue(cell, sharedStrings)
       if (!reference || !coordinates || !value) continue
       cells.push({
         reference,
@@ -430,17 +440,19 @@ const drawingCitations = (
   const worksheetXml = xml(archive, worksheetPath)
   const worksheetRelationships = parseRelationships(archive, worksheetPath)
   const output: string[] = []
-  for (const drawing of worksheetXml.matchAll(/<drawing\b[^>]*r:id=(?:"([^"]+)"|'([^']+)')[^>]*\/?\s*>/gi)) {
-    const drawingPath = relationshipTarget(worksheetPath, worksheetRelationships, drawing[1] ?? drawing[2])
+  for (const drawing of worksheetXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*\/?\s*>/gi)) {
+    const drawingId = attributeByLocalName(drawing[0], "id")
+    const drawingPath = relationshipTarget(worksheetPath, worksheetRelationships, drawingId)
     if (!drawingPath) continue
     const drawingXml = xml(archive, drawingPath)
     const drawingRelationships = parseRelationships(archive, drawingPath)
-    for (const anchor of drawingXml.matchAll(/<xdr:(?:oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/xdr:(?:oneCellAnchor|twoCellAnchor)>/gi)) {
+    for (const anchor of drawingXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?(?:oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?(?:oneCellAnchor|twoCellAnchor)\s*>/gi)) {
       const content = anchor[1]
-      const column = Number(content.match(/<xdr:col>(\d+)<\/xdr:col>/i)?.[1] ?? 0)
-      const row = Number(content.match(/<xdr:row>(\d+)<\/xdr:row>/i)?.[1] ?? 0)
-      const imageId = content.match(/<a:blip\b[^>]*r:embed=(?:"([^"]+)"|'([^']+)')[^>]*>/i)
-      const target = relationshipTarget(drawingPath, drawingRelationships, imageId?.[1] ?? imageId?.[2])
+      const column = Number(content.match(/<(?:[A-Za-z_][\w.-]*:)?col\b[^>]*>(\d+)<\/(?:[A-Za-z_][\w.-]*:)?col\s*>/i)?.[1] ?? 0)
+      const row = Number(content.match(/<(?:[A-Za-z_][\w.-]*:)?row\b[^>]*>(\d+)<\/(?:[A-Za-z_][\w.-]*:)?row\s*>/i)?.[1] ?? 0)
+      const imageTag = content.match(/<(?:[A-Za-z_][\w.-]*:)?blip\b[^>]*>/i)?.[0]
+      const imageId = imageTag ? attributeByLocalName(imageTag, "embed") : undefined
+      const target = relationshipTarget(drawingPath, drawingRelationships, imageId)
       output.push(`Image at ${columnName(column)}${row + 1}: ${images.citation(target)}`)
     }
   }
@@ -450,21 +462,26 @@ const drawingCitations = (
 const extractXlsx = (archive: Unzipped, images: EmbeddedImages): string | undefined => {
   const workbookPath = "xl/workbook.xml"
   const workbookXml = xml(archive, workbookPath)
-  if (!workbookXml) return
   const workbookRelationships = parseRelationships(archive, workbookPath)
-  const sharedStrings = tagBlocks(xml(archive, "xl/sharedStrings.xml"), "si")
-    .map((item) => Array.from(item.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi), (match) => decodeXml(match[1]).replace(/<[^>]+>/g, "")).join(""))
+  const sharedStrings = tagBlocks(xml(archive, "xl/sharedStrings.xml"), "si").map(spreadsheetText)
   const sections: string[] = ["# Workbook"]
+  let hasReadableCells = false
 
-  for (const sheet of workbookXml.matchAll(/<sheet\b[^>]*\/?\s*>/gi)) {
+  for (const sheet of workbookXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?sheet\b[^>]*\/?\s*>/gi)) {
     const name = attribute(sheet[0], "name") ?? "Sheet"
-    const relationshipId = attribute(sheet[0], "r:id")
+    const relationshipId = attributeByLocalName(sheet[0], "id")
     const worksheetPath = relationshipTarget(workbookPath, workbookRelationships, relationshipId)
     if (!worksheetPath) continue
     sections.push(`## Sheet: ${name}`)
 
     const rows = serializeSpreadsheetRows(spreadsheetRows(xml(archive, worksheetPath), sharedStrings))
+    if (rows.length > 0) hasReadableCells = true
     sections.push(...(rows.length > 0 ? rows : ["[Empty sheet]"]), ...drawingCitations(archive, worksheetPath, images))
+  }
+  if (!hasReadableCells) {
+    const error = new Error("Couldn't read this workbook: no sheets or cells found")
+    error.name = "WorkbookReadError"
+    throw error
   }
   return `${sections.join("\n\n")}\n`
 }

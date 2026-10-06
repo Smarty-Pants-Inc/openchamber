@@ -2057,6 +2057,7 @@ export const dict = {
   'session.githubIntegration.validation.branchAlreadyExists': 'Branch zaten yerel olarak mevcut',
   'session.githubIntegration.validation.failed': 'Doğrulama başarısız',
   'chat.fileAttachment.toast.attachFailed': 'Dosya eklenemedi',
+  'chat.fileAttachment.toast.workbookUnreadable': "Bu çalışma kitabı okunamadı: çalışma sayfası veya hücre bulunamadı",
   'chat.fileAttachment.toast.someFilesSkipped': 'Bazı dosyalar atlandı:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'VS Code\'da dosya seçilemedi',
   'chat.fileAttachment.fileFallback': 'dosya',

@@ -2099,6 +2099,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': '브랜치가 이미 로컬에 있습니다',
   'session.githubIntegration.validation.failed': '유효성 검사에 실패했습니다',
   'chat.fileAttachment.toast.attachFailed': '첨부 파일 실패',
+  'chat.fileAttachment.toast.workbookUnreadable': "이 통합 문서를 읽을 수 없습니다: 시트나 셀을 찾을 수 없습니다",
   'chat.fileAttachment.toast.someFilesSkipped': '일부 파일을 건너뛰었습니다:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'VS Code에서 파일 선택에 실패했습니다',
   'chat.fileAttachment.fileFallback': '파일',

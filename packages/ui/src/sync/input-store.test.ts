@@ -92,6 +92,29 @@ describe("input-store attachments", () => {
     expect(reloadHeld()).toBe(false)
   })
 
+  testWithMockFileReader("surfaces unreadable XLSX errors without publishing attachments or retaining the reload hold", async () => {
+    useInputStore.getState().addVSCodeFileAttachment("/workspace/keep.txt", "keep.txt", 4)
+    const retained = useInputStore.getState().attachedFiles
+    const archive = zipSync({ "xl/workbook.xml": strToU8("<workbook><sheets/></workbook>") })
+
+    await expect(useInputStore.getState().addAttachedFile(new File([archive], "empty.xlsx")))
+      .rejects.toThrow("Couldn't read this workbook: no sheets or cells found")
+
+    expect(useInputStore.getState().attachedFiles).toBe(retained)
+    expect(pendingReaders).toHaveLength(0)
+    expect(reloadHeld()).toBe(false)
+  })
+
+  testWithMockFileReader("does not surface an unreadable XLSX from a replaced attachment generation", async () => {
+    const archive = zipSync({ "xl/workbook.xml": strToU8("<workbook><sheets/></workbook>") })
+    const pending = useInputStore.getState().addAttachedFile(new File([archive], "empty.xlsx"))
+    useInputStore.getState().clearAttachedFiles()
+
+    expect(await pending).toBe(false)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(reloadHeld()).toBe(false)
+  })
+
   testWithMockFileReader("does not attach a local file that finishes reading after attachments are cleared", async () => {
     const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
     expect(pendingReaders).toHaveLength(1)

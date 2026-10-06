@@ -2075,6 +2075,7 @@ export const dict: Record<I18nKey, string> = {
   "session.githubIntegration.validation.branchAlreadyExists": "Гілка вже існує локально",
   "session.githubIntegration.validation.failed": "Помилка перевірки",
   "chat.fileAttachment.toast.attachFailed": "Не вдалося прикріпити файл",
+  'chat.fileAttachment.toast.workbookUnreadable': "Не вдалося прочитати цю книгу: аркушів або клітинок не знайдено",
   "chat.fileAttachment.toast.someFilesSkipped": "Деякі файли були пропущені:\n{summary}",
   "chat.fileAttachment.toast.vscodePickFailed": "Не вдалося вибрати файли в VS Code",
   "chat.fileAttachment.fileFallback": "файл",

@@ -2067,6 +2067,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': '該分支已在本地存在',
   'session.githubIntegration.validation.failed': '驗證失敗',
   'chat.fileAttachment.toast.attachFailed': '附加檔案失敗',
+  'chat.fileAttachment.toast.workbookUnreadable': "無法讀取此活頁簿：找不到工作表或儲存格",
   'chat.fileAttachment.toast.someFilesSkipped': '以下檔案被跳過：\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': '在 VS Code 中選擇檔案失敗',
   'chat.fileAttachment.fileFallback': '檔案',

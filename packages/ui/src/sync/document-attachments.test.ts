@@ -16,6 +16,32 @@ const relationships = (items: Array<{ id: string; target: string; type?: string 
   </Relationships>
 `
 
+const spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+const officeRelationshipsNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+const packageRelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+// Minimal OPC packages with the namespace and target shapes emitted by real XLSX writers.
+const workbookFile = ({
+  target = "worksheets/sheet1.xml",
+  workbookPrefix = "",
+  worksheetPrefix = "",
+  relationshipPrefix = "r",
+  packagePrefix = "",
+  inline = false,
+} = {}) => {
+  const w = workbookPrefix ? `${workbookPrefix}:` : ""
+  const x = worksheetPrefix ? `${worksheetPrefix}:` : ""
+  const p = packagePrefix ? `${packagePrefix}:` : ""
+  return zippedFile("writer-shape.xlsx", {
+    "[Content_Types].xml": `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`,
+    "_rels/.rels": `<Relationships xmlns="${packageRelationshipsNamespace}"><Relationship Id="rId1" Target="xl/workbook.xml" Type="${officeRelationshipsNamespace}/officeDocument"/></Relationships>`,
+    "xl/workbook.xml": `<${w}workbook xmlns="${spreadsheetNamespace}" ${w ? `xmlns:${workbookPrefix}="${spreadsheetNamespace}"` : ""} xmlns:${relationshipPrefix}="${officeRelationshipsNamespace}"><${w}sheets><${w}sheet name="Summary" sheetId="1" ${relationshipPrefix}:id="rIdSheet"/></${w}sheets></${w}workbook>`,
+    "xl/_rels/workbook.xml.rels": `<${p}Relationships xmlns="${packageRelationshipsNamespace}" ${p ? `xmlns:${packagePrefix}="${packageRelationshipsNamespace}"` : ""}><${p}Relationship Id="rIdSheet" Target="${target}" Type="${officeRelationshipsNamespace}/worksheet"/></${p}Relationships>`,
+    "xl/sharedStrings.xml": `<${x}sst xmlns="${spreadsheetNamespace}" ${x ? `xmlns:${worksheetPrefix}="${spreadsheetNamespace}"` : ""} count="1" uniqueCount="1"><${x}si><${x}r><${x}t>Reve</${x}t></${x}r><${x}r><${x}t>nue &amp; costs</${x}t></${x}r></${x}si></${x}sst>`,
+    "xl/worksheets/sheet1.xml": `<${x}worksheet xmlns="${spreadsheetNamespace}" ${x ? `xmlns:${worksheetPrefix}="${spreadsheetNamespace}"` : ""}><${x}dimension ref="A1:C1"/><${x}sheetData><${x}row r="1"><${x}c r="A1" t="${inline ? "inlineStr" : "s"}">${inline ? `<${x}is><${x}r><${x}t>Reve</${x}t></${x}r><${x}r><${x}t>nue &amp; costs</${x}t></${x}r></${x}is>` : `<${x}v>0</${x}v>`}</${x}c><${x}c r="B1"><${x}v>42</${x}v></${x}c><${x}c r="C1"><${x}f>B1*2</${x}f><${x}v>84</${x}v></${x}c></${x}row></${x}sheetData></${x}worksheet>`,
+  })
+}
+
 const pngBytes = (suffix = 0) => new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, suffix])
 const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
 const webpBytes = new Uint8Array([
@@ -101,6 +127,71 @@ describe("document attachment extraction", () => {
     expect(text.includes("Range: A1:B2\nRevenue\t42\nNorth\t17")).toBe(true)
     expect(text.includes("Image at B3: [budget-image-1.webp]")).toBe(true)
     expect(result?.images[0]?.name).toBe("budget-image-1.webp")
+  })
+
+  for (const [name, options] of [
+    ["extracts Excel-default XLSX relative worksheet targets", {}],
+    ["extracts XLSX absolute worksheet targets", { target: "/xl/worksheets/sheet1.xml" }],
+    ["extracts XLSX namespace-prefixed workbook sheets", { workbookPrefix: "x" }],
+    ["extracts XLSX non-r relationship ID prefixes", { relationshipPrefix: "rel" }],
+    ["extracts XLSX namespace-prefixed shared strings, rows, cells, and cached values", { worksheetPrefix: "x" }],
+    ["extracts XLSX namespace-prefixed package relationships", { packagePrefix: "pkg" }],
+    ["extracts XLSX rich inline strings", { inline: true }],
+    ["extracts XLSX prefixed inline strings with absolute targets and non-r IDs", { target: "/xl/worksheets/sheet1.xml", workbookPrefix: "x", worksheetPrefix: "x", relationshipPrefix: "rel", packagePrefix: "pkg", inline: true }],
+  ] satisfies Array<[string, Parameters<typeof workbookFile>[0]]>) {
+    test(name, async () => {
+      const result = await extractDocumentAttachments(workbookFile(options))
+      expect(await result?.textFile.text()).toBe("# Workbook\n\n## Sheet: Summary\n\nRange: A1:C1\nRevenue & costs\t42\t84\n")
+    })
+  }
+
+  for (const [name, entries] of [
+    ["rejects XLSX with no sheet elements instead of sending a workbook stub", { "xl/workbook.xml": `<workbook xmlns="${spreadsheetNamespace}"><sheets/></workbook>` }],
+    ["rejects XLSX with unresolved sheet relationships", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="missing"/></sheets></workbook>` }],
+    ["rejects XLSX with a missing worksheet part", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="sheet"/></sheets></workbook>`, "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "/xl/worksheets/missing.xml" }]) }],
+    ["rejects XLSX with sheets but no readable cells", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="sheet"/></sheets></workbook>`, "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]), "xl/worksheets/sheet1.xml": `<worksheet><sheetData><row r="1"><c r="A1" s="1"/><c r="B1"><f>1+1</f></c></row></sheetData></worksheet>` }],
+    ["rejects XLSX with no workbook part", { "metadata.xml": "<metadata/>" }],
+  ] satisfies Array<[string, Record<string, string>]>) {
+    test(name, async () => {
+      await expect(extractDocumentAttachments(zippedFile("empty.xlsx", entries)))
+        .rejects.toThrow("Couldn't read this workbook: no sheets or cells found")
+    })
+  }
+
+  test("rejects XLSX shared-string and boolean cells with no stored value", async () => {
+    const file = zippedFile("no-values.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]),
+      "xl/sharedStrings.xml": "<sst><si><t>Unused shared string</t></si></sst>",
+      "xl/worksheets/sheet1.xml": `<worksheet><sheetData><row r="1"><c r="A1" t="s"></c><c r="B1" t="b"><v/></c></row></sheetData></worksheet>`,
+    })
+    await expect(extractDocumentAttachments(file)).rejects.toThrow("Couldn't read this workbook: no sheets or cells found")
+  })
+
+  test("extracts prefixed XLSX drawings and non-r image relationship attributes", async () => {
+    const file = zippedFile("prefixed-image.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "/xl/worksheets/sheet1.xml" }]),
+      "xl/worksheets/sheet1.xml": `<x:worksheet xmlns:x="${spreadsheetNamespace}" xmlns:rel="${officeRelationshipsNamespace}"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>42</x:v></x:c></x:row></x:sheetData><x:drawing rel:id="drawing"/></x:worksheet>`,
+      "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "/xl/drawings/drawing1.xml" }]),
+      "xl/drawings/drawing1.xml": `<d:wsDr xmlns:d="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:rel="${officeRelationshipsNamespace}"><d:twoCellAnchor><d:from><d:col>1</d:col><d:row>2</d:row></d:from><d:pic><pic:blip rel:embed="image"/></d:pic></d:twoCellAnchor></d:wsDr>`,
+      "xl/drawings/_rels/drawing1.xml.rels": relationships([{ id: "image", target: "/xl/media/image1.png" }]),
+      "xl/media/image1.png": pngBytes(),
+    })
+    const result = await extractDocumentAttachments(file)
+    expect(await result?.textFile.text()).toContain("Image at B3: [prefixed-image-image-1.png]")
+    expect(result?.images[0]?.name).toBe("prefixed-image-image-1.png")
+  })
+
+  test("preserves readable XLSX sheets when another sheet is empty or unresolved", async () => {
+    const file = zippedFile("mixed.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Missing" r:id="missing"/><sheet name="Blank" r:id="blank"/><sheet name="Readable" r:id="data"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "blank", target: "worksheets/sheet1.xml" }, { id: "data", target: "worksheets/sheet2.xml" }]),
+      "xl/worksheets/sheet1.xml": `<worksheet><sheetData/></worksheet>`,
+      "xl/worksheets/sheet2.xml": `<x:worksheet xmlns:x="${spreadsheetNamespace}"><x:sheetData><x:row r="1"><x:c r="A1" s="1"/><x:c r="B1"><x:v>0</x:v></x:c><x:c r="C1" t="b"><x:v>0</x:v></x:c><x:c r="D1" t="inlineStr"><x:is><x:t>&lt;tag&gt; &amp; text</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>`,
+    })
+    const result = await extractDocumentAttachments(file)
+    expect(await result?.textFile.text()).toBe("# Workbook\n\n## Sheet: Blank\n\n[Empty sheet]\n\n## Sheet: Readable\n\nRange: B1:D1\n0\tFALSE\t<tag> & text\n")
   })
 
   test("quotes TSV values and keeps sparse XLSX rows coordinate-based", async () => {

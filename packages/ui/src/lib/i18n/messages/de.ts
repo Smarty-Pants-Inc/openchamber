@@ -1896,6 +1896,7 @@ export const dict = {
   'session.githubIntegration.validation.branchAlreadyExists': 'Branch existiert bereits lokal',
   'session.githubIntegration.validation.failed': 'Validierung fehlgeschlagen',
   'chat.fileAttachment.toast.attachFailed': 'Fehler beim Anhängen der Datei',
+  'chat.fileAttachment.toast.workbookUnreadable': "Diese Arbeitsmappe konnte nicht gelesen werden: Keine Tabellenblätter oder Zellen gefunden",
   'chat.fileAttachment.toast.someFilesSkipped': 'Einige Dateien wurden übersprungen:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'Fehler beim Auswählen von Dateien in VS Code',
   'chat.fileAttachment.fileFallback': 'Datei',

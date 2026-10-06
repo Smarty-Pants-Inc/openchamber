@@ -870,7 +870,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     type DocumentMentionPreparation =
         | { status: 'ready'; prepared: Map<string, AttachedFile[]> }
-        | { status: 'failed'; filename: string }
+        | { status: 'failed'; filename: string; workbookUnreadable: boolean }
         | { status: 'runtime-changed' };
 
     /**
@@ -905,9 +905,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     if (getRuntimeKey() !== runtimeKey) return { status: 'runtime-changed' };
                     prepared.set(mention.serverPath, converted);
                     for (const attachment of converted) reservedFilenames.add(attachment.filename);
-                } catch {
+                } catch (error) {
                     if (getRuntimeKey() !== runtimeKey) return { status: 'runtime-changed' };
-                    return { status: 'failed', filename: mention.filename };
+                    return { status: 'failed', filename: mention.filename, workbookUnreadable: error instanceof Error && error.name === 'WorkbookReadError' };
                 }
             }
         }
@@ -1220,7 +1220,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         if (documentMentions.status === 'runtime-changed') return;
         if (documentMentions.status === 'failed') {
-            toast.error(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
+            toast.error(documentMentions.workbookUnreadable
+                ? t('chat.fileAttachment.toast.workbookUnreadable')
+                : t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
             return;
         }
         const { sanitizedText, mention } = parseAgentMentions(messageToQueue, agents);
@@ -1730,7 +1732,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         if (documentMentions.status === 'runtime-changed') return;
         if (documentMentions.status === 'failed') {
-            refuse(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
+            refuse(documentMentions.workbookUnreadable
+                ? t('chat.fileAttachment.toast.workbookUnreadable')
+                : t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
             return;
         }
         const preparedDocumentMentions = documentMentions.prepared;
@@ -3170,14 +3174,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         if (files.length > 0) {
             let attached = false;
+            let workbookErrorShown = false;
             for (const file of files) {
                 try {
                     attached = (await addAttachedFile(file)) || attached;
                 } catch (error) {
                     console.error('File attach failed', error);
+                    if (error instanceof Error && error.name === 'WorkbookReadError') {
+                        toast.error(t('chat.fileAttachment.toast.workbookUnreadable'));
+                        workbookErrorShown = true;
+                    }
                 }
             }
-            if (!attached) toast.error(t('chat.chatInput.toast.attachFileFailed'));
+            if (!attached && !workbookErrorShown) toast.error(t('chat.chatInput.toast.attachFileFailed'));
         }
         clearDropTextSuppression();
     };
@@ -3199,15 +3208,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const attachFiles = React.useCallback(async (files: FileList | File[]) => {
         const list = Array.isArray(files) ? files : Array.from(files);
         let attached = false;
+        let workbookErrorShown = false;
 
         for (const file of list) {
             try {
                 attached = (await addAttachedFile(file)) || attached;
             } catch (error) {
                 console.error('File attach failed', error);
+                if (error instanceof Error && error.name === 'WorkbookReadError') {
+                    toast.error(t('chat.fileAttachment.toast.workbookUnreadable'));
+                    workbookErrorShown = true;
+                }
             }
         }
-        if (list.length > 0 && !attached) {
+        if (list.length > 0 && !attached && !workbookErrorShown) {
             toast.error(t('chat.chatInput.toast.attachFileFailed'));
         }
     }, [addAttachedFile, t]);

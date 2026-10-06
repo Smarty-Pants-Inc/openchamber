@@ -33,7 +33,9 @@ const FileAttachmentButton = memo(() => {
         await addAttachedFile(file);
       } catch (error) {
         console.error('File attach failed', error);
-        toast.error(error instanceof Error ? error.message : t('chat.fileAttachment.toast.attachFailed'));
+        toast.error(error instanceof Error && error.name === 'WorkbookReadError'
+          ? t('chat.fileAttachment.toast.workbookUnreadable')
+          : error instanceof Error ? error.message : t('chat.fileAttachment.toast.attachFailed'));
       }
     }
   };

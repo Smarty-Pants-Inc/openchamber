@@ -205,7 +205,10 @@ export const useInputStore = create<InputState>()((set, get) => ({
         let attachedFiles: AttachedFile[] | undefined
         try {
           attachedFiles = await prepareLocalAttachments(file, reservedFilenames)
-        } catch {
+        } catch (error) {
+          // Workbook extraction failures must reach the composer's localized error toast.
+          if (generation !== attachmentReadGeneration) return false
+          if (error instanceof Error && error.name === "WorkbookReadError") throw error
           return false
         }
         if (!attachedFiles || generation !== attachmentReadGeneration) return false

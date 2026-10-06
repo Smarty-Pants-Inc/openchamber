@@ -2075,6 +2075,7 @@ export const dict: Record<I18nKey, string> = {
   "session.githubIntegration.validation.branchAlreadyExists": "La rama ya existe localmente",
   "session.githubIntegration.validation.failed": "No se pudo validar",
   "chat.fileAttachment.toast.attachFailed": "No se pudo adjuntar el archivo",
+  'chat.fileAttachment.toast.workbookUnreadable': "No se pudo leer este libro: no se encontraron hojas ni celdas",
   "chat.fileAttachment.toast.someFilesSkipped": "Algunos archivos se omitieron:\n{summary}",
   "chat.fileAttachment.toast.vscodePickFailed": "No se pudieron seleccionar archivos en VS Code",
   "chat.fileAttachment.fileFallback": "archivo",

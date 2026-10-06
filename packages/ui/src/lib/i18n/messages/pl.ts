@@ -752,6 +752,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': 'Gałąź już istnieje lokalnie',
   'session.githubIntegration.validation.failed': 'Walidacja nie powiodła się',
   'chat.fileAttachment.toast.attachFailed': 'Nie udało się dołączyć pliku',
+  'chat.fileAttachment.toast.workbookUnreadable': "Nie udało się odczytać tego skoroszytu: nie znaleziono arkuszy ani komórek",
   'chat.fileAttachment.toast.someFilesSkipped': 'Niektóre pliki zostały pominięte:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'Nie udało się wybrać plików w VS Code',
   'chat.fileAttachment.fileFallback': 'plik',
