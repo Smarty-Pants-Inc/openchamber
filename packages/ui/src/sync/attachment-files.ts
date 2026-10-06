@@ -132,6 +132,11 @@ const PICKER_MIME_EXTENSIONS = new Map<string, string>([
 ])
 const TEXT_ATTACHMENT_EXTENSIONS = ["txt", "text", "md", "markdown", "log", "csv"]
 
+type AttachmentRejection = "zip" | "unsupported"
+
+export const getAttachmentRejection = (file: Pick<File, "name" | "type">): AttachmentRejection =>
+  file.name.toLowerCase().endsWith(".zip") || file.type.toLowerCase() === "application/zip" ? "zip" : "unsupported"
+
 export const ACCEPTED_ATTACHMENT_EXTENSIONS = Array.from(new Set(
   ACCEPTED_ATTACHMENT_TYPES.flatMap((type) => {
     if (type.startsWith(".")) return [type.slice(1)]

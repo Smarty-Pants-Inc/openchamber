@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n['zh-CN'],
   ...nativeCreationI18n['zh-CN'],
+  ...attachmentI18n['zh-CN'],
   ...piVoiceI18n['zh-CN'],
   ...sidebarHerdrI18n['zh-CN'],
   ...statusUnavailableI18n['zh-CN'],

@@ -1,5 +1,6 @@
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -15,6 +16,7 @@ export const dict = {
   ...settingsDict,
   ...displayNameI18n.fr,
   ...nativeCreationI18n.fr,
+  ...attachmentI18n.fr,
   ...piVoiceI18n.fr,
   ...sidebarHerdrI18n.fr,
   ...statusUnavailableI18n.fr,

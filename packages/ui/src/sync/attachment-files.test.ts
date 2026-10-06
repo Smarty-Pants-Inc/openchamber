@@ -5,6 +5,7 @@ import {
   getAttachmentInputModality,
   getUnsupportedAttachmentInputs,
   isDocumentAttachmentFilename,
+  getAttachmentRejection,
   prepareAttachmentFile,
 } from "./attachment-files"
 
@@ -37,6 +38,15 @@ describe("attachment file preparation", () => {
     ])
   })
 
+  test("explains unsupported ZIP files without adding ZIP to the picker", () => {
+    expect(getAttachmentRejection(new File(["zip"], "archive.zip", { type: "application/zip" }))).toBe("zip")
+    expect(getAttachmentRejection(new File(["zip"], "ARCHIVE.ZIP"))).toBe("zip")
+    expect(getAttachmentRejection(new File(["zip"], "archive", { type: "application/zip" }))).toBe("zip")
+    expect(getAttachmentRejection(new File([new Uint8Array([0])], "binary.bin"))).toBe("unsupported")
+    expect(ACCEPTED_ATTACHMENT_EXTENSIONS.includes("zip")).toBe(false)
+    expect(ATTACHMENT_ACCEPT.includes(".zip")).toBe(false)
+  })
+
   test("exposes the expanded code and structured-text formats to pickers", () => {
     for (const extension of [
       "diff", "patch", "ipynb", "jsonl", "ndjson", "har", "svg", "drawio",
@@ -46,6 +56,12 @@ describe("attachment file preparation", () => {
       expect(ACCEPTED_ATTACHMENT_EXTENSIONS.includes(extension)).toBe(true)
       expect(ATTACHMENT_ACCEPT.includes(`.${extension}`)).toBe(true)
     }
+  })
+
+  test("rejects a binary ZIP without changing content-based text acceptance", async () => {
+    const zip = new Uint8Array([80, 75, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(await prepare(new File([zip], "archive.zip", { type: "application/zip" }))).toBeUndefined()
+    expect((await prepare(new File(["readable context"], "context.unknown")))?.mimeType).toBe("text/plain")
   })
 
   test("identifies Office and OpenDocument filenames for shared mention preparation", () => {
