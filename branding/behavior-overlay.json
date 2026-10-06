@@ -71,10 +71,10 @@
       "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged.",
       "preTerminalRemovalCombinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "terminalRemovalBaseSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
-      "terminalRemovalSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
-      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained.",
-      "preHostPowerRemovalCombinedSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
-      "hostPowerRemovalBaseSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
+      "terminalRemovalSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained. Round 4 (Astra F3): a retired path's CORS preflight gets the retired-route 404, never 204.",
+      "preHostPowerRemovalCombinedSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
+      "hostPowerRemovalBaseSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
       "hostPowerRemovalSha256": "8754b620746670bdb73fcf72543962e594bd8cd2ac41ebf3b0246d9cdf16f71e",
       "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: update, tunnel-control, relay-host and dev-tunnel wiring are removed, and a packaged-client CORS preflight for a retired route is refused by lib/security/retired-routes.js instead of answered 204."
     },
@@ -1695,12 +1695,16 @@
     {
       "path": "packages/electron/main.mjs",
       "brandingSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
-      "behaviorSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401",
-      "combinedSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401",
-      "reason": "smarty-code#1398 slice 2: host-power route removal: the relay dev-tunnel IPC bridge and the HTTP tunnel-status quit-risk fetch are removed; the native updater is kept.",
-      "hostPowerRemovalAdded": true,
-      "hostPowerRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
-      "hostPowerRemovalSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401"
+      "behaviorSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "combinedSha256": "d156e40160e4b336e23df336b8b36b021d3e108d9a2edd032811748ff35f3e4f",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Toggle Terminal Dock and Toggle Terminal Expanded menu items (both platform templates) are removed, since their handlers were deleted (Astra F2); the native Open in Terminal integration and branded strings are unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "terminalRemovalSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "preHostPowerRemovalCombinedSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "hostPowerRemovalBaseSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "hostPowerRemovalSha256": "d156e40160e4b336e23df336b8b36b021d3e108d9a2edd032811748ff35f3e4f",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the relay dev-tunnel IPC bridge and the HTTP tunnel-status quit-risk fetch are removed; the native updater is kept."
     },
     {
       "path": "packages/ui/src/components/sections/openchamber/AboutSettings.tsx",

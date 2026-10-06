@@ -180,9 +180,9 @@ test('the terminal-removal layer binds openchamber#552 over every changed donor 
   const prefix = 'openchamber#552 (smarty-code#1398): web terminal removal';
   const coverage = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   const layer = overlay.files.filter(entry => 'terminalRemovalSha256' in entry);
-  assert.equal(layer.length, 103);
+  assert.equal(layer.length, 104);
   assert.equal(sha256(JSON.stringify(layer.map(entry => [entry.path, entry.terminalRemovalBaseSha256, entry.terminalRemovalSha256]))),
-    '40c908370348f7b466f636d73244aec274575265eafd397e672202171e9a9483');
+    'c6cdf19b9abd2ed68f6c3af9be5f3e57480a7d3c403d520583e7c0aa338adedf');
   // Existing overlaps keep every earlier field; the layer records the exact predecessor bytes and its successor.
   const extended = layer.filter(entry => !entry.terminalRemovalAdded);
   assert.deepEqual(extended.map(entry => entry.path), [
@@ -205,23 +205,25 @@ test('the terminal-removal layer binds openchamber#552 over every changed donor 
   }
   // Donor outputs outside the earlier overlay are added once, retaining the original donor hash.
   const added = layer.filter(entry => entry.terminalRemovalAdded);
-  assert.equal(added.length, 82);
+  assert.equal(added.length, 83);
   for (const entry of added) {
     const donor = coverage.get(entry.path);
     assert.ok(donor, entry.path);
     assert.equal(entry.brandingSha256, donor.outputSha256, entry.path);
     assert.equal(entry.terminalRemovalBaseSha256, responsePolicyOutputSha256(entry.path, donor.outputSha256), entry.path);
     assert.ok(entry.reason.startsWith(prefix), entry.path);
-    assert.equal(entry.behaviorSha256, entry.combinedSha256, entry.path);
-    assert.equal(entry.terminalRemovalSha256, entry.combinedSha256, entry.path);
+    // smarty-code#1398 slice 2 may extend an added record too; this layer's output is then its predecessor.
+    const terminalOutput = entry.preHostPowerRemovalCombinedSha256 ?? entry.combinedSha256;
+    assert.equal(entry.behaviorSha256, terminalOutput, entry.path);
+    assert.equal(entry.terminalRemovalSha256, terminalOutput, entry.path);
     if (entry.terminalRemovalDeleted) {
       assert.equal(entry.terminalRemovalDeleted, true, entry.path);
       assert.equal(entry.combinedSha256, null, entry.path);
       assert.equal(existsSync(path.join(root, entry.path)), false, entry.path);
     } else {
       assert.match(entry.combinedSha256, hex, entry.path);
-      assert.notEqual(entry.combinedSha256, entry.terminalRemovalBaseSha256, entry.path);
-      assert.equal(sha256(read(entry.path)), entry.combinedSha256, entry.path);
+      assert.notEqual(terminalOutput, entry.terminalRemovalBaseSha256, entry.path);
+      assert.equal(sha256(read(entry.path)), currentOutput(entry.path, terminalOutput), entry.path);
     }
   }
   // Every deletion is an explicit record of this layer, never a missing file.
@@ -244,7 +246,7 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
   const layer = overlay.files.filter(entry => 'hostPowerRemovalSha256' in entry);
   assert.equal(layer.length, 25);
   assert.equal(sha256(JSON.stringify(layer.map(entry => [entry.path, entry.hostPowerRemovalBaseSha256, entry.hostPowerRemovalSha256]))),
-    '8185c3da631b2dacfb5881ff41d9d758a1ae2c12bcf4b07412f608ab6c520827');
+    'bdf0f2fedc7d424d0b43592f04021c20d036df08cab5ca1b83ff8243db5b12ff');
   // Existing overlaps keep every earlier field; the layer records the exact predecessor bytes and its successor.
   const extended = layer.filter(entry => !entry.hostPowerRemovalAdded);
   assert.deepEqual(extended.map(entry => entry.path), [
@@ -252,7 +254,7 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
     'packages/ui/src/sync/session-ui-store.ts',
     'packages/web/server/lib/notifications/apns-runtime.js', 'packages/web/server/lib/opencode/core-routes.js',
     'packages/web/server/lib/opencode/core-routes.test.js', 'packages/ui/src/components/layout/Header.tsx',
-    'packages/web/server/lib/git/service.js',
+    'packages/web/server/lib/git/service.js', 'packages/electron/main.mjs',
   ]);
   for (const entry of extended) {
     assert.match(entry.preHostPowerRemovalCombinedSha256, hex, entry.path);
@@ -265,7 +267,7 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
   }
   // Donor outputs outside the earlier overlay are added once, retaining the original donor hash.
   const added = layer.filter(entry => entry.hostPowerRemovalAdded);
-  assert.equal(added.length, 17);
+  assert.equal(added.length, 16);
   for (const entry of added) {
     const donor = coverage.get(entry.path);
     assert.ok(donor, entry.path);

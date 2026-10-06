@@ -113,6 +113,13 @@ try {
      results.push({label,method,route,status:res.status,leaked,variant:!routes.some(([, known]) => known === route)});
      console.log(`AFTER ${label} ${method} ${route} => ${res.status}${leaked ? ' LEAKED' : ''}`);
    }
+   // A packaged client's CORS preflight is answered before authentication: a retired path must not get 204 (#552 F3).
+   for (const route of [...routes, ...variants].map(([, r]) => r)) {
+     const res = await fetch(`${base}${route}`, {method:'OPTIONS',headers:{...authHeaders(auth),Origin:'capacitor://localhost','Access-Control-Request-Method':'POST'},signal:AbortSignal.timeout(5000)});
+     results.push({label,method:'PREFLIGHT',route,status:res.status});
+   }
+   const kept = await fetch(`${base}/api/config/settings`, {method:'OPTIONS',headers:{...authHeaders(auth),Origin:'capacitor://localhost','Access-Control-Request-Method':'GET'}});
+   results.push({label,method:'CONTROL-PREFLIGHT',route:'/api/config/settings',status:kept.status});
    // Upgrade every former path too: the server itself must answer with a
    // refusal and close the raw socket.
    const upgradeRoutes = [...routes, ...variants].map(([, route]) => route);
