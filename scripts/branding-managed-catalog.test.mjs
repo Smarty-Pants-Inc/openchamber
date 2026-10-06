@@ -2,10 +2,15 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
+import { responsePolicyOutputSha256 } from './branding-response-policy.mjs';
 
 const overlay = JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8'));
 const digest = value => createHash('sha256').update(value).digest('hex');
+const terminalRemovalOutputs = new Map(overlay.files.map(entry => [entry.path, entry.terminalRemovalSha256]));
+// openchamber#552 is the newest layer, above the separate response-policy successors. Its exact output is current;
+// every older hash still resolves through the response-policy ledger, which checks its own predecessor.
+const currentOutput = (file, historicalSha256) => (historicalSha256 != null && historicalSha256 === terminalRemovalOutputs.get(file)
+  ? historicalSha256 : responsePolicyOutputSha256(file, historicalSha256));
 const consumers = [
   'packages/ui/src/components/layout/Header.tsx',
   'packages/ui/src/components/mini-chat/MiniChatLayout.tsx',
@@ -24,8 +29,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256));
+    assert.equal(entry.terminalRemovalSha256 ?? entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.terminalRemovalSha256 ?? entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256));
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -37,7 +42,32 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // Unwind PR486 first: it is the newest layer, above inbox Steps; the result is the exact smarty-code ledger.
+  // Unwind openchamber#552 first: it is the newest layer, above PR486; the result is the exact PR486 ledger.
+  assert.deepEqual(historical.terminalRemovalProvenance, {
+    pullRequest: 552,
+    issue: 'smarty-code#1398',
+    reviewedHead: '03fa2b8c0fb2cf36a55f74be65186e34a0622d64',
+    sourceEvidence: 'Web terminal removal bytes after the SEC552 round-2 review; bound by hash, deletions recorded explicitly. No installed acceptance claim.',
+  });
+  delete historical.terminalRemovalProvenance;
+  historical.files = historical.files.filter(entry => !entry.terminalRemovalAdded);
+  const terminalRemoval = historical.files.filter(entry => 'terminalRemovalSha256' in entry);
+  assert.deepEqual(terminalRemoval.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(),
+    paths.filter(file => !/MiniChatLayout|useTraySync|useWindowTitle|session-ui-store/.test(file)).sort()); // 14 of the 18 overlaps.
+  for (const entry of terminalRemoval) {
+    assert.equal(entry.terminalRemovalSha256, entry.combinedSha256);
+    assert.equal(entry.terminalRemovalBaseSha256, responsePolicyOutputSha256(entry.path, entry.preTerminalRemovalCombinedSha256));
+    assert.ok(entry.terminalRemovalNote);
+    entry.combinedSha256 = entry.preTerminalRemovalCombinedSha256;
+    delete entry.preTerminalRemovalCombinedSha256;
+    delete entry.terminalRemovalBaseSha256;
+    delete entry.terminalRemovalSha256;
+    delete entry.terminalRemovalNote;
+  }
+  assert.equal(historical.files.length, 48);
+  assert.equal(digest(JSON.stringify(historical)), '8fec0501cecd9fe031e9bd6ca9a8f3b7dd8c7f049005b17985778957deea4e0e');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'e6baee9f1cc443a6cceadcc75dd75a98f54ae6f838cbde226ef2e3ab2a3fbe0f');
+  // Unwind PR486 next: it sits above inbox Steps; the result is the exact smarty-code ledger.
   historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
   for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
     assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);

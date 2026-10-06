@@ -179,6 +179,33 @@ Unused hosted and Android jobs are disabled only in `Smarty-Pants-Inc/openchambe
 their upstream dispatch inputs and runner selections remain intact. Local checks
 do not replace an exact-head Forge run or native build evidence.
 
+### Web terminal removal successor
+
+`terminalRemovalProvenance` records openchamber#552 (smarty-code#1398), which
+deletes the web terminal, and the head it was reviewed at. The layer covers
+every donor-ledger output the PR changed or deleted: 103 paths.
+
+- **21 existing overlay entries** gain `preTerminalRemovalCombinedSha256`,
+  `terminalRemovalBaseSha256`, `terminalRemovalSha256` and
+  `terminalRemovalNote`. The base hash is the exact predecessor bytes. It
+  differs from the ledger predecessor only for `packages/web/server/index.js`,
+  where the separate response-policy successor sits in between.
+- **82 donor outputs** outside the earlier overlay are added with
+  `terminalRemovalAdded`. Each keeps its original donor hash as
+  `brandingSha256`.
+- **10 deleted outputs** (every `project-actions.mdx` page) carry
+  `terminalRemovalDeleted: true` with null output hashes. The tests require
+  each one to be absent from disk. A deleted donor file without this record
+  still fails the coverage test.
+
+The root README was edited by hand as source text. `bun run brand` regenerated
+`generated.json`; the manifest membership and source digest did not change.
+
+Both historical ownership tests unwind this layer first. They then check the
+parsed and byte digests of the preceding PR486 ledger before running every
+older assertion unchanged. This provenance binds bytes. It is not exact-head
+CI, a security review pass or release evidence.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
