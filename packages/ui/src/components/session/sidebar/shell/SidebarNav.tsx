@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useInboxStore } from '@/lib/smartyInbox';
+import { FeedSidebarRow } from '@/components/views/feed/FeedNav';
 
 // Primary sidebar action: starting a session is the one control worth its own
 // row; it keeps the quiet text-row form so the top reads as content, while
@@ -24,6 +25,7 @@ export function SidebarNav(props: Props): React.ReactNode {
         <Icon name="chat-new" className="h-4 w-4 flex-shrink-0" />
         <span className="truncate">{t('sessions.sidebar.header.actions.newSession')}</span>
       </button>
+      <FeedSidebarRow />
       <InboxBadgeRow />
     </div>
   );
