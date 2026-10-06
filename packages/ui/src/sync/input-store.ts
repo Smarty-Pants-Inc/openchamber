@@ -13,6 +13,8 @@ const FILE_URI_PREFIX = "file://"
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
 const pendingVSCodeSelectionKeys = new Set<string>()
 let attachmentReadGeneration = 0
+// Injected by attachment-owner.ts: session/draft identity lives in session-ui-store, which imports this store.
+let readAttachmentOwnerIdentity: () => string = () => ""
 
 const encodeFilePath = (filepath: string): string => {
   let normalized = filepath.replace(/\\/g, "/")
@@ -55,6 +57,25 @@ const readFileAsDataUrl = (file: File, mime: string): Promise<string> => new Pro
   reader.onabort = () => reject(new Error("File read aborted"))
   reader.readAsDataURL(file)
 })
+
+/** Lets `attachment-owner.ts` name the composer's destination: its session ID or new-session draft. */
+export const registerAttachmentOwnerIdentity = (read: () => string): void => {
+  readAttachmentOwnerIdentity = read
+}
+
+/**
+ * Captures the composer's current attachment owner: the destination identity (runtime plus session
+ * ID or new-session draft) and the attachment-list generation. Selecting another session, restoring
+ * a runtime's remembered session, or opening another draft changes the identity; clearing or
+ * replacing attachments advances the generation. Either ends the owner. A multi-file batch checks the
+ * returned predicate before each file and before inserting text, and `addAttachedFile` checks it
+ * again before publishing, so nothing prepared for one owner reaches another.
+ */
+export const captureAttachmentOwner = (): (() => boolean) => {
+  const generation = attachmentReadGeneration
+  const identity = readAttachmentOwnerIdentity()
+  return () => generation === attachmentReadGeneration && identity === readAttachmentOwnerIdentity()
+}
 
 export const prepareLocalAttachments = async (
   file: File,
@@ -147,7 +168,8 @@ export type InputState = {
   consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
-  addAttachedFile: (file: File) => Promise<boolean>
+  /** Publishes only while `isCurrentOwner` (by default, captured now) still holds. */
+  addAttachedFile: (file: File, isCurrentOwner?: () => boolean) => Promise<boolean>
   removeAttachedFile: (id: string) => void
   setAttachedFiles: (files: AttachedFile[]) => void
   clearAttachedFiles: () => void
@@ -195,20 +217,22 @@ export const useInputStore = create<InputState>()((set, get) => ({
     return pendingSyntheticParts
   },
 
-  addAttachedFile: async (file: File) => {
+  addAttachedFile: async (file: File, isCurrentOwner = captureAttachmentOwner()) => {
     // A file still being read is not in attachedFiles yet: a new-build reload must wait for it (openchamber#420 review).
     const release = holdReload()
     try {
-      const generation = attachmentReadGeneration
       for (let attempt = 0; attempt < MAX_ATTACHMENT_PREPARATION_ATTEMPTS; attempt += 1) {
         const reservedFilenames = get().attachedFiles.map((attachment) => attachment.filename)
         let attachedFiles: AttachedFile[] | undefined
         try {
           attachedFiles = await prepareLocalAttachments(file, reservedFilenames)
-        } catch {
+        } catch (error) {
+          // Workbook extraction failures must reach the composer's localized error toast.
+          if (!isCurrentOwner()) return false
+          if (error instanceof Error && error.name === "WorkbookReadError") throw error
           return false
         }
-        if (!attachedFiles || generation !== attachmentReadGeneration) return false
+        if (!attachedFiles || !isCurrentOwner()) return false
 
         const generatedFilenames = attachedFiles.slice(1).map((attachment) => attachment.filename)
         if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles)) continue
@@ -267,7 +291,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
 
   addVSCodeSelectionAttachment: async (path: string, file: File) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const generation = attachmentReadGeneration
+    const isCurrentOwner = captureAttachmentOwner()
     const selectionKey = getVSCodeSelectionKey(path, file.name)
     const isDuplicate = get().attachedFiles.some(
       (f) => f.source === 'vscode' && f.vscodeSource === 'selection' && f.filename === file.name && f.vscodePath === path
@@ -282,7 +306,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     } finally {
       pendingVSCodeSelectionKeys.delete(selectionKey)
     }
-    if (generation !== attachmentReadGeneration) return
+    if (!isCurrentOwner()) return
     const attached: AttachedFile = {
       id,
       file,

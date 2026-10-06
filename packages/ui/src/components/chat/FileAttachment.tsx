@@ -1,5 +1,7 @@
 import React, { useRef, memo } from 'react';
-import { useInputStore } from '@/sync/input-store';
+import { captureAttachmentOwner, useInputStore } from '@/sync/input-store';
+// Binds attachment batches to the session or draft they start in (SEC551R3).
+import '@/sync/attachment-owner';
 import type { AttachedFile } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -26,14 +28,19 @@ const FileAttachmentButton = memo(() => {
   const buttonSizeClass = isMobile ? 'h-9 w-9' : 'h-7 w-7';
   const iconSizeClass = isMobile ? 'h-5 w-5' : 'h-[18px] w-[18px]';
 
-  const attachFiles = async (files: FileList | File[]) => {
+  // Stops when the composer's owner changes mid-batch (SEC551), like ChatInput's attachFiles.
+  const attachFiles = async (files: FileList | File[], isCurrentOwner = captureAttachmentOwner()) => {
     for (let i = 0; i < files.length; i++) {
+      if (!isCurrentOwner()) return;
       const file = files[i];
       try {
-        await addAttachedFile(file);
+        await addAttachedFile(file, isCurrentOwner);
       } catch (error) {
+        if (!isCurrentOwner()) return;
         console.error('File attach failed', error);
-        toast.error(error instanceof Error ? error.message : t('chat.fileAttachment.toast.attachFailed'));
+        toast.error(error instanceof Error && error.name === 'WorkbookReadError'
+          ? t('chat.fileAttachment.toast.workbookUnreadable')
+          : error instanceof Error ? error.message : t('chat.fileAttachment.toast.attachFailed'));
       }
     }
   };
@@ -49,6 +56,7 @@ const FileAttachmentButton = memo(() => {
   };
 
   const handleVSCodePick = async () => {
+    const isCurrentOwner = captureAttachmentOwner();
     try {
       const data = (await runtimeApis.vscode?.pickFiles?.()) as {
         files?: Array<{ name: string; mimeType?: string; dataUrl?: string }>;
@@ -84,7 +92,7 @@ const FileAttachmentButton = memo(() => {
         .filter(Boolean) as File[];
 
       if (asFiles.length > 0) {
-        await attachFiles(asFiles);
+        await attachFiles(asFiles, isCurrentOwner);
       }
     } catch (error) {
       console.error('VS Code file pick failed', error);

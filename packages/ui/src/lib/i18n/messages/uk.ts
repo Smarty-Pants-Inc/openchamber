@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n.uk,
   ...nativeCreationI18n.uk,
+  ...attachmentI18n.uk,
   ...piVoiceI18n.uk,
   ...sidebarHerdrI18n.uk,
   ...statusUnavailableI18n.uk,
@@ -2075,6 +2077,7 @@ export const dict: Record<I18nKey, string> = {
   "session.githubIntegration.validation.branchAlreadyExists": "Гілка вже існує локально",
   "session.githubIntegration.validation.failed": "Помилка перевірки",
   "chat.fileAttachment.toast.attachFailed": "Не вдалося прикріпити файл",
+  'chat.fileAttachment.toast.workbookUnreadable': "Не вдалося прочитати цю книгу: аркушів або клітинок не знайдено",
   "chat.fileAttachment.toast.someFilesSkipped": "Деякі файли були пропущені:\n{summary}",
   "chat.fileAttachment.toast.vscodePickFailed": "Не вдалося вибрати файли в VS Code",
   "chat.fileAttachment.fileFallback": "файл",

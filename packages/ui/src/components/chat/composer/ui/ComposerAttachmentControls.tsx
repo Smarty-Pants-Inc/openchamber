@@ -14,6 +14,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useI18n } from '@/lib/i18n';
@@ -94,10 +95,13 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                             </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent side="top" align="start">
+                            <DropdownMenuLabel className="max-w-64 whitespace-normal text-muted-foreground">
+                                {t('chat.chatInput.attachments.supportedTypes')}
+                            </DropdownMenuLabel>
                             <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(handlePickLocalFiles);
-                                }}
+                                // The native chooser must open in the selecting
+                                // gesture, not after the menu's next animation frame.
+                                onSelect={handlePickLocalFiles}
                             >
                                 <Icon name="attachment-2"/>
                                 {t('chat.chatInput.actions.attachFiles')}

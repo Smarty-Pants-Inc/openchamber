@@ -34,7 +34,8 @@ branch requires no live session, no rendered session and no open draft.
 | `largeTextPasteOffer.ts` | Ask-toast offer id begin/resolve (supersede + double-apply guards) |
 
 `ChatInput.handlePaste` owns paste orchestration: URL-over-selection markdown
-links, clipboard images (attach + citation), and large plain-text pastes.
+links, clipboard files, and large plain-text pastes. Images retain their
+attachment citations; other clipboard files use the local file pipeline.
 Large pastes (about 2,000 characters or 25 lines) follow the composer setting
 `largeTextPasteBehavior` (`ask` / `attach` / `inline`). Attaching creates an
 in-memory `text/plain` file named `pasted-context-N.txt`, inserts a bracket
@@ -42,6 +43,42 @@ citation, and sends it through the same attachment pipeline as a manually
 picked `.txt` file. Ask-toast actions read live composer/attachment state so
 typing or other attaches between paste and choice stay consistent. Short text,
 images, and URL wraps keep their existing paths.
+
+## Local attachments
+
+`ChatInput` owns one always-mounted file input outside menus and mobile composer
+variants. Desktop menu selection and mobile sheet clicks invoke that input
+synchronously in the user gesture. Keep picker activation out of animation
+frames and timers. VS Code continues to use its native picker bridge.
+
+The desktop attachment menu and mobile sheet explain supported formats and the
+ZIP exclusion. Picker selection, external drops, and clipboard file pastes use
+one per-file attachment helper. A rejected file gets visible translated feedback,
+including in a batch where another file succeeds. Pasted images keep their
+citations. Unsupported files never gain a chip; valid files are not discarded
+because another file was rejected. `sync/attachment-files.ts` still owns content
+validation and the picker allowlist. Its rejection classification selects UI
+copy only and does not grant attachment support; preparation itself refuses ZIP
+names and types before any MIME or text fallback.
+
+Each picker, drop, or paste batch captures the attachment owner
+(`captureAttachmentOwner` in `sync/input-store.ts`) before its first wait. The
+owner is the destination identity, which `sync/attachment-owner.ts` registers
+from `session-ui-store.ts` as the runtime plus the current session ID or
+new-session draft, together with the attachment-list generation. Selecting another session, restoring a runtime's
+remembered session, opening another draft, or clearing or replacing attachments
+ends that owner. `addAttachedFile` checks the batch's owner before it publishes
+a prepared file, so a file still being read cannot land in the new composer. The
+batch then stops: no remaining file is prepared, no pasted text or citation is
+inserted, and no rejection toast is shown for the dropped rest. A file still
+being read when a draft's Send opens its new session is dropped the same way.
+
+The focused Chromium fixture in `scripts/attachment-proof/` mounts the actual
+composer, file store, chip renderer, and Send path against synthetic HTTP.
+It covers chooser events, allowed-file chips and Send, ZIP picker filtering,
+drop and file-paste refusal, mixed batches, and mobile sheet layout. Headless
+chooser interception proves the browser event, not macOS native dialog visuals
+or physical mobile keyboard behavior.
 
 ## The prompt language
 

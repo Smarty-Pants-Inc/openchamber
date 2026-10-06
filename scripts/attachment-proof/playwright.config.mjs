@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test';
+export default defineConfig({ testDir: '.', testMatch: 'attachment.browser.mjs', workers: 1, retries: 0, timeout: 30000, reporter: [['list']], use: { baseURL: 'http://127.0.0.1:4180', browserName: 'chromium', channel: 'chromium', video: 'on', screenshot: 'on', trace: 'on' }, webServer: { cwd: new URL('../..', import.meta.url).pathname, command: 'node node_modules/vite/bin/vite.js --config scripts/attachment-proof/vite.config.mjs', url: 'http://127.0.0.1:4180', reuseExistingServer: false, timeout: 60000 } });

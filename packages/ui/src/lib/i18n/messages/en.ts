@@ -1,5 +1,6 @@
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -15,6 +16,7 @@ export const dict = {
   ...settingsDict,
   ...displayNameI18n.en,
   ...nativeCreationI18n.en,
+  ...attachmentI18n.en,
   ...piVoiceI18n.en,
   ...sidebarHerdrI18n.en,
   ...statusUnavailableI18n.en,
@@ -2097,6 +2099,7 @@ export const dict = {
   'session.githubIntegration.validation.branchAlreadyExists': 'Branch already exists locally',
   'session.githubIntegration.validation.failed': 'Validation failed',
   'chat.fileAttachment.toast.attachFailed': 'Failed to attach file',
+  'chat.fileAttachment.toast.workbookUnreadable': "Couldn't read this workbook: no sheets or cells found",
   'chat.fileAttachment.toast.someFilesSkipped': 'Some files were skipped:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'Failed to pick files in VS Code',
   'chat.fileAttachment.fileFallback': 'file',

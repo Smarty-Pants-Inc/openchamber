@@ -1,5 +1,6 @@
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -15,6 +16,7 @@ export const dict = {
   ...settingsDict,
   ...displayNameI18n.de,
   ...nativeCreationI18n.de,
+  ...attachmentI18n.de,
   ...piVoiceI18n.de,
   ...sidebarHerdrI18n.de,
   ...statusUnavailableI18n.de,
@@ -1896,6 +1898,7 @@ export const dict = {
   'session.githubIntegration.validation.branchAlreadyExists': 'Branch existiert bereits lokal',
   'session.githubIntegration.validation.failed': 'Validierung fehlgeschlagen',
   'chat.fileAttachment.toast.attachFailed': 'Fehler beim Anhängen der Datei',
+  'chat.fileAttachment.toast.workbookUnreadable': "Diese Arbeitsmappe konnte nicht gelesen werden: Keine Tabellenblätter oder Zellen gefunden",
   'chat.fileAttachment.toast.someFilesSkipped': 'Einige Dateien wurden übersprungen:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'Fehler beim Auswählen von Dateien in VS Code',
   'chat.fileAttachment.fileFallback': 'Datei',

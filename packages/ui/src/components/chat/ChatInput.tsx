@@ -19,11 +19,14 @@ import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, crea
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { consumeCatalogDraftTransfer, markDraftInputEdited, useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
+import { captureAttachmentOwner, prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
+// Binds attachment batches to the session or draft they start in (SEC551R3).
+import '@/sync/attachment-owner';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
     ATTACHMENT_ACCEPT,
     getUnsupportedAttachmentInputs,
+    getAttachmentRejection,
     isDocumentAttachmentFilename,
     type AttachmentInputModality,
 } from '@/sync/attachment-files';
@@ -870,7 +873,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     type DocumentMentionPreparation =
         | { status: 'ready'; prepared: Map<string, AttachedFile[]> }
-        | { status: 'failed'; filename: string }
+        | { status: 'failed'; filename: string; workbookUnreadable: boolean }
         | { status: 'runtime-changed' };
 
     /**
@@ -905,9 +908,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     if (getRuntimeKey() !== runtimeKey) return { status: 'runtime-changed' };
                     prepared.set(mention.serverPath, converted);
                     for (const attachment of converted) reservedFilenames.add(attachment.filename);
-                } catch {
+                } catch (error) {
                     if (getRuntimeKey() !== runtimeKey) return { status: 'runtime-changed' };
-                    return { status: 'failed', filename: mention.filename };
+                    return { status: 'failed', filename: mention.filename, workbookUnreadable: error instanceof Error && error.name === 'WorkbookReadError' };
                 }
             }
         }
@@ -1220,7 +1223,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         if (documentMentions.status === 'runtime-changed') return;
         if (documentMentions.status === 'failed') {
-            toast.error(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
+            toast.error(documentMentions.workbookUnreadable
+                ? t('chat.fileAttachment.toast.workbookUnreadable')
+                : t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
             return;
         }
         const { sanitizedText, mention } = parseAgentMentions(messageToQueue, agents);
@@ -1730,7 +1735,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         );
         if (documentMentions.status === 'runtime-changed') return;
         if (documentMentions.status === 'failed') {
-            refuse(t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
+            refuse(documentMentions.workbookUnreadable
+                ? t('chat.fileAttachment.toast.workbookUnreadable')
+                : t('chat.chatInput.toast.attachNamedFailed', { name: documentMentions.filename }));
             return;
         }
         const preparedDocumentMentions = documentMentions.prepared;
@@ -2637,6 +2644,35 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
     }, [clearDropTextSuppression, clearFileMentionPasteSuppression]);
 
+    // Resolves false when the composer's owner changed mid-batch (SEC551): the rest of the
+    // batch is dropped without a toast, so nothing prepared for one draft reaches another.
+    const attachFiles = React.useCallback(async (
+        files: FileList | File[],
+        isCurrentOwner: () => boolean = captureAttachmentOwner(),
+    ): Promise<boolean> => {
+        const list = Array.isArray(files) ? files : Array.from(files);
+        for (const file of list) {
+            if (!isCurrentOwner()) return false;
+            try {
+                const attached = await addAttachedFile(file, isCurrentOwner);
+                if (!isCurrentOwner()) return false;
+                if (!attached) {
+                    const rejection = getAttachmentRejection(file);
+                    toast.error(rejection === 'zip'
+                        ? t('chat.chatInput.toast.zipUnsupported')
+                        : t('chat.chatInput.toast.attachmentUnsupported', { name: file.name }));
+                }
+            } catch (error) {
+                if (!isCurrentOwner()) return false;
+                console.error('File attach failed', error);
+                toast.error(error instanceof Error && error.name === 'WorkbookReadError'
+                    ? t('chat.fileAttachment.toast.workbookUnreadable')
+                    : t('chat.chatInput.toast.attachmentUnsupported', { name: file.name }));
+            }
+        }
+        return isCurrentOwner();
+    }, [addAttachedFile, t]);
+
     const handlePaste = React.useCallback(async (event: ClipboardEvent) => {
         const clipboardData = event.clipboardData;
         if (!clipboardData) return;
@@ -2669,13 +2705,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const fileMap = new Map<string, File>();
 
         Array.from(e.clipboardData.files || []).forEach(file => {
-            if (file.type.startsWith('image/')) {
-                fileMap.set(`${file.name}-${file.size}`, file);
-            }
+            fileMap.set(`${file.name}-${file.size}`, file);
         });
 
         Array.from(e.clipboardData.items || []).forEach(item => {
-            if (item.kind === 'file' && item.type.startsWith('image/')) {
+            if (item.kind === 'file') {
                 const file = item.getAsFile();
                 if (file) {
                     fileMap.set(`${file.name}-${file.size}`, file);
@@ -2683,9 +2717,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
         });
 
-        const imageFiles = Array.from(fileMap.values());
+        const clipboardFiles = Array.from(fileMap.values());
+        const imageFiles = clipboardFiles.filter(file => file.type.startsWith('image/'));
         const pastedText = e.clipboardData.getData('text');
         const sessionReady = Boolean(currentSessionId || newSessionDraftOpen);
+
+        const isCurrentOwner = captureAttachmentOwner();
+        const otherFiles = clipboardFiles.filter(file => !file.type.startsWith('image/'));
+        if (otherFiles.length > 0 && sessionReady) {
+            // Consume the paste before awaiting reads; otherwise the editor
+            // can insert text while an unsupported-file refusal is pending.
+            e.preventDefault();
+            // Another draft opened during the wait: its editor must not get this paste.
+            if (!(await attachFiles(otherFiles, isCurrentOwner))) return;
+            if (imageFiles.length === 0) return;
+        }
 
         if (imageFiles.length === 0) {
             const behavior: LargeTextPasteBehavior = largeTextPasteBehavior;
@@ -2835,6 +2881,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             message.slice(selectionEnd),
         );
 
+        if (!isCurrentOwner()) return;
         insertTextAtSelection(insertionText, getFileMentionInputSourceForInsertedText(insertionText));
 
         for (let index = 0; index < imageFiles.length; index += 1) {
@@ -2842,7 +2889,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const file = renameFileForAttachmentCitation(imageFiles[index], filename);
             pendingPastedAttachmentFilenamesRef.current.add(filename);
             try {
-                await addAttachedFile(file);
+                if (!(await attachFiles([file], isCurrentOwner))) return;
             } catch (error) {
                 console.error('Clipboard image attach failed', error);
                 toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.clipboardAttachFailed'));
@@ -2850,7 +2897,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 pendingPastedAttachmentFilenamesRef.current.delete(filename);
             }
         }
-    }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, largeTextPasteBehavior, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, t, updateAutocompleteState]);
+    }, [addAttachedFile, attachFiles, attachedFiles, currentSessionId, inputMode, largeTextPasteBehavior, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, t, updateAutocompleteState]);
 
     const handleFileSelect = (file: { name: string; path: string; relativePath?: string }) => {
 
@@ -3168,17 +3215,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
 
-        if (files.length > 0) {
-            let attached = false;
-            for (const file of files) {
-                try {
-                    attached = (await addAttachedFile(file)) || attached;
-                } catch (error) {
-                    console.error('File attach failed', error);
-                }
-            }
-            if (!attached) toast.error(t('chat.chatInput.toast.attachFileFailed'));
-        }
+        await attachFiles(files);
         clearDropTextSuppression();
     };
 
@@ -3196,23 +3233,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-    const attachFiles = React.useCallback(async (files: FileList | File[]) => {
-        const list = Array.isArray(files) ? files : Array.from(files);
-        let attached = false;
-
-        for (const file of list) {
-            try {
-                attached = (await addAttachedFile(file)) || attached;
-            } catch (error) {
-                console.error('File attach failed', error);
-            }
-        }
-        if (list.length > 0 && !attached) {
-            toast.error(t('chat.chatInput.toast.attachFileFailed'));
-        }
-    }, [addAttachedFile, t]);
 
     const handleVSCodePickFiles = React.useCallback(async () => {
+        const isCurrentOwner = captureAttachmentOwner();
         try {
             const data = (await vscodeApi?.pickFiles?.({ extensions: ACCEPTED_ATTACHMENT_EXTENSIONS })) as {
                 files?: Array<{ name: string; mimeType?: string; dataUrl?: string }>;
@@ -3250,7 +3273,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 .filter(Boolean) as File[];
 
             if (asFiles.length > 0) {
-                await attachFiles(asFiles);
+                await attachFiles(asFiles, isCurrentOwner);
             }
         } catch (error) {
             console.error('VS Code file pick failed', error);
@@ -3961,6 +3984,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 onClose={() => setMobileAttachMenuOpen(false)}
             >
                 <div className="flex flex-col px-3 pb-4 pt-1">
+                    <p className="px-2 pb-2 typography-ui-caption text-muted-foreground">
+                        {t('chat.chatInput.attachments.supportedTypes')}
+                    </p>
                     <button
                         type="button"
                         className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-3 text-left typography-ui-label hover:bg-[var(--interactive-hover)]"
@@ -3969,7 +3995,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                             // the keyboard in between would flash it open and shut.
                             mobileShell.cancelOverlayCloseRestore();
                             setMobileAttachMenuOpen(false);
-                            requestAnimationFrame(handlePickLocalFiles);
+                            handlePickLocalFiles();
                         }}
                     >
                         <Icon name="attachment-2" className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" />

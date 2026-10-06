@@ -132,6 +132,11 @@ const PICKER_MIME_EXTENSIONS = new Map<string, string>([
 ])
 const TEXT_ATTACHMENT_EXTENSIONS = ["txt", "text", "md", "markdown", "log", "csv"]
 
+type AttachmentRejection = "zip" | "unsupported"
+
+export const getAttachmentRejection = (file: Pick<File, "name" | "type">): AttachmentRejection =>
+  file.name.toLowerCase().endsWith(".zip") || file.type.toLowerCase() === "application/zip" ? "zip" : "unsupported"
+
 export const ACCEPTED_ATTACHMENT_EXTENSIONS = Array.from(new Set(
   ACCEPTED_ATTACHMENT_TYPES.flatMap((type) => {
     if (type.startsWith(".")) return [type.slice(1)]
@@ -372,6 +377,8 @@ const convertHeicToJpeg = async (file: File): Promise<File | undefined> => {
 export const prepareAttachmentFile = (
   file: File,
 ): PreparedAttachmentFile | Promise<PreparedAttachmentFile | undefined> | undefined => {
+  // ZIP is refused here, before declared-MIME or content-sniffing fallbacks could accept it.
+  if (getAttachmentRejection(file) === "zip") return
   const extension = extensionOf(file.name)
   const type = declaredMimeOf(file)
   if (type === "image/heic" || type === "image/heif" || extension === "heic" || extension === "heif") {

@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n.ja,
   ...nativeCreationI18n.ja,
+  ...attachmentI18n.ja,
   ...piVoiceI18n.ja,
   ...sidebarHerdrI18n.ja,
   ...statusUnavailableI18n.ja,
@@ -2093,6 +2095,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': 'ブランチはすでにローカルに存在します',
   'session.githubIntegration.validation.failed': '検証に失敗しました',
   'chat.fileAttachment.toast.attachFailed': 'ファイルの添付に失敗しました',
+  'chat.fileAttachment.toast.workbookUnreadable': "このブックを読み込めませんでした: シートまたはセルが見つかりません",
   'chat.fileAttachment.toast.someFilesSkipped': '一部のファイルがスキップされました:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'VS Codeでのファイル選択に失敗しました',
   'chat.fileAttachment.fileFallback': 'ファイル',

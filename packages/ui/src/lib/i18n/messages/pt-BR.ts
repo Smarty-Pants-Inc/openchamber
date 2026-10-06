@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n['pt-BR'],
   ...nativeCreationI18n['pt-BR'],
+  ...attachmentI18n['pt-BR'],
   ...piVoiceI18n['pt-BR'],
   ...sidebarHerdrI18n['pt-BR'],
   ...statusUnavailableI18n['pt-BR'],
@@ -2075,6 +2077,7 @@ export const dict: Record<I18nKey, string> = {
   "session.githubIntegration.validation.branchAlreadyExists": "A branch já existe localmente",
   "session.githubIntegration.validation.failed": "Não foi possível validar",
   "chat.fileAttachment.toast.attachFailed": "Não foi possível anexar o arquivo",
+  'chat.fileAttachment.toast.workbookUnreadable': "Não foi possível ler esta pasta de trabalho: nenhuma planilha ou célula encontrada",
   "chat.fileAttachment.toast.someFilesSkipped": "Alguns arquivos foram omitidos:\n{summary}",
   "chat.fileAttachment.toast.vscodePickFailed": "Não foi possível selecionar arquivos em VS Code",
   "chat.fileAttachment.fileFallback": "arquivo",

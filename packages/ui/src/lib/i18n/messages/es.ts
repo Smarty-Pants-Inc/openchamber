@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n.es,
   ...nativeCreationI18n.es,
+  ...attachmentI18n.es,
   ...piVoiceI18n.es,
   ...sidebarHerdrI18n.es,
   ...statusUnavailableI18n.es,
@@ -2075,6 +2077,7 @@ export const dict: Record<I18nKey, string> = {
   "session.githubIntegration.validation.branchAlreadyExists": "La rama ya existe localmente",
   "session.githubIntegration.validation.failed": "No se pudo validar",
   "chat.fileAttachment.toast.attachFailed": "No se pudo adjuntar el archivo",
+  'chat.fileAttachment.toast.workbookUnreadable': "No se pudo leer este libro: no se encontraron hojas ni celdas",
   "chat.fileAttachment.toast.someFilesSkipped": "Algunos archivos se omitieron:\n{summary}",
   "chat.fileAttachment.toast.vscodePickFailed": "No se pudieron seleccionar archivos en VS Code",
   "chat.fileAttachment.fileFallback": "archivo",

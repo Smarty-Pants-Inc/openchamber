@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { spawn } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import { strToU8, zipSync } from "fflate"
 import { extractDocumentAttachments } from "./document-attachments"
 import { PRODUCT_NAME } from '@/lib/brand.generated'
@@ -15,6 +17,32 @@ const relationships = (items: Array<{ id: string; target: string; type?: string 
     ${items.map((item) => `<Relationship Id="${item.id}" Target="${item.target}" Type="${item.type ?? "image"}"/>`).join("")}
   </Relationships>
 `
+
+const spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+const officeRelationshipsNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+const packageRelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+// Minimal OPC packages with the namespace and target shapes emitted by real XLSX writers.
+const workbookFile = ({
+  target = "worksheets/sheet1.xml",
+  workbookPrefix = "",
+  worksheetPrefix = "",
+  relationshipPrefix = "r",
+  packagePrefix = "",
+  inline = false,
+} = {}) => {
+  const w = workbookPrefix ? `${workbookPrefix}:` : ""
+  const x = worksheetPrefix ? `${worksheetPrefix}:` : ""
+  const p = packagePrefix ? `${packagePrefix}:` : ""
+  return zippedFile("writer-shape.xlsx", {
+    "[Content_Types].xml": `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`,
+    "_rels/.rels": `<Relationships xmlns="${packageRelationshipsNamespace}"><Relationship Id="rId1" Target="xl/workbook.xml" Type="${officeRelationshipsNamespace}/officeDocument"/></Relationships>`,
+    "xl/workbook.xml": `<${w}workbook xmlns="${spreadsheetNamespace}" ${w ? `xmlns:${workbookPrefix}="${spreadsheetNamespace}"` : ""} xmlns:${relationshipPrefix}="${officeRelationshipsNamespace}"><${w}sheets><${w}sheet name="Summary" sheetId="1" ${relationshipPrefix}:id="rIdSheet"/></${w}sheets></${w}workbook>`,
+    "xl/_rels/workbook.xml.rels": `<${p}Relationships xmlns="${packageRelationshipsNamespace}" ${p ? `xmlns:${packagePrefix}="${packageRelationshipsNamespace}"` : ""}><${p}Relationship Id="rIdSheet" Target="${target}" Type="${officeRelationshipsNamespace}/worksheet"/></${p}Relationships>`,
+    "xl/sharedStrings.xml": `<${x}sst xmlns="${spreadsheetNamespace}" ${x ? `xmlns:${worksheetPrefix}="${spreadsheetNamespace}"` : ""} count="1" uniqueCount="1"><${x}si><${x}r><${x}t>Reve</${x}t></${x}r><${x}r><${x}t>nue &amp; costs</${x}t></${x}r></${x}si></${x}sst>`,
+    "xl/worksheets/sheet1.xml": `<${x}worksheet xmlns="${spreadsheetNamespace}" ${x ? `xmlns:${worksheetPrefix}="${spreadsheetNamespace}"` : ""}><${x}dimension ref="A1:C1"/><${x}sheetData><${x}row r="1"><${x}c r="A1" t="${inline ? "inlineStr" : "s"}">${inline ? `<${x}is><${x}r><${x}t>Reve</${x}t></${x}r><${x}r><${x}t>nue &amp; costs</${x}t></${x}r></${x}is>` : `<${x}v>0</${x}v>`}</${x}c><${x}c r="B1"><${x}v>42</${x}v></${x}c><${x}c r="C1"><${x}f>B1*2</${x}f><${x}v>84</${x}v></${x}c></${x}row></${x}sheetData></${x}worksheet>`,
+  })
+}
 
 const pngBytes = (suffix = 0) => new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, suffix])
 const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
@@ -101,6 +129,71 @@ describe("document attachment extraction", () => {
     expect(text.includes("Range: A1:B2\nRevenue\t42\nNorth\t17")).toBe(true)
     expect(text.includes("Image at B3: [budget-image-1.webp]")).toBe(true)
     expect(result?.images[0]?.name).toBe("budget-image-1.webp")
+  })
+
+  for (const [name, options] of [
+    ["extracts Excel-default XLSX relative worksheet targets", {}],
+    ["extracts XLSX absolute worksheet targets", { target: "/xl/worksheets/sheet1.xml" }],
+    ["extracts XLSX namespace-prefixed workbook sheets", { workbookPrefix: "x" }],
+    ["extracts XLSX non-r relationship ID prefixes", { relationshipPrefix: "rel" }],
+    ["extracts XLSX namespace-prefixed shared strings, rows, cells, and cached values", { worksheetPrefix: "x" }],
+    ["extracts XLSX namespace-prefixed package relationships", { packagePrefix: "pkg" }],
+    ["extracts XLSX rich inline strings", { inline: true }],
+    ["extracts XLSX prefixed inline strings with absolute targets and non-r IDs", { target: "/xl/worksheets/sheet1.xml", workbookPrefix: "x", worksheetPrefix: "x", relationshipPrefix: "rel", packagePrefix: "pkg", inline: true }],
+  ] satisfies Array<[string, Parameters<typeof workbookFile>[0]]>) {
+    test(name, async () => {
+      const result = await extractDocumentAttachments(workbookFile(options))
+      expect(await result?.textFile.text()).toBe("# Workbook\n\n## Sheet: Summary\n\nRange: A1:C1\nRevenue & costs\t42\t84\n")
+    })
+  }
+
+  for (const [name, entries] of [
+    ["rejects XLSX with no sheet elements instead of sending a workbook stub", { "xl/workbook.xml": `<workbook xmlns="${spreadsheetNamespace}"><sheets/></workbook>` }],
+    ["rejects XLSX with unresolved sheet relationships", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="missing"/></sheets></workbook>` }],
+    ["rejects XLSX with a missing worksheet part", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="sheet"/></sheets></workbook>`, "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "/xl/worksheets/missing.xml" }]) }],
+    ["rejects XLSX with sheets but no readable cells", { "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Summary" r:id="sheet"/></sheets></workbook>`, "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]), "xl/worksheets/sheet1.xml": `<worksheet><sheetData><row r="1"><c r="A1" s="1"/><c r="B1"><f>1+1</f></c></row></sheetData></worksheet>` }],
+    ["rejects XLSX with no workbook part", { "metadata.xml": "<metadata/>" }],
+  ] satisfies Array<[string, Record<string, string>]>) {
+    test(name, async () => {
+      await expect(extractDocumentAttachments(zippedFile("empty.xlsx", entries)))
+        .rejects.toThrow("Couldn't read this workbook: no sheets or cells found")
+    })
+  }
+
+  test("rejects XLSX shared-string and boolean cells with no stored value", async () => {
+    const file = zippedFile("no-values.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]),
+      "xl/sharedStrings.xml": "<sst><si><t>Unused shared string</t></si></sst>",
+      "xl/worksheets/sheet1.xml": `<worksheet><sheetData><row r="1"><c r="A1" t="s"></c><c r="B1" t="b"><v/></c></row></sheetData></worksheet>`,
+    })
+    await expect(extractDocumentAttachments(file)).rejects.toThrow("Couldn't read this workbook: no sheets or cells found")
+  })
+
+  test("extracts prefixed XLSX drawings and non-r image relationship attributes", async () => {
+    const file = zippedFile("prefixed-image.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "/xl/worksheets/sheet1.xml" }]),
+      "xl/worksheets/sheet1.xml": `<x:worksheet xmlns:x="${spreadsheetNamespace}" xmlns:rel="${officeRelationshipsNamespace}"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>42</x:v></x:c></x:row></x:sheetData><x:drawing rel:id="drawing"/></x:worksheet>`,
+      "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "/xl/drawings/drawing1.xml" }]),
+      "xl/drawings/drawing1.xml": `<d:wsDr xmlns:d="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:rel="${officeRelationshipsNamespace}"><d:twoCellAnchor><d:from><d:col>1</d:col><d:row>2</d:row></d:from><d:pic><pic:blip rel:embed="image"/></d:pic></d:twoCellAnchor></d:wsDr>`,
+      "xl/drawings/_rels/drawing1.xml.rels": relationships([{ id: "image", target: "/xl/media/image1.png" }]),
+      "xl/media/image1.png": pngBytes(),
+    })
+    const result = await extractDocumentAttachments(file)
+    expect(await result?.textFile.text()).toContain("Image at B3: [prefixed-image-image-1.png]")
+    expect(result?.images[0]?.name).toBe("prefixed-image-image-1.png")
+  })
+
+  test("preserves readable XLSX sheets when another sheet is empty or unresolved", async () => {
+    const file = zippedFile("mixed.xlsx", {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Missing" r:id="missing"/><sheet name="Blank" r:id="blank"/><sheet name="Readable" r:id="data"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "blank", target: "worksheets/sheet1.xml" }, { id: "data", target: "worksheets/sheet2.xml" }]),
+      "xl/worksheets/sheet1.xml": `<worksheet><sheetData/></worksheet>`,
+      "xl/worksheets/sheet2.xml": `<x:worksheet xmlns:x="${spreadsheetNamespace}"><x:sheetData><x:row r="1"><x:c r="A1" s="1"/><x:c r="B1"><x:v>0</x:v></x:c><x:c r="C1" t="b"><x:v>0</x:v></x:c><x:c r="D1" t="inlineStr"><x:is><x:t>&lt;tag&gt; &amp; text</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>`,
+    })
+    const result = await extractDocumentAttachments(file)
+    expect(await result?.textFile.text()).toBe("# Workbook\n\n## Sheet: Blank\n\n[Empty sheet]\n\n## Sheet: Readable\n\nRange: B1:D1\n0\tFALSE\t<tag> & text\n")
   })
 
   test("quotes TSV values and keeps sparse XLSX rows coordinate-based", async () => {
@@ -229,4 +322,197 @@ describe("document attachment extraction", () => {
     expect(text.includes("[long-image-1.png]")).toBe(false)
     expect(result?.images).toEqual([])
   })
+})
+
+// SEC551: hostile workbooks must finish within a fixed bound. Extraction runs in a child
+// process so a non-terminating loop or super-linear regex fails the test instead of hanging it.
+const EXTRACTION_DEADLINE_MS = 5_000
+const SLOW_TEST_TIMEOUT_MS = 30_000
+const MAX_INTERMEDIATE_TEXT_CHARS = 1_000_000
+
+type BoundedExtraction = {
+  error?: string
+  head?: string
+  length?: number
+  truncated?: boolean
+  longestJoin: number
+}
+
+const extractionScript = (modulePath: string, name: string) => `
+const { extractDocumentAttachments } = await import(${JSON.stringify(modulePath)})
+let longestJoin = 0
+const join = Array.prototype.join
+Array.prototype.join = function (...args) {
+  const output = join.apply(this, args)
+  if (output.length > longestJoin) longestJoin = output.length
+  return output
+}
+const chunks = []
+for await (const chunk of process.stdin) chunks.push(chunk)
+try {
+  const result = await extractDocumentAttachments(new File([Buffer.concat(chunks)], ${JSON.stringify(name)}))
+  const text = result ? await result.textFile.text() : ""
+  console.log(JSON.stringify({ head: text.slice(0, 4000), length: text.length, truncated: text.includes("[Document text truncated by"), longestJoin }))
+} catch (error) {
+  console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error), longestJoin }))
+}
+`
+
+const boundedExtraction = async (file: File): Promise<BoundedExtraction> => {
+  const modulePath = fileURLToPath(new URL("./document-attachments.ts", import.meta.url))
+  const child = spawn(process.execPath, ["-e", extractionScript(modulePath, file.name)], {
+    cwd: fileURLToPath(new URL("../..", import.meta.url)),
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk })
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk })
+  const exited = new Promise<number | null>((resolve) => child.on("close", (code) => resolve(code)))
+  let timedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    child.kill("SIGKILL")
+  }, EXTRACTION_DEADLINE_MS)
+  child.stdin.end(new Uint8Array(await file.arrayBuffer()))
+  const code = await exited
+  clearTimeout(deadline)
+  if (timedOut) throw new Error(`extraction exceeded the ${EXTRACTION_DEADLINE_MS} ms completion bound`)
+  if (code !== 0) throw new Error(`extraction process failed (${code}): ${stderr.slice(0, 2000)}`)
+  const result: BoundedExtraction = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}")
+  return result
+}
+
+const readableWorksheet = `<worksheet xmlns:r="${officeRelationshipsNamespace}"><sheetData><row r="1"><c r="A1"><v>42</v></c></row></sheetData><drawing r:id="drawing"/></worksheet>`
+
+const hostileWorkbook = (
+  worksheet: string,
+  extra: Record<string, string> = {},
+  sheets = '<sheet name="Data" r:id="sheet"/>',
+) => zippedFile("hostile.xlsx", {
+  "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets>${sheets}</sheets></workbook>`,
+  "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]),
+  "xl/worksheets/sheet1.xml": worksheet,
+  ...extra,
+})
+
+describe("SEC551 bounded extraction", () => {
+  for (const [column, row] of [["9".repeat(400), "0"], ["16384", "0"], ["0", "1048576"], ["-1", "0"]]) {
+    test(`SEC551 P2.1 rejects drawing coordinate ${column.slice(0, 12)} / ${row} within deadline`, async () => {
+      const result = await boundedExtraction(hostileWorkbook(readableWorksheet, {
+        "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.xml" }]),
+        "xl/drawings/drawing1.xml": `<d:wsDr><d:oneCellAnchor><d:from><d:col>${column}</d:col><d:row>${row}</d:row></d:from></d:oneCellAnchor></d:wsDr>`,
+      }))
+      expect(result.error).toContain("coordinate")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  for (const reference of ["XFE1", "A1048577", `${"Z".repeat(400)}1`, `A${"9".repeat(400)}`, "A0"]) {
+    test(`SEC551 P2.1 rejects cell coordinate ${reference.slice(0, 12)} within deadline`, async () => {
+      const result = await boundedExtraction(hostileWorkbook(`<worksheet><sheetData><row><c r="${reference}"><v>1</v></c></row></sheetData></worksheet>`))
+      expect(result.error).toContain("coordinate")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  test("SEC551 P2.1 keeps the last valid XLSX cell and drawing coordinates", async () => {
+    const result = await boundedExtraction(hostileWorkbook(
+      `<worksheet xmlns:r="${officeRelationshipsNamespace}"><sheetData><row><c r="XFD1048576"><v>7</v></c></row></sheetData><drawing r:id="drawing"/></worksheet>`,
+      {
+        "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.xml" }]),
+        "xl/drawings/drawing1.xml": "<d:wsDr><d:oneCellAnchor><d:from><d:col>16383</d:col><d:row>1048575</d:row></d:from></d:oneCellAnchor></d:wsDr>",
+      },
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.head).toContain("Range: XFD1048576:XFD1048576\n7")
+    expect(result.head).toContain("Image at XFD1048576: [Embedded image reference could not be resolved]")
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  const whitespace = " ".repeat(1_000_000)
+  for (const [name, file] of [
+    ["missing row closers", hostileWorkbook(`<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row>${"<row><c>".repeat(200_000)}</sheetData></worksheet>`)],
+    ["incomplete relationship whitespace", hostileWorkbook(readableWorksheet, {
+      "xl/_rels/workbook.xml.rels": `${relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }])}<Relationship${whitespace}`,
+    })],
+    ["incomplete sheet whitespace", hostileWorkbook(readableWorksheet, {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook><sheet${whitespace}`,
+    })],
+    ["incomplete drawing whitespace", hostileWorkbook(`${readableWorksheet}<drawing${whitespace}`)],
+  ] satisfies Array<[string, File]>) {
+    test(`SEC551 P2.2 completes XLSX with ${name} within deadline`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toBeUndefined()
+      expect(result.head).toContain("Range: A1:A1\n42")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  for (const [name, file, expected] of [
+    ["DOCX missing text closers", zippedFile("open.docx", {
+      "word/document.xml": `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>ok</w:t>${"<w:t>".repeat(200_000)}</w:r></w:p></w:body></w:document>`,
+    }), "ok"],
+    ["DOCX escaped angle brackets without closers", zippedFile("angles.docx", {
+      "word/document.xml": `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>ok${"&lt;".repeat(300_000)}</w:t></w:r></w:p></w:body></w:document>`,
+    }), "ok<<<"],
+    ["ODT missing paragraph closers", zippedFile("open.odt", {
+      "content.xml": `<office:document xmlns:office="office" xmlns:text="text"><text:p>ok</text:p>${"<text:p>".repeat(200_000)}</office:document>`,
+    }), "ok"],
+  ] satisfies Array<[string, File, string]>) {
+    test(`SEC551 P2.2 completes ${name} within deadline`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toBeUndefined()
+      expect(result.head).toContain(expected)
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  test("SEC551 P2.3 bounds intermediate output for shared-string reuse", async () => {
+    const rows = Array.from({ length: 4_000 }, (_, index) => `<row r="${index + 1}"><c r="A${index + 1}" t="s"><v>0</v></c></row>`).join("")
+    const result = await boundedExtraction(hostileWorkbook(`<worksheet><sheetData>${rows}</sheetData></worksheet>`, {
+      "xl/sharedStrings.xml": `<sst><si><t>${"&quot;".repeat(8_192)}</t></si></sst>`,
+    }))
+    expect(result.error).toBeUndefined()
+    expect(result.truncated).toBe(true)
+    expect(result.length).toBeLessThanOrEqual(500_000)
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  test("SEC551R3 P3 charges a single oversized cell before quoting and appending it", async () => {
+    const result = await boundedExtraction(hostileWorkbook(
+      // A cached formula string reaches serialization without an intermediate join of its own.
+      `<worksheet><sheetData><row r="1"><c r="A1" t="str"><v>${"&quot;".repeat(1_000_000)}</v></c></row></sheetData></worksheet>`,
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.truncated).toBe(true)
+    expect(result.head).toContain('Range: A1:A1\n"""')
+    expect(result.length).toBeLessThanOrEqual(500_000)
+    // The quoted value would be 2,000,002 characters; only a prefix that fits the budget is built.
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  test("SEC551 P2.3 parses a worksheet repeated by many sheet entries once", async () => {
+    const emptyRows = Array.from({ length: 50_000 }, (_, index) => `<row r="${index + 2}"><c r="A${index + 2}"/></row>`).join("")
+    const result = await boundedExtraction(hostileWorkbook(
+      `<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row>${emptyRows}</sheetData></worksheet>`,
+      {},
+      '<sheet name="Data" r:id="sheet"/>'.repeat(5_000),
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.head?.split("## Sheet: Data").length).toBe(2)
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  const oversizedXml = (body: string) => `${" ".repeat(9 * 1024 * 1024)}${body}`
+  for (const [name, file] of [
+    ["worksheet", hostileWorkbook(readableWorksheet, {
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.png" }]),
+      "xl/worksheets/sheet1.png": oversizedXml(readableWorksheet),
+    })],
+    ["drawing", hostileWorkbook(readableWorksheet, {
+      "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.png" }]),
+      "xl/drawings/drawing1.png": oversizedXml("<d:wsDr/>"),
+    })],
+  ] satisfies Array<[string, File]>) {
+    test(`SEC551 P2.4 guards ${name} XML with an image suffix`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toContain("XML that is too large")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
 })

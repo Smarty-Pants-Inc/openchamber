@@ -1,6 +1,7 @@
 import type { I18nKey } from './en';
 import { displayNameI18n } from './display-name.i18n';
 import { nativeCreationI18n } from './native-creation.i18n';
+import { attachmentI18n } from './attachment.i18n';
 import { piVoiceI18n } from './pi-voice.i18n';
 import { sidebarHerdrI18n } from './sidebar-herdr.i18n';
 import { statusUnavailableI18n } from './status-unavailable.i18n';
@@ -16,6 +17,7 @@ export const dict: Record<I18nKey, string> = {
   ...settingsDict,
   ...displayNameI18n['zh-CN'],
   ...nativeCreationI18n['zh-CN'],
+  ...attachmentI18n['zh-CN'],
   ...piVoiceI18n['zh-CN'],
   ...sidebarHerdrI18n['zh-CN'],
   ...statusUnavailableI18n['zh-CN'],
@@ -2063,6 +2065,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.branchAlreadyExists': '该分支已在本地存在',
   'session.githubIntegration.validation.failed': '校验失败',
   'chat.fileAttachment.toast.attachFailed': '附加文件失败',
+  'chat.fileAttachment.toast.workbookUnreadable': "无法读取此工作簿：未找到工作表或单元格",
   'chat.fileAttachment.toast.someFilesSkipped': '以下文件被跳过：\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': '在 VS Code 中选择文件失败',
   'chat.fileAttachment.fileFallback': '文件',
