@@ -1,11 +1,13 @@
 import { humanAuthI18n } from './human-auth.i18n';
 import { voiceTurnI18n } from './voice-turn.i18n';
 import { sendPendingI18n } from './send-pending.i18n';
+import { feedI18n } from './feed.i18n';
 import { historyJumpI18n } from './history-jump.i18n';
 
 export const displayNameI18n = {
   en: {
     ...sendPendingI18n.en,
+    ...feedI18n.en,
     ...humanAuthI18n.en,
     ...voiceTurnI18n.en,
     ...historyJumpI18n.en,
@@ -22,6 +24,7 @@ export const displayNameI18n = {
   },
   de: {
     ...sendPendingI18n.de,
+    ...feedI18n.de,
     ...humanAuthI18n.de,
     ...voiceTurnI18n.de,
     ...historyJumpI18n.de,
@@ -38,6 +41,7 @@ export const displayNameI18n = {
   },
   es: {
     ...sendPendingI18n.es,
+    ...feedI18n.es,
     ...humanAuthI18n.es,
     ...voiceTurnI18n.es,
     ...historyJumpI18n.es,
@@ -54,6 +58,7 @@ export const displayNameI18n = {
   },
   fr: {
     ...sendPendingI18n.fr,
+    ...feedI18n.fr,
     ...humanAuthI18n.fr,
     ...voiceTurnI18n.fr,
     ...historyJumpI18n.fr,
@@ -70,6 +75,7 @@ export const displayNameI18n = {
   },
   ja: {
     ...sendPendingI18n.ja,
+    ...feedI18n.ja,
     ...humanAuthI18n.ja,
     ...voiceTurnI18n.ja,
     ...historyJumpI18n.ja,
@@ -86,6 +92,7 @@ export const displayNameI18n = {
   },
   ko: {
     ...sendPendingI18n.ko,
+    ...feedI18n.ko,
     ...humanAuthI18n.ko,
     ...voiceTurnI18n.ko,
     ...historyJumpI18n.ko,
@@ -102,6 +109,7 @@ export const displayNameI18n = {
   },
   pl: {
     ...sendPendingI18n.pl,
+    ...feedI18n.pl,
     ...humanAuthI18n.pl,
     ...voiceTurnI18n.pl,
     ...historyJumpI18n.pl,
@@ -118,6 +126,7 @@ export const displayNameI18n = {
   },
   'pt-BR': {
     ...sendPendingI18n['pt-BR'],
+    ...feedI18n['pt-BR'],
     ...humanAuthI18n['pt-BR'],
     ...voiceTurnI18n['pt-BR'],
     ...historyJumpI18n['pt-BR'],
@@ -134,6 +143,7 @@ export const displayNameI18n = {
   },
   tr: {
     ...sendPendingI18n.tr,
+    ...feedI18n.tr,
     ...humanAuthI18n.tr,
     ...voiceTurnI18n.tr,
     ...historyJumpI18n.tr,
@@ -150,6 +160,7 @@ export const displayNameI18n = {
   },
   uk: {
     ...sendPendingI18n.uk,
+    ...feedI18n.uk,
     ...humanAuthI18n.uk,
     ...voiceTurnI18n.uk,
     ...historyJumpI18n.uk,
@@ -166,6 +177,7 @@ export const displayNameI18n = {
   },
   'zh-CN': {
     ...sendPendingI18n['zh-CN'],
+    ...feedI18n['zh-CN'],
     ...humanAuthI18n['zh-CN'],
     ...voiceTurnI18n['zh-CN'],
     ...historyJumpI18n['zh-CN'],
@@ -182,6 +194,7 @@ export const displayNameI18n = {
   },
   'zh-TW': {
     ...sendPendingI18n['zh-TW'],
+    ...feedI18n['zh-TW'],
     ...humanAuthI18n['zh-TW'],
     ...voiceTurnI18n['zh-TW'],
     ...historyJumpI18n['zh-TW'],

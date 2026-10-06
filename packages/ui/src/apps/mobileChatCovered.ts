@@ -3,7 +3,7 @@
  * A tablet shows these surfaces as a dialog beside the chat, so it never covers it. The instances surface is shown only
  * with the Capacitor features.
  */
-export function mobileChatCovered(surface: 'instances' | 'settings' | 'update' | 'inbox' | null, variant: 'dialog' | 'fullscreen',
+export function mobileChatCovered(surface: 'instances' | 'settings' | 'update' | 'inbox' | 'feed' | null, variant: 'dialog' | 'fullscreen',
   capacitorFeatures: boolean, planOpen = false): boolean {
   if (variant !== 'fullscreen') return false;
   if (planOpen) return true; // A saved Plan, opened above the workspace drawer's Notes.
